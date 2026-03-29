@@ -41,7 +41,7 @@ export function Reveal({ active, children }: { active: boolean; children: ReactN
       display: 'grid',
       gridTemplateRows: active ? '1fr' : '0fr',
       opacity: active ? 1 : 0,
-      transition: 'grid-template-rows 0.38s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease',
+      transition: 'grid-template-rows 0.5s cubic-bezier(0.16,1,0.3,1), opacity 0.4s cubic-bezier(0.16,1,0.3,1)',
     }}>
       <div style={{ overflow: 'hidden' }}>{children}</div>
     </div>

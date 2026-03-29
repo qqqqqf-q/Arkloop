@@ -917,6 +917,7 @@ button:not(:disabled) {
   width: 520px;
   height: 520px;
   background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 65%);
+  animation: glow-float 8s ease-in-out infinite;
 }
 .auth-glow-bottom {
   bottom: -15%;
@@ -924,6 +925,15 @@ button:not(:disabled) {
   width: 460px;
   height: 460px;
   background: radial-gradient(circle, rgba(20, 184, 166, 0.06) 0%, transparent 65%);
+  animation: glow-float-alt 10s ease-in-out infinite;
+}
+@keyframes glow-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-20px); }
+}
+@keyframes glow-float-alt {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(15px); }
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .auth-glow-top {

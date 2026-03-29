@@ -567,7 +567,16 @@ export interface LocaleStrings {
     heartbeatEnabled: string
     heartbeatInterval: string
     heartbeatModel: string
+    heartbeatDesc: string
+    heartbeatCardTitle: string
+    heartbeatCardDesc: string
+    heartbeatCardHint: string
     ownerUnbindBlocked: string
+    botTokenHint: string
+    allowedUsersHint: string
+    discordTokenHint: string
+    discordServerIdHint: string
+    bindCodeInGroupHint: string
   }
   // model picker (chat input)
   modelPicker: {
@@ -951,6 +960,9 @@ export interface LocaleStrings {
     apiKey: string;
     apiKeyPlaceholder: string;
     apiKeyHint: string;
+    apiKeyHintOpenAI: string;
+    apiKeyHintAnthropic: string;
+    apiKeyHintGemini: string;
     baseUrl: string;
     baseUrlPlaceholder: string;
     save: string;
@@ -1077,7 +1089,6 @@ export interface LocaleStrings {
 
   // onboarding wizard (desktop)
   onboarding: {
-    welcomeTitle: string;
     welcomeDesc: string;
     getStarted: string;
     modeTitle: string;
@@ -1153,6 +1164,9 @@ export interface LocaleStrings {
     skip: string;
     stepOf: (current: number, total: number) => string;
     comingSoon: string;
+    greeting: string;
+    appearanceTitle: string;
+    appearanceDesc: string;
   };
 }
 

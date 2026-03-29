@@ -546,7 +546,16 @@ export const zh: LocaleStrings = {
     heartbeatEnabled: 'Heartbeat',
     heartbeatInterval: '间隔（分钟）',
     heartbeatModel: 'Heartbeat 模型',
+    heartbeatDesc: '定时唤醒 AI，由 AI 自主决定是否在此对话中主动发言',
+    heartbeatCardTitle: 'Heartbeat',
+    heartbeatCardDesc: '让 bot 在绑定的对话中定时自动唤醒，由 AI 自主判断是否主动发言。绑定账号后，在对话中发 /heartbeat on 开启，/heartbeat off 关闭，/heartbeat interval <分钟> 调整频率。',
+    heartbeatCardHint: '间隔和模型可在下方关联账号的卡片中精细配置。',
     ownerUnbindBlocked: 'Owner 不能直接解除关联',
+    botTokenHint: '从 Telegram 的 @BotFather 获取 Token',
+    allowedUsersHint: '向 @userinfobot 发送 /start 即可获取 user ID',
+    discordTokenHint: '在 Discord Developer Portal 创建 bot 并获取 Token',
+    discordServerIdHint: '在 Discord 开启开发者模式后，右键服务器即可复制 ID',
+    bindCodeInGroupHint: '在群聊中发送此命令以关联 bot',
   },
   // model picker
   modelPicker: {
@@ -975,6 +984,9 @@ export const zh: LocaleStrings = {
     apiKey: "API Key",
     apiKeyPlaceholder: "sk-...",
     apiKeyHint: "留空保留现有 Key",
+    apiKeyHintOpenAI: "在 platform.openai.com/api-keys 获取 API Key",
+    apiKeyHintAnthropic: "在 console.anthropic.com/settings/keys 获取 API Key",
+    apiKeyHintGemini: "在 aistudio.google.com/apikey 获取 API Key",
     baseUrl: "Base URL",
     baseUrlPlaceholder: "https://api.openai.com/v1",
     save: "保存",
@@ -1096,8 +1108,7 @@ export const zh: LocaleStrings = {
   },
 
   onboarding: {
-    welcomeTitle: "Arkloop",
-    welcomeDesc: "按你的方式运行的 AI 助手",
+    welcomeDesc: "干净、强大、属于你的 AI Agent 平台",
     getStarted: "开始设置",
     modeTitle: "选择连接方式",
     modeDesc: "你希望如何使用 Arkloop?",
@@ -1178,5 +1189,8 @@ export const zh: LocaleStrings = {
     skip: "跳过",
     stepOf: (current: number, total: number) => `${current} / ${total}`,
     comingSoon: "暂未开放",
+    greeting: "你好",
+    appearanceTitle: "外观",
+    appearanceDesc: "选择一个配色方案，随时可以在设置中更改。",
   },
 };

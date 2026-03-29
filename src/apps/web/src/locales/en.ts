@@ -552,7 +552,16 @@ export const en: LocaleStrings = {
     heartbeatEnabled: 'Heartbeat',
     heartbeatInterval: 'Interval (min)',
     heartbeatModel: 'Heartbeat model',
+    heartbeatDesc: 'Periodically wake the AI so it can decide whether to send a message unprompted',
+    heartbeatCardTitle: 'Heartbeat',
+    heartbeatCardDesc: 'After linking an account, send /heartbeat on in the conversation to enable it. The bot will then wake up at the configured interval and decide on its own whether to send a message.',
+    heartbeatCardHint: 'Send /heartbeat off in the conversation to disable it at any time.',
     ownerUnbindBlocked: 'Owner cannot be unlinked directly',
+    botTokenHint: 'Get your token from @BotFather on Telegram',
+    allowedUsersHint: 'Get your user ID from @userinfobot (send /start)',
+    discordTokenHint: 'Create a bot at Discord Developer Portal',
+    discordServerIdHint: 'Enable Developer Mode in Discord, then right-click the server to copy ID',
+    bindCodeInGroupHint: 'Send this command in your group chat to link the bot',
   },
   // model picker
   modelPicker: {
@@ -991,6 +1000,9 @@ export const en: LocaleStrings = {
     apiKey: "API Key",
     apiKeyPlaceholder: "sk-...",
     apiKeyHint: "Leave empty to keep existing key",
+    apiKeyHintOpenAI: "Get your API key at platform.openai.com/api-keys",
+    apiKeyHintAnthropic: "Get your API key at console.anthropic.com/settings/keys",
+    apiKeyHintGemini: "Get your API key at aistudio.google.com/apikey",
     baseUrl: "Base URL",
     baseUrlPlaceholder: "https://api.openai.com/v1",
     save: "Save",
@@ -1113,8 +1125,7 @@ export const en: LocaleStrings = {
   },
 
   onboarding: {
-    welcomeTitle: "Welcome to Arkloop",
-    welcomeDesc: "Your AI assistant, running your way",
+    welcomeDesc: "AI agents, without the clutter.",
     getStarted: "Get Started",
     modeTitle: "Choose your setup",
     modeDesc: "How would you like to connect?",
@@ -1198,5 +1209,8 @@ export const en: LocaleStrings = {
     skip: "Skip",
     stepOf: (current: number, total: number) => `${current} / ${total}`,
     comingSoon: "Coming soon",
+    greeting: "Hello",
+    appearanceTitle: "Appearance",
+    appearanceDesc: "Choose a color scheme. You can change this anytime in settings.",
   },
 };

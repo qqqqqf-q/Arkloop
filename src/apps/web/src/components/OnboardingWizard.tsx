@@ -20,6 +20,11 @@ import {
 } from "@arkloop/shared/components/auth-ui";
 import { getDesktopApi, getDesktopAccessToken } from "@arkloop/shared/desktop";
 import { useLocale } from "../contexts/LocaleContext";
+import { LogoDrawAnimation } from "./LogoDrawAnimation";
+import { SettingsModelDropdown } from "./settings/SettingsModelDropdown";
+import { useAppearance } from "../contexts/AppearanceContext";
+import { BUILTIN_PRESETS } from "../themes/presets";
+import type { ThemePreset } from "../themes/types";
 import {
   createLlmProvider,
   createProviderModel,
@@ -30,9 +35,9 @@ import {
 import type { AvailableModel, LlmProvider, LlmProviderModel } from "../api";
 import { routeAdvancedJsonFromAvailableCatalog } from "@arkloop/shared/llm/available-catalog-advanced-json";
 
-type Step = "welcome" | "mode" | "provider" | "complete";
+type Step = "welcome" | "mode" | "provider" | "appearance" | "complete";
 
-type Vendor = "openai_responses" | "openai_chat_completions" | "anthropic";
+type Vendor = "openai_responses" | "openai_chat_completions" | "anthropic" | "gemini";
 type VerifyStatus = "idle" | "verifying" | "verified" | "failed";
 type ModelImportStatus =
   | "idle"
@@ -67,18 +72,26 @@ const VENDOR_OPTIONS = [
     provider: "anthropic",
     openai_api_mode: undefined as string | undefined,
   },
+  {
+    key: "gemini" as const,
+    label: "Gemini",
+    provider: "gemini",
+    openai_api_mode: undefined as string | undefined,
+  },
 ] as const;
 
 const VENDOR_URLS: Record<Vendor, string> = {
   openai_responses: "https://api.openai.com/v1",
   openai_chat_completions: "https://api.openai.com/v1",
   anthropic: "https://api.anthropic.com/v1",
+  gemini: "https://generativelanguage.googleapis.com/v1beta",
 };
 
 const RECOMMENDED_PATTERNS: Record<Vendor, string[]> = {
   openai_responses: ["gpt-4o", "gpt-4o-mini"],
   openai_chat_completions: ["gpt-4o", "gpt-4o-mini"],
   anthropic: ["claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-haiku"],
+  gemini: ["gemini-2.0-flash", "gemini-1.5-pro"],
 };
 
 function getDefaultSelectedIds(
@@ -358,8 +371,13 @@ export function OnboardingWizard({ onComplete }: Props) {
   const { t, locale } = useLocale();
   const ob = t.onboarding;
   const api = getDesktopApi();
+  const { themePreset, setThemePreset } = useAppearance();
 
   const [step, setStep] = useState<Step>("welcome");
+
+  // Welcome animation phases
+  type WelcomePhase = "animating" | "greeting" | "ready";
+  const [welcomePhase, setWelcomePhase] = useState<WelcomePhase>("animating");
 
   // Sidecar readiness
   const [sidecarReady, setSidecarReady] = useState<boolean | null>(null);
@@ -396,12 +414,29 @@ export function OnboardingWizard({ onComplete }: Props) {
   const apiKeyRef = useRef<HTMLInputElement>(null);
   const manualModelRef = useRef<HTMLInputElement>(null);
 
+  const handleLogoComplete = useCallback(() => {
+    setWelcomePhase("greeting");
+    setTimeout(() => setWelcomePhase("ready"), 1800);
+  }, []);
+
+  const appearanceInitRef = useRef(false);
+  useEffect(() => {
+    if (step === "appearance" && !appearanceInitRef.current) {
+      appearanceInitRef.current = true;
+      if (!themePreset || themePreset === "default") {
+        setThemePreset("terra" as ThemePreset);
+      }
+    }
+  }, [step, themePreset, setThemePreset]);
+
   const stepMeta = useMemo(() => {
     switch (step) {
       case "provider":
-        return { n: 1, total: 2 };
+        return { n: 1, total: 3 };
+      case "appearance":
+        return { n: 2, total: 3 };
       case "complete":
-        return { n: 2, total: 2 };
+        return { n: 3, total: 3 };
       default:
         return null;
     }
@@ -662,7 +697,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   const handleNextFromPanel = useCallback(async () => {
     if (!createdProviderId || selectedModelIds.size === 0) {
-      setStep("complete");
+      setStep("appearance");
       return;
     }
 
@@ -700,7 +735,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       );
       setSelectedModelIds(new Set());
       setModelImportStatus("done");
-      setStep("complete");
+      setStep("appearance");
     } catch (error) {
       setModelImportStatus("failed");
       setModelError(normalizeError(error, t.requestFailed));
@@ -746,6 +781,10 @@ export function OnboardingWizard({ onComplete }: Props) {
           from { opacity: 0; transform: translateX(20px); }
           to { opacity: 1; transform: translateX(0); }
         }
+        @keyframes onb-fade-up {
+          from { opacity: 0; transform: translateY(14px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
         .onb-mode-card:not(:disabled):hover {
           border-color: var(--c-border) !important;
           background: var(--c-bg-deep) !important;
@@ -762,6 +801,22 @@ export function OnboardingWizard({ onComplete }: Props) {
         .onb-search-wrap { position: relative; }
         .onb-search-wrap svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--c-placeholder); }
         .onb-search-input { padding-left: 32px !important; }
+        .onb-btn-primary {
+          transition: filter 0.2s cubic-bezier(0.16,1,0.3,1);
+        }
+        .onb-btn-primary:hover {
+          filter: brightness(1.12);
+        }
+        .onb-btn-primary:active {
+          filter: brightness(0.95);
+        }
+        .onb-btn-ghost {
+          transition: color 0.2s cubic-bezier(0.16,1,0.3,1), background 0.2s cubic-bezier(0.16,1,0.3,1);
+        }
+        .onb-btn-ghost:hover {
+          color: var(--c-text-secondary) !important;
+          background: var(--c-bg-sub) !important;
+        }
       `}</style>
       <div className="auth-dots" />
       <div className="auth-glow auth-glow-top" />
@@ -774,14 +829,19 @@ export function OnboardingWizard({ onComplete }: Props) {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          padding: "48px 20px",
+          padding: "48px 20px 80px",
           position: "relative",
           zIndex: 1,
         }}
       >
         {/* Two-column layout: right column pre-allocated on provider step to prevent jitter */}
-        <div style={{ display: "flex", gap: "24px", justifyContent: "center", alignItems: "flex-start", width: "100%" }}>
-          <section style={{ width: "min(520px, 100%)", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-start", width: "100%", position: "relative" }}>
+          <section style={{
+            width: "min(520px, 100%)",
+            flexShrink: 0,
+            transform: providerVerified ? "translateX(-192px)" : "translateX(0)",
+            transition: "transform 0.5s cubic-bezier(0.16,1,0.3,1)",
+          }}>
             {stepMeta && (
               <StepIndicator
                 current={stepMeta.n}
@@ -790,35 +850,61 @@ export function OnboardingWizard({ onComplete }: Props) {
               />
             )}
 
-            {/* Welcome */}
+            {/* Welcome — greeting stays, content fades in below */}
             <Reveal active={step === "welcome"}>
               <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: "28px",
-                    fontWeight: 500,
-                    color: "var(--c-text-primary)",
-                    marginBottom: "8px",
-                  }}
-                >
-                  {ob.welcomeTitle}
-                </div>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: "var(--c-placeholder)",
-                    marginBottom: "32px",
-                  }}
-                >
-                  {ob.welcomeDesc}
-                </div>
-                <button
-                  type="button"
-                  onClick={handleWelcomeNext}
-                  style={primaryBtn}
-                >
-                  {ob.getStarted}
-                </button>
+                {/* Logo draw + brand name */}
+                {welcomePhase === "animating" && (
+                  <LogoDrawAnimation onComplete={handleLogoComplete} size={120} />
+                )}
+
+                {/* Greeting + Welcome content coexist */}
+                {welcomePhase !== "animating" && (
+                  <>
+                    <div
+                      style={{
+                        fontSize: "38px",
+                        fontWeight: 400,
+                        color: "var(--c-text-primary)",
+                        letterSpacing: "0.08em",
+                        marginBottom: welcomePhase === "ready" ? "16px" : "0",
+                        paddingTop: welcomePhase === "ready" ? "0" : "80px",
+                        transition: "margin-bottom 0.8s cubic-bezier(0.16,1,0.3,1), padding-top 0.8s cubic-bezier(0.16,1,0.3,1)",
+                        animation: "onb-fade-up 0.8s cubic-bezier(0.16,1,0.3,1) forwards",
+                      }}
+                    >
+                      {ob.greeting}
+                    </div>
+
+                    {/* Welcome title + desc + button — slow fade in */}
+                    <div
+                      style={{
+                        opacity: welcomePhase === "ready" ? 1 : 0,
+                        transform: welcomePhase === "ready" ? "translateY(0)" : "translateY(16px)",
+                        transition: "opacity 1.2s cubic-bezier(0.16,1,0.3,1), transform 1.2s cubic-bezier(0.16,1,0.3,1)",
+                        pointerEvents: welcomePhase === "ready" ? "auto" : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "16px",
+                          color: "var(--c-text-secondary)",
+                          marginBottom: "32px",
+                          letterSpacing: "0.01em",
+                        }}
+                      >
+                        {ob.welcomeDesc}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleWelcomeNext}
+                        className="onb-btn-primary" style={primaryBtn}
+                      >
+                        {ob.getStarted}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </Reveal>
 
@@ -876,7 +962,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                 <button
                   type="button"
                   onClick={() => setStep("welcome")}
-                  style={ghostBtn}
+                  className="onb-btn-ghost" style={ghostBtn}
                 >
                   {ob.back}
                 </button>
@@ -920,7 +1006,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                         setDownloadError("");
                         void ensureSidecar();
                       }}
-                      style={primaryBtn}
+                      className="onb-btn-primary" style={primaryBtn}
                     >
                       {ob.localRetryDownload}
                     </button>
@@ -961,20 +1047,14 @@ export function OnboardingWizard({ onComplete }: Props) {
                         <label style={labelStyle}>
                           {ob.localProviderVendor}
                         </label>
-                        <select
-                          className={inputCls}
-                          style={{ ...inputStyle, cursor: "pointer" }}
+                        <SettingsModelDropdown
                           value={vendor}
-                          onChange={(event) =>
-                            handleVendorChange(event.target.value as Vendor)
-                          }
-                        >
-                          {VENDOR_OPTIONS.map((option) => (
-                            <option key={option.key} value={option.key}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={VENDOR_OPTIONS.map((opt) => ({ value: opt.key, label: opt.label }))}
+                          placeholder=""
+                          disabled={false}
+                          onChange={(v) => handleVendorChange(v as Vendor)}
+                          showEmpty={false}
+                        />
                       </div>
 
                       <div>
@@ -1014,18 +1094,6 @@ export function OnboardingWizard({ onComplete }: Props) {
                       </div>
                     </div>
 
-                    {verifyStatus === "verified" && (
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          color: "#22c55e",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        {ob.localProviderVerified}
-                      </div>
-                    )}
-
                     {verifyStatus === "failed" && !providerError && (
                       <div
                         className="flex items-center gap-2"
@@ -1052,8 +1120,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                       type="button"
                       onClick={() => void handleVerify()}
                       disabled={!apiKey.trim() || verifyStatus === "verifying"}
-                      style={primaryBtn}
-                      className="disabled:cursor-not-allowed disabled:opacity-50"
+                      className="onb-btn-primary disabled:cursor-not-allowed disabled:opacity-50" style={primaryBtn}
                     >
                       {verifyStatus === "verifying" ? (
                         <>
@@ -1069,9 +1136,9 @@ export function OnboardingWizard({ onComplete }: Props) {
                       onClick={
                         verifyStatus === "verified"
                           ? handleBackToMode
-                          : () => setStep("complete")
+                          : () => setStep("appearance")
                       }
-                      style={ghostBtn}
+                      className="onb-btn-ghost" style={ghostBtn}
                     >
                       {verifyStatus === "verified"
                         ? ob.back
@@ -1079,6 +1146,158 @@ export function OnboardingWizard({ onComplete }: Props) {
                     </button>
                   </>
                 )}
+              </div>
+            </Reveal>
+
+            {/* Appearance */}
+            <Reveal active={step === "appearance"}>
+              <div>
+                <div
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 500,
+                    color: "var(--c-text-heading)",
+                    marginBottom: "4px",
+                  }}
+                >
+                  {ob.appearanceTitle}
+                </div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--c-placeholder)",
+                    marginBottom: "20px",
+                  }}
+                >
+                  {ob.appearanceDesc}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3, 1fr)",
+                    gap: "10px",
+                    marginBottom: "24px",
+                  }}
+                >
+                  {(["default", "terra", "github", "nord", "catppuccin", "tokyo-night"] as const).map((presetId) => {
+                    const def = BUILTIN_PRESETS[presetId];
+                    if (!def) return null;
+                    const dark = def.dark ?? {};
+                    const isActive = themePreset === presetId || (!themePreset && presetId === "default");
+                    return (
+                      <button
+                        key={presetId}
+                        type="button"
+                        onClick={() => setThemePreset(presetId as ThemePreset)}
+                        style={{
+                          border: isActive
+                            ? "1.5px solid var(--c-accent, #6284FF)"
+                            : "0.5px solid var(--c-border-subtle)",
+                          borderRadius: "12px",
+                          background: "var(--c-bg-menu)",
+                          padding: "0",
+                          cursor: "pointer",
+                          overflow: "hidden",
+                          textAlign: "left",
+                          fontFamily: "inherit",
+                          transition: "border-color 0.15s, background 0.15s",
+                        }}
+                      >
+                        {/* Mini preview */}
+                        <div
+                          style={{
+                            height: "52px",
+                            display: "flex",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {/* Sidebar strip */}
+                          <div
+                            style={{
+                              width: "16px",
+                              background: dark["--c-bg-sidebar"] ?? dark["--c-bg-page"] ?? "#1a1a1a",
+                              flexShrink: 0,
+                            }}
+                          />
+                          {/* Main area */}
+                          <div
+                            style={{
+                              flex: 1,
+                              background: dark["--c-bg-page"] ?? "#1a1a1a",
+                              padding: "8px 8px 0",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "4px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                height: "4px",
+                                width: "70%",
+                                borderRadius: "2px",
+                                background: dark["--c-text-primary"] ?? "#eee",
+                                opacity: 0.7,
+                              }}
+                            />
+                            <div
+                              style={{
+                                height: "3px",
+                                width: "50%",
+                                borderRadius: "2px",
+                                background: dark["--c-text-primary"] ?? "#eee",
+                                opacity: 0.35,
+                              }}
+                            />
+                            <div
+                              style={{
+                                height: "3px",
+                                width: "55%",
+                                borderRadius: "2px",
+                                background: dark["--c-text-primary"] ?? "#eee",
+                                opacity: 0.35,
+                              }}
+                            />
+                            {/* Accent bar */}
+                            <div
+                              style={{
+                                marginTop: "auto",
+                                height: "6px",
+                                borderRadius: "3px 3px 0 0",
+                                background: dark["--c-accent"] ?? dark["--c-btn-bg"] ?? "#6284FF",
+                              }}
+                            />
+                          </div>
+                        </div>
+                        {/* Label */}
+                        <div
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: "12px",
+                            fontWeight: 500,
+                            color: isActive ? "var(--c-text-heading)" : "var(--c-text-secondary)",
+                            borderTop: "0.5px solid var(--c-border-subtle)",
+                          }}
+                        >
+                          {presetId === "default" ? "Default" : def.name}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStep("complete")}
+                  className="onb-btn-primary" style={primaryBtn}
+                >
+                  {ob.next}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("provider")}
+                  className="onb-btn-ghost" style={ghostBtn}
+                >
+                  {ob.back}
+                </button>
               </div>
             </Reveal>
 
@@ -1127,8 +1346,7 @@ export function OnboardingWizard({ onComplete }: Props) {
                   type="button"
                   onClick={() => void handleComplete()}
                   disabled={saving}
-                  style={primaryBtn}
-                  className="disabled:cursor-not-allowed disabled:opacity-50"
+                  className="onb-btn-primary disabled:cursor-not-allowed disabled:opacity-50" style={primaryBtn}
                 >
                   {saving ? <SpinnerIcon /> : ob.startChatting}
                 </button>
@@ -1136,26 +1354,21 @@ export function OnboardingWizard({ onComplete }: Props) {
             </Reveal>
           </section>
 
-          {/* Right panel — always pre-allocated when on provider step, invisible until verified */}
-          {/* Using opacity so layout is stable (no jitter when it appears) */}
+          {/* Right panel — absolute positioned, slides in when verified */}
           {step === "provider" && (
             <div
               style={{
-                width: providerVerified ? "min(360px, 40vw)" : "0px",
-                flexShrink: 0,
-                alignSelf: "flex-start",
-                overflow: "hidden",
-                transition: "width 0.38s cubic-bezier(0.4,0,0.2,1)",
+                position: "absolute",
+                left: "calc(50% + 68px + 24px)",
+                top: 0,
+                width: "min(360px, 40vw)",
+                opacity: providerVerified ? 1 : 0,
+                transform: providerVerified ? "translateX(0)" : "translateX(-12px)",
+                transition: "opacity 0.4s cubic-bezier(0.16,1,0.3,1), transform 0.4s cubic-bezier(0.16,1,0.3,1)",
+                pointerEvents: providerVerified ? "auto" : "none",
               }}
             >
-              <div
-                style={{
-                  width: "min(360px, 40vw)",
-                  opacity: providerVerified ? 1 : 0,
-                  transition: "opacity 0.3s ease 0.1s",
-                  pointerEvents: providerVerified ? "auto" : "none",
-                }}
-              >
+              <div>
               <div
                 style={{
                   ...sectionCardStyle,
