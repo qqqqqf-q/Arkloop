@@ -122,11 +122,6 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 		sb.WriteString(fmt.Sprintf("time_utc: %s\n", time.Now().UTC().Format(time.RFC3339)))
 		sb.WriteString(fmt.Sprintf("interval_minutes: %d\n", interval))
 		sb.WriteString(fmt.Sprintf("new_user_messages: %d\n", newUserMessages))
-		if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD) != "" {
-			sb.WriteString("\n---\n")
-			sb.WriteString(strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD))
-			sb.WriteString("\n---\n")
-		}
 
 		rc.Messages = append(rc.Messages, llm.Message{
 			Role:    "user",
@@ -134,7 +129,10 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 		})
 		rc.ThreadMessageIDs = append(rc.ThreadMessageIDs, uuid.Nil)
 
-		rc.SystemPrompt += "\n\n" + heartbeattool.SystemProtocolSnippet()
+		if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD) != "" {
+			rc.SystemPrompt = appendSystemPromptBlock(rc.SystemPrompt, rc.PersonaDefinition.HeartbeatMD)
+		}
+		rc.SystemPrompt = appendSystemPromptBlock(rc.SystemPrompt, heartbeattool.SystemProtocolSnippet())
 
 		if rc.AllowlistSet == nil {
 			rc.AllowlistSet = map[string]struct{}{}
@@ -174,6 +172,18 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 
 		return err
 	}
+}
+
+func appendSystemPromptBlock(base string, block string) string {
+	trimmedBlock := strings.TrimSpace(block)
+	if trimmedBlock == "" {
+		return base
+	}
+	trimmedBase := strings.TrimSpace(base)
+	if trimmedBase == "" {
+		return trimmedBlock
+	}
+	return trimmedBase + "\n\n" + trimmedBlock
 }
 
 func commitHeartbeatFragments(ctx context.Context, rc *RunContext) {
