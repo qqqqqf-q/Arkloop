@@ -4,6 +4,7 @@ package desktoprun
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"arkloop/services/shared/database/sqlitepgx"
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -134,6 +136,32 @@ func TestLifecycleBootstrapSkipsRunWithoutRecoveryMaterial(t *testing.T) {
 
 	if len(q.calls) != 0 {
 		t.Fatalf("expected no recovered runs without runtime state, got %d", len(q.calls))
+	}
+}
+
+func TestLifecycleBootstrapSkipsRunWithEmptyRolloutState(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "llm.turn.completed",
+		OccurredAt: time.Now().UTC().Add(-10 * time.Second),
+		DataJSON: map[string]any{
+			"trace_id": "trace-empty-rollout",
+		},
+	})
+	seedEmptyRolloutMaterial(t, runID)
+
+	q := &lifecycleQueueStub{}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	if len(q.calls) != 0 {
+		t.Fatalf("expected no recovered run when rollout only contains metadata, got %d", len(q.calls))
 	}
 }
 
@@ -411,8 +439,76 @@ func seedRolloutMaterial(t *testing.T, runID uuid.UUID) {
 	if !ok {
 		t.Fatalf("rollout store does not implement blob store")
 	}
+	items := []rollout.RolloutItem{
+		{
+			Type: "run_meta",
+			Payload: mustMarshalRolloutPayload(t, rollout.RunMeta{
+				RunID:     runID.String(),
+				AccountID: "00000000-0000-4000-8000-000000000002",
+				Status:    "running",
+			}),
+		},
+		{
+			Type: "assistant_message",
+			Payload: mustMarshalRolloutPayload(t, rollout.AssistantMessage{
+				Content: "recoverable",
+			}),
+		},
+	}
+	putRolloutItems(t, blobStore, runID, items)
+}
+
+func seedEmptyRolloutMaterial(t *testing.T, runID uuid.UUID) {
+	t.Helper()
+
+	ctx := context.Background()
+	dataDir, err := desktop.ResolveDataDir("")
+	if err != nil {
+		t.Fatalf("resolve desktop data dir: %v", err)
+	}
+
+	opener := objectstore.NewFilesystemOpener(desktop.StorageRoot(dataDir))
+	store, err := opener.Open(ctx, objectstore.RolloutBucket)
+	if err != nil {
+		t.Fatalf("open rollout store: %v", err)
+	}
+	blobStore, ok := store.(objectstore.BlobStore)
+	if !ok {
+		t.Fatalf("rollout store does not implement blob store")
+	}
+
+	items := []rollout.RolloutItem{
+		{
+			Type: "run_meta",
+			Payload: mustMarshalRolloutPayload(t, rollout.RunMeta{
+				RunID: runID.String(),
+			}),
+		},
+	}
+	putRolloutItems(t, blobStore, runID, items)
+}
+
+func putRolloutItems(t *testing.T, store objectstore.BlobStore, runID uuid.UUID, items []rollout.RolloutItem) {
 	key := fmt.Sprintf("run/%s.jsonl", runID.String())
-	if err := blobStore.Put(ctx, key, []byte("{}\n")); err != nil {
+	var buf []byte
+	for _, item := range items {
+		line, err := json.Marshal(item)
+		if err != nil {
+			t.Fatalf("marshal rollout item: %v", err)
+		}
+		buf = append(buf, line...)
+		buf = append(buf, '\n')
+	}
+	if err := store.Put(context.Background(), key, buf); err != nil {
 		t.Fatalf("put rollout material: %v", err)
 	}
+}
+
+func mustMarshalRolloutPayload(t *testing.T, payload any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal rollout payload: %v", err)
+	}
+	return data
 }

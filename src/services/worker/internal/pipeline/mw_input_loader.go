@@ -26,6 +26,11 @@ type runFirstEventLoader interface {
 	FirstEventData(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (string, map[string]any, error)
 }
 
+type runRecoveryEventLoader interface {
+	runFirstEventLoader
+	GetLatestEventType(ctx context.Context, tx pgx.Tx, runID uuid.UUID, types []string) (string, error)
+}
+
 type runRecordLoader interface {
 	GetRun(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (*data.Run, error)
 }
@@ -120,7 +125,7 @@ func loadRunInputs(
 	run data.Run,
 	jobPayload map[string]any,
 	runsRepo runRecordLoader,
-	eventsRepo runFirstEventLoader,
+	eventsRepo runRecoveryEventLoader,
 	messagesRepo data.MessagesRepository,
 	attachmentStore MessageAttachmentStore,
 	rolloutStore objectstore.BlobStore,
@@ -272,7 +277,7 @@ func LoadRunInputs(
 	run data.Run,
 	jobPayload map[string]any,
 	runsRepo runRecordLoader,
-	eventsRepo runFirstEventLoader,
+	eventsRepo runRecoveryEventLoader,
 	messagesRepo data.MessagesRepository,
 	attachmentStore MessageAttachmentStore,
 	rolloutStore objectstore.BlobStore,
@@ -319,18 +324,18 @@ func loadResumedReplay(
 	}
 
 	insertions, err := collectResumeReplayInsertions(
-			ctx,
-			tx,
-			run.AccountID,
-			run.ThreadID,
-			*run.ResumeFromRunID,
-			runsRepo,
-			eventsRepo,
-			rolloutStore,
-			threadMessages,
-			hasActiveSnapshot,
-			map[uuid.UUID]struct{}{},
-		)
+		ctx,
+		tx,
+		run.AccountID,
+		run.ThreadID,
+		*run.ResumeFromRunID,
+		runsRepo,
+		eventsRepo,
+		rolloutStore,
+		threadMessages,
+		hasActiveSnapshot,
+		map[uuid.UUID]struct{}{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +401,15 @@ func resumeInsertionAnchor(
 	visibleMessages []data.ThreadMessage,
 	anchorMessageID uuid.UUID,
 	hasActiveSnapshot bool,
+	allowVisibleTail bool,
 ) (uuid.UUID, bool, error) {
+	if allowVisibleTail {
+		for idx, msg := range visibleMessages {
+			if msg.ID == anchorMessageID && idx == len(visibleMessages)-1 {
+				return anchorMessageID, true, nil
+			}
+		}
+	}
 	if _, ok := trailingResumeUserBlockAfterMessage(visibleMessages, anchorMessageID); ok {
 		return anchorMessageID, true, nil
 	}
@@ -489,7 +502,7 @@ func collectResumeReplayInsertions(
 	if err != nil {
 		return nil, err
 	}
-	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, accountID, threadID, threadMessages, anchorMessageID, hasActiveSnapshot)
+	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, accountID, threadID, threadMessages, anchorMessageID, hasActiveSnapshot, false)
 	if err != nil {
 		return nil, err
 	}
@@ -521,11 +534,18 @@ func loadRuntimeRecoveryReplay(
 	ctx context.Context,
 	tx pgx.Tx,
 	run data.Run,
-	eventsRepo runFirstEventLoader,
+	eventsRepo runRecoveryEventLoader,
 	rolloutStore objectstore.BlobStore,
 	threadMessages []data.ThreadMessage,
 	hasActiveSnapshot bool,
 ) ([]resumeReplayInsertion, error) {
+	hasRecoverableOutput, err := runtimeRecoveryHasRecoverableOutput(ctx, tx, eventsRepo, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !hasRecoverableOutput {
+		return nil, nil
+	}
 	if rolloutStore == nil {
 		return nil, &resumeUnavailableError{reason: "runtime recovery store is unavailable"}
 	}
@@ -537,7 +557,7 @@ func loadRuntimeRecoveryReplay(
 	if err != nil {
 		return nil, err
 	}
-	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, run.AccountID, run.ThreadID, threadMessages, anchorMessageID, hasActiveSnapshot)
+	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, run.AccountID, run.ThreadID, threadMessages, anchorMessageID, hasActiveSnapshot, true)
 	if err != nil {
 		return nil, err
 	}
@@ -565,6 +585,26 @@ func loadRuntimeRecoveryReplay(
 		AnchorMessageID: insertionAnchorID,
 		Messages:        replayedMessages,
 	}}, nil
+}
+
+func runtimeRecoveryHasRecoverableOutput(
+	ctx context.Context,
+	tx pgx.Tx,
+	eventsRepo runRecoveryEventLoader,
+	runID uuid.UUID,
+) (bool, error) {
+	if eventsRepo == nil || runID == uuid.Nil {
+		return false, nil
+	}
+	eventType, err := eventsRepo.GetLatestEventType(ctx, tx, runID, []string{
+		"message.delta",
+		"tool.call",
+		"tool.result",
+	})
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(eventType) != "", nil
 }
 
 func threadHasAssistantMessageForRun(messages []data.ThreadMessage, runID uuid.UUID) bool {
@@ -624,8 +664,9 @@ func replayAssistantMessage(msg rollout.AssistantMessage) llm.Message {
 		_ = json.Unmarshal(msg.ToolCalls, &toolCalls)
 	}
 	content := []llm.ContentPart(nil)
-	if strings.TrimSpace(msg.Content) != "" {
-		content = []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: msg.Content}}
+	text := sanitizeStoredAssistantText(msg.Content)
+	if strings.TrimSpace(text) != "" {
+		content = []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: text}}
 	}
 	return llm.Message{
 		Role:      "assistant",
@@ -669,25 +710,33 @@ func replayToolResultMessage(result rollout.ReplayToolResult) llm.Message {
 }
 
 func BuildMessageParts(ctx context.Context, store MessageAttachmentStore, msg data.ThreadMessage) ([]llm.ContentPart, error) {
+	fallbackContent := msg.Content
+	if msg.Role == "assistant" {
+		fallbackContent = sanitizeStoredAssistantText(fallbackContent)
+	}
 	if len(msg.ContentJSON) == 0 {
-		return fallbackTextParts(msg.Content), nil
+		return fallbackTextParts(fallbackContent), nil
 	}
 	parsed, err := messagecontent.Parse(msg.ContentJSON)
 	if err != nil {
-		return fallbackTextParts(msg.Content), nil
+		return fallbackTextParts(fallbackContent), nil
 	}
 	content, err := messagecontent.Normalize(parsed.Parts)
 	if err != nil {
-		return fallbackTextParts(msg.Content), nil
+		return fallbackTextParts(fallbackContent), nil
 	}
 	parts := make([]llm.ContentPart, 0, len(content.Parts))
 	for _, part := range content.Parts {
 		switch part.Type {
 		case messagecontent.PartTypeText:
-			if strings.TrimSpace(part.Text) == "" {
+			text := part.Text
+			if msg.Role == "assistant" {
+				text = sanitizeStoredAssistantText(text)
+			}
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
-			parts = append(parts, llm.ContentPart{Type: messagecontent.PartTypeText, Text: part.Text})
+			parts = append(parts, llm.ContentPart{Type: messagecontent.PartTypeText, Text: text})
 		case messagecontent.PartTypeFile:
 			parts = append(parts, llm.ContentPart{
 				Type:          messagecontent.PartTypeFile,
@@ -720,7 +769,7 @@ func BuildMessageParts(ctx context.Context, store MessageAttachmentStore, msg da
 		}
 	}
 	if len(parts) == 0 {
-		return fallbackTextParts(msg.Content), nil
+		return fallbackTextParts(fallbackContent), nil
 	}
 	return parts, nil
 }
@@ -731,6 +780,10 @@ func fallbackTextParts(content string) []llm.ContentPart {
 		return nil
 	}
 	return []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: content}}
+}
+
+func sanitizeStoredAssistantText(text string) string {
+	return strings.ReplaceAll(text, "<end_turn>", "")
 }
 
 func loadVisibleSeqCutoff(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, bool, error) {

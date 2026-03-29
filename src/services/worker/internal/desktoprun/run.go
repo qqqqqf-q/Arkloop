@@ -128,8 +128,8 @@ func RunDesktop(ctx context.Context) error {
 			LeaseSeconds:       cfg.LeaseSeconds,
 			HeartbeatSeconds:   cfg.HeartbeatSeconds,
 			QueueJobTypes:      cfg.QueueJobTypes,
-			MinConcurrency:     1,
-			MaxConcurrency:     1,
+			MinConcurrency:     2,
+			MaxConcurrency:     desktopWorkerConcurrencyHardMax,
 			ScaleUpThreshold:   3,
 			ScaleDownThreshold: 1,
 			ScaleIntervalSecs:  5,
@@ -151,17 +151,17 @@ func RunDesktop(ctx context.Context) error {
 	return loop.Run(ctx)
 }
 
-const desktopWorkerConcurrencyHardMax = 1
+const desktopWorkerConcurrencyHardMax = 32
 
-// desktopWorkerConcurrency 在桌面 SQLite 模式下固定为单并发。
+// desktopWorkerConcurrency 默认 2，可通过 ARKLOOP_DESKTOP_WORKER_CONCURRENCY 调整（上限 32）。
 func desktopWorkerConcurrency() int {
 	raw := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_WORKER_CONCURRENCY"))
 	if raw == "" {
-		return 1
+		return 2
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil || v < 1 {
-		return 1
+		return 2
 	}
 	if v > desktopWorkerConcurrencyHardMax {
 		return desktopWorkerConcurrencyHardMax

@@ -17,6 +17,7 @@ import (
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -246,6 +247,21 @@ func (m *lifecycleManager) hasRecoveryMaterials(ctx context.Context, runID uuid.
 		if !objectstore.IsNotFound(err) && m.logger != nil {
 			m.logger.Warn("desktop recovery material head failed", "run_id", runID, "err", err.Error())
 		}
+		return false
+	}
+	reader := rollout.NewReader(store)
+	items, err := reader.ReadRollout(ctx, runID)
+	if err != nil {
+		if objectstore.IsNotFound(err) {
+			return false
+		}
+		if m.logger != nil {
+			m.logger.Warn("desktop recovery rollout read failed", "run_id", runID.String(), "err", err.Error())
+		}
+		return false
+	}
+	state := reader.Reconstruct(items)
+	if len(state.ReplayMessages) == 0 && len(state.PendingToolCalls) == 0 {
 		return false
 	}
 	return true

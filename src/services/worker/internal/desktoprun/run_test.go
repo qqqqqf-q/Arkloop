@@ -72,8 +72,8 @@ func TestDesktopRunLockerBlocksSameRunReentry(t *testing.T) {
 	}
 }
 
-func TestDesktopWorkerConcurrencyDefaultsToOne(t *testing.T) {
-	// Ensure the defaults stay single-worker in desktop environments.
+func TestDesktopWorkerConcurrencyDefaults(t *testing.T) {
+	// Ensure default desktop worker concurrency still allows adaptive scaling.
 	original := os.Getenv("ARKLOOP_DESKTOP_WORKER_CONCURRENCY")
 	os.Unsetenv("ARKLOOP_DESKTOP_WORKER_CONCURRENCY")
 	t.Cleanup(func() {
@@ -84,14 +84,14 @@ func TestDesktopWorkerConcurrencyDefaultsToOne(t *testing.T) {
 		os.Setenv("ARKLOOP_DESKTOP_WORKER_CONCURRENCY", original)
 	})
 
-	if got := desktopWorkerConcurrency(); got != 1 {
-		t.Fatalf("expected default desktop worker concurrency 1, got %d", got)
+	if got := desktopWorkerConcurrency(); got != 2 {
+		t.Fatalf("expected default desktop worker concurrency 2, got %d", got)
 	}
 
 	if err := os.Setenv("ARKLOOP_DESKTOP_WORKER_CONCURRENCY", "8"); err != nil {
 		t.Fatalf("set env: %v", err)
 	}
-	if got := desktopWorkerConcurrency(); got != 1 {
-		t.Fatalf("expected desktop worker concurrency to stay single-threaded, got %d", got)
+	if got := desktopWorkerConcurrency(); got != 8 {
+		t.Fatalf("expected desktop worker concurrency respect env, got %d", got)
 	}
 }
