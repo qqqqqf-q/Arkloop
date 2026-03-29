@@ -10,7 +10,7 @@ import (
 
 // PipelineBinding 将 RunContext 的写入操作抽象为接口，避免循环导入。
 type PipelineBinding interface {
-	SetHeartbeatDecisionOutcome(replySilent bool, fragments []string)
+	SetHeartbeatDecisionOutcome(reply bool, fragments []string)
 	IsHeartbeatRun() bool
 }
 
@@ -48,7 +48,7 @@ func (executor) Execute(
 		}
 	}
 
-	replySilent, _ := args["reply_silent"].(bool)
+	reply, _ := args["reply"].(bool)
 
 	var fragments []string
 	if raw, ok := args["memory_fragments"].([]any); ok {
@@ -61,12 +61,12 @@ func (executor) Execute(
 		}
 	}
 
-	binding.SetHeartbeatDecisionOutcome(replySilent, fragments)
+	binding.SetHeartbeatDecisionOutcome(reply, fragments)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
 			"ok":              true,
-			"reply_silent":    replySilent,
+			"reply":           reply,
 			"fragments_count": len(fragments),
 		},
 		DurationMs: int(time.Since(started).Milliseconds()),
