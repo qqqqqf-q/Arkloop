@@ -348,6 +348,7 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 	if err != nil {
 		return data.LlmRoute{}, err
 	}
+	model := CanonicalModelIdentifier(provider.Provider, input.Model)
 	hasDefault := hasDefaultModel(existing)
 	desiredDefault := input.IsDefault || len(existing) == 0
 	insertDefault := desiredDefault && len(existing) == 0
@@ -369,7 +370,7 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 		ProjectID:           uuid.Nil,
 		Scope:               scope,
 		CredentialID:        providerID,
-		Model:               input.Model,
+		Model:               model,
 		Priority:            input.Priority,
 		IsDefault:           insertDefault,
 		ShowInPicker:        input.ShowInPicker,
@@ -429,7 +430,7 @@ func (s *Service) UpdateModel(ctx context.Context, accountID, providerID, modelI
 
 	model := current.Model
 	if input.ModelSet {
-		model = strings.TrimSpace(*input.Model)
+		model = CanonicalModelIdentifier(provider.Provider, *input.Model)
 	}
 	priority := current.Priority
 	if input.PrioritySet {
@@ -594,14 +595,20 @@ func (s *Service) ListAvailableModels(ctx context.Context, accountID, providerID
 	}
 	configured := make(map[string]struct{}, len(configuredRoutes))
 	for _, route := range configuredRoutes {
-		configured[strings.ToLower(route.Model)] = struct{}{}
+		modelID := CanonicalModelIdentifier(provider.Provider, route.Model)
+		if modelID == "" {
+			continue
+		}
+		configured[strings.ToLower(modelID)] = struct{}{}
 	}
 	models, err := listUpstreamModels(ctx, *provider, strings.TrimSpace(*apiKey))
 	if err != nil {
 		return nil, err
 	}
 	for idx := range models {
-		_, models[idx].Configured = configured[strings.ToLower(models[idx].ID)]
+		modelID := CanonicalModelIdentifier(provider.Provider, models[idx].ID)
+		models[idx].ID = modelID
+		_, models[idx].Configured = configured[strings.ToLower(modelID)]
 	}
 	return models, nil
 }

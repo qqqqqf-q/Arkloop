@@ -9,10 +9,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
-
-	sharedoutbound "arkloop/services/shared/outboundurl"
 
 	"arkloop/services/worker/internal/stablejson"
 	"github.com/google/uuid"
@@ -23,6 +22,7 @@ const defaultAnthropicMaxResponseBytes = 16 * 1024
 const anthropicMaxDebugChunkBytes = 8192
 
 var errAnthropicToolUseInput = errors.New("anthropic_tool_use_input")
+var errAnthropicStreamTerminated = errors.New("anthropic_stream_terminated")
 
 // critical fields denied in advanced_json; always reject regardless of existing payload keys
 var anthropicAdvancedJSONDenylist = map[string]struct{}{
@@ -56,6 +56,8 @@ type anthropicAdvancedConfig struct {
 }
 
 type AnthropicGatewayConfig struct {
+	Transport        TransportConfig
+	Protocol         AnthropicProtocolConfig
 	APIKey           string
 	BaseURL          string
 	AnthropicVersion string
@@ -66,48 +68,74 @@ type AnthropicGatewayConfig struct {
 }
 
 type AnthropicGateway struct {
-	cfg        AnthropicGatewayConfig
-	client     *http.Client
-	baseURLErr error
+	cfg       AnthropicGatewayConfig
+	transport protocolTransport
+	protocol  AnthropicProtocolConfig
+	configErr error
 }
 
 func NewAnthropicGateway(cfg AnthropicGatewayConfig) *AnthropicGateway {
-	timeout := cfg.TotalTimeout
-	if timeout <= 0 {
-		timeout = 60 * time.Second
+	transport := cfg.Transport
+	if strings.TrimSpace(transport.APIKey) == "" {
+		transport.APIKey = cfg.APIKey
 	}
-	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com/v1"
+	if strings.TrimSpace(transport.BaseURL) == "" {
+		transport.BaseURL = cfg.BaseURL
 	}
-	baseURL = sharedoutbound.NormalizeAnthropicCompatibleBaseURL(baseURL)
-	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeBaseURL(baseURL)
-	if baseURLErr == nil {
-		baseURL = normalizedBaseURL
+	if transport.TotalTimeout <= 0 {
+		transport.TotalTimeout = cfg.TotalTimeout
 	}
-	cfg.BaseURL = baseURL
-	if strings.TrimSpace(cfg.AnthropicVersion) == "" {
-		cfg.AnthropicVersion = defaultAnthropicVersion
+	if !transport.EmitDebugEvents {
+		transport.EmitDebugEvents = cfg.EmitDebugEvents
 	}
-	cfg.TotalTimeout = timeout
-	if cfg.MaxResponseBytes <= 0 {
-		cfg.MaxResponseBytes = defaultAnthropicMaxResponseBytes
+	if transport.MaxResponseBytes <= 0 {
+		transport.MaxResponseBytes = cfg.MaxResponseBytes
 	}
-	if cfg.AdvancedJSON == nil {
-		cfg.AdvancedJSON = map[string]any{}
+	if transport.MaxResponseBytes <= 0 {
+		transport.MaxResponseBytes = defaultAnthropicMaxResponseBytes
 	}
+
+	protocol := cfg.Protocol
+	var configErr error
+	if protocol.Version == "" && len(protocol.AdvancedPayloadJSON) == 0 && len(protocol.ExtraHeaders) == 0 {
+		protocol, configErr = parseAnthropicProtocolConfig(cfg.AdvancedJSON)
+		if strings.TrimSpace(cfg.AnthropicVersion) != "" {
+			protocol.Version = strings.TrimSpace(cfg.AnthropicVersion)
+		}
+	}
+
+	normalizedTransport := newProtocolTransport(transport, "https://api.anthropic.com", normalizeAnthropicBaseURL)
+	cfg.Transport = normalizedTransport.cfg
+	cfg.Protocol = protocol
+	cfg.EmitDebugEvents = normalizedTransport.cfg.EmitDebugEvents
+	cfg.TotalTimeout = normalizedTransport.cfg.TotalTimeout
+	cfg.MaxResponseBytes = normalizedTransport.cfg.MaxResponseBytes
+	cfg.BaseURL = normalizedTransport.cfg.BaseURL
+
 	return &AnthropicGateway{
-		cfg:        cfg,
-		client:     sharedoutbound.DefaultPolicy().NewHTTPClient(timeout),
-		baseURLErr: baseURLErr,
+		cfg:       cfg,
+		transport: normalizedTransport,
+		protocol:  protocol,
+		configErr: configErr,
 	}
 }
 
+func (g *AnthropicGateway) ProtocolKind() ProtocolKind {
+	return ProtocolKindAnthropicMessages
+}
+
 func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield func(StreamEvent) error) error {
-	if g.baseURLErr != nil {
-		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.baseURLErr.Error()}}})
+	if g.configErr != nil {
+		ge := GatewayError{ErrorClass: ErrorClassInternalError, Message: g.configErr.Error()}
+		if typed, ok := g.configErr.(anthropicAdvancedJSONError); ok && len(typed.Details) > 0 {
+			ge.Details = typed.Details
+		}
+		return yield(StreamRunFailed{Error: ge})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.cfg.TotalTimeout)
+	if g.transport.baseURLErr != nil {
+		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
+	}
+	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
 	defer cancel()
 	llmCallID := uuid.NewString()
 
@@ -143,20 +171,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 	payload["stream"] = true
 
-	advancedCfg, err := parseAnthropicAdvancedJSON(g.cfg.AdvancedJSON)
-	if err != nil {
-		ge := GatewayError{
-			ErrorClass: ErrorClassInternalError,
-			Message:    err.Error(),
-		}
-		if typed, ok := err.(anthropicAdvancedJSONError); ok && len(typed.Details) > 0 {
-			ge.Details = typed.Details
-		}
-		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: ge})
-	}
-
 	// merge keys not already present in payload
-	for k, v := range advancedCfg.Payload {
+	for k, v := range g.protocol.AdvancedPayloadJSON {
 		if _, exists := payload[k]; !exists {
 			payload[k] = v
 		}
@@ -186,13 +202,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			ensureAnthropicMaxTokensForThinking(payload)
 		}
 	}
-	anthropicVersion := g.cfg.AnthropicVersion
-	if advancedCfg.Version != nil {
-		anthropicVersion = *advancedCfg.Version
-	}
-
-	baseURL := g.cfg.BaseURL
-	path := "/messages"
+	baseURL := g.transport.cfg.BaseURL
+	path := "/v1/messages"
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
@@ -224,7 +235,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		})
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.cfg.BaseURL+"/messages", bytes.NewReader(encoded))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint("/v1/messages"), bytes.NewReader(encoded))
 	if err != nil {
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
@@ -235,20 +246,17 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
-	req.Header.Set("x-api-key", strings.TrimSpace(g.cfg.APIKey))
-	req.Header.Set("anthropic-version", anthropicVersion)
-	for k, v := range advancedCfg.ExtraHeaders {
+	req.Header.Set("x-api-key", strings.TrimSpace(g.transport.cfg.APIKey))
+	req.Header.Set("anthropic-version", g.protocol.Version)
+	for k, v := range g.protocol.ExtraHeaders {
 		req.Header.Set(k, v)
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
+	g.transport.applyDefaultHeaders(req)
 
-	resp, err := g.client.Do(req)
+	resp, err := g.transport.client.Do(req)
 	if err != nil {
-		var denied sharedoutbound.DeniedError
-		if errors.As(err, &denied) {
-			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": denied.Error()}}})
-		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
@@ -262,8 +270,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	status := resp.StatusCode
 
 	if status < 200 || status >= 300 {
-		body, bodyTruncated, _ := readAllWithLimit(resp.Body, g.cfg.MaxResponseBytes)
-		if g.cfg.EmitDebugEvents {
+		body, bodyTruncated, _ := readAllWithLimit(resp.Body, g.transport.cfg.MaxResponseBytes)
+		if g.transport.cfg.EmitDebugEvents {
 			raw, rawTruncated := truncateUTF8(string(body), anthropicMaxDebugChunkBytes)
 			chunk := StreamLlmResponseChunk{
 				LlmCallID:    llmCallID,
@@ -391,9 +399,9 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 		flushToolResults()
 
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			blocks := []map[string]any{}
-			if strings.TrimSpace(text) != "" {
-				blocks = append(blocks, map[string]any{"type": "text", "text": text})
+			blocks, err := anthropicContentBlocks(message.Content)
+			if err != nil {
+				return nil, nil, err
 			}
 			for _, call := range message.ToolCalls {
 				blocks = append(blocks, map[string]any{
@@ -432,11 +440,28 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 	for _, part := range parts {
 		switch part.Kind() {
 		case "text":
+			if strings.TrimSpace(part.Text) == "" {
+				continue
+			}
 			block := map[string]any{"type": "text", "text": part.Text}
 			if part.CacheControl != nil && strings.TrimSpace(*part.CacheControl) != "" {
 				block["cache_control"] = map[string]any{"type": *part.CacheControl}
 			}
 			blocks = append(blocks, block)
+		case "thinking":
+			block := map[string]any{
+				"type":     "thinking",
+				"thinking": part.Text,
+			}
+			if strings.TrimSpace(part.Signature) != "" {
+				block["signature"] = strings.TrimSpace(part.Signature)
+			}
+			blocks = append(blocks, block)
+		case "redacted_thinking":
+			blocks = append(blocks, map[string]any{
+				"type": "redacted_thinking",
+				"data": part.Text,
+			})
 		case "file":
 			text := PartPromptText(part)
 			if strings.TrimSpace(text) == "" {
@@ -701,6 +726,7 @@ type anthropicStreamEvent struct {
 	Delta        *anthropicStreamDelta   `json:"delta"`
 	Message      *anthropicStreamMessage `json:"message"`
 	Usage        map[string]any          `json:"usage"`
+	Error        *anthropicStreamError   `json:"error"`
 }
 
 type anthropicStreamMessage struct {
@@ -721,6 +747,8 @@ type anthropicStreamDelta struct {
 	Text        string `json:"text"`
 	Thinking    string `json:"thinking"`
 	PartialJSON string `json:"partial_json"`
+	Signature   string `json:"signature"`
+	StopReason  string `json:"stop_reason"`
 }
 
 type anthropicToolUseBuffer struct {
@@ -729,24 +757,43 @@ type anthropicToolUseBuffer struct {
 	JSON strings.Builder
 }
 
-type anthropicTextBlockBuffer struct {
-	Channel  string
-	Pending  string
-	SawDelta bool
+type anthropicAssistantBlock struct {
+	Type      string
+	Text      strings.Builder
+	Signature string
+}
+
+type anthropicStreamError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
 }
 
 func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reader, llmCallID string, yield func(StreamEvent) error) error {
 	var usage *Usage
 	toolBuffers := map[int]*anthropicToolUseBuffer{}
-	textBuffers := map[int]*anthropicTextBlockBuffer{}
+	assistantBlocks := map[int]*anthropicAssistantBlock{}
 	completed := false
+
+	failStream := func(errClass string, message string, details map[string]any) error {
+		if err := yield(StreamRunFailed{
+			LlmCallID: llmCallID,
+			Error: GatewayError{
+				ErrorClass: errClass,
+				Message:    message,
+				Details:    details,
+			},
+		}); err != nil {
+			return err
+		}
+		return errAnthropicStreamTerminated
+	}
 
 	err := forEachSSEData(ctx, body, func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" {
 			return nil
 		}
-		if g.cfg.EmitDebugEvents {
+		if g.transport.cfg.EmitDebugEvents {
 			raw, rawTruncated := truncateUTF8(data, anthropicMaxDebugChunkBytes)
 			if err := yield(StreamLlmResponseChunk{
 				LlmCallID:    llmCallID,
@@ -761,14 +808,7 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 
 		var event anthropicStreamEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
-			return yield(StreamRunFailed{
-				LlmCallID: llmCallID,
-				Error: GatewayError{
-					ErrorClass: ErrorClassInternalError,
-					Message:    "Anthropic response parse failed",
-					Details:    map[string]any{"reason": err.Error()},
-				},
-			})
+			return failStream(ErrorClassInternalError, "Anthropic response parse failed", map[string]any{"reason": err.Error()})
 		}
 
 		if parsed := parseAnthropicUsageMap(event.Usage); parsed != nil {
@@ -786,20 +826,30 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 		}
 
 		switch event.Type {
+		case "error":
+			return failStream(anthropicStreamErrorClass(event.Error), anthropicStreamErrorMessage(event.Error), anthropicStreamErrorDetails(event.Error))
 		case "content_block_start":
 			if event.ContentBlock == nil {
 				return nil
 			}
 			switch event.ContentBlock.Type {
 			case "text":
-				textBuffers[idx] = &anthropicTextBlockBuffer{Pending: event.ContentBlock.Text}
-				return nil
-			case "thinking":
-				textBuffers[idx] = &anthropicTextBlockBuffer{
-					Channel: "thinking",
-					Pending: event.ContentBlock.Thinking,
+				buffer := &anthropicAssistantBlock{Type: "text"}
+				buffer.Text.WriteString(event.ContentBlock.Text)
+				assistantBlocks[idx] = buffer
+				if strings.TrimSpace(event.ContentBlock.Text) == "" {
+					return nil
 				}
-				return nil
+				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Text, Role: "assistant"})
+			case "thinking":
+				buffer := &anthropicAssistantBlock{Type: "thinking"}
+				buffer.Text.WriteString(event.ContentBlock.Thinking)
+				assistantBlocks[idx] = buffer
+				if strings.TrimSpace(event.ContentBlock.Thinking) == "" {
+					return nil
+				}
+				channel := "thinking"
+				return yield(StreamMessageDelta{ContentDelta: event.ContentBlock.Thinking, Role: "assistant", Channel: &channel})
 			case "tool_use":
 				buffer := &anthropicToolUseBuffer{
 					ID:   strings.TrimSpace(event.ContentBlock.ID),
@@ -827,24 +877,27 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 			}
 			switch event.Delta.Type {
 			case "text_delta":
+				if buffer := assistantBlocks[idx]; buffer != nil {
+					buffer.Text.WriteString(event.Delta.Text)
+				}
 				if event.Delta.Text == "" {
 					return nil
 				}
-				if buffer := textBuffers[idx]; buffer != nil {
-					buffer.SawDelta = true
-					buffer.Pending = ""
-				}
 				return yield(StreamMessageDelta{ContentDelta: event.Delta.Text, Role: "assistant"})
 			case "thinking_delta":
+				if buffer := assistantBlocks[idx]; buffer != nil {
+					buffer.Text.WriteString(event.Delta.Thinking)
+				}
 				if event.Delta.Thinking == "" {
 					return nil
 				}
-				if buffer := textBuffers[idx]; buffer != nil {
-					buffer.SawDelta = true
-					buffer.Pending = ""
-				}
 				channel := "thinking"
 				return yield(StreamMessageDelta{ContentDelta: event.Delta.Thinking, Role: "assistant", Channel: &channel})
+			case "signature_delta":
+				if buffer := assistantBlocks[idx]; buffer != nil {
+					buffer.Signature = strings.TrimSpace(event.Delta.Signature)
+				}
+				return nil
 			case "input_json_delta":
 				buffer := toolBuffers[idx]
 				if buffer == nil {
@@ -859,56 +912,24 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 				})
 			}
 		case "content_block_stop":
-			if buffer := textBuffers[idx]; buffer != nil {
-				delete(textBuffers, idx)
-				if strings.TrimSpace(buffer.Pending) == "" || buffer.SawDelta {
-					return nil
-				}
-				if buffer.Channel == "thinking" {
-					channel := "thinking"
-					return yield(StreamMessageDelta{ContentDelta: buffer.Pending, Role: "assistant", Channel: &channel})
-				}
-				return yield(StreamMessageDelta{ContentDelta: buffer.Pending, Role: "assistant"})
-			}
 			buffer := toolBuffers[idx]
 			if buffer == nil {
 				return nil
 			}
 			delete(toolBuffers, idx)
 			if strings.TrimSpace(buffer.ID) == "" || strings.TrimSpace(buffer.Name) == "" {
-				return yield(StreamRunFailed{
-					LlmCallID: llmCallID,
-					Error: GatewayError{
-						ErrorClass: ErrorClassProviderNonRetryable,
-						Message:    "Anthropic tool_use input parse failed",
-						Details:    map[string]any{"reason": "content block missing tool_use id or name"},
-					},
-				})
+				return failStream(ErrorClassProviderNonRetryable, "Anthropic tool_use input parse failed", map[string]any{"reason": "content block missing tool_use id or name"})
 			}
 			argumentsJSON := map[string]any{}
 			rawArgs := strings.TrimSpace(buffer.JSON.String())
 			if rawArgs != "" {
 				var parsed any
 				if err := json.Unmarshal([]byte(rawArgs), &parsed); err != nil {
-					return yield(StreamRunFailed{
-						LlmCallID: llmCallID,
-						Error: GatewayError{
-							ErrorClass: ErrorClassProviderNonRetryable,
-							Message:    "Anthropic tool_use input parse failed",
-							Details:    map[string]any{"reason": err.Error()},
-						},
-					})
+					return failStream(ErrorClassProviderNonRetryable, "Anthropic tool_use input parse failed", map[string]any{"reason": err.Error()})
 				}
 				obj, ok := parsed.(map[string]any)
 				if !ok {
-					return yield(StreamRunFailed{
-						LlmCallID: llmCallID,
-						Error: GatewayError{
-							ErrorClass: ErrorClassProviderNonRetryable,
-							Message:    "Anthropic tool_use input parse failed",
-							Details:    map[string]any{"reason": "tool_use input must be a JSON object"},
-						},
-					})
+					return failStream(ErrorClassProviderNonRetryable, "Anthropic tool_use input parse failed", map[string]any{"reason": "tool_use input must be a JSON object"})
 				}
 				argumentsJSON = obj
 			}
@@ -917,6 +938,14 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 				ToolName:      buffer.Name,
 				ArgumentsJSON: argumentsJSON,
 			})
+		case "message_delta":
+			if event.Delta == nil {
+				return nil
+			}
+			stopReason := strings.TrimSpace(event.Delta.StopReason)
+			if stopReason == "refusal" {
+				return failStream(ErrorClassPolicyDenied, "Anthropic response refused", map[string]any{"stop_reason": stopReason})
+			}
 		case "message_stop":
 			completed = true
 			return nil
@@ -924,12 +953,87 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errAnthropicStreamTerminated) {
+			return nil
+		}
 		return err
 	}
 	if !completed {
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: InternalStreamEndedError()})
 	}
-	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage})
+	assistantMessage := Message{Role: "assistant", Content: anthropicAssistantMessageParts(assistantBlocks)}
+	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage, AssistantMessage: &assistantMessage})
+}
+
+func anthropicStreamErrorClass(streamErr *anthropicStreamError) string {
+	if streamErr == nil {
+		return ErrorClassProviderRetryable
+	}
+	switch strings.TrimSpace(streamErr.Type) {
+	case "overloaded_error", "rate_limit_error":
+		return ErrorClassProviderRetryable
+	case "authentication_error", "invalid_request_error", "not_found_error", "permission_error":
+		return ErrorClassProviderNonRetryable
+	default:
+		return ErrorClassProviderRetryable
+	}
+}
+
+func anthropicStreamErrorMessage(streamErr *anthropicStreamError) string {
+	if streamErr == nil || strings.TrimSpace(streamErr.Message) == "" {
+		return "Anthropic stream error"
+	}
+	return strings.TrimSpace(streamErr.Message)
+}
+
+func anthropicStreamErrorDetails(streamErr *anthropicStreamError) map[string]any {
+	if streamErr == nil {
+		return nil
+	}
+	details := map[string]any{}
+	if value := strings.TrimSpace(streamErr.Type); value != "" {
+		details["anthropic_error_type"] = value
+	}
+	if len(details) == 0 {
+		return nil
+	}
+	return details
+}
+
+func anthropicAssistantMessageParts(blocks map[int]*anthropicAssistantBlock) []ContentPart {
+	if len(blocks) == 0 {
+		return nil
+	}
+	indexes := make([]int, 0, len(blocks))
+	for idx := range blocks {
+		indexes = append(indexes, idx)
+	}
+	sort.Ints(indexes)
+
+	parts := make([]ContentPart, 0, len(indexes))
+	for _, idx := range indexes {
+		block := blocks[idx]
+		if block == nil {
+			continue
+		}
+		switch block.Type {
+		case "text":
+			if strings.TrimSpace(block.Text.String()) == "" {
+				continue
+			}
+			parts = append(parts, TextPart{Text: block.Text.String()})
+		case "thinking":
+			if strings.TrimSpace(block.Text.String()) == "" && strings.TrimSpace(block.Signature) == "" {
+				continue
+			}
+			parts = append(parts, ContentPart{
+				Type:      "thinking",
+				Text:      block.Text.String(),
+				Signature: strings.TrimSpace(block.Signature),
+			})
+		}
+	}
+	return parts
 }
 
 func parseAnthropicUsageMap(usageObj map[string]any) *Usage {

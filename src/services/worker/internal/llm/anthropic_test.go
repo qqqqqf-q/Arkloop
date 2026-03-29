@@ -105,6 +105,37 @@ func TestToAnthropicMessages_ToolEnvelope(t *testing.T) {
 	}
 }
 
+func TestToAnthropicMessages_AssistantThinkingBlocksPreserved(t *testing.T) {
+	system, messages, err := toAnthropicMessages([]Message{
+		{
+			Role: "assistant",
+			Content: []ContentPart{
+				{Type: "thinking", Text: "deliberating", Signature: "sig_1"},
+				{Type: "text", Text: "done"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessages failed: %v", err)
+	}
+	if len(system) != 0 {
+		t.Fatalf("unexpected system blocks: %#v", system)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("unexpected messages len: %d", len(messages))
+	}
+	blocks, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("unexpected assistant blocks: %#v", messages[0]["content"])
+	}
+	if blocks[0]["type"] != "thinking" || blocks[0]["thinking"] != "deliberating" || blocks[0]["signature"] != "sig_1" {
+		t.Fatalf("unexpected thinking block: %#v", blocks[0])
+	}
+	if blocks[1]["type"] != "text" || blocks[1]["text"] != "done" {
+		t.Fatalf("unexpected text block: %#v", blocks[1])
+	}
+}
+
 func TestParseAnthropicMessage_ToolUse(t *testing.T) {
 	body := []byte(`{
   "id":"msg_test",
@@ -136,7 +167,7 @@ func TestParseAnthropicMessage_ToolUse(t *testing.T) {
 
 func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/messages" {
+		if r.URL.Path != "/v1/messages" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
@@ -203,13 +234,47 @@ func TestAnthropicGateway_Stream_ToolUse(t *testing.T) {
 	}
 }
 
+func TestAnthropicGateway_Stream_ThinkingSignaturePreservedOnCompletion(t *testing.T) {
+	reader := strings.NewReader(anthropicSSEBody([]string{
+		`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"plan"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" more"}}`,
+		`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig_1"}}`,
+		`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":"done"}}`,
+		`{"type":"message_stop"}`,
+	}))
+
+	gateway := &AnthropicGateway{}
+	var events []StreamEvent
+	err := gateway.streamAnthropicSSE(context.Background(), reader, "test", func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("streamAnthropicSSE failed: %v", err)
+	}
+
+	last, ok := events[len(events)-1].(StreamRunCompleted)
+	if !ok {
+		t.Fatalf("expected StreamRunCompleted, got %T", events[len(events)-1])
+	}
+	if last.AssistantMessage == nil || len(last.AssistantMessage.Content) != 2 {
+		t.Fatalf("unexpected assistant message: %#v", last.AssistantMessage)
+	}
+	if last.AssistantMessage.Content[0].Kind() != "thinking" || last.AssistantMessage.Content[0].Text != "plan more" || last.AssistantMessage.Content[0].Signature != "sig_1" {
+		t.Fatalf("unexpected thinking part: %#v", last.AssistantMessage.Content[0])
+	}
+	if last.AssistantMessage.Content[1].Text != "done" {
+		t.Fatalf("unexpected text part: %#v", last.AssistantMessage.Content[1])
+	}
+}
+
 func TestNewAnthropicGateway_NormalizesMiniMaxBaseURL(t *testing.T) {
 	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
 		APIKey:  "test",
 		BaseURL: "https://api.minimaxi.com/anthropic",
 	})
 
-	if gateway.cfg.BaseURL != "https://api.minimaxi.com/anthropic/v1" {
+	if gateway.cfg.BaseURL != "https://api.minimaxi.com/anthropic" {
 		t.Fatalf("unexpected base url: %q", gateway.cfg.BaseURL)
 	}
 }
@@ -632,5 +697,115 @@ func TestAnthropicGateway_Stream_AdvancedJSON_DeniedKeyReturnsError(t *testing.T
 				t.Fatalf("expected denied_key=%s, got: %v", key, failed.Error.Details)
 			}
 		})
+	}
+}
+
+func TestAnthropicGateway_Stream_ErrorEventStopsTerminal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"error","error":{"type":"overloaded_error","message":"upstream busy"}}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+
+	var failedCount, completedCount int
+	for _, ev := range events {
+		switch ev.(type) {
+		case StreamRunFailed:
+			failedCount++
+		case StreamRunCompleted:
+			completedCount++
+		}
+	}
+	if failedCount != 1 {
+		t.Fatalf("expected exactly one StreamRunFailed, got %d", failedCount)
+	}
+	if completedCount != 0 {
+		t.Fatalf("expected no StreamRunCompleted after stream error, got %d", completedCount)
+	}
+
+	last := events[len(events)-1]
+	failed, ok := last.(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected terminal StreamRunFailed, got %T", last)
+	}
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %q", failed.Error.ErrorClass)
+	}
+	if failed.Error.Message != "upstream busy" {
+		t.Fatalf("unexpected error message: %q", failed.Error.Message)
+	}
+	if failed.Error.Details["anthropic_error_type"] != "overloaded_error" {
+		t.Fatalf("unexpected error details: %#v", failed.Error.Details)
+	}
+}
+
+func TestAnthropicGateway_Stream_RefusalStopsWithoutSuccessTerminal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"cannot comply"}}`,
+			`{"type":"message_delta","delta":{"stop_reason":"refusal"}}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+
+	var completedCount int
+	for _, ev := range events {
+		if _, ok := ev.(StreamRunCompleted); ok {
+			completedCount++
+		}
+	}
+	if completedCount != 0 {
+		t.Fatalf("expected no StreamRunCompleted for refusal, got %d", completedCount)
+	}
+
+	last := events[len(events)-1]
+	failed, ok := last.(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected terminal StreamRunFailed, got %T", last)
+	}
+	if failed.Error.ErrorClass != ErrorClassPolicyDenied {
+		t.Fatalf("unexpected error class: %q", failed.Error.ErrorClass)
+	}
+	if failed.Error.Details["stop_reason"] != "refusal" {
+		t.Fatalf("unexpected stop_reason: %#v", failed.Error.Details)
 	}
 }

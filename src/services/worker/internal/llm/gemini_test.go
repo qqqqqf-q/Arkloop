@@ -207,6 +207,23 @@ func TestGeminiGateway_Stream_TextResponse(t *testing.T) {
 	}
 }
 
+func TestNewGeminiGateway_PreservesVersionFromBaseURL(t *testing.T) {
+	gw := NewGeminiGateway(GeminiGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: "https://generativelanguage.googleapis.com/v1",
+	})
+	if gw.transport.cfg.BaseURL != "https://generativelanguage.googleapis.com" {
+		t.Fatalf("unexpected normalized base url: %q", gw.transport.cfg.BaseURL)
+	}
+	if gw.protocol.APIVersion != "v1" {
+		t.Fatalf("unexpected api version: %q", gw.protocol.APIVersion)
+	}
+	path := geminiVersionedPath(gw.transport.cfg.BaseURL, gw.protocol.APIVersion, "/models/gemini-2.0-flash:streamGenerateContent?alt=sse")
+	if path != "/v1/models/gemini-2.0-flash:streamGenerateContent?alt=sse" {
+		t.Fatalf("unexpected request path: %q", path)
+	}
+}
+
 func TestGeminiGateway_Stream_ToolCalls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -275,8 +292,7 @@ func TestGeminiGateway_Stream_ThinkingContent(t *testing.T) {
 	var thinkingDeltas, textDeltas []StreamMessageDelta
 	_ = gw.Stream(context.Background(), Request{
 		Model:    "gemini-2.0-flash",
-		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "think"}}},
-		},
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "think"}}}},
 	}, func(ev StreamEvent) error {
 		if d, ok := ev.(StreamMessageDelta); ok {
 			if d.Channel != nil && *d.Channel == "thinking" {
@@ -358,6 +374,59 @@ func TestGeminiGateway_Stream_SafetyBlock(t *testing.T) {
 	}
 	if failed.Error.ErrorClass != ErrorClassPolicyDenied {
 		t.Fatalf("expected PolicyDenied, got %q", failed.Error.ErrorClass)
+	}
+}
+
+func TestGeminiGateway_Stream_FinishReasonClassification(t *testing.T) {
+	testCases := []struct {
+		name      string
+		reason    string
+		errClass  string
+		msgPrefix string
+	}{
+		{name: "policy blocklist", reason: "BLOCKLIST", errClass: ErrorClassPolicyDenied, msgPrefix: "Gemini content blocked:"},
+		{name: "policy spii", reason: "SPII", errClass: ErrorClassPolicyDenied, msgPrefix: "Gemini content blocked:"},
+		{name: "tool malformed function", reason: "MALFORMED_FUNCTION_CALL", errClass: ErrorClassProviderNonRetryable, msgPrefix: "Gemini invalid response:"},
+		{name: "tool unexpected call", reason: "UNEXPECTED_TOOL_CALL", errClass: ErrorClassProviderNonRetryable, msgPrefix: "Gemini invalid response:"},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				body := sseBody([]string{
+					fmt.Sprintf(`{"candidates":[{"content":{"parts":[],"role":"model"},"finishReason":"%s"}]}`, tc.reason),
+				})
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(server.Close)
+
+			gw := NewGeminiGateway(GeminiGatewayConfig{APIKey: "k", BaseURL: server.URL})
+			var events []StreamEvent
+			_ = gw.Stream(context.Background(), Request{
+				Model:    "gemini-2.0-flash",
+				Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+			}, func(ev StreamEvent) error {
+				events = append(events, ev)
+				return nil
+			})
+
+			last := events[len(events)-1]
+			failed, ok := last.(StreamRunFailed)
+			if !ok {
+				t.Fatalf("expected StreamRunFailed, got %T", last)
+			}
+			if failed.Error.ErrorClass != tc.errClass {
+				t.Fatalf("unexpected error class: %q", failed.Error.ErrorClass)
+			}
+			if !strings.HasPrefix(failed.Error.Message, tc.msgPrefix) {
+				t.Fatalf("unexpected error message: %q", failed.Error.Message)
+			}
+			if failed.Error.Details["finish_reason"] != tc.reason {
+				t.Fatalf("unexpected finish_reason: %#v", failed.Error.Details)
+			}
+		})
 	}
 }
 
@@ -543,6 +612,9 @@ func TestGeminiGateway_Stream_ReasoningMode_Enabled(t *testing.T) {
 	if !strings.Contains(string(receivedBody), "8192") {
 		t.Fatalf("expected budget=8192 in payload, got: %s", receivedBody)
 	}
+	if !strings.Contains(string(receivedBody), `"includeThoughts":true`) {
+		t.Fatalf("expected includeThoughts:true in payload, got: %s", receivedBody)
+	}
 }
 
 func TestGeminiGateway_Stream_ReasoningMode_Disabled(t *testing.T) {
@@ -568,5 +640,47 @@ func TestGeminiGateway_Stream_ReasoningMode_Disabled(t *testing.T) {
 
 	if !strings.Contains(string(receivedBody), `"thinkingBudget":0`) {
 		t.Fatalf("expected thinkingBudget:0 in payload, got: %s", receivedBody)
+	}
+	if !strings.Contains(string(receivedBody), `"includeThoughts":false`) {
+		t.Fatalf("expected includeThoughts:false in payload, got: %s", receivedBody)
+	}
+}
+
+func TestGeminiGateway_Stream_ReasoningConfigAutoAddsIncludeThoughts(t *testing.T) {
+	var receivedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 8192)
+		n, _ := r.Body.Read(buf)
+		receivedBody = buf[:n]
+		w.Header().Set("Content-Type", "text/event-stream")
+		body := sseBody([]string{
+			`{"candidates":[{"content":{"parts":[{"text":"ok"}],"role":"model"},"finishReason":"STOP"}]}`,
+		})
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+
+	gw := NewGeminiGateway(GeminiGatewayConfig{
+		APIKey:  "k",
+		BaseURL: server.URL,
+		AdvancedJSON: map[string]any{
+			"generationConfig": map[string]any{
+				"thinkingConfig": map[string]any{
+					"thinkingBudget": 2048,
+				},
+			},
+		},
+	})
+
+	_ = gw.Stream(context.Background(), Request{
+		Model:    "gemini-2.0-flash",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error { return nil })
+
+	if !strings.Contains(string(receivedBody), `"thinkingBudget":2048`) {
+		t.Fatalf("expected thinkingBudget:2048 in payload, got: %s", receivedBody)
+	}
+	if !strings.Contains(string(receivedBody), `"includeThoughts":true`) {
+		t.Fatalf("expected includeThoughts:true in payload, got: %s", receivedBody)
 	}
 }

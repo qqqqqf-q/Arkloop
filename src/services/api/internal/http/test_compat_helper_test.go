@@ -253,9 +253,14 @@ type llmProviderAvailableModelsResponse struct {
 }
 
 type llmProviderAvailableModel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Configured bool   `json:"configured"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Configured       bool     `json:"configured"`
+	Type             string   `json:"type,omitempty"`
+	ContextLength    *int     `json:"context_length,omitempty"`
+	MaxOutputTokens  *int     `json:"max_output_tokens,omitempty"`
+	InputModalities  []string `json:"input_modalities,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 type personaResponse struct {

@@ -499,7 +499,7 @@ func completeSubAgentRun(t *testing.T, pool *pgxpool.Pool, subAgentID uuid.UUID,
 		t.Fatalf("transition terminal: %v", err)
 	}
 	accountID, threadID := mustRunContext(t, tx, subAgentID)
-	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, accountID, threadID, runID, output, false)
+	messageID, err := (data.MessagesRepository{}).InsertAssistantMessage(context.Background(), tx, accountID, threadID, runID, output, nil, false)
 	if err != nil {
 		t.Fatalf("insert assistant message: %v", err)
 	}

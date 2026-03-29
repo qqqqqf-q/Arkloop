@@ -486,6 +486,263 @@ func TestTelegramWebhookRejectsInvalidSignature(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
 }
 
+func TestCreateTelegramChannelRejectsInvalidDefaultModelSelector(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels",
+		map[string]any{
+			"channel_type": "telegram",
+			"bot_token":    "bot-token",
+			"persona_id":   env.personaID.String(),
+			"config_json": map[string]any{
+				"allowed_user_ids": []string{"10001"},
+				"default_model":    "bad^selector",
+			},
+		},
+		authHeader(env.accessToken),
+	)
+	if resp.Code != nethttp.StatusUnprocessableEntity {
+		t.Fatalf("expected validation error, got %d %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestUpdateTelegramChannelRejectsInvalidDefaultModelSelector(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPatch,
+		"/v1/channels/"+channel.ID.String(),
+		map[string]any{
+			"config_json": map[string]any{
+				"default_model": "bad^selector",
+			},
+		},
+		authHeader(env.accessToken),
+	)
+	if resp.Code != nethttp.StatusUnprocessableEntity {
+		t.Fatalf("expected validation error, got %d %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestTelegramHeartbeatModelRejectsInvalidSelectorWithoutPersisting(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+
+	payload := map[string]any{
+		"message": map[string]any{
+			"message_id": 51,
+			"date":       1710000000,
+			"text":       "/heartbeat model bad^selector",
+			"chat": map[string]any{
+				"id":   -100123,
+				"type": "group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		payload,
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	var heartbeatModel string
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT heartbeat_model FROM channel_identities WHERE channel_type = 'telegram' AND platform_subject_id = $1`,
+		"-100123",
+	).Scan(&heartbeatModel); err != nil {
+		t.Fatalf("query heartbeat model: %v", err)
+	}
+	if strings.TrimSpace(heartbeatModel) != "" {
+		t.Fatalf("expected heartbeat_model to remain empty, got %q", heartbeatModel)
+	}
+}
+
+func TestTelegramHeartbeatOnCreatesScheduledTriggerImmediately(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	seedTelegramSelectorRoute(t, env, "demo-cred", "gpt-5-mini")
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+
+	setModelPayload := map[string]any{
+		"message": map[string]any{
+			"message_id": 61,
+			"date":       1710000000,
+			"text":       "/heartbeat model demo-cred^gpt-5-mini",
+			"chat": map[string]any{
+				"id":   -100456,
+				"type": "group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		setModelPayload,
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("set model webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	enablePayload := map[string]any{
+		"message": map[string]any{
+			"message_id": 62,
+			"date":       1710000060,
+			"text":       "/heartbeat on",
+			"chat": map[string]any{
+				"id":   -100456,
+				"type": "group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		enablePayload,
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("enable heartbeat webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	var gotModel string
+	var gotInterval int
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT st.model, st.interval_min
+		   FROM scheduled_triggers st
+		   JOIN channel_identities ci ON ci.id = st.channel_identity_id
+		  WHERE ci.channel_type = 'telegram' AND ci.platform_subject_id = $1`,
+		"-100456",
+	).Scan(&gotModel, &gotInterval); err != nil {
+		t.Fatalf("query scheduled trigger: %v", err)
+	}
+	if gotModel != "demo-cred^gpt-5-mini" {
+		t.Fatalf("unexpected scheduled trigger model: %q", gotModel)
+	}
+	if gotInterval != 30 {
+		t.Fatalf("unexpected scheduled trigger interval: %d", gotInterval)
+	}
+}
+
+func TestUpdateTelegramChannelInactiveDeletesScheduledTriggerImmediately(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+
+	enablePayload := map[string]any{
+		"message": map[string]any{
+			"message_id": 71,
+			"date":       1710000000,
+			"text":       "/heartbeat on",
+			"chat": map[string]any{
+				"id":   -100789,
+				"type": "group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		enablePayload,
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("enable heartbeat webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	updateResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPatch,
+		"/v1/channels/"+channel.ID.String(),
+		map[string]any{"is_active": false},
+		authHeader(env.accessToken),
+	)
+	if updateResp.Code != nethttp.StatusOK {
+		t.Fatalf("update channel inactive status: %d %s", updateResp.Code, updateResp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM scheduled_triggers`, 0)
+}
+
+func TestDeleteTelegramChannelDeletesScheduledTriggerImmediately(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+
+	enablePayload := map[string]any{
+		"message": map[string]any{
+			"message_id": 81,
+			"date":       1710000000,
+			"text":       "/heartbeat on",
+			"chat": map[string]any{
+				"id":   -100987,
+				"type": "group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		enablePayload,
+		map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)},
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("enable heartbeat webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	deleteResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodDelete,
+		"/v1/channels/"+channel.ID.String(),
+		nil,
+		authHeader(env.accessToken),
+	)
+	if deleteResp.Code != nethttp.StatusOK {
+		t.Fatalf("delete channel status: %d %s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM scheduled_triggers`, 0)
+}
+
 func TestTelegramWebhookRejectsUserOutsideAllowlistWithoutCreatingConversation(t *testing.T) {
 	var (
 		paths        []string
@@ -1464,6 +1721,50 @@ func createActiveTelegramChannel(t *testing.T, env telegramChannelsTestEnv, botT
 		config["default_model"] = strings.TrimSpace(defaultModel)
 	}
 	return createActiveTelegramChannelWithConfig(t, env, botToken, config)
+}
+
+func seedTelegramSelectorRoute(t *testing.T, env telegramChannelsTestEnv, credentialName string, model string) {
+	t.Helper()
+
+	credentialsRepo, err := data.NewLlmCredentialsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("llm credentials repo: %v", err)
+	}
+	routesRepo, err := data.NewLlmRoutesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("llm routes repo: %v", err)
+	}
+
+	credID := uuid.New()
+	if _, err := credentialsRepo.Create(
+		context.Background(),
+		credID,
+		"user",
+		&env.userID,
+		"openai",
+		credentialName,
+		nil,
+		nil,
+		nil,
+		nil,
+		map[string]any{},
+	); err != nil {
+		t.Fatalf("create llm credential: %v", err)
+	}
+
+	if _, err := routesRepo.Create(context.Background(), data.CreateLlmRouteParams{
+		AccountID:    env.accountID,
+		Scope:        data.LlmRouteScopeUser,
+		CredentialID: credID,
+		Model:        model,
+		Priority:     100,
+		ShowInPicker: true,
+		WhenJSON:     json.RawMessage(`{}`),
+		AdvancedJSON: map[string]any{},
+		Multiplier:   1.0,
+	}); err != nil {
+		t.Fatalf("create llm route: %v", err)
+	}
 }
 
 func createActiveTelegramChannelWithConfig(t *testing.T, env telegramChannelsTestEnv, botToken string, config map[string]any) data.Channel {

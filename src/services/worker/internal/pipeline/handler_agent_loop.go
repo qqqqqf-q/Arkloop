@@ -14,6 +14,7 @@ import (
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/subagentctl"
 
@@ -187,6 +188,7 @@ type eventWriter struct {
 	pendingEventsSinceCommit int
 	lastCommitAt             time.Time
 	assistantDeltas          []string
+	assistantMessage         *llm.Message
 	toolCallCount            int
 	iterationCount           int
 	completed                bool
@@ -364,6 +366,9 @@ func (w *eventWriter) Append(
 		return err
 	}
 	w.pendingEventsSinceCommit++
+	if assistantMessage, ok := assistantMessageFromEventData(ev.DataJSON); ok {
+		w.assistantMessage = &assistantMessage
+	}
 
 	w.accumUsage(ev.DataJSON)
 
@@ -517,6 +522,9 @@ func (w *eventWriter) TerminalUserMessage() string {
 
 // AssistantOutput 返回本次 run 的 assistant 最终拼接文本，供调用方写回 RunContext。
 func (w *eventWriter) AssistantOutput() string {
+	if w.assistantMessage != nil {
+		return llm.VisibleMessageText(*w.assistantMessage)
+	}
 	return strings.Join(w.assistantDeltas, "")
 }
 
@@ -530,8 +538,13 @@ func (w *eventWriter) InsertAssistantMessage(
 	if err := w.ensureTx(ctx); err != nil {
 		return uuid.Nil, err
 	}
-	content := strings.Join(w.assistantDeltas, "")
-	messageID, err := repo.InsertAssistantMessage(ctx, w.tx, accountID, threadID, w.run.ID, content, hidden)
+	message := w.finalAssistantMessage()
+	content := llm.VisibleMessageText(message)
+	contentJSON, err := llm.BuildAssistantThreadContentJSON(message)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	messageID, err := repo.InsertAssistantMessage(ctx, w.tx, accountID, threadID, w.run.ID, content, contentJSON, hidden)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -541,6 +554,20 @@ func (w *eventWriter) InsertAssistantMessage(
 		}
 	}
 	return messageID, nil
+}
+
+func (w *eventWriter) finalAssistantMessage() llm.Message {
+	if w.assistantMessage != nil {
+		return *w.assistantMessage
+	}
+	content := strings.Join(w.assistantDeltas, "")
+	if strings.TrimSpace(content) == "" {
+		return llm.Message{Role: "assistant"}
+	}
+	return llm.Message{
+		Role:    "assistant",
+		Content: []llm.TextPart{{Text: content}},
+	}
 }
 
 func (w *eventWriter) Flush(ctx context.Context) error {
@@ -568,6 +595,21 @@ func extractAssistantDelta(dataJSON map[string]any) string {
 		return ""
 	}
 	return delta
+}
+
+func assistantMessageFromEventData(dataJSON map[string]any) (llm.Message, bool) {
+	if dataJSON == nil {
+		return llm.Message{}, false
+	}
+	raw, ok := dataJSON["assistant_message"].(map[string]any)
+	if !ok || raw == nil {
+		return llm.Message{}, false
+	}
+	message, err := llm.MessageFromJSONMap(raw)
+	if err != nil {
+		return llm.Message{}, false
+	}
+	return message, true
 }
 
 // ShouldSuppressHeartbeatOutput 判断 heartbeat 终态是否应跳过写 thread / 外发渠道。

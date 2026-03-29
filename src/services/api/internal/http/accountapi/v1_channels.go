@@ -14,6 +14,7 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/telegrambot"
@@ -61,6 +62,7 @@ func channelsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
+	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -71,7 +73,7 @@ func channelsEntry(
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodPost:
-			createChannel(w, r, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, appBaseURL, telegramClient, telegramMode)
+			createChannel(w, r, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, appBaseURL, telegramClient, telegramMode)
 		case nethttp.MethodGet:
 			listChannels(w, r, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		default:
@@ -85,6 +87,7 @@ func channelEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
+	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -128,9 +131,9 @@ func channelEntry(
 		case nethttp.MethodGet:
 			getChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		case nethttp.MethodPatch:
-			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
+			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
 		case nethttp.MethodDelete:
-			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
+			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -144,6 +147,7 @@ func createChannel(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
+	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -191,6 +195,22 @@ func createChannel(
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
 		return
+	}
+	if req.ChannelType == "telegram" {
+		allowUserScoped, err := resolveTelegramByokEnabled(r.Context(), entitlementSvc, actor.AccountID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		cfg, err := resolveTelegramConfig("telegram", normalizedConfig)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+		if err := validateTelegramChannelConfigSelectors(r.Context(), pool, actor.AccountID, cfg, allowUserScoped); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 	}
 
 	var personaID *uuid.UUID
@@ -380,6 +400,7 @@ func updateChannel(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
+	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -473,6 +494,22 @@ func updateChannel(
 		}
 		upd.ConfigJSON = &normalizedConfig
 		desiredConfigJSON = normalizedConfig
+	}
+	if ch.ChannelType == "telegram" {
+		allowUserScoped, err := resolveTelegramByokEnabled(r.Context(), entitlementSvc, actor.AccountID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		cfg, err := resolveTelegramConfig("telegram", desiredConfigJSON)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+		if err := validateTelegramChannelConfigSelectors(r.Context(), pool, actor.AccountID, cfg, allowUserScoped); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 	}
 	if ch.ChannelType == "telegram" && desiredPersonaID != nil {
 		resolvedPersonaID, err := ensureProjectScopedChannelPersona(r.Context(), personasRepo, actor.AccountID, actor.UserID, desiredPersonaID)
@@ -582,6 +619,21 @@ func updateChannel(
 			return
 		}
 	}
+	if ch.ChannelType == "telegram" && (req.ConfigJSON != nil || req.IsActive != nil || req.PersonaID != nil) {
+		if err := syncTelegramHeartbeatStateAfterChannelMutation(
+			r.Context(),
+			pool,
+			channelsRepo,
+			actor.AccountID,
+			channelID,
+			derefUUID(ch.PersonaID) != derefUUID(desiredPersonaID),
+			entitlementSvc,
+			personasRepo,
+		); err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toChannelResponse(*updated))
 }
@@ -594,6 +646,8 @@ func deleteChannel(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
+	personasRepo *data.PersonasRepository,
+	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -658,6 +712,12 @@ func deleteChannel(
 			return
 		}
 	}
+	if ch.ChannelType == "telegram" {
+		if err := deleteTelegramChannelHeartbeatTriggers(r.Context(), tx, channelID); err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+	}
 
 	if err := channelsRepo.WithTx(tx).Delete(r.Context(), channelID, actor.AccountID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -669,6 +729,59 @@ func deleteChannel(
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
+}
+
+func syncTelegramHeartbeatStateAfterChannelMutation(
+	ctx context.Context,
+	pool data.DB,
+	channelsRepo *data.ChannelsRepository,
+	accountID uuid.UUID,
+	channelID uuid.UUID,
+	personaChanged bool,
+	entitlementSvc *entitlement.Service,
+	personasRepo *data.PersonasRepository,
+) error {
+	if pool == nil || channelsRepo == nil {
+		return fmt.Errorf("telegram heartbeat sync not configured")
+	}
+	channel, err := channelsRepo.GetByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if channel == nil || channel.ChannelType != "telegram" || !channel.IsActive || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil || personaChanged {
+		if err := deleteTelegramChannelHeartbeatTriggers(ctx, tx, channelID); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+
+	cfg, err := resolveTelegramConfig("telegram", channel.ConfigJSON)
+	if err != nil {
+		return err
+	}
+	allowUserScoped, err := resolveTelegramByokEnabled(ctx, entitlementSvc, accountID)
+	if err != nil {
+		return err
+	}
+	if err := syncTelegramChannelHeartbeatTriggers(
+		ctx,
+		tx,
+		accountID,
+		channelID,
+		channel.PersonaID,
+		cfg.DefaultModel,
+		allowUserScoped,
+		personasRepo,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func toChannelResponse(ch data.Channel) channelResponse {

@@ -11,14 +11,12 @@ import (
 	"strings"
 	"time"
 
-	sharedoutbound "arkloop/services/shared/outboundurl"
-
 	"arkloop/services/worker/internal/stablejson"
 	"github.com/google/uuid"
 )
 
 const (
-	defaultGeminiBaseURL        = "https://generativelanguage.googleapis.com/v1beta"
+	defaultGeminiBaseURL        = "https://generativelanguage.googleapis.com"
 	defaultGeminiThinkingBudget = 8192
 	geminiMaxErrorBodyBytes     = 4096
 	geminiMaxDebugChunkBytes    = 8192
@@ -32,67 +30,87 @@ var geminiAdvancedJSONDenylist = map[string]struct{}{
 }
 
 type GeminiGatewayConfig struct {
-	APIKey          string
-	BaseURL         string
-	AdvancedJSON    map[string]any
-	EmitDebugEvents bool
-	TotalTimeout    time.Duration
+	Transport    TransportConfig
+	Protocol     GeminiProtocolConfig
+	APIKey       string
+	BaseURL      string
+	AdvancedJSON map[string]any
+	TotalTimeout time.Duration
 }
 
 type GeminiGateway struct {
-	cfg        GeminiGatewayConfig
-	client     *http.Client
-	baseURLErr error
+	cfg       GeminiGatewayConfig
+	transport protocolTransport
+	protocol  GeminiProtocolConfig
+	configErr error
 }
 
 func NewGeminiGateway(cfg GeminiGatewayConfig) *GeminiGateway {
-	timeout := cfg.TotalTimeout
-	if timeout <= 0 {
-		timeout = 60 * time.Second
+	transport := cfg.Transport
+	if strings.TrimSpace(transport.APIKey) == "" {
+		transport.APIKey = cfg.APIKey
 	}
-	baseURL := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
-	if baseURL == "" {
-		baseURL = defaultGeminiBaseURL
+	if strings.TrimSpace(transport.BaseURL) == "" {
+		transport.BaseURL = cfg.BaseURL
 	}
-	normalizedBaseURL, baseURLErr := sharedoutbound.DefaultPolicy().NormalizeBaseURL(baseURL)
-	if baseURLErr == nil {
-		baseURL = normalizedBaseURL
+	if transport.TotalTimeout <= 0 {
+		transport.TotalTimeout = cfg.TotalTimeout
 	}
-	cfg.BaseURL = baseURL
-	cfg.TotalTimeout = timeout
-	if cfg.AdvancedJSON == nil {
-		cfg.AdvancedJSON = map[string]any{}
+	if !transport.EmitDebugEvents {
+		transport.EmitDebugEvents = cfg.Transport.EmitDebugEvents
 	}
+
+	protocol := cfg.Protocol
+	var configErr error
+	if protocol.APIVersion == "" && len(protocol.AdvancedPayloadJSON) == 0 {
+		protocol, configErr = parseGeminiProtocolConfig(cfg.AdvancedJSON)
+	}
+	if inferredVersion := geminiAPIVersionFromBaseURL(transport.BaseURL); inferredVersion != "" {
+		protocol.APIVersion = inferredVersion
+	}
+
+	normalizedTransport := newProtocolTransport(transport, defaultGeminiBaseURL, normalizeGeminiBaseURL)
+	cfg.Transport = normalizedTransport.cfg
+	cfg.Protocol = protocol
+	cfg.TotalTimeout = normalizedTransport.cfg.TotalTimeout
+	cfg.BaseURL = normalizedTransport.cfg.BaseURL
+
 	return &GeminiGateway{
-		cfg:        cfg,
-		client:     sharedoutbound.DefaultPolicy().NewHTTPClient(timeout),
-		baseURLErr: baseURLErr,
+		cfg:       cfg,
+		transport: normalizedTransport,
+		protocol:  protocol,
+		configErr: configErr,
 	}
 }
 
+func (g *GeminiGateway) ProtocolKind() ProtocolKind {
+	return ProtocolKindGeminiGenerateContent
+}
+
 func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(StreamEvent) error) error {
-	if g.baseURLErr != nil {
+	if g.configErr != nil {
+		ge := GatewayError{
+			ErrorClass: ErrorClassInternalError,
+			Message:    g.configErr.Error(),
+		}
+		var cfgErr protocolConfigError
+		if errors.As(g.configErr, &cfgErr) && len(cfgErr.Details) > 0 {
+			ge.Details = cfgErr.Details
+		}
+		return yield(StreamRunFailed{Error: ge})
+	}
+	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
 			Message:    "Gemini base_url blocked",
-			Details:    map[string]any{"reason": g.baseURLErr.Error()},
+			Details:    map[string]any{"reason": g.transport.baseURLErr.Error()},
 		}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.cfg.TotalTimeout)
+	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
 	defer cancel()
 	llmCallID := uuid.NewString()
 
-	for k := range g.cfg.AdvancedJSON {
-		if _, denied := geminiAdvancedJSONDenylist[k]; denied {
-			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
-				ErrorClass: ErrorClassInternalError,
-				Message:    fmt.Sprintf("advanced_json must not set critical field: %s", k),
-				Details:    map[string]any{"denied_key": k},
-			}})
-		}
-	}
-
-	payload, err := toGeminiPayload(request, g.cfg.AdvancedJSON)
+	payload, err := toGeminiPayload(request, g.protocol.AdvancedPayloadJSON)
 	if err != nil {
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
@@ -101,8 +119,8 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 		}})
 	}
 
-	baseURL := g.cfg.BaseURL
-	path := fmt.Sprintf("/models/%s:streamGenerateContent", request.Model)
+	baseURL := g.transport.cfg.BaseURL
+	path := geminiVersionedPath(g.transport.cfg.BaseURL, g.protocol.APIVersion, fmt.Sprintf("/models/%s:streamGenerateContent", request.Model))
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
 	if err := yield(StreamLlmRequest{
@@ -131,8 +149,8 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 		}})
 	}
 
-	endpoint := fmt.Sprintf("%s/models/%s:streamGenerateContent?alt=sse", g.cfg.BaseURL, request.Model)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	resourcePath := geminiVersionedPath(g.transport.cfg.BaseURL, g.protocol.APIVersion, fmt.Sprintf("/models/%s:streamGenerateContent?alt=sse", request.Model))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint(resourcePath), bytes.NewReader(encoded))
 	if err != nil {
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
@@ -140,20 +158,13 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Details:    map[string]any{"reason": err.Error()},
 		}})
 	}
-	req.Header.Set("x-goog-api-key", strings.TrimSpace(g.cfg.APIKey))
+	req.Header.Set("x-goog-api-key", strings.TrimSpace(g.transport.cfg.APIKey))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	g.transport.applyDefaultHeaders(req)
 
-	resp, err := g.client.Do(req)
+	resp, err := g.transport.client.Do(req)
 	if err != nil {
-		var denied sharedoutbound.DeniedError
-		if errors.As(err, &denied) {
-			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
-				ErrorClass: ErrorClassInternalError,
-				Message:    "Gemini base_url blocked",
-				Details:    map[string]any{"reason": denied.Error()},
-			}})
-		}
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassProviderRetryable,
 			Message:    "Gemini network error",
@@ -164,7 +175,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 	status := resp.StatusCode
 	if status < 200 || status >= 300 {
 		body, bodyTruncated, _ := readAllWithLimit(resp.Body, geminiMaxErrorBodyBytes)
-		if g.cfg.EmitDebugEvents {
+		if g.transport.cfg.EmitDebugEvents {
 			raw, rawTruncated := truncateUTF8(string(body), geminiMaxDebugChunkBytes)
 			_ = yield(StreamLlmResponseChunk{
 				LlmCallID:    llmCallID,
@@ -198,7 +209,7 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 			return nil
 		}
 
-		if g.cfg.EmitDebugEvents {
+		if g.transport.cfg.EmitDebugEvents {
 			raw, _ := truncateUTF8(data, geminiMaxDebugChunkBytes)
 			_ = yield(StreamLlmResponseChunk{
 				LlmCallID:    llmCallID,
@@ -288,39 +299,25 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 			}
 		}
 
-		switch candidate.FinishReason {
-		case "STOP", "MAX_TOKENS", "":
-			if candidate.FinishReason != "" {
-				for idx := 0; idx < len(toolCalls); idx++ {
-					call := toolCalls[idx]
-					if call == nil {
-						continue
-					}
-					if err := yield(ToolCall{
-						ToolCallID:    call.ToolCallID,
-						ToolName:      call.ToolName,
-						ArgumentsJSON: call.ArgumentsJSON,
-					}); err != nil {
-						return err
-					}
-					delete(toolCalls, idx)
+		if failure := geminiFinishReasonFailure(candidate.FinishReason); failure != nil {
+			terminalEmitted = true
+			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: *failure})
+		}
+		if candidate.FinishReason != "" {
+			for idx := 0; idx < len(toolCalls); idx++ {
+				call := toolCalls[idx]
+				if call == nil {
+					continue
 				}
+				if err := yield(ToolCall{
+					ToolCallID:    call.ToolCallID,
+					ToolName:      call.ToolName,
+					ArgumentsJSON: call.ArgumentsJSON,
+				}); err != nil {
+					return err
+				}
+				delete(toolCalls, idx)
 			}
-			// 继续或正常结束
-		case "SAFETY", "RECITATION":
-			terminalEmitted = true
-			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
-				ErrorClass: ErrorClassPolicyDenied,
-				Message:    fmt.Sprintf("Gemini content blocked: %s", candidate.FinishReason),
-				Details:    map[string]any{"finish_reason": candidate.FinishReason},
-			}})
-		default:
-			terminalEmitted = true
-			return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
-				ErrorClass: ErrorClassProviderRetryable,
-				Message:    fmt.Sprintf("Gemini unexpected finish: %s", candidate.FinishReason),
-				Details:    map[string]any{"finish_reason": candidate.FinishReason},
-			}})
 		}
 
 		return nil
@@ -371,6 +368,63 @@ type geminiStreamingToolCall struct {
 	ArgumentsJSON map[string]any
 }
 
+func normalizeGeminiThinkingConfig(genConfig map[string]any, reasoningMode string) {
+	rawThinkingConfig, hasThinkingConfig := genConfig["thinkingConfig"].(map[string]any)
+	thinkingConfig := map[string]any{}
+	if hasThinkingConfig {
+		for key, value := range rawThinkingConfig {
+			thinkingConfig[key] = value
+		}
+	}
+
+	switch reasoningMode {
+	case "enabled":
+		if anyToInt(thinkingConfig["thinkingBudget"]) <= 0 {
+			thinkingConfig["thinkingBudget"] = defaultGeminiThinkingBudget
+		}
+		thinkingConfig["includeThoughts"] = true
+		genConfig["thinkingConfig"] = thinkingConfig
+	case "disabled":
+		thinkingConfig["thinkingBudget"] = 0
+		thinkingConfig["includeThoughts"] = false
+		genConfig["thinkingConfig"] = thinkingConfig
+	default:
+		if !hasThinkingConfig {
+			return
+		}
+		if _, has := thinkingConfig["includeThoughts"]; !has {
+			thinkingConfig["includeThoughts"] = anyToInt(thinkingConfig["thinkingBudget"]) > 0
+		}
+		genConfig["thinkingConfig"] = thinkingConfig
+	}
+}
+
+func geminiFinishReasonFailure(finishReason string) *GatewayError {
+	reason := strings.TrimSpace(finishReason)
+	switch reason {
+	case "", "STOP", "MAX_TOKENS":
+		return nil
+	case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "LANGUAGE", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
+		return &GatewayError{
+			ErrorClass: ErrorClassPolicyDenied,
+			Message:    fmt.Sprintf("Gemini content blocked: %s", reason),
+			Details:    map[string]any{"finish_reason": reason},
+		}
+	case "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS", "MALFORMED_RESPONSE", "MISSING_THOUGHT_SIGNATURE":
+		return &GatewayError{
+			ErrorClass: ErrorClassProviderNonRetryable,
+			Message:    fmt.Sprintf("Gemini invalid response: %s", reason),
+			Details:    map[string]any{"finish_reason": reason},
+		}
+	default:
+		return &GatewayError{
+			ErrorClass: ErrorClassProviderRetryable,
+			Message:    fmt.Sprintf("Gemini unexpected finish: %s", reason),
+			Details:    map[string]any{"finish_reason": reason},
+		}
+	}
+}
+
 // toGeminiPayload 构建完整请求体，合并 advancedJSON。
 func toGeminiPayload(request Request, advancedJSON map[string]any) (map[string]any, error) {
 	systemInstruction, contents, err := toGeminiContents(request.Messages)
@@ -406,15 +460,7 @@ func toGeminiPayload(request Request, advancedJSON map[string]any) (map[string]a
 		}
 	}
 
-	// thinkingConfig
-	if _, hasThinking := genConfig["thinkingConfig"]; !hasThinking {
-		switch request.ReasoningMode {
-		case "enabled":
-			genConfig["thinkingConfig"] = map[string]any{"thinkingBudget": defaultGeminiThinkingBudget}
-		case "disabled":
-			genConfig["thinkingConfig"] = map[string]any{"thinkingBudget": 0}
-		}
-	}
+	normalizeGeminiThinkingConfig(genConfig, request.ReasoningMode)
 
 	if len(genConfig) > 0 {
 		payload["generationConfig"] = genConfig

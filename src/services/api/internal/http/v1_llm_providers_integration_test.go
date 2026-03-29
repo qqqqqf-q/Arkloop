@@ -321,6 +321,9 @@ func TestLlmProvidersAvailableModelsOpenAI(t *testing.T) {
 		if r.URL.Path != "/v1/models" {
 			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
 		}
+		if r.URL.RawQuery != "" {
+			t.Fatalf("unexpected upstream query: %s", r.URL.RawQuery)
+		}
 		httpkit.WriteJSON(w, "", nethttp.StatusOK, map[string]any{
 			"data": []map[string]any{{"id": "gpt-4.1"}, {"id": "gpt-4o"}},
 		})
@@ -470,6 +473,62 @@ func TestLlmProvidersAvailableModelsUpstreamRequestFailure(t *testing.T) {
 
 	resp := doJSON(env.handler, nethttp.MethodGet, "/v1/llm-providers/"+provider.ID+"/available-models", nil, authHeader(env.adminToken))
 	assertErrorEnvelope(t, resp, nethttp.StatusUnprocessableEntity, "llm_providers.upstream_request_failed")
+}
+
+func TestLlmProvidersAvailableModelsGeminiUsesModelsList(t *testing.T) {
+	env := setupLlmProvidersTestEnv(t)
+	upstream := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/v1beta/models" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("x-goog-api-key"); got != "g-test-123" {
+			t.Fatalf("unexpected x-goog-api-key: %q", got)
+		}
+		httpkit.WriteJSON(w, "", nethttp.StatusOK, map[string]any{
+			"models": []map[string]any{
+				{
+					"name":                       "models/gemini-2.0-flash",
+					"displayName":                "Gemini 2.0 Flash",
+					"inputTokenLimit":            1048576,
+					"outputTokenLimit":           8192,
+					"supportedGenerationMethods": []string{"generateContent", "countTokens"},
+				},
+				{
+					"name":                       "models/text-embedding-004",
+					"displayName":                "Text Embedding 004",
+					"inputTokenLimit":            2048,
+					"supportedGenerationMethods": []string{"embedContent"},
+				},
+			},
+		})
+	}))
+	defer upstream.Close()
+
+	createProviderResp := doJSON(env.handler, nethttp.MethodPost, "/v1/llm-providers", map[string]any{
+		"name":     "gemini-provider",
+		"provider": "gemini",
+		"api_key":  "g-test-123",
+		"base_url": upstream.URL + "/v1beta",
+	}, authHeader(env.adminToken))
+	if createProviderResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create provider: %d %s", createProviderResp.Code, createProviderResp.Body.String())
+	}
+	provider := decodeJSONBody[llmProviderResponse](t, createProviderResp.Body.Bytes())
+
+	resp := doJSON(env.handler, nethttp.MethodGet, "/v1/llm-providers/"+provider.ID+"/available-models", nil, authHeader(env.adminToken))
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("available models: %d %s", resp.Code, resp.Body.String())
+	}
+	payload := decodeJSONBody[llmProviderAvailableModelsResponse](t, resp.Body.Bytes())
+	if len(payload.Models) != 2 {
+		t.Fatalf("unexpected gemini models payload: %#v", payload)
+	}
+	if payload.Models[0].ID != "gemini-2.0-flash" || payload.Models[0].Type != "chat" {
+		t.Fatalf("unexpected first model: %#v", payload.Models[0])
+	}
+	if payload.Models[1].ID != "text-embedding-004" || payload.Models[1].Type != "embedding" {
+		t.Fatalf("unexpected second model: %#v", payload.Models[1])
+	}
 }
 
 func TestLlmProvidersDeleteRemovesSecret(t *testing.T) {

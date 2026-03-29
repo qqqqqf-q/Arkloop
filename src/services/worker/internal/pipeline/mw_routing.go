@@ -93,7 +93,7 @@ func NewRoutingMiddleware(
 				}
 				return rc.Gateway, rc.SelectedRoute, nil
 			}
-			selected, err := resolveSelectedRouteBySelector(platformSelectorConfig, cleanedSelector, map[string]any{}, byokEnabled)
+			selected, err := resolveSelectedRouteBySelector(selectorConfig, cleanedSelector, map[string]any{}, byokEnabled)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -273,64 +273,80 @@ func denyByokIfNeeded(cred routing.ProviderCredential, byokEnabled bool) *routin
 }
 
 func gatewayFromSelectedRoute(selected routing.SelectedProviderRoute, auxGateway llm.Gateway, emitDebugEvents bool, llmMaxResponseBytes int) (llm.Gateway, error) {
+	return GatewayFromSelectedRoute(selected, auxGateway, emitDebugEvents, llmMaxResponseBytes)
+}
+
+func GatewayFromSelectedRoute(selected routing.SelectedProviderRoute, auxGateway llm.Gateway, emitDebugEvents bool, llmMaxResponseBytes int) (llm.Gateway, error) {
+	if selected.Credential.ProviderKind == routing.ProviderKindStub {
+		return auxGateway, nil
+	}
+	resolved, err := ResolveGatewayConfigFromSelectedRoute(selected, emitDebugEvents, llmMaxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
+	return llm.NewGatewayFromResolvedConfig(resolved)
+}
+
+func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRoute, emitDebugEvents bool, llmMaxResponseBytes int) (llm.ResolvedGatewayConfig, error) {
 	credential := selected.Credential
 	advancedJSON := mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON)
+	apiKey, err := resolveAPIKey(credential)
+	if err != nil {
+		return llm.ResolvedGatewayConfig{}, err
+	}
+	baseURL := ""
+	if credential.BaseURL != nil {
+		baseURL = *credential.BaseURL
+	}
+	transport := llm.TransportConfig{
+		APIKey:           apiKey,
+		BaseURL:          baseURL,
+		EmitDebugEvents:  emitDebugEvents,
+		MaxResponseBytes: llmMaxResponseBytes,
+	}
+
 	switch credential.ProviderKind {
-	case routing.ProviderKindStub:
-		return auxGateway, nil
 	case routing.ProviderKindOpenAI:
-		apiKey, err := resolveAPIKey(credential)
-		if err != nil {
-			return nil, err
-		}
-		baseURL := ""
-		if credential.BaseURL != nil {
-			baseURL = *credential.BaseURL
-		}
 		apiMode := "auto"
 		if credential.OpenAIMode != nil {
 			apiMode = *credential.OpenAIMode
 		}
-		return llm.NewOpenAIGateway(llm.OpenAIGatewayConfig{
-			APIKey:          apiKey,
-			BaseURL:         baseURL,
-			APIMode:         apiMode,
-			AdvancedJSON:    advancedJSON,
-			EmitDebugEvents: emitDebugEvents,
-		}), nil
+		protocol, err := llm.ResolveOpenAIProtocolConfig(apiMode, advancedJSON)
+		if err != nil {
+			return llm.ResolvedGatewayConfig{}, err
+		}
+		return llm.ResolvedGatewayConfig{
+			ProtocolKind: protocol.PrimaryKind,
+			Model:        selected.Route.Model,
+			Transport:    transport,
+			OpenAI:       &protocol,
+		}, nil
 	case routing.ProviderKindAnthropic:
-		apiKey, err := resolveAPIKey(credential)
+		protocol, err := llm.ResolveAnthropicProtocolConfig(advancedJSON)
 		if err != nil {
-			return nil, err
+			return llm.ResolvedGatewayConfig{}, err
 		}
-		baseURL := ""
-		if credential.BaseURL != nil {
-			baseURL = *credential.BaseURL
-		}
-		return llm.NewAnthropicGateway(llm.AnthropicGatewayConfig{
-			APIKey:           apiKey,
-			BaseURL:          baseURL,
-			AdvancedJSON:     advancedJSON,
-			EmitDebugEvents:  emitDebugEvents,
-			MaxResponseBytes: llmMaxResponseBytes,
-		}), nil
+		return llm.ResolvedGatewayConfig{
+			ProtocolKind: llm.ProtocolKindAnthropicMessages,
+			Model:        selected.Route.Model,
+			Transport:    transport,
+			Anthropic:    &protocol,
+		}, nil
 	case routing.ProviderKindGemini:
-		apiKey, err := resolveAPIKey(credential)
+		protocol, err := llm.ResolveGeminiProtocolConfig(advancedJSON)
 		if err != nil {
-			return nil, err
+			return llm.ResolvedGatewayConfig{}, err
 		}
-		baseURL := ""
-		if credential.BaseURL != nil {
-			baseURL = *credential.BaseURL
-		}
-		return llm.NewGeminiGateway(llm.GeminiGatewayConfig{
-			APIKey:          apiKey,
-			BaseURL:         baseURL,
-			AdvancedJSON:    advancedJSON,
-			EmitDebugEvents: emitDebugEvents,
-		}), nil
+		return llm.ResolvedGatewayConfig{
+			ProtocolKind: llm.ProtocolKindGeminiGenerateContent,
+			Model:        selected.Route.Model,
+			Transport:    transport,
+			Gemini:       &protocol,
+		}, nil
+	case routing.ProviderKindStub:
+		return llm.ResolvedGatewayConfig{}, fmt.Errorf("stub route does not resolve to protocol config")
 	default:
-		return nil, fmt.Errorf("unknown provider_kind: %s", credential.ProviderKind)
+		return llm.ResolvedGatewayConfig{}, fmt.Errorf("unknown provider_kind: %s", credential.ProviderKind)
 	}
 }
 

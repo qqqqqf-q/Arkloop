@@ -1671,6 +1671,41 @@ func (g *captureRequestsGateway) Stream(ctx context.Context, request llm.Request
 	return yield(llm.StreamRunCompleted{})
 }
 
+type continuityCaptureGateway struct {
+	requests []llm.Request
+	calls    int
+}
+
+func (g *continuityCaptureGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.requests = append(g.requests, request)
+	g.calls++
+	if g.calls == 1 {
+		phase := "commentary"
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": "hi"},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{
+			AssistantMessage: &llm.Message{
+				Role:  "assistant",
+				Phase: &phase,
+				Content: []llm.ContentPart{
+					{Type: "thinking", Text: "pondering", Signature: "sig_1"},
+					{Type: "text", Text: "working"},
+				},
+			},
+		})
+	}
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
 type dupToolCallCaptureGateway struct {
 	requests []llm.Request
 	calls    int
@@ -1787,6 +1822,60 @@ func TestAgentLoopKeepsThinkingDeltaWhenStreamThinkingTrue(t *testing.T) {
 	}
 	if len(channels) != 2 || channels[0] != "thinking" || channels[1] != "" {
 		t.Fatalf("unexpected channels: %#v", channels)
+	}
+}
+
+func TestAgentLoopPreservesCompletedAssistantMessageAcrossTurns(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	dispatcher := tools.NewDispatchingExecutor(registry, tools.NewPolicyEnforcer(registry, allowlist))
+	if err := dispatcher.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &continuityCaptureGateway{}
+	loop := NewLoop(gateway, dispatcher)
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        dispatcher,
+			ToolTimeoutMs:       intPtr(1000),
+			ToolBudget:          map[string]any{},
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{
+			Model:    "stub",
+			Messages: []llm.Message{{Role: "user", Content: []llm.TextPart{{Text: "hi"}}}},
+		},
+		events.NewEmitter("trace"),
+		func(ev events.RunEvent) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if len(gateway.requests) < 2 {
+		t.Fatalf("expected at least 2 requests, got %d", len(gateway.requests))
+	}
+	second := gateway.requests[1]
+	if len(second.Messages) < 2 {
+		t.Fatalf("expected assistant history in second request, got %#v", second.Messages)
+	}
+	assistant := second.Messages[1]
+	if assistant.Phase == nil || *assistant.Phase != "commentary" {
+		t.Fatalf("expected assistant phase commentary, got %#v", assistant.Phase)
+	}
+	if len(assistant.Content) != 2 || assistant.Content[0].Kind() != "thinking" || assistant.Content[0].Signature != "sig_1" {
+		t.Fatalf("expected thinking signature continuity, got %#v", assistant.Content)
+	}
+	if len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ToolCallID != "call_1" {
+		t.Fatalf("expected preserved tool call history, got %#v", assistant.ToolCalls)
 	}
 }
 

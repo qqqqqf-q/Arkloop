@@ -775,6 +775,179 @@ func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
 	}
 }
 
+func TestDesktopGatewayFromRoute_UsesUnifiedGatewayResolver(t *testing.T) {
+	selected := routing.SelectedProviderRoute{
+		Route: routing.ProviderRouteRule{
+			ID:           "route-gemini",
+			Model:        "gemini-2.5-pro",
+			CredentialID: "cred-gemini",
+		},
+		Credential: routing.ProviderCredential{
+			ID:           "cred-gemini",
+			ProviderKind: routing.ProviderKindGemini,
+			APIKeyValue:  func() *string { v := "gemini-test-key"; return &v }(),
+		},
+	}
+
+	gateway, err := desktopGatewayFromRoute(selected, nil, true, 8192)
+	if err != nil {
+		t.Fatalf("desktopGatewayFromRoute returned error: %v", err)
+	}
+
+	geminiGateway, ok := gateway.(*llm.GeminiGateway)
+	if !ok {
+		t.Fatalf("expected GeminiGateway, got %T", gateway)
+	}
+	if geminiGateway.ProtocolKind() != llm.ProtocolKindGeminiGenerateContent {
+		t.Fatalf("unexpected protocol kind: %s", geminiGateway.ProtocolKind())
+	}
+}
+
+func TestDesktopRoutingResolveGatewayForAgentNameUsesSelector(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	router := routing.NewProviderRouter(routing.ProviderRoutingConfig{
+		DefaultRouteID: "route-openai",
+		Credentials: []routing.ProviderCredential{
+			{
+				ID:           "cred-openai",
+				Name:         "openai-primary",
+				ProviderKind: routing.ProviderKindOpenAI,
+				APIKeyValue:  func() *string { v := "sk-openai"; return &v }(),
+			},
+			{
+				ID:           "cred-gemini-a",
+				Name:         "gemini-a",
+				ProviderKind: routing.ProviderKindGemini,
+				APIKeyValue:  func() *string { v := "gemini-a-key"; return &v }(),
+			},
+			{
+				ID:           "cred-gemini-b",
+				Name:         "gemini-b",
+				ProviderKind: routing.ProviderKindGemini,
+				APIKeyValue:  func() *string { v := "gemini-b-key"; return &v }(),
+			},
+		},
+		Routes: []routing.ProviderRouteRule{
+			{
+				ID:           "route-openai",
+				CredentialID: "cred-openai",
+				Model:        "gpt-4o-mini",
+				Priority:     100,
+			},
+			{
+				ID:           "route-gemini-a",
+				CredentialID: "cred-gemini-a",
+				Model:        "gemini-2.5-pro",
+				Priority:     90,
+			},
+			{
+				ID:           "route-gemini-b",
+				CredentialID: "cred-gemini-b",
+				Model:        "gemini-2.5-pro",
+				Priority:     80,
+			},
+		},
+	})
+
+	mw := desktopRouting(router, nil, false, db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+	rc := &pipeline.RunContext{
+		Run:       dataRunForDesktopTest(),
+		Emitter:   events.NewEmitter("test"),
+		InputJSON: map[string]any{},
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.SelectedRoute == nil || rc.SelectedRoute.Route.ID != "route-openai" {
+			t.Fatalf("expected default desktop route, got %#v", rc.SelectedRoute)
+		}
+
+		gateway, selected, resolveErr := rc.ResolveGatewayForAgentName(context.Background(), "gemini-b^gemini-2.5-pro")
+		if resolveErr != nil {
+			t.Fatalf("ResolveGatewayForAgentName returned error: %v", resolveErr)
+		}
+		if selected == nil || selected.Route.ID != "route-gemini-b" {
+			t.Fatalf("unexpected selected route: %#v", selected)
+		}
+		if _, ok := gateway.(*llm.GeminiGateway); !ok {
+			t.Fatalf("expected GeminiGateway, got %T", gateway)
+		}
+		return nil
+	})
+
+	if err := h(ctx, rc); err != nil {
+		t.Fatalf("desktop routing middleware failed: %v", err)
+	}
+}
+
+func TestLoadDesktopRoutingConfigCanonicalizesGeminiModel(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	keyBytes := [32]byte{}
+	for idx := range keyBytes {
+		keyBytes[idx] = byte(idx + 31)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	secretID := uuid.New()
+	credentialID := uuid.New()
+	routeID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-routing-" + accountID.String(), "Desktop Routing"},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-gemini-secret", encryptDesktopChannelToken(t, keyBytes, "gemini-test-key")},
+		},
+		{
+			sql:  `INSERT INTO llm_credentials (id, account_id, provider, name, secret_id, key_prefix, advanced_json) VALUES ($1, $2, 'gemini', 'desktop-gemini', $3, 'gemini-t', '{}')`,
+			args: []any{credentialID, accountID, secretID},
+		},
+		{
+			sql:  `INSERT INTO llm_routes (id, account_id, credential_id, model, priority, is_default, when_json, advanced_json, multiplier) VALUES ($1, $2, $3, $4, 10, 1, '{}', '{}', 1.0)`,
+			args: []any{routeID, accountID, credentialID, "models/gemini-2.5-pro"},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed routing config: %v", err)
+		}
+	}
+
+	cfg, err := loadDesktopRoutingConfig(ctx, db)
+	if err != nil {
+		t.Fatalf("loadDesktopRoutingConfig: %v", err)
+	}
+	if len(cfg.Routes) != 1 {
+		t.Fatalf("expected one route, got %d", len(cfg.Routes))
+	}
+	if cfg.Routes[0].Model != "gemini-2.5-pro" {
+		t.Fatalf("expected canonical gemini model, got %q", cfg.Routes[0].Model)
+	}
+}
+
 func TestLoadPersonaRegistryFromFSPrefersBuiltinRootEnv(t *testing.T) {
 	personasRoot := t.TempDir()
 	personaDir := filepath.Join(personasRoot, "env-persona")

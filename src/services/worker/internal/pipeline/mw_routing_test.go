@@ -457,3 +457,54 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_EmptyFallbackCurrent(t *te
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRoutingMiddleware_ResolveGatewayForAgentName_UsesFullSelectorConfigForByok(t *testing.T) {
+	cfg := routing.ProviderRoutingConfig{
+		DefaultRouteID: "route-default",
+		Credentials: []routing.ProviderCredential{
+			{
+				ID:           "cred-platform",
+				Name:         "platform-openai",
+				OwnerKind:    routing.CredentialScopePlatform,
+				ProviderKind: routing.ProviderKindStub,
+			},
+			{
+				ID:           "cred-user",
+				Name:         "byok-openai",
+				OwnerKind:    routing.CredentialScopeUser,
+				ProviderKind: routing.ProviderKindStub,
+			},
+		},
+		Routes: []routing.ProviderRouteRule{
+			{ID: "route-default", Model: "gpt-4o-mini", CredentialID: "cred-platform", Priority: 100},
+			{ID: "route-byok", Model: "gpt-5", CredentialID: "cred-user", Priority: 90},
+		},
+	}
+	router := routing.NewProviderRouter(cfg)
+
+	mw := pipeline.NewRoutingMiddleware(
+		router, nil, auxGateway{}, false,
+		data.RunsRepository{}, data.RunEventsRepository{},
+		nil, nil,
+	)
+
+	rc := &pipeline.RunContext{
+		Emitter:   events.NewEmitter("test"),
+		InputJSON: map[string]any{},
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		_, _, err := rc.ResolveGatewayForAgentName(context.Background(), "byok-openai^gpt-5")
+		if err == nil {
+			t.Fatal("expected BYOK selector to be evaluated and denied when feature is off")
+		}
+		if got := err.Error(); got != "policy.byok_disabled: BYOK not enabled" {
+			t.Fatalf("unexpected selector error: %v", err)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected middleware error: %v", err)
+	}
+}

@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"arkloop/services/shared/messagecontent"
@@ -90,6 +92,7 @@ func (e GatewayError) ToJSON() map[string]any {
 type ContentPart struct {
 	Type          string
 	Text          string
+	Signature     string
 	CacheControl  *string // "ephemeral"（Anthropic prompt caching）
 	Attachment    *messagecontent.AttachmentRef
 	ExtractedText string
@@ -119,6 +122,20 @@ func (p ContentPart) Kind() string {
 
 func (p ContentPart) ToJSON() map[string]any {
 	switch p.Kind() {
+	case "thinking":
+		payload := map[string]any{
+			"type":     "thinking",
+			"thinking": p.Text,
+		}
+		if strings.TrimSpace(p.Signature) != "" {
+			payload["signature"] = p.Signature
+		}
+		return payload
+	case "redacted_thinking":
+		return map[string]any{
+			"type": "redacted_thinking",
+			"data": p.Text,
+		}
 	case messagecontent.PartTypeImage:
 		return map[string]any{
 			"type":       messagecontent.PartTypeImage,
@@ -172,6 +189,7 @@ func (c ToolCall) ToDataJSON() map[string]any {
 
 type Message struct {
 	Role         string
+	Phase        *string
 	Content      []ContentPart
 	ToolCalls    []ToolCall
 	OutputTokens *int64 // assistant 消息的实际 output tokens，用于上下文裁剪
@@ -189,7 +207,51 @@ func (m Message) ToJSON() map[string]any {
 		}
 		payload["tool_calls"] = items
 	}
+	if m.Phase != nil && strings.TrimSpace(*m.Phase) != "" {
+		payload["phase"] = strings.TrimSpace(*m.Phase)
+	}
 	return payload
+}
+
+func MessageFromJSONMap(raw map[string]any) (Message, error) {
+	role, _ := raw["role"].(string)
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return Message{}, fmt.Errorf("message missing role")
+	}
+
+	parts, err := contentPartsFromJSON(raw["content"])
+	if err != nil {
+		return Message{}, err
+	}
+
+	var phase *string
+	if value, ok := raw["phase"].(string); ok && strings.TrimSpace(value) != "" {
+		trimmed := strings.TrimSpace(value)
+		phase = &trimmed
+	}
+
+	message := Message{
+		Role:    role,
+		Phase:   phase,
+		Content: parts,
+	}
+	if rawCalls, ok := raw["tool_calls"].([]any); ok {
+		calls := make([]ToolCall, 0, len(rawCalls))
+		for idx, rawCall := range rawCalls {
+			callObj, ok := rawCall.(map[string]any)
+			if !ok {
+				return Message{}, fmt.Errorf("message tool_calls[%d] is not an object", idx)
+			}
+			call, err := toolCallFromJSONMap(callObj)
+			if err != nil {
+				return Message{}, err
+			}
+			calls = append(calls, call)
+		}
+		message.ToolCalls = calls
+	}
+	return message, nil
 }
 
 type ToolSpec struct {
@@ -391,9 +453,10 @@ func (f StreamProviderFallback) ToDataJSON() map[string]any {
 }
 
 type StreamRunCompleted struct {
-	LlmCallID string
-	Usage     *Usage
-	Cost      *Cost
+	LlmCallID        string
+	Usage            *Usage
+	Cost             *Cost
+	AssistantMessage *Message
 }
 
 func (c StreamRunCompleted) ToDataJSON() map[string]any {
@@ -406,6 +469,9 @@ func (c StreamRunCompleted) ToDataJSON() map[string]any {
 	}
 	if c.Cost != nil {
 		payload["cost"] = c.Cost.ToJSON()
+	}
+	if c.AssistantMessage != nil {
+		payload["assistant_message"] = c.AssistantMessage.ToJSON()
 	}
 	return payload
 }
@@ -523,4 +589,242 @@ func messagesToJSON(messages []Message) []map[string]any {
 		out = append(out, message.ToJSON())
 	}
 	return out
+}
+
+func VisibleContentParts(parts []ContentPart) []ContentPart {
+	if len(parts) == 0 {
+		return nil
+	}
+	out := make([]ContentPart, 0, len(parts))
+	for _, part := range parts {
+		switch part.Kind() {
+		case messagecontent.PartTypeText, messagecontent.PartTypeImage, messagecontent.PartTypeFile:
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func VisibleMessageText(message Message) string {
+	var b strings.Builder
+	for _, part := range VisibleContentParts(message.Content) {
+		switch part.Kind() {
+		case messagecontent.PartTypeText:
+			b.WriteString(part.Text)
+		case messagecontent.PartTypeFile:
+			b.WriteString(PartPromptText(part))
+		}
+	}
+	return b.String()
+}
+
+func BuildAssistantThreadContentJSON(message Message) (json.RawMessage, error) {
+	visibleParts := VisibleContentParts(message.Content)
+	content := messagecontent.Content{Parts: make([]messagecontent.Part, 0, len(visibleParts))}
+	for _, part := range visibleParts {
+		switch part.Kind() {
+		case messagecontent.PartTypeText:
+			content.Parts = append(content.Parts, messagecontent.Part{Type: messagecontent.PartTypeText, Text: part.Text})
+		case messagecontent.PartTypeFile:
+			content.Parts = append(content.Parts, messagecontent.Part{
+				Type:          messagecontent.PartTypeFile,
+				Attachment:    part.Attachment,
+				ExtractedText: part.ExtractedText,
+			})
+		case messagecontent.PartTypeImage:
+			content.Parts = append(content.Parts, messagecontent.Part{
+				Type:       messagecontent.PartTypeImage,
+				Attachment: part.Attachment,
+			})
+		}
+	}
+
+	payload := map[string]any{
+		"parts": content.Parts,
+	}
+	if needsAssistantStateEnvelope(message) {
+		state := map[string]any{
+			"content": partsToJSON(message.Content),
+		}
+		if message.Phase != nil && strings.TrimSpace(*message.Phase) != "" {
+			state["phase"] = strings.TrimSpace(*message.Phase)
+		}
+		payload["assistant_state"] = state
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func AssistantMessageFromThreadContentJSON(raw []byte) (*Message, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var envelope struct {
+		AssistantState json.RawMessage `json:"assistant_state"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
+	}
+	if len(envelope.AssistantState) == 0 {
+		return nil, nil
+	}
+	var state struct {
+		Phase   *string `json:"phase"`
+		Content []any   `json:"content"`
+	}
+	if err := json.Unmarshal(envelope.AssistantState, &state); err != nil {
+		return nil, err
+	}
+	parts, err := contentPartsFromJSON(state.Content)
+	if err != nil {
+		return nil, err
+	}
+	message := &Message{
+		Role:    "assistant",
+		Phase:   state.Phase,
+		Content: parts,
+	}
+	return message, nil
+}
+
+func needsAssistantStateEnvelope(message Message) bool {
+	if message.Phase != nil && strings.TrimSpace(*message.Phase) != "" {
+		return true
+	}
+	for _, part := range message.Content {
+		switch part.Kind() {
+		case "thinking", "redacted_thinking":
+			return true
+		}
+	}
+	return false
+}
+
+func contentPartsFromJSON(raw any) ([]ContentPart, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	rawParts, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("message content is not an array")
+	}
+	parts := make([]ContentPart, 0, len(rawParts))
+	for idx, rawPart := range rawParts {
+		partObj, ok := rawPart.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("message content[%d] is not an object", idx)
+		}
+		part, err := contentPartFromJSONMap(partObj)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, part)
+	}
+	return parts, nil
+}
+
+func contentPartFromJSONMap(raw map[string]any) (ContentPart, error) {
+	typ, _ := raw["type"].(string)
+	typ = strings.TrimSpace(typ)
+	switch typ {
+	case "", messagecontent.PartTypeText:
+		part := ContentPart{
+			Type: messagecontent.PartTypeText,
+			Text: stringValue(raw["text"]),
+		}
+		if cacheControl, ok := raw["cache_control"].(string); ok && strings.TrimSpace(cacheControl) != "" {
+			trimmed := strings.TrimSpace(cacheControl)
+			part.CacheControl = &trimmed
+		}
+		return part, nil
+	case "thinking":
+		return ContentPart{
+			Type:      "thinking",
+			Text:      stringValue(firstNonNil(raw["thinking"], raw["text"])),
+			Signature: strings.TrimSpace(stringValue(raw["signature"])),
+		}, nil
+	case "redacted_thinking":
+		return ContentPart{
+			Type: "redacted_thinking",
+			Text: stringValue(firstNonNil(raw["data"], raw["text"])),
+		}, nil
+	case messagecontent.PartTypeImage:
+		attachment, err := attachmentRefFromJSON(raw["attachment"])
+		if err != nil {
+			return ContentPart{}, err
+		}
+		return ContentPart{Type: messagecontent.PartTypeImage, Attachment: attachment}, nil
+	case messagecontent.PartTypeFile:
+		attachment, err := attachmentRefFromJSON(raw["attachment"])
+		if err != nil {
+			return ContentPart{}, err
+		}
+		return ContentPart{
+			Type:          messagecontent.PartTypeFile,
+			Attachment:    attachment,
+			ExtractedText: stringValue(raw["extracted_text"]),
+		}, nil
+	default:
+		return ContentPart{}, fmt.Errorf("unsupported content part type %q", typ)
+	}
+}
+
+func attachmentRefFromJSON(raw any) (*messagecontent.AttachmentRef, error) {
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("attachment is not an object")
+	}
+	return &messagecontent.AttachmentRef{
+		Key:      strings.TrimSpace(stringValue(obj["key"])),
+		Filename: strings.TrimSpace(stringValue(obj["filename"])),
+		MimeType: strings.TrimSpace(stringValue(obj["mime_type"])),
+		Size:     int64(intValue(obj["size"])),
+	}, nil
+}
+
+func toolCallFromJSONMap(raw map[string]any) (ToolCall, error) {
+	callID := strings.TrimSpace(stringValue(firstNonNil(raw["tool_call_id"], raw["call_id"], raw["id"])))
+	toolName := strings.TrimSpace(stringValue(firstNonNil(raw["tool_name"], raw["name"])))
+	if callID == "" || toolName == "" {
+		return ToolCall{}, fmt.Errorf("tool call missing id or name")
+	}
+	args, _ := raw["arguments"].(map[string]any)
+	if args == nil {
+		args, _ = raw["arguments_json"].(map[string]any)
+	}
+	return ToolCall{
+		ToolCallID:    callID,
+		ToolName:      toolName,
+		ArgumentsJSON: mapOrEmpty(args),
+	}, nil
+}
+
+func stringValue(raw any) string {
+	text, _ := raw.(string)
+	return text
+}
+
+func intValue(raw any) int {
+	switch value := raw.(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }

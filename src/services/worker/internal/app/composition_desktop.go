@@ -1402,7 +1402,19 @@ func desktopRouting(
 		rc.SelectedRoute = decision.Selected
 		rc.ResolveGatewayForRouteID = resolveGateway
 		rc.ResolveGatewayForAgentName = func(ctx context.Context, name string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
-			return resolveGateway(ctx, "")
+			cleanedSelector := strings.TrimSpace(name)
+			if cleanedSelector == "" {
+				return resolveGateway(ctx, "")
+			}
+			selected, resolveErr := resolveDesktopSelectedRouteBySelector(cfg, cleanedSelector)
+			if resolveErr != nil {
+				return nil, nil, resolveErr
+			}
+			gw, gwErr := desktopGatewayFromRoute(*selected, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes)
+			if gwErr != nil {
+				return nil, nil, gwErr
+			}
+			return gw, selected, nil
 		}
 
 		rc.RoutingByokEnabled = false
@@ -1412,60 +1424,7 @@ func desktopRouting(
 }
 
 func desktopGatewayFromRoute(selected routing.SelectedProviderRoute, stub llm.Gateway, debug bool, maxBytes int) (llm.Gateway, error) {
-	cred := selected.Credential
-	advanced := mergeJSON(cred.AdvancedJSON, selected.Route.AdvancedJSON)
-	switch cred.ProviderKind {
-	case routing.ProviderKindStub:
-		return stub, nil
-	case routing.ProviderKindOpenAI:
-		key, err := resolveDesktopAPIKey(cred)
-		if err != nil {
-			return nil, err
-		}
-		baseURL := ""
-		if cred.BaseURL != nil {
-			baseURL = *cred.BaseURL
-		}
-		apiMode := "auto"
-		if cred.OpenAIMode != nil {
-			apiMode = *cred.OpenAIMode
-		}
-		return llm.NewOpenAIGateway(llm.OpenAIGatewayConfig{
-			APIKey: key, BaseURL: baseURL, APIMode: apiMode,
-			AdvancedJSON: advanced, EmitDebugEvents: debug,
-		}), nil
-	case routing.ProviderKindAnthropic:
-		key, err := resolveDesktopAPIKey(cred)
-		if err != nil {
-			return nil, err
-		}
-		baseURL := ""
-		if cred.BaseURL != nil {
-			baseURL = *cred.BaseURL
-		}
-		return llm.NewAnthropicGateway(llm.AnthropicGatewayConfig{
-			APIKey: key, BaseURL: baseURL,
-			AdvancedJSON: advanced, EmitDebugEvents: debug,
-			MaxResponseBytes: maxBytes,
-		}), nil
-	default:
-		return nil, fmt.Errorf("unknown provider_kind: %s", cred.ProviderKind)
-	}
-}
-
-func resolveDesktopAPIKey(cred routing.ProviderCredential) (string, error) {
-	if cred.APIKeyValue != nil && strings.TrimSpace(*cred.APIKeyValue) != "" {
-		return *cred.APIKeyValue, nil
-	}
-	if cred.APIKeyEnv == nil || strings.TrimSpace(*cred.APIKeyEnv) == "" {
-		return "", fmt.Errorf("missing api_key_env")
-	}
-	name := strings.TrimSpace(*cred.APIKeyEnv)
-	value := strings.TrimSpace(os.Getenv(name))
-	if value == "" {
-		return "", fmt.Errorf("missing environment variable %s", name)
-	}
-	return value, nil
+	return pipeline.GatewayFromSelectedRoute(selected, stub, debug, maxBytes)
 }
 
 // --------------- desktop agent loop ---------------
@@ -1569,7 +1528,7 @@ func desktopAgentLoop(
 				metadata["completion_state"] = "complete"
 				metadata["finish_reason"] = "completed"
 			}
-			if err := desktopInsertAssistantMessage(ctx, db, rc.Run, content, metadata); err != nil {
+			if err := desktopInsertAssistantMessage(ctx, db, rc.Run, w.finalAssistantMessage(), metadata); err != nil {
 				slog.WarnContext(ctx, "desktop: insert assistant message failed", "err", err)
 			}
 			if err := pipeline.DeleteResponseDraft(ctx, rc.ResponseDraftStore, rc.Run.ID); err != nil {
@@ -1604,6 +1563,7 @@ type desktopEventWriter struct {
 	latestAssistantSeq      int64
 	lastDraftFlushAt        time.Time
 	responseDraftStore      objectstore.BlobStore
+	assistantMessage        *llm.Message
 	toolCallCount           int
 	iterationCount          int
 	completed               bool
@@ -1687,6 +1647,9 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	eventSeq, err := w.eventsRepo.AppendRunEvent(ctx, tx, runID, ev)
 	if err != nil {
 		return err
+	}
+	if assistantMessage, ok := desktopAssistantMessageFromEventData(ev.DataJSON); ok {
+		w.assistantMessage = &assistantMessage
 	}
 
 	w.accumUsage(ev.DataJSON)
@@ -1895,6 +1858,27 @@ func (w *desktopEventWriter) accumUsage(dataJSON map[string]any) {
 	}
 }
 
+func (w *desktopEventWriter) assistantOutput() string {
+	if w.assistantMessage != nil {
+		return llm.VisibleMessageText(*w.assistantMessage)
+	}
+	return strings.Join(w.assistantDeltas, "")
+}
+
+func (w *desktopEventWriter) finalAssistantMessage() llm.Message {
+	if w.assistantMessage != nil {
+		return *w.assistantMessage
+	}
+	content := strings.Join(w.assistantDeltas, "")
+	if strings.TrimSpace(content) == "" {
+		return llm.Message{Role: "assistant"}
+	}
+	return llm.Message{
+		Role:    "assistant",
+		Content: []llm.TextPart{{Text: content}},
+	}
+}
+
 // --------------- helpers ---------------
 
 // desktopWriteFailure writes a run.failed event and terminal status via DesktopDB.
@@ -2013,19 +1997,36 @@ func readDesktopCancelEvent(ctx context.Context, db data.DesktopDB, runID uuid.U
 	return (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, []string{"run.cancel_requested", "run.cancelled"})
 }
 
-func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run data.Run, content string, metadata map[string]any) error {
+func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run data.Run, message llm.Message, metadata map[string]any) error {
+	content := llm.VisibleMessageText(message)
 	if db == nil || strings.TrimSpace(content) == "" {
 		return nil
+	}
+	contentJSON, err := llm.BuildAssistantThreadContentJSON(message)
+	if err != nil {
+		return err
 	}
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	if _, err := (data.MessagesRepository{}).InsertAssistantMessageWithMetadata(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, false, metadata); err != nil {
+	if _, err := (data.MessagesRepository{}).InsertAssistantMessageWithMetadata(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, contentJSON, false, metadata); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func desktopAssistantMessageFromEventData(dataJSON map[string]any) (llm.Message, bool) {
+	raw, ok := dataJSON["assistant_message"].(map[string]any)
+	if !ok || raw == nil {
+		return llm.Message{}, false
+	}
+	message, err := llm.MessageFromJSONMap(raw)
+	if err != nil {
+		return llm.Message{}, false
+	}
+	return message, true
 }
 
 func desktopExtractDelta(dataJSON map[string]any) string {
@@ -2162,17 +2163,6 @@ func desktopSubAgentSchemaAvailable(ctx context.Context, db data.DesktopDB) bool
 	return err == nil && count == requiredTables
 }
 
-func mergeJSON(a, b map[string]any) map[string]any {
-	out := make(map[string]any, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
-	for k, v := range b {
-		out[k] = v
-	}
-	return out
-}
-
 func cloneDesktopMap(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return nil
@@ -2197,6 +2187,37 @@ func splitDesktopModelSelector(selector string) (string, string, bool) {
 		return "", strings.TrimSpace(selector), false
 	}
 	return left, right, true
+}
+
+func resolveDesktopSelectedRouteBySelector(cfg routing.ProviderRoutingConfig, selector string) (*routing.SelectedProviderRoute, error) {
+	credentialName, modelName, exact := splitDesktopModelSelector(selector)
+	if exact {
+		route, cred, ok := cfg.GetHighestPriorityRouteByCredentialAndModel(credentialName, modelName, map[string]any{})
+		if !ok {
+			return nil, fmt.Errorf("route not found for selector: %s", selector)
+		}
+		return &routing.SelectedProviderRoute{Route: route, Credential: cred}, nil
+	}
+
+	route, cred, ok := cfg.GetHighestPriorityRouteByModel(selector, map[string]any{})
+	if !ok {
+		return nil, fmt.Errorf("route not found for selector: %s", selector)
+	}
+	return &routing.SelectedProviderRoute{Route: route, Credential: cred}, nil
+}
+
+func canonicalDesktopRouteModel(providerKind routing.ProviderKind, model string) string {
+	model = strings.TrimSpace(model)
+	if providerKind != routing.ProviderKindGemini {
+		return model
+	}
+	for {
+		lowerModel := strings.ToLower(model)
+		if !strings.HasPrefix(lowerModel, "models/") {
+			return model
+		}
+		model = strings.TrimSpace(model[len("models/"):])
+	}
 }
 
 // loadDesktopRoutingConfig builds a ProviderRoutingConfig from the SQLite
@@ -2237,7 +2258,7 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	credRows.Close()
 
 	var creds []routing.ProviderCredential
-	credMap := map[string]struct{}{}
+	credMap := map[string]routing.ProviderCredential{}
 	for _, c := range rawCreds {
 		var apiKey *string
 		if c.secretID != nil && *c.secretID != "" {
@@ -2260,12 +2281,13 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 			_ = json.Unmarshal([]byte(c.advancedStr), &advanced)
 		}
 		scope := routing.CredentialScopePlatform
-		creds = append(creds, routing.ProviderCredential{
+		cred := routing.ProviderCredential{
 			ID: c.id, Name: c.name, OwnerKind: scope,
 			ProviderKind: routing.ProviderKind(c.provider),
 			APIKeyValue:  apiKey, BaseURL: c.baseURL, OpenAIMode: c.openAIMode, AdvancedJSON: advanced,
-		})
-		credMap[c.id] = struct{}{}
+		}
+		creds = append(creds, cred)
+		credMap[c.id] = cred
 	}
 	if len(creds) == 0 {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("no active credentials found in database")
@@ -2292,9 +2314,11 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 			routeRows.Close()
 			return routing.ProviderRoutingConfig{}, fmt.Errorf("scan llm_routes: %w", err)
 		}
-		if _, ok := credMap[credentialID]; !ok {
+		cred, ok := credMap[credentialID]
+		if !ok {
 			continue
 		}
+		model = canonicalDesktopRouteModel(cred.ProviderKind, model)
 		var when, adv map[string]any
 		if whenStr != "" && whenStr != "{}" {
 			_ = json.Unmarshal([]byte(whenStr), &when)

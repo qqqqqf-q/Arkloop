@@ -479,7 +479,7 @@ func createLlmProviderModel(
 		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
-	req.Model = strings.TrimSpace(req.Model)
+	req.Model = llmproviders.CanonicalModelIdentifier(provider.Credential.Provider, req.Model)
 	if req.Model == "" {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "model is required", traceID, nil)
 		return
@@ -515,7 +515,7 @@ func createLlmProviderModel(
 		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
-	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLlmProviderModelResponse(model))
+	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toLlmProviderModelResponse(model, provider.Credential.Provider))
 }
 
 func patchLlmProviderModel(
@@ -631,6 +631,10 @@ func patchLlmProviderModel(
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "cost_per_1k_cache_read must be a number", traceID, nil)
 		return
 	}
+	if modelSet {
+		normalizedModel := llmproviders.CanonicalModelIdentifier(provider.Credential.Provider, *modelText)
+		modelText = &normalizedModel
+	}
 	if modelSet && strings.TrimSpace(*modelText) == "" {
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "model must not be empty", traceID, nil)
 		return
@@ -675,7 +679,7 @@ func patchLlmProviderModel(
 		writeLlmProviderServiceError(r.Context(), w, traceID, err)
 		return
 	}
-	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toLlmProviderModelResponse(model))
+	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toLlmProviderModelResponse(model, provider.Credential.Provider))
 }
 
 func deleteLlmProviderModel(
@@ -921,7 +925,7 @@ func buildLlmUpstreamErrorDetails(err *llmproviders.UpstreamListModelsError) map
 func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {
 	models := make([]llmProviderModelResponse, 0, len(provider.Models))
 	for _, model := range provider.Models {
-		models = append(models, toLlmProviderModelResponse(model))
+		models = append(models, toLlmProviderModelResponse(model, provider.Credential.Provider))
 	}
 	var accountID *string
 	if provider.Credential.OwnerUserID != nil {
@@ -944,7 +948,7 @@ func toLlmProviderResponse(provider llmproviders.Provider) llmProviderResponse {
 	}
 }
 
-func toLlmProviderModelResponse(model data.LlmRoute) llmProviderModelResponse {
+func toLlmProviderModelResponse(model data.LlmRoute, providerName string) llmProviderModelResponse {
 	whenJSON := model.WhenJSON
 	if len(whenJSON) == 0 {
 		whenJSON = json.RawMessage("{}")
@@ -952,7 +956,7 @@ func toLlmProviderModelResponse(model data.LlmRoute) llmProviderModelResponse {
 	return llmProviderModelResponse{
 		ID:                  model.ID.String(),
 		ProviderID:          model.CredentialID.String(),
-		Model:               model.Model,
+		Model:               llmproviders.CanonicalModelIdentifier(providerName, model.Model),
 		Priority:            model.Priority,
 		IsDefault:           model.IsDefault,
 		ShowInPicker:        model.ShowInPicker,
