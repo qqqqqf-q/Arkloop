@@ -80,6 +80,8 @@ type RequestState = {
   sawVisibleAssistantDelta: boolean
 }
 
+const assistantReservedControlToken = '<end_turn>'
+
 type TurnState = {
   turn: LlmTurn
   userMessageCount: number
@@ -274,6 +276,47 @@ function appendAssistantSegment(turn: LlmTurn, text: string) {
   })
 }
 
+class AssistantControlTokenFilter {
+  private pending = ''
+
+  push(chunk: string): string {
+    if (chunk === '') return ''
+    let combined = this.pending + chunk
+    this.pending = ''
+    if (combined === '') return ''
+
+    const suffix = trailingAssistantControlPrefix(combined)
+    if (suffix) {
+      this.pending = suffix
+      combined = combined.slice(0, combined.length - suffix.length)
+    }
+    if (combined === '') return ''
+
+    const cleaned = combined.split(assistantReservedControlToken).join('')
+    if (cleaned.trim() === '' && combined.includes(assistantReservedControlToken)) {
+      return ''
+    }
+    return cleaned
+  }
+
+  flush(): string {
+    const tail = this.pending
+    this.pending = ''
+    return tail
+  }
+}
+
+function trailingAssistantControlPrefix(text: string): string {
+  const maxSuffix = Math.min(text.length, assistantReservedControlToken.length - 1)
+  for (let size = maxSuffix; size > 0; size -= 1) {
+    const suffix = text.slice(-size)
+    if (assistantReservedControlToken.startsWith(suffix)) {
+      return suffix
+    }
+  }
+  return ''
+}
+
 function finalizeTurnAssistant(turn: LlmTurn) {
   let lastAssistant: Extract<TurnSegment, { kind: 'assistant' }> | undefined
   for (const segment of turn.segments) {
@@ -387,9 +430,12 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
   let currentState: TurnState | null = null
   let activeRequestCallID = ''
   const assistantChunks: string[] = []
+  const assistantControlFilter = new AssistantControlTokenFilter()
 
   const flushAssistant = () => {
     if (!currentState) return
+    const tail = assistantControlFilter.flush()
+    if (tail) assistantChunks.push(tail)
     const merged = cleanText(assistantChunks.join(''))
     assistantChunks.length = 0
     if (!merged) return
@@ -437,7 +483,9 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
       if (data.channel === 'thinking') continue
       const delta = String(data.content_delta ?? '')
       if (!delta) continue
-      assistantChunks.push(delta)
+      const cleaned = assistantControlFilter.push(delta)
+      if (!cleaned) continue
+      assistantChunks.push(cleaned)
       const requestState = requestStates.get(activeRequestCallID)
       if (requestState) requestState.sawVisibleAssistantDelta = true
       continue

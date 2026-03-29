@@ -279,6 +279,50 @@ conversation-title: "Arkloop"
     ])
   })
 
+  it('strips split end_turn control tokens from visible assistant output', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'anthropic',
+          api_mode: 'messages',
+          payload: { messages: [{ role: 'user', content: 'heartbeat' }] },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '<end',
+        },
+      }),
+      makeEvent({
+        seq: 3,
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '_turn>\n看到了',
+        },
+      }),
+      makeEvent({
+        seq: 4,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_1',
+        },
+      }),
+    ])
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.assistantText).toBe('看到了')
+    expect(turns[0]?.segments).toEqual([
+      { kind: 'assistant', text: '看到了', isFinal: true },
+    ])
+  })
+
   it('estimates context tokens from llm.request payload byte stats', () => {
     const turns = buildTurns([
       makeEvent({
