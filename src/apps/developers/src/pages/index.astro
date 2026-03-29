@@ -121,13 +121,17 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
         <p class="hero-desc">构建、部署并管理强大的 AI Agent。简洁、安全、以开发者为先。</p>
 
         <div class="cta-block">
-          <div class="download-row">
-            <a class="btn-download" id="btn-download-zh" href="https://github.com/qqqqqf-q/Arkloop/releases">Download for Desktop</a>
-            <div class="platform-picker" id="platform-picker-zh">
-              <button class="platform-btn active" data-platform="auto" title="自动检测平台">
-                <span class="platform-label" id="platform-label-zh">自动</span>
-              </button>
-              <select class="platform-select" id="platform-select-zh" aria-label="选择平台">
+          <div class="btn-download-wrap">
+            <a class="btn-download" id="btn-download-zh" href="https://github.com/qqqqqf-q/Arkloop/releases">
+              <span class="btn-download-text">Download for Desktop</span>
+            </a>
+            <div class="btn-platform-divider"></div>
+            <div class="btn-platform-trigger" id="platform-trigger-zh" title="切换平台">
+              <span class="btn-platform-label" id="platform-label-zh">Apple Silicon</span>
+              <svg class="btn-platform-chevron" viewBox="0 0 10 6" fill="none">
+                <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <select class="platform-select-overlay" id="platform-select-zh" aria-label="选择平台">
                 <option value="darwin-arm64">macOS Apple Silicon</option>
                 <option value="darwin-x64">macOS Intel</option>
                 <option value="win32-x64">Windows x64</option>
@@ -280,6 +284,18 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     sel.addEventListener('change', () => updatePlatform(sel.value));
   }
 
+  // 点击主按钮区域触发下载
+  const downloadBtn = document.getElementById('btn-download-zh') as HTMLAnchorElement | null;
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', (e) => {
+      // 如果点击在 platform trigger 区域内，阻止跳转（由 select 处理）
+      const trigger = document.getElementById('platform-trigger-zh');
+      if (trigger && trigger.contains(e.target as Node)) {
+        e.preventDefault();
+      }
+    });
+  }
+
   initDownload();
 </script>
 
@@ -313,11 +329,11 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   .landing-card {
     display: flex;
     width: 100%;
-    max-width: 1000px;
+    max-width: 860px;
     border: 1px solid var(--border-strong);
     border-radius: 16px;
     overflow: hidden;
-    min-height: 560px;
+    min-height: 520px;
   }
 
   .split-left {
