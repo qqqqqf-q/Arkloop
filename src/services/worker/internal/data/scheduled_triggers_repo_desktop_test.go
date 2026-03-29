@@ -4,6 +4,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"arkloop/services/shared/database/sqlitepgx"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesPersonaKeyColumn(t *testing.T) {
@@ -288,6 +290,79 @@ func TestScheduledTriggersRepositoryGetEarliestHeartbeatDue(t *testing.T) {
 	}
 	if !got.Equal(earliest) {
 		t.Fatalf("unexpected earliest next_fire_at: got=%s want=%s", *got, earliest)
+	}
+}
+
+func TestScheduledTriggersRepositoryInsertHeartbeatRunInTxWritesRecoveryMetadata(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	tailMessageID := uuid.New()
+	triggerID := uuid.New()
+	identityID := uuid.New()
+
+	seedDesktopAccount(t, db, accountID)
+	seedDesktopProject(t, db, accountID, projectID)
+	seedDesktopThread(t, db, accountID, projectID, threadID)
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO messages (id, account_id, thread_id, role, content, hidden, deleted_at, created_at)
+		 VALUES ($1, $2, $3, 'user', $4, FALSE, NULL, datetime('now'))`,
+		tailMessageID,
+		accountID,
+		threadID,
+		"heartbeat tail",
+	); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	result, err := (ScheduledTriggersRepository{}).InsertHeartbeatRunInTx(ctx, tx, ScheduledTriggerRow{
+		ID:                triggerID,
+		ChannelIdentityID: identityID,
+		PersonaKey:        "persona-heartbeat",
+		AccountID:         accountID,
+		Model:             "model-heartbeat",
+		IntervalMin:       5,
+	}, &HeartbeatThreadContext{ThreadID: threadID}, "model-heartbeat")
+	if err != nil {
+		t.Fatalf("insert heartbeat run in tx: %v", err)
+	}
+
+	var rawJSON string
+	if err := tx.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		result.RunID,
+	).Scan(&rawJSON); err != nil {
+		t.Fatalf("query run.started: %v", err)
+	}
+
+	var started map[string]any
+	if err := json.Unmarshal([]byte(rawJSON), &started); err != nil {
+		t.Fatalf("decode run.started: %v", err)
+	}
+	if got, _ := started["thread_tail_message_id"].(string); got != tailMessageID.String() {
+		t.Fatalf("unexpected thread_tail_message_id: got %q want %q", got, tailMessageID)
+	}
+	if got, _ := started["continuation_source"].(string); got != "none" {
+		t.Fatalf("unexpected continuation_source: %q", got)
+	}
+	if got, _ := started["continuation_loop"].(bool); got {
+		t.Fatalf("unexpected continuation_loop: %v", got)
 	}
 }
 

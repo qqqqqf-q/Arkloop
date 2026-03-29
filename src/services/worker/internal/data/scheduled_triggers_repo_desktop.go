@@ -50,6 +50,11 @@ type HeartbeatThreadContext struct {
 	CreatedByUserID  *uuid.UUID
 }
 
+type threadTailMessage struct {
+	ID   uuid.UUID
+	Role string
+}
+
 // UpsertHeartbeat 注册或更新某个 channel identity 的 heartbeat 调度。
 func (ScheduledTriggersRepository) UpsertHeartbeat(
 	ctx context.Context,
@@ -532,9 +537,14 @@ func (ScheduledTriggersRepository) InsertHeartbeatRunInTx(
 		return HeartbeatRunResult{}, fmt.Errorf("insert heartbeat run: %w", err)
 	}
 
+	startedData, err := buildDesktopHeartbeatStartedData(ctx, tx, ctxData.ThreadID, row.PersonaKey, model)
+	if err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("build heartbeat run.started data: %w", err)
+	}
+
 	repo := DesktopRunEventsRepository{}
 	if _, err := repo.AppendEvent(ctx, tx, runID, "run.started",
-		map[string]any{"persona_id": row.PersonaKey, "model": model, "run_kind": runkind.Heartbeat},
+		startedData,
 		nil, nil,
 	); err != nil {
 		return HeartbeatRunResult{}, fmt.Errorf("append run.started: %w", err)
@@ -579,6 +589,55 @@ func DesktopCreateHeartbeatRunWithContext(
 
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+func buildDesktopHeartbeatStartedData(
+	ctx context.Context,
+	tx pgx.Tx,
+	threadID uuid.UUID,
+	personaKey string,
+	model string,
+) (map[string]any, error) {
+	data := map[string]any{
+		"persona_id":          personaKey,
+		"model":               model,
+		"run_kind":            runkind.Heartbeat,
+		"continuation_source": "none",
+		"continuation_loop":   false,
+	}
+	msg, err := getLatestDesktopThreadMessage(ctx, tx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if msg != nil {
+		data["thread_tail_message_id"] = msg.ID.String()
+	}
+	return data, nil
+}
+
+func getLatestDesktopThreadMessage(ctx context.Context, tx pgx.Tx, threadID uuid.UUID) (*threadTailMessage, error) {
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	var msg threadTailMessage
+	err := tx.QueryRow(ctx,
+		`SELECT id, role
+		   FROM messages
+		  WHERE thread_id = $1
+		    AND hidden = FALSE
+		    AND deleted_at IS NULL
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&msg.ID, &msg.Role)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	msg.Role = strings.TrimSpace(msg.Role)
+	return &msg, nil
 }
 
 // HeartbeatIdentityConfig 是从 channel_identities 读到的 heartbeat 配置。
