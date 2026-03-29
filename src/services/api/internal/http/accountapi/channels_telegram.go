@@ -767,6 +767,8 @@ func (c telegramConnector) HandleUpdate(
 			c.channelIdentitiesRepo,
 			c.channelDMThreadsRepo,
 			c.threadRepo,
+			c.runEventRepo.WithTx(tx),
+			c.pool,
 		); err != nil {
 			return err
 		} else if handled {
@@ -833,6 +835,63 @@ func (c telegramConnector) HandleUpdate(
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return err
+			}
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   replyText,
+				})
+				sendCancel()
+			}
+			return nil
+		}
+		if ok && cmd == "/stop" {
+			var replyText string
+			var cancelRunID uuid.UUID
+			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
+				replyText = "当前没有运行中的任务。"
+			} else if identity.UserID == nil {
+				replyText = "无权限。"
+			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
+				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
+					ChatID: incoming.PlatformChatID,
+					UserID: tgUserID,
+				})
+				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
+					replyText = "无权限。"
+				} else {
+					threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID)
+					if err != nil {
+						return err
+					}
+					if threadMap == nil {
+						replyText = "当前没有运行中的任务。"
+					} else {
+						activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
+						if err != nil {
+							return err
+						}
+						if activeRun == nil {
+							replyText = "当前没有运���中的任务。"
+						} else {
+							if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, traceID, 0, nil); err != nil {
+								return err
+							}
+							cancelRunID = activeRun.ID
+							replyText = "已请求停止当前任务。"
+						}
+					}
+				}
+			} else {
+				replyText = "当前没有运行中的任务。"
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			if cancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
 			}
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
@@ -1305,6 +1364,8 @@ func handleTelegramCommand(
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
+	runEventRepo *data.RunEventRepository,
+	pool data.DB,
 ) (bool, string, error) {
 	if !strings.HasPrefix(text, "/") {
 		return false, "", nil
@@ -1316,13 +1377,13 @@ func handleTelegramCommand(
 	command := strings.TrimSpace(parts[0])
 	switch {
 	case command == "/help":
-		return true, "可用命令：/start /help /bind <code> /new", nil
+		return true, "/start — 查看连接状态\n/bind <code> — 绑定你的账号\n/new — 开启新会话\n/stop — 停止当前任务\n/help — 显示此帮助", nil
 	case command == "/start":
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "bind_") {
 			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"), channelBindCodesRepo, channelIdentitiesRepo, channelDMThreadsRepo, threadRepo)
 			return true, replyText, err
 		}
-		return true, "已连接 Arkloop。使用 /bind <code> 绑定账号；私聊可用 /new 开新会话，群内已绑定账号可用 /new 重置群会话。", nil
+		return true, "已连接 Arkloop\n\n使用 /bind <code> 绑定账号\n私聊直接发消息开始对话，/new 开启新会话\n群内 @bot 触发对话，管理员可用 /new 重置会话", nil
 	case command == "/bind":
 		if len(parts) < 2 {
 			return true, "用法：/bind <code>", nil
@@ -1337,6 +1398,29 @@ func handleTelegramCommand(
 			return true, "", err
 		}
 		return true, "已开启新会话。", nil
+	case command == "/stop":
+		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
+			return true, "当前没有运行中的任务。", nil
+		}
+		dmThread, err := channelDMThreadsRepo.GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID)
+		if err != nil {
+			return true, "", err
+		}
+		if dmThread == nil {
+			return true, "当前没有运行中的任务。", nil
+		}
+		activeRun, err := runEventRepo.GetActiveRootRunForThread(ctx, dmThread.ThreadID)
+		if err != nil {
+			return true, "", err
+		}
+		if activeRun == nil {
+			return true, "当前没有运行中的任务。", nil
+		}
+		if _, err := runEventRepo.RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
+			return true, "", err
+		}
+		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
+		return true, "已请求停止当前任务。", nil
 	default:
 		return false, "", nil
 	}
@@ -1636,6 +1720,8 @@ func (c telegramConnector) HandleUpdateForPoll(
 			c.channelIdentitiesRepo,
 			c.channelDMThreadsRepo,
 			c.threadRepo,
+			c.runEventRepo.WithTx(tx),
+			c.pool,
 		); err != nil {
 			return err
 		} else if handled {
@@ -1708,6 +1794,63 @@ func (c telegramConnector) HandleUpdateForPoll(
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return err
+			}
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   replyText,
+				})
+				sendCancel()
+			}
+			return nil
+		}
+		if ok && cmd == "/stop" {
+			var replyText string
+			var cancelRunID uuid.UUID
+			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
+				replyText = "当前没有运行中的任务。"
+			} else if identity.UserID == nil {
+				replyText = "无权限。"
+			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
+				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
+					ChatID: incoming.PlatformChatID,
+					UserID: tgUserID,
+				})
+				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
+					replyText = "无权限。"
+				} else {
+					threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID)
+					if err != nil {
+						return err
+					}
+					if threadMap == nil {
+						replyText = "当前没有运行中的任务。"
+					} else {
+						activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
+						if err != nil {
+							return err
+						}
+						if activeRun == nil {
+							replyText = "当前没有运行中的任务。"
+						} else {
+							if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, traceID, 0, nil); err != nil {
+								return err
+							}
+							cancelRunID = activeRun.ID
+							replyText = "已请求停止当前任务。"
+						}
+					}
+				}
+			} else {
+				replyText = "当前没有运行中的任务。"
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			if cancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
 			}
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
