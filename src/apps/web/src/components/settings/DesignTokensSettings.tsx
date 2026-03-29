@@ -522,6 +522,9 @@ function InputsPreview() {
   const [vendorVal, setVendorVal] = useState('openai_responses')
   const [rangeVal, setRangeVal] = useState(80)
   const [numVal, setNumVal] = useState(4)
+  const [textSm, setTextSm] = useState('')
+  const [textLg, setTextLg] = useState('')
+  const [textModal, setTextModal] = useState('')
 
   const MODEL_OPTIONS: Option[] = [
     { value: 'p1^claude-opus-4-6', label: 'provider1 / claude-opus-4-6' },
@@ -543,19 +546,19 @@ function InputsPreview() {
         {/* INPUT_CLS — ProvidersSettings / ConnectorsSettings · rounded-md py-1.5 */}
         <div>
           <label className={LABEL_CLS}>TEXT · INPUT_CLS · rounded-md border py-1.5 (ProvidersSettings, ConnectorsSettings)</label>
-          <input className={INPUT_CLS} placeholder="e.g. https://api.openai.com/v1" readOnly />
+          <input className={INPUT_CLS} placeholder="e.g. https://api.openai.com/v1" value={textSm} onChange={e => setTextSm(e.target.value)} />
         </div>
 
         {/* INPUT_CLS_LG — SearchFetchSettings · rounded-lg py-2 */}
         <div>
           <label className={LABEL_CLS}>TEXT LARGER · INPUT_CLS_LG · rounded-lg py-2 (SearchFetchSettings)</label>
-          <input className={INPUT_CLS_LG} placeholder="API key…" readOnly />
+          <input className={INPUT_CLS_LG} placeholder="API key…" value={textLg} onChange={e => setTextLg(e.target.value)} />
         </div>
 
         {/* FIELD_INPUT_CLS — ProvidersSettings AddProviderModal · rounded-[10px] h-36px border-auth */}
         <div>
           <label className={FIELD_LABEL_CLS}>TEXT MODAL · FIELD_INPUT_CLS · rounded-[10px] h-[36px] border-auth (ProvidersSettings modal)</label>
-          <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" readOnly />
+          <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" value={textModal} onChange={e => setTextModal(e.target.value)} />
         </div>
 
         {/* Password input — ConnectorsSettings Eye toggle */}
@@ -565,8 +568,7 @@ function InputsPreview() {
             <input
               className={INPUT_CLS + ' pr-9'}
               type={showPw ? 'text' : 'password'}
-              defaultValue="sk-proj-xxxxxxxxxxxxxxxx"
-              readOnly
+              placeholder="sk-proj-xxxxxxxxxxxxxxxx"
             />
             <button
               type="button"
@@ -681,7 +683,7 @@ function TogglesPreview() {
             </div>
             <div className="flex items-center gap-3">
               <span className="w-9 shrink-0 text-center text-[10px] font-medium uppercase tracking-wide text-[var(--c-text-muted)]">Early</span>
-              <input type="range" min={5} max={100} defaultValue={80} className={RANGE_CLASS} readOnly />
+              <input type="range" min={5} max={100} defaultValue={80} className={RANGE_CLASS} />
               <span className="w-9 shrink-0 text-center text-[10px] font-medium uppercase tracking-wide text-[var(--c-text-muted)]">Late</span>
             </div>
           </div>
@@ -698,7 +700,6 @@ function TogglesPreview() {
               max={50}
               defaultValue={4}
               className="h-9 w-14 shrink-0 rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none"
-              readOnly
             />
           </div>
 
@@ -733,6 +734,8 @@ function TogglesPreview() {
 
 function ProviderCardPreview() {
   const [selected, setSelected] = useState('brave')
+  const [braveKey, setBraveKey] = useState('')
+  const [tavilyKey, setTavilyKey] = useState('')
 
   return (
     <PreviewSection title="Provider Card (SearchFetchSettings · ProviderCard + ExpandPanel + StatusBadge)">
@@ -748,7 +751,7 @@ function ProviderCardPreview() {
           <div className="flex flex-col gap-3">
             <div>
               <label className={LABEL_CLS_LG}>API Key</label>
-              <input className={INPUT_CLS_LG} placeholder="BSA…" readOnly />
+              <input className={INPUT_CLS_LG} placeholder="BSA…" value={braveKey} onChange={e => setBraveKey(e.target.value)} />
             </div>
           </div>
         </ProviderCard>
@@ -764,7 +767,7 @@ function ProviderCardPreview() {
           <div className="flex flex-col gap-3">
             <div>
               <label className={LABEL_CLS_LG}>API Key</label>
-              <input className={INPUT_CLS_LG} placeholder="tvly-…" readOnly />
+              <input className={INPUT_CLS_LG} placeholder="tvly-…" value={tavilyKey} onChange={e => setTavilyKey(e.target.value)} />
             </div>
           </div>
         </ProviderCard>
@@ -834,33 +837,37 @@ function ListNavPreview() {
 // ---------------------------------------------------------------------------
 
 function ModalFieldsPreview() {
+  const [modalName, setModalName] = useState('')
+  const [modalVendor, setModalVendor] = useState('openai_responses')
+  const [modalKey, setModalKey] = useState('')
+  const [modalBase, setModalBase] = useState('')
   return (
     <PreviewSection title="Modal Form Fields (ProvidersSettings AddProviderModal · grid-cols-2)">
       <div className={SECTION_CLS}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <div>
             <label className={FIELD_LABEL_CLS}>Provider name</label>
-            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" readOnly />
+            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" value={modalName} onChange={e => setModalName(e.target.value)} />
           </div>
           <div>
             <label className={FIELD_LABEL_CLS}>Vendor</label>
             <VendorDropdown
-              value="openai_responses"
+              value={modalVendor}
               options={[
                 { key: 'openai_responses', label: 'OpenAI (Responses API)' },
                 { key: 'anthropic_message', label: 'Anthropic' },
                 { key: 'gemini', label: 'Gemini' },
               ]}
-              onChange={() => {}}
+              onChange={setModalVendor}
             />
           </div>
           <div className="col-span-2">
             <label className={FIELD_LABEL_CLS}>API Key</label>
-            <input type="password" className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="sk-proj-…" readOnly />
+            <input type="password" className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="sk-proj-…" value={modalKey} onChange={e => setModalKey(e.target.value)} />
           </div>
           <div className="col-span-2">
             <label className={FIELD_LABEL_CLS}>Base URL</label>
-            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="https://api.example.com/v1" readOnly />
+            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="https://api.example.com/v1" value={modalBase} onChange={e => setModalBase(e.target.value)} />
           </div>
         </div>
       </div>
