@@ -106,10 +106,6 @@ func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGa
 
 		bus := rc.EventBus
 		byok := rc.RoutingByokEnabled
-		err = next(ctx, rc)
-		if err != nil {
-			return err
-		}
 
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), titleSummarizerTimeout)
@@ -137,6 +133,11 @@ func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGa
 			)
 			titleGenerator(ctx, db, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
+
+		err = next(ctx, rc)
+		if err != nil {
+			return err
+		}
 
 		return err
 	}
