@@ -518,6 +518,9 @@ export type ThreadResponse = {
   created_at: string
   active_run_id: string | null
   is_private: boolean
+  title_locked?: boolean
+  hidden?: boolean
+  updated_at?: string
   parent_thread_id?: string | null
 }
 
