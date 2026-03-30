@@ -1035,6 +1035,10 @@ func desktopTelegramReplyReference(rc *pipeline.RunContext) *pipeline.ChannelMes
 	if rc.HeartbeatRun {
 		return nil
 	}
+	if strings.EqualFold(strings.TrimSpace(rc.ChannelContext.ConversationType), "private") ||
+		strings.EqualFold(strings.TrimSpace(rc.ChannelContext.ConversationType), "dm") {
+		return nil
+	}
 	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {
 		return rc.ChannelContext.TriggerMessage
 	}

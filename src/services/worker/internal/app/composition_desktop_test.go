@@ -2163,8 +2163,9 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
 		FinalAssistantOutput: "你好，来自 desktop。",
 		ChannelContext: &pipeline.ChannelContext{
-			ChannelID:   channelID,
-			ChannelType: "telegram",
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
 			Conversation: pipeline.ChannelConversationRef{
 				Target:   "10001",
 				ThreadID: &threadRef,
@@ -2202,6 +2203,158 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 	}
 	if platformThread != threadRef {
 		t.Fatalf("unexpected platform_thread_id: %q", platformThread)
+	}
+}
+
+func TestDesktopChannelDeliverySkipsReplyReferenceInPrivateTelegram(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/botdesktop-token/sendMessage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if bytes.Contains(raw, []byte(`"reply_to_message_id"`)) {
+			t.Fatalf("expected private telegram request without reply_to_message_id: %s", string(raw))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":903,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 51)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-private-" + accountID.String(), "Desktop Channel Private"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自 private desktop。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "private",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+			InboundMessage: pipeline.ChannelMessageRef{MessageID: "66"},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "66"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	var parentID *string
+	if err := db.QueryRow(
+		ctx,
+		`SELECT platform_parent_message_id FROM channel_message_ledger LIMIT 1`,
+	).Scan(&parentID); err != nil {
+		t.Fatalf("load channel ledger parent: %v", err)
+	}
+	if parentID != nil {
+		t.Fatalf("expected private telegram ledger parent to be nil, got %#v", parentID)
 	}
 }
 

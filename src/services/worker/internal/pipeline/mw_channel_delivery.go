@@ -259,6 +259,9 @@ func telegramReplyReference(rc *RunContext) *ChannelMessageRef {
 	if rc.HeartbeatRun {
 		return nil
 	}
+	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		return nil
+	}
 	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {
 		return rc.ChannelContext.TriggerMessage
 	}
