@@ -444,6 +444,8 @@ export type MessageSearchStepRef = {
   status: 'active' | 'done'
   queries?: string[]
   seq?: number
+  resultSeq?: number
+  sources?: WebSource[]
 }
 
 function messageSearchStepsKey(messageId: string): string {
@@ -465,13 +467,26 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         const label = typeof item.label === 'string' ? item.label : ''
         const status = item.status
         const seq = typeof item.seq === 'number' ? item.seq : undefined
+        const resultSeq = typeof item.resultSeq === 'number' ? item.resultSeq : undefined
         const queries = Array.isArray(item.queries)
           ? item.queries.filter((q): q is string => typeof q === 'string')
+          : undefined
+        const sources = Array.isArray(item.sources)
+          ? item.sources
+            .filter((source): source is Record<string, unknown> => source != null && typeof source === 'object')
+            .map((source): WebSource | null => {
+              const title = typeof source.title === 'string' ? source.title : ''
+              const url = typeof source.url === 'string' ? source.url : ''
+              if (!url) return null
+              const snippet = typeof source.snippet === 'string' ? source.snippet : undefined
+              return { title, url, snippet }
+            })
+            .filter((source): source is WebSource => source != null)
           : undefined
         if (!id) return null
         if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
         if (status !== 'active' && status !== 'done') return null
-        return { id, kind, label, status, queries, seq }
+        return { id, kind, label, status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}), ...(sources && sources.length > 0 ? { sources } : {}) }
       })
       .filter((step): step is MessageSearchStepRef => step != null)
     return steps.length > 0 ? steps : null
@@ -566,13 +581,14 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   const label = typeof s.label === 'string' ? s.label : ''
   const status = s.status
   const seq = typeof s.seq === 'number' ? s.seq : undefined
+  const resultSeq = typeof s.resultSeq === 'number' ? s.resultSeq : undefined
   const queries = Array.isArray(s.queries)
     ? (s.queries as unknown[]).filter((q): q is string => typeof q === 'string')
     : undefined
   if (!id) return null
   if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
   if (status !== 'active' && status !== 'done') return null
-  return { id, kind, label, status, queries, seq }
+  return { id, kind, label, status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}) }
 }
 
 export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | null {
@@ -946,6 +962,31 @@ export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]
   if (!canUseLocalStorage() || !messageId || fetches.length === 0) return
   try {
     localStorage.setItem(messageWebFetchesKey(messageId), JSON.stringify(fetches))
+  } catch { /* ignore */ }
+}
+
+// -- Terminal handoff status --
+
+export type MessageTerminalStatusRef = 'completed' | 'cancelled' | 'interrupted'
+
+function messageTerminalStatusKey(messageId: string): string {
+  return `arkloop:web:msg_terminal_status:${messageId}`
+}
+
+export function readMessageTerminalStatus(messageId: string): MessageTerminalStatusRef | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageTerminalStatusKey(messageId))
+    return raw === 'completed' || raw === 'cancelled' || raw === 'interrupted' ? raw : null
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageTerminalStatus(messageId: string, status: MessageTerminalStatusRef): void {
+  if (!canUseLocalStorage() || !messageId) return
+  try {
+    localStorage.setItem(messageTerminalStatusKey(messageId), status)
   } catch { /* ignore */ }
 }
 

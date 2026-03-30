@@ -45,6 +45,14 @@ function pickToolCallId(event: RunEvent): string {
   return typeof raw === 'string' && raw.trim() !== '' ? raw : event.event_id
 }
 
+export function isWebFetchToolName(toolName: string): boolean {
+  const t = toolName.trim()
+  if (!t) return false
+  const n = t.toLowerCase().replace(/-/g, '_')
+  if (n === 'web_fetch' || n === 'webfetch') return true
+  return n.startsWith('web_fetch.')
+}
+
 function pickSessionId(result: unknown): string | undefined {
   if (!result || typeof result !== 'object') return undefined
   const raw = (result as { session_id?: unknown }).session_id
@@ -1341,7 +1349,7 @@ export function applyWebFetchToolCall(
   if (event.type !== 'tool.call') return { nextFetches: fetches }
   if (isACPDelegateEventData(event.data)) return { nextFetches: fetches }
   const toolName = pickToolName(event.data)
-  if (toolName !== 'web_fetch') return { nextFetches: fetches }
+  if (!isWebFetchToolName(toolName)) return { nextFetches: fetches }
 
   const args = event.data && typeof event.data === 'object'
     ? (event.data as { arguments?: unknown }).arguments as Record<string, unknown> | undefined ?? {}
@@ -1363,7 +1371,7 @@ export function applyWebFetchToolResult(
   if (event.type !== 'tool.result') return { nextFetches: fetches }
   if (isACPDelegateEventData(event.data)) return { nextFetches: fetches }
   const toolName = pickToolName(event.data)
-  if (toolName !== 'web_fetch') return { nextFetches: fetches }
+  if (!isWebFetchToolName(toolName)) return { nextFetches: fetches }
 
   const toolCallId = pickToolCallId(event)
   const data = event.data && typeof event.data === 'object'

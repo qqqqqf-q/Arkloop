@@ -53,6 +53,7 @@ import {
   applyWebFetchToolCall,
   applyWebFetchToolResult,
   buildMessageWebFetchesFromRunEvents,
+  isWebFetchToolName,
 } from '../runEventProcessing'
 import {
   assistantTurnPlainText,
@@ -66,7 +67,7 @@ import {
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
 import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
-import { applyRunEventToWebSearchSteps, isWebSearchToolName } from '../webSearchTimelineFromRunEvent'
+import { applyRunEventToWebSearchSteps, isWebSearchToolName, webSearchSourcesFromResult } from '../webSearchTimelineFromRunEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import { isACPDelegateEventData } from '@arkloop/shared'
@@ -129,6 +130,9 @@ import {
   readMessageWebFetches,
   writeMessageWebFetches,
   type WebFetchRef,
+  readMessageTerminalStatus,
+  writeMessageTerminalStatus,
+  type MessageTerminalStatusRef,
   readMessageWidgets,
   writeMessageWidgets,
   type WidgetRef,
@@ -277,6 +281,8 @@ function finalizeBlockSteps(steps: WebSearchPhaseStep[]): MessageSearchStepRef[]
     label: step.label,
     status: 'done',
     queries: step.queries ? [...step.queries] : undefined,
+    resultSeq: step.resultSeq,
+    sources: step.sources ? [...step.sources] : undefined,
     seq: step.seq,
   }))
 }
@@ -814,6 +820,7 @@ export function ChatPage() {
     runAssistantTurn: AssistantTurnUi
     handoffAssistantTurn: AssistantTurnUi
     pendingSearchSteps?: MessageSearchStepRef[] | null
+    terminalStatus?: MessageTerminalStatusRef | null
   }
 
   type PersistRunDataOptions = {
@@ -822,7 +829,7 @@ export function ChatPage() {
     cacheAssistantTurn?: boolean
   }
 
-  const captureTerminalRunCache = (): TerminalRunCache => {
+  const captureTerminalRunCache = (terminalStatus?: MessageTerminalStatusRef | null): TerminalRunCache => {
     const handoffAssistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
       snapshotAssistantTurn(assistantTurnFoldStateRef.current),
       segmentsRef.current,
@@ -839,6 +846,7 @@ export function ChatPage() {
       runAssistantTurn: handoffAssistantTurn,
       handoffAssistantTurn,
       pendingSearchSteps: pendingSearchStepsRef.current,
+      terminalStatus: terminalStatus ?? terminalRunHandoffStatus,
     }
   }
 
@@ -862,6 +870,9 @@ export function ChatPage() {
       if (runData.pendingSearchSteps && runData.pendingSearchSteps.length > 0) {
         writeMessageSearchSteps(messageId, runData.pendingSearchSteps)
         setMessageSearchStepsMap((prev) => new Map(prev).set(messageId, runData.pendingSearchSteps!))
+      }
+      if (runData.terminalStatus) {
+        writeMessageTerminalStatus(messageId, runData.terminalStatus)
       }
       if (runData.runAssistantTurn.segments.length > 0) {
         if (persistAssistantTurn) {
@@ -1210,6 +1221,7 @@ export function ChatPage() {
         const webFetchesMap = new Map<string, WebFetchRef[]>()
         const thinkingMap = new Map<string, MessageThinkingRef>()
         const searchStepsMap = new Map<string, MessageSearchStepRef[]>()
+        const terminalStatusMap = new Map<string, MessageTerminalStatusRef>()
 
         const runEventsMap = new Map<string, MsgRunEvent[]>()
         const assistantTurnMap = new Map<string, AssistantTurnUi>()
@@ -1237,6 +1249,10 @@ export function ChatPage() {
             const patched = patchLegacySearchSteps(cachedSearchSteps)
             if (patched.changed) writeMessageSearchSteps(msg.id, patched.steps)
             searchStepsMap.set(msg.id, patched.steps)
+          }
+          const cachedTerminalStatus = readMessageTerminalStatus(msg.id)
+          if (cachedTerminalStatus) {
+            terminalStatusMap.set(msg.id, cachedTerminalStatus)
           }
 
           const cachedRunEvents = readMsgRunEvents(msg.id)
@@ -1335,12 +1351,25 @@ export function ChatPage() {
                 writeMessageWebFetches(lastAssistant.id, replayWebFetches)
               }
             }
+            if (lastAssistant && !searchStepsMap.has(lastAssistant.id)) {
+              const replaySearchSteps = finalizeSearchSteps(
+                replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
+              )
+              if (replaySearchSteps.length > 0) {
+                searchStepsMap.set(lastAssistant.id, replaySearchSteps)
+                writeMessageSearchSteps(lastAssistant.id, replaySearchSteps)
+              }
+            }
             if (lastAssistant && replayAssistantTurnNeeded) {
               const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
               }
+            }
+            if (lastAssistant && (latest.status === 'completed' || latest.status === 'cancelled' || latest.status === 'interrupted')) {
+              terminalStatusMap.set(lastAssistant.id, latest.status)
+              writeMessageTerminalStatus(lastAssistant.id, latest.status)
             }
           } catch {
             // 回放失败不影响主流程
@@ -1931,21 +1960,13 @@ export function ChatPage() {
         const obj = event.data as { tool_name?: unknown; tool_call_id?: unknown; result?: unknown; error?: unknown }
         const resultToolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
         if (isWebSearchToolName(resultToolName)) {
-          const result = obj.result as { results?: unknown[] } | undefined
-          if (Array.isArray(result?.results)) {
-            const newSources: WebSource[] = result.results
-              .filter((r): r is Record<string, unknown> => r != null && typeof r === 'object')
-              .map((r) => ({
-                title: typeof r.title === 'string' ? r.title : '',
-                url: typeof r.url === 'string' ? r.url : '',
-                snippet: typeof r.snippet === 'string' ? r.snippet : undefined,
-              }))
-              .filter((s) => !!s.url)
+          const newSources = webSearchSourcesFromResult(obj.result)
+          if (newSources && newSources.length > 0) {
             currentRunSourcesRef.current = [...currentRunSourcesRef.current, ...newSources]
           }
         }
         // 检测 sandbox 执行产物 + document_write / create_artifact 产物 + browser 产物
-        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write' || obj.tool_name === 'create_artifact' || obj.tool_name === 'browser') {
+        if (obj.tool_name === 'python_execute' || obj.tool_name === 'exec_command' || obj.tool_name === 'write_stdin' || obj.tool_name === 'document_write' || obj.tool_name === 'create_artifact' || obj.tool_name === 'browser' || isWebFetchToolName(resultToolName)) {
           const result = obj.result as { artifacts?: unknown[]; stdout?: unknown; stderr?: unknown; exit_code?: unknown; output?: unknown } | undefined
           if (Array.isArray(result?.artifacts)) {
             const newArtifacts: ArtifactRef[] = result.artifacts
@@ -2103,7 +2124,7 @@ export function ChatPage() {
           }
           return e.seq <= visibleNonTerminalSeqCutoff
         })
-        const runCache = captureTerminalRunCache()
+        const runCache = captureTerminalRunCache('completed')
         if (runEventsForMessage.length > 0) {
           const frozenAssistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
             buildFrozenAssistantTurnFromRunEvents(runEventsForMessage),
@@ -2168,7 +2189,7 @@ export function ChatPage() {
             return e.seq <= visibleNonTerminalSeqCutoff
           })
           : []
-        const runCache = captureTerminalRunCache()
+        const runCache = captureTerminalRunCache('cancelled')
         if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
           runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           runCache.runAssistantTurn = runCache.handoffAssistantTurn
@@ -2234,7 +2255,7 @@ export function ChatPage() {
             return e.seq <= visibleNonTerminalSeqCutoff
           })
           : []
-        const runCache = captureTerminalRunCache()
+        const runCache = captureTerminalRunCache('interrupted')
         if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
           runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           runCache.runAssistantTurn = runCache.handoffAssistantTurn
@@ -2893,6 +2914,7 @@ export function ChatPage() {
     hasSubAgents: boolean
     hasFileOps: boolean
     hasWebFetches: boolean
+    hasGenericTools: boolean
     hasThinking: boolean
     handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | null
   }): string | undefined => {
@@ -2910,7 +2932,7 @@ export function ChatPage() {
     if (params.steps.length > 0) {
       return statusLabel ?? params.steps[params.steps.length - 1]?.label ?? t.copTimelineLiveProgress
     }
-    if (params.hasCodeExecutions || params.hasSubAgents || params.hasFileOps || params.hasWebFetches) {
+    if (params.hasCodeExecutions || params.hasSubAgents || params.hasFileOps || params.hasWebFetches || params.hasGenericTools) {
       return statusLabel ?? t.copTimelineLiveProgress
     }
     if (params.hasThinking) {
@@ -3094,6 +3116,10 @@ export function ChatPage() {
                   msg.role === 'assistant' &&
                   terminalRunDisplayId != null &&
                   msg.run_id === terminalRunDisplayId
+                const persistedTerminalStatus =
+                  msg.role === 'assistant' ? readMessageTerminalStatus(msg.id) : null
+                const effectiveTerminalStatus =
+                  isCurrentTerminalRunMessage ? terminalRunHandoffStatus : persistedTerminalStatus
                 const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
                 const historicalTurn = msg.role === 'assistant' ? messageAssistantTurnMap.get(msg.id) : undefined
                 const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
@@ -3181,17 +3207,24 @@ export function ChatPage() {
                             ) {
                               return null
                             }
-                            const timelineTitleOverride = isCurrentTerminalRunMessage
-                              ? currentRunCopHeaderOverride({
-                                  title: seg.title,
-                                  steps: payload.steps,
-                                  hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
-                                  hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
-                                  hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
-                                  hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
-                                  hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
-                                  handoffStatus: terminalRunHandoffStatus,
-                                })
+                            const timelineTitleOverride = effectiveTerminalStatus != null
+                              ? (
+                                  !isCurrentTerminalRunMessage &&
+                                  (effectiveTerminalStatus === 'cancelled' || effectiveTerminalStatus === 'interrupted') &&
+                                  !seg.title?.trim()
+                                    ? t.connection.stopped
+                                    : currentRunCopHeaderOverride({
+                                        title: seg.title,
+                                        steps: payload.steps,
+                                        hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
+                                        hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
+                                        hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
+                                        hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                                        hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
+                                        hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
+                                        handoffStatus: effectiveTerminalStatus,
+                                      })
+                                )
                               : seg.title?.trim() || undefined
                             const histTrail = historicalSegments[si + 1]
                             const histTrailingText =
@@ -3208,6 +3241,7 @@ export function ChatPage() {
                                   subAgents={payload.subAgents}
                                   fileOps={payload.fileOps}
                                   webFetches={payload.webFetches}
+                                  genericTools={payload.genericTools}
                                   headerOverride={timelineTitleOverride}
                                   preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
                                   thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
@@ -3436,6 +3470,7 @@ export function ChatPage() {
                                 hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
                                 hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
                                 hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                                hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
                                 hasThinking: thinkingRowsLive.length > 0 || copInlineLive.length > 0,
                                 handoffStatus: terminalRunHandoffStatus,
                               })
@@ -3455,6 +3490,7 @@ export function ChatPage() {
                               subAgents={payload.subAgents}
                               fileOps={payload.fileOps}
                               webFetches={payload.webFetches}
+                              genericTools={payload.genericTools}
                               headerOverride={timelineTitleOverride}
                               thinkingRows={thinkingRowsLive.length > 0 ? thinkingRowsLive : undefined}
                               copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}

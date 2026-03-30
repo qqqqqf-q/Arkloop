@@ -30,7 +30,9 @@ export type WebSearchPhaseStep = {
   label: string
   status: 'active' | 'done'
   queries?: string[]
+  sources?: WebSource[]
   seq?: number
+  resultSeq?: number
 }
 
 export type SearchNarrative = {
@@ -50,6 +52,7 @@ type Props = {
   subAgents?: SubAgentRef[]
   fileOps?: FileOpRef[]
   webFetches?: WebFetchRef[]
+  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   headerOverride?: string
   shimmer?: boolean
   live?: boolean
@@ -687,7 +690,7 @@ export function CopTimelineUnifiedRow({
   )
 }
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent }: Props) {
   const { t } = useLocale()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
@@ -704,7 +707,8 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const subAgentCount = subAgents?.length ?? 0
   const fileOpCount = fileOps?.length ?? 0
   const webFetchCount = webFetches?.length ?? 0
-  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount)
+  const genericToolCount = genericTools?.length ?? 0
+  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount + genericToolCount)
   const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sources.length === 0
 
   /** 流式中展开；仅 thinking 无工具：后无正文时默认展开，已有正文段则默认收起 */
@@ -767,6 +771,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     subAgentCount === 0 &&
     fileOpCount === 0 &&
     webFetchCount === 0 &&
+    genericToolCount === 0 &&
     !headerOverride &&
     !hasAnyThinking &&
     copInlineList.length === 0
@@ -783,6 +788,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     | { kind: 'agent'; id: string; seq: number; item: SubAgentRef }
     | { kind: 'fileop'; id: string; seq: number; item: FileOpRef }
     | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
+    | { kind: 'generic'; id: string; seq: number; item: NonNullable<Props['genericTools']>[number] }
 
   const allUnified: UEntry[] = []
   for (const step of visibleSteps) {
@@ -802,6 +808,9 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   }
   for (const wf of (webFetches ?? [])) {
     if (wf.seq != null) allUnified.push({ kind: 'fetch', id: wf.id, seq: wf.seq, item: wf })
+  }
+  for (const tool of (genericTools ?? [])) {
+    if (tool.seq != null) allUnified.push({ kind: 'generic', id: tool.id, seq: tool.seq, item: tool })
   }
   for (const row of thinkingRowList) {
     allUnified.push({
@@ -843,6 +852,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     subAgentCount +
     fileOpCount +
     webFetchCount +
+    genericToolCount +
     thinkingRowList.length +
     copInlineList.length +
     (legacyThinkingVisible ? 1 : 0)
@@ -858,6 +868,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       agent: 4,
       fileop: 5,
       fetch: 6,
+      generic: 7,
     }
     allUnified.sort((a, b) => a.seq - b.seq || priority[a.kind] - priority[b.kind] || a.id.localeCompare(b.id))
   }
@@ -1045,7 +1056,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                       </div>
                     )}
 
-                    {step.kind === 'reviewing' && sources.length > 0 && (
+                    {step.kind === 'reviewing' && (step.sources ?? sources).length > 0 && (
                       <div
                         style={{
                           marginTop: '8px',
@@ -1058,7 +1069,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                           padding: '4px',
                         }}
                       >
-                        {sources.map((s, i) => (
+                        {(step.sources ?? sources).map((s, i) => (
                           <div key={`${s.url}-${i}`}>
                             <SourceItem source={s} />
                           </div>
@@ -1141,7 +1152,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                               </div>
                             )}
 
-                            {entry.item.kind === 'reviewing' && sources.length > 0 && (
+                            {entry.item.kind === 'reviewing' && (entry.item.sources ?? sources).length > 0 && (
                               <div
                                 style={{
                                   marginTop: '8px',
@@ -1154,7 +1165,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                                   padding: '4px',
                                 }}
                               >
-                                {sources.map((s, sourceIdx) => (
+                                {(entry.item.sources ?? sources).map((s, sourceIdx) => (
                                   <div key={`${s.url}-${sourceIdx}`}>
                                     <SourceItem source={s} />
                                   </div>
@@ -1200,6 +1211,17 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                           <ExecutionCard variant="fileop" toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live} />
                         )}
                         {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live={!!live} />}
+                        {entry.kind === 'generic' && (
+                          <ExecutionCard
+                            variant="fileop"
+                            toolName={entry.item.toolName}
+                            label={entry.item.label}
+                            output={entry.item.output}
+                            status={entry.item.status}
+                            errorMessage={entry.item.errorMessage}
+                            smooth={!!live}
+                          />
+                        )}
                       </CopTimelineUnifiedRow>
                     )
                   })}

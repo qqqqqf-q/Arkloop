@@ -17,7 +17,11 @@ import {
   cancelRun,
 } from '../api'
 import {
+  readMessageTerminalStatus,
+  readMessageAssistantTurn,
+  readMessageCodeExecutions,
   writeMessageAssistantTurn,
+  writeMessageTerminalStatus,
   writeMessageWidgets,
 } from '../storage'
 
@@ -82,6 +86,8 @@ vi.mock('../storage', async () => {
     writeMessageThinking: vi.fn(),
     readMessageSearchSteps: vi.fn(() => null),
     writeMessageSearchSteps: vi.fn(),
+    readMessageTerminalStatus: vi.fn(() => null),
+    writeMessageTerminalStatus: vi.fn(),
     readMessageAssistantTurn: vi.fn(() => null),
     writeMessageAssistantTurn: vi.fn(),
     clearMessageAssistantTurn: vi.fn(),
@@ -240,12 +246,19 @@ describe('ChatPage loading state', () => {
   const mockedCreateRun = vi.mocked(createRun)
   const mockedCancelRun = vi.mocked(cancelRun)
   const mockedWriteMessageAssistantTurn = vi.mocked(writeMessageAssistantTurn)
+const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
+const mockedReadMessageAssistantTurn = vi.mocked(readMessageAssistantTurn)
+const mockedReadMessageCodeExecutions = vi.mocked(readMessageCodeExecutions)
+const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
   const mockedWriteMessageWidgets = vi.mocked(writeMessageWidgets)
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
 
   beforeEach(() => {
+    mockedReadMessageAssistantTurn.mockReturnValue(null)
+    mockedReadMessageTerminalStatus.mockReturnValue(null)
+    mockedReadMessageCodeExecutions.mockReturnValue(null)
     vi.clearAllMocks()
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     HTMLElement.prototype.scrollIntoView = vi.fn()
@@ -292,6 +305,7 @@ describe('ChatPage loading state', () => {
     })
     mockedCreateRun.mockResolvedValue({ run_id: 'run-created', trace_id: 'trace-1' })
     mockedCancelRun.mockResolvedValue({ ok: true })
+    mockedReadMessageTerminalStatus.mockReturnValue(null)
   })
 
   afterEach(() => {
@@ -1562,6 +1576,101 @@ describe('ChatPage loading state', () => {
         segments: expect.any(Array),
       }),
     )
+    expect(mockedWriteMessageTerminalStatus).toHaveBeenCalledWith('msg-2', 'cancelled')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('刷新后历史 cancelled reply 仍保留 stopped 语义', async () => {
+    mockedReadMessageTerminalStatus.mockImplementation((messageId: string) => (
+      messageId === 'msg-2' ? 'cancelled' : null
+    ))
+    mockedReadMessageAssistantTurn.mockImplementation((messageId: string) => (
+      messageId === 'msg-2'
+        ? {
+            segments: [
+              {
+                type: 'cop',
+                title: null,
+                items: [{ kind: 'thinking', content: '先想一下', seq: 1 }],
+              },
+            ],
+          }
+        : null
+    ))
+    mockedReadMessageCodeExecutions.mockImplementation((messageId: string) => (
+      messageId === 'msg-2'
+        ? [{ id: 'exec-1', language: 'shell', code: 'pwd', status: 'failed' }]
+        : null
+    ))
+    mockedListMessages.mockResolvedValueOnce([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-cancel-persisted',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent ?? '').toMatch(/Stopped|已停止/)
 
     act(() => {
       root.unmount()
@@ -1958,6 +2067,112 @@ describe('ChatPage loading state', () => {
         html: '<div>图表</div>',
       },
     ])
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('仅靠 replay 也能恢复 search steps', async () => {
+    mockedListMessages.mockResolvedValueOnce([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-replay-search',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-replay-search',
+        status: 'completed',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-replay-search',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          arguments: { query: 'arkloop' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-replay-search',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          result: { results: [{ title: 'Arkloop', url: 'https://arkloop.test' }] },
+        },
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('Searching')
 
     act(() => {
       root.unmount()

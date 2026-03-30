@@ -4,6 +4,7 @@ import {
   applyRunEventToWebSearchSteps,
   isWebSearchToolName,
   webSearchQueriesFromArguments,
+  webSearchSourcesFromResult,
 } from '../webSearchTimelineFromRunEvent'
 import type { RunEvent } from '../sse'
 
@@ -22,6 +23,19 @@ describe('webSearchQueriesFromArguments', () => {
     expect(webSearchQueriesFromArguments({ query: 'a' })).toEqual(['a'])
     expect(webSearchQueriesFromArguments({ queries: ['b', 'c'] })).toEqual(['b', 'c'])
     expect(webSearchQueriesFromArguments({ query: 'a', queries: ['b'] })).toEqual(['a', 'b'])
+  })
+})
+
+describe('webSearchSourcesFromResult', () => {
+  it('提取 results 中的 sources', () => {
+    expect(
+      webSearchSourcesFromResult({
+        results: [
+          { title: 'A', url: 'https://a.test', snippet: 'aa' },
+          { title: 'B', url: '' },
+        ],
+      }),
+    ).toEqual([{ title: 'A', url: 'https://a.test', snippet: 'aa' }])
   })
 })
 
@@ -56,7 +70,44 @@ describe('applyRunEventToWebSearchSteps', () => {
     expect(steps[0]?.kind).toBe('searching')
     expect(steps[0]?.queries).toEqual(['q1'])
     steps = applyRunEventToWebSearchSteps(steps, result)
-    expect(steps.some((s) => s.kind === 'reviewing')).toBe(true)
+    expect(steps).toHaveLength(1)
+    expect(steps[0]?.sources).toEqual([{ title: 't', url: 'https://x.test', snippet: undefined }])
+    expect(steps[0]?.seq).toBe(1)
+    expect(steps[0]?.resultSeq).toBe(2)
+  })
+
+  it('多次 search 时只给对应 call 绑定自己的 sources', () => {
+    let steps = applyRunEventToWebSearchSteps([], {
+      type: 'tool.call',
+      seq: 10,
+      ts: '',
+      event_id: 'e1',
+      run_id: 'r',
+      data: { tool_name: 'web_search', tool_call_id: 's1', arguments: { query: 'first' } },
+    })
+    steps = applyRunEventToWebSearchSteps(steps, {
+      type: 'tool.call',
+      seq: 11,
+      ts: '',
+      event_id: 'e2',
+      run_id: 'r',
+      data: { tool_name: 'web_search', tool_call_id: 's2', arguments: { query: 'second' } },
+    })
+    steps = applyRunEventToWebSearchSteps(steps, {
+      type: 'tool.result',
+      seq: 20,
+      ts: '',
+      event_id: 'e3',
+      run_id: 'r',
+      data: {
+        tool_name: 'web_search',
+        tool_call_id: 's1',
+        result: { results: [{ title: 'one', url: 'https://one.test' }] },
+      },
+    })
+
+    expect(steps.find((step) => step.id === 's1')?.sources).toEqual([{ title: 'one', url: 'https://one.test', snippet: undefined }])
+    expect(steps.find((step) => step.id === 's2')?.sources).toBeUndefined()
   })
 
   it('忽略 delegate_layer 的搜索工具与内层 run 生命周期', () => {

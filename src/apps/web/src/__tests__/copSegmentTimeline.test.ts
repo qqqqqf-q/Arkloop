@@ -44,12 +44,60 @@ describe('copTimelinePayloadForSegment', () => {
       },
       {
         searchSteps: [
-          { id: 'ws1', kind: 'searching', label: 'q', status: 'done', seq: 1 },
+          { id: 'ws1', kind: 'searching', label: 'q', status: 'done', seq: 1, sources: [{ title: 'u', url: 'https://u.test' }] },
         ],
         sources: [{ title: 'u', url: 'https://u.test' }],
       },
     )
-    expect(r.sources).toHaveLength(1)
+    expect(r.steps.map((step) => step.kind)).toEqual(['searching', 'reviewing'])
+    expect(r.steps[1]?.sources).toEqual([{ title: 'u', url: 'https://u.test' }])
+  })
+
+  it('reviewing 按 resultSeq 排序，不抢到其他工具前面', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [call('ws1', 'web_search', 10), call('cmd1', 'exec_command', 11)],
+      },
+      {
+        codeExecutions: [{ id: 'cmd1', language: 'shell', code: 'ls', status: 'success', seq: 11 }],
+        searchSteps: [
+          {
+            id: 'ws1',
+            kind: 'searching',
+            label: 'q',
+            status: 'done',
+            seq: 10,
+            resultSeq: 20,
+            sources: [{ title: 'u', url: 'https://u.test' }],
+          },
+        ],
+        sources: [{ title: 'u', url: 'https://u.test' }],
+      },
+    )
+    expect(r.steps[1]?.seq).toBe(20)
+    expect(r.codeExecutions?.[0]?.seq).toBe(11)
+  })
+
+  it('未专门映射的工具进入 generic fallback', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [call('tool_1', 'fetch_url', 1)],
+      },
+      { sources: [] },
+    )
+    expect(r.genericTools).toEqual([
+      {
+        id: 'tool_1',
+        toolName: 'fetch_url',
+        label: 'fetch_url',
+        status: 'running',
+        seq: 1,
+      },
+    ])
   })
 
   it('toolCallIdsInCopTimelines 汇总 COP 时间轴已占用的 id', () => {

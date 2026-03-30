@@ -13,6 +13,9 @@ import {
   shouldRefetchCompletedRunMessages,
   shouldReplayMessageCodeExecutions,
   fileOpOutputFromResult,
+  applyWebFetchToolCall,
+  applyWebFetchToolResult,
+  isWebFetchToolName,
 } from '../runEventProcessing'
 import type { MessageResponse } from '../api'
 import type { RunEvent } from '../sse'
@@ -130,6 +133,50 @@ describe('selectFreshRunEvents', () => {
 
     expect(result.fresh.map((item) => item.seq)).toEqual([1, 2])
     expect(result.nextProcessedCount).toBe(2)
+  })
+})
+
+describe('isWebFetchToolName', () => {
+  it('接受常见 fetch 命名变体', () => {
+    expect(isWebFetchToolName('web_fetch')).toBe(true)
+    expect(isWebFetchToolName('webfetch')).toBe(true)
+    expect(isWebFetchToolName('web-fetch')).toBe(true)
+    expect(isWebFetchToolName('web_fetch.jina')).toBe(true)
+    expect(isWebFetchToolName('fetch_url')).toBe(false)
+  })
+})
+
+describe('web fetch processing', () => {
+  it('支持 provider 变体名称', () => {
+    const call = makeRunEvent({
+      runId: 'run_1',
+      seq: 1,
+      type: 'tool.call',
+      data: {
+        tool_name: 'web_fetch.jina',
+        tool_call_id: 'wf_1',
+        arguments: { url: 'https://example.com' },
+      },
+    })
+    const result = makeRunEvent({
+      runId: 'run_1',
+      seq: 2,
+      type: 'tool.result',
+      data: {
+        tool_name: 'web_fetch.jina',
+        tool_call_id: 'wf_1',
+        result: { title: 'Example', status_code: 200 },
+      },
+    })
+
+    const afterCall = applyWebFetchToolCall([], call)
+    expect(afterCall.nextFetches).toEqual([
+      { id: 'wf_1', url: 'https://example.com', status: 'fetching', seq: 1 },
+    ])
+    const afterResult = applyWebFetchToolResult(afterCall.nextFetches, result)
+    expect(afterResult.nextFetches).toEqual([
+      { id: 'wf_1', url: 'https://example.com', title: 'Example', statusCode: 200, status: 'done', seq: 1 },
+    ])
   })
 })
 
@@ -1210,10 +1257,10 @@ describe('memory_search file result summary', () => {
   it('caps listed lines and shows remainder count', () => {
     const hits = Array.from({ length: 45 }, (_, i) => ({ abstract: `h${i}` }))
     const out = fileOpOutputFromResult('memory_search', { hits })
-    expect(out.startsWith('45 results\n')).toBe(true)
+    expect(out?.startsWith('45 results\n')).toBe(true)
     expect(out).toContain('h0')
     expect(out).toContain('h39')
     expect(out).not.toContain('h40')
-    expect(out.endsWith('\n… 5 more')).toBe(true)
+    expect(out?.endsWith('\n… 5 more')).toBe(true)
   })
 })

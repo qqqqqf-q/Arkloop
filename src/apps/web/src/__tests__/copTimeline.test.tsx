@@ -8,13 +8,14 @@ import type { CodeExecution } from '../components/CodeExecutionCard'
 function renderTimeline(params: {
   isComplete: boolean
   preserveExpanded?: boolean
-  steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[]; seq?: number }[]
+  steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[]; sources?: WebSource[]; seq?: number }[]
   sources: WebSource[]
   narratives?: Array<{ id: string; text: string; seq: number }>
   codeExecutions?: CodeExecution[]
   subAgents?: SubAgentRef[]
   fileOps?: Array<{ id: string; toolName: string; label: string; status: 'running' | 'success' | 'failed'; seq?: number }>
   webFetches?: Array<{ id: string; url: string; title?: string; status: 'fetching' | 'done' | 'failed'; statusCode?: number; seq?: number }>
+  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   thinkingRows?: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec?: number }>
   thinkingStartedAt?: number
 }): string {
@@ -30,6 +31,7 @@ function renderTimeline(params: {
         subAgents={params.subAgents}
         fileOps={params.fileOps}
         webFetches={params.webFetches}
+        genericTools={params.genericTools}
         thinkingRows={params.thinkingRows}
         thinkingStartedAt={params.thinkingStartedAt}
       />
@@ -206,6 +208,37 @@ describe('CopTimeline', () => {
     expect(html).toContain('file:///Users/demo/runtime/skills/demo/SKILL.md')
     expect(html).toContain('>file<')
     expect(html).not.toContain('google.com/s2/favicons')
+  })
+
+  it('reviewing 行优先渲染步骤自带的 scoped sources', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [
+        {
+          id: 's1',
+          kind: 'reviewing',
+          label: 'Reviewing sources',
+          status: 'done',
+          seq: 2,
+          sources: [{ title: 'Scoped', url: 'https://scoped.test' }],
+        },
+      ],
+      sources: [{ title: 'Global', url: 'https://global.test' }],
+    })
+
+    expect(html).toContain('scoped.test')
+    expect(html).not.toContain('global.test')
+  })
+
+  it('generic tool 也按统一时间线渲染', () => {
+    const html = renderTimeline({
+      isComplete: false,
+      steps: [],
+      sources: [],
+      genericTools: [{ id: 'g1', toolName: 'fetch_url', label: 'fetch_url', status: 'running', seq: 1 }],
+    })
+
+    expect(html).toContain('fetch_url')
   })
 
 })

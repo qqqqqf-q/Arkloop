@@ -1,5 +1,6 @@
 import { isACPDelegateEventData } from '@arkloop/shared'
 import type { WebSearchPhaseStep } from './components/CopTimeline'
+import type { WebSource } from './storage'
 import type { RunEvent } from './sse'
 
 /** 不同模型/供应商可能用 web_search、web_search.tavily、大小写或连字符变体 */
@@ -23,6 +24,25 @@ export function webSearchQueriesFromArguments(
     }
   }
   return out.length ? out : undefined
+}
+
+export function webSearchSourcesFromResult(result: unknown): WebSource[] | undefined {
+  if (!result || typeof result !== 'object') return undefined
+  const raw = (result as { results?: unknown }).results
+  if (!Array.isArray(raw)) return undefined
+  const sources = raw
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+    .map((item): WebSource | null => {
+      const url = typeof item.url === 'string' ? item.url : ''
+      if (!url) return null
+      return {
+        title: typeof item.title === 'string' ? item.title : '',
+        url,
+        snippet: typeof item.snippet === 'string' ? item.snippet : undefined,
+      }
+    })
+    .filter((item): item is WebSource => item != null)
+  return sources.length > 0 ? sources : undefined
 }
 
 /**
@@ -81,6 +101,7 @@ export function applyRunEventToWebSearchSteps(
       label: 'Searching',
       status: 'active',
       queries,
+      seq: event.seq,
     }
     return [...steps, step]
   }
@@ -91,23 +112,17 @@ export function applyRunEventToWebSearchSteps(
     const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : ''
     if (!isWebSearchToolName(toolName)) return steps
     const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : event.event_id
-    let next = steps.map((s) =>
-      s.id === callId ? { ...s, status: 'done' as const } : s,
+    const sources = webSearchSourcesFromResult(obj.result)
+    const next = steps.map((s) =>
+      s.id === callId
+        ? {
+            ...s,
+            status: 'done' as const,
+            ...(typeof event.seq === 'number' ? { resultSeq: event.seq } : {}),
+            ...(sources ? { sources } : {}),
+          }
+        : s,
     )
-    const allSearchDone = next
-      .filter((s) => s.kind === 'searching')
-      .every((s) => s.status === 'done')
-    if (allSearchDone && !next.some((s) => s.kind === 'reviewing')) {
-      next = [
-        ...next,
-        {
-          id: 'auto-reviewing',
-          kind: 'reviewing' as const,
-          label: 'Reviewing sources',
-          status: 'active' as const,
-        },
-      ]
-    }
     return next
   }
 
