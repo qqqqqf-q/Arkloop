@@ -174,11 +174,11 @@ function EntryCard({ entry, onDelete }: { entry: MemoryEntry; onDelete: (id: str
       <div className="flex items-start gap-3 px-4 py-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${categoryColor(entry.category)}`}>
+            <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${categoryColor(entry.category)}`}>
               {entry.category}
             </span>
             {entry.scope === 'agent' && (
-              <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400">agent</span>
+              <span className="inline-flex items-center rounded-md bg-indigo-500/15 px-2 py-0.5 text-xs font-medium text-indigo-400">agent</span>
             )}
             {entry.key && <span className="text-[10px] text-[var(--c-text-muted)]">{entry.key}</span>}
           </div>
@@ -956,7 +956,7 @@ export function MemorySettings({ accessToken }: Props) {
             {isLocal ? ds.memoryEntriesTitle : ds.memorySnapshotTitle}
           </h4>
           {isLocal && entries.length > 0 && (
-            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>
               {entries.length}
             </span>
           )}

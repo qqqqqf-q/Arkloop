@@ -7,10 +7,10 @@ type Props = {
 const base =
   'w-full border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 text-sm ' +
   'text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] ' +
-  'focus:border-[var(--c-border)]'
+  'transition-colors duration-150 focus:border-[var(--c-border)]'
 
 const sizes = {
-  sm: 'rounded-md py-1.5',
+  sm: 'rounded-lg py-1.5',
   md: 'rounded-lg py-2',
 } as const
 

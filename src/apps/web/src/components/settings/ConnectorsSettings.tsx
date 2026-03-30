@@ -113,7 +113,7 @@ const inputCls = settingsInputCls('sm')
 const labelCls = settingsLabelCls('sm')
 const sectionCls = settingsSectionCls
 const btnIcon =
-  'rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
+  'rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -813,12 +813,9 @@ function StatusBadge({ provider }: { provider: ToolProviderItem }) {
   const info = runtimeStateInfo(state)
   const reason = provider.runtime_reason ? formatRuntimeReason(provider.runtime_reason) : ''
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${info.bg}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${info.dot}`} />
-      <span className={info.text}>{info.label}</span>
-      {reason ? (
-        <span className="ml-1 text-[var(--c-text-muted)]">({reason})</span>
-      ) : null}
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${info.bg}`}>
+      {info.label}
+      {reason ? <span className="ml-1 opacity-70">({reason})</span> : null}
     </span>
   )
 }
@@ -827,15 +824,15 @@ function runtimeStateInfo(state?: string) {
   const normalized = state ?? 'inactive'
   switch (normalized) {
   case 'ready':
-    return { label: 'Ready', bg: 'bg-green-500/10 text-green-400', dot: 'bg-green-400', text: 'text-green-400' }
+    return { label: 'Ready', bg: 'bg-green-500/10 text-green-400' }
   case 'missing_config':
-    return { label: 'Missing config', bg: 'bg-amber-500/10 text-amber-400', dot: 'bg-amber-400', text: 'text-amber-400' }
+    return { label: 'Missing config', bg: 'bg-amber-500/10 text-amber-400' }
   case 'decrypt_failed':
-    return { label: 'Decrypt failed', bg: 'bg-rose-500/10 text-rose-400', dot: 'bg-rose-400', text: 'text-rose-400' }
+    return { label: 'Decrypt failed', bg: 'bg-rose-500/10 text-rose-400' }
   case 'invalid_config':
-    return { label: 'Invalid config', bg: 'bg-rose-500/10 text-rose-400', dot: 'bg-rose-400', text: 'text-rose-400' }
+    return { label: 'Invalid config', bg: 'bg-rose-500/10 text-rose-400' }
   default:
-    return { label: 'Inactive', bg: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]', dot: 'bg-[var(--c-text-muted)]', text: 'text-[var(--c-text-muted)]' }
+    return { label: 'Inactive', bg: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]' }
   }
 }
 
@@ -875,12 +872,12 @@ function ToolRow({
             {tool.label}
           </p>
           {tool.has_override && (
-            <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-400">
+            <span className="rounded-md bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
               {tt.descriptionOverride}
             </span>
           )}
           {tool.is_disabled && (
-            <span className="rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+            <span className="rounded-md bg-yellow-500/10 px-2 py-0.5 text-xs font-medium text-yellow-400">
               Disabled
             </span>
           )}

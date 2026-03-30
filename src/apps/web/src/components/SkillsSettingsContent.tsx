@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { openExternal } from '../openExternal'
 import {
   ChevronDown,
   ChevronLeft,
@@ -928,7 +929,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                             disabled={!item.detail_url}
                             onClick={() => {
                               setMenuSkillId(null)
-                              if (item.detail_url) window.open(item.detail_url, '_blank', 'noopener,noreferrer')
+                              if (item.detail_url) openExternal(item.detail_url)
                             }}
                           />
                         )}
@@ -1220,7 +1221,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                     <button
                       type="button"
                       disabled={!item.detail_url}
-                      onClick={() => item.detail_url && window.open(item.detail_url, '_blank', 'noopener,noreferrer')}
+                      onClick={() => item.detail_url && openExternal(item.detail_url)}
                       className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                       style={{ border: '0.5px solid var(--c-border-subtle)' }}
                     >

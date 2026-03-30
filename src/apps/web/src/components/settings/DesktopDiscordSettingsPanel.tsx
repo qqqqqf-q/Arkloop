@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MessageCircleMore } from 'lucide-react'
+import { openExternal } from '../../openExternal'
 import {
   type ChannelBindingResponse,
   type ChannelResponse,
@@ -102,6 +103,10 @@ export function DesktopDiscordSettingsPanel({
   }, [channel?.id, refreshBindings])
 
   const modelOptions = useMemo(() => buildModelOptions(providers), [providers])
+  const personaOptions = useMemo(
+    () => personas.map((p) => ({ value: p.id, label: p.display_name || p.id })),
+    [personas],
+  )
   const persistedAllowedServerIDs = useMemo(() => readStringArrayConfig(channel, 'allowed_server_ids'), [channel])
   const persistedAllowedChannelIDs = useMemo(() => readStringArrayConfig(channel, 'allowed_channel_ids'), [channel])
   const effectiveAllowedServerIDs = useMemo(
@@ -365,35 +370,42 @@ export function DesktopDiscordSettingsPanel({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <TokenField
-              label={ct.botToken}
-              value={tokenDraft}
-              placeholder={tokenConfigured && !tokenDraft ? ct.tokenAlreadyConfigured : ct.botTokenPlaceholder}
-              onChange={(value) => {
-                setTokenDraft(value)
-                setSaved(false)
-              }}
-            />
+            <div className="md:col-span-2">
+              <TokenField
+                label={ct.botToken}
+                value={tokenDraft}
+                placeholder={tokenConfigured && !tokenDraft ? ct.tokenAlreadyConfigured : ct.botTokenPlaceholder}
+                onChange={(value) => {
+                  setTokenDraft(value)
+                  setSaved(false)
+                }}
+              />
+              <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
+                {ct.discordTokenHint}{' '}
+                <button
+                  type="button"
+                  onClick={() => openExternal('https://discord.com/developers/applications')}
+                  className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
+                >
+                  Discord Developer Portal
+                </button>
+              </p>
+            </div>
 
             <div className="md:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
                 {ct.persona}
               </label>
-              <select
+              <ModelDropdown
                 value={personaID}
-                onChange={(event) => {
-                  setPersonaID(event.target.value)
+                options={personaOptions}
+                placeholder={ct.personaDefault}
+                disabled={saving}
+                onChange={(value) => {
+                  setPersonaID(value)
                   setSaved(false)
                 }}
-                className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)] transition-colors"
-              >
-                {personas.length === 0 && <option value="">{ct.personaDefault}</option>}
-                {personas.map((persona) => (
-                  <option key={persona.id} value={persona.id}>
-                    {persona.display_name || persona.id}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="md:col-span-2">
@@ -421,19 +433,22 @@ export function DesktopDiscordSettingsPanel({
                   <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.accessControl}</div>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <ListField
-                    label={ct.allowedServerIds}
-                    values={allowedServerIDs}
-                    inputValue={allowedServerInput}
-                    placeholder={ct.allowedServerIdsPlaceholder}
-                    addLabel={t.skills.add}
-                    onInputChange={setAllowedServerInput}
-                    onAdd={handleAddServerIDs}
-                    onRemove={(value) => {
-                      setAllowedServerIDs((current) => current.filter((item) => item !== value))
-                      setSaved(false)
-                    }}
-                  />
+                  <div>
+                    <ListField
+                      label={ct.allowedServerIds}
+                      values={allowedServerIDs}
+                      inputValue={allowedServerInput}
+                      placeholder={ct.allowedServerIdsPlaceholder}
+                      addLabel={t.skills.add}
+                      onInputChange={setAllowedServerInput}
+                      onAdd={handleAddServerIDs}
+                      onRemove={(value) => {
+                        setAllowedServerIDs((current) => current.filter((item) => item !== value))
+                        setSaved(false)
+                      }}
+                    />
+                    <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">{ct.discordServerIdHint}</p>
+                  </div>
 
                   <ListField
                     label={ct.allowedChannelIds}
@@ -479,6 +494,15 @@ export function DesktopDiscordSettingsPanel({
         onSaveHeartbeat={(binding, next) => handleSaveHeartbeat(binding, next)}
         onOwnerUnbindAttempt={() => setError(ct.ownerUnbindBlocked)}
       />
+
+      <div
+        className="rounded-2xl px-5 py-4"
+        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+      >
+        <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>
+        <p className="mt-1.5 text-xs leading-relaxed text-[var(--c-text-muted)]">{ct.heartbeatCardDesc}</p>
+        <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">{ct.heartbeatCardHint}</p>
+      </div>
 
       <SaveActions
         saving={saving}

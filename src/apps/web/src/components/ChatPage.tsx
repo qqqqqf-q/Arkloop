@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Fragment, type ComponentProps } from 'react'
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
+import { openExternal } from '../openExternal'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { ArrowDown, Check, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X, AlertCircle } from 'lucide-react'
@@ -1154,7 +1155,7 @@ export function ChatPage() {
     if (action.type === 'open_link' && typeof action.url === 'string') {
       const u = action.url.trim()
       if (u.startsWith('https://') || u.startsWith('http://')) {
-        window.open(u, '_blank', 'noopener,noreferrer')
+        openExternal(u)
       }
       return
     }

@@ -44,10 +44,9 @@ function ModelDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(v => !v)}
-        className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
+        className="flex h-9 w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 text-sm transition-colors duration-150 hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
         style={{
           border: '0.5px solid var(--c-border-subtle)',
-          background: 'var(--c-bg-page)',
           color: value === '' ? 'var(--c-text-tertiary)' : 'var(--c-text-heading)',
         }}
       >
@@ -126,7 +125,7 @@ function VendorDropdown({
         ref={btnRef}
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between rounded-md bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+        className="flex w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
         style={{ border: '1px solid var(--c-border-subtle)' }}
       >
         <span className="truncate">{currentLabel}</span>
@@ -187,18 +186,17 @@ function ExpandPanel({ open, children }: { open: boolean; children: React.ReactN
 
 type BadgeVariant = 'free' | 'configured' | 'always' | 'missing'
 
-const BADGE: Record<BadgeVariant, { cls: string; dot: string; label: string }> = {
-  free:       { cls: 'bg-blue-500/15 text-blue-400',                                dot: 'bg-blue-400',               label: 'Free tier' },
-  configured: { cls: 'bg-green-500/15 text-green-400',                              dot: 'bg-green-400',              label: 'Configured' },
-  always:     { cls: 'bg-green-500/15 text-green-400',                              dot: 'bg-green-400',              label: 'Always on' },
-  missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]',            dot: 'bg-[var(--c-text-muted)]', label: 'Not configured' },
+const BADGE: Record<BadgeVariant, { cls: string; label: string }> = {
+  free:       { cls: 'bg-blue-500/15 text-blue-400',                     label: 'Free tier' },
+  configured: { cls: 'bg-green-500/15 text-green-400',                   label: 'Configured' },
+  always:     { cls: 'bg-green-500/15 text-green-400',                   label: 'Always on' },
+  missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]', label: 'Not configured' },
 }
 
 function StatusBadge({ variant }: { variant: BadgeVariant }) {
   const s = BADGE[variant]
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${s.dot}`} />
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${s.cls}`}>
       {s.label}
     </span>
   )
@@ -275,21 +273,12 @@ const INPUT_CLS = settingsInputCls('sm')
 const INPUT_CLS_LG = settingsInputCls('md') + ' transition-colors duration-150'
 
 // ProvidersSettings AddProviderModal
-const FIELD_INPUT_CLS = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
-const FIELD_INPUT_STYLE = {
-  border: '0.5px solid var(--c-border-auth)',
-  height: '36px',
-  padding: '0 14px',
-  fontSize: '13px',
-  fontWeight: 500,
-  fontFamily: 'inherit',
-} as const
-const FIELD_LABEL_CLS = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
+const FIELD_INPUT_CLS = settingsInputCls('sm')
 
 // ConnectorsSettings
 const LABEL_CLS = settingsLabelCls('sm')
 const SECTION_CLS = settingsSectionCls
-const BTN_ICON = 'rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
+const BTN_ICON = 'rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:opacity-40'
 
 // SearchFetchSettings
 const LABEL_CLS_LG = settingsLabelCls('md')
@@ -336,8 +325,8 @@ function TypographyPreview() {
           <span className="text-sm text-[var(--c-text-tertiary)]">Tertiary · --c-text-tertiary</span>
           <span className="text-sm text-[var(--c-text-muted)]">Muted · --c-text-muted</span>
           <span className="text-sm text-[var(--c-text-icon)]">Icon · --c-text-icon</span>
-          {/* FIELD_LABEL_CLS — ProvidersSettings AddProviderModal */}
-          <span className={FIELD_LABEL_CLS}>Field label (modal) · FIELD_LABEL_CLS · 11px --c-placeholder</span>
+          {/* LABEL_CLS — ProvidersSettings AddProviderModal / ConnectorsSettings */}
+          <span className={LABEL_CLS}>Field label (modal) · LABEL_CLS</span>
           {/* LABEL_CLS — ConnectorsSettings */}
           <span className={LABEL_CLS}>Label (connectors) · LABEL_CLS · xs --c-text-secondary</span>
           {/* LABEL_CLS_LG — SearchFetchSettings */}
@@ -381,24 +370,29 @@ function ButtonsPreview() {
 
         {/* Primary — bg-[--c-btn-bg] */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Primary · rounded-[9px] bg-[--c-btn-bg] px-4 py-1.5 text-sm (ProvidersSettings)</span>
+          <span className={LABEL_CLS}>Primary · rounded-lg bg-[--c-btn-bg] px-4 py-1.5 text-sm (ProvidersSettings)</span>
           <div className="flex flex-wrap gap-2">
             <button
-              className="flex items-center gap-2 rounded-[9px] px-4 py-1.5 text-sm font-medium"
+              className="flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
               style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
             >
               Save
             </button>
             <button
               onClick={simulateLoad}
-              className="flex items-center gap-2 rounded-[9px] px-4 py-1.5 text-sm font-medium"
+              className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
               style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
             >
-              {loading ? <Loader2 size={14} className="animate-spin" /> : null}
-              {loading ? 'Saving…' : 'Save with state'}
+              <span className="relative flex items-center justify-center">
+                <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${loading ? 'opacity-0' : 'opacity-100'}`}>Save with state</span>
+                <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${loading ? 'opacity-100' : 'opacity-0'}`}>
+                  <Loader2 size={14} className="animate-spin" />
+                  Saving…
+                </span>
+              </span>
             </button>
             <button
-              className="flex items-center gap-2 rounded-[9px] px-4 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
+              className="flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium opacity-50 cursor-not-allowed"
               style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
               disabled
             >
@@ -409,16 +403,16 @@ function ButtonsPreview() {
 
         {/* Secondary */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Secondary · rounded-[9px] border-[--c-border-subtle] px-4 py-1.5 text-sm</span>
+          <span className={LABEL_CLS}>Secondary · rounded-lg border-[--c-border-subtle] px-4 py-1.5 text-sm</span>
           <div className="flex flex-wrap gap-2">
             <button
-              className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
               style={{ border: '0.5px solid var(--c-border-subtle)' }}
             >
               Cancel
             </button>
             <button
-              className="flex items-center gap-1.5 rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+              className="flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
               style={{ border: '0.5px solid var(--c-border-subtle)' }}
             >
               <Plus size={14} />
@@ -429,9 +423,9 @@ function ButtonsPreview() {
 
         {/* ProvidersSettings left list add button */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Add item · flex h-8 w-full rounded-md text-[13px] --c-text-muted (ProvidersSettings sidebar)</span>
+          <span className={LABEL_CLS}>Add item · flex h-10 w-full rounded-lg text-[13px] --c-text-secondary (ProvidersSettings sidebar)</span>
           <div className="w-[200px] border-t border-[var(--c-border-subtle)] px-3 py-3" style={{ background: 'var(--c-bg-sidebar)' }}>
-            <button className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[13px] text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]">
+            <button className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]" style={{ border: '0.5px solid var(--c-border-subtle)' }}>
               <Plus size={14} />
               Add provider
             </button>
@@ -440,24 +434,17 @@ function ButtonsPreview() {
 
         {/* Destructive variants */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Destructive — 3 variants in use (inconsistent)</span>
+          <span className={LABEL_CLS}>Destructive — unified: rounded-lg bg-red-600 (fill) or border+text-red-500 (ghost)</span>
           <div className="flex flex-wrap gap-2">
-            {/* A: bg-red-600 */}
-            <button className="flex items-center gap-1.5 rounded-[9px] bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700">
+            {/* fill: confirm delete */}
+            <button className="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700">
               <Trash2 size={14} />
-              bg-red-600 (ProvidersSettings)
+              Delete (confirm)
             </button>
-            {/* B: text-red-400 ghost */}
-            <button className="flex items-center gap-1.5 rounded-[9px] px-4 py-1.5 text-sm font-medium text-red-400 transition-colors hover:bg-[var(--c-bg-deep)]">
-              <Trash2 size={14} />
-              text-red-400 ghost (ConnectorsSettings)
-            </button>
-            {/* C: status-danger-text */}
-            <button
-              className="rounded-[9px] px-4 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
-              style={{ color: 'var(--c-status-danger-text)' }}
-            >
-              --c-status-danger-text
+            {/* ghost: trigger delete */}
+            <button className="flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500">
+              <Trash2 size={12} />
+              Delete all
             </button>
           </div>
         </div>
@@ -475,15 +462,18 @@ function ButtonsPreview() {
 
         {/* Small action — DeveloperSettings "查看" style */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Small action · rounded-md px-2 py-1.5 text-xs (DeveloperSettings)</span>
+          <span className={LABEL_CLS}>Small action · rounded-lg px-3 py-1.5 text-xs</span>
           <div className="flex flex-wrap gap-2">
             <button
-              className="rounded-md px-2 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+              className="rounded-lg bg-[var(--c-bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
+              style={{ border: '0.5px solid var(--c-border-subtle)' }}
             >
               查看
             </button>
-            <button className="rounded-md bg-[var(--c-btn-bg)] px-2 py-1.5 text-xs font-medium text-[var(--c-btn-text)]">
+            <button
+              className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
+              style={{ background: 'var(--c-btn-bg)' }}
+            >
               Reset
             </button>
           </div>
@@ -491,21 +481,22 @@ function ButtonsPreview() {
 
         {/* Inline save result — ChatSettings execSaveResult pattern */}
         <div className="flex flex-col gap-1.5">
-          <span className={LABEL_CLS}>Inline save result · CheckCircle / XCircle text-xs (ChatSettings)</span>
-          <div className="flex gap-2">
+          <span className={LABEL_CLS}>Inline save result · fixed-height row with opacity fade</span>
+          <div className="flex items-center gap-2">
             <button onClick={() => simulateExecResult('ok')} className={BTN_ICON + ' text-xs'}>Simulate ok</button>
             <button onClick={() => simulateExecResult('error')} className={BTN_ICON + ' text-xs'}>Simulate error</button>
+            <span
+              className="flex items-center gap-1 text-xs transition-opacity duration-200"
+              style={{
+                opacity: execResult ? 1 : 0,
+                color: execResult === 'error' ? 'var(--c-status-danger-text)' : 'var(--c-status-ok-text)',
+              }}
+            >
+              {execResult === 'ok' && <><CheckCircle size={12} /> Saved</>}
+              {execResult === 'error' && <><XCircle size={12} /> Failed</>}
+              {!execResult && <CheckCircle size={12} />}
+            </span>
           </div>
-          {execResult === 'ok' && (
-            <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--c-status-ok-text)' }}>
-              <CheckCircle size={12} /> Saved
-            </span>
-          )}
-          {execResult === 'error' && (
-            <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--c-status-danger-text)' }}>
-              <XCircle size={12} /> Failed
-            </span>
-          )}
         </div>
       </div>
     </PreviewSection>
@@ -545,7 +536,7 @@ function InputsPreview() {
 
         {/* INPUT_CLS — ProvidersSettings / ConnectorsSettings · rounded-md py-1.5 */}
         <div>
-          <label className={LABEL_CLS}>TEXT · INPUT_CLS · rounded-md border py-1.5 (ProvidersSettings, ConnectorsSettings)</label>
+          <label className={LABEL_CLS}>TEXT · INPUT_CLS · rounded-lg border py-1.5 (ProvidersSettings, ConnectorsSettings)</label>
           <input className={INPUT_CLS} placeholder="e.g. https://api.openai.com/v1" value={textSm} onChange={e => setTextSm(e.target.value)} />
         </div>
 
@@ -557,8 +548,8 @@ function InputsPreview() {
 
         {/* FIELD_INPUT_CLS — ProvidersSettings AddProviderModal · rounded-[10px] h-36px border-auth */}
         <div>
-          <label className={FIELD_LABEL_CLS}>TEXT MODAL · FIELD_INPUT_CLS · rounded-[10px] h-[36px] border-auth (ProvidersSettings modal)</label>
-          <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" value={textModal} onChange={e => setTextModal(e.target.value)} />
+          <label className={LABEL_CLS}>TEXT MODAL · now same as INPUT_CLS (ProvidersSettings modal)</label>
+          <input className={FIELD_INPUT_CLS} placeholder="My Provider" value={textModal} onChange={e => setTextModal(e.target.value)} />
         </div>
 
         {/* Password input — ConnectorsSettings Eye toggle */}
@@ -582,14 +573,14 @@ function InputsPreview() {
 
         {/* Number input — ChatSettings · h-9 w-14 */}
         <div>
-          <label className={LABEL_CLS}>NUMBER · h-9 w-14 rounded-md border (ChatSettings)</label>
+          <label className={LABEL_CLS}>NUMBER · h-9 w-14 rounded-lg border (ChatSettings)</label>
           <input
             type="number"
             min={2}
             max={50}
             value={numVal}
             onChange={e => setNumVal(Number(e.target.value))}
-            className="h-9 w-14 shrink-0 rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none focus:border-[var(--c-border)]"
+            className="h-9 w-14 shrink-0 rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none transition-colors duration-150 focus:border-[var(--c-border)]"
           />
         </div>
 
@@ -630,7 +621,7 @@ function InputsPreview() {
 
         {/* VendorDropdown — ProvidersSettings · rounded-md bg-input border py-1.5 */}
         <div>
-          <label className={LABEL_CLS}>DROPDOWN (VendorDropdown) · rounded-md bg-input border-1px py-1.5 (ProvidersSettings modal)</label>
+          <label className={LABEL_CLS}>DROPDOWN (VendorDropdown) · rounded-lg bg-input border-1px py-1.5 (ProvidersSettings modal)</label>
           <VendorDropdown
             value={vendorVal}
             options={VENDOR_OPTIONS}
@@ -699,7 +690,7 @@ function TogglesPreview() {
               min={2}
               max={50}
               defaultValue={4}
-              className="h-9 w-14 shrink-0 rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none"
+              className="h-9 w-14 shrink-0 rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none transition-colors duration-150 focus:border-[var(--c-border)]"
             />
           </div>
 
@@ -842,15 +833,15 @@ function ModalFieldsPreview() {
   const [modalKey, setModalKey] = useState('')
   const [modalBase, setModalBase] = useState('')
   return (
-    <PreviewSection title="Modal Form Fields (ProvidersSettings AddProviderModal · grid-cols-2)">
+    <PreviewSection title="Modal Form Fields (ProvidersSettings AddProviderModal · grid-cols-2 · rounded-lg)">
       <div className={SECTION_CLS}>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           <div>
-            <label className={FIELD_LABEL_CLS}>Provider name</label>
-            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="My Provider" value={modalName} onChange={e => setModalName(e.target.value)} />
+            <label className={LABEL_CLS}>Provider name</label>
+            <input className={FIELD_INPUT_CLS} placeholder="My Provider" value={modalName} onChange={e => setModalName(e.target.value)} />
           </div>
           <div>
-            <label className={FIELD_LABEL_CLS}>Vendor</label>
+            <label className={LABEL_CLS}>Vendor</label>
             <VendorDropdown
               value={modalVendor}
               options={[
@@ -862,12 +853,12 @@ function ModalFieldsPreview() {
             />
           </div>
           <div className="col-span-2">
-            <label className={FIELD_LABEL_CLS}>API Key</label>
-            <input type="password" className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="sk-proj-…" value={modalKey} onChange={e => setModalKey(e.target.value)} />
+            <label className={LABEL_CLS}>API Key</label>
+            <input type="password" className={FIELD_INPUT_CLS} placeholder="sk-proj-…" value={modalKey} onChange={e => setModalKey(e.target.value)} />
           </div>
           <div className="col-span-2">
-            <label className={FIELD_LABEL_CLS}>Base URL</label>
-            <input className={FIELD_INPUT_CLS} style={FIELD_INPUT_STYLE} placeholder="https://api.example.com/v1" value={modalBase} onChange={e => setModalBase(e.target.value)} />
+            <label className={LABEL_CLS}>Base URL</label>
+            <input className={FIELD_INPUT_CLS} placeholder="https://api.example.com/v1" value={modalBase} onChange={e => setModalBase(e.target.value)} />
           </div>
         </div>
       </div>
@@ -927,13 +918,13 @@ function BadgesPreview() {
           </div>
         </div>
 
-        {/* ConnectorsSettings — same hardcoded colours */}
+        {/* ConnectorsSettings status — updated to match new design */}
         <div>
-          <span className={LABEL_CLS}>ConnectorsSettings status — same hardcoded pattern</span>
+          <span className={LABEL_CLS}>ConnectorsSettings status — rounded-md px-2 py-0.5 text-xs</span>
           <div className="flex flex-wrap gap-2 mt-1">
-            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-400">ready</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">missing</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-medium text-rose-400">error</span>
+            <span className="inline-flex items-center rounded-md bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">ready</span>
+            <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400">missing</span>
+            <span className="inline-flex items-center rounded-md bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-400">error</span>
           </div>
         </div>
 
@@ -941,19 +932,19 @@ function BadgesPreview() {
         <div>
           <span className={LABEL_CLS}>CSS-variable status — --c-status-ok/danger/warn (consistent)</span>
           <div className="flex flex-wrap gap-2 mt-1">
-            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}>ok</span>
-            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-status-danger-bg)', color: 'var(--c-status-danger-text)' }}>error</span>
-            <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-status-warn-bg)', color: 'var(--c-status-warn-text)' }}>warn</span>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}>ok</span>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-status-danger-bg)', color: 'var(--c-status-danger-text)' }}>error</span>
+            <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-status-warn-bg)', color: 'var(--c-status-warn-text)' }}>warn</span>
           </div>
         </div>
 
         {/* Inline badge — ProvidersSettings model list */}
         <div>
-          <span className={LABEL_CLS}>Inline badge · rounded bg-deep px-1.5 py-0.5 text-[10px] (ProvidersSettings model list)</span>
+          <span className={LABEL_CLS}>Inline badge · rounded-md bg-deep px-2 py-0.5 text-xs (ProvidersSettings model list)</span>
           <div className="flex flex-wrap gap-2 mt-1">
-            <span className="rounded bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">embed</span>
-            <span className="rounded bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">Free</span>
-            <span className="rounded bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]">Always</span>
+            <span className="rounded-md bg-[var(--c-bg-deep)] px-2 py-0.5 text-xs font-medium text-[var(--c-text-muted)]">embed</span>
+            <span className="rounded-md bg-[var(--c-bg-deep)] px-2 py-0.5 text-xs font-medium text-[var(--c-text-muted)]">Free</span>
+            <span className="rounded-md bg-[var(--c-bg-deep)] px-2 py-0.5 text-xs font-medium text-[var(--c-text-muted)]">Always</span>
           </div>
         </div>
       </div>
@@ -1006,9 +997,8 @@ function StatesPreview() {
         </div>
 
         <div>
-          <span className={LABEL_CLS}>Inline error · text-xs text-red-400 / text-[--c-status-error-text] (inconsistent)</span>
-          <p className="text-xs text-red-400">red-400 variant (ProvidersSettings sidebar)</p>
-          <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>--c-status-error-text variant (ChatSettings)</p>
+          <span className={LABEL_CLS}>Inline error · unified to text-xs --c-status-error-text</span>
+          <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>error message</p>
         </div>
       </div>
     </PreviewSection>

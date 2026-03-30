@@ -116,7 +116,7 @@ function VendorDropdown({
         ref={btnRef}
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between rounded-md bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+        className="flex w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
         style={{ border: '1px solid var(--c-border-subtle)' }}
       >
         <span className="truncate">{vendorLabel(value, p)}</span>
@@ -220,13 +220,14 @@ export function ProvidersSettings({ accessToken }: Props) {
         <div className="border-t border-[var(--c-border-subtle)] px-3 py-3">
           <button
             onClick={() => setShowAddProvider(true)}
-            className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-[13px] text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             <Plus size={14} />
             {p.addProvider}
           </button>
         </div>
-        {error && <p className="px-2 pb-2 text-xs text-red-400">{error}</p>}
+        {error && <p className="px-2 pb-2 text-xs text-[var(--c-status-error-text)]">{error}</p>}
       </div>
 
       {/* Detail */}
@@ -241,8 +242,16 @@ export function ProvidersSettings({ accessToken }: Props) {
           p={p}
         />
         ) : (
-          <div className="flex h-full items-center justify-center">
+          <div className="flex h-full flex-col items-center justify-center gap-3">
             <p className="text-sm text-[var(--c-text-muted)]">{p.noProviders}</p>
+            <button
+              onClick={() => setShowAddProvider(true)}
+              className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
+              style={{ background: 'var(--c-btn-bg)' }}
+            >
+              <Plus size={14} />
+              {p.addProvider}
+            </button>
           </div>
         )}
       </div>
@@ -297,15 +306,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   }
 
   const fieldLabelCls = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
-  const fieldInputCls = 'w-full rounded-[10px] bg-[var(--c-bg-input)] text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]'
-  const fieldInputStyle = {
-    border: '0.5px solid var(--c-border-auth)',
-    height: '36px',
-    padding: '0 14px',
-    fontSize: '13px',
-    fontWeight: 500,
-    fontFamily: 'inherit',
-  } as const
+  const fieldInputCls = 'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)] focus:border-[var(--c-border)]'
 
   return createPortal(
     <div
@@ -335,7 +336,6 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
               onChange={(e) => setName(e.target.value)}
               placeholder="My Provider"
               className={fieldInputCls}
-              style={fieldInputStyle}
             />
           </div>
           <div>
@@ -350,7 +350,6 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={p.apiKeyPlaceholder}
               className={fieldInputCls}
-              style={fieldInputStyle}
             />
           </div>
           <div className="col-span-2">
@@ -360,7 +359,6 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
               onChange={(e) => setBaseUrl(e.target.value.slice(0, 500))}
               placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
               className={fieldInputCls}
-              style={fieldInputStyle}
               maxLength={500}
             />
             {baseUrl.trim() && !baseUrl.trim().startsWith('https://') && !baseUrl.trim().startsWith('http://') && (
@@ -374,7 +372,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
         <div className="flex items-center justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-[9px] px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+            className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
             style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             {p.cancel}
@@ -382,10 +380,16 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
           <button
             onClick={() => void handleSave()}
             disabled={saving || !name.trim() || !apiKey.trim()}
-            className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
             style={{ background: 'var(--c-btn-bg)' }}
           >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : p.save}
+            <span className="relative flex items-center justify-center">
+              <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-0' : 'opacity-100'}`}>{p.save}</span>
+              <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-100' : 'opacity-0'}`}>
+                <Loader2 size={14} className="animate-spin" />
+                {p.saving}
+              </span>
+            </span>
           </button>
         </div>
       </div>
@@ -475,22 +479,28 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
         </LabelField>
       </div>
 
-      {err && <p className="text-xs text-red-400">{err}</p>}
+      {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
 
       <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] pb-4">
         {confirmDelete ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-[var(--c-text-tertiary)]">{p.deleteProviderConfirm}</span>
-            <button onClick={() => void handleDelete()} disabled={deleting} className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50">{p.deleteProvider}</button>
-            <button onClick={() => setConfirmDelete(false)} className="rounded-md px-3 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
+            <button onClick={() => void handleDelete()} disabled={deleting} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50">{p.deleteProvider}</button>
+            <button onClick={() => setConfirmDelete(false)} className="rounded-lg px-3 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
           </div>
         ) : (
-          <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500">
+          <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors duration-150 hover:border-red-500/30 hover:text-red-500">
             <Trash2 size={12} />
           </button>
         )}
-        <button onClick={() => void handleSave()} disabled={saving || !formName.trim()} className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50">
-          {saving ? <Loader2 size={14} className="animate-spin" /> : p.save}
+        <button onClick={() => void handleSave()} disabled={saving || !formName.trim()} className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50" style={{ background: 'var(--c-btn-bg)' }}>
+          <span className="relative flex items-center justify-center">
+            <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-0' : 'opacity-100'}`}>{p.save}</span>
+            <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-100' : 'opacity-0'}`}>
+              <Loader2 size={14} className="animate-spin" />
+              {p.saving}
+            </span>
+          </span>
         </button>
       </div>
 
@@ -645,19 +655,19 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
         <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
         <div className="flex items-center gap-2">
           {provider.models.length > 0 && (
-            <button onClick={() => void handleDeleteAll()} disabled={deletingAll} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:opacity-50">
+            <button onClick={() => void handleDeleteAll()} disabled={deletingAll} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors duration-150 hover:border-red-500/30 hover:text-red-500 disabled:opacity-50">
               {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
               {p.deleteAll ?? 'Delete all'}
             </button>
           )}
           {loadingAvailable && !available && <Loader2 size={12} className="animate-spin text-[var(--c-text-muted)]" />}
           {unconfiguredCount > 0 && (
-            <button onClick={() => void handleImportAll()} disabled={importing} className="inline-flex items-center gap-1.5 rounded-md border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50">
+            <button onClick={() => void handleImportAll()} disabled={importing} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50">
               <Download size={12} />
               {importing ? (p.importing ?? '...') : `${p.importAll ?? 'Import all'} (${unconfiguredCount})`}
             </button>
           )}
-          <button onClick={() => { setAddingModel(true); setNewModel('') }} className="rounded-md bg-[var(--c-btn-bg)] px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90">
+          <button onClick={() => { setAddingModel(true); setNewModel('') }} className="rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]" style={{ background: 'var(--c-btn-bg)' }}>
             {p.addModel}
           </button>
         </div>
@@ -666,12 +676,12 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       {addingModel && (
         <div className="mt-3 flex items-center gap-2">
           <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder={p.modelNamePlaceholder ?? 'Model name'} className={INPUT_CLS + ' flex-1'} onKeyDown={(e) => { if (e.key === 'Enter') void handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }} autoFocus />
-          <button onClick={() => setAddingModel(false)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={14} /></button>
+          <button onClick={() => setAddingModel(false)} className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={14} /></button>
         </div>
       )}
 
-      {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
-      {availableError && <p className="mt-2 text-xs text-red-400">{availableError}</p>}
+      {err && <p className="mt-2 text-xs text-[var(--c-status-error-text)]">{err}</p>}
+      {availableError && <p className="mt-2 text-xs text-[var(--c-status-error-text)]">{availableError}</p>}
       {!loadingAvailable && !availableError && available !== null && available.length === 0 && (
         <p className="mt-2 text-xs text-[var(--c-text-muted)]">{t.models.noModelsAvailable}</p>
       )}
@@ -693,7 +703,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
               <div className="min-w-0 flex-1 flex items-center gap-1.5">
                 <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
                 {pm.tags.includes('embedding') && (
-                  <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
+                  <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
                 )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -705,13 +715,13 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
                 </label>
                 <button
                   onClick={() => setEditingModel(pm)}
-                  className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+                  className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
                   title={p.modelOptionsTitle ?? 'Model Options'}
                 >
                   <SlidersHorizontal size={14} />
                 </button>
                 {/* Delete */}
-                <button onClick={() => void handleDeleteModel(pm.id)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500">
+                <button onClick={() => void handleDeleteModel(pm.id)} className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500">
                   <Trash2 size={14} />
                 </button>
               </div>

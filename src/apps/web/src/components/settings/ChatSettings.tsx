@@ -271,7 +271,7 @@ export function ChatSettings({ accessToken }: Props) {
               const n = Number.parseInt(ev.target.value, 10)
               if (Number.isFinite(n)) setKeepLast(n)
             }}
-            className="h-9 w-14 shrink-0 rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none focus:border-[var(--c-border)]"
+            className="h-9 w-14 shrink-0 rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none transition-colors duration-150 focus:border-[var(--c-border)]"
           />
         </div>
       </div>

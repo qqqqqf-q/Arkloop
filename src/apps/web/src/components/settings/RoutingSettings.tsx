@@ -57,10 +57,9 @@ function ModelDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setOpen(v => !v)}
-        className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
+        className="flex h-9 w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 text-sm transition-colors duration-150 hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
         style={{
           border: '0.5px solid var(--c-border-subtle)',
-          background: 'var(--c-bg-page)',
           color: value === '' ? 'var(--c-text-tertiary)' : 'var(--c-text-heading)',
         }}
       >

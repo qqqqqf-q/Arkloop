@@ -168,6 +168,11 @@ export function registerIpcHandlers(
     app.quit()
   })
 
+  ipcMain.handle('arkloop:app:open-external', async (_event, url: string) => {
+    const { shell } = require('electron') as typeof import('electron')
+    await shell.openExternal(url)
+  })
+
   ipcMain.handle('arkloop:app:os-username', () => {
     try {
       return os.userInfo().username

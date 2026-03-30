@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Eye, EyeOff, Link2, Loader2, Plus, X } from 'lucide-react'
 import type { ChannelBindingResponse, ChannelResponse, LlmProvider, Persona } from '../../api'
 import { DEFAULT_PERSONA_KEY } from '../../storage'
+import { useLocale } from '../../contexts/LocaleContext'
 
 export type ModelOption = { value: string; label: string }
 
@@ -289,17 +290,10 @@ function BindingRoleBadge({
 
 function BindingHeartbeatEditor({
   binding,
-  modelOptions,
-  enabledLabel,
-  intervalLabel,
-  modelLabel,
-  saveLabel,
-  savingLabel,
   ownerLabel,
   adminLabel,
   setOwnerLabel,
   unbindLabel,
-  onSaveHeartbeat,
   onMakeOwner,
   onUnbind,
   onOwnerUnbindAttempt,
@@ -320,23 +314,7 @@ function BindingHeartbeatEditor({
   onUnbind: (binding: ChannelBindingResponse) => Promise<void>
   onOwnerUnbindAttempt: () => void
 }) {
-  const [heartbeatEnabled, setHeartbeatEnabled] = useState(binding.heartbeat_enabled)
-  const [heartbeatInterval, setHeartbeatInterval] = useState(String(binding.heartbeat_interval_minutes || 0))
-  const [heartbeatModel, setHeartbeatModel] = useState(binding.heartbeat_model ?? '')
-  const [savingHeartbeat, setSavingHeartbeat] = useState(false)
   const [promotingOwner, setPromotingOwner] = useState(false)
-
-  useEffect(() => {
-    setHeartbeatEnabled(binding.heartbeat_enabled)
-    setHeartbeatInterval(String(binding.heartbeat_interval_minutes || 0))
-    setHeartbeatModel(binding.heartbeat_model ?? '')
-  }, [binding])
-
-  const parsedInterval = Number.parseInt(heartbeatInterval, 10)
-  const dirty =
-    heartbeatEnabled !== binding.heartbeat_enabled ||
-    (Number.isNaN(parsedInterval) ? binding.heartbeat_interval_minutes : parsedInterval) !== binding.heartbeat_interval_minutes ||
-    heartbeatModel !== (binding.heartbeat_model ?? '')
 
   return (
     <div
@@ -344,125 +322,51 @@ function BindingHeartbeatEditor({
       className="rounded-xl px-4 py-4"
       style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
     >
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-sm font-medium text-[var(--c-text-heading)]">
-                {binding.display_name || binding.platform_subject_id}
-              </div>
-              <BindingRoleBadge active={binding.is_owner} label={binding.is_owner ? ownerLabel : adminLabel} />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-medium text-[var(--c-text-heading)]">
+              {binding.display_name || binding.platform_subject_id}
             </div>
-            <div className="mt-1 truncate text-xs text-[var(--c-text-muted)]">
-              {binding.platform_subject_id}
-            </div>
+            <BindingRoleBadge active={binding.is_owner} label={binding.is_owner ? ownerLabel : adminLabel} />
           </div>
-
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {!binding.is_owner && (
-              <button
-                type="button"
-                disabled={promotingOwner}
-                aria-label={`${setOwnerLabel} ${binding.display_name || binding.platform_subject_id}`}
-                onClick={async () => {
-                  setPromotingOwner(true)
-                  try {
-                    await onMakeOwner(binding)
-                  } finally {
-                    setPromotingOwner(false)
-                  }
-                }}
-                className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-              >
-                {setOwnerLabel}
-              </button>
-            )}
-            <button
-              type="button"
-              aria-label={`${unbindLabel} ${binding.display_name || binding.platform_subject_id}`}
-              onClick={() => {
-                if (binding.is_owner) {
-                  onOwnerUnbindAttempt()
-                  return
-                }
-                void onUnbind(binding)
-              }}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            >
-              {unbindLabel}
-            </button>
+          <div className="mt-1 truncate text-xs text-[var(--c-text-muted)]">
+            {binding.platform_subject_id}
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-[auto_minmax(0,140px)_minmax(0,1fr)_auto] md:items-end">
-          <div className="flex items-center gap-3">
-            <div className="min-w-0">
-              <div className="text-xs font-medium text-[var(--c-text-secondary)]">{enabledLabel}</div>
-            </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {!binding.is_owner && (
             <button
               type="button"
-              role="switch"
-              aria-checked={heartbeatEnabled}
-              onClick={() => setHeartbeatEnabled((current) => !current)}
-              className={[
-                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-                heartbeatEnabled ? 'bg-[var(--c-btn-bg)]' : 'bg-[var(--c-bg-deep)]',
-              ].join(' ')}
+              disabled={promotingOwner}
+              aria-label={`${setOwnerLabel} ${binding.display_name || binding.platform_subject_id}`}
+              onClick={async () => {
+                setPromotingOwner(true)
+                try {
+                  await onMakeOwner(binding)
+                } finally {
+                  setPromotingOwner(false)
+                }
+              }}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
             >
-              <span
-                className={[
-                  'inline-block h-5 w-5 transform rounded-full bg-white transition-transform',
-                  heartbeatEnabled ? 'translate-x-5' : 'translate-x-1',
-                ].join(' ')}
-              />
+              {setOwnerLabel}
             </button>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-              {intervalLabel}
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={heartbeatInterval}
-              onChange={(event) => setHeartbeatInterval(event.target.value)}
-              className={inputCls}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-              {modelLabel}
-            </label>
-            <ModelDropdown
-              value={heartbeatModel}
-              options={modelOptions}
-              placeholder={modelLabel}
-              disabled={savingHeartbeat}
-              onChange={setHeartbeatModel}
-            />
-          </div>
-
+          )}
           <button
             type="button"
-            disabled={savingHeartbeat || !dirty || Number.isNaN(parsedInterval) || parsedInterval <= 0}
-            onClick={async () => {
-              setSavingHeartbeat(true)
-              try {
-                await onSaveHeartbeat(binding, {
-                  enabled: heartbeatEnabled,
-                  interval: parsedInterval,
-                  model: heartbeatModel,
-                })
-              } finally {
-                setSavingHeartbeat(false)
+            aria-label={`${unbindLabel} ${binding.display_name || binding.platform_subject_id}`}
+            onClick={() => {
+              if (binding.is_owner) {
+                onOwnerUnbindAttempt()
+                return
               }
+              void onUnbind(binding)
             }}
-            className={primaryButtonCls}
-            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+            className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
           >
-            {savingHeartbeat ? savingLabel : saveLabel}
+            {unbindLabel}
           </button>
         </div>
       </div>
@@ -517,6 +421,7 @@ export function BindingsCard({
   onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
   onOwnerUnbindAttempt: () => void
 }) {
+  const { t } = useLocale()
   return (
     <div
       className="rounded-2xl p-5"
@@ -531,6 +436,7 @@ export function BindingsCard({
                 <code className="rounded-md bg-[var(--c-bg-deep)] px-2 py-1 font-mono text-sm text-[var(--c-text-heading)] select-all">
                   /bind {bindCode}
                 </code>
+                <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">{t.channels.bindCodeInGroupHint}</p>
               </div>
             )}
           </div>

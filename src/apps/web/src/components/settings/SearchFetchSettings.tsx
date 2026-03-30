@@ -37,11 +37,11 @@ const labelCls = settingsLabelCls('md')
 
 type BadgeVariant = 'free' | 'configured' | 'always' | 'missing'
 
-const BADGE: Record<BadgeVariant, { cls: string; dot: string; label: (t: BadgeT) => string }> = {
-  free:       { cls: 'bg-blue-500/15 text-blue-400',   dot: 'bg-blue-400',   label: (t) => t.connectorFreeTier },
-  configured: { cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400', label: (t) => t.connectorConfigured },
-  always:     { cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400', label: (t) => t.connectorConfigured },
-  missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]',   dot: 'bg-[var(--c-text-muted)]',       label: (t) => t.connectorNotConfigured },
+const BADGE: Record<BadgeVariant, { cls: string; label: (t: BadgeT) => string }> = {
+  free:       { cls: 'bg-blue-500/15 text-blue-400',                     label: (t) => t.connectorFreeTier },
+  configured: { cls: 'bg-green-500/15 text-green-400',                   label: (t) => t.connectorConfigured },
+  always:     { cls: 'bg-green-500/15 text-green-400',                   label: (t) => t.connectorConfigured },
+  missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]', label: (t) => t.connectorNotConfigured },
 }
 
 type BadgeT = { connectorFreeTier: string; connectorConfigured: string; connectorNotConfigured: string }
@@ -49,8 +49,7 @@ type BadgeT = { connectorFreeTier: string; connectorConfigured: string; connecto
 function StatusBadge({ variant, t }: { variant: BadgeVariant; t: BadgeT }) {
   const s = BADGE[variant]
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.cls}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${s.dot}`} />
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${s.cls}`}>
       {s.label(t)}
     </span>
   )

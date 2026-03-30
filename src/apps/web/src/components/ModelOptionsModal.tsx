@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Eye, Image as ImageIcon, Database, Loader2 } from 'lucide-react'
-import { FormField, Modal } from '@arkloop/shared'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Eye, Image as ImageIcon, Database, Loader2, X } from 'lucide-react'
+import { FormField } from '@arkloop/shared'
 import type { AvailableModel, LlmProviderModel } from '../api'
 import {
   AVAILABLE_CATALOG_ADVANCED_KEY,
@@ -52,7 +53,7 @@ type DraftState = {
 }
 
 const TEXTAREA_CLS =
-  'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
+  'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]'
 
 function normalizePositiveIntegerInput(value: string): string {
   const trimmed = value.trim()
@@ -148,8 +149,11 @@ export function ModelOptionsModal({
   const [draft, setDraft] = useState<DraftState>(() => deriveDraft(model))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   const autoCatalog = useMemo(() => deriveAutoCatalog(model, availableModels), [model, availableModels])
+
+  const handleClose = useCallback(() => { if (!saving) onClose() }, [saving, onClose])
 
   useEffect(() => {
     if (!open) return
@@ -157,6 +161,13 @@ export function ModelOptionsModal({
     setError('')
     setSaving(false)
   }, [open, model])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, handleClose])
 
   const handleReset = () => {
     if (!model) return
@@ -239,105 +250,137 @@ export function ModelOptionsModal({
     setSaving(false)
   }
 
-  return (
-    <Modal open={open} onClose={() => { if (!saving) onClose() }} title={labels.modelOptionsTitle} width="760px">
-      {!model ? null : (
-        <div className="space-y-5">
-          <p className="text-sm text-[var(--c-text-secondary)]">
-            {labels.modelOptionsFor}
-            <span className="ml-1 rounded bg-[var(--c-bg-sub)] px-2 py-0.5 text-[var(--c-text-primary)]">{model.model}</span>
-          </p>
+  if (!open) return null
 
-          <section className="space-y-3">
-            <div>
+  return createPortal(
+    <div
+      ref={overlayRef}
+      className="overlay-fade-in fixed inset-0 z-[60] flex items-center justify-center"
+      style={{ background: 'var(--c-overlay)' }}
+      onClick={(e) => { if (e.target === overlayRef.current) handleClose() }}
+    >
+      <div
+        className="modal-enter flex w-full max-w-[760px] flex-col gap-5 rounded-[14px] p-6"
+        style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)', maxHeight: '85vh', margin: '0 20px', overflowY: 'auto' }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{labels.modelOptionsTitle}</h3>
+          <button
+            type="button"
+            onClick={handleClose}
+            disabled={saving}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        {model && (
+          <div className="space-y-5">
+            <p className="text-sm text-[var(--c-text-secondary)]">
+              {labels.modelOptionsFor}
+              <span className="ml-1 rounded bg-[var(--c-bg-sub)] px-2 py-0.5 text-[var(--c-text-primary)]">{model.model}</span>
+            </p>
+
+            <section className="space-y-3">
               <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{labels.modelCapabilities}</h4>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <CapabilityTile
-                icon={<Eye size={18} />}
-                label={labels.vision}
-                checked={draft.vision}
-                onChange={(next) => setDraft((prev) => ({ ...prev, vision: next }))}
-              />
-              <CapabilityTile
-                icon={<ImageIcon size={18} />}
-                label={labels.imageOutput}
-                checked={draft.imageOutput}
-                onChange={(next) => setDraft((prev) => ({ ...prev, imageOutput: next }))}
-              />
-              <CapabilityTile
-                icon={<Database size={18} />}
-                label={labels.embedding}
-                checked={draft.embedding}
-                onChange={(next) => setDraft((prev) => ({ ...prev, embedding: next }))}
-              />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <FormField label={labels.contextWindow}>
-                <input
-                  value={draft.contextWindow}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, contextWindow: e.target.value }))}
-                  placeholder="e.g. 128000"
-                  className="w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]"
-                  inputMode="numeric"
+              <div className="grid gap-3 md:grid-cols-2">
+                <CapabilityTile
+                  icon={<Eye size={18} />}
+                  label={labels.vision}
+                  checked={draft.vision}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, vision: next }))}
                 />
-              </FormField>
-              <FormField label={labels.maxOutputTokens}>
-                <input
-                  value={draft.maxOutputTokens}
-                  onChange={(e) => setDraft((prev) => ({ ...prev, maxOutputTokens: e.target.value }))}
-                  placeholder="e.g. 4096"
-                  className="w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]"
-                  inputMode="numeric"
+                <CapabilityTile
+                  icon={<ImageIcon size={18} />}
+                  label={labels.imageOutput}
+                  checked={draft.imageOutput}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, imageOutput: next }))}
                 />
-              </FormField>
-            </div>
-          </section>
-          <p className="text-xs text-[var(--c-text-muted)]">{labels.visionBridgeHint}</p>
+                <CapabilityTile
+                  icon={<Database size={18} />}
+                  label={labels.embedding}
+                  checked={draft.embedding}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, embedding: next }))}
+                />
+              </div>
 
-          <FormField label={labels.providerOptionsJson} error={error}>
-            <textarea
-              rows={8}
-              value={draft.providerOptionsJSON}
-              onChange={(e) => setDraft((prev) => ({ ...prev, providerOptionsJSON: e.target.value }))}
-              className={TEXTAREA_CLS}
-              spellCheck={false}
-            />
-          </FormField>
-          <p className="text-xs text-[var(--c-text-muted)]">{labels.providerOptionsHint}</p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField label={labels.contextWindow}>
+                  <input
+                    value={draft.contextWindow}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, contextWindow: e.target.value }))}
+                    placeholder="e.g. 128000"
+                    className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
+                    inputMode="numeric"
+                  />
+                </FormField>
+                <FormField label={labels.maxOutputTokens}>
+                  <input
+                    value={draft.maxOutputTokens}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, maxOutputTokens: e.target.value }))}
+                    placeholder="e.g. 4096"
+                    className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
+                    inputMode="numeric"
+                  />
+                </FormField>
+              </div>
+            </section>
+            <p className="text-xs text-[var(--c-text-muted)]">{labels.visionBridgeHint}</p>
 
-          <div className="flex items-center justify-between pt-1">
-            <button
-              type="button"
-              onClick={handleReset}
-              disabled={saving}
-              className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-            >
-              {labels.reset}
-            </button>
-            <div className="flex items-center gap-2">
+            <FormField label={labels.providerOptionsJson} error={error}>
+              <textarea
+                rows={8}
+                value={draft.providerOptionsJSON}
+                onChange={(e) => setDraft((prev) => ({ ...prev, providerOptionsJSON: e.target.value }))}
+                className={TEXTAREA_CLS}
+                spellCheck={false}
+              />
+            </FormField>
+            <p className="text-xs text-[var(--c-text-muted)]">{labels.providerOptionsHint}</p>
+
+            <div className="flex items-center justify-between pt-1">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleReset}
                 disabled={saving}
-                className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                className="rounded-lg bg-[var(--c-bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                style={{ border: '0.5px solid var(--c-border-subtle)' }}
               >
-                {labels.cancel}
+                {labels.reset}
               </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? <Loader2 size={14} className="animate-spin" /> : labels.save}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  disabled={saving}
+                  className="rounded-lg bg-[var(--c-bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                >
+                  {labels.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
+                  style={{ background: 'var(--c-btn-bg)' }}
+                >
+                  <span className="relative flex items-center justify-center">
+                    <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-0' : 'opacity-100'}`}>{labels.save}</span>
+                    <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-100' : 'opacity-0'}`}>
+                      <Loader2 size={14} className="animate-spin" />
+                    </span>
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </Modal>
+        )}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -353,12 +396,18 @@ function CapabilityTile({
   onChange: (next: boolean) => void
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-sub)] px-4 py-3">
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-4 py-3 transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
+    >
       <div className="flex items-center gap-3 text-[var(--c-text-primary)]">
         <span className="text-[var(--c-text-secondary)]">{icon}</span>
         <span className="text-sm font-medium">{label}</span>
       </div>
-      <SettingsPillToggle checked={checked} onChange={onChange} />
-    </div>
+      <span onClick={(e) => e.stopPropagation()}>
+        <SettingsPillToggle checked={checked} onChange={onChange} />
+      </span>
+    </button>
   )
 }

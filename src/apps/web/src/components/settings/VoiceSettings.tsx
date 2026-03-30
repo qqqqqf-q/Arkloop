@@ -663,7 +663,7 @@ export function VoiceSettings({ accessToken }: Props) {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--c-text-primary)]">{cred.name}</span>
                     {cred.is_default && (
-                      <span className="rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-400">
+                      <span className="rounded-md bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
                         {ds.voiceCredsDefault}
                       </span>
                     )}

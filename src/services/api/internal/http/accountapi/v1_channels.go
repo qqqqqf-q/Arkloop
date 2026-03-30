@@ -265,6 +265,7 @@ func createChannel(
 		}
 		persona, err := personasRepo.GetByIDForAccount(r.Context(), actor.AccountID, pid)
 		if err != nil {
+			slog.Error("createChannel.GetByIDForAccount", "err", err)
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -276,6 +277,7 @@ func createChannel(
 	if req.ChannelType == "telegram" && personaID != nil {
 		resolvedPersonaID, err := ensureProjectScopedChannelPersona(r.Context(), personasRepo, actor.AccountID, actor.UserID, personaID)
 		if err != nil {
+			slog.Error("createChannel.ensureProjectScopedPersona", "err", err)
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -284,6 +286,7 @@ func createChannel(
 
 	existing, err := channelsRepo.GetByAccountAndType(r.Context(), actor.AccountID, req.ChannelType)
 	if err != nil {
+		slog.Error("createChannel.GetByAccountAndType", "err", err)
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -303,6 +306,7 @@ func createChannel(
 
 	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
+		slog.Error("createChannel.BeginTx", "err", err)
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -312,6 +316,7 @@ func createChannel(
 	if secretsRepo != nil {
 		secret, err := secretsRepo.WithTx(tx).Create(r.Context(), actor.UserID, data.ChannelSecretName(channelID), req.BotToken)
 		if err != nil {
+			slog.Error("createChannel.secrets.Create", "err", err)
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -321,6 +326,7 @@ func createChannel(
 	ownerUserID := actor.UserID
 	ch, err := channelsRepo.WithTx(tx).Create(r.Context(), channelID, actor.AccountID, req.ChannelType, personaID, credentialsID, &ownerUserID, webhookSecret, webhookURL, normalizedConfig)
 	if err != nil {
+		slog.Error("createChannel.channels.Create", "err", err)
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
