@@ -27,6 +27,7 @@ type TitleSummarizerDB interface {
 }
 
 const titleSummarizerTimeout = 30 * time.Second
+const titleSummarizerTemperature = 0.2
 
 type TitleGeneratorFunc func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int)
 
@@ -281,7 +282,9 @@ func generateTitle(
 			{Role: "system", Content: []llm.TextPart{{Text: buildSummarizeSystem(prompt)}}},
 			{Role: "user", Content: []llm.TextPart{{Text: userText}}},
 		},
+		Temperature:     floatPtr(titleSummarizerTemperature),
 		MaxOutputTokens: &maxTokens,
+		ReasoningMode:   "disabled",
 	}
 
 	var chunks []string
@@ -317,7 +320,7 @@ func generateTitle(
 		return
 	}
 
-	title := strings.TrimSpace(strings.Join(chunks, ""))
+	title := normalizeGeneratedTitle(strings.Join(chunks, ""))
 	if title == "" {
 		logTitleSummarizerDebug(ctx, "generate_skip",
 			slog.String("reason", "empty_model_title"),
@@ -469,6 +472,36 @@ func extractUserText(messages []llm.Message) string {
 	return joined
 }
 
+func normalizeGeneratedTitle(raw string) string {
+	title := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	if title == "" {
+		return ""
+	}
+	for _, line := range strings.Split(title, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			title = line
+			break
+		}
+	}
+	for _, marker := range []string{"标题：", "标题:", "Title:", "title:"} {
+		if idx := strings.LastIndex(title, marker); idx >= 0 {
+			title = strings.TrimSpace(title[idx+len(marker):])
+		}
+	}
+	title = strings.TrimSpace(strings.Trim(title, "\"'`“”‘’「」『』【】[]()<>"))
+	title = strings.Join(strings.Fields(title), " ")
+	title = strings.TrimRight(title, "。！？!?.,;:：；、")
+	if len([]rune(title)) > 50 {
+		title = string([]rune(title)[:50])
+	}
+	return strings.TrimSpace(title)
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
 // resolveAccountToolGateway 查询账户级 spawn.profile.tool override，若存在则构建对应 gateway。
 func resolveAccountToolGateway(
 	ctx context.Context,
@@ -520,8 +553,18 @@ func resolveAccountToolGateway(
 }
 
 func buildSummarizeSystem(styleHint string) string {
-	base := "Summarize the user's request: what they want you to do in this chat (the ask), not the body of pasted specs, code, HTML, or long quotations, and not the thematic subject of a deliverable when they asked you to build or write something.\n" +
-		"Generate a concise title for the conversation. Output ONLY the title text — no quotes, no punctuation at the end, no explanation, no prefix like 'Title:'. The title must be in the same language as the user's message."
+	base := "Generate a very short conversation title from the user's ask only.\n" +
+		"Hard rules:\n" +
+		"- Output exactly one title and nothing else.\n" +
+		"- Do not answer the user.\n" +
+		"- Do not describe what you will do.\n" +
+		"- No quotes, backticks, markdown, labels, prefixes, or trailing punctuation.\n" +
+		"- Use the same language as the user's message.\n" +
+		"- If the user's message is mainly Chinese, keep the title under 10 Chinese characters.\n" +
+		"- Otherwise keep the title under 6 words.\n" +
+		"- Focus on the concrete task or question in this chat.\n" +
+		"- Ignore pasted specs, code, HTML, logs, and long quotations.\n" +
+		"- Avoid naming only the business domain or deliverable topic when the user asked for an action."
 	if styleHint != "" {
 		return base + "\n\n" + styleHint
 	}
