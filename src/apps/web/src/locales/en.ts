@@ -416,6 +416,8 @@ export const en: LocaleStrings = {
   copTimelineThinkingDoneNoDuration: "Thought",
   copTimelineThoughtForSeconds: (sec: number) => `Thought for ${sec}s`,
   copTimelineThinkingForSeconds: (sec: number) => `Thinking for ${sec}s`,
+  copTimelineShowMoreSources: (count: number) => `Show ${count} more`,
+  copTimelineShowFewerSources: 'Show fewer',
   copThinkingInlineTitle: 'Thinking',
   copThinkCardTitle: 'Think',
   copThinkingHints: [

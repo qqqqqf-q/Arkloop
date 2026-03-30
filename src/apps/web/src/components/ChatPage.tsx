@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Fragment, type ComponentProps } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Fragment, memo, type ComponentProps } from 'react'
 import { useParams, useLocation, useOutletContext, useNavigate } from 'react-router-dom'
 import { openExternal } from '../openExternal'
 import { createPortal } from 'react-dom'
@@ -147,6 +147,8 @@ import {
 const sidePanelWidth = 360
 const documentPanelWidth = 560
 const completedRunSseTailMs = 8000
+const chatContentPadding = { panelClosed: '60px', panelOpen: '40px' } as const
+const chatInputPadding = { panelClosed: '60px', panelOpen: '40px', claw: '14px' } as const
 
 const TERMINAL_RUN_EVENT_TYPES = new Set([
   'run.completed',
@@ -377,6 +379,382 @@ function LiveTurnMarkdown({
   const displayed = useTypewriter(content, typewriterDone)
   return <MarkdownRenderer content={displayed} {...rest} />
 }
+
+const HistoricalMessageList = memo(function HistoricalMessageList({
+  messages,
+  lastUserMsgIdx,
+  lastUserMsgRef,
+  hasCurrentRunHandoffUi,
+  terminalRunDisplayId,
+  resolvedMessageSources,
+  terminalRunHandoffStatus,
+  messageAssistantTurnMap,
+  messageWidgetsMap,
+  messageCodeExecutionsMap,
+  messageSubAgentsMap,
+  messageSearchStepsMap,
+  messageFileOpsMap,
+  messageWebFetchesMap,
+  messageThinkingMap,
+  messageArtifactsMap,
+  messageBrowserActionsMap,
+  terminalRunHistoryExpanded,
+  terminalRunAssistantMessageId,
+  codePanelExecutionId,
+  isSearchThread,
+  accessToken,
+  baseUrl,
+  t,
+  showRunEvents,
+  sharingMessageId,
+  sharedMessageId,
+  threadId,
+  privateThreadIds,
+  isStreaming,
+  sending,
+  userEnterMessageId,
+  locationState,
+  currentRunCopHeaderOverride,
+  handleRetry,
+  handleEditMessage,
+  handleFork,
+  createShareForMessage,
+  handleArtifactAction,
+  openDocumentPanel,
+  openCodePanel,
+  setRunDetailPanelRunId,
+  setSourcePanelMessageId,
+  setCodePanelExecution,
+  setDocumentPanelArtifact,
+  onRightPanelChange,
+  clearUserEnterAnimation,
+  documentPanelArtifactKey,
+}: {
+  messages: MessageResponse[]
+  lastUserMsgIdx: number
+  lastUserMsgRef: React.RefObject<HTMLDivElement | null>
+  hasCurrentRunHandoffUi: boolean
+  terminalRunDisplayId: string | null
+  resolvedMessageSources: Map<string, WebSource[]>
+  terminalRunHandoffStatus: MessageTerminalStatusRef | null
+  messageAssistantTurnMap: Map<string, AssistantTurnUi>
+  messageWidgetsMap: Map<string, WidgetRef[]>
+  messageCodeExecutionsMap: Map<string, CodeExecution[]>
+  messageSubAgentsMap: Map<string, SubAgentRef[]>
+  messageSearchStepsMap: Map<string, MessageSearchStepRef[]>
+  messageFileOpsMap: Map<string, FileOpRef[]>
+  messageWebFetchesMap: Map<string, WebFetchRef[]>
+  messageThinkingMap: Map<string, MessageThinkingRef>
+  messageArtifactsMap: Map<string, ArtifactRef[]>
+  messageBrowserActionsMap: Map<string, BrowserActionRef[]>
+  terminalRunHistoryExpanded: boolean
+  terminalRunAssistantMessageId: string | null
+  codePanelExecutionId: string | null
+  isSearchThread: boolean
+  accessToken: string
+  baseUrl: string
+  t: ReturnType<typeof useLocale>['t']
+  showRunEvents: boolean
+  sharingMessageId: string | null
+  sharedMessageId: string | null
+  threadId: string | null | undefined
+  privateThreadIds: Set<string>
+  isStreaming: boolean
+  sending: boolean
+  userEnterMessageId: string | null
+  locationState: LocationState
+  currentRunCopHeaderOverride: (params: {
+    title?: string | null
+    steps: WebSearchPhaseStep[]
+    hasCodeExecutions: boolean
+    hasSubAgents: boolean
+    hasFileOps: boolean
+    hasWebFetches: boolean
+    hasGenericTools: boolean
+    hasThinking: boolean
+    handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | null
+  }) => string | undefined
+  handleRetry: () => void
+  handleEditMessage: (message: MessageResponse, newContent: string) => void
+  handleFork: (messageId: string) => Promise<void>
+  createShareForMessage: (messageId: string) => void
+  handleArtifactAction: ComponentProps<typeof WidgetBlock>['onAction']
+  openDocumentPanel: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  openCodePanel: (ce: CodeExecution) => void
+  setRunDetailPanelRunId: (runId: string) => void
+  setSourcePanelMessageId: React.Dispatch<React.SetStateAction<string | null>>
+  setCodePanelExecution: React.Dispatch<React.SetStateAction<CodeExecution | null>>
+  setDocumentPanelArtifact: React.Dispatch<React.SetStateAction<DocumentPanelState | null>>
+  onRightPanelChange?: (open: boolean) => void
+  clearUserEnterAnimation: () => void
+  documentPanelArtifactKey: string | null
+}) {
+  return (
+    <>
+      {messages.map((msg, idx) => {
+        const hideTerminalRunMessage =
+          msg.role === 'assistant' &&
+          hasCurrentRunHandoffUi &&
+          terminalRunDisplayId != null &&
+          msg.run_id === terminalRunDisplayId
+        if (hideTerminalRunMessage) {
+          return null
+        }
+        const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
+        const isCurrentTerminalRunMessage =
+          msg.role === 'assistant' &&
+          terminalRunDisplayId != null &&
+          msg.run_id === terminalRunDisplayId
+        const persistedTerminalStatus =
+          msg.role === 'assistant' ? readMessageTerminalStatus(msg.id) : null
+        const effectiveTerminalStatus =
+          isCurrentTerminalRunMessage ? terminalRunHandoffStatus : persistedTerminalStatus
+        const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
+        const historicalTurn = msg.role === 'assistant' ? messageAssistantTurnMap.get(msg.id) : undefined
+        const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
+        const historicalSegments = historicalTurn?.segments ?? []
+        const msgWidgetsRaw =
+          msg.role === 'assistant' ? (messageWidgetsMap.get(msg.id) ?? readMessageWidgets(msg.id) ?? undefined) : undefined
+        const bubbleWidgets =
+          msg.role === 'assistant' && historicalTurn && historicalTurn.segments.length > 0
+            ? msgWidgetsRaw?.filter((w) => !widgetToolCallIdsPlacedInTurn(historicalTurn, msgWidgetsRaw).has(w.id))
+            : msgWidgetsRaw
+
+        const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
+        const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
+        const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
+        const messageSearchSteps = msg.role === 'assistant' ? messageSearchStepsMap.get(msg.id) : undefined
+        const timelineSteps = messageSearchSteps ?? []
+        const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
+        const messageWebFetches = msg.role === 'assistant' ? messageWebFetchesMap.get(msg.id) : undefined
+        const msgThinking = msg.role === 'assistant' ? messageThinkingMap.get(msg.id) : undefined
+        return (
+          <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
+            {msg.role === 'assistant' && hasAssistantTurn && (
+              <div style={{ marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
+                {!isSearchThread &&
+                  msgThinking != null &&
+                  msgThinking.thinkingText.trim() !== '' &&
+                  !turnHasCopThinkingItems(historicalTurn!) && (
+                  <CopTimeline
+                    key={`${msg.id}-legacy-thinking`}
+                    steps={[]}
+                    sources={[]}
+                    isComplete
+                    assistantThinking={{ markdown: msgThinking.thinkingText, live: false }}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
+                  />
+                )}
+                {historicalSegments.map((seg, si) =>
+                  seg.type === 'text' ? (
+                    <MarkdownRenderer
+                      key={`${msg.id}-at-${si}`}
+                      content={seg.content}
+                      webSources={resolvedSources}
+                      artifacts={messageArtifactsMap.get(msg.id)}
+                      accessToken={accessToken}
+                      runId={msg.run_id ?? undefined}
+                      onOpenDocument={openDocumentPanel}
+                      trimTrailingMargin={
+                        historicalSegments[si + 1] == null ||
+                        historicalSegments[si + 1]?.type === 'cop'
+                      }
+                    />
+                  ) : (
+                    (() => {
+                      const payload = copTimelinePayloadForSegment(seg, {
+                        codeExecutions: messageCodeExecutions,
+                        fileOps: messageFileOps,
+                        webFetches: messageWebFetches,
+                        subAgents: messageSubAgents,
+                        searchSteps: messageSearchSteps ?? [],
+                        sources: resolvedSources ?? [],
+                      })
+                      const histWidgets = historicWidgetsForCop(seg, msgWidgetsRaw)
+                      const thinkingRowsHist = !isSearchThread
+                        ? thinkingRowsForCop(seg, {
+                            live: false,
+                            segmentIndex: si,
+                            lastSegmentIndex: historicalTurn!.segments.length - 1,
+                          })
+                        : []
+                      const copInlineHist = !isSearchThread
+                        ? copInlineTextRowsForCop(seg, {
+                            live: false,
+                            segmentIndex: si,
+                            lastSegmentIndex: historicalSegments.length - 1,
+                          })
+                        : []
+                      if (
+                        copSegmentCalls(seg).length === 0 &&
+                        thinkingRowsHist.length === 0 &&
+                        copInlineHist.length === 0 &&
+                        histWidgets.length === 0
+                      ) {
+                        return null
+                      }
+                      const timelineTitleOverride = effectiveTerminalStatus != null
+                        ? (
+                            !isCurrentTerminalRunMessage &&
+                            (effectiveTerminalStatus === 'cancelled' || effectiveTerminalStatus === 'interrupted') &&
+                            !seg.title?.trim()
+                              ? t.connection.stopped
+                              : currentRunCopHeaderOverride({
+                                  title: seg.title,
+                                  steps: payload.steps,
+                                  hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
+                                  hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
+                                  hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
+                                  hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                                  hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
+                                  hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
+                                  handoffStatus: effectiveTerminalStatus,
+                                })
+                          )
+                        : seg.title?.trim() || undefined
+                      const histTrail = historicalSegments[si + 1]
+                      const histTrailingText =
+                        histTrail?.type === 'text' && histTrail.content.length > 0
+                      return (
+                        <Fragment key={`${msg.id}-acw-${si}`}>
+                          <CopTimeline
+                            steps={payload.steps}
+                            sources={payload.sources}
+                            isComplete
+                            codeExecutions={payload.codeExecutions}
+                            onOpenCodeExecution={openCodePanel}
+                            activeCodeExecutionId={codePanelExecutionId ?? undefined}
+                            subAgents={payload.subAgents}
+                            fileOps={payload.fileOps}
+                            webFetches={payload.webFetches}
+                            genericTools={payload.genericTools}
+                            headerOverride={timelineTitleOverride}
+                            preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
+                            thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
+                            copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
+                            trailingAssistantTextPresent={histTrailingText}
+                            accessToken={accessToken}
+                            baseUrl={baseUrl}
+                          />
+                          {histWidgets.map((w) => (
+                            <WidgetBlock
+                              key={w.id}
+                              html={w.html}
+                              title={w.title}
+                              complete
+                              onAction={handleArtifactAction}
+                            />
+                          ))}
+                        </Fragment>
+                      )
+                    })()
+                  ),
+                )}
+              </div>
+            )}
+            {msg.role === 'assistant' && !hasAssistantTurn && (timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
+              <div style={{ marginBottom: '12px' }}>
+                {timelineSteps.length > 0 && (
+                  <CopTimeline
+                    steps={timelineSteps}
+                    sources={resolvedSources ?? []}
+                    isComplete
+                    codeExecutions={messageCodeExecutions}
+                    onOpenCodeExecution={openCodePanel}
+                    activeCodeExecutionId={codePanelExecutionId ?? undefined}
+                    subAgents={messageSubAgents}
+                    fileOps={messageFileOps}
+                    webFetches={messageWebFetches}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
+                  />
+                )}
+                {timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
+                  <CopTimeline
+                    steps={[]}
+                    sources={[]}
+                    isComplete
+                    codeExecutions={messageCodeExecutions}
+                    onOpenCodeExecution={openCodePanel}
+                    activeCodeExecutionId={codePanelExecutionId ?? undefined}
+                    subAgents={messageSubAgents}
+                    fileOps={messageFileOps}
+                    webFetches={messageWebFetches}
+                    accessToken={accessToken}
+                    baseUrl={baseUrl}
+                  />
+                )}
+              </div>
+            )}
+            <MessageBubble
+              message={msg}
+              streamAssistantMarkdown={
+                isStreaming && msg.role === 'assistant' && idx === messages.length - 1
+              }
+              animateUserEnter={msg.role === 'user' && msg.id === userEnterMessageId}
+              onUserEnterAnimationEnd={msg.role === 'user' && msg.id === userEnterMessageId ? clearUserEnterAnimation : undefined}
+              onRetry={
+                msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
+                  ? handleRetry
+                  : undefined
+              }
+              onEdit={
+                msg.role === 'user' && !isStreaming && !sending
+                  ? (newContent) => handleEditMessage(msg, newContent)
+                  : undefined
+              }
+              onFork={
+                msg.role === 'assistant' && !isStreaming && !sending
+                  ? () => void handleFork(msg.id)
+                  : undefined
+              }
+              onShare={
+                msg.role === 'assistant' && !isStreaming && !sending && threadId && !privateThreadIds.has(threadId)
+                  ? () => createShareForMessage(msg.id)
+                  : undefined
+              }
+              shareState={
+                sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'
+              }
+              webSources={resolvedSources}
+              artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
+              browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
+              widgets={bubbleWidgets}
+              accessToken={accessToken}
+              onWidgetAction={msg.role === 'assistant' ? handleArtifactAction : undefined}
+              onShowSources={
+                msg.role === 'assistant' && canShowSources
+                  ? () => {
+                      setCodePanelExecution(null)
+                      setDocumentPanelArtifact(null)
+                      setSourcePanelMessageId((prev) => {
+                        const next = prev === msg.id ? null : msg.id
+                        onRightPanelChange?.(next !== null)
+                        return next
+                      })
+                    }
+                  : undefined
+              }
+              onOpenDocument={msg.role === 'assistant' ? openDocumentPanel : undefined}
+              activePanelArtifactKey={documentPanelArtifactKey}
+              onViewRunDetail={
+                showRunEvents && msg.role === 'assistant' && msg.run_id
+                  ? () => setRunDetailPanelRunId(msg.run_id!)
+                  : undefined
+              }
+              contentOverride={msg.role === 'assistant' && hasAssistantTurn ? '' : undefined}
+              plainTextForCopy={msg.role === 'assistant' && hasAssistantTurn ? assistantTurnPlainText(historicalTurn!) : undefined}
+            />
+            {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
+              <IncognitoDivider text={t.incognitoForkDivider} />
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+})
 
 function liveTurnHasThinkingSegment(turn: AssistantTurnUi | null): boolean {
   if (!turn) return false
@@ -2889,6 +3267,17 @@ export function ChatPage() {
 
   const livePlacedShowWidgetCallIds = useMemo(() => liveCopShowWidgetCallIds(liveAssistantTurn), [liveAssistantTurn])
   const livePlacedCreateArtifactCallIds = useMemo(() => liveCopCreateArtifactCallIds(liveAssistantTurn), [liveAssistantTurn])
+  const visibleStreamingWidgets = useMemo(
+    () => streamingArtifacts.filter((e) => e.toolName === 'show_widget' && (
+      (e.content != null && e.content.length > 0) ||
+      (e.loadingMessages != null && e.loadingMessages.length > 0)
+    ) && (!e.toolCallId || !livePlacedShowWidgetCallIds.has(e.toolCallId))),
+    [streamingArtifacts, livePlacedShowWidgetCallIds],
+  )
+  const visibleStreamingArtifacts = useMemo(
+    () => streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))),
+    [streamingArtifacts, livePlacedCreateArtifactCallIds],
+  )
 
   const copTimelineStreamHiddenIds = useMemo(() => {
     if (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) return new Set<string>()
@@ -3094,7 +3483,7 @@ export function ChatPage() {
             className="chat-scroll-hidden relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
           >
         <div
-          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? '32px' : '60px'} 200px`, transition: 'padding 280ms cubic-bezier(0.16,1,0.3,1)' }}
+          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? chatContentPadding.panelOpen : chatContentPadding.panelClosed} 200px` }}
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
@@ -3110,284 +3499,70 @@ export function ChatPage() {
                   llmFailedLabel={t.desktopSettings.chatCompactBannerLlmFailed}
                 />
               )}
-              {messages.map((msg, idx) => {
-                const hideTerminalRunMessage =
-                  msg.role === 'assistant' &&
-                  hasCurrentRunHandoffUi &&
-                  terminalRunDisplayId != null &&
-                  msg.run_id === terminalRunDisplayId
-                if (hideTerminalRunMessage) {
-                  return null
-                }
-                const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
-                const isCurrentTerminalRunMessage =
-                  msg.role === 'assistant' &&
-                  terminalRunDisplayId != null &&
-                  msg.run_id === terminalRunDisplayId
-                const persistedTerminalStatus =
-                  msg.role === 'assistant' ? readMessageTerminalStatus(msg.id) : null
-                const effectiveTerminalStatus =
-                  isCurrentTerminalRunMessage ? terminalRunHandoffStatus : persistedTerminalStatus
-                const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
-                const historicalTurn = msg.role === 'assistant' ? messageAssistantTurnMap.get(msg.id) : undefined
-                const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
-                const historicalSegments = historicalTurn?.segments ?? []
-                const msgWidgetsRaw =
-                  msg.role === 'assistant' ? (messageWidgetsMap.get(msg.id) ?? readMessageWidgets(msg.id) ?? undefined) : undefined
-                const bubbleWidgets =
-                  msg.role === 'assistant' && historicalTurn && historicalTurn.segments.length > 0
-                    ? msgWidgetsRaw?.filter((w) => !widgetToolCallIdsPlacedInTurn(historicalTurn, msgWidgetsRaw).has(w.id))
-                    : msgWidgetsRaw
-
-                const messageCodeExecutions = msg.role === 'assistant' ? messageCodeExecutionsMap.get(msg.id) : undefined
-                const hasMessageCodeExecutions = !!(messageCodeExecutions && messageCodeExecutions.length > 0)
-                const messageSubAgents = msg.role === 'assistant' ? messageSubAgentsMap.get(msg.id) : undefined
-                const messageSearchSteps = msg.role === 'assistant' ? messageSearchStepsMap.get(msg.id) : undefined
-                const timelineSteps = messageSearchSteps ?? []
-                const messageFileOps = msg.role === 'assistant' ? messageFileOpsMap.get(msg.id) : undefined
-                const messageWebFetches = msg.role === 'assistant' ? messageWebFetchesMap.get(msg.id) : undefined
-                const msgThinking = msg.role === 'assistant' ? messageThinkingMap.get(msg.id) : undefined
-                return (
-                  <div key={msg.id} ref={idx === lastUserMsgIdx ? lastUserMsgRef : undefined}>
-                  {msg.role === 'assistant' && hasAssistantTurn && (
-                    <div style={{ marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
-                      {!isSearchThread &&
-                        msgThinking != null &&
-                        msgThinking.thinkingText.trim() !== '' &&
-                        !turnHasCopThinkingItems(historicalTurn!) && (
-                        <CopTimeline
-                          key={`${msg.id}-legacy-thinking`}
-                          steps={[]}
-                          sources={[]}
-                          isComplete
-                          assistantThinking={{ markdown: msgThinking.thinkingText, live: false }}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
-                      )}
-                      {historicalSegments.map((seg, si) =>
-                        seg.type === 'text' ? (
-                          (
-                            <MarkdownRenderer
-                              key={`${msg.id}-at-${si}`}
-                              content={seg.content}
-                              webSources={resolvedSources}
-                              artifacts={messageArtifactsMap.get(msg.id)}
-                              accessToken={accessToken}
-                              runId={msg.run_id ?? undefined}
-                              onOpenDocument={openDocumentPanel}
-                              trimTrailingMargin={
-                                historicalSegments[si + 1] == null ||
-                                historicalSegments[si + 1]?.type === 'cop'
-                              }
-                            />
-                          )
-                        ) : (
-                          (() => {
-                            const payload = copTimelinePayloadForSegment(seg, {
-                              codeExecutions: messageCodeExecutions,
-                              fileOps: messageFileOps,
-                              webFetches: messageWebFetches,
-                              subAgents: messageSubAgents,
-                              searchSteps: messageSearchSteps ?? [],
-                              sources: resolvedSources ?? [],
-                            })
-                            const histWidgets = historicWidgetsForCop(seg, msgWidgetsRaw)
-                            const thinkingRowsHist = !isSearchThread
-                              ? thinkingRowsForCop(seg, {
-                                  live: false,
-                                  segmentIndex: si,
-                                  lastSegmentIndex: historicalTurn!.segments.length - 1,
-                                })
-                              : []
-                            const copInlineHist = !isSearchThread
-                              ? copInlineTextRowsForCop(seg, {
-                                  live: false,
-                                  segmentIndex: si,
-                                  lastSegmentIndex: historicalSegments.length - 1,
-                                })
-                              : []
-                            if (
-                              copSegmentCalls(seg).length === 0 &&
-                              thinkingRowsHist.length === 0 &&
-                              copInlineHist.length === 0 &&
-                              histWidgets.length === 0
-                            ) {
-                              return null
-                            }
-                            const timelineTitleOverride = effectiveTerminalStatus != null
-                              ? (
-                                  !isCurrentTerminalRunMessage &&
-                                  (effectiveTerminalStatus === 'cancelled' || effectiveTerminalStatus === 'interrupted') &&
-                                  !seg.title?.trim()
-                                    ? t.connection.stopped
-                                    : currentRunCopHeaderOverride({
-                                        title: seg.title,
-                                        steps: payload.steps,
-                                        hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
-                                        hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
-                                        hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
-                                        hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
-                                        hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
-                                        hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
-                                        handoffStatus: effectiveTerminalStatus,
-                                      })
-                                )
-                              : seg.title?.trim() || undefined
-                            const histTrail = historicalSegments[si + 1]
-                            const histTrailingText =
-                              histTrail?.type === 'text' && histTrail.content.length > 0
-                            return (
-                              <Fragment key={`${msg.id}-acw-${si}`}>
-                                <CopTimeline
-                                  steps={payload.steps}
-                                  sources={payload.sources}
-                                  isComplete
-                                  codeExecutions={payload.codeExecutions}
-                                  onOpenCodeExecution={openCodePanel}
-                                  activeCodeExecutionId={codePanelExecution?.id}
-                                  subAgents={payload.subAgents}
-                                  fileOps={payload.fileOps}
-                                  webFetches={payload.webFetches}
-                                  genericTools={payload.genericTools}
-                                  headerOverride={timelineTitleOverride}
-                                  preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
-                                  thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
-                                  copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
-                                  trailingAssistantTextPresent={histTrailingText}
-                                  accessToken={accessToken}
-                                  baseUrl={baseUrl}
-                                />
-                                {histWidgets.map((w) => (
-                                  <WidgetBlock
-                                    key={w.id}
-                                    html={w.html}
-                                    title={w.title}
-                                    complete
-                                    onAction={handleArtifactAction}
-                                  />
-                                ))}
-                              </Fragment>
-                            )
-                          })()
-                        ),
-                      )}
-                    </div>
-                  )}
-                  {msg.role === 'assistant' && !hasAssistantTurn && (timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
-                    <div style={{ marginBottom: '12px' }}>
-                      {timelineSteps.length > 0 && (
-                        <CopTimeline
-                          steps={timelineSteps}
-                          sources={resolvedSources ?? []}
-                          isComplete
-                          codeExecutions={messageCodeExecutions}
-                          onOpenCodeExecution={openCodePanel}
-                          activeCodeExecutionId={codePanelExecution?.id}
-                          subAgents={messageSubAgents}
-                          fileOps={messageFileOps}
-                          webFetches={messageWebFetches}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
-                      )}
-                      {timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
-                        <CopTimeline
-                          steps={[]}
-                          sources={[]}
-                          isComplete
-                          codeExecutions={messageCodeExecutions}
-                          onOpenCodeExecution={openCodePanel}
-                          activeCodeExecutionId={codePanelExecution?.id}
-                          subAgents={messageSubAgents}
-                          fileOps={messageFileOps}
-                          webFetches={messageWebFetches}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
-                      )}
-                    </div>
-                  )}
-                  <MessageBubble
-                    message={msg}
-                    streamAssistantMarkdown={
-                      isStreaming && msg.role === 'assistant' && idx === messages.length - 1
-                    }
-                    animateUserEnter={msg.role === 'user' && msg.id === userEnterMessageId}
-                    onUserEnterAnimationEnd={msg.role === 'user' && msg.id === userEnterMessageId ? clearUserEnterAnimation : undefined}
-                    onRetry={
-                      msg.role === 'assistant' && idx === messages.length - 1 && !isStreaming && !sending
-                        ? handleRetry
-                        : undefined
-                    }
-                    onEdit={
-                      msg.role === 'user' && !isStreaming && !sending
-                        ? (newContent) => handleEditMessage(msg, newContent)
-                        : undefined
-                    }
-                    onFork={
-                      msg.role === 'assistant' && !isStreaming && !sending
-                        ? () => void handleFork(msg.id)
-                        : undefined
-                    }
-                    onShare={
-                      msg.role === 'assistant' && !isStreaming && !sending && threadId && !privateThreadIds.has(threadId)
-                        ? () => {
-                            if (sharingMessageId) return
-                            setSharingMessageId(msg.id)
-                            createThreadShare(accessToken, threadId, 'public')
-                              .then((share) => {
-                                const url = `${window.location.origin}/s/${share.token}`
-                                void navigator.clipboard.writeText(url)
-                                setSharingMessageId(null)
-                                setSharedMessageId(msg.id)
-                                setTimeout(() => setSharedMessageId(null), 1500)
-                              })
-                              .catch(() => {
-                                setSharingMessageId(null)
-                              })
-                          }
-                        : undefined
-                    }
-                    shareState={
-                      sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'
-                    }
-                    webSources={resolvedSources}
-                    artifacts={msg.role === 'assistant' ? messageArtifactsMap.get(msg.id) : undefined}
-                    browserActions={msg.role === 'assistant' ? messageBrowserActionsMap.get(msg.id) : undefined}
-                    widgets={bubbleWidgets}
-                    accessToken={accessToken}
-                    onWidgetAction={msg.role === 'assistant' ? handleArtifactAction : undefined}
-                    onShowSources={
-                      msg.role === 'assistant' && canShowSources
-                        ? () => {
-                            setCodePanelExecution(null)
-                            setDocumentPanelArtifact(null)
-                            setSourcePanelMessageId((prev) => {
-                              const next = prev === msg.id ? null : msg.id
-                              onRightPanelChange?.(next !== null)
-                              return next
-                            })
-                          }
-                        : undefined
-                    }
-                    onOpenDocument={msg.role === 'assistant' ? openDocumentPanel : undefined}
-                    activePanelArtifactKey={documentPanelArtifact?.artifact.key ?? null}
-                    onViewRunDetail={
-                      showRunEvents && msg.role === 'assistant' && msg.run_id
-                        ? () => setRunDetailPanelRunId(msg.run_id!)
-                        : undefined
-                    }
-                    contentOverride={msg.role === 'assistant' && hasAssistantTurn ? '' : undefined}
-                    plainTextForCopy={msg.role === 'assistant' && hasAssistantTurn ? assistantTurnPlainText(historicalTurn!) : undefined}
-                  />
-                  {/* 无痕分割线：固定在 fork 基点之后 */}
-                  {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
-                    <IncognitoDivider text={t.incognitoForkDivider} />
-                  )}
-                  </div>
-                )
-              })}
+              <HistoricalMessageList
+                messages={messages}
+                lastUserMsgIdx={lastUserMsgIdx}
+                lastUserMsgRef={lastUserMsgRef}
+                hasCurrentRunHandoffUi={hasCurrentRunHandoffUi}
+                terminalRunDisplayId={terminalRunDisplayId}
+                resolvedMessageSources={resolvedMessageSources}
+                terminalRunHandoffStatus={terminalRunHandoffStatus}
+                messageAssistantTurnMap={messageAssistantTurnMap}
+                messageWidgetsMap={messageWidgetsMap}
+                messageCodeExecutionsMap={messageCodeExecutionsMap}
+                messageSubAgentsMap={messageSubAgentsMap}
+                messageSearchStepsMap={messageSearchStepsMap}
+                messageFileOpsMap={messageFileOpsMap}
+                messageWebFetchesMap={messageWebFetchesMap}
+                messageThinkingMap={messageThinkingMap}
+                messageArtifactsMap={messageArtifactsMap}
+                messageBrowserActionsMap={messageBrowserActionsMap}
+                terminalRunHistoryExpanded={terminalRunHistoryExpanded}
+                terminalRunAssistantMessageId={terminalRunAssistantMessageId}
+                codePanelExecutionId={codePanelExecution?.id ?? null}
+                isSearchThread={isSearchThread}
+                accessToken={accessToken}
+                baseUrl={baseUrl}
+                t={t}
+                showRunEvents={showRunEvents}
+                sharingMessageId={sharingMessageId}
+                sharedMessageId={sharedMessageId}
+                threadId={threadId}
+                privateThreadIds={privateThreadIds}
+                isStreaming={isStreaming}
+                sending={sending}
+                userEnterMessageId={userEnterMessageId}
+                locationState={locationState}
+                currentRunCopHeaderOverride={currentRunCopHeaderOverride}
+                handleRetry={handleRetry}
+                handleEditMessage={handleEditMessage}
+                handleFork={handleFork}
+                createShareForMessage={(messageId) => {
+                  if (!threadId || sharingMessageId) return
+                  setSharingMessageId(messageId)
+                  createThreadShare(accessToken, threadId, 'public')
+                    .then((share) => {
+                      const url = `${window.location.origin}/s/${share.token}`
+                      void navigator.clipboard.writeText(url)
+                      setSharingMessageId(null)
+                      setSharedMessageId(messageId)
+                      setTimeout(() => setSharedMessageId(null), 1500)
+                    })
+                    .catch(() => {
+                      setSharingMessageId(null)
+                    })
+                }}
+                handleArtifactAction={handleArtifactAction}
+                openDocumentPanel={openDocumentPanel}
+                openCodePanel={openCodePanel}
+                setRunDetailPanelRunId={setRunDetailPanelRunId}
+                setSourcePanelMessageId={setSourcePanelMessageId}
+                setCodePanelExecution={setCodePanelExecution}
+                setDocumentPanelArtifact={setDocumentPanelArtifact}
+                onRightPanelChange={onRightPanelChange}
+                clearUserEnterAnimation={clearUserEnterAnimation}
+                documentPanelArtifactKey={documentPanelArtifact?.artifact.key ?? null}
+              />
 
               {/* 流式：正文 Markdown + COP 用 CopTimeline 点线 */}
               {(showPendingThinkingShell || liveSegments.length > 0) && (
@@ -3401,7 +3576,8 @@ export function ChatPage() {
                       isComplete={false}
                       live
                       shimmer
-                      headerOverride={`${thinkingHint}...`}
+                      headerOverride={t.copThinkingInlineTitle}
+                      assistantThinking={{ markdown: '', live: true }}
                       thinkingStartedAt={copThinkingStartedAtMs}
                       accessToken={accessToken}
                       baseUrl={baseUrl}
@@ -3559,10 +3735,7 @@ export function ChatPage() {
                 </div>
               )}
 
-              {streamingArtifacts.filter((e) => e.toolName === 'show_widget' && (
-                (e.content != null && e.content.length > 0) ||
-                (e.loadingMessages != null && e.loadingMessages.length > 0)
-              ) && (!e.toolCallId || !livePlacedShowWidgetCallIds.has(e.toolCallId))).map((entry) => (
+              {visibleStreamingWidgets.map((entry) => (
                 <WidgetBlock
                   key={`streaming-widget-${entry.toolCallIndex}`}
                   html={entry.content ?? ''}
@@ -3573,7 +3746,7 @@ export function ChatPage() {
                 />
               ))}
 
-              {streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))).map((entry) => (
+              {visibleStreamingArtifacts.map((entry) => (
                 <ArtifactStreamBlock
                   key={`streaming-artifact-${entry.toolCallIndex}`}
                   entry={entry}
@@ -3645,7 +3818,7 @@ export function ChatPage() {
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? '14px' : isPanelOpen ? '32px' : '60px'} ${appMode === 'claw' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? chatInputPadding.claw : isPanelOpen ? chatInputPadding.panelOpen : chatInputPadding.panelClosed} ${appMode === 'claw' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}

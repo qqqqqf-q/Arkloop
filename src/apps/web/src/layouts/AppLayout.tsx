@@ -99,7 +99,8 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         const w = window.innerWidth
-        setSidebarHiddenByWidth(w < 900)
+        const hidden = w < 900
+        setSidebarHiddenByWidth((prev) => (prev === hidden ? prev : hidden))
         const narrow = w < 1200
         if (narrow && !collapsedByWidthRef.current) {
           collapsedByWidthRef.current = true
@@ -111,7 +112,10 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       })
     }
     window.addEventListener('resize', handler)
-    return () => { window.removeEventListener('resize', handler); cancelAnimationFrame(raf) }
+    return () => {
+      window.removeEventListener('resize', handler)
+      cancelAnimationFrame(raf)
+    }
   }, [])
 
   const handleNotificationMarkedRead = useCallback(() => {
@@ -396,7 +400,10 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
             }
           }}
           collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(v => !v)}
+          onToggleCollapse={() => {
+            collapsedByWidthRef.current = !sidebarCollapsed
+            setSidebarCollapsed(v => !v)
+          }}
           onThreadTitleUpdated={handleThreadTitleUpdated}
           onThreadDeleted={handleThreadDeleted}
           narrow={rightPanelOpen}

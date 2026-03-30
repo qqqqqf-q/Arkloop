@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState, useLayoutEffect } from 'react'
 import { ArrowUp, Square, Mic, X, Check, Loader2 } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
 import { listSelectablePersonas, type SelectablePersona, type UploadedThreadAttachment } from '../api'
@@ -102,6 +102,7 @@ export function ChatInput({
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaHeightRef = useRef<number | null>(null)
   const valueRef = useRef(value)
   const onChangeRef = useRef(onChange)
   const accessTokenRef = useRef(accessToken)
@@ -219,29 +220,22 @@ export function ChatInput({
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
-    const from = el.offsetHeight
-    el.style.transition = 'none'
     el.style.overflow = 'hidden'
     el.style.height = 'auto'
     const to = Math.min(el.scrollHeight, 300)
-    if (from === to) {
-      el.style.overflow = 'auto'
-      el.style.height = `${to}px`
+    if (textareaHeightRef.current === to) {
+      if (el.style.height !== `${to}px`) {
+        el.style.height = `${to}px`
+      }
+      el.style.overflow = to >= 300 ? 'auto' : 'hidden'
       return
     }
-    el.style.height = `${from}px`
-    requestAnimationFrame(() => {
-      el.style.transition = 'height 30ms cubic-bezier(0.25, 0.1, 0.25, 1)'
-      el.style.height = `${to}px`
-    })
-    const restore = () => {
-      el.style.overflow = 'auto'
-      el.removeEventListener('transitionend', restore)
-    }
-    el.addEventListener('transitionend', restore, { once: true })
+    textareaHeightRef.current = to
+    el.style.height = `${to}px`
+    el.style.overflow = to >= 300 ? 'auto' : 'hidden'
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     adjustHeight()
   }, [value, adjustHeight])
 

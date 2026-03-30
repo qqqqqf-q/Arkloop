@@ -411,6 +411,8 @@ export const zh: LocaleStrings = {
   copTimelineThinkingDoneNoDuration: "Thought",
   copTimelineThoughtForSeconds: (sec: number) => `Thought for ${sec}s`,
   copTimelineThinkingForSeconds: (sec: number) => `Thinking for ${sec}s`,
+  copTimelineShowMoreSources: (count: number) => `再显示 ${count} 条`,
+  copTimelineShowFewerSources: '收起',
   copThinkingInlineTitle: 'Thinking',
   copThinkCardTitle: 'Think',
   copThinkingHints: [

@@ -429,6 +429,8 @@ export interface LocaleStrings {
   /** CopTimeline：仅 thinking、已结束且有时长（秒） */
   copTimelineThoughtForSeconds: (sec: number) => string
   copTimelineThinkingForSeconds: (sec: number) => string
+  copTimelineShowMoreSources: (count: number) => string
+  copTimelineShowFewerSources: string
   /** COP 时间轴：thinking 折叠行左侧标签 */
   copThinkingInlineTitle: string
   /** COP thinking 卡片顶栏（流式中） */

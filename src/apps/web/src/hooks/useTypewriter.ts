@@ -115,6 +115,8 @@ export function useTypewriter(targetText: string, isComplete = false): string {
   }, [isComplete, targetText])
 
   useEffect(() => {
+    cancelAnimationFrame(rafRef.current)
+
     const tick = (now: number) => {
       const target = targetLenRef.current
       let current = lenRef.current
@@ -130,7 +132,7 @@ export function useTypewriter(targetText: string, isComplete = false): string {
           lenRef.current = target
           setDisplayedLen(target)
         }
-        rafRef.current = requestAnimationFrame(tick)
+        rafRef.current = 0
         return
       }
 
@@ -174,16 +176,24 @@ export function useTypewriter(targetText: string, isComplete = false): string {
           setDisplayedLen(next)
           prevTickRef.current = now
         }
+        rafRef.current = requestAnimationFrame(tick)
       } else {
         prevTickRef.current = 0
+        rafRef.current = 0
       }
+    }
 
-      rafRef.current = requestAnimationFrame(tick)
+    if (!isComplete && displayedLen >= targetText.length) {
+      rafRef.current = 0
+      return () => cancelAnimationFrame(rafRef.current)
     }
 
     rafRef.current = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [])
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
+    }
+  }, [displayedLen, isComplete, targetText])
 
   return targetText.slice(0, displayedLen)
 }
