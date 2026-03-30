@@ -122,7 +122,10 @@ export function copTimelinePayloadForSegment(
       },
     ]
   })
-  const sources = pools.sources
+  // per-segment sources: 只收集当前 segment 的 search steps 自带的 sources
+  const segmentSources = [...sourcesById.values()].flat()
+  // 如果 segment 的 search steps 有自己的 sources 就用，否则回退到全局 pool（兼容无 per-step sources 的旧数据）
+  const sources = segmentSources.length > 0 ? segmentSources : (steps.length > 0 ? pools.sources : [])
   const renderedIds = new Set<string>([
     ...codeExecutions.map((item) => item.id),
     ...fileOps.map((item) => item.id),

@@ -604,10 +604,10 @@ export function CopTimelineUnifiedRow({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: -6 }}
+      initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.22, ease: 'easeOut' }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
       style={{ position: 'relative', paddingBottom: isLast ? 0 : paddingBottom }}
     >
       {!isLast && (
