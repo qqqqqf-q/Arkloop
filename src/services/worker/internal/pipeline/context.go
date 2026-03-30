@@ -211,8 +211,10 @@ type RunContext struct {
 	// -- Sub-agent 控制面（由 EngineV1.Execute 注入，nil 时表示未启用）--
 	SubAgentControl subagentctl.Control
 
-	// -- PersonaResolutionMiddleware 写入，TitleSummarizerMiddleware 读取 --
-	TitleSummarizer *personas.TitleSummarizerConfig
+	// -- PersonaResolutionMiddleware 写入，Summarizer middlewares 读取 --
+	SummarizerDefinition *personas.Definition
+	TitleSummarizer      *personas.TitleSummarizerConfig
+	ResultSummarizer     *personas.ResultSummarizerConfig
 
 	// -- InjectionScanMiddleware 写入 --
 	// InjectionScanUserTexts 由 Telegram 群组合并 burst 时写入：仅最后一条物理 user 的扫描文本。

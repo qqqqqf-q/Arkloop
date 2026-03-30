@@ -159,6 +159,56 @@ func TestPersonaResolutionLoadsModelReasoningAndPromptCache(t *testing.T) {
 	}
 }
 
+func TestPersonaResolutionLoadsSystemSummarizerConfig(t *testing.T) {
+	reg := buildPersonaRegistry(t,
+		personas.Definition{
+			ID:             "test-persona",
+			Version:        "1",
+			Title:          "Test Persona",
+			SoulMD:         "persona soul",
+			PromptMD:       "# test",
+			ExecutorType:   "agent.simple",
+			ExecutorConfig: map[string]any{},
+		},
+		personas.Definition{
+			ID:      personas.SystemSummarizerPersonaID,
+			Version: "1",
+			Title:   "Summarizer",
+			TitleSummarizer: &personas.TitleSummarizerConfig{
+				Prompt:    "title prompt",
+				MaxTokens: 111,
+			},
+			ResultSummarizer: &personas.ResultSummarizerConfig{
+				Prompt:         "result prompt",
+				MaxTokens:      222,
+				ThresholdBytes: 333,
+			},
+		},
+	)
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{InputJSON: map[string]any{"persona_id": "test-persona"}}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TitleSummarizer == nil || rc.TitleSummarizer.Prompt != "title prompt" {
+			t.Fatalf("unexpected title summarizer: %#v", rc.TitleSummarizer)
+		}
+		if rc.ResultSummarizer == nil || rc.ResultSummarizer.Prompt != "result prompt" {
+			t.Fatalf("unexpected result summarizer: %#v", rc.ResultSummarizer)
+		}
+		if rc.ResultSummarizer.ThresholdBytes != 333 {
+			t.Fatalf("unexpected result threshold: %d", rc.ResultSummarizer.ThresholdBytes)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPersonaResolutionAppliesBudgets(t *testing.T) {
 	reg := buildPersonaRegistry(t, personas.Definition{
 		ID:             "p1",

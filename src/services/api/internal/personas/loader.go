@@ -33,6 +33,8 @@ func BuiltinPersonasRoot() (string, error) {
 	return "", fmt.Errorf("src directory not found, cannot locate personas root directory")
 }
 
+const SystemSummarizerPersonaID = "summarizer"
+
 type RepoPersona struct {
 	ID                  string                `yaml:"id"`
 	Version             string                `yaml:"version"`
@@ -47,6 +49,7 @@ type RepoPersona struct {
 	CoreTools           []string              `yaml:"core_tools"`
 	Budgets             map[string]any        `yaml:"budgets"`
 	TitleSummarize      map[string]any        `yaml:"title_summarize"`
+	ResultSummarize     map[string]any        `yaml:"result_summarize"`
 	PreferredCredential string                `yaml:"preferred_credential"`
 	Model               string                `yaml:"model"`
 	ReasoningMode       string                `yaml:"reasoning_mode"`
@@ -115,6 +118,22 @@ func LoadFromDir(root string) ([]RepoPersona, error) {
 		}
 		if promptData, err := os.ReadFile(promptPath); err == nil {
 			p.PromptMD = strings.TrimSpace(string(promptData))
+		}
+		if prompt, err := loadOptionalPersonaPromptMarkdown(dir, rawObj["title_summarize"], "title_summarize"); err != nil {
+			return nil, fmt.Errorf("persona %s: %w", p.ID, err)
+		} else if prompt != "" {
+			if p.TitleSummarize == nil {
+				p.TitleSummarize = map[string]any{}
+			}
+			p.TitleSummarize["prompt"] = prompt
+		}
+		if prompt, err := loadOptionalPersonaPromptMarkdown(dir, rawObj["result_summarize"], "result_summarize"); err != nil {
+			return nil, fmt.Errorf("persona %s: %w", p.ID, err)
+		} else if prompt != "" {
+			if p.ResultSummarize == nil {
+				p.ResultSummarize = map[string]any{}
+			}
+			p.ResultSummarize["prompt"] = prompt
 		}
 
 		if err := inlineLuaScriptConfig(&p, dir); err != nil {
@@ -202,4 +221,39 @@ func resolvePersonaLocalPath(personaDir string, pathValue string) (string, error
 		return "", fmt.Errorf("path escapes persona directory")
 	}
 	return filepath.Join(personaDir, cleaned), nil
+}
+
+func loadOptionalPersonaPromptMarkdown(personaDir string, value any, label string) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("%s must be an object", label)
+	}
+	rawPromptFile, exists := m["prompt_file"]
+	if !exists || rawPromptFile == nil {
+		return "", nil
+	}
+	fileName, ok := rawPromptFile.(string)
+	if !ok {
+		return "", fmt.Errorf("%s.prompt_file must be a string", label)
+	}
+	fileName = strings.TrimSpace(fileName)
+	if fileName == "" {
+		return "", fmt.Errorf("%s.prompt_file must not be empty", label)
+	}
+	path, err := resolvePersonaLocalPath(personaDir, fileName)
+	if err != nil {
+		return "", fmt.Errorf("%s.prompt_file: %w", label, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("%s.prompt_file: %w", label, err)
+	}
+	content := strings.TrimSpace(string(raw))
+	if content == "" {
+		return "", fmt.Errorf("%s.prompt_file: file must not be empty", label)
+	}
+	return content, nil
 }

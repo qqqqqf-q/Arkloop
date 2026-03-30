@@ -69,6 +69,7 @@ type mirrorPersonaYAML struct {
 	ConditionalTools    []repopersonas.ConditionalToolRule `yaml:"conditional_tools,omitempty"`
 	Budgets             map[string]any                     `yaml:"budgets,omitempty"`
 	TitleSummarize      map[string]any                     `yaml:"title_summarize,omitempty"`
+	ResultSummarize     map[string]any                     `yaml:"result_summarize,omitempty"`
 	PreferredCredential string                             `yaml:"preferred_credential,omitempty"`
 	Model               string                             `yaml:"model,omitempty"`
 	ReasoningMode       string                             `yaml:"reasoning_mode,omitempty"`
@@ -76,6 +77,8 @@ type mirrorPersonaYAML struct {
 	PromptCacheControl  string                             `yaml:"prompt_cache_control,omitempty"`
 	ExecutorType        string                             `yaml:"executor_type,omitempty"`
 	ExecutorConfig      map[string]any                     `yaml:"executor_config,omitempty"`
+	IsSystem            bool                               `yaml:"is_system,omitempty"`
+	IsBuiltin           bool                               `yaml:"is_builtin,omitempty"`
 }
 
 func NewManager(root string, pool *pgxpool.Pool, repo *data.PersonasRepository, logger *slog.Logger) *Manager {
@@ -312,6 +315,7 @@ func (m *Manager) applyFileToDB(ctx context.Context, snap fileSnapshot) error {
 		CoreTools:            cloneStrings(snap.Persona.CoreTools),
 		BudgetsJSON:          mustJSONRaw(snap.Persona.Budgets),
 		TitleSummarizeJSON:   mustJSONRawNil(snap.Persona.TitleSummarize),
+		ResultSummarizeJSON:  mustJSONRawNil(snap.Persona.ResultSummarize),
 		ConditionalToolsJSON: mustJSONRawSliceNil(snap.Persona.ConditionalTools),
 		PreferredCredential:  optionalStringPtr(snap.Persona.PreferredCredential),
 		Model:                optionalStringPtr(snap.Persona.Model),
@@ -356,7 +360,7 @@ func writePersonaDir(dirPath string, persona data.Persona) error {
 		return err
 	}
 
-	yamlDoc, scriptBody, err := buildMirrorPersonaYAML(persona)
+	yamlDoc, scriptBody, titlePromptBody, resultPromptBody, err := buildMirrorPersonaYAML(persona)
 	if err != nil {
 		return err
 	}
@@ -380,32 +384,46 @@ func writePersonaDir(dirPath string, persona data.Persona) error {
 			return err
 		}
 	}
+	if strings.TrimSpace(titlePromptBody) != "" {
+		if err := os.WriteFile(filepath.Join(dirPath, "title_summarize.md"), []byte(strings.TrimSpace(titlePromptBody)+"\n"), 0644); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(resultPromptBody) != "" {
+		if err := os.WriteFile(filepath.Join(dirPath, "result_summarize.md"), []byte(strings.TrimSpace(resultPromptBody)+"\n"), 0644); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, error) {
+func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, string, string, error) {
 	budgets, err := decodeRawMap(persona.BudgetsJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", err
+		return mirrorPersonaYAML{}, "", "", "", err
 	}
 	titleSummarize, err := decodeRawMap(persona.TitleSummarizeJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", err
+		return mirrorPersonaYAML{}, "", "", "", err
+	}
+	resultSummarize, err := decodeRawMap(persona.ResultSummarizeJSON)
+	if err != nil {
+		return mirrorPersonaYAML{}, "", "", "", err
 	}
 	executorConfig, err := decodeRawMap(persona.ExecutorConfigJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", err
+		return mirrorPersonaYAML{}, "", "", "", err
 	}
 	conditionalTools, err := decodeConditionalTools(persona.ConditionalToolsJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", err
+		return mirrorPersonaYAML{}, "", "", "", err
 	}
 
 	scriptBody := ""
 	if strings.TrimSpace(persona.ExecutorType) == "agent.lua" {
 		rawScript, _ := executorConfig["script"].(string)
 		if strings.TrimSpace(rawScript) == "" {
-			return mirrorPersonaYAML{}, "", fmt.Errorf("agent.lua runtime persona missing script")
+			return mirrorPersonaYAML{}, "", "", "", fmt.Errorf("agent.lua runtime persona missing script")
 		}
 		scriptBody = rawScript
 		delete(executorConfig, "script")
@@ -413,6 +431,8 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 	} else {
 		delete(executorConfig, "script_file")
 	}
+	titlePromptBody := extractPromptToFile(titleSummarize, "title_summarize.md")
+	resultPromptBody := extractPromptToFile(resultSummarize, "result_summarize.md")
 
 	doc := mirrorPersonaYAML{
 		ID:               strings.TrimSpace(persona.PersonaKey),
@@ -427,6 +447,7 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 		ConditionalTools: conditionalTools,
 		Budgets:          budgets,
 		TitleSummarize:   titleSummarize,
+		ResultSummarize:  resultSummarize,
 		// DB-only 字段，不写回 yaml
 		PreferredCredential: "",
 		Model:               "",
@@ -434,6 +455,8 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 		PromptCacheControl:  strings.TrimSpace(persona.PromptCacheControl),
 		ExecutorType:        strings.TrimSpace(persona.ExecutorType),
 		ExecutorConfig:      executorConfig,
+		IsSystem:            strings.TrimSpace(persona.PersonaKey) == repopersonas.SystemSummarizerPersonaID,
+		IsBuiltin:           strings.TrimSpace(persona.PersonaKey) == repopersonas.SystemSummarizerPersonaID,
 	}
 	if !persona.StreamThinking {
 		f := false
@@ -442,7 +465,22 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, er
 	if strings.TrimSpace(persona.SoulMD) != "" {
 		doc.SoulFile = "soul.md"
 	}
-	return doc, scriptBody, nil
+	return doc, scriptBody, titlePromptBody, resultPromptBody, nil
+}
+
+func extractPromptToFile(obj map[string]any, fileName string) string {
+	if len(obj) == 0 {
+		return ""
+	}
+	rawPrompt, _ := obj["prompt"].(string)
+	prompt := strings.TrimSpace(rawPrompt)
+	delete(obj, "prompt")
+	if prompt == "" {
+		delete(obj, "prompt_file")
+		return ""
+	}
+	obj["prompt_file"] = fileName
+	return prompt
 }
 
 func repoPersonaHash(persona repopersonas.RepoPersona) (string, error) {
@@ -461,6 +499,7 @@ func repoPersonaHash(persona repopersonas.RepoPersona) (string, error) {
 		"core_tools":           normalizeStringSlice(persona.CoreTools),
 		"budgets":              normalizeMap(persona.Budgets),
 		"title_summarize":      normalizeMap(persona.TitleSummarize),
+		"result_summarize":     normalizeMap(persona.ResultSummarize),
 		"reasoning_mode":       strings.TrimSpace(persona.ReasoningMode),
 		"stream_thinking":      data.NormalizePersonaStreamThinkingPtr(persona.StreamThinking),
 		"prompt_cache_control": strings.TrimSpace(persona.PromptCacheControl),
@@ -477,6 +516,10 @@ func dbPersonaHash(persona data.Persona) (string, error) {
 		return "", err
 	}
 	titleSummarize, err := decodeRawMap(persona.TitleSummarizeJSON)
+	if err != nil {
+		return "", err
+	}
+	resultSummarize, err := decodeRawMap(persona.ResultSummarizeJSON)
 	if err != nil {
 		return "", err
 	}
@@ -503,6 +546,7 @@ func dbPersonaHash(persona data.Persona) (string, error) {
 		"core_tools":           normalizeStringSlice(persona.CoreTools),
 		"budgets":              budgets,
 		"title_summarize":      titleSummarize,
+		"result_summarize":     resultSummarize,
 		"reasoning_mode":       strings.TrimSpace(persona.ReasoningMode),
 		"stream_thinking":      persona.StreamThinking,
 		"prompt_cache_control": strings.TrimSpace(persona.PromptCacheControl),

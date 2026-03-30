@@ -1,0 +1,21 @@
+id: summarizer
+version: "1"
+title: Summarizer
+description: 平台级摘要 persona，负责标题概括与工具结果摘要。
+user_selectable: false
+is_system: true
+is_builtin: true
+budgets:
+    reasoning_iterations: 1
+    temperature: 0.2
+title_summarize:
+    max_tokens: 512
+    prompt_file: title_summarize.md
+result_summarize:
+    max_tokens: 512
+    threshold_bytes: 65536
+    prompt_file: result_summarize.md
+reasoning_mode: disabled
+stream_thinking: false
+prompt_cache_control: none
+executor_type: agent.simple

@@ -12,13 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	settingResultSummarizerEnabled   = "tool_result_summarizer.enabled"
-	settingResultSummarizerModel     = "tool_result_summarizer.model"
-	defaultResultSummarizerThreshold = 64 * 1024
-)
-
-// NewResultSummarizerMiddleware 从 platform_settings 读取配置，按需为 ToolExecutor
+// NewResultSummarizerMiddleware 从系统 summarize persona 读取配置，按需为 ToolExecutor
 // 注入 ResultSummarizer（Layer 2 LLM 压缩）。
 func NewResultSummarizerMiddleware(
 	pool *pgxpool.Pool,
@@ -32,12 +26,10 @@ func NewResultSummarizerMiddleware(
 		configLoader = loaders[0]
 	}
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		if pool == nil || rc.ToolExecutor == nil {
+		if rc.ToolExecutor == nil {
 			return next(ctx, rc)
 		}
-
-		enabled, model := loadResultSummarizerSettings(ctx, pool)
-		if !enabled || model == "" {
+		if rc.ResultSummarizer == nil {
 			return next(ctx, rc)
 		}
 
@@ -48,48 +40,43 @@ func NewResultSummarizerMiddleware(
 		}
 		accountID := &rc.Run.AccountID
 
-		gateway, resolvedModel := resolveTitleGateway(
-			ctx, pool, accountID,
-			fallbackGateway, fallbackModel,
-			auxGateway, emitDebugEvents,
-			llmMaxResponseBytes, configLoader,
-			rc.RoutingByokEnabled,
-		)
-		if gateway == nil {
-			slog.WarnContext(ctx, "result_summarizer: gateway resolve failed, skipping")
-			return next(ctx, rc)
+		model := ""
+		if rc.SummarizerDefinition != nil && rc.SummarizerDefinition.Model != nil {
+			model = strings.TrimSpace(*rc.SummarizerDefinition.Model)
 		}
-		if resolvedModel == "" {
-			resolvedModel = model
+		resolvedFallbackModel := fallbackModel
+		if model != "" {
+			resolvedFallbackModel = model
 		}
 
-		summarizer := tools.NewResultSummarizer(gateway, resolvedModel, defaultResultSummarizerThreshold)
+		gateway := fallbackGateway
+		resolvedModel := resolvedFallbackModel
+		if pool != nil {
+			gateway, resolvedModel = resolveTitleGateway(
+				ctx, pool, accountID,
+				fallbackGateway, resolvedFallbackModel,
+				auxGateway, emitDebugEvents,
+				llmMaxResponseBytes, configLoader,
+				rc.RoutingByokEnabled,
+			)
+			if gateway == nil {
+				slog.WarnContext(ctx, "result_summarizer: gateway resolve failed, skipping")
+				return next(ctx, rc)
+			}
+		}
+		if resolvedModel == "" {
+			resolvedModel = resolvedFallbackModel
+		}
+		if resolvedModel == "" {
+			return next(ctx, rc)
+		}
+
+		summarizer := tools.NewResultSummarizer(gateway, resolvedModel, rc.ResultSummarizer.ThresholdBytes, tools.ResultSummarizerConfig{
+			Prompt:    rc.ResultSummarizer.Prompt,
+			MaxTokens: rc.ResultSummarizer.MaxTokens,
+		})
 		rc.ToolExecutor.SetSummarizer(summarizer)
 
 		return next(ctx, rc)
 	}
-}
-
-func loadResultSummarizerSettings(ctx context.Context, pool *pgxpool.Pool) (enabled bool, model string) {
-	rows, err := pool.Query(ctx,
-		`SELECT key, value FROM platform_settings WHERE key = ANY($1)`,
-		[]string{settingResultSummarizerEnabled, settingResultSummarizerModel},
-	)
-	if err != nil {
-		return false, ""
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
-			continue
-		}
-		switch k {
-		case settingResultSummarizerEnabled:
-			enabled = strings.TrimSpace(v) == "true"
-		case settingResultSummarizerModel:
-			model = strings.TrimSpace(v)
-		}
-	}
-	return enabled, model
 }

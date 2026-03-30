@@ -9,9 +9,6 @@ selector_order: 3
 budgets:
     reasoning_iterations: 99999
     temperature: 0.7
-title_summarize:
-    max_tokens: 512
-    prompt: Capture the STEM task or question. If the user's message is mainly Chinese, keep it under 10 Chinese characters; otherwise keep it under 6 words.
 reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.simple

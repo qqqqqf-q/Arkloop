@@ -12,19 +12,30 @@ import (
 )
 
 const resultSummarizerTimeout = 30 * time.Second
+const resultSummarizerTemperature = 0.2
+
+type ResultSummarizerConfig struct {
+	Prompt    string
+	MaxTokens int
+}
 
 // ResultSummarizer calls an LLM to summarize oversized tool output.
 type ResultSummarizer struct {
 	gateway   llm.Gateway
 	model     string
 	threshold int
+	config    ResultSummarizerConfig
 }
 
-func NewResultSummarizer(gateway llm.Gateway, model string, threshold int) *ResultSummarizer {
+func NewResultSummarizer(gateway llm.Gateway, model string, threshold int, config ResultSummarizerConfig) *ResultSummarizer {
+	if config.MaxTokens <= 0 {
+		config.MaxTokens = 512
+	}
 	return &ResultSummarizer{
 		gateway:   gateway,
 		model:     model,
 		threshold: threshold,
+		config:    config,
 	}
 }
 
@@ -44,9 +55,12 @@ func (s *ResultSummarizer) Summarize(ctx context.Context, toolName string, resul
 	req := llm.Request{
 		Model: s.model,
 		Messages: []llm.Message{
-			{Role: "system", Content: []llm.TextPart{{Text: buildSummarizerSystemPrompt()}}},
+			{Role: "system", Content: []llm.TextPart{{Text: buildSummarizerSystemPrompt(s.config.Prompt)}}},
 			{Role: "user", Content: []llm.TextPart{{Text: buildSummarizerUserPrompt(toolName, string(raw))}}},
 		},
+		Temperature:     floatPtr(resultSummarizerTemperature),
+		MaxOutputTokens: intPtr(s.config.MaxTokens),
+		ReasoningMode:   "disabled",
 	}
 
 	var chunks []string
@@ -90,13 +104,25 @@ func (s *ResultSummarizer) Summarize(ctx context.Context, toolName string, resul
 	}
 }
 
-func buildSummarizerSystemPrompt() string {
-	return "You are a tool output compressor. Extract the key information from the following tool output.\n" +
-		"Preserve: numbers, file paths, error messages, status codes, key data points.\n" +
-		"Discard: verbose logs, repetitive output, formatting noise.\n" +
-		"Output a concise summary in plain text."
+func buildSummarizerSystemPrompt(prompt string) string {
+	base := "You are a tool output compressor.\n" +
+		"Return only a concise plain-text summary.\n" +
+		"Preserve numbers, file paths, identifiers, status codes, key outputs, and exact error messages.\n" +
+		"Remove repetitive logs, boilerplate, and formatting noise."
+	if strings.TrimSpace(prompt) != "" {
+		return base + "\n" + strings.TrimSpace(prompt)
+	}
+	return base
 }
 
 func buildSummarizerUserPrompt(toolName, resultJSON string) string {
 	return "Tool: " + toolName + "\nOutput:\n" + resultJSON
+}
+
+func intPtr(v int) *int {
+	return &v
+}
+
+func floatPtr(v float64) *float64 {
+	return &v
 }

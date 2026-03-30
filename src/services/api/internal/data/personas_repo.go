@@ -22,7 +22,7 @@ const (
 
 const personaSelectColumns = `id, account_id, project_id, persona_key, version, display_name, description,
 	    soul_md, user_selectable, selector_name, selector_order,
-	    prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '{}'), budgets_json, roles_json, title_summarize_json, conditional_tools_json,
+	    prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '{}'), budgets_json, roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 	    is_active, created_at, updated_at,
 	    preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 	    executor_type, executor_config_json,
@@ -30,7 +30,7 @@ const personaSelectColumns = `id, account_id, project_id, persona_key, version, 
 
 const personaSelectColumnsQualified = `p.id, p.account_id, p.project_id, p.persona_key, p.version, p.display_name, p.description,
 	    p.soul_md, p.user_selectable, p.selector_name, p.selector_order,
-	    p.prompt_md, p.tool_allowlist, p.tool_denylist, COALESCE(p.core_tools, '{}'), p.budgets_json, p.roles_json, p.title_summarize_json, p.conditional_tools_json,
+	    p.prompt_md, p.tool_allowlist, p.tool_denylist, COALESCE(p.core_tools, '{}'), p.budgets_json, p.roles_json, p.title_summarize_json, p.result_summarize_json, p.conditional_tools_json,
 	    p.is_active, p.created_at, p.updated_at,
 	    p.preferred_credential, p.model, p.reasoning_mode, p.stream_thinking, p.prompt_cache_control,
 	    p.executor_type, p.executor_config_json,
@@ -68,6 +68,7 @@ type Persona struct {
 	BudgetsJSON          json.RawMessage
 	RolesJSON            json.RawMessage
 	TitleSummarizeJSON   json.RawMessage
+	ResultSummarizeJSON  json.RawMessage
 	ConditionalToolsJSON json.RawMessage
 	IsActive             bool
 	CreatedAt            time.Time
@@ -93,6 +94,7 @@ type PersonaPatch struct {
 	CoreTools            []string
 	BudgetsJSON          json.RawMessage
 	RolesJSON            json.RawMessage
+	ResultSummarizeJSON  json.RawMessage
 	ConditionalToolsJSON json.RawMessage
 	IsActive             *bool
 	PreferredCredential  *string
@@ -120,6 +122,7 @@ type PlatformMirrorUpsertParams struct {
 	BudgetsJSON          json.RawMessage
 	RolesJSON            json.RawMessage
 	TitleSummarizeJSON   json.RawMessage
+	ResultSummarizeJSON  json.RawMessage
 	ConditionalToolsJSON json.RawMessage
 	PreferredCredential  *string
 	Model                *string
@@ -169,7 +172,7 @@ func scanPersona(scanner personaScanner, persona *Persona) error {
 		&persona.ID, &persona.AccountID, &persona.ProjectID, &persona.PersonaKey, &persona.Version,
 		&persona.DisplayName, &persona.Description,
 		&persona.SoulMD, &persona.UserSelectable, &persona.SelectorName, &persona.SelectorOrder,
-		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.CoreTools, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON, &persona.ConditionalToolsJSON,
+		&persona.PromptMD, &persona.ToolAllowlist, &persona.ToolDenylist, &persona.CoreTools, &persona.BudgetsJSON, &persona.RolesJSON, &persona.TitleSummarizeJSON, &persona.ResultSummarizeJSON, &persona.ConditionalToolsJSON,
 		&persona.IsActive, &persona.CreatedAt, &persona.UpdatedAt,
 		&persona.PreferredCredential, &persona.Model, &persona.ReasoningMode, &persona.StreamThinking, &persona.PromptCacheControl,
 		&persona.ExecutorType, &persona.ExecutorConfigJSON,
@@ -379,11 +382,11 @@ func (r *PersonasRepository) createWithProjectID(
 		`INSERT INTO personas
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
-		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
+		     prompt_md, tool_allowlist, tool_denylist, budgets_json, roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 		     preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now())
+		 VALUES ($1, $2, $3, $4, $5, '', FALSE, NULL, NULL, $6, $7, $8, $9, $10, NULL, NULL, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now())
 		 RETURNING `+personaSelectColumns,
 		projectID, personaKey, version, displayName, description, promptMD,
 		toolAllowlist, toolDenylist, budgetsJSON, rolesJSON, conditionalToolsJSON, preferredCredential,
@@ -625,6 +628,10 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 	if len(source.TitleSummarizeJSON) > 0 {
 		titleSummarizeJSON = source.TitleSummarizeJSON
 	}
+	var resultSummarizeJSON any
+	if len(source.ResultSummarizeJSON) > 0 {
+		resultSummarizeJSON = source.ResultSummarizeJSON
+	}
 
 	var persona Persona
 	err = scanPersona(r.db.QueryRow(
@@ -632,11 +639,11 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 		`INSERT INTO personas
 		    (project_id, persona_key, version, display_name, description, soul_md,
 		     user_selectable, selector_name, selector_order,
-		     prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
+		     prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 		     is_active, preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		     executor_type, executor_config_json,
 		     sync_mode, mirrored_file_dir, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, now())
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, now())
 		 RETURNING `+personaSelectColumns,
 		projectID,
 		source.PersonaKey,
@@ -654,6 +661,7 @@ func (r *PersonasRepository) CloneToProject(ctx context.Context, projectID uuid.
 		budgetsJSON,
 		rolesJSON,
 		titleSummarizeJSON,
+		resultSummarizeJSON,
 		conditionalToolsJSON,
 		source.IsActive,
 		source.PreferredCredential,
@@ -967,17 +975,17 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		`INSERT INTO personas (
 			account_id, persona_key, version, display_name, description, soul_md,
 			user_selectable, selector_name, selector_order,
-			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, conditional_tools_json,
+			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json, roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 			preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 			executor_type, executor_config_json,
 			is_active, sync_mode, mirrored_file_dir, last_synced_at, updated_at
 		) VALUES (
 			NULL, $1, $2, $3, $4, $5,
 			$6, $7, $8,
-			$9, $10, $11, $12, $13, $14, $15, $16,
-			$17, $18, $19, $20, $21,
-			$22, $23,
-			$24, $25, $26, $27, now()
+			$9, $10, $11, $12, $13, $14, $15, $16, $17,
+			$18, $19, $20, $21, $22,
+			$23, $24,
+			$25, $26, $27, $28, now()
 		)
 		ON CONFLICT (persona_key, version) WHERE project_id IS NULL
 		DO UPDATE SET
@@ -994,6 +1002,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 			budgets_json = EXCLUDED.budgets_json,
 			roles_json = EXCLUDED.roles_json,
 			title_summarize_json = EXCLUDED.title_summarize_json,
+			result_summarize_json = EXCLUDED.result_summarize_json,
 			conditional_tools_json = EXCLUDED.conditional_tools_json,
 			reasoning_mode = EXCLUDED.reasoning_mode,
 			stream_thinking = EXCLUDED.stream_thinking,
@@ -1008,7 +1017,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		RETURNING `+personaSelectColumns,
 		params.PersonaKey, params.Version, params.DisplayName, params.Description, strings.TrimSpace(params.SoulMD),
 		params.UserSelectable, params.SelectorName, params.SelectorOrder,
-		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.CoreTools, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON, params.ConditionalToolsJSON,
+		strings.TrimSpace(params.PromptMD), params.ToolAllowlist, params.ToolDenylist, params.CoreTools, params.BudgetsJSON, params.RolesJSON, params.TitleSummarizeJSON, params.ResultSummarizeJSON, params.ConditionalToolsJSON,
 		params.PreferredCredential, params.Model, params.ReasoningMode, streamThinking, params.PromptCacheControl,
 		params.ExecutorType, params.ExecutorConfigJSON,
 		params.IsActive, PersonaSyncModePlatformFileMirror, params.MirroredFileDir, params.LastSyncedAt,

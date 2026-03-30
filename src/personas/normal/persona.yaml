@@ -20,9 +20,6 @@ core_tools:
 budgets:
     reasoning_iterations: 99999
     temperature: 1
-title_summarize:
-    max_tokens: 512
-    prompt: Phrase the title as the user's task or question (e.g. 做个网页、改这段代码). If the user's message is mainly Chinese, keep it under 10 Chinese characters; otherwise keep it under 6 words. Avoid naming only the business/theme of the thing they want produced.
 reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.simple

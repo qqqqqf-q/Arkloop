@@ -7,9 +7,6 @@ soul_file: soul.md
 budgets:
     reasoning_iterations: 2
     temperature: 1
-title_summarize:
-    max_tokens: 512
-    prompt: Extract the search intent. If the user's message is mainly Chinese, keep it under 5 Chinese characters; otherwise keep it under 3 words.
 reasoning_mode: auto
 prompt_cache_control: none
 executor_type: agent.lua

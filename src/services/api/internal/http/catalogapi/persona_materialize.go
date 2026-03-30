@@ -79,6 +79,17 @@ func repoPersonaTitleSummarizeJSON(raw map[string]any) json.RawMessage {
 	return encoded
 }
 
+func repoPersonaResultSummarizeJSON(raw map[string]any) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	return encoded
+}
+
 func materializeRepoPersonaForCreate(
 	ctx context.Context,
 	personasRepo *data.PersonasRepository,
@@ -177,6 +188,7 @@ func materializeRepoPersonaForCreate(
 			BudgetsJSON:          budgetsJSON,
 			RolesJSON:            rolesJSON,
 			TitleSummarizeJSON:   repoPersonaTitleSummarizeJSON(repoPersona.TitleSummarize),
+			ResultSummarizeJSON:  repoPersonaResultSummarizeJSON(repoPersona.ResultSummarize),
 			ConditionalToolsJSON: conditionalToolsJSON,
 			PreferredCredential:  preferredCredential,
 			Model:                model,

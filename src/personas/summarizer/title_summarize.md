@@ -1,0 +1,1 @@
+Phrase the title as the user's task or question (e.g. 做个网页、改这段代码). If the user's message is mainly Chinese, keep it under 10 Chinese characters; otherwise keep it under 6 words. Avoid naming only the business/theme of the thing they want produced.

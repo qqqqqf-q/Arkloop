@@ -80,6 +80,9 @@ func NewPersonaResolutionMiddleware(
 		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.ToolDenylist = nil
 		rc.StreamThinking = true
+		rc.SummarizerDefinition = nil
+		rc.TitleSummarizer = nil
+		rc.ResultSummarizer = nil
 		rc.PersonaDefinition = resolution.Definition
 		rc.AgentConfig = nil
 		rc.AgentConfigID = nil
@@ -151,7 +154,15 @@ func NewPersonaResolutionMiddleware(
 			for _, name := range def.ToolDenylist {
 				RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 			}
-			rc.TitleSummarizer = def.TitleSummarizer
+		}
+
+		if runPersonaRegistry != nil {
+			if summarizerDef, ok := runPersonaRegistry.Get(personas.SystemSummarizerPersonaID); ok {
+				summaryClone := summarizerDef
+				rc.SummarizerDefinition = &summaryClone
+				rc.TitleSummarizer = summarizerDef.TitleSummarizer
+				rc.ResultSummarizer = summarizerDef.ResultSummarizer
+			}
 		}
 
 		return next(ctx, rc)

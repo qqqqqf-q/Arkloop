@@ -481,6 +481,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		pipeline.NewHeartbeatPrepareMiddleware(),
 		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolBuildMiddleware(),
+		pipeline.NewResultSummarizerMiddleware(nil, e.auxGateway, e.emitDebugEvents, 0, e.routingLoader),
 		desktopChannelDelivery(e.db),
 	)
 	terminal := desktopAgentLoop(e.db, e.bus, e.jobQueue, runsRepo, eventsRepo)
@@ -1322,6 +1323,9 @@ func desktopPersonaResolution(
 		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.ToolDenylist = nil
 		rc.StreamThinking = true
+		rc.SummarizerDefinition = nil
+		rc.TitleSummarizer = nil
+		rc.ResultSummarizer = nil
 		rc.PersonaDefinition = resolution.Definition
 
 		limits := sharedexec.NormalizePlatformLimits(sharedexec.PlatformLimits{
@@ -1375,9 +1379,24 @@ func desktopPersonaResolution(
 			for _, name := range def.ToolDenylist {
 				pipeline.RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
 			}
-			rc.TitleSummarizer = def.TitleSummarizer
+		}
+
+		if registry != nil {
+			if summarizerDef, ok := registry.Get(personas.SystemSummarizerPersonaID); ok {
+				summaryClone := summarizerDef
+				rc.SummarizerDefinition = &summaryClone
+				rc.TitleSummarizer = summarizerDef.TitleSummarizer
+				rc.ResultSummarizer = summarizerDef.ResultSummarizer
+			}
+		}
+		if rc.TitleSummarizer == nil || rc.ResultSummarizer == nil {
+			fallback := personas.DefaultSystemSummarizerDefinition()
+			rc.SummarizerDefinition = &fallback
 			if rc.TitleSummarizer == nil {
-				rc.TitleSummarizer = personas.DesktopFallbackTitleSummarizer()
+				rc.TitleSummarizer = fallback.TitleSummarizer
+			}
+			if rc.ResultSummarizer == nil {
+				rc.ResultSummarizer = fallback.ResultSummarizer
 			}
 		}
 

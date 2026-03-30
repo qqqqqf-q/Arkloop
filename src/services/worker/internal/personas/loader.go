@@ -190,6 +190,24 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 	if err != nil {
 		return Definition{}, err
 	}
+	if titleSummarizer != nil {
+		if prompt, err := loadSummarizePrompt(personaDir, obj["title_summarize"], "title_summarize"); err != nil {
+			return Definition{}, err
+		} else if prompt != "" {
+			titleSummarizer.Prompt = prompt
+		}
+	}
+	resultSummarizer, err := asResultSummarizer(obj["result_summarize"])
+	if err != nil {
+		return Definition{}, err
+	}
+	if resultSummarizer != nil {
+		if prompt, err := loadSummarizePrompt(personaDir, obj["result_summarize"], "result_summarize"); err != nil {
+			return Definition{}, err
+		} else if prompt != "" {
+			resultSummarizer.Prompt = prompt
+		}
+	}
 
 	hbEnabled, hbInterval, err := parseHeartbeatBlock(obj["heartbeat"])
 	if err != nil {
@@ -224,6 +242,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		PromptCacheControl:  promptCacheControl,
 		Roles:               roles,
 		TitleSummarizer:     titleSummarizer,
+		ResultSummarizer:    resultSummarizer,
 
 		IsSystem:                asOptionalBool(obj["is_system"]),
 		IsBuiltin:               asOptionalBool(obj["is_builtin"]),
@@ -307,6 +326,25 @@ func loadOptionalPersonaMarkdown(personaDir string, fileName string, required bo
 		return "", nil
 	}
 	return content, nil
+}
+
+func loadSummarizePrompt(personaDir string, value any, label string) (string, error) {
+	if value == nil {
+		return "", nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return "", fmt.Errorf("%s must be an object", label)
+	}
+	rawFile, exists := m["prompt_file"]
+	if !exists || rawFile == nil {
+		return "", nil
+	}
+	fileName, err := asNonEmptyString(rawFile, label+".prompt_file")
+	if err != nil {
+		return "", err
+	}
+	return loadOptionalPersonaMarkdown(personaDir, fileName, true, label+".prompt_file")
 }
 
 func asOptionalBool(value any) bool {
@@ -550,15 +588,15 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 
 	query := `SELECT persona_key, version, display_name, description,
 		        soul_md, user_selectable, selector_name, selector_order,
-		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), COALESCE(core_tools, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json, conditional_tools_json,
+		        prompt_md, tool_allowlist, COALESCE(tool_denylist, '{}'), COALESCE(core_tools, '{}'), budgets_json, COALESCE(roles_json, '{}'::jsonb), title_summarize_json, result_summarize_json, conditional_tools_json,
 		        executor_type, executor_config_json,
 		        preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 		        updated_at
 		 FROM personas
-		 WHERE is_active = TRUE AND project_id = $1
-		 ORDER BY created_at ASC`
+		 WHERE is_active = TRUE AND (project_id = $1 OR (project_id IS NULL AND persona_key = $2))
+		 ORDER BY CASE WHEN project_id IS NULL THEN 0 ELSE 1 END ASC, created_at ASC`
 
-	rows, err := pool.Query(ctx, query, projectID)
+	rows, err := pool.Query(ctx, query, projectID, SystemSummarizerPersonaID)
 	if err != nil {
 		return nil, err
 	}
@@ -582,6 +620,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			budgetsRaw          []byte
 			rolesRaw            []byte
 			titleSummarizeRaw   []byte
+			resultSummarizeRaw  []byte
 			conditionalToolsRaw []byte
 			executorType        string
 			executorConfigRaw   []byte
@@ -594,7 +633,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		)
 		if err := rows.Scan(&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
-			&promptMD, &toolAllowlist, &toolDenylist, &coreTools, &budgetsRaw, &rolesRaw, &titleSummarizeRaw, &conditionalToolsRaw,
+			&promptMD, &toolAllowlist, &toolDenylist, &coreTools, &budgetsRaw, &rolesRaw, &titleSummarizeRaw, &resultSummarizeRaw, &conditionalToolsRaw,
 			&executorType, &executorConfigRaw, &preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl, &updatedAt); err != nil {
 			return nil, err
 		}
@@ -614,6 +653,10 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		titleSummarizer, err := parseTitleSummarizeJSON(titleSummarizeRaw)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
+		}
+		resultSummarizer, err := parseResultSummarizeJSON(resultSummarizeRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q result_summarize_json: %w", personaKey, err)
 		}
 		conditionalTools, err := parseConditionalToolsJSON(conditionalToolsRaw)
 		if err != nil {
@@ -651,6 +694,7 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
 			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,
+			ResultSummarizer:    resultSummarizer,
 			UpdatedAt:           updatedAt,
 		}
 		if description != nil && strings.TrimSpace(*description) != "" {
@@ -688,6 +732,9 @@ func mergeDefinition(base Definition, override Definition) Definition {
 	merged := override
 	if merged.TitleSummarizer == nil {
 		merged.TitleSummarizer = base.TitleSummarizer
+	}
+	if merged.ResultSummarizer == nil {
+		merged.ResultSummarizer = base.ResultSummarizer
 	}
 	if strings.TrimSpace(merged.SoulMD) == "" {
 		merged.SoulMD = base.SoulMD
@@ -764,6 +811,17 @@ func parseTitleSummarizeJSON(raw []byte) (*TitleSummarizerConfig, error) {
 	return asTitleSummarizer(obj)
 }
 
+func parseResultSummarizeJSON(raw []byte) (*ResultSummarizerConfig, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return nil, fmt.Errorf("invalid result_summarize_json: %w", err)
+	}
+	return asResultSummarizer(obj)
+}
+
 func strPtrOrNilPtr(value *string) *string {
 	if value == nil {
 		return nil
@@ -803,9 +861,18 @@ func asTitleSummarizer(value any) (*TitleSummarizerConfig, error) {
 	if !ok {
 		return nil, fmt.Errorf("title_summarize must be an object")
 	}
-	prompt, err := asNonEmptyString(m["prompt"], "title_summarize.prompt")
-	if err != nil {
-		return nil, err
+	prompt := ""
+	if rawPrompt, exists := m["prompt"]; exists && rawPrompt != nil {
+		parsed, err := asNonEmptyString(rawPrompt, "title_summarize.prompt")
+		if err != nil {
+			return nil, err
+		}
+		prompt = parsed
+	}
+	if prompt == "" {
+		if rawPromptFile, exists := m["prompt_file"]; !exists || rawPromptFile == nil {
+			return nil, fmt.Errorf("title_summarize.prompt or title_summarize.prompt_file is required")
+		}
 	}
 	maxTokens := DefaultTitleSummarizeMaxOutputTokens
 	if raw, exists := m["max_tokens"]; exists {
@@ -820,5 +887,53 @@ func asTitleSummarizer(value any) (*TitleSummarizerConfig, error) {
 	return &TitleSummarizerConfig{
 		Prompt:    prompt,
 		MaxTokens: maxTokens,
+	}, nil
+}
+
+func asResultSummarizer(value any) (*ResultSummarizerConfig, error) {
+	if value == nil {
+		return nil, nil
+	}
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("result_summarize must be an object")
+	}
+	prompt := ""
+	if rawPrompt, exists := m["prompt"]; exists && rawPrompt != nil {
+		parsed, err := asNonEmptyString(rawPrompt, "result_summarize.prompt")
+		if err != nil {
+			return nil, err
+		}
+		prompt = parsed
+	}
+	if prompt == "" {
+		if rawPromptFile, exists := m["prompt_file"]; !exists || rawPromptFile == nil {
+			return nil, fmt.Errorf("result_summarize.prompt or result_summarize.prompt_file is required")
+		}
+	}
+	maxTokens := DefaultResultSummarizeMaxOutputTokens
+	if raw, exists := m["max_tokens"]; exists {
+		parsed, err := asOptionalPositiveInt(raw, "result_summarize.max_tokens")
+		if err != nil {
+			return nil, err
+		}
+		if parsed != nil {
+			maxTokens = *parsed
+		}
+	}
+	thresholdBytes := DefaultResultSummarizeThresholdBytes
+	if raw, exists := m["threshold_bytes"]; exists {
+		parsed, err := asOptionalPositiveInt(raw, "result_summarize.threshold_bytes")
+		if err != nil {
+			return nil, err
+		}
+		if parsed != nil {
+			thresholdBytes = *parsed
+		}
+	}
+	return &ResultSummarizerConfig{
+		Prompt:         prompt,
+		MaxTokens:      maxTokens,
+		ThresholdBytes: thresholdBytes,
 	}, nil
 }

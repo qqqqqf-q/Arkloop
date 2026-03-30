@@ -89,6 +89,7 @@ func watchedPersonaFiles(root string, personaDir string) []string {
 	if err := yaml.Unmarshal(raw, &obj); err != nil {
 		return append(files, "soul.md")
 	}
+	files = append(files, watchedSummarizePromptFiles(obj)...)
 	rawSoulFile, ok := obj["soul_file"]
 	if !ok {
 		return append(files, "soul.md")
@@ -106,6 +107,38 @@ func watchedPersonaFiles(root string, personaDir string) []string {
 		return files
 	}
 	return append(files, cleaned)
+}
+
+func watchedSummarizePromptFiles(obj map[string]any) []string {
+	files := make([]string, 0, 2)
+	for _, key := range []string{"title_summarize", "result_summarize"} {
+		raw, ok := obj[key]
+		if !ok || raw == nil {
+			continue
+		}
+		block, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawFile, ok := block["prompt_file"]
+		if !ok || rawFile == nil {
+			continue
+		}
+		fileName, ok := rawFile.(string)
+		if !ok {
+			continue
+		}
+		fileName = strings.TrimSpace(fileName)
+		if fileName == "" || filepath.IsAbs(fileName) {
+			continue
+		}
+		cleaned := filepath.Clean(fileName)
+		if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+			continue
+		}
+		files = append(files, cleaned)
+	}
+	return files
 }
 
 func mtimesEqual(a, b map[string]time.Time) bool {

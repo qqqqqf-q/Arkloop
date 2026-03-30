@@ -324,6 +324,13 @@ func cloneDefinition(def Definition) Definition {
 			MaxTokens: def.TitleSummarizer.MaxTokens,
 		}
 	}
+	if def.ResultSummarizer != nil {
+		cloned.ResultSummarizer = &ResultSummarizerConfig{
+			Prompt:         def.ResultSummarizer.Prompt,
+			MaxTokens:      def.ResultSummarizer.MaxTokens,
+			ThresholdBytes: def.ResultSummarizer.ThresholdBytes,
+		}
+	}
 	return cloned
 }
 

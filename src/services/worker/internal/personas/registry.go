@@ -73,22 +73,49 @@ type RoleOverride struct {
 	PromptCacheControl  EnumStringOverride
 }
 
+const SystemSummarizerPersonaID = "summarizer"
+
 // TitleSummarizerConfig 控制 goroutine 模式下的标题自动生成。
 type TitleSummarizerConfig struct {
 	Prompt    string
 	MaxTokens int
 }
 
+// ResultSummarizerConfig 控制工具结果的 LLM 摘要压缩。
+type ResultSummarizerConfig struct {
+	Prompt         string
+	MaxTokens      int
+	ThresholdBytes int
+}
+
 // DefaultTitleSummarizeMaxOutputTokens 标题概括的 max_output 上限。
 // Reasoning 模型会先占用 thinking，再输出短文；过小会在 output 前截断。
 const DefaultTitleSummarizeMaxOutputTokens = 512
+const DefaultResultSummarizeMaxOutputTokens = 512
+const DefaultResultSummarizeThresholdBytes = 64 * 1024
 
-// DesktopFallbackTitleSummarizer 与内置 normal persona 的 title_summarize 一致。
-// 桌面 Worker 在仅 DB persona、且未合并到内置 YAML 时使用，避免标题能力静默缺失。
-func DesktopFallbackTitleSummarizer() *TitleSummarizerConfig {
-	return &TitleSummarizerConfig{
-		Prompt:    "Phrase the title as the user's task or question (e.g. 做个网页、改这段代码). If the user's message is mainly Chinese, keep it under 10 Chinese characters; otherwise keep it under 6 words. Avoid naming only the business/theme of the thing they want produced.",
-		MaxTokens: DefaultTitleSummarizeMaxOutputTokens,
+func DefaultSystemSummarizerDefinition() Definition {
+	return Definition{
+		ID:             SystemSummarizerPersonaID,
+		Version:        "1",
+		Title:          "Summarizer",
+		PromptMD:       "System summarizer persona.",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+		ReasoningMode:  "disabled",
+		StreamThinking: false,
+		TitleSummarizer: &TitleSummarizerConfig{
+			Prompt:    "Phrase the title as the user's task or question (e.g. 做个网页、改这段代码). If the user's message is mainly Chinese, keep it under 10 Chinese characters; otherwise keep it under 6 words. Avoid naming only the business/theme of the thing they want produced.",
+			MaxTokens: DefaultTitleSummarizeMaxOutputTokens,
+		},
+		ResultSummarizer: &ResultSummarizerConfig{
+			Prompt:         "Compress oversized tool output into plain text. Preserve numbers, file paths, identifiers, error messages, status codes, and the final actionable result. Remove repetitive logs and formatting noise.",
+			MaxTokens:      DefaultResultSummarizeMaxOutputTokens,
+			ThresholdBytes: DefaultResultSummarizeThresholdBytes,
+		},
+		IsSystem:   true,
+		IsBuiltin:  true,
+		UserSelectable: false,
 	}
 }
 
@@ -118,6 +145,7 @@ type Definition struct {
 	PromptCacheControl      string
 	Roles                   map[string]RoleOverride
 	TitleSummarizer         *TitleSummarizerConfig // nil 表示此 persona 不自动生成标题
+	ResultSummarizer        *ResultSummarizerConfig
 	UpdatedAt               time.Time              // DB persona 最后修改时间，用于版本漂移检测
 	IsSystem                bool                   // 系统级 persona，不可被 DB 覆盖或删除
 	IsBuiltin               bool                   // 内置 persona，随代码分发

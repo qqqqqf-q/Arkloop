@@ -491,6 +491,99 @@ func TestMergeRegistryKeepsBaseTitleSummarizerWhenOverrideMissing(t *testing.T) 
 	}
 }
 
+func TestLoadPersonaParsesResultSummarize(t *testing.T) {
+	dir := t.TempDir()
+	writePersonaFiles(t, dir, "summarizer",
+		"id: summarizer\nversion: \"1\"\ntitle: Summarizer\nresult_summarize:\n  prompt: compress output\n  max_tokens: 300\n  threshold_bytes: 2048\n",
+		"# prompt",
+	)
+
+	registry, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("summarizer")
+	if !ok {
+		t.Fatal("expected summarizer persona to load")
+	}
+	if def.ResultSummarizer == nil {
+		t.Fatal("expected result summarizer config")
+	}
+	if def.ResultSummarizer.Prompt != "compress output" {
+		t.Fatalf("unexpected prompt: %q", def.ResultSummarizer.Prompt)
+	}
+	if def.ResultSummarizer.MaxTokens != 300 {
+		t.Fatalf("unexpected max tokens: %d", def.ResultSummarizer.MaxTokens)
+	}
+	if def.ResultSummarizer.ThresholdBytes != 2048 {
+		t.Fatalf("unexpected threshold: %d", def.ResultSummarizer.ThresholdBytes)
+	}
+}
+
+func TestMergeRegistryKeepsBaseResultSummarizerWhenOverrideMissing(t *testing.T) {
+	base := NewRegistry()
+	if err := base.Register(Definition{
+		ID:      "summarizer",
+		Version: "1",
+		Title:   "Summarizer",
+		ResultSummarizer: &ResultSummarizerConfig{
+			Prompt:         "base result prompt",
+			MaxTokens:      128,
+			ThresholdBytes: 2048,
+		},
+	}); err != nil {
+		t.Fatalf("register base failed: %v", err)
+	}
+
+	merged := MergeRegistry(base, []Definition{
+		{
+			ID:      "summarizer",
+			Version: "1",
+			Title:   "Summarizer Override",
+		},
+	})
+
+	def, ok := merged.Get("summarizer")
+	if !ok {
+		t.Fatal("expected merged registry has summarizer")
+	}
+	if def.ResultSummarizer == nil {
+		t.Fatal("expected result summarizer preserved from base")
+	}
+	if def.ResultSummarizer.Prompt != "base result prompt" {
+		t.Fatalf("unexpected prompt: %q", def.ResultSummarizer.Prompt)
+	}
+}
+
+func TestLoadPersonaUsesSummarizePromptFiles(t *testing.T) {
+	dir := t.TempDir()
+	writePersonaFiles(t, dir, "summarizer",
+		"id: summarizer\nversion: \"1\"\ntitle: Summarizer\ntitle_summarize:\n  prompt_file: title_summarize.md\nresult_summarize:\n  prompt_file: result_summarize.md\n",
+		"# prompt",
+	)
+	if err := os.WriteFile(filepath.Join(dir, "summarizer", "title_summarize.md"), []byte("title prompt"), 0644); err != nil {
+		t.Fatalf("WriteFile title_summarize.md failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "summarizer", "result_summarize.md"), []byte("result prompt"), 0644); err != nil {
+		t.Fatalf("WriteFile result_summarize.md failed: %v", err)
+	}
+
+	registry, err := LoadRegistry(dir)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("summarizer")
+	if !ok {
+		t.Fatal("expected summarizer persona to load")
+	}
+	if def.TitleSummarizer == nil || def.TitleSummarizer.Prompt != "title prompt" {
+		t.Fatalf("unexpected title summarizer: %#v", def.TitleSummarizer)
+	}
+	if def.ResultSummarizer == nil || def.ResultSummarizer.Prompt != "result prompt" {
+		t.Fatalf("unexpected result summarizer: %#v", def.ResultSummarizer)
+	}
+}
+
 func TestMergeRegistryKeepsBaseSoulWhenOverrideMissing(t *testing.T) {
 	base := NewRegistry()
 	if err := base.Register(Definition{ID: "normal", Version: "1", Title: "Normal", SoulMD: "base soul"}); err != nil {

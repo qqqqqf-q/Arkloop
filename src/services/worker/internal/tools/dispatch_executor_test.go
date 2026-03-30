@@ -171,7 +171,7 @@ func TestDispatchingExecutorBypassesCompressionAndSummarizationForGenerativeUIBo
 	allowlist := AllowlistFromNames([]string{"visualize_read_me"})
 	policy := NewPolicyEnforcer(registry, allowlist)
 	dispatch := NewDispatchingExecutor(registry, policy)
-	dispatch.SetSummarizer(NewResultSummarizer(&mockGateway{response: "should not run"}, "test-model", 10))
+	dispatch.SetSummarizer(NewResultSummarizer(&mockGateway{response: "should not run"}, "test-model", 10, ResultSummarizerConfig{Prompt: "compress", MaxTokens: 32}))
 
 	longGuidelines := strings.Repeat("guideline line\n", 5000)
 	exec := &fixedResultExecutor{

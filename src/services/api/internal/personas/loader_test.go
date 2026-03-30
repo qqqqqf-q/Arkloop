@@ -181,6 +181,35 @@ func TestLoadFromDirRejectsUnsupportedRoleField(t *testing.T) {
 	}
 }
 
+func TestLoadFromDirLoadsSummarizePromptFiles(t *testing.T) {
+	root := t.TempDir()
+	writeRepoPersonaFiles(t, root, "summarizer",
+		"id: summarizer\nversion: \"1\"\ntitle: Summarizer\ntitle_summarize:\n  prompt_file: title_summarize.md\nresult_summarize:\n  prompt_file: result_summarize.md\n",
+		"",
+		"persona prompt",
+	)
+	if err := os.WriteFile(filepath.Join(root, "summarizer", "title_summarize.md"), []byte("title prompt"), 0644); err != nil {
+		t.Fatalf("WriteFile title_summarize.md failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "summarizer", "result_summarize.md"), []byte("result prompt"), 0644); err != nil {
+		t.Fatalf("WriteFile result_summarize.md failed: %v", err)
+	}
+
+	personas, err := LoadFromDir(root)
+	if err != nil {
+		t.Fatalf("LoadFromDir failed: %v", err)
+	}
+	if len(personas) != 1 {
+		t.Fatalf("expected 1 persona, got %d", len(personas))
+	}
+	if personas[0].TitleSummarize["prompt"] != "title prompt" {
+		t.Fatalf("unexpected title summarize prompt: %#v", personas[0].TitleSummarize)
+	}
+	if personas[0].ResultSummarize["prompt"] != "result prompt" {
+		t.Fatalf("unexpected result summarize prompt: %#v", personas[0].ResultSummarize)
+	}
+}
+
 func writeRepoPersonaFiles(t *testing.T, root, name, yamlContent, soulContent, promptContent string) {
 	t.Helper()
 	dir := filepath.Join(root, name)

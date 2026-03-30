@@ -96,7 +96,10 @@ func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGa
 
 		fallbackGateway := rc.Gateway
 		fallbackModel := ""
-		if rc.SelectedRoute != nil {
+		if rc.SummarizerDefinition != nil && rc.SummarizerDefinition.Model != nil {
+			fallbackModel = strings.TrimSpace(*rc.SummarizerDefinition.Model)
+		}
+		if fallbackModel == "" && rc.SelectedRoute != nil {
 			fallbackModel = rc.SelectedRoute.Route.Model
 		}
 		runID := rc.Run.ID

@@ -24,13 +24,14 @@ type pgxQuerier interface {
 const personaSelectSQL = `SELECT persona_key, version, display_name, description,
 	        soul_md, user_selectable, selector_name, selector_order,
 	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
-	        roles_json, title_summarize_json, conditional_tools_json,
+	        roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 	        executor_type, executor_config_json,
 	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control,
 	        COALESCE(heartbeat_enabled, 0), COALESCE(heartbeat_interval_minutes, 30)
 	 FROM personas
 	 WHERE is_active = 1
-	 ORDER BY created_at ASC`
+	   AND (project_id IS NOT NULL OR persona_key = '` + SystemSummarizerPersonaID + `')
+	 ORDER BY CASE WHEN project_id IS NULL THEN 0 ELSE 1 END ASC, created_at ASC`
 
 // LoadPersonasFromDesktopDB loads active persona definitions using a
 // pgx-compatible querier (data.DesktopDB / sqlitepgx.Pool).
@@ -85,6 +86,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			budgetsStr               string
 			rolesStr                 *string
 			titleSummarizeStr        *string
+			resultSummarizeStr       *string
 			conditionalToolsStr      *string
 			executorType             string
 			executorConfigStr        string
@@ -100,7 +102,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			&personaKey, &version, &displayName, &description,
 			&soulMD, &userSelectable, &selectorName, &selectorOrder,
 			&promptMD, &toolAllowlistStr, &toolDenylistStr, &coreToolsStr, &budgetsStr,
-			&rolesStr, &titleSummarizeStr, &conditionalToolsStr,
+			&rolesStr, &titleSummarizeStr, &resultSummarizeStr, &conditionalToolsStr,
 			&executorType, &executorConfigStr,
 			&preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl,
 			&heartbeatEnabled, &heartbeatIntervalMinutes,
@@ -141,6 +143,14 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 		titleSummarizer, err := parseTitleSummarizeJSON(titleSummarizeRaw)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
+		}
+		var resultSummarizeRaw []byte
+		if resultSummarizeStr != nil {
+			resultSummarizeRaw = []byte(*resultSummarizeStr)
+		}
+		resultSummarizer, err := parseResultSummarizeJSON(resultSummarizeRaw)
+		if err != nil {
+			return nil, fmt.Errorf("persona %q result_summarize_json: %w", personaKey, err)
 		}
 		var conditionalToolsRaw []byte
 		if conditionalToolsStr != nil {
@@ -187,6 +197,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),
 			Roles:               roles,
 			TitleSummarizer:     titleSummarizer,
+			ResultSummarizer:    resultSummarizer,
 
 			HeartbeatEnabled:         heartbeatEnabled != 0,
 			HeartbeatIntervalMinutes: heartbeatIntervalMinutes,

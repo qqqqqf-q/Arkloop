@@ -63,7 +63,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			persona_key, version, display_name, description,
 			soul_md, user_selectable, selector_name, selector_order,
 			prompt_md, tool_allowlist, tool_denylist, core_tools, budgets_json,
-			roles_json, title_summarize_json, conditional_tools_json,
+			roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 			is_active, executor_type, executor_config_json,
 			preferred_credential, model, reasoning_mode, stream_thinking, prompt_cache_control,
 			sync_mode, mirrored_file_dir, updated_at
@@ -71,7 +71,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			?, ?, ?, ?,
 			?, ?, ?, ?,
 			?, ?, ?, ?, ?,
-			?, ?, ?,
+			?, ?, ?, ?,
 			1, ?, ?,
 			?, ?, ?, ?, ?,
 			?, ?, datetime('now')
@@ -91,6 +91,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		seedJSONObject(p.Budgets),
 		seedJSONObject(p.Roles),
 		seedJSONObjectNullable(p.TitleSummarize),
+		seedJSONObjectNullable(p.ResultSummarize),
 		seedConditionalToolsNullable(p.ConditionalTools),
 		executorType,
 		seedJSONObjectWithDefault(p.ExecutorConfig),
@@ -116,7 +117,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 			version = ?, display_name = ?, description = ?,
 			soul_md = ?, user_selectable = ?, selector_name = ?, selector_order = ?,
 			prompt_md = ?, tool_allowlist = ?, tool_denylist = ?, core_tools = ?, budgets_json = ?,
-			roles_json = ?, title_summarize_json = ?, conditional_tools_json = ?,
+			roles_json = ?, title_summarize_json = ?, result_summarize_json = ?, conditional_tools_json = ?,
 			is_active = 1, executor_type = ?, executor_config_json = ?,
 			preferred_credential = ?, model = ?, reasoning_mode = ?, stream_thinking = ?, prompt_cache_control = ?,
 			sync_mode = ?, mirrored_file_dir = ?, updated_at = datetime('now')
@@ -135,6 +136,7 @@ func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 		seedJSONObject(p.Budgets),
 		seedJSONObject(p.Roles),
 		seedJSONObjectNullable(p.TitleSummarize),
+		seedJSONObjectNullable(p.ResultSummarize),
 		seedConditionalToolsNullable(p.ConditionalTools),
 		executorType,
 		seedJSONObjectWithDefault(p.ExecutorConfig),
