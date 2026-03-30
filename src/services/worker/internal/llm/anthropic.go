@@ -20,6 +20,7 @@ import (
 const defaultAnthropicVersion = "2023-06-01"
 const defaultAnthropicMaxResponseBytes = 16 * 1024
 const anthropicMaxDebugChunkBytes = 8192
+const defaultAnthropicMaxTokens = 32768
 
 var errAnthropicToolUseInput = errors.New("anthropic_tool_use_input")
 var errAnthropicStreamTerminated = errors.New("anthropic_stream_terminated")
@@ -150,7 +151,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
-	maxTokens := 1024
+	maxTokens := defaultAnthropicMaxTokens
 	if request.MaxOutputTokens != nil && *request.MaxOutputTokens > 0 {
 		maxTokens = *request.MaxOutputTokens
 	}

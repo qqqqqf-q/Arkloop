@@ -562,6 +562,34 @@ func TestAnthropicGateway_Stream_AdvancedJSON_VersionAndHeaderApplied(t *testing
 	}
 }
 
+func TestAnthropicGateway_Stream_DefaultMaxTokensApplied(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	_ = gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error { return nil })
+
+	var body map[string]any
+	if err := json.Unmarshal(capturedBody, &body); err != nil {
+		t.Fatalf("request body not valid json: %v", err)
+	}
+	if got, _ := body["max_tokens"].(float64); got != float64(defaultAnthropicMaxTokens) {
+		t.Fatalf("expected max_tokens=%d, got %#v", defaultAnthropicMaxTokens, body["max_tokens"])
+	}
+}
+
 func TestAnthropicGateway_Stream_AdvancedJSON_RejectsInvalidHeaderKey(t *testing.T) {
 	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
 		APIKey:  "test",
