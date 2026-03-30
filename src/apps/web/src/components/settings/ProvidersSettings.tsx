@@ -200,9 +200,9 @@ export function ProvidersSettings({ accessToken }: Props) {
   }
 
   return (
-    <div className="-m-6 flex overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
+    <div className="-m-6 flex min-h-0 min-w-0 overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
       {/* Provider list */}
-      <div className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
+      <div className="flex w-[220px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)] max-[1230px]:w-[180px] xl:w-[240px]">
         <div className="flex-1 overflow-y-auto px-2 py-1">
           <div className="flex flex-col gap-[3px]">
             {providers.map((pv) => (
@@ -235,7 +235,7 @@ export function ProvidersSettings({ accessToken }: Props) {
       </div>
 
       {/* Detail */}
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 max-[1230px]:p-3 sm:p-5">
         {selected ? (
           <ProviderDetail
             key={selected.id}
@@ -455,7 +455,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto min-w-0 max-w-2xl space-y-6">
       <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{provider.name}</h3>
 
       <div className="space-y-4">
@@ -485,9 +485,9 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
 
       {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
 
-      <div className="flex items-center justify-between border-b border-[var(--c-border-subtle)] pb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--c-border-subtle)] pb-4">
         {confirmDelete ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-[var(--c-text-tertiary)]">{p.deleteProviderConfirm}</span>
             <button onClick={() => void handleDelete()} disabled={deleting} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50">{p.deleteProvider}</button>
             <button onClick={() => setConfirmDelete(false)} className="rounded-lg px-3 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
@@ -655,9 +655,9 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {provider.models.length > 0 && (
             <button onClick={() => void handleDeleteAll()} disabled={deletingAll} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors duration-150 hover:border-red-500/30 hover:text-red-500 disabled:opacity-50">
               {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -678,7 +678,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       </div>
 
       {addingModel && (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
           <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder={p.modelNamePlaceholder ?? 'Model name'} className={INPUT_CLS + ' flex-1'} onKeyDown={(e) => { if (e.key === 'Enter') void handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }} autoFocus />
           <button onClick={() => setAddingModel(false)} className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={14} /></button>
         </div>
@@ -703,14 +703,14 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">--</p>
         ) : (
           filteredModels.map((pm) => (
-            <div key={pm.id} className="group flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5">
+            <div key={pm.id} className="group flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5">
               <div className="min-w-0 flex-1 flex items-center gap-1.5">
                 <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
                 {pm.tags.includes('embedding') && (
                   <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto">
                 {/* show_in_picker toggle */}
                 <PillToggle checked={pm.show_in_picker} onChange={() => void handleTogglePicker(pm.id, pm.show_in_picker)} />
                 <button
