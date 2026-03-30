@@ -30,7 +30,7 @@
     "@types/react-dom": "^19.2.3",
     "react-router-dom": "^7.13.1",
     "typescript": "~5.9.3",
-    "vite": "^7.3.1",
-    "vitest": "^3.2.4"
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   }
 }
