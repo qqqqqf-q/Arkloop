@@ -70,7 +70,7 @@ export function SettingsModelDropdown({
             borderRadius: '10px',
             padding: '4px',
             background: 'var(--c-bg-menu)',
-            width: '100%',
+            minWidth: '100%',
             boxShadow: 'var(--c-dropdown-shadow)',
             maxHeight: '220px',
             overflowY: 'auto',

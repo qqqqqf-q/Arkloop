@@ -2,21 +2,21 @@ import { useState, useEffect, useCallback } from 'react'
 import { HelpCircle, ArrowUpRight, Flag, X } from 'lucide-react'
 import { isApiError, createSuggestionFeedback } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { openExternal } from '../../openExternal'
 
 export function HelpContent({ label }: { label: string }) {
   return (
     <div className="flex flex-col gap-2">
-      <a
-        href="https://docs.arkloop.com"
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={() => openExternal('https://docs.arkloop.com')}
         className="flex h-9 w-[240px] items-center gap-2 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
       >
         <HelpCircle size={15} />
         <span>{label}</span>
         <ArrowUpRight size={12} style={{ marginLeft: 'auto' }} />
-      </a>
+      </button>
     </div>
   )
 }

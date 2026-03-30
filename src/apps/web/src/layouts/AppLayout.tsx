@@ -48,8 +48,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [privateThreadIds, setPrivateThreadIds] = useState<Set<string>>(new Set())
   const [isPrivateMode, setIsPrivateMode] = useState(false)
   const [pendingIncognitoMode, setPendingIncognitoMode] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
   const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 900)
+  const collapsedByWidthRef = useRef(window.innerWidth < 1200)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [isSearchMode, setIsSearchMode] = useState(false)
   // ref 用于在 popstate 回调里读取最新值，避免闭包过期
@@ -93,9 +94,24 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   }, [location.pathname, navigate])
 
   useEffect(() => {
-    const handler = () => setSidebarHiddenByWidth(window.innerWidth < 900)
+    let raf = 0
+    const handler = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const w = window.innerWidth
+        setSidebarHiddenByWidth(w < 900)
+        const narrow = w < 1200
+        if (narrow && !collapsedByWidthRef.current) {
+          collapsedByWidthRef.current = true
+          setSidebarCollapsed(true)
+        } else if (!narrow && collapsedByWidthRef.current) {
+          collapsedByWidthRef.current = false
+          setSidebarCollapsed(false)
+        }
+      })
+    }
     window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
+    return () => { window.removeEventListener('resize', handler); cancelAnimationFrame(raf) }
   }, [])
 
   const handleNotificationMarkedRead = useCallback(() => {
@@ -143,7 +159,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   // Desktop 模式下，点击历史记录跳转到会话时关闭设置界面
   useEffect(() => {
     if (!(desktop && settingsOpen && /^\/t\//.test(location.pathname))) return
-    const id = requestAnimationFrame(() => setSettingsOpen(false))
+    const id = requestAnimationFrame(() => {
+      setSettingsOpen(false)
+    })
     return () => cancelAnimationFrame(id)
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -230,7 +248,9 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     setIsSearchMode(false)
     closeNotifications()
     // In desktop mode, close settings so the chat view becomes visible
-    if (desktop) setSettingsOpen(false)
+    if (desktop) {
+      setSettingsOpen(false)
+    }
     navigate('/')
   }, [navigate, closeNotifications, desktop])
 

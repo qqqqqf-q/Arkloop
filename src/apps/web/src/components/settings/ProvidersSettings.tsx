@@ -202,7 +202,7 @@ export function ProvidersSettings({ accessToken }: Props) {
   return (
     <div className="-m-6 flex overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
       {/* Provider list */}
-      <div className="flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
+      <div className="flex w-[280px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)]">
         <div className="flex-1 overflow-y-auto px-2 py-1">
           <div className="flex flex-col gap-[3px]">
             {providers.map((pv) => (
@@ -210,10 +210,10 @@ export function ProvidersSettings({ accessToken }: Props) {
                 key={pv.id}
                 onClick={() => setSelectedId(pv.id)}
                 className={[
-                  'flex h-[34px] items-center truncate rounded-[5px] px-3 text-left text-[13px] font-medium transition-colors',
+                  'flex h-[38px] items-center truncate rounded-lg px-2.5 text-left text-[14px] font-medium transition-all duration-[120ms] active:scale-[0.96]',
                   selectedId === pv.id
-                    ? 'bg-[var(--c-bg-sub)] text-[var(--c-text-primary)]'
-                    : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]',
+                    ? 'rounded-[10px] bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
+                    : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]',
                 ].join(' ')}
               >
                 {pv.name}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Monitor, LogOut, HelpCircle } from 'lucide-react'
+import { Monitor, LogOut, HelpCircle, ArrowUpRight } from 'lucide-react'
 import type { MeResponse } from '../../api'
 import {
   listLlmProviders,
@@ -11,6 +11,7 @@ import {
 import type { LlmProvider, SpawnProfile } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopMode, isDesktop, isLocalMode, getDesktopApi } from '@arkloop/shared/desktop'
+import { openExternal } from '../../openExternal'
 import { LanguageContent, ThemeModePicker } from './AppearanceSettings'
 import { bridgeClient, checkBridgeAvailable } from '../../api-bridge'
 import { SettingsModelDropdown } from './SettingsModelDropdown'
@@ -235,14 +236,13 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
 
       {/* Footer */}
       <div className="flex flex-col gap-1.5">
-        <a
-          href="https://arkloop.ai/docs"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex w-fit items-center gap-1.5 rounded-lg px-1 py-1 text-sm text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]"
-        >
-          <HelpCircle size={14} /> {t.getHelp}
-        </a>
+        <button
+            type="button"
+            onClick={() => openExternal('https://arkloop.ai/docs')}
+            className="flex w-fit items-center gap-1.5 rounded-lg px-1 py-1 text-sm text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]"
+          >
+            <HelpCircle size={14} /> {t.getHelp} <ArrowUpRight size={11} />
+          </button>
         {!isLocalMode() && (
           <button
             onClick={onLogout}

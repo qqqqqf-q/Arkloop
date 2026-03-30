@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 export function TabBar<T extends string>({ tabs, active, onChange, className }: {
   tabs: { key: T; label: string }[]
@@ -8,14 +8,21 @@ export function TabBar<T extends string>({ tabs, active, onChange, className }: 
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [pill, setPill] = useState({ left: 0, width: 0 })
+  const [animate, setAnimate] = useState(false)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
     const btn = container.querySelector<HTMLButtonElement>(`[data-tab="${active}"]`)
     if (!btn) return
     setPill({ left: btn.offsetLeft, width: btn.offsetWidth })
   }, [active])
+
+  // enable transition only after first paint
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(() => setAnimate(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
 
   return (
     <div
@@ -25,12 +32,13 @@ export function TabBar<T extends string>({ tabs, active, onChange, className }: 
     >
       {/* sliding pill */}
       <span
-        className="pointer-events-none absolute top-[2px] bottom-[2px] rounded-[9px] transition-all duration-150"
+        className="pointer-events-none absolute top-[2px] bottom-[2px] rounded-[9px]"
         style={{
           left: pill.left,
           width: pill.width,
           background: 'var(--c-mode-switch-pill)',
           border: '0.5px solid var(--c-mode-switch-border)',
+          transition: animate ? 'left 150ms, width 150ms' : 'none',
         }}
       />
       {tabs.map(tab => (
