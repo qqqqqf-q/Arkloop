@@ -428,10 +428,13 @@ export interface LocaleStrings {
   copTimelineThinkingDoneNoDuration: string
   /** CopTimeline：仅 thinking、已结束且有时长（秒） */
   copTimelineThoughtForSeconds: (sec: number) => string
+  copTimelineThinkingForSeconds: (sec: number) => string
   /** COP 时间轴：thinking 折叠行左侧标签 */
   copThinkingInlineTitle: string
   /** COP thinking 卡片顶栏（流式中） */
   copThinkCardTitle: string
+  copThinkingHints: readonly string[]
+  copThinkingDone: string
   // model config
   models: {
     addProvider: string

@@ -396,7 +396,7 @@ function thinkingBlockDurationSec(
 function thinkingRowsForCop(
   seg: CopSegment,
   opts: { live: boolean; segmentIndex: number; lastSegmentIndex: number },
-): Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number }> {
+): Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number; startedAtMs?: number }> {
   let lastThinkIdx = -1
   for (let i = seg.items.length - 1; i >= 0; i--) {
     if (seg.items[i]?.kind === 'thinking') {
@@ -405,7 +405,7 @@ function thinkingRowsForCop(
     }
   }
   const tailKind = seg.items[seg.items.length - 1]?.kind
-  const out: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number }> = []
+  const out: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec: number; startedAtMs?: number }> = []
   seg.items.forEach((it, itemIdx) => {
     if (it.kind !== 'thinking') return
     const rowLive =
@@ -419,6 +419,7 @@ function thinkingRowsForCop(
       seq: it.seq,
       live: rowLive,
       durationSec: thinkingBlockDurationSec(it),
+      startedAtMs: it.startedAtMs,
     })
   })
   return out
@@ -573,6 +574,8 @@ export function ChatPage() {
   const [pendingThinking, setPendingThinking] = useState(false)
   /** 本轮首条 thinking 到达时刻，供 COP 标题「思考 N 秒」 */
   const [copThinkingStartedAtMs, setCopThinkingStartedAtMs] = useState<number | undefined>(undefined)
+  /** thinking 等待期随机提示句 */
+  const [thinkingHint, setThinkingHint] = useState('')
   const [completedTitleTailRunId, setCompletedTitleTailRunId] = useState<string | null>(null)
   // segment 外的顶层代码执行（Ultra/Pro 模式，无 segment 包裹）
   const [topLevelCodeExecutions, setTopLevelCodeExecutions] = useState<CodeExecution[]>([])
@@ -1400,6 +1403,10 @@ export function ChatPage() {
           (!latest || (latest.run_id === locationState.initialRunId && latest.status === 'running'))
         ) {
           setActiveRunId(locationState.initialRunId)
+          setPendingThinking(true)
+          setCopThinkingStartedAtMs(Date.now())
+          const hints = t.copThinkingHints
+          setThinkingHint(hints[Math.floor(Math.random() * hints.length)])
           if (threadId) onRunStarted(threadId)
         } else {
           const isRunning = latest?.status === 'running'
@@ -2492,6 +2499,7 @@ export function ChatPage() {
     setSending(true)
     setPendingThinking(true)
     setCopThinkingStartedAtMs(Date.now())
+    setThinkingHint(t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)])
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
@@ -3393,7 +3401,7 @@ export function ChatPage() {
                       isComplete={false}
                       live
                       shimmer
-                      assistantThinking={{ markdown: '', live: true }}
+                      headerOverride={`${thinkingHint}...`}
                       thinkingStartedAt={copThinkingStartedAtMs}
                       accessToken={accessToken}
                       baseUrl={baseUrl}
@@ -3499,6 +3507,7 @@ export function ChatPage() {
                               preserveExpanded={preservingHandoffSegments}
                               thinkingStartedAt={copThinkingStartedAtMs}
                               trailingAssistantTextPresent={trailingAssistantTextPresent}
+                              thinkingHint={thinkingHint}
                               accessToken={accessToken}
                               baseUrl={baseUrl}
                             />
