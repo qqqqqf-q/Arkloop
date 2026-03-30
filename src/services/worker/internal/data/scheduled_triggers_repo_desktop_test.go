@@ -103,6 +103,90 @@ func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesPersonaKeyColumn(t
 	}
 }
 
+func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesGroupThreadWithoutPersonaKey(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	personaID := uuid.New()
+
+	seedDesktopAccount(t, db, accountID)
+	seedDesktopProject(t, db, accountID, projectID)
+	seedDesktopThread(t, db, accountID, projectID, threadID)
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO personas (id, account_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, is_active)
+		 VALUES ($1, $2, 'persona-a', '1', 'Heartbeat Agent', 'prompt', '[]', '[]', '{}', 1)`,
+		personaID,
+		accountID,
+	); err != nil {
+		t.Fatalf("insert persona: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channels (id, account_id, channel_type, persona_id, is_active, config_json)
+		 VALUES ($1, $2, 'telegram', $3, 1, '{}')`,
+		channelID,
+		accountID,
+		personaID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata)
+		 VALUES ($1, 'telegram', 'chat-2002', '{}')`,
+		identityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_group_threads (channel_id, platform_chat_id, persona_id, thread_id)
+		 VALUES ($1, 'chat-2002', $2, $3)`,
+		channelID,
+		personaID,
+		threadID,
+	); err != nil {
+		t.Fatalf("insert channel group thread: %v", err)
+	}
+
+	row := ScheduledTriggerRow{
+		ID:                uuid.New(),
+		ChannelID:         channelID,
+		ChannelIdentityID: identityID,
+		AccountID:         accountID,
+	}
+
+	got, err := (ScheduledTriggersRepository{}).ResolveHeartbeatThread(ctx, db, row)
+	if err != nil {
+		t.Fatalf("resolve heartbeat thread: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected heartbeat context")
+	}
+	if got.ThreadID != threadID {
+		t.Fatalf("unexpected thread id: got %s want %s", got.ThreadID, threadID)
+	}
+	if got.ChannelID != channelID.String() {
+		t.Fatalf("unexpected channel id: got %s want %s", got.ChannelID, channelID)
+	}
+	if got.ConversationType != "supergroup" {
+		t.Fatalf("unexpected conversation type: %q", got.ConversationType)
+	}
+}
+
 func TestScheduledTriggersRepositoryResolveHeartbeatThreadUsesDMBindingForDiscordIdentity(t *testing.T) {
 	ctx := context.Background()
 
@@ -519,6 +603,80 @@ func TestScheduledTriggersRepositoryGetEarliestHeartbeatDue(t *testing.T) {
 	}
 }
 
+func TestScheduledTriggersRepositoryReadsSQLiteDriverTimeString(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	repo := ScheduledTriggersRepository{}
+
+	triggerID := uuid.New()
+	accountID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	nextFireRaw := "2026-03-30 05:01:39.662272 +0000 UTC"
+	nextFireAt, err := time.Parse("2006-01-02 15:04:05.999999999 -0700 MST", nextFireRaw)
+	if err != nil {
+		t.Fatalf("parse test time: %v", err)
+	}
+	now := nextFireAt.Add(2 * time.Minute).Format(time.RFC3339Nano)
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO scheduled_triggers
+		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+		triggerID.String(),
+		channelID.String(),
+		identityID.String(),
+		"persona-a",
+		accountID.String(),
+		"model-a",
+		1,
+		nextFireRaw,
+		now,
+	); err != nil {
+		t.Fatalf("insert trigger: %v", err)
+	}
+
+	row, err := repo.GetHeartbeat(ctx, db, channelID, identityID)
+	if err != nil {
+		t.Fatalf("get heartbeat: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected heartbeat row")
+	}
+	if !row.NextFireAt.Equal(nextFireAt) {
+		t.Fatalf("unexpected heartbeat next_fire_at: got=%s want=%s", row.NextFireAt, nextFireAt)
+	}
+
+	earliest, err := repo.GetEarliestHeartbeatDue(ctx, db)
+	if err != nil {
+		t.Fatalf("get earliest heartbeat due: %v", err)
+	}
+	if earliest == nil {
+		t.Fatal("expected earliest heartbeat due")
+	}
+	if !earliest.Equal(nextFireAt) {
+		t.Fatalf("unexpected earliest next_fire_at: got=%s want=%s", *earliest, nextFireAt)
+	}
+
+	rows, err := repo.ClaimDueHeartbeats(ctx, db, 8)
+	if err != nil {
+		t.Fatalf("claim due heartbeats: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one due heartbeat, got %d", len(rows))
+	}
+	if rows[0].ID != triggerID {
+		t.Fatalf("unexpected claimed trigger id: got %s want %s", rows[0].ID, triggerID)
+	}
+}
+
 func TestScheduledTriggersRepositoryInsertHeartbeatRunInTxWritesRecoveryMetadata(t *testing.T) {
 	ctx := context.Background()
 
@@ -595,18 +753,13 @@ func TestScheduledTriggersRepositoryInsertHeartbeatRunInTxWritesRecoveryMetadata
 func mustReadDesktopNextFireAt(t *testing.T, ctx context.Context, db *sqlitepgx.Pool, channelID uuid.UUID, identityID uuid.UUID) time.Time {
 	t.Helper()
 
-	var raw string
+	var ts time.Time
 	if err := db.QueryRow(ctx,
 		`SELECT next_fire_at FROM scheduled_triggers WHERE channel_id = $1 AND channel_identity_id = $2`,
 		channelID.String(),
 		identityID.String(),
-	).Scan(&raw); err != nil {
+	).Scan(&ts); err != nil {
 		t.Fatalf("query next_fire_at: %v", err)
-	}
-
-	ts, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		t.Fatalf("parse next_fire_at %q: %v", raw, err)
 	}
 	return ts
 }

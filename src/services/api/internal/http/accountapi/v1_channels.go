@@ -58,6 +58,47 @@ type updateChannelRequest struct {
 	ConfigJSON *json.RawMessage `json:"config_json"`
 }
 
+func requestedDefaultModel(raw *json.RawMessage) string {
+	if raw == nil || len(*raw) == 0 {
+		return ""
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(*raw, &cfg); err != nil {
+		return ""
+	}
+	model, _ := cfg["default_model"].(string)
+	return strings.TrimSpace(model)
+}
+
+func logChannelUpdateFailure(
+	ctx context.Context,
+	traceID string,
+	ch data.Channel,
+	req updateChannelRequest,
+	err error,
+	stage string,
+) {
+	attrs := []any{
+		"trace_id", traceID,
+		"stage", stage,
+		"channel_id", ch.ID.String(),
+		"account_id", ch.AccountID.String(),
+		"channel_type", ch.ChannelType,
+		"has_bot_token_patch", req.BotToken != nil,
+		"has_persona_patch", req.PersonaID != nil,
+		"has_config_patch", req.ConfigJSON != nil,
+		"requested_default_model", requestedDefaultModel(req.ConfigJSON),
+		"err", err,
+	}
+	if req.IsActive != nil {
+		attrs = append(attrs, "requested_is_active", *req.IsActive)
+	}
+	if ch.CredentialsID != nil {
+		attrs = append(attrs, "credentials_id", ch.CredentialsID.String())
+	}
+	slog.ErrorContext(ctx, "channel_update_failed", attrs...)
+}
+
 func channelsEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
@@ -551,6 +592,7 @@ func updateChannel(
 	if ch.ChannelType == "telegram" {
 		allowUserScoped, err := resolveTelegramByokEnabled(r.Context(), entitlementSvc, actor.AccountID)
 		if err != nil {
+			logChannelUpdateFailure(r.Context(), traceID, *ch, req, err, "resolve_telegram_byok_enabled")
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -591,9 +633,13 @@ func updateChannel(
 	if req.BotToken != nil {
 		nextToken = strings.TrimSpace(*req.BotToken)
 	}
-	if nextToken == "" && ch.CredentialsID != nil && secretsRepo != nil {
+	needsStoredToken := nextToken == "" && ch.CredentialsID != nil && secretsRepo != nil &&
+		((ch.ChannelType == "telegram" && telegramModeUsesWebhook(telegramMode) && (desiredIsActive || (ch.IsActive && !desiredIsActive))) ||
+			(ch.ChannelType == "discord" && desiredIsActive))
+	if needsStoredToken {
 		currentToken, err := secretsRepo.DecryptByID(r.Context(), *ch.CredentialsID)
 		if err != nil {
+			logChannelUpdateFailure(r.Context(), traceID, *ch, req, err, "decrypt_channel_secret")
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
@@ -604,6 +650,7 @@ func updateChannel(
 
 	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
+		logChannelUpdateFailure(r.Context(), traceID, *ch, req, err, "begin_tx")
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -614,6 +661,7 @@ func updateChannel(
 		if ch.CredentialsID != nil && *ch.CredentialsID != uuid.Nil {
 			secret, secretErr := secretsRepo.WithTx(tx).UpdateByID(r.Context(), *ch.CredentialsID, strings.TrimSpace(*req.BotToken))
 			if secretErr != nil {
+				logChannelUpdateFailure(r.Context(), traceID, *ch, req, secretErr, "update_channel_secret")
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
@@ -625,6 +673,7 @@ func updateChannel(
 			}
 			secret, secretErr := secretsRepo.WithTx(tx).Create(r.Context(), secretOwnerID, data.ChannelSecretName(channelID), strings.TrimSpace(*req.BotToken))
 			if secretErr != nil {
+				logChannelUpdateFailure(r.Context(), traceID, *ch, req, secretErr, "create_channel_secret")
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
@@ -676,6 +725,7 @@ func updateChannel(
 
 	updated, err := channelsRepo.WithTx(tx).Update(r.Context(), channelID, actor.AccountID, upd)
 	if err != nil {
+		logChannelUpdateFailure(r.Context(), traceID, *ch, req, err, "update_channel_row")
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -684,6 +734,7 @@ func updateChannel(
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
+		logChannelUpdateFailure(r.Context(), traceID, *ch, req, err, "commit_tx")
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
@@ -718,8 +769,11 @@ func updateChannel(
 			entitlementSvc,
 			personasRepo,
 		); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
+			slog.WarnContext(r.Context(), "telegram channel heartbeat sync failed after update",
+				"channel_id", channelID.String(),
+				"account_id", actor.AccountID.String(),
+				"err", err,
+			)
 		}
 	}
 	if ch.ChannelType == "discord" && desiredIsActive && discordClient != nil && nextToken != "" {

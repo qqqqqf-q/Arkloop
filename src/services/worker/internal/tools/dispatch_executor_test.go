@@ -90,6 +90,42 @@ func TestDispatchingExecutorResolvesLlmNameToProvider(t *testing.T) {
 	}
 }
 
+func TestDispatchingExecutorBindsDuckduckgoProviderName(t *testing.T) {
+	registry := NewRegistry()
+	if err := registry.Register(AgentToolSpec{
+		Name:        "web_search.duckduckgo",
+		LlmName:     "web_search",
+		Version:     "1",
+		Description: "x",
+		RiskLevel:   RiskLevelLow,
+	}); err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+
+	allowlist := AllowlistFromNames([]string{"web_search.duckduckgo"})
+	policy := NewPolicyEnforcer(registry, allowlist)
+	dispatch := NewDispatchingExecutor(registry, policy)
+
+	exec := &recordingExecutor{}
+	if err := dispatch.Bind("web_search.duckduckgo", exec); err != nil {
+		t.Fatalf("bind failed: %v", err)
+	}
+
+	result := dispatch.Execute(
+		context.Background(),
+		"web_search",
+		map[string]any{"query": "x"},
+		ExecutionContext{Emitter: events.NewEmitter("trace")},
+		"call1",
+	)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %+v", result.Error)
+	}
+	if got := exec.CalledWith(); got != "web_search.duckduckgo" {
+		t.Fatalf("expected web_search.duckduckgo, got %q", got)
+	}
+}
+
 func TestDispatchingExecutorUsesLegacyNameWhenBound(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(AgentToolSpec{

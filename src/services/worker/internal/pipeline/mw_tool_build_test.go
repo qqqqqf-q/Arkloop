@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
@@ -17,6 +18,30 @@ import (
 
 	"github.com/google/uuid"
 )
+
+type recordingExecutor struct {
+	mu         sync.Mutex
+	calledWith string
+}
+
+func (e *recordingExecutor) Execute(
+	_ context.Context,
+	toolName string,
+	_ map[string]any,
+	_ tools.ExecutionContext,
+	_ string,
+) tools.ExecutionResult {
+	e.mu.Lock()
+	e.calledWith = toolName
+	e.mu.Unlock()
+	return tools.ExecutionResult{ResultJSON: map[string]any{"ok": true}}
+}
+
+func (e *recordingExecutor) CalledWith() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calledWith
+}
 
 func TestToolBuildMiddleware_BuildsExecutorAndFiltersSpecs(t *testing.T) {
 	registry := tools.NewRegistry()
@@ -305,6 +330,66 @@ func TestToolBuildMiddleware_KeepsUserProviderTool(t *testing.T) {
 	}
 	if !reached {
 		t.Fatal("terminal handler not reached")
+	}
+}
+
+func TestToolBuildMiddleware_BindsDuckduckgoProvider(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(tools.AgentToolSpec{
+		Name:        "web_search.duckduckgo",
+		LlmName:     "web_search",
+		Version:     "1",
+		Description: "search",
+		RiskLevel:   tools.RiskLevelLow,
+	}); err != nil {
+		t.Fatalf("register duckduckgo: %v", err)
+	}
+
+	exec := &recordingExecutor{}
+	rc := &pipeline.RunContext{
+		Run:          data.Run{ID: uuid.New()},
+		Emitter:      events.NewEmitter("test"),
+		ToolRegistry: registry,
+		ToolExecutors: map[string]tools.Executor{
+			"web_search.duckduckgo": exec,
+		},
+		AllowlistSet: map[string]struct{}{
+			"web_search": {},
+		},
+		ActiveToolProviderByGroup: map[string]string{
+			"web_search": "web_search.duckduckgo",
+		},
+		ToolSpecs: []llm.ToolSpec{
+			{Name: "web_search"},
+		},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.ToolExecutor == nil {
+			t.Fatal("ToolExecutor not set")
+		}
+		if len(rc.FinalSpecs) != 1 || rc.FinalSpecs[0].Name != "web_search" {
+			t.Fatalf("unexpected final specs: %+v", rc.FinalSpecs)
+		}
+		result := rc.ToolExecutor.Execute(
+			context.Background(),
+			"web_search",
+			map[string]any{"query": "x"},
+			tools.ExecutionContext{Emitter: events.NewEmitter("trace")},
+			"call1",
+		)
+		if result.Error != nil {
+			t.Fatalf("unexpected error: %+v", result.Error)
+		}
+		if got := exec.CalledWith(); got != "web_search.duckduckgo" {
+			t.Fatalf("expected web_search.duckduckgo, got %q", got)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -18,8 +18,11 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
+
+	"github.com/google/uuid"
 )
 
 func TestDesktopChannelEndpointsReturnEmptyLists(t *testing.T) {
@@ -92,14 +95,14 @@ func TestDesktopChannelEndpointsReturnEmptyLists(t *testing.T) {
 	}
 
 	handler := NewHandler(HandlerConfig{
-		Logger:                slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Pool:                  pool,
-		AuthService:           authService,
-		AccountMembershipRepo: membershipRepo,
-		ChannelsRepo:          channelsRepo,
-		ChannelIdentitiesRepo: identitiesRepo,
+		Logger:                   slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Pool:                     pool,
+		AuthService:              authService,
+		AccountMembershipRepo:    membershipRepo,
+		ChannelsRepo:             channelsRepo,
+		ChannelIdentitiesRepo:    identitiesRepo,
 		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
-		ProjectRepo:           projectRepo,
+		ProjectRepo:              projectRepo,
 	})
 
 	for _, testCase := range []struct {
@@ -492,6 +495,131 @@ func TestDesktopCreateChannelWorksWithoutChannelIDDefault(t *testing.T) {
 	}
 }
 
+func TestDesktopUpdateTelegramChannelDefaultModelDoesNotRequireDecryptInPollingMode(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+
+	handler := newDesktopChannelHandler(t, pool)
+
+	createBody, err := json.Marshal(map[string]any{
+		"channel_type": "telegram",
+		"bot_token":    "desktop-bot-token",
+		"config_json": map[string]any{
+			"allowed_user_ids": []string{"12345"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create body: %v", err)
+	}
+
+	createReq := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(createBody))
+	createReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != nethttp.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createRec.Code, createRec.Body.String())
+	}
+
+	var created map[string]any
+	if err := json.Unmarshal(createRec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	channelID, _ := created["id"].(string)
+	if channelID == "" {
+		t.Fatalf("missing channel id: %s", createRec.Body.String())
+	}
+
+	llmCredentialsRepo, err := data.NewLlmCredentialsRepository(pool)
+	if err != nil {
+		t.Fatalf("new llm credentials repo: %v", err)
+	}
+	llmRoutesRepo, err := data.NewLlmRoutesRepository(pool)
+	if err != nil {
+		t.Fatalf("new llm routes repo: %v", err)
+	}
+	credID := uuid.MustParse("22222222-2222-4222-8222-222222222222")
+	ownerUserID := auth.DesktopUserID
+	if _, err := llmCredentialsRepo.Create(
+		ctx,
+		credID,
+		"user",
+		&ownerUserID,
+		"openai",
+		"minimax",
+		nil,
+		nil,
+		nil,
+		nil,
+		map[string]any{},
+	); err != nil {
+		t.Fatalf("create llm credential: %v", err)
+	}
+	if _, err := llmRoutesRepo.Create(ctx, data.CreateLlmRouteParams{
+		AccountID:    auth.DesktopAccountID,
+		Scope:        data.LlmRouteScopeUser,
+		CredentialID: credID,
+		Model:        "MiniMax-M2.7",
+		Priority:     100,
+		ShowInPicker: true,
+		WhenJSON:     json.RawMessage(`{}`),
+		AdvancedJSON: map[string]any{},
+		Multiplier:   1.0,
+	}); err != nil {
+		t.Fatalf("create llm route: %v", err)
+	}
+
+	badSecretID := "11111111-1111-4111-8111-111111111111"
+	for _, stmt := range []string{
+		`PRAGMA foreign_keys = OFF`,
+		fmt.Sprintf(`UPDATE channels SET credentials_id = '%s' WHERE id = '%s'`, badSecretID, channelID),
+		`PRAGMA foreign_keys = ON`,
+	} {
+		if _, err := sqlitePool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("corrupt credentials reference: %v", err)
+		}
+	}
+
+	updateBody, err := json.Marshal(map[string]any{
+		"is_active": true,
+		"config_json": map[string]any{
+			"allowed_user_ids": []string{"12345"},
+			"default_model":    "minimax^MiniMax-M2.7",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal update body: %v", err)
+	}
+
+	updateReq := httptest.NewRequest(nethttp.MethodPatch, "/v1/channels/"+channelID, bytes.NewReader(updateBody))
+	updateReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec := httptest.NewRecorder()
+	handler.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != nethttp.StatusOK {
+		t.Fatalf("update status = %d, body = %s", updateRec.Code, updateRec.Body.String())
+	}
+
+	var updated map[string]any
+	if err := json.Unmarshal(updateRec.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	cfg, _ := updated["config_json"].(map[string]any)
+	if got, _ := cfg["default_model"].(string); got != "minimax^MiniMax-M2.7" {
+		t.Fatalf("unexpected default_model: %#v", updated["config_json"])
+	}
+}
+
 func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 	t.Helper()
 
@@ -519,6 +647,10 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 	if err != nil {
 		t.Fatalf("new channels repo: %v", err)
 	}
+	personasRepo, err := data.NewPersonasRepository(pool)
+	if err != nil {
+		t.Fatalf("new personas repo: %v", err)
+	}
 	identitiesRepo, err := data.NewChannelIdentitiesRepository(pool)
 	if err != nil {
 		t.Fatalf("new identities repo: %v", err)
@@ -539,6 +671,22 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 	secretsRepo, err := data.NewSecretsRepository(pool, keyRing)
 	if err != nil {
 		t.Fatalf("new secrets repo: %v", err)
+	}
+	entitlementsRepo, err := data.NewEntitlementsRepository(pool)
+	if err != nil {
+		t.Fatalf("new entitlements repo: %v", err)
+	}
+	subscriptionsRepo, err := data.NewSubscriptionRepository(pool)
+	if err != nil {
+		t.Fatalf("new subscriptions repo: %v", err)
+	}
+	plansRepo, err := data.NewPlanRepository(pool)
+	if err != nil {
+		t.Fatalf("new plans repo: %v", err)
+	}
+	entitlementService, err := entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, nil, nil)
+	if err != nil {
+		t.Fatalf("new entitlement service: %v", err)
 	}
 
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
@@ -564,14 +712,16 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 	}
 
 	return NewHandler(HandlerConfig{
-		Logger:                slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Pool:                  pool,
-		AuthService:           authService,
-		AccountMembershipRepo: membershipRepo,
-		ChannelsRepo:          channelsRepo,
-		ChannelIdentitiesRepo: identitiesRepo,
+		Logger:                   slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Pool:                     pool,
+		AuthService:              authService,
+		AccountMembershipRepo:    membershipRepo,
+		ChannelsRepo:             channelsRepo,
+		PersonasRepo:             personasRepo,
+		ChannelIdentitiesRepo:    identitiesRepo,
 		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
-		ProjectRepo:           projectRepo,
-		SecretsRepo:           secretsRepo,
+		ProjectRepo:              projectRepo,
+		SecretsRepo:              secretsRepo,
+		EntitlementService:       entitlementService,
 	})
 }

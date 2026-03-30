@@ -109,7 +109,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 	}
 
 	var row ScheduledTriggerRow
-	var idStr, channelStr, identityStr, accountStr, nextFireRaw string
+	var idStr, channelStr, identityStr, accountStr string
 	err := db.QueryRow(ctx, `
 		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
 		  FROM scheduled_triggers
@@ -117,7 +117,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 		   AND channel_identity_id = $2`,
 		channelID.String(),
 		channelIdentityID.String(),
-	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &nextFireRaw)
+	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil
@@ -128,10 +128,6 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 	row.ChannelID, _ = uuid.Parse(channelStr)
 	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
 	row.AccountID, _ = uuid.Parse(accountStr)
-	row.NextFireAt, err = time.Parse(time.RFC3339Nano, nextFireRaw)
-	if err != nil {
-		return nil, fmt.Errorf("parse next_fire_at: %w", err)
-	}
 	return &row, nil
 }
 
@@ -235,7 +231,7 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	}
 	now := time.Now().UTC()
 	rows, err := db.Query(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at
 		  FROM scheduled_triggers
 		 WHERE next_fire_at <= $1
 		 ORDER BY next_fire_at ASC
@@ -252,17 +248,13 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	for rows.Next() {
 		var r ScheduledTriggerRow
 		var idStr, channelStr, identityStr, accountStr, nextFireRaw string
-		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &nextFireRaw); err != nil {
+		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw); err != nil {
 			return nil, err
 		}
 		r.ID, _ = uuid.Parse(idStr)
 		r.ChannelID, _ = uuid.Parse(channelStr)
 		r.ChannelIdentityID, _ = uuid.Parse(identityStr)
 		r.AccountID, _ = uuid.Parse(accountStr)
-		r.NextFireAt, err = time.Parse(time.RFC3339Nano, nextFireRaw)
-		if err != nil {
-			return nil, fmt.Errorf("parse next_fire_at: %w", err)
-		}
 		pending = append(pending, r)
 		pendingRaw = append(pendingRaw, nextFireRaw)
 	}
@@ -306,22 +298,18 @@ func (ScheduledTriggersRepository) GetEarliestHeartbeatDue(
 	ctx context.Context,
 	db DesktopDB,
 ) (*time.Time, error) {
-	var raw string
+	var next time.Time
 	err := db.QueryRow(ctx,
 		`SELECT next_fire_at
 		   FROM scheduled_triggers
 		  ORDER BY next_fire_at ASC
 		  LIMIT 1`,
-	).Scan(&raw)
+	).Scan(&next)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil
 		}
 		return nil, err
-	}
-	next, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return nil, fmt.Errorf("parse next_fire_at: %w", err)
 	}
 	return &next, nil
 }
@@ -408,7 +396,7 @@ SELECT cgt.thread_id, cgt.channel_id
 	if personaIDStr != "" {
 		err = db.QueryRow(ctx, groupQuery.String(), groupArgs...).Scan(&threadIDStr, &channelID)
 	} else {
-		err = db.QueryRow(ctx, groupQuery.String(), groupArgs[:2]...).Scan(&threadIDStr, &channelID)
+		err = db.QueryRow(ctx, groupQuery.String(), groupArgs...).Scan(&threadIDStr, &channelID)
 	}
 	if err == nil && strings.TrimSpace(threadIDStr) != "" {
 		conversationTy = "supergroup"
