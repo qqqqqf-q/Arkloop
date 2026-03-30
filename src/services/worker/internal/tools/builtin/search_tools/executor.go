@@ -102,7 +102,7 @@ func (e *Executor) Execute(
 				"activated_count":      0,
 				"already_loaded_count": 0,
 				"already_active_count": 0,
-				"message":              "no tools matched the given queries",
+				"message": "no tools matched: queries must be tool names or catalog keywords, not natural-language research or web questions — use web_search for external facts",
 			},
 			DurationMs: durationMs(started),
 		}
@@ -286,6 +286,7 @@ func BuildCatalogPrompt(searchable map[string]llm.ToolSpec) string {
 	sb.WriteString("\n<available_tools>\n")
 	sb.WriteString("These tools are not callable yet.\n")
 	sb.WriteString("Use search_tools to get the full schema before calling any of them.\n")
+	sb.WriteString("search_tools queries must be a tool id or a word from a line below (this catalog only), not a web or research question.\n")
 	sb.WriteString("After search_tools returns, call a matched tool only if it appears in the real tool list in later phases of the same reasoning loop.\n")
 
 	for name := range searchable {

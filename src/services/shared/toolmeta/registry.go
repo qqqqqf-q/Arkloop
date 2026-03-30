@@ -50,11 +50,13 @@ var registry = []ToolMeta{
 		Name:      "search_tools",
 		Group:     GroupDiscovery,
 		Label:     "Search tools",
-		ShortDesc: "search available tools by name or keyword and load their full schema",
-		LLMDescription: "search available tools by name or keyword and return their full parameter schema. " +
-			"Use when you need a tool that is not in your current tool set. " +
-			"Pass multiple queries in one call to batch-load several tools at once — never call this tool twice in a row for related tools. " +
-			"Think ahead: if you know you will need a group of tools together (e.g. spawn_agent + wait_agent, read + edit), load all of them in a single call. " +
+		ShortDesc: "look up tools in this runtime catalog by tool name or catalog keyword (not web search)",
+		LLMDescription: "search this platform's tool registry only: match by exact or partial tool name, or by words that appear in each tool's short catalog description. " +
+			"Not for the public web, not for project names, papers, news, or general questions — use web_search (or answer from training) for those. " +
+			"Do not pass full natural-language research prompts as queries; they will not match any tool. " +
+			"Use when you need a callable tool that is not in your current tool set. " +
+			"Pass multiple catalog lookups in one call to batch-load several tools — never call this tool twice in a row for related tools. " +
+			"Think ahead: if you will need a group of tools together (e.g. spawn_agent + wait_agent, read + edit), load all of them in a single call. " +
 			"After this call succeeds, matched tools may be injected into the real tool list in later phases of the same reasoning loop. " +
 			"Only call them after they actually appear there.",
 	},
