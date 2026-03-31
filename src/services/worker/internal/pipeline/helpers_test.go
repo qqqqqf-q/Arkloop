@@ -6,7 +6,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
-	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
+	readtool "arkloop/services/worker/internal/tools/builtin/read"
 )
 
 func TestFilterToolSpecsDedupesToLlmGroupName(t *testing.T) {
@@ -114,30 +114,30 @@ func TestResolveProviderAllowlistDbActiveOverridesLegacyGroup(t *testing.T) {
 	}
 }
 
-func TestResolveProviderAllowlistMapsUnderstandImageToolToProviderGroup(t *testing.T) {
+func TestResolveProviderAllowlistMapsReadToolToProviderGroup(t *testing.T) {
 	registry := tools.NewRegistry()
-	if err := registry.Register(understandimage.AgentSpec); err != nil {
+	if err := registry.Register(readtool.AgentSpec); err != nil {
 		t.Fatalf("register legacy: %v", err)
 	}
-	if err := registry.Register(understandimage.AgentSpecMiniMax); err != nil {
+	if err := registry.Register(readtool.AgentSpecMiniMax); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
 	allow := map[string]struct{}{
-		"understand_image": {},
+		"read": {},
 	}
 	active := map[string]string{
-		"image_understanding": understandimage.ProviderNameMiniMax,
+		"read": readtool.ProviderNameMiniMax,
 	}
 
 	resolved, err := pipeline.ResolveProviderAllowlist(allow, registry, active)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := resolved[understandimage.ProviderNameMiniMax]; !ok {
-		t.Fatalf("expected %s in resolved allowlist, got %+v", understandimage.ProviderNameMiniMax, resolved)
+	if _, ok := resolved[readtool.ProviderNameMiniMax]; !ok {
+		t.Fatalf("expected %s in resolved allowlist, got %+v", readtool.ProviderNameMiniMax, resolved)
 	}
-	if !pipeline.ToolAllowed(allow, registry, understandimage.ProviderNameMiniMax) {
-		t.Fatalf("expected provider tool to be allowed via understand_image group")
+	if !pipeline.ToolAllowed(allow, registry, readtool.ProviderNameMiniMax) {
+		t.Fatalf("expected provider tool to be allowed via read group")
 	}
 }

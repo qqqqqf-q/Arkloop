@@ -19,7 +19,7 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 	{
-		GroupName: "image_understanding", ProviderName: "image_understanding.minimax",
+		GroupName: "read", ProviderName: "read.minimax",
 		RequiresAPIKey: true, DefaultBaseURL: "https://api.minimaxi.com",
 		ConfigFields: []ConfigFieldDef{
 			{Key: "model", Label: "Model", Type: "string", Required: false, Default: "MiniMax-VL-01", Placeholder: "MiniMax-VL-01"},

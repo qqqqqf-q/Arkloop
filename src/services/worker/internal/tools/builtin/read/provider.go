@@ -3,8 +3,8 @@ package read
 import "context"
 
 const (
-	GroupName           = "image_understanding"
-	ProviderNameMiniMax = "image_understanding.minimax"
+	GroupName           = "read"
+	ProviderNameMiniMax = "read.minimax"
 	DefaultMiniMaxModel = "MiniMax-VL-01"
 )
 

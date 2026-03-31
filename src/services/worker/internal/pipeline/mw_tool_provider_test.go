@@ -78,7 +78,7 @@ func TestToolProviderMiddlewareInjectsActiveProvider(t *testing.T) {
 	rc := &pipeline.RunContext{
 		Run: data.Run{
 			ID:        uuid.New(),
-			AccountID:     uuid.New(),
+			AccountID: uuid.New(),
 			ProjectID: &projectID,
 			ThreadID:  uuid.New(),
 		},
@@ -129,7 +129,7 @@ func encryptGCM(t *testing.T, key []byte, plaintext string) string {
 func TestBuildProviderExecutor_ImageMiniMaxUsesReadExecutor(t *testing.T) {
 	key := "minimax-test-key"
 	cfg := toolprovider.ActiveProviderConfig{
-		GroupName:    "image_understanding",
+		GroupName:    "read",
 		ProviderName: readtool.ProviderNameMiniMax,
 		APIKeyValue:  &key,
 	}

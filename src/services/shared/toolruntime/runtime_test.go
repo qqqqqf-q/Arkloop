@@ -154,8 +154,8 @@ func TestResolveBuiltinAddsWebToolsFromPlatformProviders(t *testing.T) {
 			{GroupName: "web_search", ProviderName: "web_search.duckduckgo"},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
 			{
-				GroupName:    "image_understanding",
-				ProviderName: "image_understanding.minimax",
+				GroupName:    "read",
+				ProviderName: "read.minimax",
 				APIKeyValue:  strPtr("api-key"),
 			},
 		},
@@ -235,8 +235,8 @@ func TestResolveBuiltinKeepsReadToolWithoutImageProviderAPIKey(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		PlatformProviders: []ProviderConfig{
 			{
-				GroupName:    "image_understanding",
-				ProviderName: "image_understanding.minimax",
+				GroupName:    "read",
+				ProviderName: "read.minimax",
 			},
 		},
 	})
@@ -248,14 +248,14 @@ func TestResolveBuiltinKeepsReadToolWithoutImageProviderAPIKey(t *testing.T) {
 	resolved = ResolveBuiltin(ResolveInput{
 		PlatformProviders: []ProviderConfig{
 			{
-				GroupName:    "image_understanding",
-				ProviderName: "image_understanding.minimax",
+				GroupName:    "read",
+				ProviderName: "read.minimax",
 				APIKeyValue:  &apiKey,
 			},
 		},
 	})
 	if _, ok := resolved.ToolNameSet()["read"]; !ok {
-		t.Fatal("read should remain available when image_understanding provider has API key")
+		t.Fatal("read should remain available when read provider has API key")
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
-	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
+	readtool "arkloop/services/worker/internal/tools/builtin/read"
 
 	"github.com/google/uuid"
 )
@@ -273,16 +273,16 @@ func TestToolBuildMiddleware_FiltersUnavailableRuntimeManagedTools(t *testing.T)
 
 func TestToolBuildMiddleware_KeepsUserProviderTool(t *testing.T) {
 	registry := tools.NewRegistry()
-	if err := registry.Register(understandimage.AgentSpec); err != nil {
-		t.Fatalf("register understand_image: %v", err)
+	if err := registry.Register(readtool.AgentSpec); err != nil {
+		t.Fatalf("register read: %v", err)
 	}
-	if err := registry.Register(understandimage.AgentSpecMiniMax); err != nil {
-		t.Fatalf("register understand_image minimax: %v", err)
+	if err := registry.Register(readtool.AgentSpecMiniMax); err != nil {
+		t.Fatalf("register read minimax: %v", err)
 	}
 
 	executors := map[string]tools.Executor{
-		understandimage.AgentSpec.Name:        understandimage.NewToolExecutorWithProvider(&stubImageProvider{}),
-		understandimage.AgentSpecMiniMax.Name: understandimage.NewToolExecutorWithProvider(&stubImageProvider{}),
+		readtool.AgentSpec.Name:        readtool.NewToolExecutorWithProvider(&stubImageProvider{}),
+		readtool.AgentSpecMiniMax.Name: readtool.NewToolExecutorWithProvider(&stubImageProvider{}),
 	}
 
 	rc := &pipeline.RunContext{
@@ -292,10 +292,10 @@ func TestToolBuildMiddleware_KeepsUserProviderTool(t *testing.T) {
 		Emitter:                   events.NewEmitter("test"),
 		ToolRegistry:              registry,
 		ToolExecutors:             executors,
-		AllowlistSet:              map[string]struct{}{"understand_image": {}},
-		ActiveToolProviderByGroup: map[string]string{"image_understanding": "image_understanding.minimax"},
+		AllowlistSet:              map[string]struct{}{"read": {}},
+		ActiveToolProviderByGroup: map[string]string{"read": "read.minimax"},
 		ToolSpecs: []llm.ToolSpec{
-			understandimage.LlmSpec,
+			readtool.LlmSpec,
 		},
 		Runtime: &sharedtoolruntime.RuntimeSnapshot{},
 	}
@@ -319,8 +319,8 @@ func TestToolBuildMiddleware_KeepsUserProviderTool(t *testing.T) {
 		if len(rc.FinalSpecs) != 1 {
 			t.Fatalf("expected 1 final spec, got %d", len(rc.FinalSpecs))
 		}
-		if rc.FinalSpecs[0].Name != "understand_image" {
-			t.Fatalf("expected understand_image spec, got %s", rc.FinalSpecs[0].Name)
+		if rc.FinalSpecs[0].Name != "read" {
+			t.Fatalf("expected read spec, got %s", rc.FinalSpecs[0].Name)
 		}
 		return nil
 	})
@@ -393,14 +393,14 @@ func TestToolBuildMiddleware_BindsDuckduckgoProvider(t *testing.T) {
 	}
 }
 
-func TestToolBuildMiddleware_UnderstandImageSearchableWhenNotCore(t *testing.T) {
+func TestToolBuildMiddleware_ReadSearchableWhenNotCore(t *testing.T) {
 	registry := tools.NewRegistry()
-	if err := registry.Register(understandimage.AgentSpec); err != nil {
-		t.Fatalf("register understand_image: %v", err)
+	if err := registry.Register(readtool.AgentSpec); err != nil {
+		t.Fatalf("register read: %v", err)
 	}
 
 	executors := map[string]tools.Executor{
-		understandimage.AgentSpec.Name: understandimage.NewToolExecutorWithProvider(&stubImageProvider{}),
+		readtool.AgentSpec.Name: readtool.NewToolExecutorWithProvider(&stubImageProvider{}),
 	}
 
 	rc := &pipeline.RunContext{
@@ -408,24 +408,24 @@ func TestToolBuildMiddleware_UnderstandImageSearchableWhenNotCore(t *testing.T) 
 		Emitter:                   events.NewEmitter("test"),
 		ToolRegistry:              registry,
 		ToolExecutors:             executors,
-		AllowlistSet:              map[string]struct{}{"understand_image": {}},
-		ToolSpecs:                 []llm.ToolSpec{understandimage.LlmSpec},
+		AllowlistSet:              map[string]struct{}{"read": {}},
+		ToolSpecs:                 []llm.ToolSpec{readtool.LlmSpec},
 		PersonaDefinition:         &personas.Definition{CoreTools: []string{"timeline_title"}},
 		ActiveToolProviderByGroup: nil,
 	}
 
 	mw := pipeline.NewToolBuildMiddleware()
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if hasToolSpecName(rc.FinalSpecs, "understand_image") {
-			t.Fatal("did not expect understand_image in final specs")
+		if hasToolSpecName(rc.FinalSpecs, "read") {
+			t.Fatal("did not expect read in final specs")
 		}
 		if !hasToolSpecName(rc.FinalSpecs, "search_tools") {
 			t.Fatal("expected search_tools in final specs")
 		}
 
 		searchable := rc.ToolExecutor.SearchableSpecs()
-		if _, ok := searchable["understand_image"]; !ok {
-			t.Fatal("expected understand_image to be searchable")
+		if _, ok := searchable["read"]; !ok {
+			t.Fatal("expected read to be searchable")
 		}
 		return nil
 	})
@@ -435,14 +435,14 @@ func TestToolBuildMiddleware_UnderstandImageSearchableWhenNotCore(t *testing.T) 
 	}
 }
 
-func TestToolBuildMiddleware_UnderstandImageUnavailableWhenNotConfigured(t *testing.T) {
+func TestToolBuildMiddleware_ReadSearchableWithoutProviderConfig(t *testing.T) {
 	registry := tools.NewRegistry()
-	if err := registry.Register(understandimage.AgentSpec); err != nil {
-		t.Fatalf("register understand_image: %v", err)
+	if err := registry.Register(readtool.AgentSpec); err != nil {
+		t.Fatalf("register read: %v", err)
 	}
 
 	executors := map[string]tools.Executor{
-		understandimage.AgentSpec.Name: understandimage.NewToolExecutor(),
+		readtool.AgentSpec.Name: readtool.NewToolExecutor(),
 	}
 
 	rc := &pipeline.RunContext{
@@ -450,24 +450,24 @@ func TestToolBuildMiddleware_UnderstandImageUnavailableWhenNotConfigured(t *test
 		Emitter:                   events.NewEmitter("test"),
 		ToolRegistry:              registry,
 		ToolExecutors:             executors,
-		AllowlistSet:              map[string]struct{}{"understand_image": {}},
-		ToolSpecs:                 []llm.ToolSpec{understandimage.LlmSpec},
+		AllowlistSet:              map[string]struct{}{"read": {}},
+		ToolSpecs:                 []llm.ToolSpec{readtool.LlmSpec},
 		PersonaDefinition:         &personas.Definition{CoreTools: []string{"timeline_title"}},
 		ActiveToolProviderByGroup: nil,
 	}
 
 	mw := pipeline.NewToolBuildMiddleware()
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if hasToolSpecName(rc.FinalSpecs, "understand_image") {
-			t.Fatal("did not expect understand_image in final specs")
+		if hasToolSpecName(rc.FinalSpecs, "read") {
+			t.Fatal("did not expect read in final specs")
 		}
 		if !hasToolSpecName(rc.FinalSpecs, "search_tools") {
 			t.Fatal("expected search_tools in final specs")
 		}
 
 		searchable := rc.ToolExecutor.SearchableSpecs()
-		if _, ok := searchable["understand_image"]; ok {
-			t.Fatal("did not expect understand_image to be searchable")
+		if _, ok := searchable["read"]; !ok {
+			t.Fatal("expected read to remain searchable for file reads")
 		}
 		return nil
 	})
@@ -488,8 +488,8 @@ func hasToolSpecName(specs []llm.ToolSpec, name string) bool {
 
 type stubImageProvider struct{}
 
-func (stubImageProvider) DescribeImage(_ context.Context, req understandimage.DescribeImageRequest) (understandimage.DescribeImageResponse, error) {
-	return understandimage.DescribeImageResponse{
+func (stubImageProvider) DescribeImage(_ context.Context, req readtool.DescribeImageRequest) (readtool.DescribeImageResponse, error) {
+	return readtool.DescribeImageResponse{
 		Text:     "stub",
 		Provider: "stub",
 		Model:    "stub",

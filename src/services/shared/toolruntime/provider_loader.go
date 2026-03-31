@@ -192,7 +192,7 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		return validateInternalBaseURL(status.BaseURL)
 	case "web_fetch.basic":
 		return ProviderRuntimeStateReady, ""
-	case "image_understanding.minimax":
+	case "read.minimax":
 		if blankPtr(status.APIKeyValue) {
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"
 		}
@@ -205,7 +205,7 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		}
 		return validateInternalBaseURL(status.BaseURL)
 	default:
-		if strings.TrimSpace(status.GroupName) == "image_understanding" && blankPtr(status.APIKeyValue) {
+		if strings.TrimSpace(status.GroupName) == "read" && blankPtr(status.APIKeyValue) {
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"
 		}
 		return ProviderRuntimeStateReady, ""

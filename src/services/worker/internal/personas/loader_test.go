@@ -153,7 +153,7 @@ func TestLoadPersonaWithSelectorFields(t *testing.T) {
 func TestLoadPersonaWithConditionalTools(t *testing.T) {
 	dir := t.TempDir()
 	writePersonaFiles(t, dir, "conditional_persona",
-		"id: conditional_persona\nversion: \"1\"\ntitle: Conditional\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - understand_image\n",
+		"id: conditional_persona\nversion: \"1\"\ntitle: Conditional\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - read\n",
 		"# prompt",
 	)
 
@@ -172,7 +172,7 @@ func TestLoadPersonaWithConditionalTools(t *testing.T) {
 	if len(rule.When.LacksInputModalities) != 1 || rule.When.LacksInputModalities[0] != "image" {
 		t.Fatalf("unexpected modalities: %#v", rule.When.LacksInputModalities)
 	}
-	if len(rule.Tools) != 1 || rule.Tools[0] != "understand_image" {
+	if len(rule.Tools) != 1 || rule.Tools[0] != "read" {
 		t.Fatalf("unexpected tools: %#v", rule.Tools)
 	}
 }

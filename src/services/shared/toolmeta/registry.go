@@ -3,15 +3,14 @@ package toolmeta
 import "fmt"
 
 const (
-	GroupWebSearch          = "web_search"
-	GroupWebFetch           = "web_fetch"
-	GroupImageUnderstanding = "image_understanding"
-	GroupSandbox            = "sandbox"
-	GroupMemory             = "memory"
-	GroupDocument           = "document"
-	GroupOrchestration      = "orchestration"
-	GroupDiscovery          = "discovery"
-	GroupFilesystem         = "filesystem"
+	GroupWebSearch     = "web_search"
+	GroupWebFetch      = "web_fetch"
+	GroupSandbox       = "sandbox"
+	GroupMemory        = "memory"
+	GroupDocument      = "document"
+	GroupOrchestration = "orchestration"
+	GroupDiscovery     = "discovery"
+	GroupFilesystem    = "filesystem"
 
 	WebSearchDefaultMaxResults = 5
 	WebSearchMaxResultsLimit   = 20
@@ -36,7 +35,6 @@ var groupOrder = []string{
 	GroupDiscovery,
 	GroupWebSearch,
 	GroupWebFetch,
-	GroupImageUnderstanding,
 	GroupSandbox,
 	GroupFilesystem,
 	GroupMemory,

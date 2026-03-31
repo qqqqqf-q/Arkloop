@@ -143,7 +143,7 @@ func TestLoadFromDirParsesRoles(t *testing.T) {
 func TestLoadFromDirParsesConditionalTools(t *testing.T) {
 	root := t.TempDir()
 	writeRepoPersonaFiles(t, root, "conditional-persona",
-		"id: conditional-persona\nversion: \"1\"\ntitle: Conditional Persona\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - understand_image\n",
+		"id: conditional-persona\nversion: \"1\"\ntitle: Conditional Persona\nconditional_tools:\n  - when:\n      lacks_input_modalities:\n        - image\n    tools:\n      - read\n",
 		"",
 		"persona prompt",
 	)
@@ -162,7 +162,7 @@ func TestLoadFromDirParsesConditionalTools(t *testing.T) {
 	if len(rule.When.LacksInputModalities) != 1 || rule.When.LacksInputModalities[0] != "image" {
 		t.Fatalf("unexpected modalities: %#v", rule.When.LacksInputModalities)
 	}
-	if len(rule.Tools) != 1 || rule.Tools[0] != "understand_image" {
+	if len(rule.Tools) != 1 || rule.Tools[0] != "read" {
 		t.Fatalf("unexpected tools: %#v", rule.Tools)
 	}
 }

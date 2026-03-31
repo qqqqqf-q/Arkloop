@@ -80,7 +80,7 @@ type DescEditTarget = { toolName: string; label: string; description: string }
 
 function displayGroupName(group: string): string {
   if (group === 'sandbox') return 'sandbox/browser'
-  if (group === 'image_understanding') return 'Image understanding'
+  if (group === 'read') return 'Read'
   return group
 }
 

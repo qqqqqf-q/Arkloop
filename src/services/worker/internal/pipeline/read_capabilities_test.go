@@ -3,7 +3,6 @@ package pipeline
 import (
 	"testing"
 
-	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 )
@@ -97,7 +96,7 @@ func TestResolveReadCapabilities_UsesRouteAndReadSpec(t *testing.T) {
 	caps := ResolveReadCapabilities(
 		route,
 		[]llm.ToolSpec{readSpec},
-		map[string]string{sharedtoolmeta.GroupImageUnderstanding: "image_understanding.minimax"},
+		map[string]string{"read": "read.minimax"},
 	)
 	if caps.NativeImageInput {
 		t.Fatal("expected native image input to be false")
@@ -142,7 +141,7 @@ func TestResolveReadCapabilities_DoesNotUseSearchableReadSpec(t *testing.T) {
 	caps := ResolveReadCapabilities(
 		route,
 		nil,
-		map[string]string{sharedtoolmeta.GroupImageUnderstanding: "image_understanding.minimax"},
+		map[string]string{"read": "read.minimax"},
 	)
 	if caps.ReadImageSourcesVisible {
 		t.Fatal("expected read image sources hidden when read is not in final specs")

@@ -153,7 +153,7 @@ func resolveProviderBindingGroup(registry *tools.Registry, toolName string) stri
 	}
 	if meta, ok := sharedtoolmeta.Lookup(logicalName); ok {
 		switch meta.Group {
-		case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch, sharedtoolmeta.GroupImageUnderstanding:
+		case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch:
 			return meta.Group
 		}
 	}
@@ -299,7 +299,7 @@ func ResolveProviderAllowlist(
 
 		if meta, ok := sharedtoolmeta.Lookup(group); ok {
 			switch meta.Group {
-			case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch, sharedtoolmeta.GroupImageUnderstanding:
+			case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch:
 				continue
 			}
 		}

@@ -322,7 +322,7 @@ func findProvider(providers []ProviderConfig, groupName string) *ProviderConfig 
 		if strings.TrimSpace(providers[i].GroupName) != groupName {
 			continue
 		}
-		if groupName == "image_understanding" {
+		if groupName == "read" {
 			if providers[i].APIKeyValue == nil || strings.TrimSpace(*providers[i].APIKeyValue) == "" {
 				continue
 			}

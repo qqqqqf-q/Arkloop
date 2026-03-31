@@ -3,7 +3,6 @@ package pipeline
 import (
 	"strings"
 
-	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 )
@@ -62,7 +61,7 @@ func hasImageBridgeProvider(activeByGroup map[string]string) bool {
 	if len(activeByGroup) == 0 {
 		return false
 	}
-	_, ok := activeByGroup[sharedtoolmeta.GroupImageUnderstanding]
+	_, ok := activeByGroup[readToolName]
 	return ok
 }
 

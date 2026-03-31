@@ -44,7 +44,7 @@ import (
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
-	understandimage "arkloop/services/worker/internal/tools/builtin/understand_image"
+	readtool "arkloop/services/worker/internal/tools/builtin/read"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -611,8 +611,8 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 		{
 			sql: `INSERT INTO tool_provider_configs (
 					account_id, owner_kind, group_name, provider_name, is_active, secret_id
-				) VALUES ($1, 'platform', 'image_understanding', $2, 1, $3)`,
-			args: []any{accountID.String(), understandimage.ProviderNameMiniMax, secretID},
+				) VALUES ($1, 'platform', 'read', $2, 1, $3)`,
+			args: []any{accountID.String(), readtool.ProviderNameMiniMax, secretID},
 		},
 	} {
 		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
@@ -632,13 +632,13 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 
 	mw := desktopToolProviderBindings(db)
 	err = mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
-		if got := rc.ActiveToolProviderByGroup["image_understanding"]; got != understandimage.ProviderNameMiniMax {
+		if got := rc.ActiveToolProviderByGroup["read"]; got != readtool.ProviderNameMiniMax {
 			t.Fatalf("unexpected active provider: %q", got)
 		}
-		if rc.ActiveToolProviderConfigsByGroup["image_understanding"].ProviderName != understandimage.ProviderNameMiniMax {
-			t.Fatalf("unexpected runtime config: %+v", rc.ActiveToolProviderConfigsByGroup["image_understanding"])
+		if rc.ActiveToolProviderConfigsByGroup["read"].ProviderName != readtool.ProviderNameMiniMax {
+			t.Fatalf("unexpected runtime config: %+v", rc.ActiveToolProviderConfigsByGroup["read"])
 		}
-		if rc.ToolExecutors[understandimage.ProviderNameMiniMax] == nil {
+		if rc.ToolExecutors[readtool.ProviderNameMiniMax] == nil {
 			t.Fatal("expected image understanding executor to be injected")
 		}
 		return nil

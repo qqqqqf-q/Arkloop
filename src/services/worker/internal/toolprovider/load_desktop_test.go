@@ -145,7 +145,7 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 	if _, err := db.Exec(ctx, `
 		INSERT INTO tool_provider_configs (
 			account_id, owner_kind, group_name, provider_name, is_active, secret_id
-		) VALUES ($1, 'platform', 'image_understanding', 'image_understanding.minimax', 1, $2)`,
+		) VALUES ($1, 'platform', 'read', 'read.minimax', 1, $2)`,
 		accountID, secretID,
 	); err != nil {
 		t.Fatalf("seed tool provider: %v", err)

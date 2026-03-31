@@ -226,7 +226,7 @@ func TestPersonasRepositoryConditionalToolsJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}
-	conditionalToolsJSON := json.RawMessage(`[{"when":{"lacks_input_modalities":["image"]},"tools":["understand_image"]}]`)
+	conditionalToolsJSON := json.RawMessage(`[{"when":{"lacks_input_modalities":["image"]},"tools":["read"]}]`)
 	created, err := repo.Create(ctx, account.ID, "conditional", "1", "Conditional", nil, "prompt", nil, nil, nil, nil, conditionalToolsJSON, nil, nil, "auto", true, "none", "agent.simple", nil)
 	if err != nil {
 		t.Fatalf("create persona: %v", err)
