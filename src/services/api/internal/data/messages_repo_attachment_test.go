@@ -34,9 +34,9 @@ func TestMessageRepositoryListAllAttachmentKeysByThreadIncludesHiddenDeletedAndC
 		INSERT INTO threads (id, account_id, created_by_user_id, title, is_private, created_at) VALUES ($2, $1, NULL, 'demo', false, now());
 		INSERT INTO messages (id, account_id, thread_id, role, content, content_json, metadata_json, hidden, deleted_at, compacted)
 		VALUES
-		(gen_random_uuid(), $1, $2, 'user', 'a', '{"parts":[{"type":"file","attachment":{"key":"threads/t/attachments/1/a.txt","filename":"a.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, true, NULL, false),
-		(gen_random_uuid(), $1, $2, 'user', 'b', '{"parts":[{"type":"file","attachment":{"key":"threads/t/attachments/2/b.txt","filename":"b.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, false, now(), false),
-		(gen_random_uuid(), $1, $2, 'user', 'c', '{"parts":[{"type":"file","attachment":{"key":"threads/t/attachments/3/c.txt","filename":"c.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, false, NULL, true)`,
+		(gen_random_uuid(), $1, $2, 'user', 'a', '{"parts":[{"type":"file","attachment":{"key":"placeholder_attachment_key_a","filename":"placeholder-a.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, true, NULL, false),
+		(gen_random_uuid(), $1, $2, 'user', 'b', '{"parts":[{"type":"file","attachment":{"key":"placeholder_attachment_key_b","filename":"placeholder-b.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, false, now(), false),
+		(gen_random_uuid(), $1, $2, 'user', 'c', '{"parts":[{"type":"file","attachment":{"key":"placeholder_attachment_key_c","filename":"placeholder-c.txt","mime_type":"text/plain","size":1}}]}'::jsonb, '{}'::jsonb, false, NULL, true)`,
 		accountID,
 		threadID,
 	); err != nil {
