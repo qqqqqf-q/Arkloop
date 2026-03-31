@@ -71,6 +71,7 @@ import { applyRunEventToWebSearchSteps, isWebSearchToolName, webSearchSourcesFro
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import { isACPDelegateEventData } from '@arkloop/shared'
+import { ChatSkeleton } from './ChatSkeleton'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
 import {
   createMessage,
@@ -3598,7 +3599,7 @@ export function ChatPage() {
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
-            <div className="py-20 text-center text-sm text-[var(--c-text-muted)]">{t.loading}</div>
+            <ChatSkeleton />
           ) : (
             <>
               {contextCompactBar && (
