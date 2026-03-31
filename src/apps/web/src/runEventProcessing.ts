@@ -1062,7 +1062,7 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
     }
     case 'read_file': {
       const filePath = pickReadFilePath(args)
-      return filePath ? truncate(basename(filePath), 48) : 'read file'
+      return filePath ? `Read ${truncate(basename(filePath), 48)}` : 'Read file'
     }
     case 'write_file': {
       const filePath = typeof args.file_path === 'string' ? args.file_path : ''

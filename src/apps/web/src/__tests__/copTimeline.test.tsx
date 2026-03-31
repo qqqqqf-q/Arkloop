@@ -137,6 +137,20 @@ describe('CopTimeline', () => {
     expect(html).not.toContain('Thinking')
   })
 
+  it('已完成且仅包含 thinking 时应在正文下方追加一条 done 行', () => {
+    const html = renderTimeline({
+      isComplete: true,
+      preserveExpanded: true,
+      steps: [],
+      sources: [],
+      thinkingRows: [{ id: 't1', markdown: 'hello', seq: 1, durationSec: 2, startedAtMs: new Date('2026-03-10T00:00:00Z').getTime() }],
+    })
+
+    expect(html).toContain('hello')
+    expect(html).toContain('Done')
+    expect(html).toContain('left:-19px')
+  })
+
   it('preserveExpanded 未开启时，完成态应保持折叠而不是自动展开内容', () => {
     const html = renderTimeline({
       isComplete: true,

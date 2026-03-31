@@ -70,7 +70,10 @@ type Props = {
   trailingAssistantTextPresent?: boolean
   /** thinking 流式阶段 COP header 使用的随机提示句（不含 ...） */
   thinkingHint?: string
+  forceCollapsed?: boolean
 }
+
+type DoneTimelineEntry = { kind: 'done'; id: string; seq: number; item: { label: string } }
 
 function TypewriterText({ text, className, live }: { text: string; className?: string; live?: boolean }) {
   const displayed = useTypewriter(text, !live)
@@ -782,7 +785,7 @@ export function CopTimelineUnifiedRow({
   )
 }
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed }: Props) {
   const { t } = useLocale()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
@@ -819,7 +822,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const prevCompleteRef = useRef<boolean | undefined>(undefined)
   useEffect(() => {
     if (preserveExpanded) {
-      setCollapsed(false)
       prevCompleteRef.current = isComplete
       return
     }
@@ -867,6 +869,12 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     }
     prevTimelineIsLiveRef.current = timelineIsLive
   }, [preserveExpanded, timelineIsLive])
+
+  useEffect(() => {
+    if (forceCollapsed == null) return
+    if (userToggledCollapsedRef.current) return
+    setCollapsed(forceCollapsed)
+  }, [forceCollapsed])
 
   const aggregatedDurationSec = useMemo(() => {
     let sum = 0
@@ -917,6 +925,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
 
   type UEntry =
     | { kind: 'thinking'; id: string; seq: number; item: { markdown: string; live: boolean; durationSec?: number; startedAtMs?: number } }
+    | DoneTimelineEntry
     | { kind: 'copinline'; id: string; seq: number; item: { text: string; live: boolean } }
     | { kind: 'step'; id: string; seq: number; item: WebSearchPhaseStep }
     | { kind: 'text'; id: string; seq: number; item: SearchNarrative }
@@ -997,6 +1006,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   if (useUnified) {
     const priority: Record<UEntry['kind'], number> = {
       thinking: -1,
+      done: 0,
       copinline: 0,
       step: 1,
       text: 2,
@@ -1024,6 +1034,17 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   /** 仅 thinking、无工具：流式结束后内层不再用折叠卡片，避免与标题重复「Thought for Xs」 */
   const thinkingOnlyCompletedPlain =
     thinkingOnlyUnified && isComplete && !anyThinkingLive && hasThinkingOnly
+  const unifiedEntries: UEntry[] = thinkingOnlyCompletedPlain
+    ? [
+        ...allUnified,
+        {
+          kind: 'done',
+          id: '_thinking_done',
+          seq: (allUnified[allUnified.length - 1]?.seq ?? 0) + 0.5,
+          item: { label: t.copThinkingDone },
+        },
+      ]
+    : allUnified
   // run 活跃期间 thinking 暂停也保持 thinking-live phase，不闪变到 thought
   const headerPhaseKey = (anyThinkingLive || (hasAnyThinking && !!live))
     ? 'thinking-live'
@@ -1213,17 +1234,21 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
               </AnimatePresence>
 
               {useUnified ? (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: allUnified.length > 0 ? '0' : undefined }}>
+                <div style={{ display: 'flex', flexDirection: 'column', paddingTop: unifiedEntries.length > 0 ? '0' : undefined }}>
                   <AnimatePresence initial={false}>
-                  {allUnified.map((entry, idx) => {
+                  {unifiedEntries.map((entry, idx) => {
                     const isFirst = idx === 0
-                    const isLast = idx === allUnified.length - 1
-                    const multiItems = allUnified.length >= 2
-                    const dotTop = entry.kind === 'code' && entry.item.language !== 'shell' ? PYTHON_DOT_TOP : DOT_TOP
+                    const isLast = idx === unifiedEntries.length - 1
+                    const multiItems = unifiedEntries.length >= 2
+                    const dotTop = entry.kind === 'code'
+                      ? (entry.item.language !== 'shell' ? PYTHON_DOT_TOP : DOT_TOP)
+                      : DOT_TOP
                     const dotColor = entry.kind === 'thinking'
                       ? entry.item.live
                         ? 'var(--c-text-secondary)'
                         : 'var(--c-border-mid)'
+                      : entry.kind === 'done'
+                        ? 'var(--c-text-muted)'
                       : entry.kind === 'copinline'
                         ? 'var(--c-border-mid)'
                       : entry.kind === 'step'
@@ -1308,6 +1333,17 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                         )}
                         {entry.kind === 'copinline' && (
                           <TimelineNarrativeBody text={entry.item.text} tone="primary" live={entry.item.live} />
+                        )}
+                        {entry.kind === 'done' && (
+                          <div
+                            style={{
+                              fontSize: '13px',
+                              color: 'var(--c-text-tertiary)',
+                              lineHeight: '18px',
+                            }}
+                          >
+                            {entry.item.label}
+                          </div>
                         )}
                         {entry.kind === 'text' && <TimelineNarrativeBody text={entry.item.text} live={!!live} />}
                         {entry.kind === 'code' && (entry.item.language === 'shell'

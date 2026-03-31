@@ -321,7 +321,7 @@ describe('read tool provider mapping', () => {
       {
         id: 'c1',
         toolName: 'read_file',
-        label: 'demo.txt',
+        label: 'Read demo.txt',
         status: 'success',
         seq: 1,
         output: 'hello',
@@ -359,7 +359,7 @@ describe('read tool provider mapping', () => {
       {
         id: 'c2',
         toolName: 'read_file',
-        label: 'demo.txt',
+        label: 'Read demo.txt',
         status: 'success',
         seq: 1,
         output: 'hello',
