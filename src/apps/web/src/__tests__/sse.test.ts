@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSSEChunk, SSEApiError } from '../sse'
+import { createSSEClient, parseSSEChunk, SSEApiError } from '../sse'
 
 describe('parseSSEChunk', () => {
   it('解析单个完整事件', () => {
@@ -174,5 +174,41 @@ describe('SSEApiError', () => {
     const err = new SSEApiError({ status: 400, message: 'bad request' })
     expect(err instanceof Error).toBe(true)
     expect(err instanceof SSEApiError).toBe(true)
+  })
+})
+
+describe('SSEClient retry delay', () => {
+  it('应对重连退避应用 10 秒封顶', async () => {
+    const waits: number[] = []
+    const originalSetTimeout = globalThis.setTimeout
+    const originalFetch = globalThis.fetch
+
+    globalThis.setTimeout = (((handler: TimerHandler, timeout?: number) => {
+      waits.push(Number(timeout ?? 0))
+      queueMicrotask(() => {
+        if (typeof handler === 'function') handler()
+      })
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown) as typeof setTimeout
+
+    globalThis.fetch = (async () => {
+      throw new Error('network down')
+    }) as typeof fetch
+
+    try {
+      const client = createSSEClient({
+        url: 'https://example.com/v1/runs/run/events',
+        accessToken: 'token',
+        onEvent: () => {},
+        maxRetries: 5,
+        retryDelayMs: 1000,
+        maxRetryDelayMs: 10_000,
+      })
+      await client.connect()
+      expect(waits.slice(0, 5)).toEqual([1000, 2000, 4000, 8000, 10000])
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+      globalThis.fetch = originalFetch
+    }
   })
 })

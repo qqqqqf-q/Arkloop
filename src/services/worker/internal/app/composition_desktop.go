@@ -383,7 +383,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		PerToolSoftLimits:   tools.DefaultPerToolSoftLimits(),
 		PendingMemoryWrites: memory.NewPendingWriteBuffer(),
 
-		LlmRetryMaxAttempts: 3,
+		LlmRetryMaxAttempts: 10,
 		LlmRetryBaseDelayMs: 1000,
 
 		ThreadMessageHistoryLimit:     200,

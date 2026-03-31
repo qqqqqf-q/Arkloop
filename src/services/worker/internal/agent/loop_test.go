@@ -770,6 +770,24 @@ func TestAgentLoopRetryableFailureEndsAsInterrupted(t *testing.T) {
 	}
 }
 
+func TestRetryBackoffMsCapsAt60Seconds(t *testing.T) {
+	got := []int{
+		retryBackoffMs(1000, 1),
+		retryBackoffMs(1000, 2),
+		retryBackoffMs(1000, 3),
+		retryBackoffMs(1000, 4),
+		retryBackoffMs(1000, 5),
+		retryBackoffMs(1000, 6),
+		retryBackoffMs(1000, 7),
+	}
+	want := []int{1000, 2000, 4000, 8000, 16000, 32000, 60000}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("attempt %d: got %d want %d", i+1, got[i], want[i])
+		}
+	}
+}
+
 func TestAgentLoopDedupToolResultMessageInjection(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(builtin.EchoAgentSpec); err != nil {

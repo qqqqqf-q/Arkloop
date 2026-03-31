@@ -149,6 +149,7 @@ vi.mock('../components/CopTimeline', () => ({
     codeExecutions,
     headerOverride,
     isComplete,
+    preserveExpanded,
     copInlineTextRows,
     thinkingRows,
     assistantThinking,
@@ -158,6 +159,7 @@ vi.mock('../components/CopTimeline', () => ({
     codeExecutions?: Array<{ id: string; code: string }>
     headerOverride?: string
     isComplete?: boolean
+    preserveExpanded?: boolean
     copInlineTextRows?: Array<{ id: string; text: string }>
     thinkingRows?: Array<{ id: string; markdown: string }>
     assistantThinking?: { markdown: string }
@@ -181,7 +183,7 @@ vi.mock('../components/CopTimeline', () => ({
         : undefined)
 
     return (
-    <div>
+    <div data-preserve-expanded={preserveExpanded ? 'true' : 'false'}>
       {autoHeader ? <span>{autoHeader}</span> : null}
       {steps?.map((step) => (
         <span key={step.id}>{step.label}</span>
@@ -374,6 +376,78 @@ const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
     container.remove()
   })
 
+  it('welcome 首条消息跳转时不应先显示骨架屏', async () => {
+    let releaseMessages: ((value: Awaited<ReturnType<typeof listMessages>>) => void) | null = null
+    mockedListMessages.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseMessages = resolve
+    }))
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+    const welcomeMessage = {
+      id: 'msg-1',
+      role: 'user' as const,
+      content: 'hello',
+      account_id: 'acc-1',
+      thread_id: 'thread-1',
+      created_by_user_id: 'user-1',
+      created_at: '2026-03-10T00:00:00Z',
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={[{
+            pathname: '/t/thread-1',
+            state: {
+              initialRunId: 'run-1',
+              userEnterMessageId: 'msg-1',
+              welcomeUserMessage: welcomeMessage,
+            },
+          }]}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+
+    expect(container.textContent).toContain('hello')
+
+    await act(async () => {
+      releaseMessages?.([welcomeMessage])
+      await flushMicrotasks()
+    })
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
   it('重新进入 thread 时若最新 run 为 interrupted 应显示中断提示', async () => {
     mockedListThreadRuns.mockResolvedValue([
       {
@@ -425,6 +499,81 @@ const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
     })
 
     expect(container.textContent).toMatch(/Run interrupted|运行已中断/)
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('重新进入 thread 时若最新 run 为 failed 应恢复失败原因', async () => {
+    vi.mocked(listMessages).mockResolvedValue([
+      { id: 'm1', role: 'assistant', content: 'bad output', created_at: '', run_id: 'r1' },
+    ] as never)
+    vi.mocked(listThreadRuns).mockResolvedValue([
+      {
+        run_id: 'r1',
+        status: 'failed',
+        created_at: '',
+      },
+    ] as never)
+    vi.mocked(listRunEvents).mockResolvedValue([
+      {
+        event_id: 'e1',
+        run_id: 'r1',
+        seq: 1,
+        ts: '',
+        type: 'run.failed',
+        data: {
+          message: 'upstream exploded',
+          error_class: 'provider.non_retryable',
+          details: { status: 500 },
+        },
+      },
+    ] as never)
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toMatch(/模型服务商请求失败|Model provider request failed/)
 
     act(() => {
       root.unmount()
@@ -932,7 +1081,7 @@ const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
     container.remove()
   })
 
-  it('run.completed 后应把显示权交回历史消息，同时保留展开结构', async () => {
+  it('run.completed 后应把显示权交回历史消息，同时保留完成态的折叠结构', async () => {
     mockedListMessages
       .mockResolvedValueOnce([
         {
@@ -1120,9 +1269,8 @@ const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
     expect(text).toContain('再继续')
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
     expect(countMatches(text, '1 steps completed')).toBe(1)
+    expect(container.querySelector('[data-preserve-expanded="true"]')).toBeNull()
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
-    expect(text.indexOf('pwd')).toBeGreaterThanOrEqual(0)
-    expect(text.indexOf('再继续')).toBeGreaterThan(text.indexOf('pwd'))
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'smooth')).toBe(false)
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(true)
     expect(mockedGetThread).not.toHaveBeenCalled()

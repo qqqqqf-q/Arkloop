@@ -1198,11 +1198,11 @@ func recordRunEnd(ctx context.Context, recorder *rollout.Recorder, status string
 	appendRolloutSync(ctx, recorder, MakeRunEnd(status))
 }
 
-// retryBackoffMs 计算指数退避等待时长，最大 30s。
+// retryBackoffMs 计算指数退避等待时长，最大 60s。
 func retryBackoffMs(baseMs, attempt int) int {
 	ms := baseMs * (1 << (attempt - 1))
-	if ms > 30_000 {
-		ms = 30_000
+	if ms > 60_000 {
+		ms = 60_000
 	}
 	return ms
 }

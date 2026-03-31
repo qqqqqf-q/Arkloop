@@ -228,6 +228,68 @@ function interruptedErrorFromRunEvents(
   return { message: fallbackMessage }
 }
 
+function failedErrorFromRunEvents(
+  events: ReadonlyArray<{ type: string; data: unknown }>,
+  fallbackMessage: string,
+): AppError {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i]
+    if (!event || event.type !== 'run.failed') {
+      continue
+    }
+    const data = event.data
+    const payload = data && typeof data === 'object' && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {}
+    const details = payload.details && typeof payload.details === 'object' && !Array.isArray(payload.details)
+      ? payload.details as Record<string, unknown>
+      : undefined
+    return {
+      message: typeof payload.message === 'string' && payload.message.trim() !== ''
+        ? payload.message
+        : fallbackMessage,
+      code: typeof payload.code === 'string'
+        ? payload.code
+        : typeof payload.error_class === 'string'
+          ? payload.error_class
+          : undefined,
+      details,
+    }
+  }
+  return { message: fallbackMessage }
+}
+
+function FailedRunRetryCard({
+  title,
+  actionLabel,
+  onRetry,
+}: {
+  title: string
+  actionLabel: string
+  onRetry?: () => void
+}) {
+  return (
+    <div
+      className="mt-3 flex max-w-[663px] items-center justify-between gap-3 rounded-xl px-4 py-3"
+      style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+    >
+      <div className="flex min-w-0 items-center gap-2 text-sm text-[var(--c-text-primary)]">
+        <AlertCircle size={16} className="shrink-0 text-[var(--c-status-warn-text)]" />
+        <span className="truncate">{title}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={!onRetry}
+        className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:cursor-default disabled:opacity-40"
+        style={{ background: 'var(--c-brand)', color: '#fff' }}
+      >
+        {actionLabel}
+      </button>
+    </div>
+  )
+}
+
 type OutletContext = {
   accessToken: string
   onLoggedOut: () => void
@@ -254,7 +316,14 @@ type OutletContext = {
   setTitleBarIncognitoClick?: (fn: (() => void) | null) => void
 }
 
-type LocationState = { initialRunId?: string; isSearch?: boolean; isIncognitoFork?: boolean; forkBaseCount?: number; userEnterMessageId?: string } | null
+type LocationState = {
+  initialRunId?: string
+  isSearch?: boolean
+  isIncognitoFork?: boolean
+  forkBaseCount?: number
+  userEnterMessageId?: string
+  welcomeUserMessage?: MessageResponse
+} | null
 
 type DocumentPanelState = {
   artifact: ArtifactRef
@@ -473,7 +542,7 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
     hasWebFetches: boolean
     hasGenericTools: boolean
     hasThinking: boolean
-    handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | null
+    handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | 'failed' | null
   }) => string | undefined
   handleRetry: () => void
   handleEditMessage: (message: MessageResponse, newContent: string) => void
@@ -747,6 +816,13 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
               contentOverride={msg.role === 'assistant' && hasAssistantTurn ? '' : undefined}
               plainTextForCopy={msg.role === 'assistant' && hasAssistantTurn ? assistantTurnPlainText(historicalTurn!) : undefined}
             />
+            {msg.role === 'assistant' && (effectiveTerminalStatus === 'failed' || effectiveTerminalStatus === 'interrupted') && (
+              <FailedRunRetryCard
+                title={effectiveTerminalStatus === 'interrupted' ? t.runInterrupted : t.failedRunRetryTitle}
+                actionLabel={t.retryAction}
+                onRetry={!isStreaming && !sending ? handleRetry : undefined}
+              />
+            )}
             {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
               <IncognitoDivider text={t.incognitoForkDivider} />
             )}
@@ -845,6 +921,12 @@ export function ChatPage() {
   const locationState = location.state as LocationState
   const navigate = useNavigate()
   const { t } = useLocale()
+  const welcomeUserMessage = locationState?.welcomeUserMessage
+  const shouldSkipInitialSkeleton = !!(
+    welcomeUserMessage &&
+    locationState?.userEnterMessageId === welcomeUserMessage.id &&
+    welcomeUserMessage.role === 'user'
+  )
 
   const baseUrl = apiBaseUrl()
 
@@ -852,16 +934,20 @@ export function ChatPage() {
     () => locationState?.isSearch === true || isSearchThreadId(threadId ?? ''),
   )
 
-  const [messages, setMessages] = useState<MessageResponse[]>([])
-  const [messagesLoading, setMessagesLoading] = useState(false)
-  const [userEnterMessageId, setUserEnterMessageId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<MessageResponse[]>(
+    () => shouldSkipInitialSkeleton ? [welcomeUserMessage] : [],
+  )
+  const [messagesLoading, setMessagesLoading] = useState(!shouldSkipInitialSkeleton)
+  const [userEnterMessageId, setUserEnterMessageId] = useState<string | null>(
+    () => shouldSkipInitialSkeleton ? welcomeUserMessage.id : null,
+  )
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const assistantTurnFoldStateRef = useRef(createEmptyAssistantTurnFoldState())
   const [liveAssistantTurn, setLiveAssistantTurn] = useState<AssistantTurnUi | null>(null)
   const [preserveLiveRunUi, setPreserveLiveRunUi] = useState(false)
   const [terminalRunDisplayId, setTerminalRunDisplayId] = useState<string | null>(null)
-  const [terminalRunHandoffStatus, setTerminalRunHandoffStatus] = useState<'completed' | 'cancelled' | 'interrupted' | null>(null)
+  const [terminalRunHandoffStatus, setTerminalRunHandoffStatus] = useState<'completed' | 'cancelled' | 'interrupted' | 'failed' | null>(null)
   const [terminalRunAssistantMessageId, setTerminalRunAssistantMessageId] = useState<string | null>(null)
   const [terminalRunHistoryExpanded, setTerminalRunHistoryExpanded] = useState(false)
   const seenFirstToolCallInRunRef = useRef(false)
@@ -1091,10 +1177,10 @@ export function ChatPage() {
     setTerminalRunDisplayId(null)
     setTerminalRunHandoffStatus(null)
   }, [])
-  const markTerminalRunHistory = useCallback((messageId: string | null) => {
+  const markTerminalRunHistory = useCallback((messageId: string | null, expanded = true) => {
     if (messageId) {
       setTerminalRunAssistantMessageId(messageId)
-      setTerminalRunHistoryExpanded(true)
+      setTerminalRunHistoryExpanded(expanded)
     } else {
       setTerminalRunAssistantMessageId(null)
       setTerminalRunHistoryExpanded(false)
@@ -1448,7 +1534,9 @@ export function ChatPage() {
 
   const isStreaming = activeRunId != null
   const liveRunUiVisible = isStreaming || preserveLiveRunUi
-  const liveRunUiActive = isStreaming || (preserveLiveRunUi && terminalRunHandoffStatus !== 'cancelled')
+  const liveRunUiActive =
+    isStreaming ||
+    (preserveLiveRunUi && terminalRunHandoffStatus !== 'cancelled' && terminalRunHandoffStatus !== 'failed')
   const showPendingThinkingShell =
     pendingThinking &&
     !liveTurnHasThinkingSegment(liveAssistantTurn) &&
@@ -1563,8 +1651,10 @@ export function ChatPage() {
     const syncVersion = beginMessageSync()
     let disposed = false
 
-    setMessagesLoading(true)
-    setUserEnterMessageId(null)
+    if (!shouldSkipInitialSkeleton) {
+      setMessagesLoading(true)
+      setUserEnterMessageId(null)
+    }
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
@@ -1590,6 +1680,9 @@ export function ChatPage() {
         setMessages(items)
         let interruptedError = latest?.status === 'interrupted'
           ? { message: t.runInterrupted }
+          : null
+        let failedError = latest?.status === 'failed'
+          ? { message: t.failedRunRetryTitle }
           : null
 
         // 加载各消息缓存的 web 来源
@@ -1644,6 +1737,9 @@ export function ChatPage() {
             if (latest?.status === 'interrupted' && latest.run_id && msg.run_id === latest.run_id) {
               interruptedError = interruptedErrorFromRunEvents(cachedRunEvents, t.runInterrupted)
             }
+            if (latest?.status === 'failed' && latest.run_id && msg.run_id === latest.run_id) {
+              failedError = failedErrorFromRunEvents(cachedRunEvents, t.failedRunRetryTitle)
+            }
             const rebuiltTurn = buildAssistantTurnFromRunEvents(cachedRunEvents)
             if (rebuiltTurn.segments.length > 0) {
               hydratedAssistantTurn = rebuiltTurn
@@ -1677,6 +1773,7 @@ export function ChatPage() {
           latest.status !== 'running' &&
           (
             latest.status === 'interrupted' ||
+            latest.status === 'failed' ||
             (lastAssistant != null && (
               replayWidgetsNeeded ||
               replayCodeExecNeeded ||
@@ -1692,6 +1789,9 @@ export function ChatPage() {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
+            }
+            if (latest.status === 'failed') {
+              failedError = failedErrorFromRunEvents(replayEvents, t.failedRunRetryTitle)
             }
             if (lastAssistant && replayWidgetsNeeded) {
               const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
@@ -1753,6 +1853,10 @@ export function ChatPage() {
               terminalStatusMap.set(lastAssistant.id, latest.status)
               writeMessageTerminalStatus(lastAssistant.id, latest.status)
             }
+            if (lastAssistant && latest.status === 'failed') {
+              terminalStatusMap.set(lastAssistant.id, 'failed')
+              writeMessageTerminalStatus(lastAssistant.id, 'failed')
+            }
           } catch {
             // 回放失败不影响主流程
           }
@@ -1773,6 +1877,13 @@ export function ChatPage() {
         setMessageWebFetchesMap(webFetchesMap)
         if (interruptedError) {
           setError(interruptedError)
+        }
+        if (failedError) {
+          setError(failedError)
+        }
+        if (latest?.status === 'failed') {
+          setTerminalRunDisplayId(latest.run_id)
+          setTerminalRunHandoffStatus('failed')
         }
 
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
@@ -1802,6 +1913,7 @@ export function ChatPage() {
       } finally {
         if (!disposed && isMessageSyncCurrent(syncVersion)) {
           if (
+            !shouldSkipInitialSkeleton &&
             navUserEnterMessageId &&
             loadedItems &&
             loadedItems.some((m) => m.id === navUserEnterMessageId && m.role === 'user')
@@ -1809,9 +1921,10 @@ export function ChatPage() {
             setUserEnterMessageId(navUserEnterMessageId)
           }
           setMessagesLoading(false)
-          if (locationState?.userEnterMessageId) {
+          if (locationState?.userEnterMessageId || locationState?.welcomeUserMessage) {
             const rest: LocationState = { ...locationState }
             delete rest.userEnterMessageId
+            delete rest.welcomeUserMessage
             queueMicrotask(() => {
               navigate('.', { replace: true, state: Object.keys(rest as object).length > 0 ? rest : undefined })
             })
@@ -2545,7 +2658,7 @@ export function ChatPage() {
                 ...runCache,
                 pendingSearchSteps,
               }, runEventsForMessage)
-              markTerminalRunHistory(completedAssistant.id)
+              markTerminalRunHistory(completedAssistant.id, false)
               releaseCompletedHandoffToHistory()
             }
             const pending = pendingMessageRef.current
@@ -2602,9 +2715,31 @@ export function ChatPage() {
 
       if (event.type === 'run.failed') {
         if (isACPDelegateEventData(event.data)) continue
-        setTerminalRunDisplayId(null)
-        setTerminalRunHandoffStatus(null)
-        resetTerminalRunState({ restoreQueuedDraft: true, preserveSearchSteps: true })
+        const runId = event.run_id
+        setTerminalRunDisplayId(runId)
+        setTerminalRunHandoffStatus('failed')
+        const visibleNonTerminalSeqCutoff = freezeCutoffRef.current ?? lastVisibleNonTerminalSeqRef.current
+        const runEventsForMessage = runId
+          ? (sse.events as MsgRunEvent[]).filter((e) => {
+            if (e.run_id !== runId || typeof e.seq !== 'number') {
+              return false
+            }
+            if (isTerminalRunEventType(e.type)) {
+              return e.seq <= event.seq
+            }
+            return e.seq <= visibleNonTerminalSeqCutoff
+          })
+          : []
+        const runCache = captureTerminalRunCache('failed')
+        if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
+          runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
+          runCache.runAssistantTurn = runCache.handoffAssistantTurn
+        }
+        resetTerminalRunState({
+          restoreQueuedDraft: true,
+          preserveSearchSteps: true,
+          handoffRunCache: runCache,
+        })
         const obj = event.data as { message?: unknown; error_class?: unknown; code?: unknown; details?: unknown }
         const errorClass = typeof obj?.error_class === 'string' ? obj.error_class : undefined
         const details = (obj?.details && typeof obj.details === 'object' && !Array.isArray(obj.details))
@@ -2620,6 +2755,15 @@ export function ChatPage() {
             code: typeof obj?.code === 'string' ? obj.code : errorClass,
             details,
           })
+        }
+        if (runId) {
+          void refreshMessages({ requiredCompletedRunId: runId })
+            .then((items) => {
+              const assistant = findAssistantMessageForRun(items, runId)
+              if (assistant) {
+                persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
+              }
+            })
         }
         continue
       }
@@ -3314,7 +3458,7 @@ export function ChatPage() {
     hasWebFetches: boolean
     hasGenericTools: boolean
     hasThinking: boolean
-    handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | null
+    handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | 'failed' | null
   }): string | undefined => {
     const explicitTitle = params.title?.trim()
     if (explicitTitle) {
@@ -3326,6 +3470,8 @@ export function ChatPage() {
     const statusLabel =
       params.handoffStatus === 'cancelled' || params.handoffStatus === 'interrupted'
         ? t.connection.stopped
+        : params.handoffStatus === 'failed'
+          ? t.failedRunRetryTitle
         : undefined
     if (params.steps.length > 0) {
       return statusLabel ?? params.steps[params.steps.length - 1]?.label ?? t.copTimelineLiveProgress
@@ -3813,6 +3959,14 @@ export function ChatPage() {
               )}
 
               {terminalSseError && <ErrorCallout error={terminalSseError} />}
+
+              {terminalRunHandoffStatus === 'failed' && terminalRunDisplayId && !messages.some((msg) => msg.role === 'assistant' && msg.run_id === terminalRunDisplayId) && (
+                <FailedRunRetryCard
+                  title={t.failedRunRetryTitle}
+                  actionLabel={t.retryAction}
+                  onRetry={!isStreaming && !sending ? handleRetry : undefined}
+                />
+              )}
 
               {/* pendingIncognito：末尾展示分隔线，等待用户发送第一条消息 */}
               {pendingIncognito && (

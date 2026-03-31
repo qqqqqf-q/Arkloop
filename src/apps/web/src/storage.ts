@@ -967,7 +967,7 @@ export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]
 
 // -- Terminal handoff status --
 
-export type MessageTerminalStatusRef = 'completed' | 'cancelled' | 'interrupted'
+export type MessageTerminalStatusRef = 'completed' | 'cancelled' | 'interrupted' | 'failed'
 
 function messageTerminalStatusKey(messageId: string): string {
   return `arkloop:web:msg_terminal_status:${messageId}`
@@ -977,7 +977,7 @@ export function readMessageTerminalStatus(messageId: string): MessageTerminalSta
   if (!canUseLocalStorage() || !messageId) return null
   try {
     const raw = localStorage.getItem(messageTerminalStatusKey(messageId))
-    return raw === 'completed' || raw === 'cancelled' || raw === 'interrupted' ? raw : null
+    return raw === 'completed' || raw === 'cancelled' || raw === 'interrupted' || raw === 'failed' ? raw : null
   } catch {
     return null
   }

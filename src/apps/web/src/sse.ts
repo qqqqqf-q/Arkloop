@@ -65,6 +65,7 @@ export type SSEClientOptions = {
   onTokenRefresh?: () => Promise<string>
   maxRetries?: number
   retryDelayMs?: number
+  maxRetryDelayMs?: number
   /** 读超时（毫秒）。超过此时间未收到任何数据（含心跳）则判定连接死亡并重连。默认 45000（3x 服务端心跳） */
   readTimeoutMs?: number
   /** Max token-refresh attempts on consecutive 401s before treating as fatal. Default 3 */
@@ -166,6 +167,7 @@ export class SSEClient {
       follow: true,
       maxRetries: 5,
       retryDelayMs: 1000,
+      maxRetryDelayMs: 10_000,
       readTimeoutMs: 45_000,
       maxAuthRetries: 3,
       ...options,
@@ -373,7 +375,10 @@ export class SSEClient {
     this.setState('reconnecting')
 
     // 指数退避
-    const delay = this.options.retryDelayMs * Math.pow(2, this.retryCount - 1)
+    const delay = Math.min(
+      this.options.retryDelayMs * Math.pow(2, this.retryCount - 1),
+      this.options.maxRetryDelayMs,
+    )
     await new Promise(resolve => setTimeout(resolve, delay))
 
     if (!this.closed) {

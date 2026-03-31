@@ -13,7 +13,22 @@ type Toast = {
 const variantText: Record<ToastVariant, string> = {
   success: 'text-[var(--c-status-success-text)]',
   error: 'text-[var(--c-status-error-text)]',
+  warn: 'text-[var(--c-status-warn-text)]',
   neutral: 'text-[var(--c-text-secondary)]',
+}
+
+const variantSurface: Record<ToastVariant, string> = {
+  success: 'var(--c-bg-menu)',
+  error: 'var(--c-error-bg)',
+  warn: 'var(--c-status-warn-bg)',
+  neutral: 'var(--c-bg-menu)',
+}
+
+const variantBorder: Record<ToastVariant, string> = {
+  success: 'var(--c-border-subtle)',
+  error: 'var(--c-error-border)',
+  warn: 'var(--c-status-warn-text)',
+  neutral: 'var(--c-border-subtle)',
 }
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
@@ -24,8 +39,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
         toast.exiting ? 'toast-exit' : 'toast-enter',
       ].join(' ')}
       style={{
-        border: '0.5px solid var(--c-border-subtle)',
-        background: 'var(--c-bg-menu)',
+        border: `0.5px solid ${variantBorder[toast.variant]}`,
+        background: variantSurface[toast.variant],
       }}
     >
       <span className={`flex-1 text-sm ${variantText[toast.variant]}`}>{toast.message}</span>
@@ -62,7 +77,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ addToast }}>
       {children}
       {createPortal(
-        <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+        <div className="fixed right-4 top-4 z-[60] flex flex-col gap-2">
           {toasts.map((t) => (
             <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
           ))}
