@@ -97,7 +97,7 @@ func (e *Executor) executeExecCommand(
 
 	slog.Info("sandbox_shell: exec_command",
 		"run_id", execCtx.RunID.String(),
-		"command", truncateForLog(command, 200),
+		"command_len", len(command),
 		"cwd", cwd,
 	)
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,5 +72,24 @@ func TestLogActionCompleteFailed(t *testing.T) {
 	}
 	if entry["error"] != "connection refused" {
 		t.Errorf("error = %v, want %q", entry["error"], "connection refused")
+	}
+}
+
+func TestLogActionTruncatesParams(t *testing.T) {
+	var buf bytes.Buffer
+	logger := NewLogger(&buf)
+
+	logger.LogAction("install", "openviking", map[string]string{
+		"body": strings.Repeat("x", 2048),
+	})
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	params := entry["params"].(map[string]any)
+	got := params["body"].(string)
+	if len(got) >= 2048 {
+		t.Fatalf("expected truncated param, len=%d", len(got))
 	}
 }

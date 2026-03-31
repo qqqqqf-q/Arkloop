@@ -65,7 +65,7 @@ func createThreadMessage(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, map[string]any{"reason": err.Error()})
 			return
 		}
-		slog.Debug("createThreadMessage: payload normalized", "projection", projection)
+		slog.Debug("createThreadMessage: payload normalized", "projection_len", len(projection), "has_content_json", len(contentJSON) > 0)
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
@@ -89,7 +89,7 @@ func createThreadMessage(
 		// Use thread.AccountID to ensure message is created with the same account_id as the thread.
 		// This is critical for desktop mode where actor.AccountID may differ from the thread's actual account_id
 		// due to how interceptDesktopActor resolves the actor from a dynamic desktop token.
-		slog.Debug("createThreadMessage: calling CreateStructured", "account_id", thread.AccountID, "thread_id", threadID, "role", "user", "projection", projection)
+		slog.Debug("createThreadMessage: calling CreateStructured", "account_id", thread.AccountID, "thread_id", threadID, "role", "user", "projection_len", len(projection))
 		message, err := messageRepo.CreateStructured(r.Context(), thread.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {
 			slog.Error("createThreadMessage: CreateStructured failed", "thread_id", threadID, "error", err)
@@ -207,7 +207,7 @@ func toMessageResponse(message data.Message) messageResponse {
 
 	return messageResponse{
 		ID:              message.ID.String(),
-		AccountID:           message.AccountID.String(),
+		AccountID:       message.AccountID.String(),
 		ThreadID:        message.ThreadID.String(),
 		CreatedByUserID: createdByUserID,
 		RunID:           runID,

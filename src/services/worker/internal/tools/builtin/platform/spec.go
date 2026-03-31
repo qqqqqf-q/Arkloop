@@ -49,7 +49,7 @@ var LlmSpec = llm.ToolSpec{
 		"type": "object",
 		"properties": map[string]any{
 			"action": map[string]any{"type": "string", "enum": actions, "description": "The operation to perform"},
-			"params": map[string]any{"type": "object", "description": "Action parameters (key-value pairs specific to the action)"},
+			"params": map[string]any{"type": "object", "description": "Action parameters (key-value pairs specific to the action)", "additionalProperties": false},
 		},
 		"required": []string{"action"},
 	},

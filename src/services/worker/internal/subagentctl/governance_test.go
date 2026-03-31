@@ -222,7 +222,7 @@ func TestServiceSpawnRejectsOnParallelChildrenLimit(t *testing.T) {
 	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
-	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-gov", SubAgentLimits{MaxParallelChildren: 1}, BackpressureConfig{})
+	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-gov", SubAgentLimits{MaxParallelChildren: 1}, BackpressureConfig{}, nil)
 
 	_, err = service.Spawn(context.Background(), isolatedSpawnRequest("first child"))
 	if err != nil {

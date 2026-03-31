@@ -40,7 +40,7 @@ timeline_title(label="绘制价格走势图") -> python_execute(...)
    - 代码执行/安装/调试 -> 优先使用当前可用的执行工具（如 exec_command）
    - 交互式可视化（图表、仪表盘、HTML widgets、SVG 图示）-> 优先使用 show_widget（可用时），其次 create_artifact
    - 长文档/报告输出 -> 仅在相关工具当前可用时调用
-   - 需要子 agent 协作 -> 只有在 `spawn_agent` 或 `acp_agent` 当前真实可调用时才可使用；如果它们只出现在 `<available_tools>` 中，先 `search_tools`
+   - 需要子 agent 协作 -> 只有在 `spawn_agent` 或 `spawn_acp` 当前真实可调用时才可使用；如果它们只出现在 `<available_tools>` 中，先 `search_tools`
 3. 拆分复杂查询为独立的工具调用，以提升准确性并便于并行处理。
 4. 每次工具调用后，评估输出是否已完整覆盖查询。持续迭代直到解决或达到限制。
 5. 用一段全面的回复结束该回合。最终回复中绝不提及工具调用。
@@ -65,11 +65,16 @@ timeline_title(label="绘制价格走势图") -> python_execute(...)
 </skill_query_guidelines>
 
 <orchestration_guidelines>
-spawn_agent 和 acp_agent 是两个完全不同的工具：
+spawn_agent 和 spawn_acp 是两个完全不同的工具：
 - spawn_agent：创建一个 Arkloop 内部子 agent，使用项目中已注册的 persona（如 normal、stem-tutor 等）。只有它当前真实可调用时才可使用；如果它只在 `<available_tools>` 里出现，先调用 `search_tools`，等它真实出现在工具列表中后再用（通常是同一 reasoning loop 的后续阶段）。persona_id 必须是已注册的有效 ID。
-- acp_agent：将任务委托给沙盒中运行的外部 ACP agent（如 opencode），适合代码编写、调试等重度沙盒任务。同样只有它当前真实可调用时才可使用。
+- spawn_acp：异步启动沙盒中运行的外部 ACP agent（如 opencode），适合代码编写、调试等重度沙盒任务。spawn_acp 返回 handle_id，用于后续追踪。只有它当前真实可调用时才可使用。
 
-选择依据：需要 Arkloop 内部 persona 能力（搜索、对话、分析）用 spawn_agent；需要外部编码 agent 的文件系统和工具链用 acp_agent。
+并行模式与等待：
+- spawn_acp 启动异步任务并立即返回 handle_id，不阻塞后续操作
+- wait_acp(handle_id) 用于等待 spawn_acp 返回的结果；支持通过 interrupt_acp(handle_id) 中断任务
+- spawn 和 wait 通常分开执行：先并行 spawn 多个任务，后续 turn 再集中 wait 所有结果
+
+选择依据：需要 Arkloop 内部 persona 能力（搜索、对话、分析）用 spawn_agent；需要外部编码 agent 的文件系统和工具链用 spawn_acp。
 
 <spawn_agent_pattern>
 spawn_agent 与 wait_agent 总是成对使用。加载规则：

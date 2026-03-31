@@ -207,3 +207,59 @@ func readTriggerID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, channe
 	}
 	return id
 }
+
+func TestScheduledTriggersRepositoryDeleteInactiveHeartbeats(t *testing.T) {
+	repo, pool, ctx := setupScheduledTriggersRepo(t)
+	channelID := uuid.New()
+	identity := uuid.New()
+	account := uuid.New()
+	triggerID := uuid.New()
+
+	insertScheduledTrigger(t, ctx, pool, triggerID, channelID, identity, "persona", account, "model", 1, time.Now().UTC())
+
+	count, err := repo.DeleteInactiveHeartbeats(ctx, pool, time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteInactiveHeartbeats: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 deleted trigger, got %d", count)
+	}
+}
+
+func TestScheduledTriggersRepositoryDeleteInactiveHeartbeatsKeepsActiveGroupIdentity(t *testing.T) {
+	repo, pool, ctx := setupScheduledTriggersRepo(t)
+	channelID := uuid.New()
+	groupIdentityID := uuid.New()
+	userIdentityID := uuid.New()
+	accountID := uuid.New()
+	triggerID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO channel_identities (id, channel_type, platform_subject_id, display_name, metadata)
+		VALUES ($1, 'telegram', 'group-123', 'group', '{}'::jsonb),
+		       ($2, 'telegram', 'user-123', 'user', '{}'::jsonb);
+		INSERT INTO channels (id, account_id, channel_type, persona_id, owner_user_id, webhook_secret, webhook_url, is_active, config_json)
+		VALUES ($3, $4, 'telegram', NULL, NULL, 'whsec', 'https://example.com', true, '{}'::jsonb);
+		INSERT INTO channel_message_ledger (
+			channel_id, channel_type, direction, platform_conversation_id, platform_message_id, sender_channel_identity_id, metadata_json, created_at
+		) VALUES (
+			$3, 'telegram', 'inbound', 'group-123', 'msg-1', $2, '{}'::jsonb, now()
+		)`,
+		groupIdentityID,
+		userIdentityID,
+		channelID,
+		accountID,
+	); err != nil {
+		t.Fatalf("seed identities/ledger: %v", err)
+	}
+
+	insertScheduledTrigger(t, ctx, pool, triggerID, channelID, groupIdentityID, "persona", accountID, "model", 1, time.Now().UTC())
+
+	count, err := repo.DeleteInactiveHeartbeats(ctx, pool, time.Hour)
+	if err != nil {
+		t.Fatalf("DeleteInactiveHeartbeats: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected trigger to remain, deleted=%d", count)
+	}
+}

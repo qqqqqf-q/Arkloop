@@ -242,11 +242,14 @@ func (m *lifecycleManager) hasRecoveryMaterials(ctx context.Context, runID uuid.
 		}
 		return false
 	}
-	key := fmt.Sprintf("run/%s.jsonl", runID.String())
-	if _, err := store.Head(ctx, key); err != nil {
-		if !objectstore.IsNotFound(err) && m.logger != nil {
+	ok, err := rollout.HasRollout(ctx, store, runID)
+	if err != nil {
+		if m.logger != nil {
 			m.logger.Warn("desktop recovery material head failed", "run_id", runID, "err", err.Error())
 		}
+		return false
+	}
+	if !ok {
 		return false
 	}
 	reader := rollout.NewReader(store)

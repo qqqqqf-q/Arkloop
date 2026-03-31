@@ -27,13 +27,12 @@ var Spec = llm.ToolSpec{
 		"properties": map[string]any{
 			"reply": map[string]any{
 				"type":        "boolean",
-				"description": "true = 本次心跳有内容发送给用户；false = 静默，run 立即结束。",
+				"description": "true = send a reply to the user this heartbeat; false = silent, run ends immediately.",
 			},
 			"memory_fragments": map[string]any{
 				"type":  "array",
 				"items": map[string]any{"type": "string"},
-				"description": "需要持久化到长期记忆的简短事实性笔记。" +
-					"只在有实质性内容需要记住时才填写。",
+				"description": "short factual notes to persist to long-term memory; only include when there is substantive content worth remembering.",
 			},
 		},
 	},

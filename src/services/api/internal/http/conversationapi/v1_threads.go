@@ -421,6 +421,8 @@ func deleteThread(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
+	messageRepo *data.MessageRepository,
+	attachmentStore messageAttachmentStore,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -449,6 +451,7 @@ func deleteThread(
 			return
 		}
 		if deleted != nil {
+			deleteThreadAttachmentObjects(r.Context(), attachmentStore, messageRepo, deleted.AccountID, deleted.ID)
 			if auditWriter != nil {
 				auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.AccountID, actor.UserID, deleted.ID)
 			}
@@ -479,6 +482,8 @@ func deleteThread(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
+
+		deleteThreadAttachmentObjects(r.Context(), attachmentStore, messageRepo, deleted.AccountID, deleted.ID)
 
 		if auditWriter != nil {
 			auditWriter.WriteThreadDeleted(r.Context(), traceID, actor.AccountID, actor.UserID, deleted.ID)
@@ -721,7 +726,7 @@ func threadEntry(
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
 	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo)
-	del := deleteThread(authService, membershipRepo, threadRepo, auditWriter, apiKeysRepo)
+	del := deleteThread(authService, membershipRepo, threadRepo, messageRepo, attachmentStore, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
 	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)

@@ -97,7 +97,7 @@ func (e *Executor) executeExecCommand(
 
 	slog.Info("local_shell: exec_command",
 		"run_id", execCtx.RunID.String(),
-		"command", truncateForLog(command, 200),
+		"command_len", len(command),
 		"cwd", reqArgs.Cwd,
 	)
 
@@ -110,12 +110,12 @@ func (e *Executor) executeExecCommand(
 }
 
 type execCommandArgs struct {
-	Cwd       string
-	Command   string
-	TimeoutMs int
+	Cwd         string
+	Command     string
+	TimeoutMs   int
 	YieldTimeMs int
-	Background bool
-	Env       map[string]string
+	Background  bool
+	Env         map[string]string
 }
 
 func parseExecCommandArgs(args map[string]any) (execCommandArgs, error) {
@@ -124,12 +124,12 @@ func parseExecCommandArgs(args map[string]any) (execCommandArgs, error) {
 		return execCommandArgs{}, fmt.Errorf("parameter command is required")
 	}
 	reqArgs := execCommandArgs{
-		Cwd:        readStringArg(args, "cwd"),
-		Command:    command,
-		TimeoutMs:  readIntArg(args, "timeout_ms"),
+		Cwd:         readStringArg(args, "cwd"),
+		Command:     command,
+		TimeoutMs:   readIntArg(args, "timeout_ms"),
 		YieldTimeMs: readIntArg(args, "yield_time_ms"),
-		Background: readBoolArg(args, "background"),
-		Env:        readMapStringArg(args, "env"),
+		Background:  readBoolArg(args, "background"),
+		Env:         readMapStringArg(args, "env"),
 	}
 	if reqArgs.Background {
 		reqArgs.YieldTimeMs = 1

@@ -645,6 +645,11 @@ func (a *Application) Run(ctx context.Context) error {
 		go privateReaper.Run(ctx)
 	}
 
+	if pool != nil && channelLedgerRepo != nil {
+		storageGovernance := jobs.NewStorageGovernance(pool, channelLedgerRepo, a.logger)
+		go storageGovernance.Run(ctx)
+	}
+
 	listener, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
 		return err
@@ -697,23 +702,23 @@ func (a *Application) Run(ctx context.Context) error {
 		personasRepo != nil && threadRepo != nil && messageRepo != nil &&
 		runEventRepo != nil && jobRepo != nil && creditsRepo != nil && pool != nil {
 		accountapi.StartDiscordIngressRunner(ctx, accountapi.DiscordIngressRunnerDeps{
-			ChannelsRepo:          channelsRepo,
-			ChannelIdentitiesRepo: channelIdentitiesRepo,
+			ChannelsRepo:             channelsRepo,
+			ChannelIdentitiesRepo:    channelIdentitiesRepo,
 			ChannelIdentityLinksRepo: channelIdentityLinksRepo,
-			ChannelBindCodesRepo:  channelBindCodesRepo,
-			ChannelDMThreadsRepo:  channelDMThreadsRepo,
-			ChannelReceiptsRepo:   channelReceiptsRepo,
-			ChannelLedgerRepo:     channelLedgerRepo,
-			SecretsRepo:           secretsRepo,
-			PersonasRepo:          personasRepo,
-			ThreadRepo:            threadRepo,
-			MessageRepo:           messageRepo,
-			RunEventRepo:          runEventRepo,
-			JobRepo:               jobRepo,
-			CreditsRepo:           creditsRepo,
-			Pool:                  pool,
-			EntitlementService:    entitlementSvc,
-			DiscordClient:         discordClient,
+			ChannelBindCodesRepo:     channelBindCodesRepo,
+			ChannelDMThreadsRepo:     channelDMThreadsRepo,
+			ChannelReceiptsRepo:      channelReceiptsRepo,
+			ChannelLedgerRepo:        channelLedgerRepo,
+			SecretsRepo:              secretsRepo,
+			PersonasRepo:             personasRepo,
+			ThreadRepo:               threadRepo,
+			MessageRepo:              messageRepo,
+			RunEventRepo:             runEventRepo,
+			JobRepo:                  jobRepo,
+			CreditsRepo:              creditsRepo,
+			Pool:                     pool,
+			EntitlementService:       entitlementSvc,
+			DiscordClient:            discordClient,
 		})
 	}
 

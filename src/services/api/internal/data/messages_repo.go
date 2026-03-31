@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+
+	"arkloop/services/shared/messagecontent"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -147,7 +150,7 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 	metadataJSON json.RawMessage,
 	createdByUserID *uuid.UUID,
 ) (Message, error) {
-	slog.Debug("CreateStructuredWithMetadata", "accountID", accountID, "threadID", threadID, "role", role, "content", content)
+	slog.Debug("CreateStructuredWithMetadata", "accountID", accountID, "threadID", threadID, "role", role, "content_len", len(content))
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -623,4 +626,62 @@ func (r *MessageRepository) CopyUpTo(
 		pairs = append(pairs, MessageIDPair{OldID: message.OldID, NewID: newID})
 	}
 	return pairs, nil
+}
+
+func (r *MessageRepository) ListAllAttachmentKeysByThread(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil {
+		return nil, fmt.Errorf("account_id and thread_id must not be empty")
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT content_json
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2`,
+		accountID,
+		threadID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]struct{})
+	keys := make([]string, 0)
+	for rows.Next() {
+		var contentJSON json.RawMessage
+		if err := rows.Scan(&contentJSON); err != nil {
+			return nil, err
+		}
+		content, err := messagecontent.Parse(contentJSON)
+		if err != nil {
+			continue
+		}
+		for _, part := range content.Parts {
+			if part.Attachment == nil {
+				continue
+			}
+			key := strings.TrimSpace(part.Attachment.Key)
+			if key == "" {
+				continue
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
 }

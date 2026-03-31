@@ -29,6 +29,8 @@ type ScheduledTriggerRow struct {
 // ScheduledTriggersRepository provides heartbeat scheduling operations.
 type ScheduledTriggersRepository struct{}
 
+const heartbeatActivityWindow = 24 * time.Hour
+
 type HeartbeatThreadContext struct {
 	ThreadID         uuid.UUID
 	AccountID        uuid.UUID
@@ -468,6 +470,7 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 		   FROM channel_message_ledger
 		  WHERE channel_id = $1
 		    AND sender_channel_identity_id = $2
+		    AND created_at >= now() - interval '24 hours'
 		    AND platform_conversation_id <> ''
 		  ORDER BY created_at DESC
 		  LIMIT 1`,
@@ -487,4 +490,38 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 		IdentityID:       row.ChannelIdentityID,
 		ConversationType: "private",
 	}, nil
+}
+
+func (ScheduledTriggersRepository) DeleteInactiveHeartbeats(
+	ctx context.Context,
+	db Querier,
+	activityWindow time.Duration,
+) (int64, error) {
+	if activityWindow <= 0 {
+		activityWindow = heartbeatActivityWindow
+	}
+	tag, err := db.Exec(ctx, `
+		DELETE FROM scheduled_triggers st
+		WHERE NOT EXISTS (
+			SELECT 1
+			  FROM channel_message_ledger cml
+			 WHERE cml.channel_id = st.channel_id
+			   AND cml.sender_channel_identity_id = st.channel_identity_id
+			   AND cml.created_at >= $1
+		)
+		  AND NOT EXISTS (
+			SELECT 1
+			  FROM channel_identities ci
+			  JOIN channel_message_ledger cml
+			    ON cml.channel_id = st.channel_id
+			   AND cml.platform_conversation_id = ci.platform_subject_id
+			   AND cml.created_at >= $1
+			 WHERE ci.id = st.channel_identity_id
+		)`,
+		time.Now().UTC().Add(-activityWindow),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }

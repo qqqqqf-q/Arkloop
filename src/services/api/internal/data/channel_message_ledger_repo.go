@@ -125,3 +125,11 @@ func trimOptionalStringPtr(value *string) *string {
 	}
 	return &trimmed
 }
+
+func (r *ChannelMessageLedgerRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	tag, err := r.db.Exec(ctx, `DELETE FROM channel_message_ledger WHERE created_at < $1`, cutoff.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("channel_message_ledger.DeleteOlderThan: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}

@@ -96,3 +96,40 @@ func TestReaderReportsJSONError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestReaderReadsSegmentedRollout(t *testing.T) {
+	runID := uuid.New()
+	store := &fakeBlobStore{
+		data: map[string][]byte{
+			manifestKey(runID):   []byte(`{"schema_version":1,"segments":["` + segmentKey(runID, 0) + `","` + segmentKey(runID, 1) + `"]}`),
+			segmentKey(runID, 0): []byte(`{"type":"turn_start","timestamp":"2024-01-01T00:00:00Z","payload":{"turn_index":1}}` + "\n"),
+			segmentKey(runID, 1): []byte(`{"type":"run_end","timestamp":"2024-01-01T00:00:01Z","payload":{"final_status":"completed"}}` + "\n"),
+		},
+	}
+
+	items, err := NewReader(store).ReadRollout(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("ReadRollout returned error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+}
+
+func TestReaderFallsBackToLegacyWhenManifestEmpty(t *testing.T) {
+	runID := uuid.New()
+	store := &fakeBlobStore{
+		data: map[string][]byte{
+			manifestKey(runID):      []byte(`{"schema_version":1,"segments":[]}`),
+			legacyRolloutKey(runID): []byte(`{"type":"run_end","timestamp":"2024-01-01T00:00:01Z","payload":{"final_status":"completed"}}` + "\n"),
+		},
+	}
+
+	items, err := NewReader(store).ReadRollout(context.Background(), runID)
+	if err != nil {
+		t.Fatalf("ReadRollout returned error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+}

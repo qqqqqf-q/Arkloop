@@ -87,7 +87,7 @@ func ensureRTKDesktop() {
 	cmd.Stdin = bytes.NewReader(script)
 	cmd.Env = append(os.Environ(), "INSTALL_DIR="+destDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		slog.Warn("rtk: install script failed", "err", err, "output", string(out))
+		slog.Warn("rtk: install script failed", "err", err, "output_len", len(out))
 		// 脚本可能安装到 ~/.local/bin/rtk，尝试移动。
 		localBin := filepath.Join(home, ".local", "bin", "rtk")
 		if _, statErr := os.Stat(localBin); statErr == nil {

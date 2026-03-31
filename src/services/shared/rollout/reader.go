@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"arkloop/services/shared/objectstore"
 
@@ -22,13 +23,59 @@ func NewReader(store objectstore.BlobStore) *Reader {
 	return &Reader{store: store}
 }
 
+type manifest struct {
+	SchemaVersion int      `json:"schema_version"`
+	Segments      []string `json:"segments"`
+}
+
 // ReadRollout 下载 S3 上的 JSONL 文件并解析为 RolloutItem 列表。
 func (r *Reader) ReadRollout(ctx context.Context, runID uuid.UUID) ([]RolloutItem, error) {
-	key := "run/" + runID.String() + ".jsonl"
+	manifestKey := manifestKey(runID)
+	if data, err := r.store.Get(ctx, manifestKey); err == nil {
+		var m manifest
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("parse rollout manifest %s: %w", runID, err)
+		}
+		if len(m.Segments) == 0 {
+			return r.readLegacy(ctx, runID)
+		}
+		var items []RolloutItem
+		for _, segmentKey := range m.Segments {
+			data, err := r.store.Get(ctx, segmentKey)
+			if err != nil {
+				return nil, err
+			}
+			parsed, err := parseRolloutItems(runID, data)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, parsed...)
+		}
+		return items, nil
+	} else if err != nil && !objectstore.IsNotFound(err) && !looksLikeNotFound(err) {
+		return nil, err
+	}
+
+	return r.readLegacy(ctx, runID)
+}
+
+func (r *Reader) readLegacy(ctx context.Context, runID uuid.UUID) ([]RolloutItem, error) {
+	key := legacyRolloutKey(runID)
 	data, err := r.store.Get(ctx, key)
 	if err != nil {
 		return nil, err
 	}
+	return parseRolloutItems(runID, data)
+}
+
+func looksLikeNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func parseRolloutItems(runID uuid.UUID, data []byte) ([]RolloutItem, error) {
 	var items []RolloutItem
 	reader := bufio.NewReader(bytes.NewReader(data))
 	lineNum := 0
@@ -58,6 +105,32 @@ func (r *Reader) ReadRollout(ctx context.Context, runID uuid.UUID) ([]RolloutIte
 		}
 	}
 	return items, nil
+}
+
+func HasRollout(ctx context.Context, store objectstore.BlobStore, runID uuid.UUID) (bool, error) {
+	if _, err := store.Head(ctx, manifestKey(runID)); err == nil {
+		return true, nil
+	} else if err != nil && !objectstore.IsNotFound(err) {
+		return false, err
+	}
+	if _, err := store.Head(ctx, legacyRolloutKey(runID)); err == nil {
+		return true, nil
+	} else if err != nil && !objectstore.IsNotFound(err) {
+		return false, err
+	}
+	return false, nil
+}
+
+func manifestKey(runID uuid.UUID) string {
+	return "run/" + runID.String() + "/manifest.json"
+}
+
+func segmentKey(runID uuid.UUID, index int) string {
+	return fmt.Sprintf("run/%s/segments/%06d.jsonl", runID.String(), index)
+}
+
+func legacyRolloutKey(runID uuid.UUID) string {
+	return "run/" + runID.String() + ".jsonl"
 }
 
 // Reconstruct 顺序扫描 RolloutItem 列表，重建 assistant/tool 回放序列和未完成 tool call。

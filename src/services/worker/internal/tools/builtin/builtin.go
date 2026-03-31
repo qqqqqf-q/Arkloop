@@ -55,7 +55,6 @@ func AgentSpecs() []tools.AgentToolSpec {
 		spawnagent.InterruptAgentSpec,
 		summarizethread.AgentSpec,
 		askuser.AgentSpec,
-		acptool.AgentSpec,
 		acptool.SpawnACPAgentSpec,
 		acptool.SendACPAgentSpec,
 		acptool.WaitACPAgentSpec,
@@ -83,7 +82,6 @@ func LlmSpecs() []llm.ToolSpec {
 		// spawn_agent 由 NewToolProviderMiddleware 按需动态注入
 		summarizethread.LlmSpec,
 		askuser.LlmSpec,
-		acptool.LlmSpec,
 		acptool.SpawnACPLlmSpec,
 		acptool.SendACPLlmSpec,
 		acptool.WaitACPLlmSpec,

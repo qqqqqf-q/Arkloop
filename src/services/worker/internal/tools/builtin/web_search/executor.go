@@ -70,11 +70,11 @@ var LlmSpec = llm.ToolSpec{
 		"properties": map[string]any{
 			"query": map[string]any{
 				"type":        "string",
-				"description": "single search query; omit if using queries",
+				"description": "single search query; provide either this or queries, not both",
 			},
 			"queries": map[string]any{
 				"type":        "array",
-				"description": "multiple queries in one call; omit if using query",
+				"description": "multiple search queries in one call; provide either this or query, not both",
 				"minItems":    1,
 				"maxItems":    maxQueriesLimit,
 				"items":       map[string]any{"type": "string"},

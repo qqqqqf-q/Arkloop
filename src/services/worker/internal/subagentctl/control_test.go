@@ -57,7 +57,7 @@ func TestServiceSpawnAndWaitCompleted(t *testing.T) {
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
-	service := NewService(pool, nil, jobQueue, parentRun, "trace-1", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-1", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	snapshot, err := service.Spawn(context.Background(), isolatedSpawnRequest("collect facts"))
 	if err != nil {
@@ -103,7 +103,7 @@ func TestServiceSendInputCreatesQueuedRunDirectly(t *testing.T) {
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
-	service := NewService(pool, nil, jobQueue, parentRun, "trace-2", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-2", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	snapshot, err := service.Spawn(context.Background(), isolatedSpawnRequest("phase one"))
 	if err != nil {
@@ -143,7 +143,7 @@ func TestServiceResumeRequeuesCompletedSubAgent(t *testing.T) {
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
-	service := NewService(pool, nil, jobQueue, parentRun, "trace-2b", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-2b", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	snapshot, err := service.Spawn(context.Background(), isolatedSpawnRequest("phase one"))
 	if err != nil {
@@ -183,7 +183,7 @@ func TestServiceSendInputQueuesRunningSubAgentAndMergesPendingBatch(t *testing.T
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
 	jobQueue := &stubJobQueue{}
-	service := NewService(pool, nil, jobQueue, parentRun, "trace-3", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, jobQueue, parentRun, "trace-3", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	snapshot, err := service.Spawn(context.Background(), isolatedSpawnRequest("phase one"))
 	if err != nil {
@@ -292,7 +292,7 @@ func TestServiceSpawnForkRecentCopiesHistoryAndStoresSnapshot(t *testing.T) {
 	}
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
-	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-fork", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-fork", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	role := "worker"
 	nickname := "Atlas"
@@ -391,7 +391,7 @@ func TestServiceSpawnSharedWorkspaceOnlyOmitsHistory(t *testing.T) {
 	}
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID, ProfileRef: &profileRef, WorkspaceRef: &workspaceRef}
-	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-shared", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-shared", SubAgentLimits{}, BackpressureConfig{}, nil)
 
 	snapshot, err := service.Spawn(context.Background(), SpawnRequest{
 		PersonaID:   "researcher@1",
@@ -446,7 +446,7 @@ func TestServiceSpawnWritesRoleToChildRunStartedEvent(t *testing.T) {
 	seedThreadAndRun(t, pool, accountID, threadID, &projectID, &userID, runID)
 
 	parentRun := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID, ProjectID: &projectID, CreatedByUserID: &userID}
-	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-role", SubAgentLimits{}, BackpressureConfig{})
+	service := NewService(pool, nil, &stubJobQueue{}, parentRun, "trace-role", SubAgentLimits{}, BackpressureConfig{}, nil)
 	role := "worker"
 
 	snapshot, err := service.Spawn(context.Background(), SpawnRequest{

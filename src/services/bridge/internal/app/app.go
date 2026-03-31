@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -77,14 +78,9 @@ func (a *Application) Run(ctx context.Context) error {
 	operations := docker.NewOperationStore()
 
 	// Create audit logger (file if configured, otherwise stdout).
-	auditWriter := os.Stdout
+	var auditWriter io.Writer = os.Stdout
 	if a.config.AuditLog != "" {
-		f, err := os.OpenFile(a.config.AuditLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-		if err != nil {
-			return fmt.Errorf("opening audit log: %w", err)
-		}
-		defer f.Close()
-		auditWriter = f
+		auditWriter = audit.NewRotatingFileWriter(a.config.AuditLog, 0, 0)
 	}
 	auditLog := audit.NewLogger(auditWriter)
 
