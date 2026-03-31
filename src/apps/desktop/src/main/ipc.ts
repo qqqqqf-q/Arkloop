@@ -688,7 +688,7 @@ async function buildAdvancedOverview(): Promise<{
   return {
     appName: 'Arkloop',
     appVersion: app.getVersion(),
-    githubUrl: 'https://github.com/qqqqqf/Arkloop',
+    githubUrl: 'https://github.com/qqqqqf-q/Arkloop',
     telegramUrl: null,
     iconPath: getDesktopIconPath(),
     configPath: getConfigPath(),
@@ -696,8 +696,9 @@ async function buildAdvancedOverview(): Promise<{
     logsDir: getDesktopLogDir(),
     sqlitePath: desktopSQLitePath(),
     links: [
-      { label: 'GitHub', url: 'https://github.com/qqqqqf/Arkloop' },
-      { label: 'Releases', url: 'https://github.com/qqqqqf/Arkloop/releases' },
+      { label: 'GitHub', url: 'https://github.com/qqqqqf-q/Arkloop' },
+      { label: 'Releases', url: 'https://github.com/qqqqqf-q/Arkloop/releases' },
+      { label: 'Follow on X', url: 'https://x.com/intent/follow?screen_name=qqqqqf_' },
     ],
     status: [
       { label: 'Connection', value: config.mode, tone: config.mode === 'local' ? 'success' : 'default' },

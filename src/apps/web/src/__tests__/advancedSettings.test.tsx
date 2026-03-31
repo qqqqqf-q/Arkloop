@@ -44,14 +44,14 @@ describe('AdvancedSettings', () => {
         getOverview: vi.fn().mockResolvedValue({
           appName: 'Arkloop',
           appVersion: '1.2.3',
-          githubUrl: 'https://github.com/qqqqqf/Arkloop',
+          githubUrl: 'https://github.com/qqqqqf-q/Arkloop',
           telegramUrl: null,
           iconPath: null,
           configPath: '/tmp/config.json',
           dataDir: '/tmp/data',
           logsDir: '/tmp/logs',
           sqlitePath: '/tmp/data.db',
-          links: [{ label: 'GitHub', url: 'https://github.com/qqqqqf/Arkloop' }],
+          links: [{ label: 'GitHub', url: 'https://github.com/qqqqqf-q/Arkloop' }],
           status: [{ label: 'Sidecar', value: 'running', tone: 'success' }],
           usage: {
             account_id: 'acc-1',

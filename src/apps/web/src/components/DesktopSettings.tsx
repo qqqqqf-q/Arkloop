@@ -64,7 +64,7 @@ type NavItem = {
   icon: typeof Settings;
 };
 
-const MAIN_NAV: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { key: "general",    icon: Settings },
   { key: "appearance", icon: Palette },
   { key: "providers",  icon: Cpu },
@@ -74,11 +74,8 @@ const MAIN_NAV: NavItem[] = [
   { key: "skills",     icon: Puzzle },
   { key: "mcp",        icon: Server },
   { key: "tools",      icon: Wrench },
-];
-
-const DESKTOP_NAV: NavItem[] = [
-  { key: "advanced", icon: SlidersHorizontal },
-  { key: "chat", icon: MessageSquare },
+  { key: "chat",       icon: MessageSquare },
+  { key: "advanced",   icon: SlidersHorizontal },
 ];
 
 function SettingsPaneFallback() {
@@ -215,22 +212,8 @@ export function DesktopSettings({
           </button>
         </div>
 
-        {/* Platform section */}
         <div className="px-4">
-          <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
-            {ds.mainSection}
-          </div>
-          <div className="flex flex-col gap-[3px]">{renderNav(MAIN_NAV)}</div>
-        </div>
-
-        {/* Desktop section */}
-        <div className="mt-5 px-4">
-          <div className="mb-1 px-2.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">
-            {ds.desktopSection}
-          </div>
-          <div className="flex flex-col gap-[3px]">
-            {renderNav(DESKTOP_NAV)}
-          </div>
+          <div className="flex flex-col gap-[3px]">{renderNav(NAV_ITEMS)}</div>
         </div>
       </div>
 
