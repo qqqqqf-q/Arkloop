@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   BarChart3,
-  CheckCircle2,
   Database,
   Download,
   ExternalLink,
@@ -19,6 +18,7 @@ import {
   RefreshCw,
   ScrollText,
   TerminalSquare,
+  TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
@@ -32,8 +32,10 @@ import type {
 } from '@arkloop/shared/desktop'
 import type { MeDailyUsageItem, MeModelUsageItem, MeUsageSummary } from '../../api'
 import { getMyDailyUsage, getMyUsage, getMyUsageByModel } from '../../api'
+import { useAppearance } from '../../contexts/AppearanceContext'
 import { useLocale } from '../../contexts/LocaleContext'
 import { openExternal } from '../../openExternal'
+import type { ThemeDefinition } from '../../themes/types'
 import { SettingsSection } from './_SettingsSection'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { settingsInputCls } from './_SettingsInput'
@@ -60,7 +62,7 @@ const DESKTOP_EXPORT_SECTIONS: DesktopExportSection[] = [
   'personas',
   'projects',
   'mcp',
-  'logs',
+  'themes',
 ]
 
 function formatUsd(value: number) {
@@ -382,6 +384,10 @@ function UsagePane({
   const [error, setError] = useState('')
   const [year, setYear] = useState(defaultYear)
   const [month, setMonth] = useState(defaultMonth)
+  const [heatmapData, setHeatmapData] = useState<MeDailyUsageItem[]>([])
+  const [chartTab, setChartTab] = useState<'spend' | 'trend' | 'model'>('spend')
+  const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
 
   const loadUsage = useCallback(async () => {
     setLoading(true)
@@ -405,9 +411,252 @@ function UsagePane({
 
   useEffect(() => { void loadUsage() }, [loadUsage])
 
+  // heatmap: past 365 days, independent of year/month selection
+  useEffect(() => {
+    const today = new Date()
+    const todayStr = today.toISOString().slice(0, 10)
+    const oneYearAgo = new Date(today)
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
+    oneYearAgo.setDate(oneYearAgo.getDate() + 1)
+    const startStr = oneYearAgo.toISOString().slice(0, 10)
+    void getMyDailyUsage(accessToken, startStr, todayStr)
+      .then(setHeatmapData)
+      .catch(() => {})
+  }, [accessToken])
+
+  // build heatmap grid: 53 columns x 7 rows
+  const heatmap = useMemo(() => {
+    const costMap = new Map<string, number>()
+    for (const d of heatmapData) {
+      costMap.set(d.date, d.cost_usd)
+    }
+    const today = new Date()
+    // end of current week (Saturday)
+    const endDay = new Date(today)
+    const dayOfWeek = endDay.getDay() // 0=Sun
+    endDay.setDate(endDay.getDate() + (6 - dayOfWeek))
+    // start: 52 weeks before the start of the week containing today
+    const startDay = new Date(endDay)
+    startDay.setDate(startDay.getDate() - 52 * 7 - 6)
+
+    const weeks: Array<Array<{ date: string; value: number; inRange: boolean }>> = []
+    let maxVal = 0
+    const cursor = new Date(startDay)
+    while (cursor <= endDay) {
+      const week: Array<{ date: string; value: number; inRange: boolean }> = []
+      for (let d = 0; d < 7; d++) {
+        const ds = cursor.toISOString().slice(0, 10)
+        const val = costMap.get(ds) ?? 0
+        const inRange = cursor <= today
+        week.push({ date: ds, value: val, inRange })
+        if (val > maxVal) maxVal = val
+        cursor.setDate(cursor.getDate() + 1)
+      }
+      weeks.push(week)
+    }
+
+    // month labels
+    const monthLabels: Array<{ label: string; col: number }> = []
+    let lastMonth = -1
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    for (let w = 0; w < weeks.length; w++) {
+      const firstDate = new Date(weeks[w][0].date)
+      const m = firstDate.getMonth()
+      if (m !== lastMonth) {
+        monthLabels.push({ label: monthNames[m], col: w })
+        lastMonth = m
+      }
+    }
+
+    return { weeks, maxVal, monthLabels }
+  }, [heatmapData])
+
+  function heatColor(value: number, max: number): string {
+    if (value === 0 || max === 0) return 'var(--c-bg-deep)'
+    const ratio = value / max
+    if (ratio < 0.25) return '#0e4429'
+    if (ratio < 0.5) return '#006d32'
+    if (ratio < 0.75) return '#26a641'
+    return '#39d353'
+  }
+
+  // SVG chart builders
+  const chartPadding = { top: 20, right: 16, bottom: 30, left: 56 }
+  const chartH = 320
+
+  function renderSpendDistChart(daily: MeDailyUsageItem[], width: number) {
+    if (daily.length === 0 || width <= 0) return null
+    const cw = width - chartPadding.left - chartPadding.right
+    const ch = chartH - chartPadding.top - chartPadding.bottom
+    const maxVal = Math.max(...daily.map((d) => d.cost_usd), 0.0001)
+    const barW = Math.max(2, (cw / daily.length) - 2)
+    const step = cw / daily.length
+
+    // y-axis ticks
+    const yTicks = [0, maxVal * 0.25, maxVal * 0.5, maxVal * 0.75, maxVal]
+
+    return (
+      <svg width={width} height={chartH} className="block">
+        {/* grid lines */}
+        {yTicks.map((v, i) => {
+          const y = chartPadding.top + ch - (v / maxVal) * ch
+          return (
+            <g key={i}>
+              <line x1={chartPadding.left} y1={y} x2={width - chartPadding.right} y2={y} stroke="var(--c-border-subtle)" strokeDasharray="3,3" />
+              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={10}>${v.toFixed(2)}</text>
+            </g>
+          )
+        })}
+        {/* bars */}
+        {daily.map((d, i) => {
+          const barH = (d.cost_usd / maxVal) * ch
+          const x = chartPadding.left + i * step + (step - barW) / 2
+          const y = chartPadding.top + ch - barH
+          return (
+            <rect
+              key={d.date}
+              x={x}
+              y={y}
+              width={barW}
+              height={Math.max(barH, 0)}
+              rx={1}
+              fill="var(--c-accent)"
+              opacity={0.85}
+              onMouseEnter={(e) => setChartTooltip({ x: e.clientX, y: e.clientY, text: `${d.date}: $${d.cost_usd.toFixed(4)}` })}
+              onMouseLeave={() => setChartTooltip(null)}
+            />
+          )
+        })}
+        {/* x-axis labels (sparse) */}
+        {daily.filter((_, i) => i % Math.max(1, Math.floor(daily.length / 6)) === 0).map((d) => {
+          const idx = daily.indexOf(d)
+          const x = chartPadding.left + idx * step + step / 2
+          return (
+            <text key={d.date} x={x} y={chartH - 6} textAnchor="middle" fill="var(--c-text-muted)" fontSize={10}>
+              {d.date.slice(5)}
+            </text>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  function renderTrendChart(daily: MeDailyUsageItem[], width: number) {
+    if (daily.length === 0 || width <= 0) return null
+    const cw = width - chartPadding.left - chartPadding.right
+    const ch = chartH - chartPadding.top - chartPadding.bottom
+    const totals = daily.map((d) => d.input_tokens + d.output_tokens)
+    const maxVal = Math.max(...totals, 1)
+    const step = daily.length > 1 ? cw / (daily.length - 1) : cw
+
+    const yTicks = [0, maxVal * 0.25, maxVal * 0.5, maxVal * 0.75, maxVal]
+
+    const points = daily.map((d, i) => {
+      const x = chartPadding.left + (daily.length > 1 ? i * step : cw / 2)
+      const y = chartPadding.top + ch - (totals[i] / maxVal) * ch
+      return { x, y, d }
+    })
+    const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+
+    return (
+      <svg width={width} height={chartH} className="block">
+        {yTicks.map((v, i) => {
+          const y = chartPadding.top + ch - (v / maxVal) * ch
+          return (
+            <g key={i}>
+              <line x1={chartPadding.left} y1={y} x2={width - chartPadding.right} y2={y} stroke="var(--c-border-subtle)" strokeDasharray="3,3" />
+              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={10}>{formatNumber(Math.round(v))}</text>
+            </g>
+          )
+        })}
+        <path d={pathD} fill="none" stroke="var(--c-accent)" strokeWidth={2} />
+        {points.map((p) => (
+          <circle
+            key={p.d.date}
+            cx={p.x}
+            cy={p.y}
+            r={3}
+            fill="var(--c-accent)"
+            onMouseEnter={(e) => setChartTooltip({ x: e.clientX, y: e.clientY, text: `${p.d.date}: ${formatNumber(p.d.input_tokens + p.d.output_tokens)} tokens` })}
+            onMouseLeave={() => setChartTooltip(null)}
+          />
+        ))}
+        {daily.filter((_, i) => i % Math.max(1, Math.floor(daily.length / 6)) === 0).map((d) => {
+          const idx = daily.indexOf(d)
+          const x = chartPadding.left + (daily.length > 1 ? idx * step : cw / 2)
+          return (
+            <text key={d.date} x={x} y={chartH - 6} textAnchor="middle" fill="var(--c-text-muted)" fontSize={10}>
+              {d.date.slice(5)}
+            </text>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  function renderModelChart(byModel: MeModelUsageItem[], width: number) {
+    if (byModel.length === 0 || width <= 0) return null
+    const maxVal = Math.max(...byModel.map((m) => m.cost_usd), 0.0001)
+    const barH = 28
+    const gap = 8
+    const totalH = byModel.length * (barH + gap)
+    const cw = width - chartPadding.left - chartPadding.right
+    const colors = ['#4f8ff7', '#f5a623', '#7b61ff', '#36c5ab', '#ff6b81', '#c084fc', '#f472b6', '#34d399']
+
+    return (
+      <svg width={width} height={Math.max(totalH + chartPadding.top + 10, chartH)} className="block">
+        {byModel.map((m, i) => {
+          const y = chartPadding.top + i * (barH + gap)
+          const barW = Math.max((m.cost_usd / maxVal) * cw, 2)
+          const color = colors[i % colors.length]
+          return (
+            <g key={m.model}>
+              <text x={chartPadding.left - 6} y={y + barH / 2 + 4} textAnchor="end" fill="var(--c-text-secondary)" fontSize={11}>
+                {m.model.length > 18 ? m.model.slice(0, 18) + '...' : m.model}
+              </text>
+              <rect
+                x={chartPadding.left}
+                y={y}
+                width={barW}
+                height={barH}
+                rx={4}
+                fill={color}
+                opacity={0.85}
+                onMouseEnter={(e) => setChartTooltip({ x: e.clientX, y: e.clientY, text: `${m.model}: $${m.cost_usd.toFixed(4)}` })}
+                onMouseLeave={() => setChartTooltip(null)}
+              />
+              <text x={chartPadding.left + barW + 6} y={y + barH / 2 + 4} fill="var(--c-text-muted)" fontSize={10}>
+                ${m.cost_usd.toFixed(4)}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    )
+  }
+
+  // measure chart container width
+  const [chartWidth, setChartWidth] = useState(0)
+  useEffect(() => {
+    if (!chartRef.current) return
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setChartWidth(entry.contentRect.width)
+      }
+    })
+    obs.observe(chartRef.current)
+    return () => obs.disconnect()
+  }, [])
+
+  const chartTabs: Array<{ key: 'spend' | 'trend' | 'model'; label: string }> = [
+    { key: 'spend', label: ds.advancedUsageSpendDist },
+    { key: 'trend', label: ds.advancedUsageTrend },
+    { key: 'model', label: ds.advancedUsageModelDist },
+  ]
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-end justify-between gap-3">
+    <div className="flex w-full min-w-0 flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <SettingsSectionHeader title={ds.advancedUsage} description={ds.advancedUsageDesc} />
         <div className="flex items-center gap-2">
           <SettingsSelect
@@ -420,15 +669,6 @@ function UsagePane({
             options={Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))}
             onChange={(v) => setMonth(Number(v))}
           />
-          <button
-            type="button"
-            onClick={() => void loadUsage()}
-            className={actionBtnCls()}
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <RefreshCw size={14} />
-            <span>{ds.advancedRefresh}</span>
-          </button>
         </div>
       </div>
 
@@ -438,16 +678,125 @@ function UsagePane({
         </SettingsSection>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <MetricCard label={ds.advancedUsageCost} value={loading ? '...' : formatUsd(usage.summary?.total_cost_usd ?? 0)} icon={Globe} />
         <MetricCard label={ds.advancedUsageMessages} value={loading ? '...' : formatNumber(usage.summary?.record_count ?? 0)} icon={TerminalSquare} />
         <MetricCard label={ds.advancedUsageInput} value={loading ? '...' : formatNumber(usage.summary?.total_input_tokens ?? 0)} icon={Download} />
         <MetricCard label={ds.advancedUsageOutput} value={loading ? '...' : formatNumber(usage.summary?.total_output_tokens ?? 0)} icon={ArrowUpRight} />
         <MetricCard label={ds.advancedUsageCacheRead} value={loading ? '...' : formatNumber(usage.summary?.total_cache_read_tokens ?? 0)} icon={FileText} />
         <MetricCard label={ds.advancedUsageCacheWrite} value={loading ? '...' : formatNumber(usage.summary?.total_cache_creation_tokens ?? 0)} icon={Database} />
-        <MetricCard label={ds.advancedUsageCacheSaved} value={loading ? '...' : formatNumber(usage.summary?.total_cached_tokens ?? 0)} icon={CheckCircle2} />
-        <MetricCard label={ds.advancedUsageMonth} value={`${year}-${String(month).padStart(2, '0')}`} icon={BarChart3} />
       </div>
+
+      {/* heatmap */}
+      <SettingsSection className="overflow-hidden">
+        <SettingsSectionHeader title={ds.advancedUsageHeatmap} />
+        <div className="mt-4 max-w-full overflow-x-auto">
+          <div style={{ minWidth: heatmap.weeks.length * 12 + 36 + 8 }}>
+            {/* month labels */}
+            <div className="relative text-[10px] text-[var(--c-text-muted)]">
+              {heatmap.monthLabels.map((ml, i) => (
+                <span
+                  key={`${ml.label}-${i}`}
+                  style={{ position: 'absolute', left: 36 + ml.col * 12 }}
+                >
+                  {ml.label}
+                </span>
+              ))}
+              {/* spacer to give the div height */}
+              <span className="invisible">M</span>
+            </div>
+            <div className="relative mt-4 flex gap-0.5" style={{ paddingLeft: 36 }}>
+              {/* week day labels */}
+              <div className="absolute left-0 top-0 flex flex-col text-[10px] text-[var(--c-text-muted)]" style={{ width: 32 }}>
+                <span style={{ height: 12, lineHeight: '12px' }}>&nbsp;</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>Mon</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>&nbsp;</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>Wed</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>&nbsp;</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>Fri</span>
+                <span style={{ height: 12, lineHeight: '12px' }}>&nbsp;</span>
+              </div>
+              {/* grid */}
+              {heatmap.weeks.map((week, wi) => (
+                <div key={wi} className="flex flex-col gap-0.5">
+                  {week.map((cell) => (
+                    <div
+                      key={cell.date}
+                      title={`${cell.date}: $${cell.value.toFixed(4)}`}
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 2,
+                        background: cell.inRange ? heatColor(cell.value, heatmap.maxVal) : 'transparent',
+                      }}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+            {/* legend */}
+            <div className="mt-3 flex items-center gap-1.5 text-[10px] text-[var(--c-text-muted)]" style={{ paddingLeft: 36 }}>
+              <span>Less</span>
+              {['var(--c-bg-deep)', '#0e4429', '#006d32', '#26a641', '#39d353'].map((c) => (
+                <div key={c} style={{ width: 10, height: 10, borderRadius: 2, background: c }} />
+              ))}
+              <span>More</span>
+            </div>
+          </div>
+        </div>
+      </SettingsSection>
+
+      {/* model analytics charts */}
+      <SettingsSection>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-[var(--c-text-heading)]">
+            <TrendingUp size={16} />
+            <span className="text-sm font-semibold">{ds.advancedUsageModelAnalysis}</span>
+          </div>
+          <div className="flex gap-1 rounded-lg p-0.5" style={{ background: 'var(--c-bg-deep)' }}>
+            {chartTabs.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setChartTab(tab.key)}
+                className={[
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                  chartTab === tab.key
+                    ? 'bg-[var(--c-bg-page)] text-[var(--c-text-heading)] shadow-sm'
+                    : 'text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]',
+                ].join(' ')}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div ref={chartRef} className="relative mt-4 min-h-[320px]">
+          {chartTab === 'spend' && renderSpendDistChart(usage.daily, chartWidth)}
+          {chartTab === 'trend' && renderTrendChart(usage.daily, chartWidth)}
+          {chartTab === 'model' && renderModelChart(usage.byModel, chartWidth)}
+          {((chartTab === 'spend' || chartTab === 'trend') && usage.daily.length === 0) ||
+          (chartTab === 'model' && usage.byModel.length === 0) ? (
+            <p className="flex h-[320px] items-center justify-center text-sm text-[var(--c-text-muted)]">
+              {ds.advancedUsageEmpty}
+            </p>
+          ) : null}
+        </div>
+        {chartTooltip && (
+          <div
+            className="pointer-events-none fixed z-50 rounded-lg px-2.5 py-1.5 text-xs shadow-lg"
+            style={{
+              left: chartTooltip.x + 12,
+              top: chartTooltip.y - 8,
+              background: 'var(--c-bg-sub)',
+              color: 'var(--c-text-primary)',
+              border: '0.5px solid var(--c-border-subtle)',
+            }}
+          >
+            {chartTooltip.text}
+          </div>
+        )}
+      </SettingsSection>
 
       <SettingsSection>
         <SettingsSectionHeader title={ds.advancedUsageByModel} />
@@ -496,6 +845,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
   const ds = t.desktopSettings
   const api = getDesktopApi()
   const { addToast } = useToast()
+  const { customThemeId, customThemes, saveCustomTheme, setActiveCustomTheme } = useAppearance()
   const [actionLoading, setActionLoading] = useState<'choose' | 'export' | 'import' | null>(null)
   const [actionError, setActionError] = useState('')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -508,7 +858,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     { key: 'personas' as const, label: ds.advancedExportPersonas },
     { key: 'projects' as const, label: ds.advancedExportProjects },
     { key: 'mcp' as const, label: ds.advancedExportMcp },
-    { key: 'logs' as const, label: ds.advancedExportLogs },
+    { key: 'themes' as const, label: ds.advancedExportThemes },
   ]
 
   const toggleSection = useCallback((section: DesktopExportSection) => {
@@ -539,9 +889,15 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     setActionLoading('export')
     setActionError('')
     try {
-      const result = await api.advanced.exportDataBundle({ sections: selectedSections })
+      const result = await api.advanced.exportDataBundle({
+        sections: selectedSections,
+        themes: {
+          customThemeId,
+          customThemes: selectedSections.includes('themes') ? customThemes : {},
+        },
+      })
       if (result.canceled) {
-        addToast(ds.advancedExportCanceled, 'default')
+        addToast(ds.advancedExportCanceled, 'neutral')
         setExportDialogOpen(false)
         return
       }
@@ -552,7 +908,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     } finally {
       setActionLoading(null)
     }
-  }, [api, addToast, ds.advancedExportCanceled, ds.advancedExportDone, selectedSections, t.requestFailed])
+  }, [api, addToast, customThemeId, customThemes, ds.advancedExportCanceled, ds.advancedExportDone, selectedSections, t.requestFailed])
 
   const handleImport = useCallback(async () => {
     if (!api?.advanced) return
@@ -561,8 +917,18 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     try {
       const result = await api.advanced.importDataBundle()
       if (result.canceled) {
-        addToast(ds.advancedImportCanceled, 'default')
+        addToast(ds.advancedImportCanceled, 'neutral')
         return
+      }
+      if (result.themes?.customThemes && typeof result.themes.customThemes === 'object') {
+        for (const value of Object.values(result.themes.customThemes)) {
+          if (value && typeof value === 'object' && 'id' in value && typeof value.id === 'string') {
+            saveCustomTheme(value as ThemeDefinition)
+          }
+        }
+        if (result.themes.customThemeId) {
+          setActiveCustomTheme(result.themes.customThemeId)
+        }
       }
       addToast(ds.advancedImportDone, 'success')
       await onReloadOverview()
@@ -571,7 +937,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     } finally {
       setActionLoading(null)
     }
-  }, [api, addToast, ds.advancedImportCanceled, ds.advancedImportDone, onReloadOverview, t.requestFailed])
+  }, [api, addToast, ds.advancedImportCanceled, ds.advancedImportDone, onReloadOverview, saveCustomTheme, setActiveCustomTheme, t.requestFailed])
 
   const busy = actionLoading !== null
 
@@ -671,7 +1037,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
               className={actionBtnCls(actionLoading === 'export')}
               style={{ border: '0.5px solid var(--c-border-subtle)' }}
             >
-              {t.settings.cancel}
+              {ds.advancedCancel}
             </button>
             <button
               type="button"
@@ -859,31 +1225,33 @@ export function AdvancedSettings({ accessToken }: Props) {
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto p-4 max-[1230px]:p-3 sm:p-5">
-        {activeKey === 'about' && (
-          <AboutPane
-            overview={overview}
-            loading={overviewLoading}
-            error={overviewError}
-          />
-        )}
-        {activeKey === 'network' && <NetworkPane onReloadOverview={loadOverview} />}
-        {activeKey === 'usage' && (
-          <UsagePane
-            accessToken={accessToken}
-            defaultYear={defaultYear}
-            defaultMonth={defaultMonth}
-          />
-        )}
-        {activeKey === 'modules' && (
-          <div className="flex flex-col gap-6">
-            <SettingsSectionHeader title={ds.advancedModules} description={ds.advancedModulesDesc} />
-            <ModulesSettings />
-          </div>
-        )}
-        {activeKey === 'data' && (
-          <DataPane onReloadOverview={loadOverview} />
-        )}
-        {activeKey === 'logs' && <LogsPane />}
+        <div className="mx-auto min-w-0 max-w-4xl">
+          {activeKey === 'about' && (
+            <AboutPane
+              overview={overview}
+              loading={overviewLoading}
+              error={overviewError}
+            />
+          )}
+          {activeKey === 'network' && <NetworkPane onReloadOverview={loadOverview} />}
+          {activeKey === 'usage' && (
+            <UsagePane
+              accessToken={accessToken}
+              defaultYear={defaultYear}
+              defaultMonth={defaultMonth}
+            />
+          )}
+          {activeKey === 'modules' && (
+            <div className="flex flex-col gap-6">
+              <SettingsSectionHeader title={ds.advancedModules} description={ds.advancedModulesDesc} />
+              <ModulesSettings />
+            </div>
+          )}
+          {activeKey === 'data' && (
+            <DataPane onReloadOverview={loadOverview} />
+          )}
+          {activeKey === 'logs' && <LogsPane />}
+        </div>
       </div>
     </div>
   )

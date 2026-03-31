@@ -90,7 +90,8 @@ function useThinkingElapsedSeconds(active: boolean, startedAtMs?: number): numbe
 
   useEffect(() => {
     if (!active || !startedAtMs) {
-      setElapsed(0)
+      // active 但 startedAtMs 暂缺时（tool.call 清除后尚未开始新 thinking），保留上次值
+      if (!active) setElapsed(0)
       return
     }
     setElapsed(readElapsed())
@@ -202,6 +203,8 @@ function CopTimelineHeaderLabel({ text, phaseKey, shimmer }: { text: string; pha
     )
   }
 
+  // thinking-live → thought: phase 变化时触发打字机
+  // 也覆盖 thought 阶段 text 变化（抖动恢复后 text 不同的情况）
   if (
     prevRendered &&
     prevRendered.phaseKey !== target.phaseKey &&
@@ -209,6 +212,16 @@ function CopTimelineHeaderLabel({ text, phaseKey, shimmer }: { text: string; pha
     target.phaseKey !== 'thinking'
   ) {
     return <PhaseRetypingLabel key={`${target.phaseKey}:${target.text}`} text={target.text} shimmer={shimmer} />
+  }
+
+  // thought 阶段 text 变化也触发打字机（防御性：phase 相同但 text 不同）
+  if (
+    prevRendered &&
+    target.phaseKey === 'thought' &&
+    prevRendered.phaseKey === 'thought' &&
+    prevRendered.text !== target.text
+  ) {
+    return <PhaseRetypingLabel key={`retype:${target.text}`} text={target.text} shimmer={shimmer} />
   }
 
   return <span className={shimmer ? 'thinking-shimmer' : undefined}>{target.text}</span>
@@ -787,6 +800,9 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     if (hasAnyThinking) setCollapsed(true)
   }, [hasAnyThinking, preserveExpanded])
 
+  // thinkingOnlyCompletedPlain 时自动展开
+  // (effect 已在 thinkingOnlyCompletedPlain 声明后添加)
+
   const aggregatedDurationSec = useMemo(() => {
     let sum = 0
     for (const r of thinkingRowList) {
@@ -922,6 +938,13 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const thinkingOnlyCompletedPlain =
     thinkingOnlyUnified && isComplete && !anyThinkingLive && hasThinkingOnly
 
+  // Bug 6: thinkingOnlyCompletedPlain 时不折叠，让 thinking 内容直出
+  useEffect(() => {
+    if (thinkingOnlyCompletedPlain && !userToggledCollapsedRef.current) {
+      setCollapsed(false)
+    }
+  }, [thinkingOnlyCompletedPlain])
+
   const bodyEntries = mixedSegmentWithThinking
     ? allUnified.filter((entry) => entry.kind !== 'thinking')
     : allUnified
@@ -930,9 +953,12 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     aggregatedDurationSec > 0
       ? t.copTimelineThoughtForSeconds(aggregatedDurationSec)
       : t.copTimelineThinkingDoneNoDuration
-  const activeThinkingElapsed = useThinkingElapsedSeconds(anyThinkingLive, thinkingStartedAt)
+  // run 活跃期间 thinking timer 不因 tool.call 而暂停
+  const thinkingTimerActive = anyThinkingLive || (hasAnyThinking && !!live)
+  const activeThinkingElapsed = useThinkingElapsedSeconds(thinkingTimerActive, thinkingStartedAt)
   const thinkingLiveHeaderLabel = formatThinkingHeaderLabel(thinkingHint, activeThinkingElapsed, t)
-  const headerPhaseKey = anyThinkingLive
+  // run 活跃期间 thinking 暂停也保持 thinking-live phase，不闪变到 thought
+  const headerPhaseKey = (anyThinkingLive || (hasAnyThinking && !!live))
     ? 'thinking-live'
     : hasAnyThinking
       ? 'thought'
@@ -944,23 +970,32 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
             ? 'complete'
             : 'idle'
 
-  const autoLabel = anyThinkingLive
+  // 纯 thinking → thinking label
+  // 混合段 + isComplete → 工具摘要
+  // 混合段 + !isComplete → 继续显示 thinking label（run 还没完）
+  const autoLabel = (anyThinkingLive || (hasAnyThinking && !!live))
     ? thinkingLiveHeaderLabel
     : hasAnyThinking
-      ? thoughtDurationLabel
-      : showPendingThinkingHeader
-        ? `${thinkingHint}...`
-      : isComplete
+      ? isComplete && !hasThinkingOnly
         ? sources.length > 0
           ? `Reviewed ${sources.length} sources`
           : effectiveStepCount > 0
             ? `${effectiveStepCount} step${effectiveStepCount === 1 ? '' : 's'} completed`
-            : 'Completed'
-        : visibleSteps.length > 0
-          ? (visibleSteps[visibleSteps.length - 1]?.label || 'Searching...')
-          : effectiveStepCount > 0
-            ? t.copTimelineLiveProgress
-            : (thinkingHint ? `${thinkingHint}...` : 'Searching...')
+            : thoughtDurationLabel
+        : thoughtDurationLabel
+      : showPendingThinkingHeader
+        ? `${thinkingHint}...`
+        : isComplete
+          ? sources.length > 0
+            ? `Reviewed ${sources.length} sources`
+            : effectiveStepCount > 0
+              ? `${effectiveStepCount} step${effectiveStepCount === 1 ? '' : 's'} completed`
+              : 'Completed'
+          : visibleSteps.length > 0
+            ? (visibleSteps[visibleSteps.length - 1]?.label || 'Searching...')
+            : effectiveStepCount > 0
+              ? t.copTimelineLiveProgress
+              : (thinkingHint ? `${thinkingHint}...` : 'Searching...')
 
   const headerLabel = headerOverride ?? autoLabel
   const resolvedHeaderLabel = headerLabel

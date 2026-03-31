@@ -6,6 +6,11 @@ import { inspect } from 'util'
 const LOG_DIR = path.join(os.homedir(), '.arkloop', 'logs')
 const MAIN_LOG_PATH = path.join(LOG_DIR, 'desktop-main.log')
 const SIDECAR_LOG_PATH = path.join(LOG_DIR, 'desktop-sidecar.log')
+const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024
+const MAX_LOG_BACKUPS = 3
+const MAX_LOG_LINE_CHARS = 16 * 1024
+const MAX_LOG_CHUNK_LINES = 400
+const MAX_LOG_ARG_CHARS = 2048
 
 let initialized = false
 
@@ -17,30 +22,72 @@ function now(): string {
   return new Date().toISOString()
 }
 
+function truncateText(value: string, limit = MAX_LOG_LINE_CHARS): string {
+  if (value.length <= limit) return value
+  return `${value.slice(0, limit)}… [truncated ${value.length - limit} chars]`
+}
+
 function stringifyArgs(args: unknown[]): string {
-  return args
+  return truncateText(args
     .map((arg) => {
-      if (typeof arg === 'string') return arg
-      return inspect(arg, {
+      const value = typeof arg === 'string'
+        ? arg
+        : inspect(arg, {
         depth: 6,
         breakLength: 120,
         maxArrayLength: 50,
       })
+      return truncateText(value, MAX_LOG_ARG_CHARS)
     })
-    .join(' ')
+    .join(' '))
+}
+
+function rotateLogs(filePath: string): void {
+  try {
+    const stat = fs.statSync(filePath)
+    if (stat.size < MAX_LOG_FILE_BYTES) return
+  } catch {
+    return
+  }
+
+  for (let index = MAX_LOG_BACKUPS; index >= 1; index -= 1) {
+    const source = `${filePath}.${index}`
+    const dest = `${filePath}.${index + 1}`
+    try {
+      if (index === MAX_LOG_BACKUPS) {
+        fs.rmSync(source, { force: true })
+      } else if (fs.existsSync(source)) {
+        fs.renameSync(source, dest)
+      }
+    } catch {
+      // ignore rotation failure to avoid breaking app startup
+    }
+  }
+
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.renameSync(filePath, `${filePath}.1`)
+    }
+  } catch {
+    // ignore rotation failure to avoid breaking app startup
+  }
 }
 
 function appendLine(filePath: string, line: string): void {
   ensureLogDir()
-  fs.appendFileSync(filePath, `${line}\n`, 'utf8')
+  rotateLogs(filePath)
+  fs.appendFileSync(filePath, `${truncateText(line)}\n`, 'utf8')
 }
 
 function appendChunk(filePath: string, stream: string, text: string): void {
   if (!text) return
-  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const lines = text.replace(/\r\n/g, '\n').split('\n').slice(0, MAX_LOG_CHUNK_LINES)
   for (const line of lines) {
     if (!line) continue
     appendLine(filePath, `[${now()}] [${stream}] ${line}`)
+  }
+  if (lines.length === MAX_LOG_CHUNK_LINES) {
+    appendLine(filePath, `[${now()}] [${stream}] … [truncated additional lines]`)
   }
 }
 

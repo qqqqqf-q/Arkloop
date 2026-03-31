@@ -76,10 +76,14 @@ type LocalVersions = {
   }
 }
 
-const GITHUB_REPO = 'qqqqqf-q/Arkloop'
+const GITHUB_REPO = 'qqqqqf/Arkloop'
 const GITHUB_API_LATEST_RELEASE = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const VERSIONS_FILE = path.join(os.homedir(), '.arkloop', 'versions.json')
 const VM_DIR = path.join(os.homedir(), '.arkloop', 'vm')
+
+function isReleaseMissingStatus(statusCode: number | undefined): boolean {
+  return statusCode === 404
+}
 
 export function loadLocalVersions(): LocalVersions {
   try {
@@ -122,6 +126,9 @@ async function fetchManifest(): Promise<DesktopManifest> {
     releaseRes.on('error', reject)
   })
   if (releaseRes.statusCode !== 200) {
+    if (isReleaseMissingStatus(releaseRes.statusCode)) {
+      throw new Error('no release published')
+    }
     throw new Error(`failed to fetch release info: ${releaseRes.statusCode}`)
   }
 

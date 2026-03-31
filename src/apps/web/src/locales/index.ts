@@ -1002,6 +1002,11 @@ export interface LocaleStrings {
     advancedUsageCache: string;
     advancedUsageDate: string;
     advancedUsageEmpty: string;
+    advancedUsageHeatmap: string;
+    advancedUsageModelAnalysis: string;
+    advancedUsageSpendDist: string;
+    advancedUsageTrend: string;
+    advancedUsageModelDist: string;
     advancedLogsAllSources: string;
     advancedLogsMain: string;
     advancedLogsSidecar: string;
@@ -1017,13 +1022,14 @@ export interface LocaleStrings {
     advancedExportClearAll: string;
     advancedExportCanceled: string;
     advancedImportCanceled: string;
+    advancedCancel: string;
     advancedExportSettings: string;
     advancedExportProviders: string;
     advancedExportHistory: string;
     advancedExportPersonas: string;
     advancedExportProjects: string;
     advancedExportMcp: string;
-    advancedExportLogs: string;
+    advancedExportThemes: string;
     advancedSelectedFolder: string;
     advancedExportDone: string;
     advancedImportDone: string;

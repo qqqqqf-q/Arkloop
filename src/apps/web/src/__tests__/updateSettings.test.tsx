@@ -154,4 +154,20 @@ describe('UpdateSettingsContent', () => {
 
     expect(downloadAppUpdate).toHaveBeenCalledTimes(1)
   })
+
+  it('忽略未发布 release 的原始错误', async () => {
+    checkUpdater.mockRejectedValueOnce(new Error('failed to fetch release info: 404'))
+    const { UpdateSettingsContent, LocaleProvider } = await loadSubject()
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <UpdateSettingsContent />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    expect(container.textContent).not.toContain('failed to fetch release info: 404')
+  })
 })

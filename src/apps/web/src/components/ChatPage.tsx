@@ -2350,6 +2350,7 @@ export function ChatPage() {
       if (event.type === 'tool.call') {
         if (isACPDelegateEventData(event.data)) continue
         setPendingThinking(false)
+        setCopThinkingStartedAtMs(undefined)
         seenFirstToolCallInRunRef.current = true
         const obj = event.data as { tool_name?: unknown; llm_name?: unknown; tool_call_id?: unknown; arguments?: unknown }
         const toolName = typeof obj.tool_name === 'string' ? obj.tool_name : event.tool_name
@@ -3554,8 +3555,9 @@ export function ChatPage() {
     const trailingAssistantTextPresent =
       trailSeg?.type === 'text' && trailSeg.content.length > 0
     return (
-      <Fragment key={key}>
+      <Fragment key={key ?? `live-cop-${si}`}>
         <CopTimeline
+          key={si === 0 ? 'cop-leading-inner' : undefined}
           steps={payload.steps}
           sources={payload.sources}
           isComplete={copTimelineComplete}
@@ -3831,9 +3833,10 @@ export function ChatPage() {
                   {(showPendingThinkingShell || leadingLiveCop) && (
                     <Fragment>
                       {leadingLiveCop
-                        ? renderLiveCopSegment(leadingLiveCop, 0)
+                        ? renderLiveCopSegment(leadingLiveCop, 0, 'cop-leading')
                         : (
                           <CopTimeline
+                            key="cop-leading-inner"
                             steps={[]}
                             sources={[]}
                             isComplete={false}
