@@ -10,6 +10,11 @@ on:
         description: "Version override (e.g. 0.2.0)"
         required: false
         type: string
+      release_label:
+        description: "Release label (e.g. Early Access, Beta)"
+        required: false
+        type: string
+        default: "Early Access"
 
 permissions:
   contents: write
@@ -140,6 +145,11 @@ jobs:
       - name: Build web app
         run: pnpm --filter web build
 
+      - name: Generate release meta
+        run: |
+          mkdir -p src/apps/desktop/dist
+          echo '{"releaseLabel":"${{ inputs.release_label || 'Early Access' }}"}' > src/apps/desktop/dist/release-meta.json
+
       - name: Build Electron TypeScript
         run: pnpm --filter @arkloop/desktop build:electron
 
@@ -221,6 +231,7 @@ jobs:
           ARKLOOP_RELEASE_DIR: release-files
           ARKLOOP_OPENVIKING_IMAGE: ghcr.io/volcengine/openviking:v0.1.18.dev0
           ARKLOOP_OPENVIKING_VERSION: v0.1.18.dev0
+          ARKLOOP_RELEASE_LABEL: ${{ inputs.release_label || 'Early Access' }}
         run: node src/apps/desktop/scripts/generate-desktop-manifest.mjs
 
       - name: Validate desktop manifest
@@ -266,5 +277,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: "${{ github.ref_name }} ${{ inputs.release_label || 'Early Access' }}"
           generate_release_notes: true
           files: release-files/*

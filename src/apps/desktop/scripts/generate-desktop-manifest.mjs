@@ -27,6 +27,7 @@ function buildManifest() {
 
   const openvikingImage = readEnv('ARKLOOP_OPENVIKING_IMAGE')
   const openvikingVersion = readOptionalEnv('ARKLOOP_OPENVIKING_VERSION') || version
+  const releaseLabel = readOptionalEnv('ARKLOOP_RELEASE_LABEL')
   const sandboxKernelFilename = readOptionalEnv('ARKLOOP_SANDBOX_KERNEL_FILENAME')
   const sandboxKernelVersion = readOptionalEnv('ARKLOOP_SANDBOX_KERNEL_VERSION')?.replace(/^v/, '') ?? null
   const sandboxRootfsFilename = readOptionalEnv('ARKLOOP_SANDBOX_ROOTFS_FILENAME')
@@ -58,6 +59,7 @@ function buildManifest() {
 
   const manifest = {
     version,
+    ...(releaseLabel ? { release_name: `${version} ${releaseLabel}` } : {}),
     openviking: {
       image: openvikingImage,
       version: openvikingVersion,
