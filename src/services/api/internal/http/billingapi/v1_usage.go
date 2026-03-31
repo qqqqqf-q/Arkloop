@@ -22,6 +22,14 @@ type dailyUsageItem struct {
 	RecordCount  int64   `json:"record_count"`
 }
 
+type hourlyUsageItem struct {
+	Hour         string  `json:"hour"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+	RecordCount  int64   `json:"record_count"`
+}
+
 type modelUsageItem struct {
 	Model        string  `json:"model"`
 	InputTokens  int64   `json:"input_tokens"`
@@ -208,6 +216,49 @@ func accountDailyUsage(
 		for i, row := range rows {
 			items[i] = dailyUsageItem{
 				Date:         row.Date.Format("2006-01-02"),
+				InputTokens:  row.InputTokens,
+				OutputTokens: row.OutputTokens,
+				CostUSD:      row.CostUSD,
+				RecordCount:  row.RecordCount,
+			}
+		}
+		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, items)
+	}
+}
+
+func accountHourlyUsage(
+	authService *auth.Service,
+	membershipRepo *data.AccountMembershipRepository,
+	usageRepo *data.UsageRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			httpkit.WriteMethodNotAllowed(w, r)
+			return
+		}
+		traceID := observability.TraceIDFromContext(r.Context())
+
+		accountID, ok := resolveAccountUsageActor(w, r, traceID, authService, membershipRepo, usageRepo, apiKeysRepo)
+		if !ok {
+			return
+		}
+
+		startDate, endDate, ok := parseDateRange(w, r, traceID)
+		if !ok {
+			return
+		}
+
+		rows, err := usageRepo.GetHourlyUsage(r.Context(), accountID, startDate, endDate)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		items := make([]hourlyUsageItem, len(rows))
+		for i, row := range rows {
+			items[i] = hourlyUsageItem{
+				Hour:         row.Hour.UTC().Format(time.RFC3339),
 				InputTokens:  row.InputTokens,
 				OutputTokens: row.OutputTokens,
 				CostUSD:      row.CostUSD,

@@ -131,6 +131,58 @@ func meDailyUsage(
 	}
 }
 
+func meHourlyUsage(
+	authService *auth.Service,
+	membershipRepo *data.AccountMembershipRepository,
+	usageRepo *data.UsageRepository,
+	apiKeysRepo *data.APIKeysRepository,
+) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.Method != nethttp.MethodGet {
+			httpkit.WriteMethodNotAllowed(w, r)
+			return
+		}
+		traceID := observability.TraceIDFromContext(r.Context())
+
+		if authService == nil {
+			httpkit.WriteAuthNotConfigured(w, traceID)
+			return
+		}
+		if usageRepo == nil {
+			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
+			return
+		}
+
+		actor, ok := httpkit.ResolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
+		if !ok {
+			return
+		}
+
+		startDate, endDate, ok := parseDateRange(w, r, traceID)
+		if !ok {
+			return
+		}
+
+		rows, err := usageRepo.GetHourlyUsage(r.Context(), actor.AccountID, startDate, endDate)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+
+		items := make([]hourlyUsageItem, len(rows))
+		for i, row := range rows {
+			items[i] = hourlyUsageItem{
+				Hour:         row.Hour.UTC().Format(time.RFC3339),
+				InputTokens:  row.InputTokens,
+				OutputTokens: row.OutputTokens,
+				CostUSD:      row.CostUSD,
+				RecordCount:  row.RecordCount,
+			}
+		}
+		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, items)
+	}
+}
+
 func meUsageByModel(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,

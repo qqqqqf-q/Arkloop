@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,14 +36,22 @@ type UsageSummary struct {
 }
 
 type UsageRepository struct {
-	db Querier
+	db         Querier
+	timeColumn string
+	dayExpr    string
+	hourExpr   string
 }
 
 func NewUsageRepository(db Querier) (*UsageRepository, error) {
 	if db == nil {
 		return nil, errors.New("db must not be nil")
 	}
-	return &UsageRepository{db: db}, nil
+	return &UsageRepository{
+		db:         db,
+		timeColumn: detectUsageTimeColumn(db),
+		dayExpr:    detectUsageDayExpr(db),
+		hourExpr:   detectUsageHourExpr(db),
+	}, nil
 }
 
 func (r *UsageRepository) Insert(
@@ -102,7 +111,7 @@ func (r *UsageRepository) GetMonthlyUsage(
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3`,
+		 WHERE account_id = $1 AND `+r.timeColumn+` >= $2 AND `+r.timeColumn+` < $3`,
 		accountID, start, end,
 	).Scan(
 		&summary.TotalInputTokens,
@@ -124,6 +133,14 @@ func (r *UsageRepository) GetMonthlyUsage(
 
 type DailyUsage struct {
 	Date         time.Time
+	InputTokens  int64
+	OutputTokens int64
+	CostUSD      float64
+	RecordCount  int64
+}
+
+type HourlyUsage struct {
+	Hour         time.Time
 	InputTokens  int64
 	OutputTokens int64
 	CostUSD      float64
@@ -154,13 +171,13 @@ func (r *UsageRepository) GetDailyUsage(
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT
-		     DATE_TRUNC('day', recorded_at) AS day,
+		     `+r.dayExpr+` AS day,
 		     COALESCE(SUM(input_tokens),  0),
 		     COALESCE(SUM(output_tokens), 0),
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3
+		 WHERE account_id = $1 AND `+r.timeColumn+` >= $2 AND `+r.timeColumn+` < $3
 		 GROUP BY day
 		 ORDER BY day`,
 		accountID, startDate, endDate,
@@ -177,6 +194,46 @@ func (r *UsageRepository) GetDailyUsage(
 			return nil, fmt.Errorf("usage_records.GetDailyUsage scan: %w", err)
 		}
 		result = append(result, d)
+	}
+	return result, rows.Err()
+}
+
+// GetHourlyUsage 按小时聚合指定 account 在 [startDate, endDate) 内的用量。
+func (r *UsageRepository) GetHourlyUsage(
+	ctx context.Context,
+	accountID uuid.UUID,
+	startDate, endDate time.Time,
+) ([]HourlyUsage, error) {
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("usage_records: account_id must not be empty")
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT
+		     `+r.hourExpr+` AS hour,
+		     COALESCE(SUM(input_tokens),  0),
+		     COALESCE(SUM(output_tokens), 0),
+		     COALESCE(SUM(cost_usd),      0),
+		     COUNT(*)
+		 FROM usage_records
+		 WHERE account_id = $1 AND `+r.timeColumn+` >= $2 AND `+r.timeColumn+` < $3
+		 GROUP BY hour
+		 ORDER BY hour`,
+		accountID, startDate, endDate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("usage_records.GetHourlyUsage: %w", err)
+	}
+	defer rows.Close()
+
+	var result []HourlyUsage
+	for rows.Next() {
+		var h HourlyUsage
+		if err := rows.Scan(&h.Hour, &h.InputTokens, &h.OutputTokens, &h.CostUSD, &h.RecordCount); err != nil {
+			return nil, fmt.Errorf("usage_records.GetHourlyUsage scan: %w", err)
+		}
+		result = append(result, h)
 	}
 	return result, rows.Err()
 }
@@ -206,7 +263,7 @@ func (r *UsageRepository) GetUsageByModel(
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE account_id = $1 AND recorded_at >= $2 AND recorded_at < $3
+		 WHERE account_id = $1 AND `+r.timeColumn+` >= $2 AND `+r.timeColumn+` < $3
 		 GROUP BY model
 		 ORDER BY SUM(input_tokens) + SUM(output_tokens) DESC`,
 		accountID, start, end,
@@ -236,6 +293,53 @@ func (r *UsageRepository) GetUsageByModel(
 	return result, rows.Err()
 }
 
+func detectUsageTimeColumn(db Querier) string {
+	if columnExists(db, "recorded_at") {
+		return "recorded_at"
+	}
+	return "created_at"
+}
+
+func detectUsageDayExpr(db Querier) string {
+	if columnExists(db, "recorded_at") {
+		return "DATE_TRUNC('day', recorded_at)"
+	}
+	return "date(created_at)"
+}
+
+func detectUsageHourExpr(db Querier) string {
+	if columnExists(db, "recorded_at") {
+		return "DATE_TRUNC('hour', recorded_at)"
+	}
+	return "strftime('%Y-%m-%dT%H:00:00', created_at)"
+}
+
+func columnExists(db Querier, columnName string) bool {
+	rows, err := db.Query(context.Background(), `PRAGMA table_info(usage_records)`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid int
+			name string
+			columnType string
+			notNull int
+			defaultValue any
+			pk int
+		)
+		if scanErr := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); scanErr != nil {
+			return false
+		}
+		if strings.EqualFold(name, columnName) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetGlobalDailyUsage 按日聚合全平台在 [startDate, endDate) 内的用量（admin 用）。
 func (r *UsageRepository) GetGlobalDailyUsage(
 	ctx context.Context,
@@ -244,13 +348,13 @@ func (r *UsageRepository) GetGlobalDailyUsage(
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT
-		     DATE_TRUNC('day', recorded_at) AS day,
+		     `+r.dayExpr+` AS day,
 		     COALESCE(SUM(input_tokens),  0),
 		     COALESCE(SUM(output_tokens), 0),
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
-		 WHERE recorded_at >= $1 AND recorded_at < $2
+		 WHERE `+r.timeColumn+` >= $1 AND `+r.timeColumn+` < $2
 		 GROUP BY day
 		 ORDER BY day`,
 		startDate, endDate,
