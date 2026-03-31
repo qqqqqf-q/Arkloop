@@ -46,6 +46,7 @@ export interface LocaleStrings {
   sseReconnectFailed: string;
   failedRunRetryTitle: string;
   retryAction: string;
+  runCancelled: string;
   logout: string;
   language: string;
   appearance: string;
@@ -693,6 +694,8 @@ export interface LocaleStrings {
     chat: string;
     voice: string;
     advanced: string;
+    about: string;
+    aboutDesc: string;
     promptInjection: string;
     extensions: string;
     developer: string;

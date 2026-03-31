@@ -86,7 +86,7 @@ export const BUILTIN_PRESETS: Record<string, ThemeDefinition> = {
       '--c-bg-sidebar': '#FAF9F6',
       '--c-bg-deep': '#F0EEE7',
       '--c-bg-deep2': '#E5E3DC',
-      '--c-bg-sub': '#F0EEE8',
+      '--c-bg-sub': '#F5F4EE',
       '--c-bg-card': '#ffffff',
       '--c-bg-input': '#ffffff',
       '--c-bg-menu': '#ffffff',

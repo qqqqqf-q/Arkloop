@@ -3,7 +3,7 @@ import { useParams, useLocation, useOutletContext, useNavigate } from 'react-rou
 import { openExternal } from '../openExternal'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { ArrowDown, Check, ChevronDown, Glasses, Loader2, Pencil, Share2, Star, Trash2, X, AlertCircle } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, Glasses, Info, Loader2, Pencil, Share2, Star, Trash2, X, AlertCircle } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { ChatInput, type Attachment } from './ChatInput'
 import { MessageBubble } from './MessageBubble'
@@ -70,7 +70,7 @@ import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copS
 import { applyRunEventToWebSearchSteps, isWebSearchToolName, webSearchSourcesFromResult } from '../webSearchTimelineFromRunEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { apiBaseUrl } from '@arkloop/shared/api'
-import { isACPDelegateEventData } from '@arkloop/shared'
+import { isACPDelegateEventData, Button } from '@arkloop/shared'
 import { ChatSkeleton } from './ChatSkeleton'
 import type { UserInputRequest, UserInputResponse, RequestedSchema } from '../userInputTypes'
 import {
@@ -265,27 +265,31 @@ function FailedRunRetryCard({
   onRetry,
 }: {
   title: string
-  actionLabel: string
+  actionLabel?: string
   onRetry?: () => void
 }) {
   return (
     <div
-      className="mt-3 flex max-w-[663px] items-center justify-between gap-3 rounded-xl px-4 py-3"
-      style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}
+      className="flex w-full max-w-[756px] items-center justify-between gap-3 rounded-2xl px-4 py-3"
+      style={{ background: 'var(--c-bg-sub)', border: '0.75px solid var(--c-border)' }}
     >
-      <div className="flex min-w-0 items-center gap-2 text-sm text-[var(--c-text-primary)]">
-        <AlertCircle size={16} className="shrink-0 text-[var(--c-status-warn-text)]" />
-        <span className="truncate">{title}</span>
+      <div className="flex min-w-0 items-center gap-2 text-[var(--c-text-secondary)]">
+        <Info size={16} className="shrink-0 text-[var(--c-text-tertiary)]" />
+        <span className="truncate text-[14px]">{title}</span>
       </div>
-      <button
-        type="button"
-        onClick={onRetry}
-        disabled={!onRetry}
-        className="rounded-lg px-3 py-1.5 text-sm font-medium transition-opacity disabled:cursor-default disabled:opacity-40"
-        style={{ background: 'var(--c-brand)', color: '#fff' }}
-      >
-        {actionLabel}
-      </button>
+      {actionLabel && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={!onRetry}
+          className="shrink-0 rounded-lg border border-[var(--c-border)] px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-all hover:border-[var(--c-border-mid)] disabled:cursor-default disabled:opacity-50"
+          style={{ background: 'transparent' }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.07)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
+        >
+          {actionLabel}
+        </button>
+      )}
     </div>
   )
 }
@@ -816,11 +820,11 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
               contentOverride={msg.role === 'assistant' && hasAssistantTurn ? '' : undefined}
               plainTextForCopy={msg.role === 'assistant' && hasAssistantTurn ? assistantTurnPlainText(historicalTurn!) : undefined}
             />
-            {msg.role === 'assistant' && (effectiveTerminalStatus === 'failed' || effectiveTerminalStatus === 'interrupted') && (
+            {msg.role === 'assistant' && (effectiveTerminalStatus === 'failed' || effectiveTerminalStatus === 'interrupted' || effectiveTerminalStatus === 'cancelled') && (
               <FailedRunRetryCard
-                title={effectiveTerminalStatus === 'interrupted' ? t.runInterrupted : t.failedRunRetryTitle}
-                actionLabel={t.retryAction}
-                onRetry={!isStreaming && !sending ? handleRetry : undefined}
+                title={effectiveTerminalStatus === 'interrupted' ? t.runInterrupted : effectiveTerminalStatus === 'cancelled' ? t.runCancelled : t.failedRunRetryTitle}
+                actionLabel={effectiveTerminalStatus === 'cancelled' ? undefined : t.retryAction}
+                onRetry={effectiveTerminalStatus !== 'cancelled' && !isStreaming && !sending ? handleRetry : undefined}
               />
             )}
             {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -3960,14 +3964,6 @@ export function ChatPage() {
 
               {terminalSseError && <ErrorCallout error={terminalSseError} />}
 
-              {terminalRunHandoffStatus === 'failed' && terminalRunDisplayId && !messages.some((msg) => msg.role === 'assistant' && msg.run_id === terminalRunDisplayId) && (
-                <FailedRunRetryCard
-                  title={t.failedRunRetryTitle}
-                  actionLabel={t.retryAction}
-                  onRetry={!isStreaming && !sending ? handleRetry : undefined}
-                />
-              )}
-
               {/* pendingIncognito：末尾展示分隔线，等待用户发送第一条消息 */}
               {pendingIncognito && (
                 <IncognitoDivider
@@ -3980,6 +3976,13 @@ export function ChatPage() {
                 />
               )}
 
+              {(terminalRunHandoffStatus === 'failed' || terminalRunHandoffStatus === 'interrupted' || terminalRunHandoffStatus === 'cancelled') && terminalRunDisplayId && !messages.some((msg) => msg.role === 'assistant' && msg.run_id === terminalRunDisplayId) && (
+                <FailedRunRetryCard
+                  title={terminalRunHandoffStatus === 'interrupted' ? t.runInterrupted : terminalRunHandoffStatus === 'cancelled' ? t.runCancelled : t.failedRunRetryTitle}
+                  actionLabel={terminalRunHandoffStatus === 'cancelled' ? undefined : t.retryAction}
+                  onRetry={terminalRunHandoffStatus !== 'cancelled' && !isStreaming && !sending ? handleRetry : undefined}
+                />
+              )}
               <div ref={bottomRef} />
             </>
           )}
@@ -4057,14 +4060,14 @@ export function ChatPage() {
           </motion.div>
         ) : (
           <ChatInput
-            value={draft}
-            onChange={setDraft}
-            onSubmit={handleSend}
-            onCancel={handleCancel}
-            placeholder={t.replyPlaceholder}
-            disabled={sending}
-            isStreaming={isStreaming}
-            canCancel={canCancel}
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleSend}
+              onCancel={handleCancel}
+              placeholder={t.replyPlaceholder}
+              disabled={sending}
+              isStreaming={isStreaming}
+              canCancel={canCancel}
             cancelSubmitting={cancelSubmitting}
             attachments={attachments}
             onAttachFiles={handleAttachFiles}
@@ -4078,17 +4081,11 @@ export function ChatPage() {
             appMode={appMode}
             hasMessages={messages.length > 0}
             clawThreadId={threadId}
-          />
+            />
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '11px', letterSpacing: '-0.3px', textAlign: 'center', marginBottom: 0, marginTop: '-2px' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.
         </p>
-
-        {error && (
-          <div className="w-full max-w-[756px]">
-            <ErrorCallout error={error} />
-          </div>
-        )}
       </div>
 
         </div>
