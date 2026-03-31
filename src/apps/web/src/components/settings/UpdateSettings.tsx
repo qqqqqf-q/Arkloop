@@ -43,6 +43,14 @@ function isAppUpdaterBusy(state: AppUpdaterState | null) {
   return state?.phase === 'checking' || state?.phase === 'downloading'
 }
 
+function isSilentUpdateError(message: string | null): boolean {
+  if (!message) return false
+  const normalized = message.toLowerCase()
+  return normalized.includes('failed to fetch release info: 404')
+    || normalized.includes('not published')
+    || normalized.includes('no release published')
+}
+
 export function UpdateSettingsContent() {
   const { t } = useLocale()
 
@@ -73,7 +81,8 @@ export function UpdateSettingsContent() {
       }
       await Promise.all(tasks)
     } catch (e) {
-      setCheckError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      setCheckError(isSilentUpdateError(message) ? null : message)
     } finally {
       setChecking(false)
     }
@@ -149,7 +158,8 @@ export function UpdateSettingsContent() {
       const state = await api.download()
       setAppUpdateState(state)
     } catch (e) {
-      setCheckError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      setCheckError(isSilentUpdateError(message) ? null : message)
     }
   }, [])
 
@@ -160,7 +170,8 @@ export function UpdateSettingsContent() {
       setCheckError(null)
       await api.install()
     } catch (e) {
-      setCheckError(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      setCheckError(isSilentUpdateError(message) ? null : message)
     }
   }, [])
 
