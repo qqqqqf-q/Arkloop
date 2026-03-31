@@ -184,6 +184,8 @@ export interface LocaleStrings {
     detailUpdatedAt: string;
     detailDescription: string;
     noDescription: string;
+    installedTab: string;
+    marketplaceTab: string;
     builtinTab: string;
     builtinTitle: string;
     builtinEmpty: string;

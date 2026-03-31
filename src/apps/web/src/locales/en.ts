@@ -174,6 +174,8 @@ export const en: LocaleStrings = {
     detailUpdatedAt: "Updated",
     detailDescription: "Description",
     noDescription: "No description yet.",
+    installedTab: "Installed",
+    marketplaceTab: "Marketplace",
     builtinTab: "Built-in",
     builtinTitle: "Built-in Skills",
     builtinEmpty: "No built-in skills available",

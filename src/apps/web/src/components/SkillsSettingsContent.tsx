@@ -1,26 +1,14 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { openExternal } from '../openExternal'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
-  Download,
-  FolderOpen,
   Github,
   Loader2,
-  MessageSquare,
-  MoreHorizontal,
   PackagePlus,
-  Plus,
-  RefreshCw,
   Search,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
   Upload,
-  X,
 } from 'lucide-react'
-import { Modal, PillToggle } from '@arkloop/shared'
+import { Modal, TabBar } from '@arkloop/shared'
 import {
   type InstalledSkill,
   type MarketSkill,
@@ -28,9 +16,6 @@ import {
   type SkillPackageResponse,
   type SkillReference,
   deleteSkill,
-  discoverExternalSkills,
-  type ExternalSkillDir,
-  getExternalDirs,
   importRegistrySkill,
   importSkillFromGitHub,
   importSkillFromUpload,
@@ -42,155 +27,20 @@ import {
   type PlatformSkillItem,
   replaceDefaultSkills,
   searchMarketSkills,
-  setExternalDirs,
   setPlatformSkillOverride,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+import type { CandidateState, ViewMode, ViewSkill } from './skills/types'
+import { asSkillRef, dedupeSkillRefs, mergeSkills } from './skills/types'
+import { DropdownAction } from './skills/DropdownAction'
+import { InstalledSkillsView } from './skills/InstalledSkillsView'
+import { MarketplaceView } from './skills/MarketplaceView'
+import { BuiltinSkillsView } from './skills/BuiltinSkillsView'
+import { SkillDetailModal } from './skills/SkillDetailModal'
 
 type Props = {
   accessToken: string
   onTrySkill?: (prompt: string) => void
-}
-
-type ViewMode = 'installed' | 'builtin' | 'marketplace' | 'external'
-
-type ViewSkill = {
-  id: string
-  skill_key: string
-  version?: string
-  display_name: string
-  description?: string
-  detail_url?: string
-  repository_url?: string
-  registry_provider?: string
-  registry_slug?: string
-  owner_handle?: string
-  source: 'official' | 'custom' | 'github' | 'platform'
-  updated_at?: string
-  installed: boolean
-  enabled_by_default: boolean
-  scan_status?: SkillPackageResponse['scan_status']
-  scan_has_warnings?: boolean
-  scan_summary?: string
-  moderation_verdict?: string
-  is_platform?: boolean
-  platform_status?: 'auto' | 'manual' | 'removed'
-}
-
-type CandidateState = {
-  candidates: SkillImportCandidate[]
-}
-
-function normalizeInstalledSource(item: InstalledSkill): ViewSkill['source'] {
-  if (item.is_platform || item.source === 'builtin' || item.source === 'platform') {
-    return 'platform'
-  }
-  if (item.source === 'official' || item.source === 'github') {
-    return item.source
-  }
-  return 'custom'
-}
-
-function dedupeSkillRefs(items: SkillReference[]): SkillReference[] {
-  const seen = new Set<string>()
-  return items.filter((item) => {
-    const key = `${item.skill_key}@${item.version}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function formatDate(value?: string, locale = 'zh'): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date)
-}
-
-function asSkillRef(item: InstalledSkill | SkillPackageResponse): SkillReference {
-  return { skill_key: item.skill_key, version: item.version }
-}
-
-function buildSkillKey(skillKey?: string, version?: string, registrySlug?: string): string[] {
-  const keys: string[] = []
-  if (skillKey && version) keys.push(`${skillKey}@${version}`)
-  if (registrySlug && version) keys.push(`${registrySlug}@${version}`)
-  return keys
-}
-
-function matchesSkillQuery(item: ViewSkill, normalized: string): boolean {
-  if (!normalized) return true
-  return `${item.display_name} ${item.description ?? ''} ${item.skill_key} ${item.owner_handle ?? ''}`.toLowerCase().includes(normalized)
-}
-
-function mergeSkills(installed: InstalledSkill[], defaults: InstalledSkill[], market: MarketSkill[], query: string, viewMode: ViewMode): ViewSkill[] {
-  const defaultKeys = new Set(defaults.flatMap((item) => buildSkillKey(item.skill_key, item.version, item.registry_slug)))
-  const installedByKey = new Map(installed.map((item) => [item.skill_key, item]))
-  const installedByRegistrySlug = new Map(
-    installed
-      .filter((item) => item.registry_slug)
-      .map((item) => [item.registry_slug as string, item]),
-  )
-  const normalized = query.trim().toLowerCase()
-
-  const installedViews = installed.map<ViewSkill>((item) => ({
-    id: `installed:${item.skill_key}@${item.version}`,
-    skill_key: item.skill_key,
-    version: item.version,
-    display_name: item.display_name,
-    description: item.description ?? undefined,
-    detail_url: item.registry_detail_url,
-    repository_url: item.registry_source_url,
-    registry_provider: item.registry_provider,
-    registry_slug: item.registry_slug,
-    owner_handle: item.registry_owner_handle,
-    source: normalizeInstalledSource(item),
-    updated_at: item.updated_at,
-    installed: true,
-    enabled_by_default: item.is_platform
-      ? item.platform_status === 'auto'
-      : buildSkillKey(item.skill_key, item.version, item.registry_slug).some((key) => defaultKeys.has(key)),
-    scan_status: item.scan_status,
-    scan_has_warnings: item.scan_has_warnings,
-    scan_summary: item.scan_summary,
-    moderation_verdict: item.moderation_verdict,
-    is_platform: item.is_platform,
-    platform_status: item.platform_status ?? (item.is_platform ? 'auto' : undefined),
-  }))
-
-  const marketViews = market.map<ViewSkill>((item) => {
-    const installedItem = (item.registry_slug ? installedByRegistrySlug.get(item.registry_slug) : null) ?? installedByKey.get(item.skill_key)
-    return {
-      id: `market:${item.registry_slug ?? item.skill_key}`,
-      skill_key: item.skill_key,
-      version: installedItem?.version ?? item.version,
-      display_name: installedItem?.display_name ?? item.display_name,
-      description: installedItem?.description ?? item.description ?? undefined,
-      detail_url: installedItem?.registry_detail_url ?? item.detail_url ?? undefined,
-      repository_url: installedItem?.registry_source_url ?? item.repository_url ?? undefined,
-      registry_provider: installedItem?.registry_provider ?? item.registry_provider,
-      registry_slug: installedItem?.registry_slug ?? item.registry_slug,
-      owner_handle: installedItem?.registry_owner_handle ?? item.owner_handle,
-      source: installedItem ? normalizeInstalledSource(installedItem) : 'official',
-      updated_at: installedItem?.updated_at ?? item.updated_at ?? undefined,
-      installed: installedItem != null || item.installed,
-      enabled_by_default: installedItem != null
-        ? buildSkillKey(installedItem.skill_key, installedItem.version, installedItem.registry_slug).some((key) => defaultKeys.has(key))
-        : item.enabled_by_default,
-      scan_status: installedItem?.scan_status ?? item.scan_status,
-      scan_has_warnings: installedItem?.scan_has_warnings ?? item.scan_has_warnings,
-      scan_summary: installedItem?.scan_summary ?? item.scan_summary,
-      moderation_verdict: installedItem?.moderation_verdict ?? item.moderation_verdict,
-    }
-  })
-
-  const sourceItems = viewMode === 'installed' ? installedViews : marketViews
-  return sourceItems.filter((item) => matchesSkillQuery(item, normalized))
 }
 
 export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
@@ -479,12 +329,14 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   }, [accessToken, ensureInstalledAndDefault, file, installAfterImport, refreshInstalled, skillText.importFailed])
 
   const active = (item: ViewSkill) => item.installed && item.enabled_by_default
+
   const platformAvailabilityLabel = (status?: ViewSkill['platform_status']) => {
     if (status === 'auto') return skillText.enabledByDefault
     if (status === 'manual') return skillText.manualAvailable
     return ''
   }
-  const platformAvailabilityStyle = (status?: ViewSkill['platform_status']) => {
+
+  const platformAvailabilityStyle = (status?: ViewSkill['platform_status']): React.CSSProperties | null => {
     if (status === 'auto') {
       return { background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }
     }
@@ -521,22 +373,42 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
     }
   }, [skillText])
 
+  type SkillTab = ViewMode
+  const tabItems: { key: SkillTab; label: string }[] = [
+    { key: 'installed', label: skillText.installedTab },
+    { key: 'marketplace', label: skillText.marketplaceTab },
+    { key: 'builtin', label: skillText.builtinTab },
+  ]
+
+  const sharedViewProps = {
+    busySkillId,
+    menuSkillId,
+    setMenuSkillId,
+    onDetailSkill: setDetailSkill,
+    onEnable: (item: ViewSkill) => void handleEnable(item),
+    onDisable: (item: ViewSkill) => void handleDisable(item),
+    onRemove: (item: ViewSkill) => void handleRemove(item),
+    onTrySkill,
+    skillText,
+    locale,
+    platformAvailabilityLabel,
+    platformAvailabilityStyle,
+    scanStatusBadge,
+    active,
+    cardMenuRef,
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      {/* 搜索 + 内置 + 添加 */}
+      {/* TabBar + 搜索 + 添加 */}
       <div className="flex flex-wrap items-center gap-2">
-        {viewMode === 'marketplace' && (
-          <button
-            type="button"
-            onClick={() => { setViewMode('installed'); setQuery('') }}
-            className="slide-in-left group flex h-9 shrink-0 items-center gap-1 rounded-lg px-2.5 text-xs font-medium text-[var(--c-text-secondary)] transition-all duration-200 hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)] hover:gap-1.5"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            <ChevronLeft size={13} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
-            {skillText.backToSkills}
-          </button>
-        )}
-        <div className="relative min-w-[220px] flex-1">
+        <TabBar<SkillTab>
+          tabs={tabItems}
+          active={viewMode}
+          onChange={(tab) => { setViewMode(tab); setQuery('') }}
+        />
+        <div className="flex-1" />
+        <div className="relative min-w-[220px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
           <input
             ref={searchInputRef}
@@ -550,34 +422,6 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
             <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--c-text-tertiary)]" />
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={() => setViewMode((v) => v === 'builtin' ? 'installed' : 'builtin')}
-          className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            background: viewMode === 'builtin' ? 'var(--c-btn-bg)' : 'var(--c-bg-page)',
-            color: viewMode === 'builtin' ? 'var(--c-btn-text)' : 'var(--c-text-heading)',
-          }}
-        >
-          <Sparkles size={14} />
-          {skillText.builtinTab}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setViewMode((v) => v === 'external' ? 'installed' : 'external')}
-          className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            background: viewMode === 'external' ? 'var(--c-btn-bg)' : 'var(--c-bg-page)',
-            color: viewMode === 'external' ? 'var(--c-btn-text)' : 'var(--c-text-heading)',
-          }}
-        >
-          <FolderOpen size={14} />
-          {skillText.externalTab}
-        </button>
 
         <div className="relative" ref={addMenuRef}>
           <button
@@ -602,7 +446,6 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
                 boxShadow: 'var(--c-dropdown-shadow)',
               }}
             >
-              <DropdownAction icon={<ShieldCheck size={14} />} label={skillText.addFromSkillsmp} onClick={() => { setShowAddMenu(false); setViewMode('marketplace'); searchInputRef.current?.focus() }} />
               <DropdownAction icon={<Upload size={14} />} label={skillText.addFromUpload} onClick={() => { setShowAddMenu(false); setUploadOpen(true) }} />
               <DropdownAction icon={<Github size={14} />} label={skillText.addFromGitHub} onClick={() => { setShowAddMenu(false); setGitHubOpen(true) }} />
             </div>
@@ -617,330 +460,39 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>{error}</p>
       )}
 
-      {/* 内置技能视图 */}
+      {viewMode === 'installed' && (
+        <InstalledSkillsView
+          {...sharedViewProps}
+          items={items}
+          loading={loading}
+          accessToken={accessToken}
+        />
+      )}
+
+      {viewMode === 'marketplace' && (
+        <MarketplaceView
+          {...sharedViewProps}
+          items={items}
+          loading={loading}
+          marketLoading={marketLoading}
+        />
+      )}
+
       {viewMode === 'builtin' && (
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-            {skillText.builtinTitle}
-          </span>
-          {builtinLoading ? (
-            <div className="flex h-40 items-center justify-center">
-              <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
-            </div>
-          ) : builtinSkills.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
-              style={{ border: '0.5px solid var(--c-border-subtle)' }}
-            >
-              <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.builtinEmpty}</span>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {builtinSkills
-                .filter((s) => matchesSkillQuery({ id: s.skill_key, skill_key: s.skill_key, display_name: s.display_name, description: s.description, source: 'platform', installed: true, enabled_by_default: s.platform_status === 'auto' } as ViewSkill, query.trim().toLowerCase()))
-                .map((skill) => {
-                  const isRemoved = skill.platform_status === 'removed'
-                  const isEnabled = skill.platform_status === 'auto'
-                  const availabilityLabel = platformAvailabilityLabel(skill.platform_status)
-                  const availabilityStyle = platformAvailabilityStyle(skill.platform_status)
-                  const busy = busySkillId === `builtin:${skill.skill_key}@${skill.version}`
-                  return (
-                    <div
-                      key={`${skill.skill_key}@${skill.version}`}
-                      className="flex items-center gap-3 rounded-xl p-3 transition-colors duration-100"
-                      style={{
-                        border: '0.5px solid var(--c-border-subtle)',
-                        background: isRemoved ? 'var(--c-bg-page)' : 'var(--c-bg-menu)',
-                        opacity: isRemoved ? 0.55 : 1,
-                      }}
-                    >
-                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
-                            {skill.display_name}
-                          </span>
-                          <span
-                            className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
-                            style={{ background: 'var(--c-bg-deep)' }}
-                          >
-                            {skillText.sourceBuiltin}
-                          </span>
-                          {availabilityLabel && availabilityStyle && (
-                            <span
-                              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                              style={availabilityStyle}
-                            >
-                              {availabilityLabel}
-                            </span>
-                          )}
-                        </div>
-                        {skill.description && (
-                          <span className="line-clamp-2 text-xs text-[var(--c-text-tertiary)]">{skill.description}</span>
-                        )}
-                      </div>
-
-                      {isRemoved ? (
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                            try {
-                              await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'auto')
-                              const items = await listPlatformSkills(accessToken)
-                              setBuiltinSkills(items)
-                              await refreshInstalled()
-                            } catch {
-                              setError(skillText.importFailed)
-                            } finally {
-                              setBusySkillId(null)
-                            }
-                          }}
-                          className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
-                          style={{ border: '0.5px solid var(--c-border-subtle)', color: 'var(--c-text-heading)' }}
-                        >
-                          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                          {skillText.restore}
-                        </button>
-                      ) : (
-                        <>
-                          <PillToggle
-                            checked={isEnabled}
-                            disabled={busy}
-                            onChange={async () => {
-                              setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                              try {
-                                const newStatus = isEnabled ? 'manual' : 'auto'
-                                await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, newStatus)
-                                const refreshed = await listPlatformSkills(accessToken)
-                                setBuiltinSkills(refreshed)
-                                await refreshInstalled()
-                              } catch {
-                                setError(skillText.disableFailed)
-                              } finally {
-                                setBusySkillId(null)
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={async () => {
-                              setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                              try {
-                                await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'removed')
-                                const refreshed = await listPlatformSkills(accessToken)
-                                setBuiltinSkills(refreshed)
-                                await refreshInstalled()
-                              } catch {
-                                setError(skillText.importFailed)
-                              } finally {
-                                setBusySkillId(null)
-                              }
-                            }}
-                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
-                            style={{ color: 'var(--c-status-error-text)' }}
-                          >
-                            {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )
-                })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 外部技能视图 */}
-      {viewMode === 'external' && (
-        <ExternalSkillsView accessToken={accessToken} skillText={skillText} />
-      )}
-
-      {/* 技能列表 */}
-      {viewMode !== 'builtin' && viewMode !== 'external' && (
-      <div className="flex flex-col gap-2">
-        <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-          {skillText.searchResults(items.length)}
-        </span>
-
-        {loading ? (
-          <div className="flex h-40 items-center justify-center">
-            <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
-          </div>
-        ) : items.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.emptyTitle}</span>
-            <span className="text-xs text-[var(--c-text-tertiary)]">{viewMode === 'installed' ? skillText.emptyBodyNoMarket : skillText.emptyDesc}</span>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {items.map((item) => {
-              const busy = busySkillId === item.id
-              const enabled = active(item)
-              const platformBadgeLabel = item.is_platform ? platformAvailabilityLabel(item.platform_status) : ''
-              const platformBadgeStyle = item.is_platform ? platformAvailabilityStyle(item.platform_status) : null
-              const scanBadge = scanStatusBadge(item)
-              const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
-                ? 'ClawHub'
-                : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : '')
-              const metaParts = [providerLabel, item.owner_handle ? `@${item.owner_handle}` : '', item.version ? `v${item.version}` : '']
-                .filter(Boolean)
-                .join(' · ')
-              return (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-colors duration-100 bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
-                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
-                  onClick={() => setDetailSkill(item)}
-                >
-                  <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
-                        {item.display_name}
-                      </span>
-                      {item.source === 'official' && (
-                        <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                          style={{ background: 'var(--c-pro-bg)', color: '#6ba3f6' }}
-                        >
-                          {providerLabel}
-                        </span>
-                      )}
-                      {item.source === 'github' && (
-                        <span
-                          className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-tertiary)]"
-                          style={{ background: 'var(--c-bg-deep)' }}
-                        >
-                          <Github size={9} />
-                          {skillText.sourceGitHub}
-                        </span>
-                      )}
-                      {item.is_platform && (
-                        <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
-                          style={{ background: 'var(--c-bg-deep)' }}
-                        >
-                          {skillText.sourceBuiltin}
-                        </span>
-                      )}
-                      {scanBadge && (
-                        <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                          style={scanBadge.style}
-                        >
-                          {scanBadge.label}
-                        </span>
-                      )}
-                      {platformBadgeLabel && platformBadgeStyle ? (
-                        <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                          style={platformBadgeStyle}
-                        >
-                          {platformBadgeLabel}
-                        </span>
-                      ) : enabled && (
-                        <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                          style={{ background: 'var(--c-status-ok-bg)', color: 'var(--c-status-ok-text)' }}
-                        >
-                          {skillText.enabledByDefault}
-                        </span>
-                      )}
-                    </div>
-                    <span className="line-clamp-2 text-xs text-[var(--c-text-tertiary)]">
-                      {item.description ?? item.skill_key}
-                    </span>
-                    {metaParts && (
-                      <span className="text-[10px] text-[var(--c-text-muted)]">{metaParts}</span>
-                    )}
-                    {(item.scan_summary || item.updated_at) && (
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-[var(--c-text-muted)]">
-                        {item.scan_summary && <span className="line-clamp-2">{item.scan_summary}</span>}
-                        {item.updated_at && <span>{skillText.updatedAt(formatDate(item.updated_at, locale))}</span>}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
-                    <PillToggle
-                      checked={enabled}
-                      disabled={busy}
-                      onChange={() => {
-                        if (enabled) void handleDisable(item)
-                        else void handleEnable(item)
-                      }}
-                    />
-                  </div>
-
-                  <div className="relative" ref={menuSkillId === item.id ? cardMenuRef : undefined} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={() => setMenuSkillId((v) => (v === item.id ? null : item.id))}
-                      className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                    >
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <MoreHorizontal size={14} />}
-                    </button>
-                    {menuSkillId === item.id && (
-                      <div
-                        className="dropdown-menu absolute right-0 top-[calc(100%+4px)] z-50"
-                        style={{
-                          border: '0.5px solid var(--c-border-subtle)',
-                          borderRadius: '10px',
-                          padding: '4px',
-                          background: 'var(--c-bg-menu)',
-                          width: '180px',
-                          boxShadow: 'var(--c-dropdown-shadow)',
-                        }}
-                      >
-                        <DropdownAction
-                          icon={<MessageSquare size={14} />}
-                          label={skillText.trySkill}
-                          disabled={!item.installed}
-                          onClick={() => {
-                            setMenuSkillId(null)
-                            onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
-                          }}
-                        />
-                        {!item.is_platform && (
-                          <DropdownAction
-                            icon={<Download size={14} />}
-                            label={skillText.download}
-                            disabled={!item.detail_url}
-                            onClick={() => {
-                              setMenuSkillId(null)
-                              if (item.detail_url) openExternal(item.detail_url)
-                            }}
-                          />
-                        )}
-                        {!item.is_platform && (
-                          <DropdownAction
-                            icon={<RefreshCw size={14} />}
-                            label={skillText.replace}
-                            disabled={item.source === 'custom' || (!item.detail_url && !item.repository_url)}
-                            onClick={() => { setMenuSkillId(null); void handleEnable(item) }}
-                          />
-                        )}
-                        <DropdownAction
-                          icon={<Trash2 size={14} />}
-                          label={skillText.remove}
-                          disabled={!item.installed || !item.version}
-                          destructive
-                          onClick={() => { setMenuSkillId(null); void handleRemove(item) }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+        <BuiltinSkillsView
+          builtinSkills={builtinSkills}
+          builtinLoading={builtinLoading}
+          busySkillId={busySkillId}
+          setBusySkillId={setBusySkillId}
+          setError={setError}
+          query={query}
+          accessToken={accessToken}
+          skillText={skillText}
+          refreshInstalled={refreshInstalled}
+          setBuiltinSkills={setBuiltinSkills}
+          platformAvailabilityLabel={platformAvailabilityLabel}
+          platformAvailabilityStyle={platformAvailabilityStyle}
+        />
       )}
 
       {/* 上传对话框 */}
@@ -1084,347 +636,22 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
         )}
       </Modal>
 
-      {/* 技能详情 Modal */}
-      {detailSkill && (() => {
-        const item = detailSkill
-        const enabled = active(item)
-        const platformBadgeLabel = item.is_platform ? platformAvailabilityLabel(item.platform_status) : ''
-        const platformBadgeStyle = item.is_platform ? platformAvailabilityStyle(item.platform_status) : null
-        const scanBadge = scanStatusBadge(item)
-        const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
-          ? 'ClawHub'
-          : item.registry_provider?.trim() || (item.source === 'official' ? skillText.sourceOfficial : item.source === 'github' ? skillText.sourceGitHub : item.is_platform ? skillText.sourceBuiltin : skillText.sourceCustom)
-        return (
-          <div
-            className="fixed inset-0 z-[60] flex items-center justify-center"
-            style={{ background: 'rgba(0,0,0,0.12)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
-            onMouseDown={(e) => { if (e.target === e.currentTarget) setDetailSkill(null) }}
-          >
-            <div
-              className="modal-enter flex w-full max-w-lg flex-col overflow-hidden rounded-2xl"
-              style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)', maxHeight: '80vh' }}
-            >
-              {/* header */}
-              <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: 'var(--c-border-subtle)' }}>
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-base font-semibold text-[var(--c-text-heading)]">{item.display_name}</span>
-                    {item.source === 'official' && (
-                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={{ background: 'var(--c-pro-bg)', color: '#6ba3f6' }}>
-                        {providerLabel}
-                      </span>
-                    )}
-                    {item.source === 'github' && (
-                      <span className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-tertiary)]" style={{ background: 'var(--c-bg-deep)' }}>
-                        <Github size={9} />
-                        {skillText.sourceGitHub}
-                      </span>
-                    )}
-                    {item.is_platform && (
-                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
-                        {skillText.sourceBuiltin}
-                      </span>
-                    )}
-                    {platformBadgeLabel && platformBadgeStyle && (
-                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={platformBadgeStyle}>
-                        {platformBadgeLabel}
-                      </span>
-                    )}
-                    {scanBadge && (
-                      <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={scanBadge.style}>
-                        {scanBadge.label}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-[var(--c-text-tertiary)]">{item.skill_key}{item.version ? ` v${item.version}` : ''}</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDetailSkill(null)
-                      onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
-                    }}
-                    disabled={!item.installed}
-                    className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-40"
-                    style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
-                  >
-                    <MessageSquare size={13} />
-                    {skillText.trySkill}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDetailSkill(null)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              </div>
-
-              {/* body */}
-              <div className="flex-1 overflow-auto p-5">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{skillText.detailDescription}</span>
-                    <p className="text-sm leading-relaxed text-[var(--c-text-secondary)]">
-                      {item.description || skillText.noDescription}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
-                      <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailVersion}</span>
-                      <span className="text-sm text-[var(--c-text-heading)]">{item.version || '-'}</span>
-                    </div>
-                    <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
-                      <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailSource}</span>
-                      <span className="text-sm text-[var(--c-text-heading)]">{providerLabel || item.source}</span>
-                    </div>
-                  </div>
-
-                  {item.updated_at && (
-                    <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
-                      <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailUpdatedAt}</span>
-                      <span className="text-sm text-[var(--c-text-heading)]">{formatDate(item.updated_at, locale)}</span>
-                    </div>
-                  )}
-
-                  {item.scan_summary && (
-                    <div className="rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
-                      <p className="text-xs leading-relaxed text-[var(--c-text-tertiary)]">{item.scan_summary}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* footer */}
-              <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: 'var(--c-border-subtle)' }}>
-                <div className="flex items-center gap-2">
-                  {!item.is_platform && (
-                    <button
-                      type="button"
-                      disabled={!item.detail_url}
-                      onClick={() => item.detail_url && openExternal(item.detail_url)}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                      style={{ border: '0.5px solid var(--c-border-subtle)' }}
-                    >
-                      <Download size={12} />
-                      {skillText.download}
-                    </button>
-                  )}
-                  {item.installed && item.version && (
-                    <button
-                      type="button"
-                      onClick={() => { setDetailSkill(null); void handleRemove(item) }}
-                      className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-error-bg)]"
-                      style={{ color: 'var(--c-status-error-text)' }}
-                    >
-                      <Trash2 size={12} />
-                      {skillText.remove}
-                    </button>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="text-xs text-[var(--c-text-tertiary)]">
-                    {platformAvailabilityLabel(item.platform_status) || (enabled ? skillText.enabledByDefault : skillText.disable)}
-                  </span>
-                  <PillToggle
-                    checked={enabled}
-                    onChange={() => {
-                      if (enabled) void handleDisable(item)
-                      else void handleEnable(item)
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-    </div>
-  )
-}
-
-function ExternalSkillsView({ accessToken, skillText }: { accessToken: string; skillText: Props extends never ? never : ReturnType<typeof useLocale>['t']['skills'] }) {
-  const [dirs, setDirs] = useState<ExternalSkillDir[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [newDir, setNewDir] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await discoverExternalSkills(accessToken)
-      setDirs(res.dirs ?? [])
-    } catch {
-      setError(skillText.externalLoadFailed)
-    } finally {
-      setLoading(false)
-    }
-  }, [accessToken, skillText.externalLoadFailed])
-
-  useEffect(() => { void refresh() }, [refresh])
-
-  const handleAddDir = async () => {
-    const trimmed = newDir.trim()
-    if (!trimmed) return
-    setSaving(true)
-    setError('')
-    try {
-      const current = await getExternalDirs(accessToken)
-      if (!current.includes(trimmed)) {
-        await setExternalDirs(accessToken, [...current, trimmed])
-      }
-      setNewDir('')
-      await refresh()
-    } catch {
-      setError(skillText.externalSaveFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleRemoveDir = async (path: string) => {
-    setSaving(true)
-    setError('')
-    try {
-      const current = await getExternalDirs(accessToken)
-      await setExternalDirs(accessToken, current.filter((d) => d !== path))
-      await refresh()
-    } catch {
-      setError(skillText.externalRemoveFailed)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const toggle = (path: string) => {
-    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }))
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-        {skillText.externalTitle}
-      </span>
-
-      {error && (
-        <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>{error}</p>
-      )}
-
-      {loading ? (
-        <div className="flex h-40 items-center justify-center">
-          <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
-        </div>
-      ) : dirs.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.externalEmpty}</span>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {dirs.map((dir) => {
-            const open = expanded[dir.path] !== false
-            return (
-              <div
-                key={dir.path}
-                className="rounded-xl transition-colors duration-100"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-              >
-                <div
-                  className="flex items-center gap-2 p-3 cursor-pointer select-none"
-                  onClick={() => toggle(dir.path)}
-                >
-                  {open ? <ChevronDown size={14} className="shrink-0 text-[var(--c-text-tertiary)]" /> : <ChevronRight size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />}
-                  <FolderOpen size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-heading)]">
-                    {dir.path}
-                  </span>
-                  <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
-                    {dir.skills.length}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={(e) => { e.stopPropagation(); void handleRemoveDir(dir.path) }}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
-                    style={{ color: 'var(--c-status-error-text)' }}
-                  >
-                    {saving ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                  </button>
-                </div>
-                {open && (
-                  <div className="flex flex-col gap-1 px-3 pb-3">
-                    {dir.skills.length === 0 ? (
-                      <span className="pl-7 text-xs text-[var(--c-text-muted)]">{skillText.externalNoSkills}</span>
-                    ) : (
-                      dir.skills.map((skill) => (
-                        <div
-                          key={skill.path}
-                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 pl-7"
-                          style={{ background: 'var(--c-bg-page)' }}
-                        >
-                          <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text-heading)]">
-                            {skill.name}
-                          </span>
-                          <span className="shrink-0 truncate text-[10px] text-[var(--c-text-muted)]">
-                            {skill.instruction_path.split('/').pop()}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <input
-          value={newDir}
-          onChange={(e) => setNewDir(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') void handleAddDir() }}
-          placeholder={skillText.externalAddPlaceholder}
-          className="h-9 min-w-0 flex-1 rounded-lg pl-3 pr-3 text-sm text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+      {detailSkill && (
+        <SkillDetailModal
+          item={detailSkill}
+          onClose={() => setDetailSkill(null)}
+          onEnable={(item) => void handleEnable(item)}
+          onDisable={(item) => void handleDisable(item)}
+          onRemove={(item) => void handleRemove(item)}
+          onTrySkill={onTrySkill}
+          skillText={skillText}
+          locale={locale}
+          active={active}
+          platformAvailabilityLabel={platformAvailabilityLabel}
+          platformAvailabilityStyle={platformAvailabilityStyle}
+          scanStatusBadge={scanStatusBadge}
         />
-        <button
-          type="button"
-          disabled={saving || !newDir.trim()}
-          onClick={() => void handleAddDir()}
-          className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium transition-colors disabled:opacity-40"
-          style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          {skillText.externalAddDir}
-        </button>
-      </div>
+      )}
     </div>
-  )
-}
-
-function DropdownAction({ icon, label, onClick, disabled, destructive }: { icon: ReactNode; label: string; onClick: () => void; disabled?: boolean; destructive?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40 bg-[var(--c-bg-menu)] ${destructive ? '[&:not(:disabled)]:hover:bg-[var(--c-error-bg)]' : '[&:not(:disabled)]:hover:bg-[var(--c-bg-deep)]'}`}
-      style={{
-        borderRadius: '8px',
-        color: destructive ? 'var(--c-status-error-text)' : 'var(--c-text-secondary)',
-      }}
-    >
-      {icon}
-      {label}
-    </button>
   )
 }

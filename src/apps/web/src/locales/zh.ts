@@ -174,6 +174,8 @@ export const zh: LocaleStrings = {
     detailUpdatedAt: "更新时间",
     detailDescription: "描述",
     noDescription: "暂无描述",
+    installedTab: "已安装",
+    marketplaceTab: "应用市场",
     builtinTab: "内置",
     builtinTitle: "内置技能",
     builtinEmpty: "暂无内置技能",

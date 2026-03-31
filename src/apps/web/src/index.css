@@ -1152,7 +1152,8 @@ button:not(:disabled) {
 }
 
 @keyframes user-prompt-enter-dark {
-  from {
+  from,
+  20% {
     transform: scale(1.025);
     background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
     color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
@@ -1165,7 +1166,8 @@ button:not(:disabled) {
 }
 
 @keyframes user-prompt-enter-light {
-  from {
+  from,
+  20% {
     transform: scale(1.025);
     background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
     color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
@@ -1183,8 +1185,8 @@ button:not(:disabled) {
 }
 
 .user-prompt-bubble-enter {
-  transform-origin: right center;
-  animation: user-prompt-enter-dark 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: center center;
+  animation: user-prompt-enter-dark 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
