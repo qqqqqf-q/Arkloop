@@ -145,9 +145,10 @@ func (s *Service) DiscoverSources(ctx context.Context, req DiscoveryRequest) (Di
 		{kind: data.MCPSourceKindDesktopFile, path: shareddesktop.MCPServersPath(s.dataDir)},
 	}
 	if req.WorkspaceRoot != nil && strings.TrimSpace(*req.WorkspaceRoot) != "" {
+		wsRoot := expandTilde(strings.TrimSpace(*req.WorkspaceRoot))
 		candidates = append(candidates, candidateSource{
 			kind: data.MCPSourceKindProjectImport,
-			path: filepath.Join(strings.TrimSpace(*req.WorkspaceRoot), ".mcp.json"),
+			path: filepath.Join(wsRoot, ".mcp.json"),
 		})
 	}
 	for _, path := range req.Paths {
@@ -155,7 +156,8 @@ func (s *Service) DiscoverSources(ctx context.Context, req DiscoveryRequest) (Di
 		if cleaned == "" {
 			continue
 		}
-		candidates = append(candidates, candidateSource{kind: data.MCPSourceKindExternalImport, path: cleaned})
+		expanded := expandTilde(cleaned)
+		candidates = append(candidates, candidateSource{kind: data.MCPSourceKindExternalImport, path: expanded})
 	}
 	for _, candidate := range candidates {
 		absPath, err := filepath.Abs(candidate.path)
@@ -172,8 +174,10 @@ func (s *Service) DiscoverSources(ctx context.Context, req DiscoveryRequest) (Di
 		}
 		servers, err := loadMCPServerMap(absPath)
 		if err != nil {
-			source.ValidationErrors = []string{err.Error()}
-			sources = append(sources, source)
+			if !os.IsNotExist(err) {
+				source.ValidationErrors = []string{err.Error()}
+				sources = append(sources, source)
+			}
 			continue
 		}
 		proposals := make([]ProposedInstall, 0, len(servers))
@@ -448,7 +452,10 @@ func proposedInstallFromRaw(path, sourceKind, serverName string, raw map[string]
 			launch["env"] = parsed
 		}
 		hostRequirement = data.MCPHostRequirementDesktopLocal
-	case "http_sse", "streamable_http":
+	case "http_sse", "streamable_http", "http", "sse":
+		if transport == "http" || transport == "sse" {
+			transport = "streamable_http"
+		}
 		url := strings.TrimSpace(asString(raw["url"]))
 		if url == "" {
 			validationErrors = append(validationErrors, fmt.Sprintf("server %q missing url", serverName))
@@ -561,6 +568,24 @@ func cloneHeaders(input map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func expandTilde(path string) string {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
 
 func classifySourceKind(path string, dataDir string) string {

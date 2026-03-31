@@ -41,12 +41,16 @@ export function Modal({ open, onClose, title, children, width = '480px' }: Props
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
     >
       <div
-        className="modal-enter flex max-h-[85vh] flex-col rounded-xl border border-[var(--c-border)] bg-[var(--c-bg-deep2)]"
-        style={{ width: `min(${width}, calc(100vw - 40px))` }}
+        className="modal-enter flex max-h-[85vh] flex-col rounded-[14px]"
+        style={{
+          background: 'var(--c-bg-page)',
+          border: '0.5px solid var(--c-border-subtle)',
+          width: `min(${width}, calc(100vw - 40px))`,
+        }}
       >
         {title && (
-          <div className="flex items-center justify-between border-b border-[var(--c-border)] px-5 py-3.5">
-            <h3 className="text-sm font-medium text-[var(--c-text-primary)]">{title}</h3>
+          <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}>
+            <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{title}</h3>
           </div>
         )}
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
