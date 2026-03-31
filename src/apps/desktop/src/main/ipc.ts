@@ -48,6 +48,58 @@ export function registerIpcHandlers(
     return getConfigPath()
   })
 
+  ipcMain.handle('arkloop:advanced:overview', async () => {
+    return await buildAdvancedOverview()
+  })
+
+  ipcMain.handle('arkloop:advanced:data-folder', async () => {
+    const { dialog } = require('electron') as typeof import('electron')
+    const win = getWindow()
+    const result = await dialog.showOpenDialog(win ?? BrowserWindow.getFocusedWindow()!, {
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle('arkloop:advanced:export-data', async () => {
+    const { dialog } = require('electron') as typeof import('electron')
+    const path = require('path') as typeof import('path')
+    const win = getWindow()
+    const result = await dialog.showOpenDialog(win ?? BrowserWindow.getFocusedWindow()!, {
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('export canceled')
+    }
+    const exportPath = exportDesktopBundle(result.filePaths[0], path)
+    return { ok: true, filePath: exportPath }
+  })
+
+  ipcMain.handle('arkloop:advanced:import-data', async () => {
+    const { dialog } = require('electron') as typeof import('electron')
+    const path = require('path') as typeof import('path')
+    const win = getWindow()
+    const result = await dialog.showOpenDialog(win ?? BrowserWindow.getFocusedWindow()!, {
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('import canceled')
+    }
+    const importedConfig = importDesktopBundle(result.filePaths[0], path)
+    await controller.applyConfigUpdate(importedConfig, { forceLocalSidecarRestart: true })
+    return { ok: true, importedFrom: result.filePaths[0] }
+  })
+
+  ipcMain.handle('arkloop:advanced:logs', async (_event, input?: {
+    source?: 'all' | 'main' | 'sidecar'
+    level?: 'all' | 'info' | 'warn' | 'error' | 'debug' | 'other'
+    search?: string
+    limit?: number
+  }) => {
+    return { entries: listDesktopLogs(input) }
+  })
+
   ipcMain.handle('arkloop:sidecar:status', () => {
     return getSidecarStatus()
   })
@@ -510,7 +562,12 @@ async function makeApiRequest(url: string, method: string, token: string): Promi
 }
 
 async function makeApiRequestRaw(url: string, method: string, token: string, body?: string): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
+  const config = loadConfig()
+  const timeoutMs = config.network.requestTimeoutMs ?? 30000
+  const maxAttempts = Math.max(1, (config.network.retryCount ?? 1) + 1)
+  let attempt = 0
+
+  const run = (): Promise<{ status: number; body: string }> => new Promise((resolve, reject) => {
     const parsed = new URL(url)
     const options = {
       hostname: parsed.hostname,
@@ -520,6 +577,7 @@ async function makeApiRequestRaw(url: string, method: string, token: string, bod
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(config.network.userAgent ? { 'User-Agent': config.network.userAgent } : {}),
       },
     }
     const http = require('http') as typeof import('http')
@@ -536,9 +594,224 @@ async function makeApiRequestRaw(url: string, method: string, token: string, bod
       })
     })
     req.on('error', reject)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error(`request timeout after ${timeoutMs}ms`))
+    })
     if (body) {
       req.write(body)
     }
     req.end()
   })
+
+  for (;;) {
+    try {
+      return await run()
+    } catch (error) {
+      attempt += 1
+      if (attempt >= maxAttempts) throw error
+    }
+  }
+}
+
+function desktopDataDir(): string {
+  const path = require('path') as typeof import('path')
+  return path.dirname(getConfigPath())
+}
+
+function desktopSQLitePath(): string {
+  const path = require('path') as typeof import('path')
+  return path.join(desktopDataDir(), 'data.db')
+}
+
+function desktopStoragePath(): string {
+  const path = require('path') as typeof import('path')
+  return path.join(desktopDataDir(), 'storage')
+}
+
+function getDesktopIconPath(): string | null {
+  const path = require('path') as typeof import('path')
+  const fs = require('fs') as typeof import('fs')
+  const { app } = require('electron') as typeof import('electron')
+  const candidates = app.isPackaged
+    ? (
+      process.platform === 'darwin'
+        ? [
+            path.join(process.resourcesPath, 'icon.icns'),
+            path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+          ]
+        : process.platform === 'win32'
+          ? [
+              path.join(process.resourcesPath, 'icon.ico'),
+              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.ico'),
+            ]
+          : [
+              path.join(process.resourcesPath, 'icon.png'),
+              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+            ]
+    )
+    : [
+        path.join(__dirname, '..', '..', 'resources', 'icon.png'),
+        path.join(__dirname, '..', '..', 'resources', 'icon.icns'),
+      ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+async function buildAdvancedOverview(): Promise<{
+  appName: string
+  appVersion: string
+  githubUrl: string
+  telegramUrl: string | null
+  iconPath: string | null
+  configPath: string
+  dataDir: string
+  logsDir: string
+  sqlitePath: string
+  links: Array<{ label: string; url: string }>
+  status: Array<{ label: string; value: string; tone?: 'default' | 'success' | 'warning' | 'danger' }>
+  usage: unknown
+}> {
+  const { app } = require('electron') as typeof import('electron')
+  const config = loadConfig()
+  const runtime = getSidecarRuntime()
+  let updater: Awaited<ReturnType<typeof getAppUpdaterState>> | null = null
+  try {
+    updater = await Promise.resolve(getAppUpdaterState())
+  } catch {
+    updater = null
+  }
+  const componentUpdates = await checkForUpdates().catch(() => null)
+  const usage = await loadMonthlyUsage().catch(() => null)
+  return {
+    appName: 'Arkloop',
+    appVersion: app.getVersion(),
+    githubUrl: 'https://github.com/qqqqqf/Arkloop',
+    telegramUrl: null,
+    iconPath: getDesktopIconPath(),
+    configPath: getConfigPath(),
+    dataDir: desktopDataDir(),
+    logsDir: getDesktopLogDir(),
+    sqlitePath: desktopSQLitePath(),
+    links: [
+      { label: 'GitHub', url: 'https://github.com/qqqqqf/Arkloop' },
+      { label: 'Releases', url: 'https://github.com/qqqqqf/Arkloop/releases' },
+    ],
+    status: [
+      { label: 'Connection', value: config.mode, tone: config.mode === 'local' ? 'success' : 'default' },
+      { label: 'Sidecar', value: runtime.status, tone: runtime.status === 'running' ? 'success' : runtime.status === 'crashed' ? 'danger' : 'warning' },
+      { label: 'App Update', value: updater?.phase ?? 'idle', tone: updater?.phase === 'available' || updater?.phase === 'downloaded' ? 'warning' : 'default' },
+      { label: 'OpenViking', value: componentUpdates?.openviking.available ? 'update_available' : (componentUpdates?.openviking.current ?? 'not_installed') },
+    ],
+    usage,
+  }
+}
+
+function exportDesktopBundle(destRoot: string, path: typeof import('path')): string {
+  const fs = require('fs') as typeof import('fs')
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const outDir = path.join(destRoot, `arkloop-export-${stamp}`)
+  fs.mkdirSync(outDir, { recursive: true })
+
+  const copyIfExists = (src: string, dest: string) => {
+    if (!fs.existsSync(src)) return
+    fs.cpSync(src, dest, { recursive: true })
+  }
+
+  copyIfExists(getConfigPath(), path.join(outDir, 'config.json'))
+  copyIfExists(desktopSQLitePath(), path.join(outDir, 'data.db'))
+  copyIfExists(desktopStoragePath(), path.join(outDir, 'storage'))
+  copyIfExists(getDesktopLogDir(), path.join(outDir, 'logs'))
+
+  fs.writeFileSync(path.join(outDir, 'manifest.json'), JSON.stringify({
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    files: ['config.json', 'data.db', 'storage', 'logs'],
+  }, null, 2), 'utf-8')
+
+  return outDir
+}
+
+function importDesktopBundle(srcDir: string, path: typeof import('path')): AppConfig {
+  const fs = require('fs') as typeof import('fs')
+  const copyIfExists = (src: string, dest: string) => {
+    if (!fs.existsSync(src)) return
+    fs.cpSync(src, dest, { recursive: true, force: true })
+  }
+
+  const nextConfigPath = path.join(srcDir, 'config.json')
+  if (!fs.existsSync(nextConfigPath)) {
+    throw new Error('config.json not found in import bundle')
+  }
+
+  copyIfExists(nextConfigPath, getConfigPath())
+  copyIfExists(path.join(srcDir, 'data.db'), desktopSQLitePath())
+  copyIfExists(path.join(srcDir, 'storage'), desktopStoragePath())
+
+  const raw = fs.readFileSync(nextConfigPath, 'utf-8')
+  return JSON.parse(raw) as AppConfig
+}
+
+function listDesktopLogs(input?: {
+  source?: 'all' | 'main' | 'sidecar'
+  level?: 'all' | 'info' | 'warn' | 'error' | 'debug' | 'other'
+  search?: string
+  limit?: number
+}): Array<{ timestamp: string; level: 'info' | 'warn' | 'error' | 'debug' | 'other'; source: 'main' | 'sidecar'; message: string; raw: string }> {
+  const fs = require('fs') as typeof import('fs')
+  const files = getDesktopLogPaths()
+  const sources = input?.source === 'main'
+    ? [{ source: 'main' as const, file: files.main }]
+    : input?.source === 'sidecar'
+      ? [{ source: 'sidecar' as const, file: files.sidecar }]
+      : [
+          { source: 'main' as const, file: files.main },
+          { source: 'sidecar' as const, file: files.sidecar },
+        ]
+  const search = input?.search?.trim().toLowerCase() ?? ''
+  const limit = Math.min(Math.max(input?.limit ?? 200, 1), 1000)
+  const entries = sources.flatMap(({ source, file }) => {
+    if (!fs.existsSync(file)) return []
+    const lines = fs.readFileSync(file, 'utf-8').split(/\r?\n/).filter(Boolean)
+    return lines.map((line) => parseDesktopLogLine(source, line))
+  })
+
+  return entries
+    .filter((entry) => input?.level && input.level !== 'all' ? entry.level === input.level : true)
+    .filter((entry) => search ? entry.raw.toLowerCase().includes(search) || entry.message.toLowerCase().includes(search) : true)
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    .slice(0, limit)
+}
+
+function parseDesktopLogLine(source: 'main' | 'sidecar', line: string): {
+  timestamp: string
+  level: 'info' | 'warn' | 'error' | 'debug' | 'other'
+  source: 'main' | 'sidecar'
+  message: string
+  raw: string
+} {
+  const match = line.match(/^\[(.+?)\]\s+\[(.+?)\]\s+(.*)$/)
+  const timestamp = match?.[1] ?? new Date(0).toISOString()
+  const tag = (match?.[2] ?? '').toLowerCase()
+  const message = match?.[3] ?? line
+  const level = tag.includes('error')
+    ? 'error'
+    : tag.includes('warn')
+      ? 'warn'
+      : tag.includes('debug')
+        ? 'debug'
+        : tag.includes('info') || tag.includes('log') || tag.includes('session') || tag.includes('stdout')
+          ? 'info'
+          : 'other'
+  return { timestamp, level, source, message, raw: line }
+}
+
+async function loadMonthlyUsage(): Promise<unknown> {
+  const apiBaseUrl = getLocalApiBaseUrl()
+  if (!apiBaseUrl) return null
+  const now = new Date()
+  const token = getDesktopAccessToken()
+  return await makeApiRequest(`${apiBaseUrl}/v1/me/usage?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`, 'GET', token)
 }

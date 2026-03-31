@@ -12,6 +12,7 @@ import type {
   LocalPortMode,
   MemoryConfig,
   MemoryProvider,
+  NetworkConfig,
   OpenVikingDesktopConfig,
   SearchConnectorConfig,
   SearchProvider,
@@ -132,6 +133,31 @@ function normalizeVoice(raw: unknown): VoiceConfig | undefined {
   return { enabled: r.enabled, language: typeof r.language === 'string' ? r.language : undefined }
 }
 
+function normalizeTimeoutMs(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 1000 && value <= 300000) {
+    return value
+  }
+  return DEFAULT_CONFIG.network.requestTimeoutMs ?? 30000
+}
+
+function normalizeRetryCount(value: unknown): number {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10) {
+    return value
+  }
+  return DEFAULT_CONFIG.network.retryCount ?? 1
+}
+
+function normalizeNetwork(raw: unknown): NetworkConfig {
+  const r = (raw && typeof raw === 'object') ? raw as Partial<NetworkConfig> : {}
+  return {
+    proxyEnabled: r.proxyEnabled === true,
+    ...(typeof r.proxyUrl === 'string' && r.proxyUrl.trim() ? { proxyUrl: r.proxyUrl.trim() } : {}),
+    requestTimeoutMs: normalizeTimeoutMs(r.requestTimeoutMs),
+    retryCount: normalizeRetryCount(r.retryCount),
+    ...(typeof r.userAgent === 'string' && r.userAgent.trim() ? { userAgent: r.userAgent.trim() } : {}),
+  }
+}
+
 export function normalizeConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
   const parsed = config ?? {}
   return {
@@ -157,6 +183,7 @@ export function normalizeConfig(config: Partial<AppConfig> | null | undefined): 
       : DEFAULT_CONFIG.connectors_migrated,
     connectors: normalizeConnectors(parsed.connectors),
     memory: normalizeMemory(parsed.memory),
+    network: normalizeNetwork(parsed.network),
     voice: normalizeVoice(parsed.voice),
   }
 }

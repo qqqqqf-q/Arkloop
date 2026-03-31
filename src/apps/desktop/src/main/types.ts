@@ -51,6 +51,14 @@ export type VoiceConfig = {
   language?: string
 }
 
+export type NetworkConfig = {
+  proxyEnabled: boolean
+  proxyUrl?: string
+  requestTimeoutMs?: number
+  retryCount?: number
+  userAgent?: string
+}
+
 export type LocalConfig = {
   port: number
   portMode: LocalPortMode
@@ -72,6 +80,7 @@ export type AppConfig = {
   connectors_migrated: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
+  network: NetworkConfig
   voice?: VoiceConfig
 }
 
@@ -88,4 +97,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     search: { provider: 'none' },
   },
   memory: { enabled: true, provider: 'local', memoryCommitEachTurn: true },
+  network: {
+    proxyEnabled: false,
+    requestTimeoutMs: 30000,
+    retryCount: 1,
+  },
 }

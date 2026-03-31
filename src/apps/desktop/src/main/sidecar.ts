@@ -7,7 +7,7 @@ import * as net from 'net'
 import * as os from 'os'
 import * as path from 'path'
 import { app } from 'electron'
-import type { LocalPortMode, MemoryConfig } from './types'
+import type { LocalPortMode, MemoryConfig, NetworkConfig } from './types'
 import { appendSidecarLog, getDesktopLogPaths } from './logging'
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
@@ -76,6 +76,7 @@ let runtime: SidecarRuntime = {
 }
 let bridgeBaseUrl = `http://127.0.0.1:${DEFAULT_BRIDGE_PORT}`
 let memoryConfig: MemoryConfig | null = null
+let networkConfig: NetworkConfig | null = null
 
 export function getSidecarStatus(): SidecarStatus {
   return runtime.status
@@ -83,6 +84,10 @@ export function getSidecarStatus(): SidecarStatus {
 
 export function setMemoryConfig(config: MemoryConfig): void {
   memoryConfig = config
+}
+
+export function setNetworkConfig(config: NetworkConfig): void {
+  networkConfig = config
 }
 
 export function getSidecarRuntime(): SidecarRuntime {
@@ -637,6 +642,26 @@ function buildMemoryEnv(projectDir: string | null): Record<string, string> {
   return env
 }
 
+function buildNetworkEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  const cfg = networkConfig
+  if (!cfg) return env
+
+  if (cfg.proxyEnabled && cfg.proxyUrl?.trim()) {
+    env.ARKLOOP_OUTBOUND_PROXY_URL = cfg.proxyUrl.trim()
+  }
+  if (typeof cfg.requestTimeoutMs === 'number' && cfg.requestTimeoutMs > 0) {
+    env.ARKLOOP_OUTBOUND_TIMEOUT_MS = String(cfg.requestTimeoutMs)
+  }
+  if (typeof cfg.retryCount === 'number' && cfg.retryCount >= 0) {
+    env.ARKLOOP_OUTBOUND_RETRY_COUNT = String(cfg.retryCount)
+  }
+  if (cfg.userAgent?.trim()) {
+    env.ARKLOOP_OUTBOUND_USER_AGENT = cfg.userAgent.trim()
+  }
+  return env
+}
+
 function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<string, string> {
   const env: Record<string, string> = {
     ARKLOOP_BRIDGE_ADDR: `127.0.0.1:${bridgePort}`,
@@ -1138,6 +1163,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...buildWorkspaceEnv(projectDir),
       ...buildBridgeEnv(bridgePort, projectDir),
       ...buildMemoryEnv(projectDir),
+      ...buildNetworkEnv(),
       ARKLOOP_DESKTOP_TITLE_DEBUG: desktopTitleDebugFlag(),
     },
     stdio: ['ignore', 'pipe', 'pipe'],

@@ -27,6 +27,9 @@ type UsageSummary struct {
 	Month             int
 	TotalInputTokens  int64
 	TotalOutputTokens int64
+	TotalCacheCreationTokens int64
+	TotalCacheReadTokens     int64
+	TotalCachedTokens        int64
 	TotalCostUSD      float64
 	RecordCount       int64
 }
@@ -93,6 +96,9 @@ func (r *UsageRepository) GetMonthlyUsage(
 		`SELECT
 		     COALESCE(SUM(input_tokens),  0),
 		     COALESCE(SUM(output_tokens), 0),
+		     COALESCE(SUM(cache_creation_tokens), 0),
+		     COALESCE(SUM(cache_read_tokens), 0),
+		     COALESCE(SUM(cached_tokens), 0),
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
@@ -101,6 +107,9 @@ func (r *UsageRepository) GetMonthlyUsage(
 	).Scan(
 		&summary.TotalInputTokens,
 		&summary.TotalOutputTokens,
+		&summary.TotalCacheCreationTokens,
+		&summary.TotalCacheReadTokens,
+		&summary.TotalCachedTokens,
 		&summary.TotalCostUSD,
 		&summary.RecordCount,
 	)
@@ -125,6 +134,9 @@ type ModelUsage struct {
 	Model        string
 	InputTokens  int64
 	OutputTokens int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	CachedTokens        int64
 	CostUSD      float64
 	RecordCount  int64
 }
@@ -188,6 +200,9 @@ func (r *UsageRepository) GetUsageByModel(
 		     model,
 		     COALESCE(SUM(input_tokens),  0),
 		     COALESCE(SUM(output_tokens), 0),
+		     COALESCE(SUM(cache_creation_tokens), 0),
+		     COALESCE(SUM(cache_read_tokens), 0),
+		     COALESCE(SUM(cached_tokens), 0),
 		     COALESCE(SUM(cost_usd),      0),
 		     COUNT(*)
 		 FROM usage_records
@@ -204,7 +219,16 @@ func (r *UsageRepository) GetUsageByModel(
 	var result []ModelUsage
 	for rows.Next() {
 		var m ModelUsage
-		if err := rows.Scan(&m.Model, &m.InputTokens, &m.OutputTokens, &m.CostUSD, &m.RecordCount); err != nil {
+		if err := rows.Scan(
+			&m.Model,
+			&m.InputTokens,
+			&m.OutputTokens,
+			&m.CacheCreationTokens,
+			&m.CacheReadTokens,
+			&m.CachedTokens,
+			&m.CostUSD,
+			&m.RecordCount,
+		); err != nil {
 			return nil, fmt.Errorf("usage_records.GetUsageByModel scan: %w", err)
 		}
 		result = append(result, m)

@@ -389,8 +389,8 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
                 models: 'providers',
                 agents: 'personas',
                 channels: 'channels',
-                connection: 'connection',
-                voice: 'voice',
+                connection: 'advanced',
+                voice: 'advanced',
               }
               setDesktopSettingsSection(keyMap[tab] ?? 'general')
               setSettingsOpen(true)
@@ -452,7 +452,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           />
         ) : (
           <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { pushSearchModeState(); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab | 'voice' = 'account') => { if (desktop) { const keyMap: Record<string, DesktopSettingsKey> = { account: 'general', settings: 'general', skills: 'skills', models: 'providers', agents: 'personas', channels: 'channels', connection: 'connection', voice: 'voice' }; setDesktopSettingsSection(keyMap[tab] ?? 'general'); setSettingsOpen(true) } else { setSettingsInitialTab(tab as SettingsTab); setSettingsOpen(true) } }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
+            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { pushSearchModeState(); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab | 'voice' = 'account') => { if (desktop) { const keyMap: Record<string, DesktopSettingsKey> = { account: 'general', settings: 'general', skills: 'skills', models: 'providers', agents: 'personas', channels: 'channels', connection: 'advanced', voice: 'advanced' }; setDesktopSettingsSection(keyMap[tab] ?? 'general'); setSettingsOpen(true) } else { setSettingsInitialTab(tab as SettingsTab); setSettingsOpen(true) } }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
             {notificationsOpen && (
               <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
             )}

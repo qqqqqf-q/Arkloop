@@ -16,6 +16,10 @@ import (
 const (
 	AllowLoopbackHTTPEnv = "ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP"
 	TrustFakeIPEnv       = "ARKLOOP_OUTBOUND_TRUST_FAKE_IP"
+	ProxyURLEnv          = "ARKLOOP_OUTBOUND_PROXY_URL"
+	TimeoutMSEnv         = "ARKLOOP_OUTBOUND_TIMEOUT_MS"
+	RetryCountEnv        = "ARKLOOP_OUTBOUND_RETRY_COUNT"
+	UserAgentEnv         = "ARKLOOP_OUTBOUND_USER_AGENT"
 )
 
 type DeniedError struct {
@@ -31,6 +35,10 @@ type Policy struct {
 	AllowLoopbackHTTP bool
 	TrustFakeIP       bool
 	Resolver          *net.Resolver
+	ProxyURL          string
+	Timeout           time.Duration
+	RetryCount        int
+	UserAgent         string
 }
 
 func DefaultPolicy() Policy {
@@ -38,6 +46,10 @@ func DefaultPolicy() Policy {
 		AllowLoopbackHTTP: allowLoopbackHTTPFromEnv(),
 		TrustFakeIP:       trustFakeIPFromEnv(),
 		Resolver:          net.DefaultResolver,
+		ProxyURL:          strings.TrimSpace(os.Getenv(ProxyURLEnv)),
+		Timeout:           timeoutFromEnv(),
+		RetryCount:        retryCountFromEnv(),
+		UserAgent:         strings.TrimSpace(os.Getenv(UserAgentEnv)),
 	}
 }
 
@@ -57,6 +69,30 @@ func trustFakeIPFromEnv() bool {
 	}
 	ok, err := strconv.ParseBool(raw)
 	return err == nil && ok
+}
+
+func timeoutFromEnv() time.Duration {
+	raw := strings.TrimSpace(os.Getenv(TimeoutMSEnv))
+	if raw == "" {
+		return 0
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func retryCountFromEnv() int {
+	raw := strings.TrimSpace(os.Getenv(RetryCountEnv))
+	if raw == "" {
+		return 0
+	}
+	count, err := strconv.Atoi(raw)
+	if err != nil || count < 0 {
+		return 0
+	}
+	return count
 }
 
 func (p Policy) NormalizeBaseURL(raw string) (string, error) {
@@ -167,8 +203,17 @@ func (p Policy) CheckRedirect(req *http.Request, via []*http.Request) error {
 func (p Policy) NewHTTPClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = p.SafeDialContext(&net.Dialer{Timeout: 10 * time.Second})
+	if proxyURL := strings.TrimSpace(p.ProxyURL); proxyURL != "" {
+		if parsed, err := url.Parse(proxyURL); err == nil {
+			transport.Proxy = http.ProxyURL(parsed)
+		}
+	}
+	effectiveTimeout := timeout
+	if effectiveTimeout <= 0 && p.Timeout > 0 {
+		effectiveTimeout = p.Timeout
+	}
 	return &http.Client{
-		Timeout:       timeout,
+		Timeout:       effectiveTimeout,
 		Transport:     validatingTransport{base: transport, policy: p},
 		CheckRedirect: p.CheckRedirect,
 	}
@@ -192,7 +237,23 @@ func (t validatingTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if err := t.policy.ValidateURL(req.URL); err != nil {
 		return nil, err
 	}
-	return t.base.RoundTrip(req)
+	if userAgent := strings.TrimSpace(t.policy.UserAgent); userAgent != "" && req.Header.Get("User-Agent") == "" {
+		req = req.Clone(req.Context())
+		req.Header.Set("User-Agent", userAgent)
+	}
+	var resp *http.Response
+	var err error
+	attempts := t.policy.RetryCount + 1
+	if attempts < 1 {
+		attempts = 1
+	}
+	for attempt := 0; attempt < attempts; attempt++ {
+		resp, err = t.base.RoundTrip(req)
+		if err == nil {
+			return resp, nil
+		}
+	}
+	return nil, err
 }
 
 type validatingInternalTransport struct {

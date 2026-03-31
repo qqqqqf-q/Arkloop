@@ -39,6 +39,7 @@ async function loadDesktopSettingsSubject() {
     DesktopChannelsSettings: () => <div>integrations</div>,
     SkillsSettings: () => <div>skills</div>,
     MCPSettings: () => <div>mcp</div>,
+    AdvancedSettings: () => <div>advanced</div>,
     SearchFetchSettings: () => <div>search fetch</div>,
     MemorySettings: () => <div>memory</div>,
     ConnectionSettings: () => <div>connection</div>,
@@ -58,6 +59,7 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../components/settings/DesktopChannelsSettings', () => ({ DesktopChannelsSettings: () => <div>integrations</div> }))
   vi.doMock('../components/settings/SkillsSettings', () => ({ SkillsSettings: () => <div>skills</div> }))
   vi.doMock('../components/settings/MCPSettings', () => ({ MCPSettings: () => <div>mcp</div> }))
+  vi.doMock('../components/settings/AdvancedSettings', () => ({ AdvancedSettings: () => <div>advanced</div> }))
   vi.doMock('../components/settings/MemorySettings', () => ({ MemorySettings: () => <div>memory</div> }))
   vi.doMock('../components/settings/ConnectionSettings', () => ({ ConnectionSettings: () => <div>connection</div> }))
   vi.doMock('../components/settings/ChatSettings', () => ({ ChatSettings: () => <div>chat</div> }))
@@ -130,6 +132,7 @@ afterEach(() => {
   vi.doUnmock('../components/settings/DesktopChannelsSettings')
   vi.doUnmock('../components/settings/SkillsSettings')
   vi.doUnmock('../components/settings/MCPSettings')
+  vi.doUnmock('../components/settings/AdvancedSettings')
   vi.doUnmock('../components/settings/MemorySettings')
   vi.doUnmock('../components/settings/ConnectionSettings')
   vi.doUnmock('../components/settings/ChatSettings')
@@ -149,7 +152,7 @@ afterEach(() => {
 })
 
 describe('DesktopSettings', () => {
-  it('侧边栏将 channels 文案显示为第三方接入', async () => {
+  it('侧边栏将 channels 文案显示为第三方接入并包含高级入口', async () => {
     const { DesktopSettings, LocaleProvider } = await loadDesktopSettingsSubject()
 
     await act(async () => {
@@ -170,6 +173,7 @@ describe('DesktopSettings', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('第三方接入')
+    expect(container.textContent).toContain('高级')
   })
 })
 

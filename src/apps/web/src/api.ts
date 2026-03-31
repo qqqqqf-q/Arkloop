@@ -1004,6 +1004,9 @@ export type MeUsageSummary = {
   month: number
   total_input_tokens: number
   total_output_tokens: number
+  total_cache_creation_tokens: number
+  total_cache_read_tokens: number
+  total_cached_tokens: number
   total_cost_usd: number
   record_count: number
 }
@@ -1014,6 +1017,48 @@ export async function getMyUsage(
   month: number,
 ): Promise<MeUsageSummary> {
   return await apiFetch<MeUsageSummary>(`/v1/me/usage?year=${year}&month=${month}`, {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export type MeDailyUsageItem = {
+  date: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  record_count: number
+}
+
+export async function getMyDailyUsage(
+  accessToken: string,
+  start: string,
+  end: string,
+): Promise<MeDailyUsageItem[]> {
+  const query = new URLSearchParams({ start, end }).toString()
+  return await apiFetch<MeDailyUsageItem[]>(`/v1/me/usage/daily?${query}`, {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export type MeModelUsageItem = {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  cached_tokens: number
+  cost_usd: number
+  record_count: number
+}
+
+export async function getMyUsageByModel(
+  accessToken: string,
+  year: number,
+  month: number,
+): Promise<MeModelUsageItem[]> {
+  return await apiFetch<MeModelUsageItem[]>(`/v1/me/usage/by-model?year=${year}&month=${month}`, {
     method: 'GET',
     accessToken,
   })

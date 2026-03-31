@@ -26,6 +26,9 @@ type modelUsageItem struct {
 	Model        string  `json:"model"`
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
 	CostUSD      float64 `json:"cost_usd"`
 	RecordCount  int64   `json:"record_count"`
 }
@@ -36,6 +39,9 @@ type usageSummaryResponse struct {
 	Month             int     `json:"month"`
 	TotalInputTokens  int64   `json:"total_input_tokens"`
 	TotalOutputTokens int64   `json:"total_output_tokens"`
+	TotalCacheCreationTokens int64 `json:"total_cache_creation_tokens"`
+	TotalCacheReadTokens     int64 `json:"total_cache_read_tokens"`
+	TotalCachedTokens        int64 `json:"total_cached_tokens"`
 	TotalCostUSD      float64 `json:"total_cost_usd"`
 	RecordCount       int64   `json:"record_count"`
 }
@@ -119,6 +125,9 @@ func accountUsageEntry(
 			Month:             summary.Month,
 			TotalInputTokens:  summary.TotalInputTokens,
 			TotalOutputTokens: summary.TotalOutputTokens,
+			TotalCacheCreationTokens: summary.TotalCacheCreationTokens,
+			TotalCacheReadTokens:     summary.TotalCacheReadTokens,
+			TotalCachedTokens:        summary.TotalCachedTokens,
 			TotalCostUSD:      summary.TotalCostUSD,
 			RecordCount:       summary.RecordCount,
 		})
@@ -260,6 +269,9 @@ func accountUsageByModel(
 				Model:        row.Model,
 				InputTokens:  row.InputTokens,
 				OutputTokens: row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				CachedTokens:        row.CachedTokens,
 				CostUSD:      row.CostUSD,
 				RecordCount:  row.RecordCount,
 			}
@@ -395,6 +407,9 @@ func adminGlobalUsageSummary(
 			Month:             summary.Month,
 			TotalInputTokens:  summary.TotalInputTokens,
 			TotalOutputTokens: summary.TotalOutputTokens,
+			TotalCacheCreationTokens: summary.TotalCacheCreationTokens,
+			TotalCacheReadTokens:     summary.TotalCacheReadTokens,
+			TotalCachedTokens:        summary.TotalCachedTokens,
 			TotalCostUSD:      summary.TotalCostUSD,
 			RecordCount:       summary.RecordCount,
 		})
@@ -451,6 +466,9 @@ func adminGlobalUsageByModel(
 				Model:        row.Model,
 				InputTokens:  row.InputTokens,
 				OutputTokens: row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				CachedTokens:        row.CachedTokens,
 				CostUSD:      row.CostUSD,
 				RecordCount:  row.RecordCount,
 			}

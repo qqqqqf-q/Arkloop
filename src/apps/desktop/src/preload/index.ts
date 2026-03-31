@@ -49,6 +49,14 @@ export type VoiceConfig = {
   language?: string
 }
 
+export type NetworkConfig = {
+  proxyEnabled: boolean
+  proxyUrl?: string
+  requestTimeoutMs?: number
+  retryCount?: number
+  userAgent?: string
+}
+
 export type MemoryEntry = {
   id: string
   scope: string
@@ -67,6 +75,7 @@ export type AppConfig = {
   onboarding_completed: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
+  network: NetworkConfig
   voice?: VoiceConfig
 }
 
@@ -103,6 +112,69 @@ export type LocalFileEntry = {
 export type LocalDirResult = { entries: LocalFileEntry[] }
 export type LocalFileResult = { data: string; mime_type: string } | { error: string }
 
+export type DesktopOverviewLink = {
+  label: string
+  url: string
+}
+
+export type DesktopOverviewItem = {
+  label: string
+  value: string
+  tone?: 'default' | 'success' | 'warning' | 'danger'
+}
+
+export type DesktopUsageSummary = {
+  account_id: string
+  year: number
+  month: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cost_usd: number
+  record_count: number
+} | null
+
+export type DesktopAdvancedOverview = {
+  appName: string
+  appVersion: string
+  githubUrl: string
+  telegramUrl: string | null
+  iconPath: string | null
+  configPath: string
+  dataDir: string
+  logsDir: string
+  sqlitePath: string
+  links: DesktopOverviewLink[]
+  status: DesktopOverviewItem[]
+  usage: DesktopUsageSummary
+}
+
+export type DesktopExportResult = {
+  ok: boolean
+  filePath: string
+}
+
+export type DesktopImportResult = {
+  ok: boolean
+  importedFrom: string
+}
+
+export type DesktopLogLevel = 'info' | 'warn' | 'error' | 'debug' | 'other'
+
+export type DesktopLogEntry = {
+  timestamp: string
+  level: DesktopLogLevel
+  source: 'main' | 'sidecar'
+  message: string
+  raw: string
+}
+
+export type DesktopLogQuery = {
+  source?: 'all' | 'main' | 'sidecar'
+  level?: 'all' | DesktopLogLevel
+  search?: string
+  limit?: number
+}
+
 export type UpdaterComponentStatus = {
   current: string | null
   latest: string | null
@@ -132,6 +204,13 @@ export type ArkloopDesktopApi = {
     set: (config: AppConfig) => Promise<{ ok: boolean }>
     getPath: () => Promise<string>
     onChanged: (callback: (config: AppConfig) => void) => () => void
+  }
+  advanced: {
+    getOverview: () => Promise<DesktopAdvancedOverview>
+    chooseDataFolder: () => Promise<string | null>
+    exportDataBundle: () => Promise<DesktopExportResult>
+    importDataBundle: () => Promise<DesktopImportResult>
+    listLogs: (input?: DesktopLogQuery) => Promise<{ entries: DesktopLogEntry[] }>
   }
   updater: {
     check: () => Promise<UpdaterStatus>
@@ -265,6 +344,14 @@ const api: ArkloopDesktopApi = {
       ipcRenderer.on('arkloop:config:changed', handler)
       return () => ipcRenderer.removeListener('arkloop:config:changed', handler)
     },
+  },
+
+  advanced: {
+    getOverview: () => ipcRenderer.invoke('arkloop:advanced:overview'),
+    chooseDataFolder: () => ipcRenderer.invoke('arkloop:advanced:data-folder'),
+    exportDataBundle: () => ipcRenderer.invoke('arkloop:advanced:export-data'),
+    importDataBundle: () => ipcRenderer.invoke('arkloop:advanced:import-data'),
+    listLogs: (input?: DesktopLogQuery) => ipcRenderer.invoke('arkloop:advanced:logs', input),
   },
 
   updater: {

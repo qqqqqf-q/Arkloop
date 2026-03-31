@@ -51,6 +51,14 @@ export type VoiceConfig = {
   language?: string
 }
 
+export type NetworkConfig = {
+  proxyEnabled: boolean
+  proxyUrl?: string
+  requestTimeoutMs?: number
+  retryCount?: number
+  userAgent?: string
+}
+
 export type MemoryEntry = {
   id: string
   scope: string
@@ -69,6 +77,7 @@ export type DesktopConfig = {
   onboarding_completed: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig
+  network: NetworkConfig
   voice?: VoiceConfig
 }
 
@@ -120,6 +129,13 @@ export type ArkloopDesktopApi = {
     set: (config: DesktopConfig) => Promise<{ ok: boolean }>
     getPath: () => Promise<string>
     onChanged: (callback: (config: DesktopConfig) => void) => () => void
+  }
+  advanced?: {
+    getOverview: () => Promise<DesktopAdvancedOverview>
+    chooseDataFolder: () => Promise<string | null>
+    exportDataBundle: () => Promise<DesktopExportResult>
+    importDataBundle: () => Promise<DesktopImportResult>
+    listLogs: (input?: DesktopLogQuery) => Promise<{ entries: DesktopLogEntry[] }>
   }
   updater?: {
     check: () => Promise<UpdaterStatus>
@@ -183,6 +199,69 @@ export type LocalFileEntry = {
   type: 'file' | 'dir'
   size?: number
   mtime_unix_ms?: number
+}
+
+export type DesktopOverviewLink = {
+  label: string
+  url: string
+}
+
+export type DesktopUsageSummary = {
+  account_id: string
+  year: number
+  month: number
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cost_usd: number
+  record_count: number
+}
+
+export type DesktopOverviewItem = {
+  label: string
+  value: string
+  tone?: 'default' | 'success' | 'warning' | 'danger'
+}
+
+export type DesktopAdvancedOverview = {
+  appName: string
+  appVersion: string
+  githubUrl: string
+  telegramUrl: string | null
+  iconPath: string | null
+  configPath: string
+  dataDir: string
+  logsDir: string
+  sqlitePath: string
+  links: DesktopOverviewLink[]
+  status: DesktopOverviewItem[]
+  usage: DesktopUsageSummary | null
+}
+
+export type DesktopExportResult = {
+  ok: boolean
+  filePath: string
+}
+
+export type DesktopImportResult = {
+  ok: boolean
+  importedFrom: string
+}
+
+export type DesktopLogLevel = 'info' | 'warn' | 'error' | 'debug' | 'other'
+
+export type DesktopLogEntry = {
+  timestamp: string
+  level: DesktopLogLevel
+  source: 'main' | 'sidecar'
+  message: string
+  raw: string
+}
+
+export type DesktopLogQuery = {
+  source?: 'all' | 'main' | 'sidecar'
+  level?: 'all' | DesktopLogLevel
+  search?: string
+  limit?: number
 }
 
 export function isDesktop(): boolean {

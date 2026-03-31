@@ -2,23 +2,17 @@ import { Suspense, lazy, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
+  SlidersHorizontal,
   Settings,
   Cpu,
   Bot,
   Radio,
   Puzzle,
   Server,
-  Wifi,
-  Blocks,
-  Bug,
-  Package,
-  Brain,
   Palette,
   Route,
   MessageSquare,
-  ShieldAlert,
   Wrench,
-  Mic,
   Loader2,
 } from "lucide-react";
 import type { MeResponse } from "../api";
@@ -33,6 +27,7 @@ const DesktopChannelsSettings = lazy(async () => ({ default: (await import("./se
 const SkillsSettings = lazy(async () => ({ default: (await import("./settings/SkillsSettings")).SkillsSettings }));
 const MCPSettings = lazy(async () => ({ default: (await import("./settings/MCPSettings")).MCPSettings }));
 const ToolsSettings = lazy(async () => ({ default: (await import("./settings/ToolsSettings")).ToolsSettings }));
+const AdvancedSettings = lazy(async () => ({ default: (await import("./settings/AdvancedSettings")).AdvancedSettings }));
 const MemorySettings = lazy(async () => ({ default: (await import("./settings/MemorySettings")).MemorySettings }));
 const ConnectionSettings = lazy(async () => ({ default: (await import("./settings/ConnectionSettings")).ConnectionSettings }));
 const ChatSettings = lazy(async () => ({ default: (await import("./settings/ChatSettings")).ChatSettings }));
@@ -53,6 +48,7 @@ export type DesktopSettingsKey =
   | "skills"
   | "mcp"
   | "tools"
+  | "advanced"
   | "memory"
   | "connection"
   | "chat"
@@ -81,14 +77,8 @@ const MAIN_NAV: NavItem[] = [
 ];
 
 const DESKTOP_NAV: NavItem[] = [
-  { key: "connection", icon: Wifi },
+  { key: "advanced", icon: SlidersHorizontal },
   { key: "chat", icon: MessageSquare },
-  { key: "voice", icon: Mic },
-  { key: "promptInjection", icon: ShieldAlert },
-  { key: "memory", icon: Brain },
-  { key: "modules", icon: Package },
-  { key: "extensions", icon: Blocks },
-  { key: "developer", icon: Bug },
 ];
 
 function SettingsPaneFallback() {
@@ -177,6 +167,8 @@ export function DesktopSettings({
         return <MCPSettings accessToken={accessToken} />;
       case "tools":
         return <ToolsSettings accessToken={accessToken} />;
+      case "advanced":
+        return <AdvancedSettings accessToken={accessToken} />;
       case "memory":
         return <MemorySettings accessToken={accessToken} />;
       case "connection":

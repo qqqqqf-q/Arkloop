@@ -9,6 +9,7 @@ import {
   setRuntimeListener,
   setBridgeUrlListener,
   setMemoryConfig,
+  setNetworkConfig,
   getSidecarRuntime,
   getBridgeBaseUrl,
   stopBridgeOpenvikingIfNeeded,
@@ -132,6 +133,7 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
   }
 
   setMemoryConfig(config.memory)
+  setNetworkConfig(config.network)
   void ensureOpenCLI()
 
   const runtime = await startSidecar(config.local.port, config.local.portMode)
@@ -149,6 +151,14 @@ function memoryChanged(a: AppConfig, b: AppConfig): boolean {
     || JSON.stringify(a.memory.openviking) !== JSON.stringify(b.memory.openviking)
 }
 
+function networkChanged(a: AppConfig, b: AppConfig): boolean {
+  return a.network.proxyEnabled !== b.network.proxyEnabled
+    || a.network.proxyUrl !== b.network.proxyUrl
+    || a.network.requestTimeoutMs !== b.network.requestTimeoutMs
+    || a.network.retryCount !== b.network.retryCount
+    || a.network.userAgent !== b.network.userAgent
+}
+
 async function applyConfigUpdate(
   config: AppConfig,
   options?: ApplyConfigUpdateOptions,
@@ -160,9 +170,11 @@ async function applyConfigUpdate(
     || previous.local.port !== candidate.local.port
     || previous.local.portMode !== candidate.local.portMode
     || memoryChanged(previous, candidate)
+    || networkChanged(previous, candidate)
     || forceLocalReload
 
   if (!needsRestart) {
+    setNetworkConfig(candidate.network)
     saveConfig(candidate)
     syncActiveSidecarPort(candidate, getSidecarRuntime())
     syncConfigToRenderer(candidate)
