@@ -7,6 +7,18 @@ export function isDocumentArtifact(artifact: ArtifactRef): boolean {
 
 export function formatShortDate(dateStr: string): string {
   const d = new Date(dateStr)
+  const now = new Date()
+  const isSameDay =
+    d.getFullYear() === now.getFullYear()
+    && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate()
+  if (isSameDay) {
+    return d.toLocaleString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).replace(/\s/g, '')
+  }
   const month = d.toLocaleString('en-US', { month: 'short' })
   return `${month}. ${d.getDate()}`
 }
@@ -56,6 +68,10 @@ export function getUserPromptEnterScale(width: number): number {
   const safeWidth = Number.isFinite(width) ? Math.max(0, width) : USER_PROMPT_MAX_WIDTH
   const widthRatio = Math.min(safeWidth / USER_PROMPT_MAX_WIDTH, 1)
   const compensationRatio = 1 - widthRatio
-  return USER_PROMPT_ENTER_BASE_SCALE
-    + (USER_PROMPT_ENTER_MAX_SCALE - USER_PROMPT_ENTER_BASE_SCALE) * compensationRatio
+  const compensationBoost = 0.85 + compensationRatio * 0.3
+  return Math.min(
+    USER_PROMPT_ENTER_MAX_SCALE,
+    USER_PROMPT_ENTER_BASE_SCALE
+      + (USER_PROMPT_ENTER_MAX_SCALE - USER_PROMPT_ENTER_BASE_SCALE) * compensationRatio * compensationBoost,
+  )
 }

@@ -32,7 +32,7 @@ export function Button({
     <button
       type="button"
       disabled={disabled || loading}
-      className={`font-medium transition-opacity disabled:opacity-50 inline-flex items-center gap-2 ${variantCls} ${sizeCls} ${className}`}
+      className={`font-medium transition-colors disabled:opacity-50 inline-flex items-center gap-2 ${variantCls} ${sizeCls} ${className}`}
       {...props}
     >
       {loading && <SpinnerIcon />}

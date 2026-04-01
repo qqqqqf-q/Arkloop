@@ -505,12 +505,10 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 disabled={cancelSubmitting}
-                className="flex h-full w-full items-center justify-center rounded-[10px] transition-[opacity,transform,box-shadow] duration-[140ms] hover:shadow-[0_1px_3px_rgba(0,0,0,0.08)] active:scale-[0.97] active:opacity-[0.82] disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-full w-full items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] transition-[opacity,transform,background-color] duration-[140ms] hover:bg-[var(--c-bg-sub)] active:scale-[0.97] active:opacity-[0.82] disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: '#F8F8F6',
-                  border: '0.5px solid rgba(26, 26, 25, 0.18)',
                 }}
               >
                 <span

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
@@ -20,20 +20,13 @@ type PanelBtnProps = {
 }
 
 function PanelButton({ onClick, disabled, children }: PanelBtnProps) {
-  const [hovered, setHovered] = useState(false)
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] disabled:cursor-not-allowed disabled:opacity-40"
-      style={{
-        border: `0.5px solid ${hovered && !disabled ? 'var(--c-border-mid)' : 'var(--c-border-subtle)'}`,
-        background: hovered && !disabled ? 'var(--c-bg-deep)' : 'var(--c-bg-page)',
-        transition: 'border-color 0.15s, background-color 0.15s',
-      }}
+      className="inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:cursor-not-allowed disabled:opacity-40"
+      style={{ border: '0.5px solid var(--c-border-subtle)' }}
     >
       {children}
     </button>

@@ -6,6 +6,10 @@ button:not(:disabled) {
   cursor: pointer;
 }
 
+.failed-run-retry-button:hover:not(:disabled) {
+  background: var(--c-bg-card-hover);
+}
+
 :root {
   color-scheme: dark;
   /* Font variables — overridden by AppearanceContext */
@@ -1186,7 +1190,7 @@ button:not(:disabled) {
 
 .user-prompt-bubble-enter {
   transform-origin: center center;
-  animation: user-prompt-enter-dark 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: user-prompt-enter-dark 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {

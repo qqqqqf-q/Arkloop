@@ -332,7 +332,7 @@ export function PersonaModelBar({
       )}
 
       {/* model picker + spacer */}
-      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px', position: 'relative' }}>
+      <div style={{ marginLeft: 'auto', marginRight: '4px', display: 'flex', alignItems: 'center', gap: '14px', position: 'relative' }}>
         <ModelPicker
           accessToken={accessToken}
           value={selectedModel}
