@@ -29,31 +29,35 @@ jobs:
   # Job 1 – Cross-compile Go sidecar for every target platform/arch
   # ---------------------------------------------------------------------------
   build-sidecar:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - goos: darwin
+          - os: macos-latest
+            cgo_enabled: 1
+            goos: darwin
             goarch: arm64
             electron_platform: darwin
             electron_arch: arm64
-          - goos: darwin
+          - os: macos-15-intel
+            cgo_enabled: 1
+            goos: darwin
             goarch: amd64
             electron_platform: darwin
             electron_arch: x64
-          - goos: linux
+          - os: ubuntu-latest
+            cgo_enabled: 0
+            goos: linux
             goarch: amd64
             electron_platform: linux
             electron_arch: x64
-          - goos: linux
+          - os: ubuntu-latest
+            cgo_enabled: 0
+            goos: linux
             goarch: arm64
             electron_platform: linux
             electron_arch: arm64
-          - goos: windows
-            goarch: amd64
-            electron_platform: win32
-            electron_arch: x64
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -67,11 +71,8 @@ jobs:
       - name: Build sidecar
         run: |
           BIN_NAME="desktop-${{ matrix.electron_platform }}-${{ matrix.electron_arch }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BIN_NAME="${BIN_NAME}.exe"
-          fi
           mkdir -p dist
-          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -tags desktop -trimpath -ldflags '-s -w' \
             -o "dist/${BIN_NAME}" \
             ./src/services/desktop/cmd/desktop
@@ -99,7 +100,7 @@ jobs:
             electron_arch: arm64
             sidecar_artifact: sidecar-darwin-arm64
             builder_args: --mac --arm64
-          - os: macos-13
+          - os: macos-15-intel
             platform: darwin
             electron_arch: x64
             sidecar_artifact: sidecar-darwin-amd64
@@ -109,11 +110,6 @@ jobs:
             electron_arch: x64
             sidecar_artifact: sidecar-linux-amd64
             builder_args: --linux --x64
-          - os: windows-latest
-            platform: win32
-            electron_arch: x64
-            sidecar_artifact: sidecar-windows-amd64
-            builder_args: --win --x64
 
     runs-on: ${{ matrix.os }}
 
@@ -167,14 +163,6 @@ jobs:
       - name: Run electron-builder (Linux)
         if: matrix.platform == 'linux'
         working-directory: src/apps/desktop
-        run: npx electron-builder ${{ matrix.builder_args }}
-
-      - name: Run electron-builder (Windows)
-        if: matrix.platform == 'win32'
-        working-directory: src/apps/desktop
-        env:
-          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: npx electron-builder ${{ matrix.builder_args }}
 
       - name: Upload installer artifacts

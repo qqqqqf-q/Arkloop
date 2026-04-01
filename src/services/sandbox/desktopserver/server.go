@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && cgo
 
 // Package desktopserver provides a lightweight embedded sandbox HTTP server
 // for the desktop sidecar. It uses the VZ pool to run shell commands inside
