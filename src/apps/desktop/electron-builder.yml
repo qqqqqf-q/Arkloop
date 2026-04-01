@@ -65,6 +65,7 @@ linux:
       to: sidecar/desktop
 
 win:
+  artifactName: "${productName}-win-${arch}.${ext}"
   target:
     - nsis
   icon: resources/icon.ico

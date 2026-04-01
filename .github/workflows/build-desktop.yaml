@@ -57,6 +57,12 @@ jobs:
             goarch: arm64
             electron_platform: linux
             electron_arch: arm64
+          - os: windows-latest
+            cgo_enabled: 0
+            goos: windows
+            goarch: amd64
+            electron_platform: win32
+            electron_arch: x64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -110,6 +116,11 @@ jobs:
             electron_arch: x64
             sidecar_artifact: sidecar-linux-amd64
             builder_args: --linux --x64
+          - os: windows-latest
+            platform: win32
+            electron_arch: x64
+            sidecar_artifact: sidecar-windows-amd64
+            builder_args: --win --x64
 
     runs-on: ${{ matrix.os }}
 
@@ -178,6 +189,11 @@ jobs:
         working-directory: src/apps/desktop
         run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never -c.extraMetadata.version=${{ steps.release_meta.outputs.version }}
 
+      - name: Run electron-builder (Windows)
+        if: matrix.platform == 'win32'
+        working-directory: src/apps/desktop
+        run: pnpm exec electron-builder ${{ matrix.builder_args }} --publish never -c.extraMetadata.version=${{ steps.release_meta.outputs.version }}
+
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -235,6 +251,7 @@ jobs:
             -name '*.AppImage' -o \
             -name '*.deb' -o \
             -name '*.exe' -o \
+            -name '*.blockmap' -o \
             -name 'latest*.yml' \
           \) -exec cp {} release-files/ \;
           echo "--- Release files ---"
@@ -245,7 +262,7 @@ jobs:
           cat > release-notes.md <<'EOF'
           ## 下载
 
-          - Windows：即将提供
+          - Windows：下载 `Arkloop-win-x64.exe`
           - macOS Apple Silicon：下载 `Arkloop-mac-arm64.dmg`
           - macOS Intel：下载 `Arkloop-mac-x64.dmg`
           - Linux x64：下载 `Arkloop-linux-amd64.deb` 或 `Arkloop-linux-x86_64.AppImage`

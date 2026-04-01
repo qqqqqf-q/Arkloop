@@ -26,7 +26,7 @@ Download the latest desktop build directly:
 - macOS Intel: [Arkloop-mac-x64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg)
 - Linux x64 (.deb): [Arkloop-linux-amd64.deb](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-amd64.deb)
 - Linux x64 (AppImage): [Arkloop-linux-x86_64.AppImage](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage)
-- Windows: build locally for now (see the Windows desktop section below)
+- Windows x64: [Arkloop-win-x64.exe](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-win-x64.exe)
 - All release assets: [GitHub Releases](https://github.com/qqqqqf-q/Arkloop/releases)
 
 The desktop app bundles the full runtime — no Docker, no configuration. Just open and use. Automatic updates via GitHub Releases.
