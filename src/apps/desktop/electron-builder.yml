@@ -41,7 +41,7 @@ publish:
 
 mac:
   category: public.app-category.developer-tools
-  artifactName: "${productName}-${version}-${arch}.${ext}"
+  artifactName: "${productName}-mac-${arch}.${ext}"
   target:
     - dmg
   icon: resources/icon.icns
@@ -55,7 +55,7 @@ mac:
 
 linux:
   category: Development
-  artifactName: "${productName}-${version}-${arch}.${ext}"
+  artifactName: "${productName}-linux-${arch}.${ext}"
   target:
     - AppImage
     - deb

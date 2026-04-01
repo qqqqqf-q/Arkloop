@@ -20,7 +20,13 @@ Arkloop is a design-focused open-source AI agent platform. Multi-model routing, 
 
 ## Download
 
-Download the latest release from [GitHub Releases](https://github.com/qqqqqf/Arkloop/releases), available for macOS, Linux, and Windows.
+Download the latest desktop build directly:
+
+- macOS Apple Silicon: [Arkloop-mac-arm64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-arm64.dmg)
+- macOS Intel: [Arkloop-mac-x64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg)
+- Linux x64 (.deb): [Arkloop-linux-amd64.deb](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-amd64.deb)
+- Linux x64 (AppImage): [Arkloop-linux-x86_64.AppImage](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage)
+- All release assets: [GitHub Releases](https://github.com/qqqqqf-q/Arkloop/releases)
 
 The desktop app bundles the full runtime — no Docker, no configuration. Just open and use. Automatic updates via GitHub Releases.
 

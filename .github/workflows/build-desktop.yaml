@@ -246,9 +246,9 @@ jobs:
           ## 下载
 
           - Windows：即将提供
-          - macOS Apple Silicon：下载 `Arkloop-${{ steps.release_meta.outputs.version }}-arm64.dmg`
-          - macOS Intel：下载 `Arkloop-${{ steps.release_meta.outputs.version }}-x64.dmg`
-          - Linux x64：下载 `Arkloop-${{ steps.release_meta.outputs.version }}-amd64.deb` 或 `Arkloop-${{ steps.release_meta.outputs.version }}-x86_64.AppImage`
+          - macOS Apple Silicon：下载 `Arkloop-mac-arm64.dmg`
+          - macOS Intel：下载 `Arkloop-mac-x64.dmg`
+          - Linux x64：下载 `Arkloop-linux-amd64.deb` 或 `Arkloop-linux-x86_64.AppImage`
 
           ## 说明
           EOF
