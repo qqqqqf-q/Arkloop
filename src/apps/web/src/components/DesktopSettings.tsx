@@ -5,6 +5,7 @@ import {
   SlidersHorizontal,
   Settings,
   Cpu,
+  Brain,
   Bot,
   Radio,
   Puzzle,
@@ -76,6 +77,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: "skills",     icon: Puzzle },
   { key: "mcp",        icon: Server },
   { key: "tools",      icon: Wrench },
+  { key: "memory",     icon: Brain },
   { key: "chat",       icon: MessageSquare },
   { key: "advanced",   icon: SlidersHorizontal },
 ];

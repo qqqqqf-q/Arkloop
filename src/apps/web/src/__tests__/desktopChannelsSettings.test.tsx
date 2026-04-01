@@ -175,6 +175,30 @@ describe('DesktopSettings', () => {
     expect(container.textContent).toContain('第三方接入')
     expect(container.textContent).toContain('高级')
   })
+
+  it('侧边栏恢复记忆入口并能展示记忆页内容', async () => {
+    const { DesktopSettings, LocaleProvider } = await loadDesktopSettingsSubject()
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <Suspense fallback={<div>loading</div>}>
+            <DesktopSettings
+              me={null}
+              accessToken="token"
+              initialSection="memory"
+              onClose={() => {}}
+              onLogout={() => {}}
+            />
+          </Suspense>
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    expect(container.textContent).toContain('记忆')
+    expect(container.textContent).toContain('memory')
+  })
 })
 
 describe('DesktopChannelsSettings', () => {
