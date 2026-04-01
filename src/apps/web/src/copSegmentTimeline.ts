@@ -30,7 +30,7 @@ const SUB_AGENT_TOOL_NAMES = new Set([
 ])
 const FILE_OP_TOOL_NAMES = new Set([
   'grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file',
-  'search_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget',
+  'load_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget',
 ])
 const AUXILIARY_RENDERED_TOOL_NAMES = new Set([
   'show_widget',

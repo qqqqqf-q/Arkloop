@@ -742,20 +742,20 @@ describe('buildMessageCodeExecutionsFromRunEvents', () => {
 })
 
 describe('buildMessageFileOpsFromRunEvents', () => {
-  it('应将 search_tools 的 already_active 状态单独汇总', () => {
+  it('应将 load_tools 的 already_active 状态单独汇总', () => {
     const events = [
       makeRunEvent({
         runId: 'run_1',
         seq: 1,
         type: 'tool.call',
-        data: { tool_name: 'search_tools', tool_call_id: 'call_search', arguments: { queries: ['web_search'] } },
+        data: { tool_name: 'load_tools', tool_call_id: 'call_search', arguments: { queries: ['web_search'] } },
       }),
       makeRunEvent({
         runId: 'run_1',
         seq: 2,
         type: 'tool.result',
         data: {
-          tool_name: 'search_tools',
+          tool_name: 'load_tools',
           tool_call_id: 'call_search',
           result: {
             matched: [
@@ -772,20 +772,20 @@ describe('buildMessageFileOpsFromRunEvents', () => {
     expect(ops[0]?.output).toBe('loaded 1 (show_widget); already active 1 (web_search)')
   })
 
-  it('应在 search_tools 命中均已激活时显示 already active', () => {
+  it('应在 load_tools 命中均已激活时显示 already active', () => {
     const events = [
       makeRunEvent({
         runId: 'run_1',
         seq: 1,
         type: 'tool.call',
-        data: { tool_name: 'search_tools', tool_call_id: 'call_search', arguments: { queries: ['web_search'] } },
+        data: { tool_name: 'load_tools', tool_call_id: 'call_search', arguments: { queries: ['web_search'] } },
       }),
       makeRunEvent({
         runId: 'run_1',
         seq: 2,
         type: 'tool.result',
         data: {
-          tool_name: 'search_tools',
+          tool_name: 'load_tools',
           tool_call_id: 'call_search',
           result: {
             matched: [
@@ -1272,9 +1272,9 @@ describe('buildMessageThinkingFromRunEvents', () => {
   })
 })
 
-describe('search_tools summary', () => {
+describe('load_tools summary', () => {
   it('returns state-aware description when statuses exist', () => {
-    const result = fileOpOutputFromResult('search_tools', {
+    const result = fileOpOutputFromResult('load_tools', {
       count: 3,
       matched: [
         { name: 'show_widget', state: 'loaded' },
@@ -1286,7 +1286,7 @@ describe('search_tools summary', () => {
   })
 
   it('falls back to name list when no state info is present', () => {
-    const result = fileOpOutputFromResult('search_tools', {
+    const result = fileOpOutputFromResult('load_tools', {
       count: 2,
       matched: ['web_search', 'web_fetch'],
     })

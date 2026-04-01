@@ -185,8 +185,8 @@ describe('ExecutionCard fileop variant', () => {
         <LocaleProvider>
           <ExecutionCard
             variant="fileop"
-            toolName="search_tools"
-            label='search_tools "memory", "tool"'
+            toolName="load_tools"
+            label='load_tools "memory", "tool"'
             output="(no matches)"
             status="success"
           />
@@ -202,7 +202,7 @@ describe('ExecutionCard fileop variant', () => {
       trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(container.textContent).toContain('search_tools')
+    expect(container.textContent).toContain('load_tools')
     expect(container.textContent).toContain('memory')
     expect(container.textContent).toContain('(no matches)')
     expect(container.querySelector('.execution-card-status-inline')).not.toBeNull()

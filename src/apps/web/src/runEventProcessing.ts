@@ -1015,7 +1015,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'search_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'load_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget'])
 
 function normalizeFileOpToolName(toolName: string): string {
   if (toolName === 'read' || toolName.startsWith('read.')) return 'read_file'
@@ -1073,15 +1073,15 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
       const filePath = typeof args.file_path === 'string' ? args.file_path : ''
       return filePath ? truncate(basename(filePath), 48) : 'edit file'
     }
-    case 'search_tools': {
+    case 'load_tools': {
       const queries = Array.isArray(args.queries)
         ? (args.queries as unknown[]).filter((q): q is string => typeof q === 'string')
         : []
       if (queries.length > 0) {
         const qs = queries.slice(0, 2).map((q) => `"${truncate(q, 24)}"`).join(', ')
-        return `search_tools ${qs}${queries.length > 2 ? ', …' : ''}`
+        return `load_tools ${qs}${queries.length > 2 ? ', …' : ''}`
       }
-      return 'search_tools'
+      return 'load_tools'
     }
     case 'memory_write': {
       const key = typeof args.key === 'string' ? args.key : ''
@@ -1169,11 +1169,11 @@ export function fileOpOutputFromResult(toolName: string, result: unknown): strin
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
       return filePath ? `edited: ${filePath}` : 'edited'
     }
-    case 'search_tools': {
+    case 'load_tools': {
       const matched = Array.isArray(r.matched) ? r.matched as unknown[] : []
       const count = typeof r.count === 'number' ? r.count : matched.length
       if (count === 0 && matched.length === 0) return '(no matches)'
-      const statusSummary = summarizeSearchToolsResult(r)
+      const statusSummary = summarizeLoadToolsResult(r)
       if (statusSummary) return statusSummary
       const names = matched.slice(0, 5).map((m) => {
         if (typeof m === 'string') return m
@@ -1208,7 +1208,7 @@ export function fileOpOutputFromResult(toolName: string, result: unknown): strin
   }
 }
 
-function summarizeSearchToolsResult(result: Record<string, unknown>): string | undefined {
+function summarizeLoadToolsResult(result: Record<string, unknown>): string | undefined {
   const matched = Array.isArray(result.matched) ? result.matched as unknown[] : []
   if (matched.length === 0) return undefined
 

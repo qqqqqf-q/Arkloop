@@ -181,7 +181,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
     const events: RunEvent[] = [
       ev('r1', 1, 'message.delta', { role: 'assistant', content_delta: '我来帮你读取 skills...' }),
       ev('r1', 2, 'tool.call', {
-        tool_name: 'search_tools',
+        tool_name: 'load_tools',
         tool_call_id: 'c1',
         arguments: { q: 'x' },
       }),
@@ -191,7 +191,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
         arguments: { path: '/a' },
       }),
       ev('r1', 4, 'tool.result', {
-        tool_name: 'search_tools',
+        tool_name: 'load_tools',
         tool_call_id: 'c1',
         result: { ok: true },
       }),
@@ -224,7 +224,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
             kind: 'call',
             call: {
               toolCallId: 'c1',
-              toolName: 'search_tools',
+              toolName: 'load_tools',
               arguments: { q: 'x' },
               result: { ok: true },
             },
@@ -287,7 +287,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
         arguments: { label: '读取 Skills' },
       }),
       ev('r1', 2, 'tool.call', {
-        tool_name: 'search_tools',
+        tool_name: 'load_tools',
         tool_call_id: 'c1',
         arguments: {},
       }),
@@ -299,7 +299,7 @@ describe('buildAssistantTurnFromRunEvents', () => {
       items: [
         {
           kind: 'call',
-          call: { toolCallId: 'c1', toolName: 'search_tools', arguments: {}, result: undefined },
+          call: { toolCallId: 'c1', toolName: 'load_tools', arguments: {}, result: undefined },
           seq: 2,
         },
       ],

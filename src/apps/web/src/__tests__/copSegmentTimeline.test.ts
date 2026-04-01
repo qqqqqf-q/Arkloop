@@ -7,7 +7,7 @@ const call = (id: string, name: string, seq: number) =>
 describe('copTimelinePayloadForSegment', () => {
   it('无匹配富数据时仍返回空壳，供 COP 标题行挂载', () => {
     const r = copTimelinePayloadForSegment(
-      { type: 'cop', title: null, items: [call('x', 'search_tools', 1)] },
+      { type: 'cop', title: null, items: [call('x', 'load_tools', 1)] },
       { sources: [] },
     )
     expect(r).toEqual({ steps: [], sources: [] })
@@ -135,12 +135,12 @@ describe('copTimelinePayloadForSegment', () => {
           {
             type: 'cop',
             title: null,
-            items: [call('fo1', 'search_tools', 1)],
+            items: [call('fo1', 'load_tools', 1)],
           },
         ],
       },
       {
-        fileOps: [{ id: 'fo1', toolName: 'search_tools', label: 'x', status: 'success' }],
+        fileOps: [{ id: 'fo1', toolName: 'load_tools', label: 'x', status: 'success' }],
         sources: [],
       },
     )
