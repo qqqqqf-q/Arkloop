@@ -14,18 +14,21 @@ import (
 func loadEffectiveBuiltinProviders(
 	ctx context.Context,
 	pool data.DB,
-	userID uuid.UUID,
+	ownerKind string,
+	ownerUserID *uuid.UUID,
 	decrypt sharedtoolruntime.ProviderSecretDecrypter,
 ) ([]sharedtoolruntime.ProviderConfig, error) {
 	platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, pool, decrypt)
 	if err != nil {
 		return nil, err
 	}
-	userStatuses, err := sharedtoolruntime.LoadUserProviderStatuses(ctx, pool, userID, decrypt)
-	if err != nil {
-		return nil, err
-	}
 	providers := sharedtoolruntime.ReadyProvidersFromStatuses(platformStatuses)
-	providers = append(providers, sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses)...)
+	if ownerKind == "user" && ownerUserID != nil {
+		userStatuses, err := sharedtoolruntime.LoadUserProviderStatuses(ctx, pool, *ownerUserID, decrypt)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses)...)
+	}
 	return providers, nil
 }

@@ -194,11 +194,14 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if memEnabled && ovURL != "" {
 		memProvider = openviking.NewProvider(openviking.Config{BaseURL: ovURL, RootAPIKey: ovKey})
 		useOV = true
+		desktop.SetMemoryRuntime("openviking")
 		slog.Info("desktop: using OpenViking memory provider", "url", ovURL)
 	} else if memEnabled {
 		memProvider = localmemory.NewProvider(db)
+		desktop.SetMemoryRuntime("local")
 		slog.Info("desktop: using local SQLite memory provider")
 	} else {
+		desktop.SetMemoryRuntime("")
 		slog.Info("desktop: memory disabled")
 	}
 

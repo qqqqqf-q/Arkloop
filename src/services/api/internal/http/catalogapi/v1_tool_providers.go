@@ -178,6 +178,7 @@ func listToolProviders(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
+	runtimeByProviderEffective := buildToolProviderRuntimeStatusMap(r.Context(), pool, ownerKind, ownerUserID)
 
 	byProvider := map[string]data.ToolProviderConfig{}
 	for _, cfg := range configs {
@@ -224,9 +225,20 @@ func listToolProviders(
 			}
 
 			item.Configured = (!def.RequiresAPIKey || secretConfigured) && (!def.RequiresBaseURL || baseURLConfigured)
+			item.ConfigStatus = string(sharedtoolruntime.ProviderRuntimeStateInactive)
 			if status, ok := runtimeByProvider[def.ProviderName]; ok && item.IsActive {
 				item.RuntimeState = string(status.RuntimeState)
 				item.RuntimeReason = status.RuntimeReason
+				if status.RuntimeState == sharedtoolruntime.ProviderRuntimeStateReady {
+					item.ConfigStatus = "active"
+				} else {
+					item.ConfigStatus = string(status.RuntimeState)
+					item.ConfigReason = status.RuntimeReason
+				}
+			}
+			if runtimeStatus, ok := runtimeByProviderEffective[def.ProviderName]; ok {
+				item.RuntimeStatus = runtimeStatus.Status
+				item.RuntimeSource = runtimeStatus.Source
 			}
 			items = append(items, item)
 		}

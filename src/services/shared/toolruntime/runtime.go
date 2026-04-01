@@ -360,3 +360,11 @@ func normalizedACPHostKind(config map[string]any) string {
 func normalizeBaseURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
 }
+
+func SandboxAvailableFromEnv() bool {
+	return normalizeBaseURL(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")) != ""
+}
+
+func MemoryAvailableFromEnv() bool {
+	return strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")) != ""
+}

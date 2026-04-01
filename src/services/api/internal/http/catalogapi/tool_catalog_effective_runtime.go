@@ -30,6 +30,31 @@ func buildEffectiveBuiltinToolNameSet(
 	userID uuid.UUID,
 	artifactStoreAvailable bool,
 ) map[string]struct{} {
+	return buildEffectiveBuiltinToolNameSetForScope(ctx, pool, "user", &userID, artifactStoreAvailable)
+}
+
+func buildEffectiveBuiltinToolNameSetForScope(
+	ctx context.Context,
+	pool data.DB,
+	ownerKind string,
+	ownerUserID *uuid.UUID,
+	artifactStoreAvailable bool,
+) map[string]struct{} {
+	snapshot, err := buildEffectiveRuntimeSnapshotForScope(ctx, pool, ownerKind, ownerUserID, artifactStoreAvailable)
+	if err != nil {
+		slog.WarnContext(ctx, "effective tool catalog: runtime snapshot build failed", "err", err.Error())
+		return map[string]struct{}{}
+	}
+	return snapshot.BuiltinToolNameSet()
+}
+
+func buildEffectiveRuntimeSnapshotForScope(
+	ctx context.Context,
+	pool data.DB,
+	ownerKind string,
+	ownerUserID *uuid.UUID,
+	artifactStoreAvailable bool,
+) (sharedtoolruntime.RuntimeSnapshot, error) {
 	var configStore sharedconfig.Store
 	if effectiveCatalogPoolReady(pool) {
 		configStore = sharedconfig.NewPGXStoreQuerier(pool)
@@ -41,7 +66,7 @@ func buildEffectiveBuiltinToolNameSet(
 		0,
 	)
 
-	snapshot, err := sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
+	return sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
 		ConfigResolver:         resolver,
 		HasConversationSearch:  effectiveCatalogPoolReady(pool),
 		ArtifactStoreAvailable: artifactStoreAvailable,
@@ -49,12 +74,7 @@ func buildEffectiveBuiltinToolNameSet(
 			if pool == nil {
 				return nil, nil
 			}
-			return loadEffectiveBuiltinProviders(loadCtx, pool, userID, toolProviderSecretDecrypter())
+			return loadEffectiveBuiltinProviders(loadCtx, pool, ownerKind, ownerUserID, toolProviderSecretDecrypter())
 		},
 	})
-	if err != nil {
-		slog.WarnContext(ctx, "effective tool catalog: runtime snapshot build failed", "err", err.Error())
-		return map[string]struct{}{}
-	}
-	return snapshot.BuiltinToolNameSet()
 }

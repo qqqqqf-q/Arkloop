@@ -44,6 +44,10 @@ type toolProviderItemResponse struct {
 	Configured      bool             `json:"configured"`
 	RuntimeState    string           `json:"runtime_state"`
 	RuntimeReason   string           `json:"runtime_reason,omitempty"`
+	RuntimeStatus   string           `json:"runtime_status,omitempty"`
+	RuntimeSource   string           `json:"runtime_source,omitempty"`
+	ConfigStatus    string           `json:"config_status,omitempty"`
+	ConfigReason    string           `json:"config_reason,omitempty"`
 	ConfigJSON      json.RawMessage  `json:"config_json,omitempty"`
 	ConfigFields    []ConfigFieldDef `json:"config_fields,omitempty"`
 	DefaultBaseURL  string           `json:"default_base_url,omitempty"`

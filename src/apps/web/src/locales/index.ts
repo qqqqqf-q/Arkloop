@@ -46,6 +46,7 @@ export interface LocaleStrings {
   sseReconnectFailed: string;
   failedRunRetryTitle: string;
   retryAction: string;
+  resetAction: string;
   runCancelled: string;
   logout: string;
   language: string;
@@ -1176,6 +1177,16 @@ export interface LocaleStrings {
     subtitle: string;
     activate: string;
     deactivate: string;
+    runtimeAvailable: string;
+    runtimeUnavailable: string;
+    providerConfigStatus: string;
+    runtimeReady: string;
+    runtimeInactive: string;
+    runtimeMissingConfig: string;
+    runtimeDecryptFailed: string;
+    runtimeInvalidConfig: string;
+    configActive: string;
+    configInactive: string;
     configured: string;
     unconfigured: string;
     editCredentials: string;

@@ -14,7 +14,8 @@ import (
 func loadEffectiveBuiltinProviders(
 	ctx context.Context,
 	pool data.DB,
-	_ uuid.UUID,
+	_ string,
+	_ *uuid.UUID,
 	decrypt sharedtoolruntime.ProviderSecretDecrypter,
 ) ([]sharedtoolruntime.ProviderConfig, error) {
 	platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, pool, decrypt)

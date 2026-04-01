@@ -36,6 +36,7 @@ var (
 	workNotifier  any
 	sandboxAddr   string
 	executionMode string
+	memoryRuntime string
 	ready         chan struct{}
 	apiReady      chan struct{}
 
@@ -61,6 +62,9 @@ func GetSandboxAddr() string     { mu.Lock(); defer mu.Unlock(); return sandboxA
 
 func SetExecutionMode(mode string) { mu.Lock(); executionMode = strings.TrimSpace(mode); mu.Unlock() }
 func GetExecutionMode() string     { mu.Lock(); defer mu.Unlock(); return strings.TrimSpace(executionMode) }
+
+func SetMemoryRuntime(mode string) { mu.Lock(); memoryRuntime = strings.TrimSpace(mode); mu.Unlock() }
+func GetMemoryRuntime() string     { mu.Lock(); defer mu.Unlock(); return strings.TrimSpace(memoryRuntime) }
 
 // MarkReady 由 Worker 在共享资源初始化完成后调用，通知等待方可以继续。
 func MarkReady() {

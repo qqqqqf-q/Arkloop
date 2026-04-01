@@ -145,6 +145,10 @@ export type ToolProviderItem = {
   configured: boolean
   runtime_state?: string
   runtime_reason?: string
+  runtime_status?: string
+  runtime_source?: string
+  config_status?: string
+  config_reason?: string
   config_json?: Record<string, unknown>
   config_fields?: ToolProviderConfigField[]
   default_base_url?: string

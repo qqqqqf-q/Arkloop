@@ -14,7 +14,7 @@ import {
   Ban,
   Plug,
 } from 'lucide-react'
-import { Modal, ConfirmDialog, useToast } from '@arkloop/shared'
+import { AutoResizeTextarea, Modal, ConfirmDialog, useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   type ToolProviderGroup,
@@ -785,11 +785,13 @@ export function ConnectorsSettings({ accessToken }: Props) {
       >
         {descEdit && (
           <div className="flex flex-col gap-3">
-            <textarea
+            <AutoResizeTextarea
               value={descText}
               onChange={(e) => setDescText(e.target.value)}
               rows={8}
-              className={`${inputCls} resize-y`}
+              minRows={8}
+              maxHeight={320}
+              className={inputCls}
             />
             {descSaving && (
               <div className="flex items-center gap-1.5 text-xs text-[var(--c-text-muted)]">
@@ -809,38 +811,32 @@ export function ConnectorsSettings({ accessToken }: Props) {
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ provider }: { provider: ToolProviderItem }) {
-  const state = provider.runtime_state ?? (provider.is_active ? 'ready' : 'inactive')
-  const info = runtimeStateInfo(state)
-  const reason = provider.runtime_reason ? formatRuntimeReason(provider.runtime_reason) : ''
+  const { t } = useLocale()
+  const tt = t.adminTools
+  const runtime = runtimeStatusInfo(provider.runtime_status, tt)
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${info.bg}`}>
-      {info.label}
-      {reason ? <span className="ml-1 opacity-70">({reason})</span> : null}
-    </span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${runtime.bg}`}>
+        {runtime.label}
+      </span>
+    </div>
   )
 }
 
-function runtimeStateInfo(state?: string) {
-  const normalized = state ?? 'inactive'
-  switch (normalized) {
-  case 'ready':
-    return { label: 'Ready', bg: 'bg-green-500/10 text-green-400' }
-  case 'missing_config':
-    return { label: 'Missing config', bg: 'bg-amber-500/10 text-amber-400' }
-  case 'decrypt_failed':
-    return { label: 'Decrypt failed', bg: 'bg-rose-500/10 text-rose-400' }
-  case 'invalid_config':
-    return { label: 'Invalid config', bg: 'bg-rose-500/10 text-rose-400' }
-  default:
-    return { label: 'Inactive', bg: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]' }
+function runtimeStatusInfo(
+  status: string | undefined,
+  tt: ReturnType<typeof useLocale>['t']['adminTools'],
+) {
+  if (status === 'available') {
+    return {
+      label: tt.runtimeAvailable,
+      bg: 'bg-green-500/10 text-green-400',
+    }
   }
-}
-
-function formatRuntimeReason(reason: string) {
-  return reason
-    .split('_')
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
+  return {
+    label: tt.runtimeUnavailable,
+    bg: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]',
+  }
 }
 
 function ToolRow({
