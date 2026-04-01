@@ -13,6 +13,8 @@ import {
   listLlmProviders,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+import { SettingsSelect } from './settings/_SettingsSelect'
+import { SettingsModelDropdown } from './settings/SettingsModelDropdown'
 
 const REASONING_MODES = ['default', 'enabled', 'disabled'] as const
 
@@ -285,18 +287,15 @@ function SpawnProfileSection({
               <span className="w-16 shrink-0 text-xs text-[var(--c-text-tertiary)]">
                 {profileLabels[name]}
               </span>
-              <select
-                value={currentValue}
-                onChange={(e) => handleChange(name, e.target.value)}
-                disabled={saving === name}
-                className="h-7 flex-1 rounded-md px-2 text-xs outline-none"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
-              >
-                <option value="">{a.spawnProfilePlatformDefault}</option>
-                {modelOptions.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              <div className="flex-1">
+                <SettingsModelDropdown
+                  value={currentValue}
+                  options={modelOptions}
+                  placeholder={a.spawnProfilePlatformDefault}
+                  disabled={saving === name}
+                  onChange={(value) => void handleChange(name, value)}
+                />
+              </div>
             </div>
           )
         })}
@@ -319,16 +318,11 @@ function SelectField({
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs text-[var(--c-text-tertiary)]">{label}</label>
-      <select
+      <SettingsSelect
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-7 rounded-md px-2 text-xs outline-none"
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)', color: 'var(--c-text-heading)' }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+        onChange={onChange}
+        options={options}
+      />
     </div>
   )
 }

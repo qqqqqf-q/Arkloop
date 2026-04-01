@@ -21,6 +21,7 @@ import type {
   SidecarRuntime,
 } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
+import { SettingsSelect } from './settings/_SettingsSelect'
 
 type ModeCardProps = {
   mode: ConnectionMode
@@ -368,15 +369,14 @@ export function ConnectionSettingsContent() {
 
               <div className="flex flex-col gap-2">
                 <label className="text-sm text-[var(--c-text-secondary)]">{ct.portMode}</label>
-                <select
+                <SettingsSelect
                   value={localPortMode}
-                  onChange={(event) => setLocalPortMode(event.target.value as LocalPortMode)}
-                  className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
-                  style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-                >
-                  <option value="auto">{ct.portModeAuto}</option>
-                  <option value="manual">{ct.portModeManual}</option>
-                </select>
+                  onChange={(value) => setLocalPortMode(value as LocalPortMode)}
+                  options={[
+                    { value: 'auto', label: ct.portModeAuto },
+                    { value: 'manual', label: ct.portModeManual },
+                  ]}
+                />
               </div>
 
               {localPortMode === 'manual' && (

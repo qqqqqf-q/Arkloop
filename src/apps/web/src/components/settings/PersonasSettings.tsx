@@ -13,6 +13,8 @@ import { AutoResizeTextarea, Modal, ConfirmDialog } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { isApiError } from '../../api'
 import { listLlmProviders, type LlmProvider } from '../../api'
+import { SettingsModelDropdown } from './SettingsModelDropdown'
+import { SettingsSelect } from './_SettingsSelect'
 import {
   type LiteAgent,
   type ToolCatalogGroup,
@@ -99,7 +101,6 @@ function ensureCurrentOption(
 
 const INPUT_CLS =
   'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
-const SELECT_CLS = INPUT_CLS
 const MONO_CLS =
   'w-full rounded-md border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 font-mono text-xs leading-relaxed text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:border-[var(--c-border)]'
 
@@ -588,20 +589,16 @@ export function PersonasSettings({ accessToken }: Props) {
                 <label className="text-xs font-medium text-[var(--c-text-muted)]">
                   {a.model}
                 </label>
-                <select
-                  className={SELECT_CLS}
+                <SettingsModelDropdown
                   value={form.model}
-                  onChange={(e) =>
-                    setForm((p) => p && { ...p, model: e.target.value })
+                  options={selectedModelOptions}
+                  placeholder={a.noModel}
+                  disabled={saving}
+                  onChange={(value) =>
+                    setForm((p) => p && { ...p, model: value })
                   }
-                >
-                  <option value="">{a.noModel}</option>
-                  {selectedModelOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  showEmpty
+                />
               </div>
 
               <CheckboxField
@@ -616,19 +613,19 @@ export function PersonasSettings({ accessToken }: Props) {
                 <label className="text-xs font-medium text-[var(--c-text-muted)]">
                   {a.reasoningMode}
                 </label>
-                <select
-                  className={SELECT_CLS}
+                <SettingsSelect
                   value={form.reasoningMode}
-                  onChange={(e) =>
+                  onChange={(value) =>
                     setForm((p) =>
-                      p && { ...p, reasoningMode: e.target.value },
+                      p && { ...p, reasoningMode: value },
                     )
                   }
-                >
-                  <option value="auto">{a.reasoningDefault}</option>
-                  <option value="enabled">{a.reasoningEnabled}</option>
-                  <option value="disabled">{a.reasoningDisabled}</option>
-                </select>
+                  options={[
+                    { value: 'auto', label: a.reasoningDefault },
+                    { value: 'enabled', label: a.reasoningEnabled },
+                    { value: 'disabled', label: a.reasoningDisabled },
+                  ]}
+                />
               </div>
 
               <CheckboxField
@@ -1014,18 +1011,14 @@ export function PersonasSettings({ accessToken }: Props) {
             <label className="text-xs font-medium text-[var(--c-text-muted)]">
               {a.model} *
             </label>
-            <select
-              className={SELECT_CLS}
+            <SettingsModelDropdown
               value={createModel}
-              onChange={(e) => setCreateModel(e.target.value)}
-            >
-              <option value="">{a.modelPlaceholder}</option>
-              {createModelOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={createModelOptions}
+              placeholder={a.modelPlaceholder}
+              disabled={creating}
+              onChange={setCreateModel}
+              showEmpty
+            />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
