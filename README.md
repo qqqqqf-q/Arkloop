@@ -55,7 +55,7 @@ Arkloop does what other AI chat tools do — multi-model support, tool calling, 
 - **MCP / ACP** — Model Context Protocol and Agent Communication Protocol support
 - **Skill Ecosystem** — Import skills from ClawHub, compatible with OpenClaw SKILL.md format
 
-Full documentation at [docs](https://arkloop.dev/docs).
+Full documentation at [docs](https://arkloop.cn/docs/).
 
 ## Architecture
 
