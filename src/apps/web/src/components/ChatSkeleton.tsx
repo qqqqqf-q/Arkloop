@@ -26,7 +26,7 @@ export const ChatSkeleton = memo(function ChatSkeleton() {
             style={{
               width: w,
               height: 12,
-              borderRadius: 6,
+              borderRadius: 4,
               background: 'var(--c-text-primary)',
               opacity: 0.15 - i * 0.013,
             }}
