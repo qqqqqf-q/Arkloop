@@ -26,6 +26,7 @@ Download the latest desktop build directly:
 - macOS Intel: [Arkloop-mac-x64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg)
 - Linux x64 (.deb): [Arkloop-linux-amd64.deb](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-amd64.deb)
 - Linux x64 (AppImage): [Arkloop-linux-x86_64.AppImage](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage)
+- Windows: build locally for now (see the Windows desktop section below)
 - All release assets: [GitHub Releases](https://github.com/qqqqqf-q/Arkloop/releases)
 
 The desktop app bundles the full runtime — no Docker, no configuration. Just open and use. Automatic updates via GitHub Releases.
@@ -77,6 +78,37 @@ bin/ci-local quick        # Quick local CI
 bin/ci-local integration  # Go integration tests
 bin/ci-local full          # Full check
 ```
+
+## Windows Desktop: local run and test
+
+For local Windows desktop development:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm -C src/apps/desktop dev
+```
+
+This starts the Vite renderer, Electron main process, and the embedded desktop sidecar together.
+
+For a production-like local smoke test:
+
+```powershell
+pnpm -C src/apps/desktop build
+pnpm -C src/apps/desktop exec electron .
+```
+
+To produce a Windows installer locally:
+
+```powershell
+pnpm -C src/apps/desktop dist:win
+```
+
+Recommended local checks on Windows:
+
+- Launch the app and confirm the main window opens
+- Verify the sidecar starts and the app can enter local mode
+- Open Settings and confirm desktop pages render correctly
+- Run an agent/tool call once to verify worker and bridge are healthy
 
 ## Self-Hosting
 

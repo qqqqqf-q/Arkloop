@@ -335,6 +335,9 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
     version: app.getVersion(),
   })
+  if (process.platform === 'win32') {
+    Menu.setApplicationMenu(null)
+  }
   ensureDockPresence()
   initVersionsFile()
   applyAppIcon()
