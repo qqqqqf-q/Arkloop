@@ -3,14 +3,19 @@
 package worker
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
@@ -54,7 +59,7 @@ func ensureRTKDesktop() {
 		return
 	}
 	destDir := filepath.Join(home, ".arkloop", "bin")
-	destBin := filepath.Join(destDir, "rtk")
+	destBin := filepath.Join(destDir, desktopRTKBinaryName())
 
 	if _, err := os.Stat(destBin); err == nil {
 		return // 已安装
@@ -77,37 +82,51 @@ func ensureRTKDesktop() {
 
 	// 从官方安装脚本下载。
 	slog.Info("rtk: not found, downloading...")
-	script, err := fetchRTKInstallScript()
-	if err != nil {
-		slog.Warn("rtk: download install script failed", "err", err)
-		return
-	}
-
-	cmd := exec.Command("sh")
-	cmd.Stdin = bytes.NewReader(script)
-	cmd.Env = append(os.Environ(), "INSTALL_DIR="+destDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		slog.Warn("rtk: install script failed", "err", err, "output_len", len(out))
-		// 脚本可能安装到 ~/.local/bin/rtk，尝试移动。
-		localBin := filepath.Join(home, ".local", "bin", "rtk")
-		if _, statErr := os.Stat(localBin); statErr == nil {
-			_ = os.Rename(localBin, destBin)
-			_ = os.Chmod(destBin, 0755)
+	if runtime.GOOS == "windows" {
+		if err := downloadRTKWindows(destBin); err != nil {
+			slog.Warn("rtk: windows install failed", "err", err)
+			return
 		}
-		return
-	}
+	} else {
+		script, err := fetchRTKInstallScript()
+		if err != nil {
+			slog.Warn("rtk: download install script failed", "err", err)
+			return
+		}
 
-	// 安装脚本成功后检查 destBin 是否已到位，否则从 ~/.local/bin 移动。
-	if _, err := os.Stat(destBin); err != nil {
-		localBin := filepath.Join(home, ".local", "bin", "rtk")
-		if _, statErr := os.Stat(localBin); statErr == nil {
-			_ = os.Rename(localBin, destBin)
-			_ = os.Chmod(destBin, 0755)
+		cmd := exec.Command("sh")
+		cmd.Stdin = bytes.NewReader(script)
+		cmd.Env = append(os.Environ(), "INSTALL_DIR="+destDir)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			slog.Warn("rtk: install script failed", "err", err, "output_len", len(out))
+			// 脚本可能安装到 ~/.local/bin/rtk，尝试移动。
+			localBin := filepath.Join(home, ".local", "bin", "rtk")
+			if _, statErr := os.Stat(localBin); statErr == nil {
+				_ = os.Rename(localBin, destBin)
+				_ = os.Chmod(destBin, 0755)
+			}
+			return
+		}
+
+		// 安装脚本成功后检查 destBin 是否已到位，否则从 ~/.local/bin 移动。
+		if _, err := os.Stat(destBin); err != nil {
+			localBin := filepath.Join(home, ".local", "bin", "rtk")
+			if _, statErr := os.Stat(localBin); statErr == nil {
+				_ = os.Rename(localBin, destBin)
+				_ = os.Chmod(destBin, 0755)
+			}
 		}
 	}
 	if _, err := os.Stat(destBin); err == nil {
 		slog.Info("rtk: installed", "path", destBin)
 	}
+}
+
+func desktopRTKBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "rtk.exe"
+	}
+	return "rtk"
 }
 
 func fetchRTKInstallScript() ([]byte, error) {
@@ -117,4 +136,86 @@ func fetchRTKInstallScript() ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
+}
+
+func fetchRTKLatestVersion() (string, error) {
+	req, err := http.NewRequest(http.MethodGet, "https://api.github.com/repos/rtk-ai/rtk/releases/latest", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "arkloop-desktop")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("rtk latest release: %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+	if payload.TagName == "" {
+		return "", fmt.Errorf("rtk latest release: tag_name missing")
+	}
+	return strings.TrimPrefix(payload.TagName, "v"), nil
+}
+
+func downloadRTKWindows(destBin string) error {
+	version, err := fetchRTKLatestVersion()
+	if err != nil {
+		return err
+	}
+	url := "https://github.com/rtk-ai/rtk/releases/download/v" + version + "/rtk-x86_64-pc-windows-msvc.zip"
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("rtk windows download: %s", resp.Status)
+	}
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	reader, err := zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		return err
+	}
+	for _, file := range reader.File {
+		if filepath.Base(file.Name) != "rtk.exe" {
+			continue
+		}
+		src, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer src.Close()
+
+		tmpPath := destBin + ".tmp"
+		dst, err := os.Create(tmpPath)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(dst, src); err != nil {
+			dst.Close()
+			return err
+		}
+		if err := dst.Close(); err != nil {
+			return err
+		}
+		if err := os.Rename(tmpPath, destBin); err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("rtk.exe not found in release archive")
 }

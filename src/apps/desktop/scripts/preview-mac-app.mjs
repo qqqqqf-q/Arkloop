@@ -6,9 +6,22 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 
+function resolveCommand(command) {
+  return process.platform === 'win32' ? `${command}.cmd` : command
+}
+
+function shouldUseShell(command) {
+  return process.platform === 'win32' && command.endsWith('.cmd')
+}
+
 function runStep(command, args, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, { stdio: 'inherit', ...options })
+    const resolvedCommand = resolveCommand(command)
+    const child = spawn(resolvedCommand, args, {
+      stdio: 'inherit',
+      shell: shouldUseShell(resolvedCommand),
+      ...options,
+    })
     child.on('error', rejectPromise)
     child.on('exit', (code) => {
       if (code === 0) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -41,7 +42,7 @@ func resolvedRTKPath() string {
 		}
 		// Desktop: user installs RTK to ~/.arkloop/bin/rtk.
 		if home, err := os.UserHomeDir(); err == nil {
-			candidate := filepath.Join(home, ".arkloop", "bin", "rtk")
+			candidate := filepath.Join(home, ".arkloop", "bin", desktopRTKBinaryName())
 			if _, err := os.Stat(candidate); err == nil {
 				rtkPath = candidate
 				return
@@ -53,6 +54,13 @@ func resolvedRTKPath() string {
 		}
 	})
 	return rtkPath
+}
+
+func desktopRTKBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "rtk.exe"
+	}
+	return "rtk"
 }
 
 // rtkCompressText pipes text through `rtk compress`. Returns compressed text

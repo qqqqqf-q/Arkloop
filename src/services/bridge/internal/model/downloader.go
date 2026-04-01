@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 
 	"arkloop/services/bridge/internal/docker"
 )
@@ -321,7 +320,7 @@ func (d *Downloader) tryModelScopeInstall(ctx context.Context, op *docker.Operat
 // returns the exit error (if any).
 func (d *Downloader) run(ctx context.Context, op *docker.Operation, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	configureCommand(cmd)
 
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {

@@ -548,14 +548,13 @@ func buildEffectiveToolCatalog(
 	ctx context.Context,
 	accountID uuid.UUID,
 	userID uuid.UUID,
-	workspaceRef string,
 	projectID uuid.UUID,
 	overridesRepo *data.ToolDescriptionOverridesRepository,
-	pool *pgxpool.Pool,
+	pool data.DB,
 	mcpCache *catalogfamily.EffectiveToolCatalogCache,
 	artifactStoreAvailable bool,
 ) (toolCatalogResponse, error) {
-	resp, err := catalogfamily.BuildEffectiveToolCatalog(ctx, accountID, userID, workspaceRef, projectID, overridesRepo, pool, mcpCache, artifactStoreAvailable)
+	resp, err := catalogfamily.BuildEffectiveToolCatalog(ctx, accountID, userID, projectID, overridesRepo, pool, mcpCache, artifactStoreAvailable)
 	if err != nil {
 		return toolCatalogResponse{}, err
 	}

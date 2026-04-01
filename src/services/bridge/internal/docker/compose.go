@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 // Logger is the interface used by Compose for structured logging.
@@ -231,6 +230,7 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 
 	cmd := exec.CommandContext(cancelCtx, "docker", args...)
 	cmd.Dir = c.projectDir
+	configureCommand(cmd)
 
 	// Merge stdout and stderr so we capture all output.
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -240,8 +240,6 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = cmd.Stdout // redirect stderr into the same pipe
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 	c.logger.Info("running docker compose", map[string]any{
 		"operation_id": op.ID,
 		"action":       action,
@@ -324,6 +322,7 @@ func (c *Compose) runSystemAsync(ctx context.Context, action string, args []stri
 
 	cmd := exec.CommandContext(cancelCtx, "docker", args...)
 	cmd.Dir = c.projectDir
+	configureCommand(cmd)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -332,8 +331,6 @@ func (c *Compose) runSystemAsync(ctx context.Context, action string, args []stri
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = cmd.Stdout
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 	c.logger.Info("running docker compose (system)", map[string]any{
 		"operation_id": op.ID,
 		"action":       action,

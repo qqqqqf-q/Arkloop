@@ -2,8 +2,8 @@ package docker
 
 import (
 	"context"
+	"os"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,7 +57,9 @@ func (o *Operation) Cancel() {
 		o.cancelFunc()
 	}
 	if pid > 0 {
-		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Kill()
+		}
 	}
 }
 

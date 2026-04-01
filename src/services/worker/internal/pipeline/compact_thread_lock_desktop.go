@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"golang.org/x/sys/unix"
 )
 
 // compactThreadCompactionAdvisoryXactLock is a no-op on desktop builds.
@@ -42,15 +41,14 @@ func CompactThreadCompactionLock(ctx context.Context, threadID uuid.UUID) (func(
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 
-	// Acquire exclusive flock - blocks until available
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
+	releaseLock, err := lockDesktopFile(ctx, f)
+	if err != nil {
 		f.Close()
-		return nil, fmt.Errorf("acquire flock: %w", err)
+		return nil, err
 	}
 
 	cleanup := func() {
-		// Close first - on POSIX, close(fd) automatically releases flock locks.
-		// Then remove the lock file.
+		releaseLock()
 		f.Close()
 		os.Remove(lockFile)
 	}

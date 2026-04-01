@@ -3,6 +3,7 @@ import * as https from 'https'
 import * as http from 'http'
 import * as os from 'os'
 import * as path from 'path'
+import { execFileSync } from 'child_process'
 
 export type ComponentStatus = {
   current: string | null
@@ -107,6 +108,14 @@ const GITHUB_API_LATEST_RELEASE = `https://api.github.com/repos/${GITHUB_REPO}/r
 const VERSIONS_FILE = path.join(os.homedir(), '.arkloop', 'versions.json')
 const VM_DIR = path.join(os.homedir(), '.arkloop', 'vm')
 const OPENCLI_VERSION_FILE_LEGACY = path.join(os.homedir(), '.arkloop', 'bin', 'opencli.version.json')
+
+function rtkBinaryName(): string {
+  return process.platform === 'win32' ? 'rtk.exe' : 'rtk'
+}
+
+function rtkWindowsAssetName(): string {
+  return 'rtk-x86_64-pc-windows-msvc.zip'
+}
 
 function isReleaseMissingStatus(statusCode: number | undefined): boolean {
   return statusCode === 404
@@ -411,10 +420,15 @@ export async function applyUpdate(
     const spec = manifest.bins?.rtk
     if (!spec) throw new Error('rtk update not published')
     const rtkDir = path.join(os.homedir(), '.arkloop', 'bin')
-    const rtkDest = path.join(rtkDir, 'rtk')
+    const rtkDest = path.join(rtkDir, rtkBinaryName())
     fs.mkdirSync(rtkDir, { recursive: true })
-    const scriptUrl = `https://raw.githubusercontent.com/${spec.repo}/refs/tags/v${spec.version}/install.sh`
-    await downloadAndInstallRTK(scriptUrl, rtkDest, onProgress)
+    if (process.platform === 'win32') {
+      const assetUrl = `https://github.com/${spec.repo}/releases/download/v${spec.version}/${rtkWindowsAssetName()}`
+      await downloadAndInstallRTKWindows(assetUrl, rtkDest, onProgress)
+    } else {
+      const scriptUrl = `https://raw.githubusercontent.com/${spec.repo}/refs/tags/v${spec.version}/install.sh`
+      await downloadAndInstallRTK(scriptUrl, rtkDest, onProgress)
+    }
     const local = loadLocalVersions()
     saveLocalVersions({ ...local, rtk: { version: spec.version, updated_at: now } })
     return
@@ -448,7 +462,6 @@ async function downloadAndInstallRTK(
   emit({ phase: 'downloading', percent: 50, bytesDownloaded: script.length, bytesTotal: script.length })
 
   const destDir = path.dirname(destBin)
-  const { execFileSync } = await import('child_process')
   const tmpScript = path.join(destDir, 'rtk-install.sh.tmp')
   fs.writeFileSync(tmpScript, script, { mode: 0o755 })
 
@@ -474,4 +487,37 @@ async function downloadAndInstallRTK(
   }
 
   emit({ phase: 'done', percent: 100, bytesDownloaded: script.length, bytesTotal: script.length })
+}
+
+async function downloadAndInstallRTKWindows(
+  assetUrl: string,
+  destBin: string,
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
+  const emit = (p: DownloadProgress) => onProgress?.(p)
+  const destDir = path.dirname(destBin)
+  fs.mkdirSync(destDir, { recursive: true })
+
+  const archivePath = path.join(destDir, 'rtk.archive.zip')
+  await downloadFile(assetUrl, archivePath, onProgress)
+
+  emit({ phase: 'verifying', percent: 100, bytesDownloaded: 0, bytesTotal: 0 })
+  try {
+    execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        `Expand-Archive -LiteralPath '${archivePath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`,
+      ],
+      { timeout: 120_000 },
+    )
+    if (!fs.existsSync(destBin)) {
+      throw new Error('rtk binary not found after zip extraction')
+    }
+  } finally {
+    try { fs.unlinkSync(archivePath) } catch {}
+  }
+
+  emit({ phase: 'done', percent: 100, bytesDownloaded: 100, bytesTotal: 100 })
 }

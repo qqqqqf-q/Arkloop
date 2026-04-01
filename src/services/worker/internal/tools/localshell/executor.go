@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -362,7 +363,7 @@ var (
 func resolvedRTKBin() string {
 	rtkBinOnce.Do(func() {
 		home, _ := os.UserHomeDir()
-		arkBin := home + "/.arkloop/bin/rtk"
+		arkBin := filepath.Join(home, ".arkloop", "bin", toolsDesktopRTKBinaryName())
 		if _, err := os.Stat(arkBin); err == nil {
 			rtkBinCache = arkBin
 			return
@@ -372,6 +373,13 @@ func resolvedRTKBin() string {
 		}
 	})
 	return rtkBinCache
+}
+
+func toolsDesktopRTKBinaryName() string {
+	if os.PathSeparator == '\\' {
+		return "rtk.exe"
+	}
+	return "rtk"
 }
 
 func truncateForLog(s string, maxLen int) string {

@@ -8,11 +8,37 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = resolve(__dirname, '..')
 const webRoot = resolve(root, '..', 'web')
 const workspaceRoot = resolve(root, '..', '..', '..')
-const desktopBin = resolve(workspaceRoot, 'src', 'services', 'desktop', 'bin', 'desktop')
+const desktopBin = resolve(
+  workspaceRoot,
+  'src',
+  'services',
+  'desktop',
+  'bin',
+  process.platform === 'win32' ? 'desktop.exe' : 'desktop',
+)
+
+function resolveCommand(command) {
+  return process.platform === 'win32' ? `${command}.cmd` : command
+}
+
+function shouldUseShell(command) {
+  return process.platform === 'win32' && command.endsWith('.cmd')
+}
+
+function resolveElectronPath() {
+  return process.platform === 'win32'
+    ? resolve(root, 'node_modules', '.bin', 'electron.cmd')
+    : resolve(root, 'node_modules', '.bin', 'electron')
+}
 
 function runStep(command, args, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, args, { stdio: 'inherit', ...options })
+    const resolvedCommand = resolveCommand(command)
+    const child = spawn(resolvedCommand, args, {
+      stdio: 'inherit',
+      shell: shouldUseShell(resolvedCommand),
+      ...options,
+    })
     child.on('error', rejectPromise)
     child.on('exit', (code) => {
       if (code === 0) {
@@ -47,9 +73,11 @@ async function main() {
 
   // Start Vite directly with sidecar proxy target, overriding .env.local
   console.log('starting vite dev server...')
-  const vite = spawn('pnpm', ['exec', 'vite'], {
+  const viteCommand = resolveCommand('pnpm')
+  const vite = spawn(viteCommand, ['exec', 'vite'], {
     cwd: webRoot,
     stdio: 'inherit',
+    shell: shouldUseShell(viteCommand),
     env: {
       ...process.env,
       ARKLOOP_API_PROXY_TARGET: 'http://127.0.0.1:19001',
@@ -73,7 +101,7 @@ async function main() {
 
   console.log('starting electron...')
 
-  const electronPath = resolve(root, 'node_modules', '.bin', 'electron')
+  const electronPath = resolveElectronPath()
   const electron = spawn(electronPath, ['.'], {
     cwd: root,
     stdio: 'inherit',

@@ -552,8 +552,8 @@ func (e *ToolExecutor) executeWriteStdin(
 		"terminal.stdin_interaction",
 		map[string]any{
 			"session_ref": resolution.SessionRef,
-			"chars":        reqArgs.Chars,
-			"running":      resp != nil && resp.Running,
+			"chars":       reqArgs.Chars,
+			"running":     resp != nil && resp.Running,
 		},
 		&toolName,
 		nil,
@@ -1574,7 +1574,7 @@ func rtkRewriteSandbox(command string) string {
 			return
 		}
 		if home, err := os.UserHomeDir(); err == nil {
-			candidate := filepath.Join(home, ".arkloop", "bin", "rtk")
+			candidate := filepath.Join(home, ".arkloop", "bin", sandboxDesktopRTKBinaryName())
 			if _, err := os.Stat(candidate); err == nil {
 				sandboxRTKCache = candidate
 				return
@@ -1597,6 +1597,13 @@ func rtkRewriteSandbox(command string) string {
 		return ""
 	}
 	return rewritten
+}
+
+func sandboxDesktopRTKBinaryName() string {
+	if os.PathSeparator == '\\' {
+		return "rtk.exe"
+	}
+	return "rtk"
 }
 
 func shouldAttemptRTKRewriteSandbox(command string) bool {

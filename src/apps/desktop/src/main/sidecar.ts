@@ -158,8 +158,28 @@ export function isSidecarAvailable(): boolean {
   } catch {}
 
   if (!app.isPackaged) {
+    const devBuiltPath = path.resolve(
+      __dirname,
+      '..',
+      '..',
+      'sidecar-bin',
+      getSidecarBinaryName(),
+    )
+    try {
+      fs.accessSync(devBuiltPath, fs.constants.X_OK)
+      return true
+    } catch {}
+
     const devPath = path.resolve(
-      __dirname, '..', '..', '..', '..', 'services', 'desktop', 'bin', 'desktop',
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'services',
+      'desktop',
+      'bin',
+      process.platform === 'win32' ? 'desktop.exe' : 'desktop',
     )
     try {
       fs.accessSync(devPath, fs.constants.X_OK)
@@ -312,10 +332,15 @@ function getOpenCLIDestPath(): string {
   return path.join(SIDECAR_DIR, process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs')
 }
 
+function getOpenCLIArchivePath(destPath: string): string {
+  if (process.platform === 'win32') return `${destPath}.archive.zip`
+  return `${destPath}.archive.tmp`
+}
+
 export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) => void, targetVersion?: string): Promise<void> {
   const emit = (progress: DownloadProgress) => onProgress?.(progress)
   const destPath = getOpenCLIDestPath()
-  const tmpArchive = `${destPath}.archive.tmp`
+  const tmpArchive = getOpenCLIArchivePath(destPath)
   const extractDir = `${destPath}.extract.tmp`
 
   emit({ phase: 'connecting', percent: 0, bytesDownloaded: 0, bytesTotal: 0 })
@@ -448,8 +473,25 @@ function resolveBinaryPath(): string {
   if (fs.existsSync(downloaded)) return downloaded
 
   if (!app.isPackaged) {
+    const devBuiltPath = path.resolve(
+      __dirname,
+      '..',
+      '..',
+      'sidecar-bin',
+      getSidecarBinaryName(),
+    )
+    if (fs.existsSync(devBuiltPath)) return devBuiltPath
+
     const devPath = path.resolve(
-      __dirname, '..', '..', '..', '..', 'services', 'desktop', 'bin', 'desktop',
+      __dirname,
+      '..',
+      '..',
+      '..',
+      '..',
+      'services',
+      'desktop',
+      'bin',
+      process.platform === 'win32' ? 'desktop.exe' : 'desktop',
     )
     if (fs.existsSync(devPath)) return devPath
   }
