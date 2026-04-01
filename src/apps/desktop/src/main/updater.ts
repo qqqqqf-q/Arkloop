@@ -13,7 +13,10 @@ export type ComponentStatus = {
 export type UpdateStatus = {
   openviking: ComponentStatus
   sandbox: { kernel: ComponentStatus; rootfs: ComponentStatus }
+  bins: { rtk: ComponentStatus; opencli: ComponentStatus }
 }
+
+type BinSpec = { version: string; repo: string }
 
 type DesktopManifest = {
   version: string
@@ -22,6 +25,10 @@ type DesktopManifest = {
     kernel?: { version: string; filename: string }
     rootfs?: { version: string; filename: string }
   }
+  bins?: {
+    rtk?: BinSpec
+    opencli?: BinSpec
+  }
 }
 
 function assertNonEmptyString(value: unknown, field: string): string {
@@ -29,6 +36,23 @@ function assertNonEmptyString(value: unknown, field: string): string {
     throw new Error(`invalid desktop manifest: ${field}`)
   }
   return value
+}
+
+function parseBinSpec(raw: unknown, field: string): BinSpec | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const obj = raw as Record<string, unknown>
+  if (typeof obj.version !== 'string' || !obj.version.trim()) return undefined
+  if (typeof obj.repo !== 'string' || !obj.repo.trim()) return undefined
+  return { version: obj.version, repo: obj.repo }
+}
+
+function parseBins(raw: unknown): Pick<DesktopManifest, 'bins'> {
+  if (!raw || typeof raw !== 'object') return {}
+  const obj = raw as Record<string, unknown>
+  const rtk = parseBinSpec(obj.rtk, 'bins.rtk')
+  const opencli = parseBinSpec(obj.opencli, 'bins.opencli')
+  if (!rtk && !opencli) return {}
+  return { bins: { ...(rtk ? { rtk } : {}), ...(opencli ? { opencli } : {}) } }
 }
 
 function parseDesktopManifest(raw: unknown): DesktopManifest {
@@ -64,12 +88,14 @@ function parseDesktopManifest(raw: unknown): DesktopManifest {
       version: assertNonEmptyString(openviking?.version, 'openviking.version'),
     },
     ...(parsedSandbox.kernel || parsedSandbox.rootfs ? { sandbox: parsedSandbox } : {}),
+    ...parseBins(manifest.bins),
   }
 }
 
 type LocalVersions = {
   openviking?: { version: string; updated_at: string }
   opencli?: { version: string; updated_at: string }
+  rtk?: { version: string; updated_at: string }
   sandbox?: {
     kernel?: { version: string; updated_at: string }
     rootfs?: { version: string; updated_at: string }
@@ -80,6 +106,7 @@ const GITHUB_REPO = 'qqqqqf/Arkloop'
 const GITHUB_API_LATEST_RELEASE = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const VERSIONS_FILE = path.join(os.homedir(), '.arkloop', 'versions.json')
 const VM_DIR = path.join(os.homedir(), '.arkloop', 'vm')
+const OPENCLI_VERSION_FILE_LEGACY = path.join(os.homedir(), '.arkloop', 'bin', 'opencli.version.json')
 
 function isReleaseMissingStatus(statusCode: number | undefined): boolean {
   return statusCode === 404
@@ -153,6 +180,16 @@ async function fetchManifest(): Promise<DesktopManifest> {
   return parseDesktopManifest(JSON.parse(manifestBody))
 }
 
+function resolveLocalOpenCLIVersion(local: LocalVersions): string | null {
+  if (local.opencli?.version) return local.opencli.version
+  try {
+    const raw = fs.readFileSync(OPENCLI_VERSION_FILE_LEGACY, 'utf-8')
+    return (JSON.parse(raw) as { version?: string }).version ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function checkForUpdates(): Promise<UpdateStatus> {
   const manifest = await fetchManifest()
   const local = loadLocalVersions()
@@ -162,6 +199,10 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   const rootfsCurrent = local.sandbox?.rootfs?.version ?? null
   const kernelLatest = manifest.sandbox?.kernel?.version ?? null
   const rootfsLatest = manifest.sandbox?.rootfs?.version ?? null
+  const rtkCurrent = local.rtk?.version ?? null
+  const rtkLatest = manifest.bins?.rtk?.version ?? null
+  const opencliCurrent = resolveLocalOpenCLIVersion(local)
+  const opencliLatest = manifest.bins?.opencli?.version ?? null
 
   return {
     openviking: {
@@ -179,6 +220,18 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
         current: rootfsCurrent,
         latest: rootfsLatest,
         available: !!(rootfsLatest && rootfsLatest !== rootfsCurrent),
+      },
+    },
+    bins: {
+      rtk: {
+        current: rtkCurrent,
+        latest: rtkLatest,
+        available: !!(rtkLatest && rtkLatest !== rtkCurrent),
+      },
+      opencli: {
+        current: opencliCurrent,
+        latest: opencliLatest,
+        available: !!(opencliLatest && opencliLatest !== opencliCurrent),
       },
     },
   }
@@ -233,7 +286,7 @@ async function downloadFile(
 }
 
 export async function applyUpdate(
-  component: 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs',
+  component: 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli',
   onProgress?: (p: DownloadProgress) => void,
 ): Promise<void> {
   const manifest = await fetchManifest()
@@ -344,5 +397,81 @@ export async function applyUpdate(
     return
   }
 
+  if (component === 'opencli') {
+    const spec = manifest.bins?.opencli
+    if (!spec) throw new Error('opencli update not published')
+    const { downloadOpenCLI } = await import('./sidecar')
+    await downloadOpenCLI(onProgress, spec.version)
+    const local = loadLocalVersions()
+    saveLocalVersions({ ...local, opencli: { version: spec.version, updated_at: now } })
+    return
+  }
+
+  if (component === 'rtk') {
+    const spec = manifest.bins?.rtk
+    if (!spec) throw new Error('rtk update not published')
+    const rtkDir = path.join(os.homedir(), '.arkloop', 'bin')
+    const rtkDest = path.join(rtkDir, 'rtk')
+    fs.mkdirSync(rtkDir, { recursive: true })
+    const scriptUrl = `https://raw.githubusercontent.com/${spec.repo}/refs/tags/v${spec.version}/install.sh`
+    await downloadAndInstallRTK(scriptUrl, rtkDest, onProgress)
+    const local = loadLocalVersions()
+    saveLocalVersions({ ...local, rtk: { version: spec.version, updated_at: now } })
+    return
+  }
+
   throw new Error(`unknown component: ${component}`)
+}
+
+async function downloadAndInstallRTK(
+  scriptUrl: string,
+  destBin: string,
+  onProgress?: (p: DownloadProgress) => void,
+): Promise<void> {
+  const emit = (p: DownloadProgress) => onProgress?.(p)
+  emit({ phase: 'connecting', percent: 0, bytesDownloaded: 0, bytesTotal: 0 })
+
+  const res = await httpsGet(scriptUrl)
+  if (res.statusCode !== 200) {
+    res.resume()
+    throw new Error(`rtk install script download failed: ${res.statusCode}`)
+  }
+
+  const chunks: Buffer[] = []
+  await new Promise<void>((resolve, reject) => {
+    res.on('data', (c: Buffer) => chunks.push(c))
+    res.on('end', () => resolve())
+    res.on('error', reject)
+  })
+  const script = Buffer.concat(chunks)
+
+  emit({ phase: 'downloading', percent: 50, bytesDownloaded: script.length, bytesTotal: script.length })
+
+  const destDir = path.dirname(destBin)
+  const { execFileSync } = await import('child_process')
+  const tmpScript = path.join(destDir, 'rtk-install.sh.tmp')
+  fs.writeFileSync(tmpScript, script, { mode: 0o755 })
+
+  try {
+    execFileSync('sh', [tmpScript], {
+      env: { ...process.env, INSTALL_DIR: destDir },
+      timeout: 120_000,
+    })
+    // install script may place binary in ~/.local/bin
+    if (!fs.existsSync(destBin)) {
+      const home = os.homedir()
+      const localBin = path.join(home, '.local', 'bin', 'rtk')
+      if (fs.existsSync(localBin)) {
+        fs.renameSync(localBin, destBin)
+        fs.chmodSync(destBin, 0o755)
+      }
+    }
+    if (!fs.existsSync(destBin)) {
+      throw new Error('rtk binary not found after install')
+    }
+  } finally {
+    try { fs.unlinkSync(tmpScript) } catch {}
+  }
+
+  emit({ phase: 'done', percent: 100, bytesDownloaded: script.length, bytesTotal: script.length })
 }

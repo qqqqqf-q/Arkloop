@@ -215,9 +215,10 @@ export type AppUpdaterState = {
 export type UpdaterStatus = {
   openviking: UpdaterComponentStatus
   sandbox: { kernel: UpdaterComponentStatus; rootfs: UpdaterComponentStatus }
+  bins: { rtk: UpdaterComponentStatus; opencli: UpdaterComponentStatus }
 }
 
-export type UpdaterComponent = 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs'
+export type UpdaterComponent = 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
 
 export type ArkloopDesktopApi = {
   isDesktop: true

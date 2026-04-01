@@ -312,7 +312,7 @@ function getOpenCLIDestPath(): string {
   return path.join(SIDECAR_DIR, process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs')
 }
 
-export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) => void): Promise<void> {
+export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) => void, targetVersion?: string): Promise<void> {
   const emit = (progress: DownloadProgress) => onProgress?.(progress)
   const destPath = getOpenCLIDestPath()
   const tmpArchive = `${destPath}.archive.tmp`
@@ -321,31 +321,41 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
   emit({ phase: 'connecting', percent: 0, bytesDownloaded: 0, bytesTotal: 0 })
 
   try {
-    const releaseRes = await httpsGet(OPENCLI_GITHUB_API)
-    const releaseBody = await new Promise<string>((resolve, reject) => {
-      const chunks: Buffer[] = []
-      releaseRes.on('data', (chunk: Buffer) => chunks.push(chunk))
-      releaseRes.on('end', () => resolve(Buffer.concat(chunks).toString()))
-      releaseRes.on('error', reject)
-    })
-    if (releaseRes.statusCode !== 200) {
-      throw new Error(`failed to fetch opencli-rs release info: ${releaseRes.statusCode}`)
-    }
+    let version: string
+    let downloadUrl: string
 
-    const release = JSON.parse(releaseBody) as {
-      tag_name?: string
-      assets?: Array<{ name: string; browser_download_url: string }>
-    }
-    const version = (release.tag_name as string)?.replace(/^v/, '')
-    if (!version) throw new Error('invalid opencli-rs release: missing tag_name')
+    if (targetVersion) {
+      version = targetVersion
+      const assetName = getOpenCLIAssetName()
+      downloadUrl = `https://github.com/nashsu/opencli-rs/releases/download/v${version}/${assetName}`
+    } else {
+      const releaseRes = await httpsGet(OPENCLI_GITHUB_API)
+      const releaseBody = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = []
+        releaseRes.on('data', (chunk: Buffer) => chunks.push(chunk))
+        releaseRes.on('end', () => resolve(Buffer.concat(chunks).toString()))
+        releaseRes.on('error', reject)
+      })
+      if (releaseRes.statusCode !== 200) {
+        throw new Error(`failed to fetch opencli-rs release info: ${releaseRes.statusCode}`)
+      }
 
-    const assetName = getOpenCLIAssetName()
-    const asset = (release.assets ?? []).find((a) => a.name === assetName)
-    if (!asset) throw new Error(`opencli-rs asset not found: ${assetName}`)
+      const release = JSON.parse(releaseBody) as {
+        tag_name?: string
+        assets?: Array<{ name: string; browser_download_url: string }>
+      }
+      version = (release.tag_name as string)?.replace(/^v/, '')
+      if (!version) throw new Error('invalid opencli-rs release: missing tag_name')
+
+      const assetName = getOpenCLIAssetName()
+      const asset = (release.assets ?? []).find((a) => a.name === assetName)
+      if (!asset) throw new Error(`opencli-rs asset not found: ${assetName}`)
+      downloadUrl = asset.browser_download_url
+    }
 
     fs.mkdirSync(SIDECAR_DIR, { recursive: true })
 
-    const dlRes = await httpsGet(asset.browser_download_url)
+    const dlRes = await httpsGet(downloadUrl)
     if (dlRes.statusCode !== 200) {
       dlRes.resume()
       throw new Error(`opencli-rs download failed: ${dlRes.statusCode}`)

@@ -33,6 +33,11 @@ function buildManifest() {
   const sandboxRootfsFilename = readOptionalEnv('ARKLOOP_SANDBOX_ROOTFS_FILENAME')
   const sandboxRootfsVersion = readOptionalEnv('ARKLOOP_SANDBOX_ROOTFS_VERSION')?.replace(/^v/, '') ?? null
 
+  const rtkVersion = readOptionalEnv('ARKLOOP_RTK_VERSION')?.replace(/^v/, '') ?? null
+  const rtkRepo = readOptionalEnv('ARKLOOP_RTK_REPO') ?? null
+  const opencliVersion = readOptionalEnv('ARKLOOP_OPENCLI_VERSION')?.replace(/^v/, '') ?? null
+  const opencliRepo = readOptionalEnv('ARKLOOP_OPENCLI_REPO') ?? null
+
   const sandbox = {}
 
   if (sandboxKernelFilename || sandboxKernelVersion) {
@@ -57,6 +62,14 @@ function buildManifest() {
     }
   }
 
+  const bins = {}
+  if (rtkVersion && rtkRepo) {
+    bins.rtk = { version: rtkVersion, repo: rtkRepo }
+  }
+  if (opencliVersion && opencliRepo) {
+    bins.opencli = { version: opencliVersion, repo: opencliRepo }
+  }
+
   const manifest = {
     version,
     ...(releaseLabel ? { release_name: `${version} ${releaseLabel}` } : {}),
@@ -65,6 +78,7 @@ function buildManifest() {
       version: openvikingVersion,
     },
     ...(Object.keys(sandbox).length > 0 ? { sandbox } : {}),
+    ...(Object.keys(bins).length > 0 ? { bins } : {}),
   }
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })

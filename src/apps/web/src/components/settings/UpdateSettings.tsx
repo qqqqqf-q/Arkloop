@@ -17,6 +17,10 @@ type UpdateStatus = {
     kernel: ComponentStatus
     rootfs: ComponentStatus
   }
+  bins: {
+    rtk: ComponentStatus
+    opencli: ComponentStatus
+  }
 }
 
 function getUpdaterApi() {
@@ -180,6 +184,10 @@ export function UpdateSettingsContent() {
         { key: 'openviking',       label: 'OpenViking',      status: updateStatus.openviking },
         { key: 'sandbox_kernel',   label: 'Sandbox Kernel',  status: updateStatus.sandbox.kernel },
         { key: 'sandbox_rootfs',   label: 'Sandbox Rootfs',  status: updateStatus.sandbox.rootfs },
+        ...(updateStatus.bins ? [
+          { key: 'rtk' as UpdaterComponent,     label: 'RTK',      status: updateStatus.bins.rtk },
+          { key: 'opencli' as UpdaterComponent,  label: 'OpenCLI',  status: updateStatus.bins.opencli },
+        ] : []),
       ]
     : []
 
