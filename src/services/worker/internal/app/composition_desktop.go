@@ -505,6 +505,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		pipeline.NewSpawnAgentMiddleware(),
 		desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo),
 		desktopChannelContext(e.db),
+		pipeline.NewChannelAdminTagMiddleware(e.db),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
 		pipeline.NewChannelGroupContextTrimMiddleware(),
 		pipeline.NewChannelTelegramToolsMiddleware(&desktopTelegramTokenLoader{db: e.db}, nil),
@@ -538,7 +539,10 @@ func desktopCapabilityMiddlewares(
 	promptInjection securitycap.Runtime,
 	eventsRepo data.RunEventStore,
 ) []pipeline.RunMiddleware {
-	middlewares := []pipeline.RunMiddleware{memMiddleware}
+	middlewares := []pipeline.RunMiddleware{
+		memMiddleware,
+		pipeline.NewRuntimeContextMiddleware(),
+	}
 	return append(middlewares, promptInjection.Middlewares(eventsRepo)...)
 }
 

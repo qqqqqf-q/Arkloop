@@ -318,16 +318,22 @@ func compactTelegramEnvelopeBody(meta map[string]string, body string) string {
 func compactTelegramBurstSpeaker(meta map[string]string, duplicateDisplay bool) string {
 	displayName := strings.TrimSpace(meta["display-name"])
 	shortRef := compactTelegramSenderRef(meta["sender-ref"])
+	isAdmin := strings.TrimSpace(meta["admin"]) == "true"
+	var speaker string
 	switch {
 	case displayName == "" && shortRef == "":
-		return "user"
+		speaker = "user"
 	case displayName == "":
-		return shortRef
+		speaker = shortRef
 	case duplicateDisplay && shortRef != "":
-		return displayName + " <" + shortRef + ">"
+		speaker = displayName + " <" + shortRef + ">"
 	default:
-		return displayName
+		speaker = displayName
 	}
+	if isAdmin {
+		speaker += " [admin]"
+	}
+	return speaker
 }
 
 func compactTelegramSenderRef(ref string) string {
