@@ -60,6 +60,23 @@ function computeOuterHeight(contentHeight: number, style: CSSStyleDeclaration, b
   return contentHeight
 }
 
+function measureContentHeightWithScrollHeight(
+  element: HTMLTextAreaElement,
+  style: CSSStyleDeclaration,
+  minContentHeight: number,
+) {
+  const previousHeight = element.style.height
+  const previousOverflowY = element.style.overflowY
+  element.style.height = '0px'
+  element.style.overflowY = 'hidden'
+  const scrollHeight = element.scrollHeight
+  element.style.height = previousHeight
+  element.style.overflowY = previousOverflowY
+  if (!(scrollHeight > 0)) return null
+  const verticalPadding = readNumber(style, 'padding-top') + readNumber(style, 'padding-bottom')
+  return Math.max(scrollHeight - verticalPadding, minContentHeight)
+}
+
 function createResizeObserver(callback: () => void) {
   if (typeof ResizeObserver !== 'function') return null
   return new ResizeObserver(() => callback())
@@ -81,13 +98,13 @@ export function useAutoResizeTextarea<T extends HTMLTextAreaElement>({
     const element = ref.current
     if (!element) return
     const style = window.getComputedStyle(element)
-    const resolvedFont = font ?? readFont(style)
     const resolvedLineHeight = lineHeight ?? readLineHeight(style)
     const contentWidth = computeContentWidth(element, style)
-    const contentHeight = measureTextareaHeight({
+    const minContentHeight = resolvedLineHeight * Math.max(minRows, 1)
+    const contentHeight = measureContentHeightWithScrollHeight(element, style, minContentHeight) ?? measureTextareaHeight({
       value,
       width: contentWidth,
-      font: resolvedFont,
+      font: font ?? readFont(style),
       lineHeight: resolvedLineHeight,
       minRows,
     })

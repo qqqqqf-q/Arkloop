@@ -77,6 +77,16 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function countLinesWithinLimit(text: string, limit: number) {
+  let lines = 1
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) !== 10) continue
+    lines += 1
+    if (lines >= limit) return lines
+  }
+  return lines
+}
+
 export function ChatInput({
   value,
   onChange,
@@ -246,7 +256,7 @@ export function ChatInput({
     const text = e.clipboardData.getData('text/plain')
     if (!text) return
 
-    const lineCount = text.split('\n').length
+    const lineCount = countLinesWithinLimit(text, PASTE_LINE_THRESHOLD)
     if (lineCount >= PASTE_LINE_THRESHOLD && onPasteContent) {
       e.preventDefault()
       onPasteContent(text)

@@ -33,4 +33,31 @@ describe('AutoResizeTextarea', () => {
     expect(textarea?.style.height).toMatch(/px$/)
     root.unmount()
   })
+
+  it('优先使用 textarea 的 scrollHeight 避免大文本测量阻塞', async () => {
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <AutoResizeTextarea
+          value={'x'.repeat(100_000)}
+          onChange={() => {}}
+          minRows={1}
+          style={{ width: '240px', fontSize: '16px', lineHeight: '24px', padding: '8px 0' }}
+        />,
+      )
+    })
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) throw new Error('textarea not found')
+    Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 320 })
+
+    await act(async () => {
+      textarea.dispatchEvent(new InputEvent('input', { bubbles: true }))
+    })
+
+    expect(textarea.style.height).toBe('304px')
+    root.unmount()
+  })
 })
