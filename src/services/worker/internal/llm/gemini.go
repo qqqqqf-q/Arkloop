@@ -440,6 +440,9 @@ func toGeminiPayload(request Request, advancedJSON map[string]any) (map[string]a
 	}
 	if len(request.Tools) > 0 {
 		payload["tools"] = toGeminiTools(request.Tools)
+		if tc := geminiToolConfig(request.ToolChoice); tc != nil {
+			payload["toolConfig"] = tc
+		}
 	}
 
 	// generationConfig 合并：advancedJSON 优先
@@ -624,6 +627,27 @@ func geminiToolResponsePart(text string) (map[string]any, error) {
 			"response": response,
 		},
 	}, nil
+}
+
+func geminiToolConfig(tc *ToolChoice) map[string]any {
+	if tc == nil {
+		return nil
+	}
+	switch tc.Mode {
+	case "required":
+		return map[string]any{
+			"functionCallingConfig": map[string]any{"mode": "ANY"},
+		}
+	case "specific":
+		return map[string]any{
+			"functionCallingConfig": map[string]any{
+				"mode":                 "ANY",
+				"allowedFunctionNames": []string{tc.ToolName},
+			},
+		}
+	default:
+		return nil
+	}
 }
 
 func toGeminiTools(specs []ToolSpec) []map[string]any {

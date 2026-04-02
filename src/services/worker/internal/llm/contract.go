@@ -271,12 +271,19 @@ func (s ToolSpec) ToJSON() map[string]any {
 	return payload
 }
 
+// ToolChoice controls whether the LLM must call a tool.
+type ToolChoice struct {
+	Mode     string // "auto" | "required" | "specific"
+	ToolName string // only used when Mode="specific"
+}
+
 type Request struct {
 	Model            string
 	Messages         []Message
 	Temperature      *float64
 	MaxOutputTokens  *int
 	Tools            []ToolSpec
+	ToolChoice       *ToolChoice
 	Metadata         map[string]any
 	ExperimentalJSON map[string]any
 	ReasoningMode    string // "auto" | "enabled" | "disabled" | "none"

@@ -173,7 +173,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	}
 	if len(request.Tools) > 0 {
 		payload["tools"] = toOpenAITools(request.Tools)
-		payload["tool_choice"] = "auto"
+		payload["tool_choice"] = openAIToolChoice(request.ToolChoice)
 	}
 	for k, v := range g.protocol.AdvancedPayloadJSON {
 		if _, exists := payload[k]; !exists {
@@ -360,7 +360,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	}
 	if len(request.Tools) > 0 {
 		payload["tools"] = toOpenAIResponsesTools(request.Tools)
-		payload["tool_choice"] = "auto"
+		payload["tool_choice"] = openAIToolChoice(request.ToolChoice)
 	}
 	for k, v := range g.protocol.AdvancedPayloadJSON {
 		if _, exists := payload[k]; !exists {
@@ -1339,6 +1339,23 @@ func joinParts(parts []ContentPart) string {
 		}
 	}
 	return strings.Join(chunks, "\n\n")
+}
+
+func openAIToolChoice(tc *ToolChoice) any {
+	if tc == nil {
+		return "auto"
+	}
+	switch tc.Mode {
+	case "required":
+		return "required"
+	case "specific":
+		return map[string]any{
+			"type":     "function",
+			"function": map[string]any{"name": tc.ToolName},
+		}
+	default:
+		return "auto"
+	}
 }
 
 func toOpenAITools(specs []ToolSpec) []map[string]any {

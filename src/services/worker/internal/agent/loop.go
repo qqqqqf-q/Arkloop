@@ -1548,7 +1548,9 @@ func copyRequest(request llm.Request, messages []llm.Message) llm.Request {
 		Temperature:     request.Temperature,
 		MaxOutputTokens: request.MaxOutputTokens,
 		Tools:           append([]llm.ToolSpec{}, request.Tools...),
+		ToolChoice:      request.ToolChoice,
 		Metadata:        copyMap(request.Metadata),
+		ReasoningMode:   request.ReasoningMode,
 	}
 }
 

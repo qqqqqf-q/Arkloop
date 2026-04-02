@@ -166,6 +166,11 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 			rc.ToolSpecs = append(rc.ToolSpecs, heartbeattool.Spec)
 		}
 
+		rc.ToolChoice = &llm.ToolChoice{
+			Mode:     "specific",
+			ToolName: heartbeattool.ToolName,
+		}
+
 		err := next(ctx, rc)
 
 		// memory_fragments 持久化（post-next）

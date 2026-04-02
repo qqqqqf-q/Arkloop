@@ -89,6 +89,7 @@ func (e *InteractiveExecutor) Execute(
 		MaxOutputTokens: rc.MaxOutputTokens,
 		Temperature:     rc.Temperature,
 		ReasoningMode:   rc.ReasoningMode,
+		ToolChoice:      rc.ToolChoice,
 	}
 
 	maxWait := time.Duration(e.maxWaitSeconds) * time.Second

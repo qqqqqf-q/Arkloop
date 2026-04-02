@@ -134,6 +134,7 @@ type RunContext struct {
 	PreferredCredentialName string // Persona.PreferredCredential 解析结果，供 RoutingMiddleware 使用
 	ReasoningMode           string // "auto" | "enabled" | "disabled" | "none"
 	StreamThinking          bool   // persona.stream_thinking，默认 true
+	ToolChoice              *llm.ToolChoice
 
 	// -- 初始化时写入 base 值，MCPDiscovery/ToolBuild 覆盖 --
 	ToolSpecs     []llm.ToolSpec

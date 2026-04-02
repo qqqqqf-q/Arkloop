@@ -169,6 +169,9 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 	if len(request.Tools) > 0 {
 		payload["tools"] = toAnthropicTools(request.Tools)
+		if tc := anthropicToolChoice(request.ToolChoice); tc != nil {
+			payload["tool_choice"] = tc
+		}
 	}
 	payload["stream"] = true
 
@@ -532,6 +535,20 @@ func anthropicToolResultBlock(text string) (map[string]any, error) {
 		block["is_error"] = true
 	}
 	return block, nil
+}
+
+func anthropicToolChoice(tc *ToolChoice) map[string]any {
+	if tc == nil {
+		return nil
+	}
+	switch tc.Mode {
+	case "required":
+		return map[string]any{"type": "any"}
+	case "specific":
+		return map[string]any{"type": "tool", "name": tc.ToolName}
+	default:
+		return nil
+	}
 }
 
 func toAnthropicTools(specs []ToolSpec) []map[string]any {

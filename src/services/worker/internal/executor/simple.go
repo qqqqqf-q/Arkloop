@@ -50,6 +50,7 @@ func (e *SimpleExecutor) Execute(
 		MaxOutputTokens: rc.MaxOutputTokens,
 		Temperature:     rc.Temperature,
 		ReasoningMode:   rc.ReasoningMode,
+		ToolChoice:      rc.ToolChoice,
 	}
 
 	runCtx := agent.RunContext{
