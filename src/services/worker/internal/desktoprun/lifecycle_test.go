@@ -181,7 +181,7 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 
 	q := &lifecycleQueueStub{}
 	manager := newLifecycleManager(db, q, nil, nil)
-	if err := manager.reapOnce(ctx); err != nil {
+	if err := manager.reapOnce(ctx, false); err != nil {
 		t.Fatalf("first reap failed: %v", err)
 	}
 	if len(q.calls) != 0 {
@@ -215,7 +215,7 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 		t.Fatalf("age cancel_requested event: %v", err)
 	}
 
-	if err := manager.reapOnce(ctx); err != nil {
+	if err := manager.reapOnce(ctx, false); err != nil {
 		t.Fatalf("second reap failed: %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestLifecycleReapCanceledRunEvenIfInputAfter(t *testing.T) {
 
 	q := &lifecycleQueueStub{}
 	manager := newLifecycleManager(db, q, nil, nil)
-	if err := manager.reapOnce(ctx); err != nil {
+	if err := manager.reapOnce(ctx, false); err != nil {
 		t.Fatalf("reap failed: %v", err)
 	}
 

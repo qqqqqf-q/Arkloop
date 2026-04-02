@@ -30,7 +30,6 @@ const (
 	desktopRunTimeoutEnv            = "ARKLOOP_RUN_TIMEOUT_MINUTES"
 	defaultDesktopRunTimeoutMinutes = 5
 	desktopReaperInterval           = time.Minute
-	desktopRecoveryGrace            = 3 * time.Second
 	desktopStaleCancelGrace         = 30 * time.Second
 )
 
@@ -84,7 +83,7 @@ func (m *lifecycleManager) Bootstrap(ctx context.Context) error {
 	if err := m.markLegacyRunJobsDead(ctx); err != nil {
 		return err
 	}
-	if err := m.reapOnce(ctx); err != nil {
+	if err := m.reapOnce(ctx, true); err != nil {
 		return err
 	}
 	return m.recoverRuns(ctx)
@@ -106,7 +105,7 @@ func (m *lifecycleManager) reaperLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := m.reapOnce(ctx); err != nil && m.logger != nil {
+			if err := m.reapOnce(ctx, false); err != nil && m.logger != nil {
 				m.logger.Error("desktop stale run reap failed", "error", err.Error())
 			}
 		}
@@ -139,7 +138,7 @@ func (m *lifecycleManager) markLegacyRunJobsDead(ctx context.Context) error {
 	return nil
 }
 
-func (m *lifecycleManager) reapOnce(ctx context.Context) error {
+func (m *lifecycleManager) reapOnce(ctx context.Context, forceMode bool) error {
 	if m.db == nil || m.timeout <= 0 {
 		return nil
 	}
@@ -160,7 +159,7 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 			}
 		}
 		if snapshot.LastCancelRequested.Valid {
-			if snapshot.LastCancelRequested.Time.Before(cancelGraceBefore) {
+			if forceMode || snapshot.LastCancelRequested.Time.Before(cancelGraceBefore) {
 				reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
 				if err != nil {
 					return err
@@ -176,14 +175,26 @@ func (m *lifecycleManager) reapOnce(ctx context.Context) error {
 		if snapshot.LastActivity.After(staleBefore) {
 			continue
 		}
-		requested, err := requestCancelDesktopRun(ctx, m.db, snapshot.RunID, snapshot.LastTraceID)
-		if err != nil {
-			return err
-		}
-		if requested && m.logger != nil {
-			runID := snapshot.RunID.String()
-			accountID := snapshot.AccountID.String()
-			m.logger.Info("desktop stale run cancel requested", "run_id", runID, "account_id", accountID)
+		if forceMode {
+			reaped, err := forceFailDesktopRun(ctx, m.db, snapshot.RunID)
+			if err != nil {
+				return err
+			}
+			if reaped && m.logger != nil {
+				runID := snapshot.RunID.String()
+				accountID := snapshot.AccountID.String()
+				m.logger.Info("desktop stale run reaped", "run_id", runID, "account_id", accountID)
+			}
+		} else {
+			requested, err := requestCancelDesktopRun(ctx, m.db, snapshot.RunID, snapshot.LastTraceID)
+			if err != nil {
+				return err
+			}
+			if requested && m.logger != nil {
+				runID := snapshot.RunID.String()
+				accountID := snapshot.AccountID.String()
+				m.logger.Info("desktop stale run cancel requested", "run_id", runID, "account_id", accountID)
+			}
 		}
 	}
 	return nil
@@ -193,14 +204,13 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 	if m.db == nil || m.queue == nil {
 		return nil
 	}
-	recoverBefore := time.Now().UTC().Add(-desktopRecoveryGrace)
 	staleBefore := time.Now().UTC().Add(-m.timeout)
 	runs, err := listRunningRuns(ctx, m.db)
 	if err != nil {
 		return err
 	}
 	for _, snapshot := range runs {
-		if snapshot.LastActivity.After(recoverBefore) || !snapshot.LastActivity.After(staleBefore) {
+		if !snapshot.LastActivity.After(staleBefore) {
 			continue
 		}
 		if _, ok := desktopTerminalEventStatus[snapshot.LastEventType]; ok {
