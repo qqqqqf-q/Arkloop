@@ -18,10 +18,6 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"create_artifact":     {},
 	"document_write":      {},
 	"exec_command":        {},
-	"notebook_edit":       {},
-	"notebook_forget":     {},
-	"notebook_read":       {},
-	"notebook_write":      {},
 	"memory_forget":       {},
 	"memory_edit":         {},
 	"memory_read":         {},
@@ -44,6 +40,10 @@ func NewToolBuildMiddleware() RunMiddleware {
 			return err
 		}
 		resolvedAllowlist = filterAllowlistByRuntime(resolvedAllowlist, rc.Runtime, rc.ToolRegistry, rc.ActiveToolProviderByGroup)
+
+		if rc.UserID == nil {
+			resolvedAllowlist = filterIdentityRequiredTools(resolvedAllowlist)
+		}
 
 		// When core_tools is configured, load_tools and load_skill must be available regardless
 		// of whether it was in the original allowlist (DB persona might not include it).
@@ -232,4 +232,25 @@ func filterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *shared
 
 func FilterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *sharedtoolruntime.RuntimeSnapshot, registry *tools.Registry, activeByGroup map[string]string) map[string]struct{} {
 	return filterAllowlistByRuntime(allowlistSet, snapshot, registry, activeByGroup)
+}
+
+// identityRequiredTools are tools that need a valid UserID to function.
+var identityRequiredTools = map[string]struct{}{
+	"memory_search":  {},
+	"memory_read":    {},
+	"memory_write":   {},
+	"memory_edit":    {},
+	"memory_forget":  {},
+	"notebook_read":  {},
+	"notebook_write": {},
+	"notebook_edit":  {},
+	"notebook_forget": {},
+}
+
+func filterIdentityRequiredTools(allowlistSet map[string]struct{}) map[string]struct{} {
+	out := CopyStringSet(allowlistSet)
+	for name := range identityRequiredTools {
+		delete(out, name)
+	}
+	return out
 }

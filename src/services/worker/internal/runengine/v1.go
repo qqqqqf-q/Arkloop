@@ -508,6 +508,7 @@ func buildChannelLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewChannelContextMiddleware(deps.DBPool),
 		pipeline.NewHeartbeatScheduleMiddleware(deps.DBPool),
+		pipeline.NewChannelAdminTagMiddleware(deps.DBPool),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
 		pipeline.NewChannelGroupContextTrimMiddleware(),
 		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil),
@@ -528,6 +529,7 @@ func buildCapabilityLayer(
 			ExternalDirs: serviceExternalSkillDirs,
 		}),
 		pipeline.NewMemoryMiddleware(nil, pipeline.NewPgxMemorySnapshotStore(deps.DBPool), deps.DBPool, deps.ConfigResolver),
+		pipeline.NewNotebookInjectionMiddleware(deps.DBPool),
 		pipeline.NewRuntimeContextMiddleware(),
 	}
 	mws = append(mws, promptInjection.Middlewares(eventsRepo)...)

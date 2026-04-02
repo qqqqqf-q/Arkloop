@@ -57,6 +57,14 @@ timeline_title(label="绘制价格走势图") -> python_execute(...)
 涉及用户个人偏好、习惯、历史对话中提到的信息时，优先使用 memory_search。如果 memory_search 无结果或报错，直接向用户说明并请用户补充，不要改用 web_search 去猜用户偏好。
 </memory_guidelines>
 
+<notebook_guidelines>
+notebook 是稳定注入到每轮上下文的长期笔记，适合存储用户明确要求记住的内容（偏好、指令、人设备注等）。与 memory 的区别：notebook 条目每轮都可见，不依赖语义搜索。
+- 用户说"记住..."、"以后都..."、"我喜欢..."时，用 notebook_write 存储
+- 修改已有笔记用 notebook_edit（需要 URI），删除用 notebook_forget
+- 查看当前笔记用 notebook_read
+- 临时或事件性信息用 memory_write 而非 notebook_write
+</notebook_guidelines>
+
 <skill_query_guidelines>
 当任务与 `<available_skills>` 中的某个 skill 匹配时，先调用 `load_skill`，再依据返回的 skill 内容执行。不要自己猜测 skill 文件路径，也不要直接读取 `SKILL.md` 作为默认路径。
 </skill_query_guidelines>

@@ -31,6 +31,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/platform"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
+	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/google/uuid"
@@ -217,6 +218,19 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	dynamicMemoryExec := workerruntime.NewDynamicMemoryExecutor(runtimeManager, memoryProviderFactory, memoryExecutorFactory)
 	for _, spec := range memorytool.MemoryAgentSpecs() {
 		executors[spec.Name] = dynamicMemoryExec
+	}
+
+	// notebook: PG-backed stable notes, independent of OpenViking
+	if pool != nil {
+		nbProvider := notebookprovider.NewProvider(pool)
+		nbExec := memorytool.NewToolExecutor(nbProvider, pool, data.MemorySnapshotRepository{})
+		for _, spec := range memorytool.NotebookAgentSpecs() {
+			if err := toolRegistry.Register(spec); err != nil {
+				return nil, err
+			}
+			executors[spec.Name] = nbExec
+		}
+		allLlmSpecs = append(allLlmSpecs, memorytool.NotebookLlmSpecs()...)
 	}
 
 	if pool != nil {
