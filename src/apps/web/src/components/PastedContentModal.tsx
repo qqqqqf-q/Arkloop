@@ -87,7 +87,7 @@ export function PastedContentModal({ text, size, lineCount, onClose }: Props) {
           minHeight: 0,
         }}>
           <div style={{
-            background: 'var(--c-bg-deep)',
+            background: 'var(--c-bg-input)',
             borderRadius: '10px',
             padding: '16px',
             border: '0.5px solid var(--c-border-subtle)',

@@ -88,7 +88,7 @@ button:not(:disabled) {
   --c-artifact-card-bg: rgba(255, 255, 255, 0.04);
   --c-attachment-bg: #30302E;
   --c-attachment-border: rgba(255, 255, 255, 0.11);
-  --c-attachment-border-hover: rgba(255, 255, 255, 0.28);
+    --c-attachment-border-hover: rgba(255, 255, 255, 0.38);
   --c-attachment-close-bg: #303030;
   --c-attachment-close-border: rgba(255, 255, 255, 0.14);
   --c-attachment-close-icon: rgba(255, 255, 255, 0.4);
@@ -195,7 +195,7 @@ button:not(:disabled) {
     --c-artifact-card-bg: rgba(0, 0, 0, 0.02);
     --c-attachment-bg: #FFFFFF;
     --c-attachment-border: rgba(0, 0, 0, 0.08);
-    --c-attachment-border-hover: rgba(0, 0, 0, 0.20);
+    --c-attachment-border-hover: rgba(0, 0, 0, 0.32);
     --c-attachment-close-bg: #E5E5E3;
     --c-attachment-close-border: rgba(0, 0, 0, 0.10);
     --c-attachment-close-icon: rgba(0, 0, 0, 0.35);
@@ -303,7 +303,7 @@ button:not(:disabled) {
   --c-artifact-card-bg: rgba(0, 0, 0, 0.02);
   --c-attachment-bg: #FFFFFF;
   --c-attachment-border: rgba(0, 0, 0, 0.08);
-  --c-attachment-border-hover: rgba(0, 0, 0, 0.20);
+  --c-attachment-border-hover: rgba(0, 0, 0, 0.32);
   --c-attachment-close-bg: #E5E5E3;
   --c-attachment-close-border: rgba(0, 0, 0, 0.10);
   --c-attachment-close-icon: rgba(0, 0, 0, 0.35);
@@ -1055,6 +1055,13 @@ button:not(:disabled) {
   100% { transform: translateX(350%) skewX(-15deg); }
 }
 
+@keyframes freeze-overlay-in {
+  0% { opacity: 0; }
+  30% { opacity: 0.1; }
+  60% { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+
 @keyframes timeline-slide-in {
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: translateX(0); }
@@ -1189,30 +1196,44 @@ button:not(:disabled) {
 }
 
 @keyframes user-prompt-enter-dark {
-  from,
+  from {
+    transform: scale(var(--user-prompt-enter-scale, 1.025));
+    background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
+    color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
+    opacity: 0.7;
+  }
   12.5% {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
     background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
     color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
+    opacity: 0.85;
   }
   to {
     transform: scale(1);
     background-color: var(--c-bg-deep);
     color: var(--c-text-primary);
+    opacity: 1;
   }
 }
 
 @keyframes user-prompt-enter-light {
-  from,
+  from {
+    transform: scale(var(--user-prompt-enter-scale, 1.025));
+    background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
+    color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
+    opacity: 0.7;
+  }
   12.5% {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
     background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
     color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
+    opacity: 0.85;
   }
   to {
     transform: scale(1);
     background-color: var(--c-bg-deep);
     color: var(--c-text-primary);
+    opacity: 1;
   }
 }
 
