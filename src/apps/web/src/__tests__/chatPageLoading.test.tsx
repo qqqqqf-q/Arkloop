@@ -15,6 +15,7 @@ import {
   createMessage,
   createRun,
   cancelRun,
+  continueThread,
   retryThread,
 } from '../api'
 import {
@@ -51,6 +52,7 @@ vi.mock('../api', async () => {
     createMessage: vi.fn(),
     createRun: vi.fn(),
     cancelRun: vi.fn(),
+    continueThread: vi.fn(),
     provideInput: vi.fn(),
     retryThread: vi.fn(),
     editMessage: vi.fn(),
@@ -284,6 +286,7 @@ describe('ChatPage loading state', () => {
   const mockedCreateMessage = vi.mocked(createMessage)
   const mockedCreateRun = vi.mocked(createRun)
   const mockedCancelRun = vi.mocked(cancelRun)
+  const mockedContinueThread = vi.mocked(continueThread)
   const mockedRetryThread = vi.mocked(retryThread)
   const mockedWriteMessageAssistantTurn = vi.mocked(writeMessageAssistantTurn)
   const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
@@ -350,6 +353,7 @@ describe('ChatPage loading state', () => {
     })
     mockedCreateRun.mockResolvedValue({ run_id: 'run-created', trace_id: 'trace-1' })
     mockedCancelRun.mockResolvedValue({ ok: true })
+    mockedContinueThread.mockResolvedValue({ run_id: 'run-continued', trace_id: 'trace-continue' })
     mockedRetryThread.mockResolvedValue({ run_id: 'run-retried', trace_id: 'trace-retry' })
     mockedReadMessageTerminalStatus.mockReturnValue(null)
   })
@@ -1238,6 +1242,97 @@ describe('ChatPage loading state', () => {
       root.unmount()
     })
     container.remove()
+  })
+
+  it('cancelled 且有 assistant 消息时应显示继续并调用 continue 接口', async () => {
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    mockedReadMessageTerminalStatus.mockReturnValue('cancelled')
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '半截输出',
+        run_id: 'run-cancelled-output',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-cancelled-output',
+        status: 'cancelled',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const actionButton = container.querySelector('.failed-run-retry-button')
+    expect(actionButton?.textContent).toBe('继续')
+
+    await act(async () => {
+      actionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('Finding the right words')
+    expect(mockedContinueThread).toHaveBeenCalledWith('token', 'thread-1', 'run-cancelled-output')
+    expect(mockedRetryThread).not.toHaveBeenCalled()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    mathRandomSpy.mockRestore()
   })
 
   it('run.completed 后应把显示权交回历史消息，同时保留完成态的折叠结构', async () => {

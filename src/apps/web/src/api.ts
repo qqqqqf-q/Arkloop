@@ -954,6 +954,8 @@ export type RetryThreadResponse = {
   trace_id: string
 }
 
+export type ContinueThreadResponse = RetryThreadResponse
+
 export async function retryThread(
   accessToken: string,
   threadId: string,
@@ -961,6 +963,18 @@ export async function retryThread(
   return await apiFetch<RetryThreadResponse>(`/v1/threads/${threadId}:retry`, {
     method: 'POST',
     accessToken,
+  })
+}
+
+export async function continueThread(
+  accessToken: string,
+  threadId: string,
+  runId: string,
+): Promise<ContinueThreadResponse> {
+  return await apiFetch<ContinueThreadResponse>(`/v1/threads/${threadId}:continue`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ run_id: runId }),
   })
 }
 

@@ -11,6 +11,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	nethttp "net/http"
 
@@ -20,6 +21,258 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestThreadRetryWithoutAssistantMessageReplaysLatestUserTurn(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_retry_latest_user")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	messageRepo, _ := data.NewMessageRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		MessageRepo:           messageRepo,
+		RunEventRepo:          runRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_retry_no_assistant", "password": "pwd12345", "email": "alice_retry_no_assistant@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "retry"}, headers)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`,
+		accountID,
+		threadID,
+		userID,
+		"hello retry",
+	); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	retryResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+":retry", nil, headers)
+	if retryResp.Code != nethttp.StatusCreated {
+		t.Fatalf("retry run: %d body=%s", retryResp.Code, retryResp.Body.String())
+	}
+	retryPayload := decodeJSONBody[createRunResponse](t, retryResp.Body.Bytes())
+
+	var startedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		retryPayload.RunID,
+	).Scan(&startedJSON); err != nil {
+		t.Fatalf("load retry started event: %v", err)
+	}
+	var startedData map[string]any
+	if err := json.Unmarshal(startedJSON, &startedData); err != nil {
+		t.Fatalf("decode retry started event: %v", err)
+	}
+	if got, _ := startedData["source"].(string); got != "retry" {
+		t.Fatalf("unexpected retry source: %#v", startedData["source"])
+	}
+}
+
+func TestThreadContinueCreatesResumedRun(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_continue")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	messageRepo, _ := data.NewMessageRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		MessageRepo:           messageRepo,
+		RunEventRepo:          runRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_continue", "password": "pwd12345", "email": "alice_continue@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "continue"}, headers)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, $4, 'user', $5, '{}'::jsonb, false)`,
+		uuid.New(),
+		accountID,
+		threadID,
+		userID,
+		"hello continue",
+	); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	runResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, headers)
+	if runResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create run: %d body=%s", runResp.Code, runResp.Body.String())
+	}
+	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
+	runID := uuid.MustParse(runPayload.RunID)
+	cancelledAt := time.Now().UTC()
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'cancelled',
+		        status_updated_at = $2,
+		        failed_at = $2
+		  WHERE id = $1`,
+		runID,
+		cancelledAt,
+	); err != nil {
+		t.Fatalf("mark run cancelled: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO run_events (run_id, seq, type, data_json, ts)
+		 VALUES ($1, 2, 'message.delta', '{"role":"assistant","content_delta":"partial"}'::jsonb, $2),
+		        ($1, 3, 'run.cancelled', '{}'::jsonb, $2)`,
+		runID,
+		cancelledAt,
+	); err != nil {
+		t.Fatalf("insert continue events: %v", err)
+	}
+
+	continueResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+":continue", map[string]any{"run_id": runID.String()}, headers)
+	if continueResp.Code != nethttp.StatusCreated {
+		t.Fatalf("continue run: %d body=%s", continueResp.Code, continueResp.Body.String())
+	}
+	continuePayload := decodeJSONBody[createRunResponse](t, continueResp.Body.Bytes())
+
+	var resumeFromRunID *uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT resume_from_run_id FROM runs WHERE id = $1`,
+		continuePayload.RunID,
+	).Scan(&resumeFromRunID); err != nil {
+		t.Fatalf("load resumed run: %v", err)
+	}
+	if resumeFromRunID == nil || *resumeFromRunID != runID {
+		t.Fatalf("unexpected resume_from_run_id: %#v want %s", resumeFromRunID, runID)
+	}
+
+	var startedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		continuePayload.RunID,
+	).Scan(&startedJSON); err != nil {
+		t.Fatalf("load continue started event: %v", err)
+	}
+	var startedData map[string]any
+	if err := json.Unmarshal(startedJSON, &startedData); err != nil {
+		t.Fatalf("decode continue started event: %v", err)
+	}
+	if got, _ := startedData["source"].(string); got != "continue" {
+		t.Fatalf("unexpected continue source: %#v", startedData["source"])
+	}
+	if got, _ := startedData["continuation_source"].(string); got != "user_followup" {
+		t.Fatalf("unexpected continuation_source: %#v", startedData["continuation_source"])
+	}
+}
 
 func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_threads")
@@ -87,14 +340,14 @@ func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:                pool,
-		Logger:              logger,
-		AuthService:         authService,
-		RegistrationService: registrationService,
-		AccountMembershipRepo:   membershipRepo,
-		ThreadRepo:          threadRepo,
-		ProjectRepo:         projectRepo,
-		AuditWriter:         auditWriter,
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
 	})
 
 	registerResp := doJSON(
@@ -236,14 +489,14 @@ func TestThreadsPatchDeleteOwnershipFallbacks(t *testing.T) {
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:                pool,
-		Logger:              logger,
-		AuthService:         authService,
-		RegistrationService: registrationService,
-		AccountMembershipRepo:   membershipRepo,
-		ThreadRepo:          threadRepo,
-		ProjectRepo:         projectRepo,
-		AuditWriter:         auditWriter,
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
 	})
 
 	aliceRegister := doJSON(
@@ -468,16 +721,16 @@ func TestThreadListActiveRunID(t *testing.T) {
 	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
 
 	handler := NewHandler(HandlerConfig{
-		Pool:                 pool,
-		Logger:               logger,
-		AuthService:          authService,
-		RegistrationService:  registrationService,
-		AccountMembershipRepo:    membershipRepo,
-		ThreadRepo:           threadRepo,
-		ProjectRepo:          projectRepo,
-		RunEventRepo:         runRepo,
-		AuditWriter:          auditWriter,
-		TrustIncomingTraceID: true,
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		ProjectRepo:           projectRepo,
+		RunEventRepo:          runRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
 	})
 
 	aliceRegister := doJSON(

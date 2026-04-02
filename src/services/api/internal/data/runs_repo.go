@@ -155,6 +155,34 @@ func (r *RunEventRepository) CreateRootRunWithClaim(
 	return r.CreateRootRunWithClaimFrom(ctx, accountID, threadID, createdByUserID, startedType, startedData)
 }
 
+func (r *RunEventRepository) CreateRootRunWithResume(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	createdByUserID *uuid.UUID,
+	startedType string,
+	startedData map[string]any,
+	resumeFromRunID uuid.UUID,
+) (Run, RunEvent, error) {
+	if resumeFromRunID == uuid.Nil {
+		return Run{}, RunEvent{}, fmt.Errorf("resume_from_run_id must not be empty")
+	}
+	if err := r.LockThreadRow(ctx, threadID); err != nil {
+		return Run{}, RunEvent{}, err
+	}
+	if active, err := r.GetActiveRootRunForThread(ctx, threadID); err != nil {
+		return Run{}, RunEvent{}, err
+	} else if active != nil {
+		return Run{}, RunEvent{}, ErrThreadBusy
+	}
+	startedData, _, err := r.withThreadTailMessage(ctx, threadID, startedData)
+	if err != nil {
+		return Run{}, RunEvent{}, err
+	}
+	startedData = applyContinuationMetadata(startedData, &resumeFromRunID)
+	return r.createRunWithStartedEvent(ctx, accountID, threadID, createdByUserID, startedType, startedData, &resumeFromRunID)
+}
+
 func (r *RunEventRepository) CreateRootRunWithClaimFrom(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -615,6 +643,27 @@ func (r *RunEventRepository) GetLatestEventType(
 		return "", err
 	}
 	return eventType, nil
+}
+
+func (r *RunEventRepository) HasRecoverableAssistantOutput(
+	ctx context.Context,
+	runID uuid.UUID,
+) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if runID == uuid.Nil {
+		return false, fmt.Errorf("run_id must not be empty")
+	}
+	eventType, err := r.GetLatestEventType(ctx, runID, []string{
+		"message.delta",
+		"tool.call",
+		"tool.result",
+	})
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(eventType) != "", nil
 }
 
 func (r *RunEventRepository) RequestCancel(

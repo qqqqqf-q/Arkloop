@@ -732,6 +732,7 @@ func threadEntry(
 	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	retry := retryThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
+	continueRun := continueThread(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo)
 	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
 	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo, flagService)
@@ -771,6 +772,13 @@ func threadEntry(
 				}
 				retry(w, r, threadID)
 			case "star":
+			case "continue":
+				if r.Method != nethttp.MethodPost {
+					httpkit.WriteMethodNotAllowed(w, r)
+					return
+				}
+				continueRun(w, r, threadID)
+				return
 				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
 			case "share":
 				share(w, r, threadID)

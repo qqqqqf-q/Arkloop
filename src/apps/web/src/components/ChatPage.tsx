@@ -78,6 +78,7 @@ import {
   createMessage,
   createRun,
   cancelRun,
+  continueThread,
   provideInput,
   retryThread,
   editMessage,
@@ -297,6 +298,11 @@ function FailedRunRetryCard({
   )
 }
 
+function assistantTurnHasVisibleOutput(turn: AssistantTurnUi | null | undefined): boolean {
+  if (!turn) return false
+  return assistantTurnPlainText(turn).trim() !== ''
+}
+
 type OutletContext = {
   accessToken: string
   onLoggedOut: () => void
@@ -492,6 +498,8 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
   userEnterMessageId,
   locationState,
   currentRunCopHeaderOverride,
+  actionLabelForTerminalRun,
+  actionHandlerForTerminalRun,
   handleRetry,
   handleEditMessage,
   handleFork,
@@ -551,6 +559,15 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
     hasThinking: boolean
     handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | 'failed' | null
   }) => string | undefined
+  actionLabelForTerminalRun: (params: {
+    status: MessageTerminalStatusRef | null
+    hasOutput: boolean
+  }) => string | undefined
+  actionHandlerForTerminalRun: (params: {
+    runId: string | null | undefined
+    status: MessageTerminalStatusRef | null
+    hasOutput: boolean
+  }) => (() => void) | undefined
   handleRetry: () => void
   handleEditMessage: (message: MessageResponse, newContent: string) => void
   handleFork: (messageId: string) => Promise<void>
@@ -589,6 +606,21 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
         const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
         const historicalTurn = msg.role === 'assistant' ? messageAssistantTurnMap.get(msg.id) : undefined
         const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
+        const hasTerminalOutput =
+          msg.role === 'assistant' &&
+          (
+            !!msg.content.trim() ||
+            assistantTurnHasVisibleOutput(historicalTurn)
+          )
+        const terminalActionLabel = actionLabelForTerminalRun({
+          status: effectiveTerminalStatus,
+          hasOutput: hasTerminalOutput,
+        })
+        const terminalActionHandler = actionHandlerForTerminalRun({
+          runId: msg.run_id,
+          status: effectiveTerminalStatus,
+          hasOutput: hasTerminalOutput,
+        })
         const historicalSegments = historicalTurn?.segments ?? []
         const msgWidgetsRaw =
           msg.role === 'assistant' ? (messageWidgetsMap.get(msg.id) ?? readMessageWidgets(msg.id) ?? undefined) : undefined
@@ -826,8 +858,8 @@ const HistoricalMessageList = memo(function HistoricalMessageList({
             {msg.role === 'assistant' && (effectiveTerminalStatus === 'failed' || effectiveTerminalStatus === 'interrupted' || effectiveTerminalStatus === 'cancelled') && (
               <FailedRunRetryCard
                 title={effectiveTerminalStatus === 'interrupted' ? t.runInterrupted : effectiveTerminalStatus === 'cancelled' ? t.runCancelled : t.failedRunRetryTitle}
-                actionLabel={!isStreaming && !sending ? t.retryAction : undefined}
-                onRetry={!isStreaming && !sending ? handleRetry : undefined}
+                actionLabel={!isStreaming && !sending ? terminalActionLabel : undefined}
+                onRetry={!isStreaming && !sending ? terminalActionHandler : undefined}
               />
             )}
             {locationState?.isIncognitoFork && locationState.forkBaseCount != null && idx === locationState.forkBaseCount - 1 && (
@@ -3255,6 +3287,8 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
   const handleRetry = useCallback(async () => {
     if (isStreaming || sending || !threadId) return
     setSending(true)
+    setPendingThinking(true)
+    setThinkingHint(t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)])
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
@@ -3281,7 +3315,53 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync, resetSearchSteps])
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, invalidateMessageSync, resetSearchSteps, t.copThinkingHints])
+
+  const handleContinue = useCallback(async (runId: string) => {
+    if (isStreaming || sending || !threadId || !runId) return
+    setSending(true)
+    setPendingThinking(true)
+    setThinkingHint(t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)])
+    setError(null)
+    setInjectionBlocked(null)
+    injectionBlockedRunIdRef.current = null
+    try {
+      const run = await continueThread(accessToken, threadId, runId)
+      clearThreadRunHandoff(threadId)
+      setPreserveLiveRunUi(false)
+      setLiveAssistantTurn(null)
+      setTerminalRunDisplayId(null)
+      setTerminalRunHandoffStatus(null)
+      streamingArtifactsRef.current = []
+      setStreamingArtifacts([])
+      setSegments([])
+      activeSegmentIdRef.current = null
+      currentRunSourcesRef.current = []
+      currentRunArtifactsRef.current = []
+      currentRunCodeExecutionsRef.current = []
+      currentRunBrowserActionsRef.current = []
+      currentRunSubAgentsRef.current = []
+      currentRunFileOpsRef.current = []
+      currentRunWebFetchesRef.current = []
+      setTopLevelCodeExecutions([])
+      setTopLevelSubAgents([])
+      setTopLevelFileOps([])
+      setTopLevelWebFetches([])
+      assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
+      resetSearchSteps()
+      setActiveRunId(run.run_id)
+      onRunStarted(threadId)
+      scrollToBottom()
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    } finally {
+      setSending(false)
+    }
+  }, [accessToken, threadId, isStreaming, sending, onRunStarted, onLoggedOut, scrollToBottom, resetSearchSteps, t.copThinkingHints])
 
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {
@@ -3290,6 +3370,35 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     }
     setError(normalizeError(err))
   }, [onLoggedOut])
+
+  const actionLabelForTerminalRun = useCallback((params: {
+    status: MessageTerminalStatusRef | null
+    hasOutput: boolean
+  }) => {
+    if (isStreaming || sending) return undefined
+    if (params.status === 'cancelled' || params.status === 'interrupted') {
+      return params.hasOutput ? t.continueBtn : t.retryAction
+    }
+    if (params.status === 'failed') {
+      return t.retryAction
+    }
+    return undefined
+  }, [isStreaming, sending, t.continueBtn, t.retryAction])
+
+  const actionHandlerForTerminalRun = useCallback((params: {
+    runId: string | null | undefined
+    status: MessageTerminalStatusRef | null
+    hasOutput: boolean
+  }) => {
+    if (isStreaming || sending) return undefined
+    if ((params.status === 'cancelled' || params.status === 'interrupted') && params.hasOutput && params.runId) {
+      return () => void handleContinue(params.runId!)
+    }
+    if (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') {
+      return handleRetry
+    }
+    return undefined
+  }, [isStreaming, sending, handleContinue, handleRetry])
 
   const handleFork = useCallback(async (messageId: string) => {
     if (!threadId || isStreaming || sending) return
@@ -3541,6 +3650,13 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
       allStreamItemsForUi.length > 0 ||
       streamingArtifacts.length > 0
     )
+
+  const terminalRunHasOutput = useMemo(() => {
+    if ((liveAssistantTurn?.segments.length ?? 0) > 0 && assistantTurnHasVisibleOutput(liveAssistantTurn)) {
+      return true
+    }
+    return segmentsRef.current.some((segment) => segment.content.trim() !== '')
+  }, [liveAssistantTurn])
 
   const currentRunCopHeaderOverride = useCallback((params: {
     title?: string | null
@@ -3885,6 +4001,8 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
                 userEnterMessageId={userEnterMessageId}
                 locationState={locationState}
                 currentRunCopHeaderOverride={currentRunCopHeaderOverride}
+                actionLabelForTerminalRun={actionLabelForTerminalRun}
+                actionHandlerForTerminalRun={actionHandlerForTerminalRun}
                 handleRetry={handleRetry}
                 handleEditMessage={handleEditMessage}
                 handleFork={handleFork}
@@ -4070,8 +4188,15 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
               {(terminalRunHandoffStatus === 'failed' || terminalRunHandoffStatus === 'interrupted' || terminalRunHandoffStatus === 'cancelled') && terminalRunDisplayId && !messages.some((msg) => msg.role === 'assistant' && msg.run_id === terminalRunDisplayId) && (
                 <FailedRunRetryCard
                   title={terminalRunHandoffStatus === 'interrupted' ? t.runInterrupted : terminalRunHandoffStatus === 'cancelled' ? t.runCancelled : t.failedRunRetryTitle}
-                  actionLabel={undefined}
-                  onRetry={undefined}
+                  actionLabel={actionLabelForTerminalRun({
+                    status: terminalRunHandoffStatus,
+                    hasOutput: terminalRunHasOutput,
+                  })}
+                  onRetry={actionHandlerForTerminalRun({
+                    runId: terminalRunDisplayId,
+                    status: terminalRunHandoffStatus,
+                    hasOutput: terminalRunHasOutput,
+                  })}
                 />
               )}
               <div ref={bottomRef} />

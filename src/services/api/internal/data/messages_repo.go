@@ -352,6 +352,56 @@ func (r *MessageRepository) GetByID(
 	return &message, nil
 }
 
+func (r *MessageRepository) GetLatestVisibleMessage(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+) (*Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil {
+		return nil, fmt.Errorf("accountID and threadID must not be empty")
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND hidden = FALSE
+		    AND deleted_at IS NULL
+		    AND COALESCE(compacted, false) = false
+		  ORDER BY created_at DESC, id DESC
+		  LIMIT 1`,
+		accountID,
+		threadID,
+	).Scan(
+		&message.ID,
+		&message.AccountID,
+		&message.ThreadID,
+		&message.CreatedByUserID,
+		&message.Role,
+		&message.Content,
+		&message.ContentJSON,
+		&message.MetadataJSON,
+		&message.TokenCount,
+		&message.DeletedAt,
+		&message.CreatedAt,
+		&message.Hidden,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &message, nil
+}
+
 // UpdateContent 更新指定用户消息的内容。仅允许更新 role=user 的可见消息。
 func (r *MessageRepository) UpdateContent(
 	ctx context.Context,
