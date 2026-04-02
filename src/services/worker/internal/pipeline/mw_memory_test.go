@@ -206,6 +206,25 @@ func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
 	}
 }
 
+func TestMemoryMiddleware_NotebookAndMemoryBlocksCanCoexist(t *testing.T) {
+	mp := newMemMock()
+	snap := &memSnapStub{
+		found: true,
+		block: "\n\n<memory>\n- recalled fact\n</memory>",
+	}
+	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil)
+
+	rc := buildMemRC(userIDPtr(), "hello", "")
+	rc.SystemPrompt = "<notebook>\n- stable note\n</notebook>"
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rc.SystemPrompt, "<notebook>") || !strings.Contains(rc.SystemPrompt, "<memory>") {
+		t.Fatalf("expected notebook and memory blocks, got: %q", rc.SystemPrompt)
+	}
+}
+
 func TestMemoryMiddleware_NoHits_NoInjection(t *testing.T) {
 	mp := newMemMock()
 	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil)

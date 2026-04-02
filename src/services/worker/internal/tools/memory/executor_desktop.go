@@ -57,6 +57,14 @@ func (e *ToolExecutor) Execute(
 	}
 
 	switch toolName {
+	case "notebook_read":
+		return e.notebookRead(ctx, args, ident, started)
+	case "notebook_write":
+		return e.notebookWrite(ctx, args, ident, started)
+	case "notebook_edit":
+		return e.notebookEdit(ctx, args, ident, started)
+	case "notebook_forget":
+		return e.notebookForget(ctx, args, ident, started)
 	case "memory_search":
 		return e.search(ctx, args, ident, started)
 	case "memory_read":
@@ -73,6 +81,95 @@ func (e *ToolExecutor) Execute(
 			},
 			DurationMs: durationMs(started),
 		}
+	}
+}
+
+func (e *ToolExecutor) notebookRead(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	uri, _ := args["uri"].(string)
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		if getter, ok := e.provider.(interface {
+			GetSnapshot(context.Context, uuid.UUID, uuid.UUID, string) (string, error)
+		}); ok {
+			content, err := getter.GetSnapshot(ctx, ident.AccountID, ident.UserID, ident.AgentID)
+			if err != nil {
+				return providerError("notebook_read", err, started)
+			}
+			return tools.ExecutionResult{
+				ResultJSON: map[string]any{"content": content},
+				DurationMs: durationMs(started),
+			}
+		}
+		return tools.ExecutionResult{
+			ResultJSON: map[string]any{"content": ""},
+			DurationMs: durationMs(started),
+		}
+	}
+
+	content, err := e.provider.Content(ctx, ident, uri, memory.MemoryLayerRead)
+	if err != nil {
+		return providerError("notebook_read", err, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"content": content},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) notebookWrite(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	w, ok := e.provider.(memory.DesktopLocalMemoryWriteURI)
+	if !ok {
+		return stateError("notebook is not available in this runtime", started)
+	}
+	category, key, content, err := parseNotebookArgs(args)
+	if err != nil {
+		return argError(err.Error(), started)
+	}
+	entry := memory.MemoryEntry{Content: buildWritableContent(memory.MemoryScopeUser, category, key, content)}
+	uri, writeErr := w.WriteReturningURI(ctx, ident, memory.MemoryScopeUser, entry)
+	if writeErr != nil {
+		return providerError("notebook_write", writeErr, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"status": "ok", "uri": uri},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) notebookEdit(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	editor, ok := e.provider.(memory.DesktopLocalMemoryEditURI)
+	if !ok {
+		return stateError("notebook editing is not available in this runtime", started)
+	}
+	uri, ok := args["uri"].(string)
+	if !ok || strings.TrimSpace(uri) == "" {
+		return argError("uri must be a non-empty string", started)
+	}
+	category, key, content, err := parseNotebookArgs(args)
+	if err != nil {
+		return argError(err.Error(), started)
+	}
+	entry := memory.MemoryEntry{Content: buildWritableContent(memory.MemoryScopeUser, category, key, content)}
+	if err := editor.UpdateByURI(ctx, ident, strings.TrimSpace(uri), entry); err != nil {
+		return providerError("notebook_edit", err, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"status": "ok", "uri": strings.TrimSpace(uri)},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) notebookForget(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	uri, ok := args["uri"].(string)
+	if !ok || strings.TrimSpace(uri) == "" {
+		return argError("uri must be a non-empty string", started)
+	}
+	if err := e.provider.Delete(ctx, ident, strings.TrimSpace(uri)); err != nil {
+		return providerError("notebook_forget", err, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"status": "ok"},
+		DurationMs: durationMs(started),
 	}
 }
 
@@ -254,6 +351,22 @@ func parseLimit(args map[string]any, fallback int) int {
 
 func buildWritableContent(scope memory.MemoryScope, category, key, content string) string {
 	return "[" + string(scope) + "/" + category + "/" + key + "] " + content
+}
+
+func parseNotebookArgs(args map[string]any) (string, string, string, error) {
+	category, ok := args["category"].(string)
+	if !ok || strings.TrimSpace(category) == "" {
+		return "", "", "", fmt.Errorf("category must be a non-empty string")
+	}
+	key, ok := args["key"].(string)
+	if !ok || strings.TrimSpace(key) == "" {
+		return "", "", "", fmt.Errorf("key must be a non-empty string")
+	}
+	content, ok := args["content"].(string)
+	if !ok || strings.TrimSpace(content) == "" {
+		return "", "", "", fmt.Errorf("content must be a non-empty string")
+	}
+	return strings.TrimSpace(category), strings.TrimSpace(key), strings.TrimSpace(content), nil
 }
 
 func argError(msg string, started time.Time) tools.ExecutionResult {

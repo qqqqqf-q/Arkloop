@@ -1015,7 +1015,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'load_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'load_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget', 'notebook_write', 'notebook_read', 'notebook_edit', 'notebook_forget'])
 
 function normalizeFileOpToolName(toolName: string): string {
   if (toolName === 'read' || toolName.startsWith('read.')) return 'read_file'
@@ -1100,6 +1100,26 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
     case 'memory_forget': {
       const uri = typeof args.uri === 'string' ? args.uri : ''
       return uri ? `memory_forget ${truncate(uri, 40)}` : 'memory_forget'
+    }
+    case 'notebook_write': {
+      const key = typeof args.key === 'string' ? args.key : ''
+      const category = typeof args.category === 'string' ? args.category : ''
+      if (key) return `notebook_write ${category ? category + '/' : ''}${truncate(key, 32)}`
+      return 'notebook_write'
+    }
+    case 'notebook_edit': {
+      const key = typeof args.key === 'string' ? args.key : ''
+      const category = typeof args.category === 'string' ? args.category : ''
+      if (key) return `notebook_edit ${category ? category + '/' : ''}${truncate(key, 32)}`
+      return 'notebook_edit'
+    }
+    case 'notebook_read': {
+      const uri = typeof args.uri === 'string' ? args.uri : ''
+      return uri ? `notebook_read ${truncate(uri, 40)}` : 'notebook_read'
+    }
+    case 'notebook_forget': {
+      const uri = typeof args.uri === 'string' ? args.uri : ''
+      return uri ? `notebook_forget ${truncate(uri, 40)}` : 'notebook_forget'
     }
     default:
       return toolName
@@ -1202,6 +1222,19 @@ export function fileOpOutputFromResult(toolName: string, result: unknown): strin
     }
     case 'memory_forget': {
       return 'forgotten'
+    }
+    case 'notebook_write': {
+      return 'saved'
+    }
+    case 'notebook_edit': {
+      return 'updated'
+    }
+    case 'notebook_read': {
+      const content = typeof r.content === 'string' ? r.content.trim() : ''
+      return content ? content.slice(0, 80) + (content.length > 80 ? '…' : '') : 'read'
+    }
+    case 'notebook_forget': {
+      return 'deleted'
     }
     default:
       return undefined

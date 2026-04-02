@@ -105,7 +105,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err := toolRegistry.Register(sandboxtool.BrowserSpec); err != nil {
 		return nil, err
 	}
-	for _, spec := range memorytool.AgentSpecs() {
+	for _, spec := range memorytool.MemoryAgentSpecs() {
 		if err := toolRegistry.Register(spec); err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	}
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.LlmSpecs()...)
 	allLlmSpecs = append(allLlmSpecs, sandboxtool.BrowserLlmSpec)
-	allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
+	allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 
 	// 全局 MCP pool，用于 env-loaded 工具及 per-run account 工具的连接复用
 	mcpPool := mcp.NewPool()
@@ -215,7 +215,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	memoryProviderFactory := workerruntime.NewMemoryProviderFactory()
 	memoryExecutorFactory := workerruntime.NewMemoryExecutorFactory(pool, data.MemorySnapshotRepository{})
 	dynamicMemoryExec := workerruntime.NewDynamicMemoryExecutor(runtimeManager, memoryProviderFactory, memoryExecutorFactory)
-	for _, spec := range memorytool.AgentSpecs() {
+	for _, spec := range memorytool.MemoryAgentSpecs() {
 		executors[spec.Name] = dynamicMemoryExec
 	}
 

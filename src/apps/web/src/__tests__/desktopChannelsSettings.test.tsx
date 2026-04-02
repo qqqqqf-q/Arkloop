@@ -44,7 +44,7 @@ async function loadDesktopSettingsSubject() {
             fetch: { provider: 'basic' },
             search: { provider: 'duckduckgo' },
           },
-          memory: { enabled: true, provider: 'local' },
+          memory: { enabled: true, provider: 'notebook' },
           network: { proxyEnabled: false, requestTimeoutMs: 30000, retryCount: 1 },
         }),
         onChanged: vi.fn(() => () => {}),

@@ -254,7 +254,7 @@ func TestDesktopToolProvidersListMemoryLocalRuntime(t *testing.T) {
 
 	desktop.SetExecutionMode("local")
 	desktop.SetSandboxAddr("")
-	desktop.SetMemoryRuntime("local")
+	desktop.SetMemoryRuntime("notebook")
 
 	ctx := context.Background()
 	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "tp-memory.db"))

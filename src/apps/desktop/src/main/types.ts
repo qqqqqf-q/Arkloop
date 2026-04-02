@@ -22,7 +22,7 @@ export type ConnectorsConfig = {
   search: SearchConnectorConfig
 }
 
-export type MemoryProvider = 'local' | 'openviking'
+export type MemoryProvider = 'notebook' | 'openviking'
 
 export type OpenVikingDesktopConfig = {
   rootApiKey?: string
@@ -96,7 +96,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     fetch: { provider: 'none' },
     search: { provider: 'none' },
   },
-  memory: { enabled: true, provider: 'local', memoryCommitEachTurn: true },
+  memory: { enabled: true, provider: 'notebook', memoryCommitEachTurn: true },
   network: {
     proxyEnabled: false,
     requestTimeoutMs: 30000,

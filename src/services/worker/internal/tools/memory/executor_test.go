@@ -37,6 +37,39 @@ type mockProvider struct {
 	lastDeleteURI  string
 }
 
+type desktopMockProvider struct {
+	mockProvider
+	writeURI    string
+	snapshot    string
+	updateErr   error
+	writeURIErr error
+}
+
+func (m *desktopMockProvider) WriteReturningURI(_ context.Context, _ workermemory.MemoryIdentity, _ workermemory.MemoryScope, entry workermemory.MemoryEntry) (string, error) {
+	m.writeCalled = true
+	m.lastWriteEntry = entry
+	if m.writeURIErr != nil {
+		return "", m.writeURIErr
+	}
+	if strings.TrimSpace(m.writeURI) == "" {
+		return "local://memory/test-id", nil
+	}
+	return m.writeURI, nil
+}
+
+func (m *desktopMockProvider) UpdateByURI(_ context.Context, _ workermemory.MemoryIdentity, uri string, entry workermemory.MemoryEntry) error {
+	m.lastDeleteURI = uri
+	m.lastWriteEntry = entry
+	if m.updateErr != nil {
+		return m.updateErr
+	}
+	return nil
+}
+
+func (m *desktopMockProvider) GetSnapshot(_ context.Context, _, _ uuid.UUID, _ string) (string, error) {
+	return m.snapshot, nil
+}
+
 func (m *mockProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ string, _ int) ([]workermemory.MemoryHit, error) {
 	m.findCalled = true
 	return m.findHits, m.findErr
@@ -379,5 +412,30 @@ func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {
 	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "test"}, newExecCtx(nil), "")
 	if result.Error == nil || result.Error.ErrorClass != errorIdentityMissing {
 		t.Fatalf("expected identity_missing, got: %+v", result.Error)
+	}
+}
+
+func TestNotebookTools_NotAvailableOutsideDesktop(t *testing.T) {
+	mp := &mockProvider{}
+	ex := NewToolExecutor(mp, nil, nil)
+	execCtx := newUserExecCtx()
+
+	writeResult := ex.Execute(context.Background(), "notebook_write", map[string]any{
+		"category": "preferences",
+		"key":      "style",
+		"content":  "concise",
+	}, execCtx, "")
+	if writeResult.Error == nil || writeResult.Error.ErrorClass != errorStateMissing {
+		t.Fatalf("expected state_missing write error, got: %+v", writeResult.Error)
+	}
+
+	editResult := ex.Execute(context.Background(), "notebook_edit", map[string]any{
+		"uri":      "local://memory/test-id",
+		"category": "preferences",
+		"key":      "style",
+		"content":  "formal",
+	}, execCtx, "")
+	if editResult.Error == nil || editResult.Error.ErrorClass != errorStateMissing {
+		t.Fatalf("expected state_missing edit error, got: %+v", editResult.Error)
 	}
 }

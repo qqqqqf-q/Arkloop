@@ -83,6 +83,7 @@ type DesktopEngine struct {
 	baseAllowlist          map[string]struct{}
 	executorRegistry       pipeline.AgentExecutorBuilder
 	personaRegistry        func() *personas.Registry
+	notebookProvider       memory.MemoryProvider
 	memProvider            memory.MemoryProvider
 	useOV                  bool
 	useVM                  bool
@@ -189,28 +190,45 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	ovURL := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"))
 	ovKey := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY"))
 
+	var notebookProvider memory.MemoryProvider
 	var memProvider memory.MemoryProvider
 	useOV := false
+	if memEnabled {
+		notebookProvider = localmemory.NewProvider(db)
+		slog.Info("desktop: notebook enabled")
+	}
 	if memEnabled && ovURL != "" {
 		memProvider = openviking.NewProvider(openviking.Config{BaseURL: ovURL, RootAPIKey: ovKey})
 		useOV = true
 		desktop.SetMemoryRuntime("openviking")
 		slog.Info("desktop: using OpenViking memory provider", "url", ovURL)
 	} else if memEnabled {
-		memProvider = localmemory.NewProvider(db)
-		desktop.SetMemoryRuntime("local")
-		slog.Info("desktop: using local SQLite memory provider")
+		desktop.SetMemoryRuntime("notebook")
+		slog.Info("desktop: using notebook-only memory mode")
 	} else {
 		desktop.SetMemoryRuntime("")
 		slog.Info("desktop: memory disabled")
 	}
 
-	if memProvider != nil {
-		memExec := memorytool.NewToolExecutor(memProvider, db, nil)
-		for _, spec := range memorytool.AgentSpecs() {
+	if notebookProvider != nil {
+		memExec := memorytool.NewToolExecutor(notebookProvider, db, nil)
+		notebookSpecs := memorytool.NotebookAgentSpecs()
+		for _, spec := range notebookSpecs {
 			executors[spec.Name] = memExec
 		}
-		for _, spec := range memorytool.AgentSpecs() {
+		for _, spec := range notebookSpecs {
+			if err := toolRegistry.Register(spec); err != nil {
+				slog.WarnContext(ctx, "desktop: skip notebook tool registration", "name", spec.Name, "err", err)
+			}
+		}
+	}
+
+	if useOV && memProvider != nil {
+		memExec := memorytool.NewToolExecutor(memProvider, db, nil)
+		for _, spec := range memorytool.MemoryAgentSpecs() {
+			executors[spec.Name] = memExec
+		}
+		for _, spec := range memorytool.MemoryAgentSpecs() {
 			if err := toolRegistry.Register(spec); err != nil {
 				slog.WarnContext(ctx, "desktop: skip memory tool registration", "name", spec.Name, "err", err)
 			}
@@ -247,8 +265,11 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	shellLlmSpecs := localshell.LlmSpecs()
 	allLlmSpecs := append(builtin.LlmSpecs(), shellLlmSpecs...)
 	allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
-	if memProvider != nil {
-		allLlmSpecs = append(allLlmSpecs, memorytool.LlmSpecs()...)
+	if notebookProvider != nil {
+		allLlmSpecs = append(allLlmSpecs, memorytool.NotebookLlmSpecs()...)
+	}
+	if useOV && memProvider != nil {
+		allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 	}
 	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore)
 	if err != nil {
@@ -267,7 +288,12 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		return nil, fmt.Errorf("desktop: env runtime snapshot: %w", err)
 	}
 	mergedRT := (*runtimeSnapshot).MergeBuiltinToolNamesFrom(envSnap)
-	if memProvider != nil {
+	if notebookProvider != nil {
+		mergedRT = mergedRT.WithMergedBuiltinToolNames(
+			"notebook_read", "notebook_write", "notebook_edit", "notebook_forget",
+		)
+	}
+	if useOV && memProvider != nil {
 		mergedRT = mergedRT.WithMergedBuiltinToolNames(
 			"memory_search", "memory_read", "memory_write", "memory_forget",
 		)
@@ -313,6 +339,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		baseAllowlist:          filtered,
 		executorRegistry:       execRegistry,
 		personaRegistry:        personaGetter,
+		notebookProvider:       notebookProvider,
 		memProvider:            memProvider,
 		useOV:                  useOV,
 		useVM:                  useVM,
@@ -445,12 +472,18 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 
 	var memMiddleware pipeline.RunMiddleware
 	if e.useOV {
-		memMiddleware = pipeline.NewMemoryMiddleware(
+		notebookMW := desktopMemoryInjection(e.db)
+		memoryMW := pipeline.NewMemoryMiddleware(
 			e.memProvider,
 			pipeline.NewDesktopMemorySnapshotStore(e.db),
 			e.db,
 			e.promptInjection.Resolver,
 		)
+		memMiddleware = func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+			return notebookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
+				return memoryMW(ctx, rc, next)
+			})
+		}
 	} else {
 		// Local SQLite: lightweight snapshot injection
 		memMiddleware = desktopMemoryInjection(e.db)
@@ -518,27 +551,21 @@ func resolveDesktopRunBindings(ctx context.Context, db data.DesktopDB, run data.
 
 // --------------- desktop middleware ---------------
 
-// desktopMemoryInjection reads the saved memory_block from user_memory_snapshots
-// and appends it to the run's system prompt. This is the desktop equivalent of
-// NewMemoryMiddleware — lightweight and synchronous, no vector search required.
-// Desktop memory is user-level and must read the same stable bucket that
-// memory tools write to.
+// desktopMemoryInjection reads the saved notebook block from
+// user_notebook_snapshots and appends it to the run's system prompt.
 func desktopMemoryInjection(db data.DesktopDB) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
-		if rc.UserID == nil {
+		if rc.UserID == nil || db == nil {
 			return next(ctx, rc)
 		}
-		var block string
-		err := db.QueryRow(ctx,
-			`SELECT memory_block FROM user_memory_snapshots
-			 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
-			rc.Run.AccountID.String(), rc.UserID.String(), pipeline.StableAgentID(rc),
-		).Scan(&block)
+		provider := localmemory.NewProvider(db)
+		block, err := provider.GetSnapshot(ctx, rc.Run.AccountID, *rc.UserID, pipeline.StableAgentID(rc))
 		if err == nil && strings.TrimSpace(block) != "" {
+			notebookBlock := strings.TrimSpace(block)
 			if strings.TrimSpace(rc.SystemPrompt) != "" {
-				rc.SystemPrompt = rc.SystemPrompt + "\n\n" + strings.TrimSpace(block)
+				rc.SystemPrompt = rc.SystemPrompt + "\n\n" + notebookBlock
 			} else {
-				rc.SystemPrompt = strings.TrimSpace(block)
+				rc.SystemPrompt = notebookBlock
 			}
 		}
 		// Ignore ErrNoRows / any DB errors — no memory is a valid state.

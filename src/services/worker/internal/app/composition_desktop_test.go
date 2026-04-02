@@ -259,11 +259,11 @@ func TestDesktopCapabilityMiddlewaresRunMemoryBeforeTrustSource(t *testing.T) {
 
 	mustExecDesktopSQL(t, db,
 		`CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS user_memory_snapshots (
+		`CREATE TABLE IF NOT EXISTS user_notebook_snapshots (
 			account_id TEXT NOT NULL,
 			user_id TEXT NOT NULL,
 			agent_id TEXT NOT NULL DEFAULT 'default',
-			memory_block TEXT NOT NULL,
+			notebook_block TEXT NOT NULL,
 			PRIMARY KEY (account_id, user_id, agent_id)
 		)`,
 	)
@@ -282,7 +282,7 @@ func TestDesktopCapabilityMiddlewaresRunMemoryBeforeTrustSource(t *testing.T) {
 	memoryBlock := "Memory comes first."
 	agentID := "user_" + userID.String()
 	if _, err := db.Exec(ctx,
-		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block) VALUES ($1, $2, $3, $4)`,
 		accountID.String(),
 		userID.String(),
 		agentID,
@@ -770,8 +770,47 @@ func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
 	if engine.useOV {
 		t.Fatal("expected local provider when base url is absent")
 	}
-	if engine.memProvider == nil {
-		t.Fatal("expected local memory provider to be configured")
+	if engine.notebookProvider == nil {
+		t.Fatal("expected notebook provider to be configured")
+	}
+}
+
+func TestDesktopMemoryInjectionReadsNotebookSnapshotTable(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	accountID := uuid.New()
+	userID := uuid.New()
+	agentID := "user_" + userID.String()
+	block := "\n\n<notebook>\n- stable note\n</notebook>"
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE IF NOT EXISTS user_notebook_snapshots (
+			account_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL DEFAULT 'default',
+			notebook_block TEXT NOT NULL,
+			PRIMARY KEY (account_id, user_id, agent_id)
+		)`,
+	)
+	if _, err := db.Exec(ctx,
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block) VALUES ($1, $2, $3, $4)`,
+		accountID.String(), userID.String(), agentID, block,
+	); err != nil {
+		t.Fatalf("insert notebook snapshot: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:    data.Run{ID: uuid.New(), AccountID: accountID},
+		UserID: &userID,
+	}
+	h := pipeline.Build([]pipeline.RunMiddleware{desktopMemoryInjection(db)}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if !strings.Contains(rc.SystemPrompt, "<notebook>") {
+			t.Fatalf("expected notebook block, got %q", rc.SystemPrompt)
+		}
+		return nil
+	})
+	if err := h(ctx, rc); err != nil {
+		t.Fatalf("run middleware: %v", err)
 	}
 }
 

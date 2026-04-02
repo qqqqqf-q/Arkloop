@@ -87,7 +87,7 @@ function normalizeConnectors(raw: unknown): ConnectorsConfig {
 }
 
 function normalizeMemoryProvider(p: unknown): MemoryProvider {
-  return p === 'openviking' ? 'openviking' : 'local'
+  return p === 'openviking' ? 'openviking' : 'notebook'
 }
 
 function normalizeStr(v: unknown): string | undefined {

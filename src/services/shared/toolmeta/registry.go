@@ -200,15 +200,50 @@ var registry = []ToolMeta{
 	},
 	// ── memory ──
 	{
+		Name:      "notebook_read",
+		Group:     GroupMemory,
+		Label:     "Notebook read",
+		ShortDesc: "read the stable notebook snapshot or one notebook entry",
+		LLMDescription: "read Notebook content that is stably injected into future conversations. " +
+			"Call without uri to read the full current notebook snapshot. " +
+			"Call with a local://memory/<id> uri copied from notebook_write to read one notebook entry. " +
+			"Notebook is for long-lived maintained notes such as persona preferences, style guides, and standing instructions.",
+	},
+	{
+		Name:      "notebook_write",
+		Group:     GroupMemory,
+		Label:     "Notebook write",
+		ShortDesc: "store a long-lived notebook entry",
+		LLMDescription: "store a long-lived notebook entry that should remain stably injected into future conversations. " +
+			"Use this for maintained notes, long-form preferences, persona soul-like instructions, or anything that should not depend on semantic recall. " +
+			"After success the result includes a local://memory/<id> uri; use that exact uri for notebook_read, notebook_edit, or notebook_forget.",
+	},
+	{
+		Name:      "notebook_edit",
+		Group:     GroupMemory,
+		Label:     "Notebook edit",
+		ShortDesc: "edit one long-lived notebook entry by URI",
+		LLMDescription: "edit one existing notebook entry by exact local://memory/<id> uri returned from notebook_write. " +
+			"Only Notebook entries are editable. Do not use this on OpenViking memory URIs.",
+	},
+	{
+		Name:      "notebook_forget",
+		Group:     GroupMemory,
+		Label:     "Notebook forget",
+		ShortDesc: "remove one notebook entry by URI",
+		LLMDescription: "remove one notebook entry by exact local://memory/<id> uri returned from notebook_write. " +
+			"Only Notebook entries are removable with this tool.",
+	},
+	{
 		Name:      "memory_search",
 		Group:     GroupMemory,
 		Label:     "Memory search",
 		ShortDesc: "search long-term memory for user preferences and context",
-		LLMDescription: "search long-term memory for user preferences, past experiences, constraints, or prior interactions. " +
+		LLMDescription: "search auto-organized long-term memory for user preferences, past experiences, constraints, or prior interactions. " +
 			"Use for recommendations, comparisons, preference-driven questions, or open-ended problems where user context improves quality. " +
 			"Call at most once per query. Results may inform subsequent tool choices but rarely suffice alone. " +
-			"Each hit includes uri: pass that exact string to memory_read or memory_forget. On Arkloop Desktop local memory, uri looks like local://memory/<id>; do not invent category:key or scope:key strings. " +
-			"If scope is omitted, both user- and agent-scoped entries are searched (Desktop SQLite). " +
+			"Each hit includes uri: pass that exact string to memory_read or memory_forget. " +
+			"This memory is auto-recalled and may not appear every turn. " +
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
 	},
 	{
@@ -216,23 +251,24 @@ var registry = []ToolMeta{
 		Group:     GroupMemory,
 		Label:     "Memory read",
 		ShortDesc: "read the full content of a memory entry by URI",
-		LLMDescription: "read the full content of a memory entry by URI copied from a memory_search hit or from memory_write.uri on Desktop. " +
-			"Local Desktop SQLite only accepts local://memory/<uuid>. viking:// URIs are for OpenViking. Never guess uri from category/key alone.",
+		LLMDescription: "read the full content of an auto-organized memory entry by URI copied from a memory_search hit or from memory_write. " +
+			"These URIs belong to semantic memory recall, not Notebook. Never guess uri from category/key alone.",
 	},
 	{
 		Name:      "memory_write",
 		Group:     GroupMemory,
 		Label:     "Memory write",
 		ShortDesc: "store knowledge in long-term memory",
-		LLMDescription: "store knowledge in long-term memory for future reference. " +
-			"After success on Desktop local memory, the tool result includes uri — use that for memory_read. Then memory_search can find the entry by query keywords.",
+		LLMDescription: "store knowledge in auto-organized long-term memory for future semantic recall. " +
+			"Use this for events, entities, and preferences that do not need to be stably injected every turn. " +
+			"If you need a stable maintained note, use notebook_write instead.",
 	},
 	{
 		Name:           "memory_forget",
 		Group:          GroupMemory,
 		Label:          "Memory forget",
 		ShortDesc:      "remove a specific memory entry by URI",
-		LLMDescription: "remove a specific memory entry by URI from memory_search or memory_write (same rules as memory_read).",
+		LLMDescription: "remove a specific auto-organized memory entry by URI from memory_search or memory_write (same rules as memory_read). Use notebook_forget for Notebook entries.",
 	},
 	{
 		Name:      "conversation_search",

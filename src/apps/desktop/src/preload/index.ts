@@ -20,7 +20,7 @@ export type ConnectorsConfig = {
   }
 }
 
-export type MemoryProvider = 'local' | 'openviking'
+export type MemoryProvider = 'notebook' | 'openviking'
 
 export type OpenVikingDesktopConfig = {
   rootApiKey?: string

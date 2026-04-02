@@ -527,8 +527,8 @@ export function MemorySettings({ accessToken }: Props) {
   const { t, locale } = useLocale()
   const ds = t.desktopSettings
   const localMemoryToggleNote = locale === 'zh'
-    ? '桌面本地记忆模式会在每轮结束后自动提交，此开关只有在 OpenViking 模式下才生效。'
-    : 'Desktop local memory mode always commits each turn, so this switch only has an effect when OpenViking is selected.'
+    ? 'Notebook 会稳定注入上下文，此开关只有在 Memory 模式下才生效。'
+    : 'Notebook is injected into context directly, so this switch only affects Memory mode.'
 
   const [memConfig, setMemConfigState] = useState<MemoryConfig | null>(null)
   const [entries, setEntries] = useState<MemoryEntry[]>([])
@@ -569,6 +569,8 @@ export function MemorySettings({ accessToken }: Props) {
         if (cfg.provider === 'openviking') {
           const snap = await api.memory.getSnapshot()
           setSnapshot(snap.memory_block ?? '')
+        } else {
+          setSnapshot('')
         }
       }
     } catch { /* ignore */ } finally {
@@ -819,7 +821,7 @@ export function MemorySettings({ accessToken }: Props) {
   }
 
   const enabled = memConfig?.enabled ?? true
-  const isLocal = (memConfig?.provider ?? 'local') !== 'openviking'
+  const isNotebook = (memConfig?.provider ?? 'notebook') !== 'openviking'
   const ovShowConfigure = Boolean(
     ovModule && ovModule.status !== 'not_installed',
   )
@@ -854,14 +856,14 @@ export function MemorySettings({ accessToken }: Props) {
               icon={HardDrive}
               label={ds.memorySystemSimple}
               desc={ds.memorySystemSimpleDesc}
-              selected={isLocal}
-              onSelect={() => { if (memConfig) void saveConfig({ ...memConfig, provider: 'local' }) }}
+              selected={isNotebook}
+              onSelect={() => { if (memConfig) void saveConfig({ ...memConfig, provider: 'notebook' }) }}
             />
             <ModeCard
               icon={Database}
               label={ds.memorySystemOpenViking}
               desc={ds.memorySystemOpenVikingDesc}
-              selected={!isLocal}
+              selected={!isNotebook}
               onSelect={() => { if (memConfig) void saveConfig({ ...memConfig, provider: 'openviking' }) }}
             />
           </div>
@@ -881,18 +883,18 @@ export function MemorySettings({ accessToken }: Props) {
                   <PillToggle
                     checked={memConfig.memoryCommitEachTurn !== false}
                     onChange={(next) => {
-                      if (isLocal) return
+                      if (isNotebook) return
                       void saveConfig({ ...memConfig, memoryCommitEachTurn: next })
                     }}
-                    disabled={isLocal}
+                    disabled={isNotebook}
                   />
                 </div>
-                {isLocal && (
+                {isNotebook && (
                   <p className="text-[10px] text-[var(--c-text-muted)]">{localMemoryToggleNote}</p>
                 )}
               </div>
 
-              {!isLocal && (
+              {!isNotebook && (
                 <div className="flex flex-col gap-4">
                   {bridgeError && (
                     <div className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm" style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444' }}>
@@ -936,18 +938,18 @@ export function MemorySettings({ accessToken }: Props) {
       {/* ── Memory content ── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {isLocal ? <Brain size={15} className="text-[var(--c-text-secondary)]" /> : <FileText size={15} className="text-[var(--c-text-secondary)]" />}
+          {isNotebook ? <Brain size={15} className="text-[var(--c-text-secondary)]" /> : <FileText size={15} className="text-[var(--c-text-secondary)]" />}
           <h4 className="text-sm font-semibold text-[var(--c-text-heading)]">
-            {isLocal ? ds.memoryEntriesTitle : ds.memorySnapshotTitle}
+            {isNotebook ? ds.memoryEntriesTitle : ds.memorySnapshotTitle}
           </h4>
-          {isLocal && entries.length > 0 && (
+          {isNotebook && entries.length > 0 && (
             <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}>
               {entries.length}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isLocal && entries.length > 0 && (
+          {isNotebook && entries.length > 0 && (
             <button onClick={() => setConfirmClearAll(true)} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10">
               <Trash2 size={12} />{ds.memoryClearAll}
             </button>
@@ -958,7 +960,7 @@ export function MemorySettings({ accessToken }: Props) {
         </div>
       </div>
 
-      {isLocal ? (
+      {isNotebook ? (
         entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl py-14" style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}>
             <Brain size={28} className="mb-3 text-[var(--c-text-muted)]" />

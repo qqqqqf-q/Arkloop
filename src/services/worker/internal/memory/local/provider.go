@@ -131,7 +131,7 @@ func (p *Provider) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ s
 	return nil
 }
 
-// Write inserts a new memory entry and rebuilds the memory_block snapshot.
+// Write inserts a new notebook entry.
 func (p *Provider) Write(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) error {
 	_, err := p.WriteReturningURI(ctx, ident, scope, entry)
 	return err
@@ -140,6 +140,7 @@ func (p *Provider) Write(ctx context.Context, ident memory.MemoryIdentity, scope
 // WriteReturningURI inserts one row and returns local://memory/{id} for memory_read / memory_forget.
 func (p *Provider) WriteReturningURI(ctx context.Context, ident memory.MemoryIdentity, scope memory.MemoryScope, entry memory.MemoryEntry) (string, error) {
 	sc, cat, key := parseWritableContent(entry.Content)
+	body := stripWritableHeader(entry.Content)
 	if sc == "" {
 		sc = string(scope)
 	}
@@ -150,19 +151,49 @@ func (p *Provider) WriteReturningURI(ctx context.Context, ident memory.MemoryIde
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING id`,
 		ident.AccountID.String(), ident.UserID.String(), agentID(ident.AgentID),
-		sc, cat, key, entry.Content,
+		sc, cat, key, body,
 	).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("memory write insert: %w", err)
 	}
-
 	if err := p.rebuildSnapshot(ctx, ident); err != nil {
 		return "", err
 	}
+
 	return idToURI(id), nil
 }
 
-// Delete removes a memory entry by URI and rebuilds the memory_block snapshot.
+// UpdateByURI overwrites an existing notebook entry and rebuilds the snapshot.
+func (p *Provider) UpdateByURI(ctx context.Context, ident memory.MemoryIdentity, uri string, entry memory.MemoryEntry) error {
+	id, err := uriToID(uri)
+	if err != nil {
+		return err
+	}
+
+	sc, cat, key := parseWritableContent(entry.Content)
+	body := stripWritableHeader(entry.Content)
+	if sc == "" {
+		sc = string(memory.MemoryScopeUser)
+	}
+
+	tag, err := p.db.Exec(ctx,
+		`UPDATE desktop_memory_entries
+		 SET scope = $5, category = $6, entry_key = $7, content = $8
+		 WHERE id = $1 AND account_id = $2 AND user_id = $3 AND agent_id = $4`,
+		id, ident.AccountID.String(), ident.UserID.String(), agentID(ident.AgentID),
+		sc, cat, key, body,
+	)
+	if err != nil {
+		return fmt.Errorf("memory update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("memory entry not found: %s", uri)
+	}
+
+	return p.rebuildSnapshot(ctx, ident)
+}
+
+// Delete removes a notebook entry by URI.
 func (p *Provider) Delete(ctx context.Context, ident memory.MemoryIdentity, uri string) error {
 	id, err := uriToID(uri)
 	if err != nil {
@@ -184,8 +215,8 @@ func (p *Provider) Delete(ctx context.Context, ident memory.MemoryIdentity, uri 
 	return p.rebuildSnapshot(ctx, ident)
 }
 
-// rebuildSnapshot reconstructs user_memory_snapshots.memory_block from all
-// current entries so the system prompt injection stays up to date.
+// rebuildSnapshot reconstructs user_notebook_snapshots.notebook_block from all
+// current entries so the notebook injection stays up to date.
 func (p *Provider) rebuildSnapshot(ctx context.Context, ident memory.MemoryIdentity) error {
 	rows, err := p.db.Query(ctx,
 		`SELECT scope, category, entry_key, content
@@ -211,17 +242,17 @@ func (p *Provider) rebuildSnapshot(ctx context.Context, ident memory.MemoryIdent
 		return fmt.Errorf("memory rebuild rows: %w", err)
 	}
 
-	block := buildMemoryBlock(lines)
+	block := buildNotebookBlock(lines)
 
 	_, err = p.db.Exec(ctx,
-		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, updated_at)
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block, updated_at)
 		 VALUES ($1, $2, $3, $4, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id)
-		 DO UPDATE SET memory_block = EXCLUDED.memory_block, updated_at = EXCLUDED.updated_at`,
+		 DO UPDATE SET notebook_block = EXCLUDED.notebook_block, updated_at = EXCLUDED.updated_at`,
 		ident.AccountID.String(), ident.UserID.String(), agentID(ident.AgentID), block,
 	)
 	if err != nil {
-		return fmt.Errorf("memory snapshot upsert: %w", err)
+		return fmt.Errorf("notebook snapshot upsert: %w", err)
 	}
 	return nil
 }
@@ -277,12 +308,12 @@ func (p *Provider) DeleteByID(ctx context.Context, accountID, userID uuid.UUID, 
 	return p.Delete(ctx, ident, idToURI(id))
 }
 
-// GetSnapshot returns the raw memory_block text currently stored in
-// user_memory_snapshots, used by the settings UI for display.
+// GetSnapshot returns the raw notebook block currently stored in
+// user_notebook_snapshots, used by the settings UI for display.
 func (p *Provider) GetSnapshot(ctx context.Context, accountID, userID uuid.UUID, agentIDStr string) (string, error) {
 	var block string
 	err := p.db.QueryRow(ctx,
-		`SELECT memory_block FROM user_memory_snapshots
+		`SELECT notebook_block FROM user_notebook_snapshots
 		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
 		accountID.String(), userID.String(), agentID(agentIDStr),
 	).Scan(&block)
@@ -290,7 +321,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, accountID, userID uuid.UUID,
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil
 		}
-		return "", fmt.Errorf("memory snapshot get: %w", err)
+		return "", fmt.Errorf("notebook snapshot get: %w", err)
 	}
 	return block, nil
 }
@@ -345,19 +376,31 @@ func parseWritableContent(raw string) (scope, category, key string) {
 	}
 }
 
-// buildMemoryBlock formats all entries into the XML memory block used by the
+func stripWritableHeader(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "[") {
+		return raw
+	}
+	end := strings.Index(raw, "]")
+	if end < 0 {
+		return raw
+	}
+	return strings.TrimSpace(raw[end+1:])
+}
+
+// buildNotebookBlock formats all entries into the XML notebook block used by the
 // system prompt injection.
-func buildMemoryBlock(lines []string) string {
+func buildNotebookBlock(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("\n\n<memory>\n")
+	sb.WriteString("\n\n<notebook>\n")
 	for _, l := range lines {
 		sb.WriteString("- ")
 		sb.WriteString(strings.TrimSpace(l))
 		sb.WriteString("\n")
 	}
-	sb.WriteString("</memory>")
+	sb.WriteString("</notebook>")
 	return sb.String()
 }

@@ -1,8 +1,8 @@
 //go:build desktop
 
 // Package memoryapi provides HTTP endpoints for the Desktop settings UI to
-// inspect and manage local memory entries. These routes are desktop-only and
-// use the fixed desktop token for authentication.
+// inspect and manage notebook entries. These routes are desktop-only and use
+// the fixed desktop token for authentication.
 package memoryapi
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// MemoryEntry is the JSON-serialisable form of a single desktop memory record.
+// MemoryEntry is the JSON-serialisable form of a single desktop notebook record.
 type MemoryEntry struct {
 	ID        string `json:"id"`
 	Scope     string `json:"scope"`
@@ -30,12 +30,12 @@ type MemoryEntry struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// Deps holds the dependencies for the memory API.
+// Deps holds the dependencies for the notebook API.
 type Deps struct {
 	Pool data.DB
 }
 
-// RegisterRoutes registers memory management routes onto mux.
+// RegisterRoutes registers notebook management routes onto mux.
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	h := &handler{pool: deps.Pool}
 	mux.HandleFunc("/v1/desktop/memory/entries", h.dispatchEntries)
@@ -147,7 +147,7 @@ func (h *handler) deleteEntry(w nethttp.ResponseWriter, r *nethttp.Request, id s
 
 // ---------- queries ----------
 
-// listMemoryEntries returns all memory entries for a user across all agents.
+// listMemoryEntries returns all notebook entries for a user across all agents.
 // The settings UI shows a unified view regardless of which persona wrote each entry.
 func listMemoryEntries(ctx context.Context, pool data.DB, accountID, userID, _ string) ([]MemoryEntry, error) {
 	rows, err := pool.Query(ctx,
@@ -176,7 +176,7 @@ func listMemoryEntries(ctx context.Context, pool data.DB, accountID, userID, _ s
 func getMemoryBlock(ctx context.Context, pool data.DB, accountID, userID, agentID string) (string, error) {
 	var block string
 	err := pool.QueryRow(ctx,
-		`SELECT memory_block FROM user_memory_snapshots
+		`SELECT notebook_block FROM user_notebook_snapshots
 		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3`,
 		accountID, userID, agentID,
 	).Scan(&block)
@@ -218,29 +218,29 @@ func rebuildMemoryBlock(ctx context.Context, pool data.DB, accountID, userID, ag
 		return err
 	}
 
-	block := buildBlock(lines)
+	block := buildNotebookBlock(lines)
 	_, err = pool.Exec(ctx,
-		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, updated_at)
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block, updated_at)
 		 VALUES ($1, $2, $3, $4, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id)
-		 DO UPDATE SET memory_block = EXCLUDED.memory_block, updated_at = EXCLUDED.updated_at`,
+		 DO UPDATE SET notebook_block = EXCLUDED.notebook_block, updated_at = EXCLUDED.updated_at`,
 		accountID, userID, agentID, block,
 	)
 	return err
 }
 
-func buildBlock(lines []string) string {
+func buildNotebookBlock(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("\n\n<memory>\n")
+	sb.WriteString("\n\n<notebook>\n")
 	for _, l := range lines {
 		sb.WriteString("- ")
 		sb.WriteString(strings.TrimSpace(l))
 		sb.WriteString("\n")
 	}
-	sb.WriteString("</memory>")
+	sb.WriteString("</notebook>")
 	return sb.String()
 }
 

@@ -36,7 +36,7 @@ func desktopLocalACPAvailable() bool {
 }
 
 func desktopLocalMemoryAvailable() bool {
-	return desktop.GetMemoryRuntime() == "local"
+	return desktop.GetMemoryRuntime() == "notebook"
 }
 
 func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapshot sharedtoolruntime.RuntimeSnapshot) (toolProviderRuntimeStatus, bool) {
@@ -92,7 +92,7 @@ func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapsho
 				Status: toolProviderRuntimeStatusAvailable,
 				Source: toolProviderRuntimeSourceProviderConfig,
 			}, true
-		case "local":
+		case "notebook":
 			return toolProviderRuntimeStatus{
 				Status: toolProviderRuntimeStatusAvailable,
 				Source: toolProviderRuntimeSourceLocal,
