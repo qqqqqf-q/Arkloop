@@ -1,11 +1,11 @@
-import { Children, useState, useCallback, useRef, useContext, createContext, Fragment, isValidElement, cloneElement, useMemo } from 'react'
+import { Children, useState, useCallback, useRef, useContext, createContext, Fragment, isValidElement, cloneElement, useMemo, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
-import { Copy, Check } from 'lucide-react'
+import { CopyIconButton } from './CopyIconButton'
 import type { Components, Options, UrlTransform } from 'react-markdown'
 import { defaultUrlTransform } from 'react-markdown'
 import { CitationBadge, WebSourcesContext } from './CitationBadge'
@@ -17,6 +17,7 @@ import { MindmapBlock } from './MindmapBlock'
 import { MermaidBlock } from './MermaidBlock'
 import { GeoGebraBlock } from './GeoGebraBlock'
 import { WorkspaceResource, type WorkspaceFileRef } from './WorkspaceResource'
+import { recordPerfCount, recordPerfValue } from '../perfDebug'
 
 type ArtifactsContextValue = {
   artifacts: ArtifactRef[]
@@ -230,7 +231,6 @@ function extractTextFromChildren(node: ReactNode): string {
 }
 
 function CodeBlockWrapper({ children, compact = false }: { children: React.ReactNode; compact?: boolean }) {
-  const [copied, setCopied] = useState(false)
   const [copyHover, setCopyHover] = useState(false)
   const preRef = useRef<HTMLPreElement>(null)
   const languageLabel = normalizeCodeLanguageLabel(extractCodeLanguage(children))
@@ -241,10 +241,7 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
 
   const handleCopy = useCallback(() => {
     const text = preRef.current?.textContent ?? ''
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    void navigator.clipboard.writeText(text)
   }, [])
 
   return (
@@ -292,11 +289,10 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
       >
         {children}
       </pre>
-      <button
+      <CopyIconButton
+        onCopy={handleCopy}
+        size={13}
         className="opacity-0 group-hover/codeblock:opacity-100 transition-opacity duration-150"
-        onClick={handleCopy}
-        onMouseEnter={() => setCopyHover(true)}
-        onMouseLeave={() => setCopyHover(false)}
         style={{
           position: 'absolute',
           top: '8px',
@@ -309,12 +305,13 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
           borderRadius: '6px',
           border: '0.5px solid var(--c-border-subtle)',
           background: copyHover ? 'var(--c-bg-deep)' : 'transparent',
-          color: copied ? 'var(--c-text-secondary)' : 'var(--c-text-icon)',
+          color: 'var(--c-text-icon)',
           transition: 'background 0.15s',
         }}
-      >
-        {copied ? <Check size={13} /> : <Copy size={13} />}
-      </button>
+        onMouseEnter={() => setCopyHover(true)}
+        onMouseLeave={() => setCopyHover(false)}
+        resetDelay={2000}
+      />
     </div>
   )
 }
@@ -571,6 +568,8 @@ type Props = {
 }
 
 export function MarkdownRenderer({ content, disableMath, webSources, artifacts, accessToken, runId, onOpenDocument, compact = false, trimTrailingMargin = false }: Props) {
+  const sourceCount = webSources?.length ?? 0
+  const artifactCount = artifacts?.length ?? 0
   const remarkPlugins = disableMath
     ? [remarkGfm]
     : [remarkGfm, remarkMath]
@@ -591,6 +590,20 @@ export function MarkdownRenderer({ content, disableMath, webSources, artifacts, 
 
   const normalizedContent = disableMath ? content : normalizeLatexDelimiters(content)
   const mdComponents = useMemo(() => buildMarkdownComponents(compact), [compact])
+
+  useEffect(() => {
+    recordPerfCount('markdown_render', 1, {
+      length: content.length,
+      compact,
+      disableMath: !!disableMath,
+      hasWebSources: sourceCount > 0,
+      hasArtifacts: artifactCount > 0,
+    })
+    recordPerfValue('markdown_content_length', content.length, 'chars', {
+      compact,
+      disableMath: !!disableMath,
+    })
+  }, [artifactCount, compact, content.length, disableMath, sourceCount])
 
   return (
     <ArtifactsContext.Provider value={artifactsValue}>

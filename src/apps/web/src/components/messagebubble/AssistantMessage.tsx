@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Copy, Check, RefreshCw, Share2, Split, Terminal } from 'lucide-react'
+import { useEffect } from 'react'
+import { Check, RefreshCw, Share2, Split, Terminal } from 'lucide-react'
 import type { MessageResponse } from '../../api'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../../storage'
 import { WidgetBlock } from '../WidgetBlock'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { recordPerfCount, recordPerfValue } from '../../perfDebug'
 import { DocumentCard } from '../DocumentCard'
 import { BrowserScreenshotCard } from '../BrowserScreenshotCard'
 import type { ArtifactAction } from '../ArtifactIframe'
@@ -11,6 +12,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { useTypewriter } from '../../hooks/useTypewriter'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { isDocumentArtifact, isArtifactReferenced, getDomain } from './utils'
+import { CopyIconButton } from '../CopyIconButton'
 
 type Props = {
   message: MessageResponse
@@ -78,16 +80,30 @@ export function AssistantMessage({
   plainTextForCopy,
 }: Props) {
   const { t } = useLocale()
-  const [copied, setCopied] = useState(false)
   const renderedContent = contentOverride ?? (contentPrefix && message.content.startsWith(contentPrefix) ? message.content.slice(contentPrefix.length).trimStart() : message.content)
   const textForCopy = plainTextForCopy ?? renderedContent
   const displayedAssistantMd = useTypewriter(renderedContent, !streamMarkdown)
+  const widgetCount = widgets?.length ?? 0
+  const artifactCount = artifacts?.length ?? 0
+
+  useEffect(() => {
+    recordPerfCount('assistant_message_render', 1, {
+      messageId: message.id,
+      contentLength: renderedContent.length,
+      displayedLength: displayedAssistantMd.length,
+      streamMarkdown,
+      widgetCount,
+      artifactCount,
+    })
+    recordPerfValue('assistant_message_displayed', displayedAssistantMd.length, 'chars', {
+      messageId: message.id,
+      contentLength: renderedContent.length,
+      streamMarkdown,
+    })
+  }, [artifactCount, displayedAssistantMd.length, message.id, renderedContent.length, streamMarkdown, widgetCount])
 
   const handleCopy = () => {
-    void navigator.clipboard.writeText(textForCopy).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    void navigator.clipboard.writeText(textForCopy)
   }
 
   return (
@@ -129,37 +145,12 @@ export function AssistantMessage({
         <div style={{ marginTop: '4px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
             <div style={{ position: 'relative' }}>
-              <button
-                onClick={handleCopy}
+              <CopyIconButton
+                onCopy={handleCopy}
+                size={16}
                 className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,background,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
-              >
-                {copied ? <Check size={16} /> : <Copy size={16} />}
-              </button>
-              <span
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: '50%',
-                  transform: copied
-                    ? 'translateX(-50%) translateY(2px)'
-                    : 'translateX(-50%) translateY(-2px)',
-                  marginTop: '4px',
-                  fontSize: '11px',
-                  color: 'var(--c-text-tertiary)',
-                  background: 'var(--c-bg-deep)',
-                  border: '0.5px solid var(--c-border-subtle)',
-                  borderRadius: '5px',
-                  padding: '2px 6px',
-                  whiteSpace: 'nowrap',
-                  opacity: copied ? 1 : 0,
-                  transition: 'opacity 150ms ease, transform 150ms ease',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                  zIndex: 10,
-                }}
-              >
-                已复制
-              </span>
+                resetDelay={1500}
+              />
             </div>
             <button
               onClick={onRetry}
