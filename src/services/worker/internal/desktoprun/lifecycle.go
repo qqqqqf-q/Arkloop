@@ -11,13 +11,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/objectstore"
-	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
@@ -41,14 +37,11 @@ var desktopTerminalEventStatus = map[string]string{
 }
 
 type lifecycleManager struct {
-	db              data.DesktopDB
-	queue           queue.JobQueue
-	bus             eventbus.EventBus
-	logger          *slog.Logger
-	timeout         time.Duration
-	rolloutOnce     sync.Once
-	rolloutStore    objectstore.BlobStore
-	rolloutStoreErr error
+	db      data.DesktopDB
+	queue   queue.JobQueue
+	bus     eventbus.EventBus
+	logger  *slog.Logger
+	timeout time.Duration
 }
 
 type desktopRunSnapshot struct {
@@ -222,9 +215,6 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.paused" || snapshot.LastEventType == "run.cancel_requested" {
 			continue
 		}
-		if !m.hasRecoveryMaterials(ctx, snapshot.RunID) {
-			continue
-		}
 		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
 			"source": "desktop_recovery",
 		}, nil); err != nil {
@@ -239,73 +229,6 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (m *lifecycleManager) hasRecoveryMaterials(ctx context.Context, runID uuid.UUID) bool {
-	if runID == uuid.Nil {
-		return false
-	}
-	store, err := m.ensureRolloutStore(ctx)
-	if err != nil || store == nil {
-		if err != nil && m.logger != nil {
-			m.logger.Warn("desktop recovery storage unavailable", "err", err.Error())
-		}
-		return false
-	}
-	ok, err := rollout.HasRollout(ctx, store, runID)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Warn("desktop recovery material head failed", "run_id", runID, "err", err.Error())
-		}
-		return false
-	}
-	if !ok {
-		return false
-	}
-	reader := rollout.NewReader(store)
-	items, err := reader.ReadRollout(ctx, runID)
-	if err != nil {
-		if objectstore.IsNotFound(err) {
-			return false
-		}
-		if m.logger != nil {
-			m.logger.Warn("desktop recovery rollout read failed", "run_id", runID.String(), "err", err.Error())
-		}
-		return false
-	}
-	state := reader.Reconstruct(items)
-	if len(state.ReplayMessages) == 0 && len(state.PendingToolCalls) == 0 {
-		return false
-	}
-	return true
-}
-
-func (m *lifecycleManager) ensureRolloutStore(ctx context.Context) (objectstore.BlobStore, error) {
-	m.rolloutOnce.Do(func() {
-		store, err := openDesktopRolloutBlobStore(ctx)
-		if err != nil {
-			m.rolloutStoreErr = err
-			return
-		}
-		m.rolloutStore = store
-	})
-	return m.rolloutStore, m.rolloutStoreErr
-}
-
-func openDesktopRolloutBlobStore(ctx context.Context) (objectstore.BlobStore, error) {
-	dataDir, err := desktop.ResolveDataDir("")
-	if err != nil {
-		return nil, err
-	}
-	store, err := objectstore.NewFilesystemOpener(desktop.StorageRoot(dataDir)).Open(ctx, objectstore.RolloutBucket)
-	if err != nil {
-		return nil, err
-	}
-	blobStore, ok := store.(objectstore.BlobStore)
-	if !ok {
-		return nil, fmt.Errorf("rollout store does not implement blob store")
-	}
-	return blobStore, nil
 }
 
 func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapshot, error) {

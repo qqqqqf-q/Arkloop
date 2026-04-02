@@ -114,7 +114,7 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	}
 }
 
-func TestLifecycleBootstrapSkipsRunWithoutRecoveryMaterial(t *testing.T) {
+func TestLifecycleBootstrapRecoversRunWithoutRecoveryMaterial(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openLifecycleTestDB(t, ctx)
 	defer cleanup()
@@ -134,12 +134,12 @@ func TestLifecycleBootstrapSkipsRunWithoutRecoveryMaterial(t *testing.T) {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	if len(q.calls) != 0 {
-		t.Fatalf("expected no recovered runs without runtime state, got %d", len(q.calls))
+	if len(q.calls) != 1 {
+		t.Fatalf("expected 1 recovered run without rollout, got %d", len(q.calls))
 	}
 }
 
-func TestLifecycleBootstrapSkipsRunWithEmptyRolloutState(t *testing.T) {
+func TestLifecycleBootstrapRecoversRunWithEmptyRolloutState(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openLifecycleTestDB(t, ctx)
 	defer cleanup()
@@ -160,8 +160,8 @@ func TestLifecycleBootstrapSkipsRunWithEmptyRolloutState(t *testing.T) {
 		t.Fatalf("bootstrap failed: %v", err)
 	}
 
-	if len(q.calls) != 0 {
-		t.Fatalf("expected no recovered run when rollout only contains metadata, got %d", len(q.calls))
+	if len(q.calls) != 1 {
+		t.Fatalf("expected 1 recovered run with empty rollout, got %d", len(q.calls))
 	}
 }
 
