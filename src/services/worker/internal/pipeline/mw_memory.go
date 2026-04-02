@@ -22,7 +22,7 @@ import (
 const (
 	// memorySnapshotFindLimit：后台刷新快照时 OpenViking Find 的 Top-K，越大快照越长（更多 L0 条目）。
 	memorySnapshotFindLimit = 100
-	memoryHighScoreL1         = 0.85 // 高分且非叶子时拉 L1 overview 拼进该条 bullet
+	memoryHighScoreL1       = 0.85 // 高分且非叶子时拉 L1 overview 拼进该条 bullet
 	// memorySnapshotL1MaxRunes：单条命中附加的 L1 上限，避免单条记忆把 system 撑爆。
 	memorySnapshotL1MaxRunes = 2000
 	memoryFindTimeout        = 5 * time.Second
@@ -632,6 +632,26 @@ func ForgetSnapshotRefresh(
 		string(memory.MemoryScopeUser): {"user profile preferences facts"},
 	}
 	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.forget", "forget")
+}
+
+// EditSnapshotRefresh schedules a background snapshot rebuild after memory_edit.
+func EditSnapshotRefresh(
+	provider memory.MemoryProvider,
+	store MemorySnapshotStore,
+	mdb data.MemoryMiddlewareDB,
+	runID uuid.UUID,
+	traceID string,
+	ident memory.MemoryIdentity,
+	query string,
+) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	queries := map[string][]string{
+		string(memory.MemoryScopeUser): {query},
+	}
+	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.edit", "edit")
 }
 
 // resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。

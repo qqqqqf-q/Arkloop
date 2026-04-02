@@ -1015,7 +1015,7 @@ export function buildMessageSubAgentsFromRunEvents(events: RunEvent[]): SubAgent
 
 // --- File operation processing ---
 
-const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'load_tools', 'memory_write', 'memory_search', 'memory_read', 'memory_forget', 'notebook_write', 'notebook_read', 'notebook_edit', 'notebook_forget'])
+const FILE_OP_TOOL_NAMES = new Set(['grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file', 'load_tools', 'memory_write', 'memory_edit', 'memory_search', 'memory_read', 'memory_forget', 'notebook_write', 'notebook_read', 'notebook_edit', 'notebook_forget'])
 
 function normalizeFileOpToolName(toolName: string): string {
   if (toolName === 'read' || toolName.startsWith('read.')) return 'read_file'
@@ -1088,6 +1088,10 @@ function fileOpLabel(toolName: string, args: Record<string, unknown>): string {
       const category = typeof args.category === 'string' ? args.category : ''
       if (key) return `memory_write ${category ? category + '/' : ''}${truncate(key, 32)}`
       return 'memory_write'
+    }
+    case 'memory_edit': {
+      const uri = typeof args.uri === 'string' ? args.uri : ''
+      return uri ? `memory_edit ${truncate(uri, 40)}` : 'memory_edit'
     }
     case 'memory_search': {
       const query = typeof args.query === 'string' ? args.query : ''
@@ -1205,6 +1209,9 @@ export function fileOpOutputFromResult(toolName: string, result: unknown): strin
     case 'memory_write': {
       const stored = typeof r.stored === 'boolean' ? r.stored : true
       return stored ? 'stored' : 'failed'
+    }
+    case 'memory_edit': {
+      return 'updated'
     }
     case 'memory_search': {
       const list = Array.isArray(r.hits)

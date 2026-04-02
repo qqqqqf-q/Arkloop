@@ -214,7 +214,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		}
 	}
 	if memoryBaseURL != "" {
-		for _, name := range []string{"memory_search", "memory_read", "memory_write", "memory_forget"} {
+		for _, name := range []string{"memory_search", "memory_read", "memory_write", "memory_edit", "memory_forget"} {
 			available[name] = struct{}{}
 		}
 	}

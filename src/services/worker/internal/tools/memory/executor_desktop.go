@@ -71,6 +71,8 @@ func (e *ToolExecutor) Execute(
 		return e.read(ctx, args, ident, started)
 	case "memory_write":
 		return e.write(ctx, args, ident, execCtx, started)
+	case "memory_edit":
+		return e.edit(ctx, args, ident, execCtx, started)
 	case "memory_forget":
 		return e.forget(ctx, args, ident, execCtx, started)
 	default:
@@ -290,6 +292,31 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 	}
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"status": "ok"},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) edit(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
+	editor, ok := e.provider.(memory.MemoryEditURI)
+	if !ok {
+		return stateError("memory editing is not available in this runtime", started)
+	}
+	uri, ok := args["uri"].(string)
+	if !ok || strings.TrimSpace(uri) == "" {
+		return argError("uri must be a non-empty string", started)
+	}
+	content, ok := args["content"].(string)
+	if !ok || strings.TrimSpace(content) == "" {
+		return argError("content must be a non-empty string", started)
+	}
+	if err := editor.UpdateByURI(ctx, ident, strings.TrimSpace(uri), memory.MemoryEntry{Content: strings.TrimSpace(content)}); err != nil {
+		return providerError("edit", err, started)
+	}
+	if _, local := e.provider.(memory.DesktopLocalMemoryWriteURI); !local && e.db != nil {
+		pipeline.EditSnapshotRefresh(e.provider, pipeline.NewDesktopMemorySnapshotStore(e.db), e.db, execCtx.RunID, execCtx.TraceID, ident, strings.TrimSpace(content))
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"status": "ok", "uri": strings.TrimSpace(uri)},
 		DurationMs: durationMs(started),
 	}
 }

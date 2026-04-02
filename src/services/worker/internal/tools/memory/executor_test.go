@@ -27,11 +27,13 @@ type mockProvider struct {
 	contentText string
 	contentErr  error
 	writeErr    error
+	updateErr   error
 	deleteErr   error
 
 	findCalled     bool
 	contentCalled  bool
 	writeCalled    bool
+	updateCalled   bool
 	deleteCalled   bool
 	lastWriteEntry workermemory.MemoryEntry
 	lastDeleteURI  string
@@ -70,6 +72,32 @@ func (m *desktopMockProvider) GetSnapshot(_ context.Context, _, _ uuid.UUID, _ s
 	return m.snapshot, nil
 }
 
+type noDesktopEditProvider struct{}
+
+func (noDesktopEditProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ string, _ int) ([]workermemory.MemoryHit, error) {
+	return nil, nil
+}
+
+func (noDesktopEditProvider) Content(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ workermemory.MemoryLayer) (string, error) {
+	return "", nil
+}
+
+func (noDesktopEditProvider) AppendSessionMessages(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ []workermemory.MemoryMessage) error {
+	return nil
+}
+
+func (noDesktopEditProvider) CommitSession(_ context.Context, _ workermemory.MemoryIdentity, _ string) error {
+	return nil
+}
+
+func (noDesktopEditProvider) Write(_ context.Context, _ workermemory.MemoryIdentity, _ workermemory.MemoryScope, _ workermemory.MemoryEntry) error {
+	return nil
+}
+
+func (noDesktopEditProvider) Delete(_ context.Context, _ workermemory.MemoryIdentity, _ string) error {
+	return nil
+}
+
 func (m *mockProvider) Find(_ context.Context, _ workermemory.MemoryIdentity, _ string, _ string, _ int) ([]workermemory.MemoryHit, error) {
 	m.findCalled = true
 	return m.findHits, m.findErr
@@ -98,6 +126,13 @@ func (m *mockProvider) Delete(_ context.Context, _ workermemory.MemoryIdentity, 
 	m.deleteCalled = true
 	m.lastDeleteURI = uri
 	return m.deleteErr
+}
+
+func (m *mockProvider) UpdateByURI(_ context.Context, _ workermemory.MemoryIdentity, uri string, entry workermemory.MemoryEntry) error {
+	m.updateCalled = true
+	m.lastDeleteURI = uri
+	m.lastWriteEntry = entry
+	return m.updateErr
 }
 
 type snapshotMock struct {
@@ -405,6 +440,52 @@ func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
 	}
 }
 
+func TestMemoryExecutor_Edit_Success(t *testing.T) {
+	mp := &mockProvider{}
+	ex := NewToolExecutor(mp, nil, nil)
+	targetURI := "viking://user/memories/preferences/lang.md"
+	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
+		"uri":     targetURI,
+		"content": "updated memory body",
+	}, newUserExecCtx(), "")
+
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error.Message)
+	}
+	if result.ResultJSON["status"] != "ok" {
+		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
+	}
+	if !mp.updateCalled {
+		t.Fatal("expected UpdateByURI to be called on provider")
+	}
+	if mp.lastDeleteURI != targetURI {
+		t.Fatalf("unexpected edit uri: %q", mp.lastDeleteURI)
+	}
+	if mp.lastWriteEntry.Content != "updated memory body" {
+		t.Fatalf("unexpected edit content: %q", mp.lastWriteEntry.Content)
+	}
+}
+
+func TestMemoryExecutor_Edit_MissingURI(t *testing.T) {
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
+	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
+		"content": "updated memory body",
+	}, newUserExecCtx(), "")
+	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
+		t.Fatalf("expected args_invalid, got: %+v", result.Error)
+	}
+}
+
+func TestMemoryExecutor_Edit_MissingContent(t *testing.T) {
+	ex := NewToolExecutor(&mockProvider{}, nil, nil)
+	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
+		"uri": "viking://user/memories/preferences/lang.md",
+	}, newUserExecCtx(), "")
+	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
+		t.Fatalf("expected args_invalid, got: %+v", result.Error)
+	}
+}
+
 // --- identity missing ---
 
 func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {
@@ -416,7 +497,7 @@ func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {
 }
 
 func TestNotebookTools_NotAvailableOutsideDesktop(t *testing.T) {
-	mp := &mockProvider{}
+	mp := noDesktopEditProvider{}
 	ex := NewToolExecutor(mp, nil, nil)
 	execCtx := newUserExecCtx()
 

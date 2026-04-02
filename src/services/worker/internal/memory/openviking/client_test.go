@@ -290,6 +290,45 @@ func TestClient_Delete_Correct(t *testing.T) {
 	}
 }
 
+func TestClient_UpdateByURI_Correct(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/content/write" {
+			gotPath = r.URL.Path
+			if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			writeJSON(w, apiResp(map[string]any{"uri": gotBody["uri"]}))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL, "")
+	targetURI := "viking://user/memories/preferences/lang.md"
+	if err := c.UpdateByURI(context.Background(), newIdent(), targetURI, memory.MemoryEntry{Content: "updated body"}); err != nil {
+		t.Fatalf("UpdateByURI failed: %v", err)
+	}
+	if gotPath != "/api/v1/content/write" {
+		t.Fatalf("unexpected path: %q", gotPath)
+	}
+	if gotBody["uri"] != targetURI {
+		t.Fatalf("unexpected uri: %v", gotBody["uri"])
+	}
+	if gotBody["content"] != "updated body" {
+		t.Fatalf("unexpected content: %v", gotBody["content"])
+	}
+	if gotBody["mode"] != "replace" {
+		t.Fatalf("unexpected mode: %v", gotBody["mode"])
+	}
+	if gotBody["wait"] != true {
+		t.Fatalf("unexpected wait: %v", gotBody["wait"])
+	}
+}
+
 // --- Retry ---
 
 func TestClient_Retry_5xx(t *testing.T) {

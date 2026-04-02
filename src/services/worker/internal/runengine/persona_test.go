@@ -187,7 +187,7 @@ func TestEngineV1AppliesClawPersonaPromptAndToolAllowlist(t *testing.T) {
 			t.Fatalf("expected tool %s in request, got %#v", required, toolNames)
 		}
 	}
-	for _, denied := range []string{"memory_write", "memory_forget"} {
+	for _, denied := range []string{"memory_write", "memory_edit", "memory_forget"} {
 		if _, ok := toolNames[denied]; ok {
 			t.Fatalf("unexpected tool %s in request", denied)
 		}

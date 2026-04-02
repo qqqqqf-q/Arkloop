@@ -242,7 +242,7 @@ var registry = []ToolMeta{
 		LLMDescription: "search auto-organized long-term memory for user preferences, past experiences, constraints, or prior interactions. " +
 			"Use for recommendations, comparisons, preference-driven questions, or open-ended problems where user context improves quality. " +
 			"Call at most once per query. Results may inform subsequent tool choices but rarely suffice alone. " +
-			"Each hit includes uri: pass that exact string to memory_read or memory_forget. " +
+			"Each hit includes uri: pass that exact string to memory_read, memory_edit, or memory_forget. " +
 			"This memory is auto-recalled and may not appear every turn. " +
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
 	},
@@ -262,6 +262,15 @@ var registry = []ToolMeta{
 		LLMDescription: "store knowledge in auto-organized long-term memory for future semantic recall. " +
 			"Use this for events, entities, and preferences that do not need to be stably injected every turn. " +
 			"If you need a stable maintained note, use notebook_write instead.",
+	},
+	{
+		Name:      "memory_edit",
+		Group:     GroupMemory,
+		Label:     "Memory edit",
+		ShortDesc: "overwrite one semantic memory entry by URI",
+		LLMDescription: "overwrite one existing auto-organized memory entry by exact URI, usually copied from memory_search or memory_read context. " +
+			"Use this when a semantic memory is still the same memory object but its full content should be replaced. " +
+			"Do not use this for Notebook entries; use notebook_edit instead.",
 	},
 	{
 		Name:           "memory_forget",

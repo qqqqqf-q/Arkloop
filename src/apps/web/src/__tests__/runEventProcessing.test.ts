@@ -1341,4 +1341,8 @@ describe('memory_search file result summary', () => {
     expect(out).not.toContain('h40')
     expect(out?.endsWith('\n… 5 more')).toBe(true)
   })
+
+  it('summarizes memory_edit as updated', () => {
+    expect(fileOpOutputFromResult('memory_edit', { status: 'ok' })).toBe('updated')
+  })
 })

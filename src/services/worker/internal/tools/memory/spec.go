@@ -84,6 +84,30 @@ var WriteLlmSpec = llm.ToolSpec{
 	},
 }
 
+// --- memory_edit ---
+
+var EditAgentSpec = tools.AgentToolSpec{
+	Name:        "memory_edit",
+	Version:     "1",
+	Description: "overwrite an existing semantic memory entry by URI",
+	RiskLevel:   tools.RiskLevelMedium,
+	SideEffects: true,
+}
+
+var EditLlmSpec = llm.ToolSpec{
+	Name:        "memory_edit",
+	Description: stringPtr(sharedtoolmeta.Must("memory_edit").LLMDescription),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"uri":     map[string]any{"type": "string"},
+			"content": map[string]any{"type": "string"},
+		},
+		"required":             []string{"uri", "content"},
+		"additionalProperties": false,
+	},
+}
+
 // --- notebook_read ---
 
 var NotebookReadAgentSpec = tools.AgentToolSpec{
@@ -229,6 +253,7 @@ func MemoryAgentSpecs() []tools.AgentToolSpec {
 		SearchAgentSpec,
 		ReadAgentSpec,
 		WriteAgentSpec,
+		EditAgentSpec,
 		ForgetAgentSpec,
 	}
 }
@@ -252,6 +277,7 @@ func MemoryLlmSpecs() []llm.ToolSpec {
 		SearchLlmSpec,
 		ReadLlmSpec,
 		WriteLlmSpec,
+		EditLlmSpec,
 		ForgetLlmSpec,
 	}
 }

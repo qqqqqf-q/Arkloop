@@ -102,6 +102,13 @@ func (c *client) doWriteJSON(ctx context.Context, method, path string, body any,
 	return c.doJSONWith(ctx, c.writeHTTP, method, path, body, ident, out)
 }
 
+type contentWriteRequest struct {
+	URI     string `json:"uri"`
+	Content string `json:"content"`
+	Mode    string `json:"mode"`
+	Wait    bool   `json:"wait"`
+}
+
 func (c *client) doJSONWith(ctx context.Context, hc *http.Client, method, path string, body any, ident memory.MemoryIdentity, out any) error {
 	if c.baseURLErr != nil {
 		return c.baseURLErr
@@ -394,6 +401,28 @@ func (c *client) Delete(ctx context.Context, ident memory.MemoryIdentity, uri st
 	path := "/api/v1/fs?uri=" + url.QueryEscape(uri) + "&recursive=false"
 	if err := c.doJSON(ctx, http.MethodDelete, path, nil, ident, nil); err != nil {
 		return fmt.Errorf("memory delete uri=%s: %w", uri, err)
+	}
+	return nil
+}
+
+// UpdateByURI overwrites an existing semantic memory file in place and waits
+// for semantic/vector refresh to complete.
+func (c *client) UpdateByURI(ctx context.Context, ident memory.MemoryIdentity, uri string, entry memory.MemoryEntry) error {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return errors.New("memory edit: uri is empty")
+	}
+	if strings.TrimSpace(entry.Content) == "" {
+		return errors.New("memory edit: content is empty")
+	}
+	body := contentWriteRequest{
+		URI:     uri,
+		Content: entry.Content,
+		Mode:    "replace",
+		Wait:    true,
+	}
+	if err := c.doWriteJSON(ctx, http.MethodPost, "/api/v1/content/write", body, ident, nil); err != nil {
+		return fmt.Errorf("memory edit uri=%s: %w", uri, err)
 	}
 	return nil
 }

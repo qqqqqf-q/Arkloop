@@ -94,6 +94,12 @@ type MemoryProvider interface {
 	Delete(ctx context.Context, ident MemoryIdentity, uri string) error
 }
 
+// MemoryEditURI is implemented by providers that can overwrite an existing
+// semantic memory entry in place by URI.
+type MemoryEditURI interface {
+	UpdateByURI(ctx context.Context, ident MemoryIdentity, uri string, entry MemoryEntry) error
+}
+
 // DesktopLocalMemoryWriteURI is implemented by the Desktop SQLite provider so memory_write can return the canonical URI.
 type DesktopLocalMemoryWriteURI interface {
 	WriteReturningURI(ctx context.Context, ident MemoryIdentity, scope MemoryScope, entry MemoryEntry) (uri string, err error)

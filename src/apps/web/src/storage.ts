@@ -508,6 +508,7 @@ export type MemoryActionRef = {
   id: string
   toolName:
     | 'memory_write'
+    | 'memory_edit'
     | 'memory_search'
     | 'memory_read'
     | 'memory_forget'
@@ -542,6 +543,7 @@ export function readMessageMemoryActions(messageId: string): MemoryActionRef[] |
         if (!id) return null
         if (
           toolName !== 'memory_write'
+          && toolName !== 'memory_edit'
           && toolName !== 'memory_search'
           && toolName !== 'memory_read'
           && toolName !== 'memory_forget'

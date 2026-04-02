@@ -23,6 +23,7 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"notebook_read":       {},
 	"notebook_write":      {},
 	"memory_forget":       {},
+	"memory_edit":         {},
 	"memory_read":         {},
 	"memory_search":       {},
 	"memory_write":        {},
