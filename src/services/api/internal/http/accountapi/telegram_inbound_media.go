@@ -22,8 +22,12 @@ type MessageAttachmentPutStore interface {
 
 func shouldIngestTelegramAttachment(att telegramInboundAttachment) bool {
 	switch strings.TrimSpace(att.Type) {
-	case "image", "sticker":
+	case "image":
 		return strings.TrimSpace(att.FileID) != ""
+	case "sticker":
+		return strings.TrimSpace(att.FileID) != "" || strings.TrimSpace(att.ThumbnailFileID) != ""
+	case "animation":
+		return strings.TrimSpace(att.ThumbnailFileID) != ""
 	case "document":
 		mt := strings.ToLower(strings.TrimSpace(att.MimeType))
 		return strings.HasPrefix(mt, "image/") && strings.TrimSpace(att.FileID) != ""
@@ -49,7 +53,16 @@ func defaultFilenameForTelegramAttachment(att telegramInboundAttachment, mime st
 		if strings.Contains(m, "png") {
 			return "sticker.png"
 		}
-		return "sticker.webp"
+		return "sticker.jpg"
+	case "animation":
+		switch {
+		case strings.Contains(m, "png"):
+			return "animation.png"
+		case strings.Contains(m, "webp"):
+			return "animation.webp"
+		default:
+			return "animation.jpg"
+		}
 	case "image":
 		switch {
 		case strings.Contains(m, "png"):
@@ -69,6 +82,20 @@ func defaultFilenameForTelegramAttachment(att telegramInboundAttachment, mime st
 	}
 }
 
+func resolveIngestFileID(att telegramInboundAttachment) string {
+	switch strings.TrimSpace(att.Type) {
+	case "animation":
+		return strings.TrimSpace(att.ThumbnailFileID)
+	case "sticker":
+		if strings.TrimSpace(att.FileID) != "" {
+			return strings.TrimSpace(att.FileID)
+		}
+		return strings.TrimSpace(att.ThumbnailFileID)
+	default:
+		return strings.TrimSpace(att.FileID)
+	}
+}
+
 func ingestTelegramMediaAttachments(
 	ctx context.Context,
 	client *telegrambot.Client,
@@ -83,7 +110,12 @@ func ingestTelegramMediaAttachments(
 			remaining = append(remaining, att)
 			continue
 		}
-		tf, gerr := client.GetFile(ctx, token, att.FileID)
+		fileID := resolveIngestFileID(att)
+		if fileID == "" {
+			remaining = append(remaining, att)
+			continue
+		}
+		tf, gerr := client.GetFile(ctx, token, fileID)
 		if gerr != nil {
 			return nil, nil, gerr
 		}
@@ -92,6 +124,10 @@ func ingestTelegramMediaAttachments(
 			return nil, nil, derr
 		}
 		declared := telegramAttachmentDeclaredMime(att, sniffed)
+		if strings.TrimSpace(att.Type) == "animation" || strings.TrimSpace(att.Type) == "sticker" {
+			// thumbnail 总是 JPEG
+			declared = sniffed
+		}
 		displayFilename := strings.TrimSpace(conversationapi.SanitizeAttachmentFilename(att.FileName))
 		if displayFilename == "" {
 			displayFilename = defaultFilenameForTelegramAttachment(att, declared)
@@ -100,7 +136,28 @@ func ingestTelegramMediaAttachments(
 		}
 		payload, perr := conversationapi.BuildAttachmentUploadPayload(displayFilename, declared, data)
 		if perr != nil {
-			return nil, nil, perr
+			if strings.TrimSpace(att.Type) == "sticker" && strings.TrimSpace(att.ThumbnailFileID) != "" && fileID != strings.TrimSpace(att.ThumbnailFileID) {
+				// sticker 原始文件 MIME 不被支持 -> 回退 thumbnail
+				thumbTF, tgerr := client.GetFile(ctx, token, strings.TrimSpace(att.ThumbnailFileID))
+				if tgerr != nil {
+					return nil, nil, tgerr
+				}
+				data, sniffed, derr = client.DownloadBotFile(ctx, token, thumbTF.FilePath, conversationapi.MaxImageAttachmentBytes)
+				if derr != nil {
+					return nil, nil, derr
+				}
+				declared = sniffed
+				displayFilename = defaultFilenameForTelegramAttachment(att, declared)
+				payload, perr = conversationapi.BuildAttachmentUploadPayload(displayFilename, declared, data)
+				if perr != nil {
+					return nil, nil, perr
+				}
+			} else if strings.TrimSpace(att.Type) == "sticker" || strings.TrimSpace(att.Type) == "animation" {
+				remaining = append(remaining, att)
+				continue
+			} else {
+				return nil, nil, perr
+			}
 		}
 		keySuffix := conversationapi.SanitizeAttachmentKeyName(displayFilename)
 		key := fmt.Sprintf("threads/%s/attachments/%s/%s", threadID.String(), uuid.NewString(), keySuffix)

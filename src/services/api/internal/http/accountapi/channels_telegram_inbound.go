@@ -14,15 +14,16 @@ import (
 )
 
 type telegramInboundAttachment struct {
-	Type       string `json:"type"`
-	FileID     string `json:"file_id,omitempty"`
-	FileName   string `json:"file_name,omitempty"`
-	MimeType   string `json:"mime_type,omitempty"`
-	Size       int64  `json:"size,omitempty"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
-	DurationMs int64  `json:"duration_ms,omitempty"`
-	Caption    string `json:"caption,omitempty"`
+	Type            string `json:"type"`
+	FileID          string `json:"file_id,omitempty"`
+	ThumbnailFileID string `json:"thumbnail_file_id,omitempty"`
+	FileName        string `json:"file_name,omitempty"`
+	MimeType        string `json:"mime_type,omitempty"`
+	Size            int64  `json:"size,omitempty"`
+	Width           int    `json:"width,omitempty"`
+	Height          int    `json:"height,omitempty"`
+	DurationMs      int64  `json:"duration_ms,omitempty"`
+	Caption         string `json:"caption,omitempty"`
 }
 
 type telegramIncomingMessage struct {
@@ -214,7 +215,7 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 		})
 	}
 	if msg.Animation != nil {
-		items = append(items, telegramInboundAttachment{
+		att := telegramInboundAttachment{
 			Type:       "animation",
 			FileID:     strings.TrimSpace(msg.Animation.FileID),
 			FileName:   strings.TrimSpace(msg.Animation.FileName),
@@ -224,17 +225,25 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 			Height:     msg.Animation.Height,
 			DurationMs: int64(msg.Animation.Duration) * 1000,
 			Caption:    caption,
-		})
+		}
+		if msg.Animation.Thumbnail != nil {
+			att.ThumbnailFileID = strings.TrimSpace(msg.Animation.Thumbnail.FileID)
+		}
+		items = append(items, att)
 	}
 	if msg.Sticker != nil {
-		items = append(items, telegramInboundAttachment{
+		att := telegramInboundAttachment{
 			Type:    "sticker",
 			FileID:  strings.TrimSpace(msg.Sticker.FileID),
 			Size:    msg.Sticker.FileSize,
 			Width:   msg.Sticker.Width,
 			Height:  msg.Sticker.Height,
 			Caption: caption,
-		})
+		}
+		if msg.Sticker.Thumbnail != nil {
+			att.ThumbnailFileID = strings.TrimSpace(msg.Sticker.Thumbnail.FileID)
+		}
+		items = append(items, att)
 	}
 	return items
 }

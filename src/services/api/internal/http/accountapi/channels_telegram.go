@@ -135,20 +135,22 @@ type telegramVideo struct {
 }
 
 type telegramAnimation struct {
-	FileID   string `json:"file_id"`
-	FileName string `json:"file_name"`
-	MimeType string `json:"mime_type"`
-	FileSize int64  `json:"file_size"`
-	Duration int    `json:"duration"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	FileID    string              `json:"file_id"`
+	FileName  string              `json:"file_name"`
+	MimeType  string              `json:"mime_type"`
+	FileSize  int64               `json:"file_size"`
+	Duration  int                 `json:"duration"`
+	Width     int                 `json:"width"`
+	Height    int                 `json:"height"`
+	Thumbnail *telegramPhotoSize  `json:"thumbnail,omitempty"`
 }
 
 type telegramSticker struct {
-	FileID   string `json:"file_id"`
-	FileSize int64  `json:"file_size"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	FileID    string              `json:"file_id"`
+	FileSize  int64               `json:"file_size"`
+	Width     int                 `json:"width"`
+	Height    int                 `json:"height"`
+	Thumbnail *telegramPhotoSize  `json:"thumbnail,omitempty"`
 }
 
 func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.RawMessage, *telegramChannelConfig, error) {
