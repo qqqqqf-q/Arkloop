@@ -633,9 +633,9 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-placeholder {
   display: inline-block;
   font-family: var(--c-cop-think-card-mono);
-  font-size: 10px;
-  line-height: 1.35;
-  font-weight: 400;
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-weight: 325;
   letter-spacing: -0.03em;
   word-spacing: -0.14em;
   color: var(--c-text-secondary);
@@ -644,8 +644,8 @@ button:not(:disabled) {
 /* Think 卡片正文：对齐 shell 输出区（ExecutionCard output pre） */
 .cop-timeline-root .cop-thinking-output-md .md-content {
   font-family: var(--c-cop-think-card-mono) !important;
-  font-size: 10px !important;
-  line-height: 1.35 !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
   font-weight: 400 !important;
   letter-spacing: -0.03em !important;
   word-spacing: -0.14em !important;
@@ -657,8 +657,8 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-md .md-content ol,
 .cop-timeline-root .cop-thinking-output-md .md-content td,
 .cop-timeline-root .cop-thinking-output-md .md-content th {
-  font-size: 10px !important;
-  line-height: 1.35 !important;
+  font-size: 11.5px !important;
+  line-height: 1.45 !important;
   font-weight: 400 !important;
   letter-spacing: -0.03em !important;
   word-spacing: -0.14em !important;
@@ -718,7 +718,7 @@ button:not(:disabled) {
 
 /* 时间轴内仅 thinking 完结直出：略小于正文、字色偏淡，行高与圆点对齐 */
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content {
-  font-size: 12.5px !important;
+  font-size: 13px !important;
   line-height: 17.5px !important;
   letter-spacing: -0.025em !important;
   word-spacing: -0.12em !important;
@@ -733,7 +733,7 @@ button:not(:disabled) {
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content ol,
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content td,
 .cop-timeline-root .cop-thinking-output-md--timeline-plain .md-content th {
-  font-size: 12.5px !important;
+  font-size: 13px !important;
   line-height: 17.5px !important;
   letter-spacing: -0.025em !important;
   word-spacing: -0.12em !important;
@@ -845,11 +845,36 @@ button:not(:disabled) {
   margin-top: 3px;
 }
 .cop-timeline-root .cop-thinking-card-scroll {
-  max-height: 240px;
   overflow-x: hidden;
   overflow-y: auto;
   padding: 10px 10px 10px;
   scrollbar-gutter: stable;
+}
+/* 展开/收起动画：max-height transition，折叠用 ease-in，展开用 ease-out */
+.cop-timeline-root .cop-thinking-body {
+  transition: max-height 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+              mask-image 0.25s ease,
+              -webkit-mask-image 0.25s ease;
+  overflow: hidden;
+  will-change: max-height;
+}
+/* show more/less 按钮 */
+.cop-timeline-root .cop-think-toggle-btn {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: var(--c-cop-think-card-mono);
+  color: var(--c-text-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: color 150ms ease;
+}
+.cop-timeline-root .cop-think-toggle-btn:hover {
+  color: var(--c-text-primary);
 }
 
 .md-content--compact .md-table {

@@ -295,6 +295,12 @@ function QueryPill({ text, live }: { text: string; live?: boolean }) {
   )
 }
 
+const THINK_MAX_LINES = 10
+// 14.5px * 1.45 line-height = 21.025px per line
+const THINK_LINE_HEIGHT_PX = 21.025
+const THINK_COLLAPSED_HEIGHT = THINK_MAX_LINES * THINK_LINE_HEIGHT_PX
+const THINK_FADE_HEIGHT = THINK_LINE_HEIGHT_PX * 2
+
 export function AssistantThinkingMarkdown({
   markdown,
   live,
@@ -307,16 +313,62 @@ export function AssistantThinkingMarkdown({
 }) {
   const displayed = useTypewriter(markdown, !live)
   const { t } = useLocale()
+  const [expanded, setExpanded] = useState(false)
+  const [fullHeight, setFullHeight] = useState<number | null>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+
+  // useLayoutEffect：在 paint 前同步测量，避免展开再折叠的闪烁
+  useLayoutEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+    // 临时移除 maxHeight 限制以测量真实高度
+    const prev = el.style.maxHeight
+    el.style.maxHeight = 'none'
+    const h = el.scrollHeight
+    el.style.maxHeight = prev
+    setFullHeight(h > THINK_COLLAPSED_HEIGHT + 1 ? h : null)
+  }, [markdown])
+
+  const overflows = fullHeight !== null
   const rootClass =
     variant === 'timeline-plain'
       ? 'cop-thinking-output-md cop-thinking-output-md--timeline-plain'
       : 'cop-thinking-output-md'
+
+  const isCollapsed = overflows && !expanded
+  const fadeMask = `linear-gradient(to bottom, black calc(100% - ${THINK_FADE_HEIGHT}px), transparent)`
+
   return (
     <div className={rootClass}>
-      {!markdown.trim() && live ? (
-        <span className="thinking-shimmer cop-thinking-output-placeholder">{t.assistantStreamThinkingPlaceholder}</span>
-      ) : (
-        <MarkdownRenderer content={live ? displayed : markdown} disableMath trimTrailingMargin compact />
+      <div
+        ref={contentRef}
+        className="cop-thinking-body"
+        style={{
+          maxHeight: isCollapsed
+            ? `${THINK_COLLAPSED_HEIGHT}px`
+            : fullHeight != null
+              ? `${fullHeight}px`
+              : undefined,
+          overflow: 'hidden',
+          ...(isCollapsed
+            ? { WebkitMaskImage: fadeMask, maskImage: fadeMask }
+            : { WebkitMaskImage: 'none', maskImage: 'none' }),
+        }}
+      >
+        {!markdown.trim() && live ? (
+          <span className="thinking-shimmer cop-thinking-output-placeholder">{t.assistantStreamThinkingPlaceholder}</span>
+        ) : (
+          <MarkdownRenderer content={live ? displayed : markdown} disableMath trimTrailingMargin compact />
+        )}
+      </div>
+      {overflows && (
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="cop-think-toggle-btn"
+        >
+          {expanded ? t.copThinkShowLess : t.copThinkShowMore}
+        </button>
       )}
     </div>
   )
