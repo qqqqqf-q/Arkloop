@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
@@ -210,7 +211,7 @@ time: "2026-03-28T13:31:16Z"
 [Telegram in Arkloop] 第三条`}}},
 	}
 
-	text, ok := compactTelegramGroupEnvelopeBurst(tail)
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
 	if !ok {
 		t.Fatal("expected telegram burst to compact")
 	}
@@ -303,5 +304,67 @@ func TestNewChannelTelegramGroupUserMergeMiddleware_skipsUserWithToolCalls(t *te
 	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
 	if len(rc.Messages) != 3 {
 		t.Fatalf("expected no merge, got %d", len(rc.Messages))
+	}
+}
+
+func TestCompactTelegramGroupEnvelopeBurst_withImageParts(t *testing.T) {
+	t.Parallel()
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"A ck\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"3e4496b5-9544-4669-b4a7-790b11224c3e\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:00Z\"\n---\n[Telegram in Arkloop] look at this\n\n[图片: image.jpg]"},
+			{Type: "image", Attachment: &messagecontent.AttachmentRef{Key: "k1", Filename: "image.jpg", MimeType: "image/jpeg"}, Data: []byte("fake")},
+		}},
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"清凤\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"509cb603-ae05-43f1-be4b-a8728a68e16f\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:10Z\"\n---\n[Telegram in Arkloop] nice"},
+		}},
+	}
+
+	text, extras, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected compact to succeed for mixed text+image burst")
+	}
+	for _, want := range []string{
+		"Telegram supergroup",
+		"title: Arkloop",
+		"[13:31:00] A ck:",
+		"[图片: image.jpg]",
+		"[13:31:10] 清凤: nice",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
+		}
+	}
+	if len(extras) != 1 {
+		t.Fatalf("expected 1 extra image part, got %d", len(extras))
+	}
+	if extras[0].Type != "image" || extras[0].Attachment.Key != "k1" {
+		t.Fatalf("unexpected extra part: %+v", extras[0])
+	}
+}
+
+func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
+	t.Parallel()
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"A ck\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"3e4496b5-9544-4669-b4a7-790b11224c3e\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:00Z\"\n---\n[Telegram in Arkloop] hello\n\n[图片: img.png]"},
+			{Type: "image", Attachment: &messagecontent.AttachmentRef{Key: "k2", Filename: "img.png", MimeType: "image/png"}, Data: []byte("fake")},
+		}},
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"A ck\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"3e4496b5-9544-4669-b4a7-790b11224c3e\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:05Z\"\n---\n[Telegram in Arkloop] world"},
+		}},
+	}
+
+	parts := mergeUserBurstContent(tail)
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 parts (text + image), got %d", len(parts))
+	}
+	if parts[0].Type != "text" {
+		t.Fatalf("expected first part to be text, got %q", parts[0].Type)
+	}
+	if !strings.Contains(parts[0].Text, "Telegram supergroup") {
+		t.Fatalf("expected compact timeline in text, got %q", parts[0].Text)
+	}
+	if parts[1].Type != "image" || parts[1].Attachment.Key != "k2" {
+		t.Fatalf("expected image part preserved, got %+v", parts[1])
 	}
 }

@@ -77,8 +77,10 @@ func mergeTelegramGroupTrailingUserBurst(msgs []llm.Message, ids []uuid.UUID) ([
 }
 
 func mergeUserBurstContent(tail []llm.Message) []llm.ContentPart {
-	if compacted, ok := compactTelegramGroupEnvelopeBurst(tail); ok {
-		return []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: compacted}}
+	if compacted, extras, ok := compactTelegramGroupEnvelopeBurst(tail); ok {
+		parts := []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: compacted}}
+		parts = append(parts, extras...)
+		return parts
 	}
 	if mergedText, ok := mergePureTextBurst(tail); ok {
 		return []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: mergedText}}
@@ -111,34 +113,38 @@ type telegramCompactBurstBlock struct {
 	bodies    []string
 }
 
-func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, bool) {
+// compactTelegramGroupEnvelopeBurst 将多条 telegram envelope 消息合并为紧凑时间线。
+// 返回 compact 文本、非 text parts（图片/文件等）和成功标志。
+func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.ContentPart, bool) {
 	if len(tail) < 2 {
-		return "", false
+		return "", nil, false
 	}
 	items := make([]telegramEnvelopeMessage, 0, len(tail))
+	var extraParts []llm.ContentPart
 	for _, msg := range tail {
-		text, ok := singleTextMessage(msg)
+		text, nonTextParts, ok := extractEnvelopeText(msg)
 		if !ok {
-			return "", false
+			return "", nil, false
 		}
 		meta, body, ok := parseTelegramEnvelopeText(text)
 		if !ok {
-			return "", false
+			return "", nil, false
 		}
 		if !strings.EqualFold(strings.TrimSpace(meta["channel"]), "telegram") {
-			return "", false
+			return "", nil, false
 		}
 		body = compactTelegramEnvelopeBody(meta, body)
-		if strings.TrimSpace(body) == "" {
-			return "", false
+		if strings.TrimSpace(body) == "" && len(nonTextParts) == 0 {
+			return "", nil, false
 		}
 		items = append(items, telegramEnvelopeMessage{meta: meta, body: body})
+		extraParts = append(extraParts, nonTextParts...)
 	}
 
 	channel := commonEnvelopeValue(items, "channel")
 	conversationType := commonEnvelopeValue(items, "conversation-type")
 	if channel == "" || conversationType == "" {
-		return "", false
+		return "", nil, false
 	}
 	conversationTitle := commonEnvelopeValue(items, "conversation-title")
 	messageThreadID := commonEnvelopeValue(items, "message-thread-id")
@@ -195,7 +201,7 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, bool) {
 		bodyLines = append(bodyLines, renderCompactTelegramBurstBlock(block))
 	}
 
-	return strings.Join(append(lines, "", strings.Join(bodyLines, "\n")), "\n"), true
+	return strings.Join(append(lines, "", strings.Join(bodyLines, "\n")), "\n"), extraParts, true
 }
 
 func mergePureTextBurst(tail []llm.Message) (string, bool) {
@@ -225,6 +231,28 @@ func singleTextMessage(msg llm.Message) (string, bool) {
 		sb.WriteString(part.Text)
 	}
 	return sb.String(), true
+}
+
+// extractEnvelopeText 从消息中提取 text 部分和非 text parts。
+// text 部分用于 envelope 解析，非 text parts（图片/文件）原样保留。
+func extractEnvelopeText(msg llm.Message) (string, []llm.ContentPart, bool) {
+	if len(msg.Content) == 0 {
+		return "", nil, false
+	}
+	var sb strings.Builder
+	var nonText []llm.ContentPart
+	for _, part := range msg.Content {
+		if strings.EqualFold(strings.TrimSpace(part.Type), messagecontent.PartTypeText) {
+			sb.WriteString(part.Text)
+		} else {
+			nonText = append(nonText, part)
+		}
+	}
+	text := sb.String()
+	if strings.TrimSpace(text) == "" && len(nonText) == 0 {
+		return "", nil, false
+	}
+	return text, nonText, true
 }
 
 func parseTelegramEnvelopeText(text string) (map[string]string, string, bool) {
