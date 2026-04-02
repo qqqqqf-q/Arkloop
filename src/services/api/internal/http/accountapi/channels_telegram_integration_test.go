@@ -31,6 +31,7 @@ type telegramChannelsTestEnv struct {
 	accessToken  string
 	accountID    uuid.UUID
 	userID       uuid.UUID
+	projectID    uuid.UUID
 	personaID    uuid.UUID
 	channelsRepo *data.ChannelsRepository
 	secretsRepo  *data.SecretsRepository
@@ -253,6 +254,7 @@ func setupTelegramChannelsTestEnvWithAttachmentStore(
 		accessToken:  accessToken,
 		accountID:    account.ID,
 		userID:       user.ID,
+		projectID:    project.ID,
 		personaID:    persona.ID,
 		channelsRepo: channelsRepo,
 		secretsRepo:  secretsRepo,
@@ -1460,6 +1462,76 @@ func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 1)
+}
+
+func TestTelegramWebhookMentionDoesNotInjectIntoActiveHeartbeatRun(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "tg-token-heartbeat-run", nil, "")
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("group threads repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(env.pool)
+	if err != nil {
+		t.Fatalf("thread repo: %v", err)
+	}
+	runEventRepo, err := data.NewRunEventRepository(env.pool)
+	if err != nil {
+		t.Fatalf("run repo: %v", err)
+	}
+
+	thread, err := threadRepo.Create(context.Background(), env.accountID, &env.userID, env.projectID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := channelGroupThreadsRepo.Create(context.Background(), channel.ID, "-20009", env.personaID, thread.ID); err != nil {
+		t.Fatalf("bind group thread: %v", err)
+	}
+	heartbeatRun, _, err := runEventRepo.CreateRunWithStartedEvent(
+		context.Background(),
+		env.accountID,
+		thread.ID,
+		&env.userID,
+		"run.started",
+		map[string]any{
+			"persona_id": env.personaID.String(),
+			"run_kind":   "heartbeat",
+		},
+	)
+	if err != nil {
+		t.Fatalf("create heartbeat run: %v", err)
+	}
+
+	payload := map[string]any{
+		"message": map[string]any{
+			"message_id": 31,
+			"date":       1710000102,
+			"text":       "@arkloopbot help",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -20009,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", payload, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("mention webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+heartbeatRun.ID.String()+`' AND type = 'run.input_provided'`, 0)
 }
 
 func TestTelegramPollPassiveMediaFailureDoesNotPersistReceipt(t *testing.T) {

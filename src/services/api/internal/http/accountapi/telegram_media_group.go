@@ -393,7 +393,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, incoming, content, traceID)
 		if err != nil {
 			return err
 		}

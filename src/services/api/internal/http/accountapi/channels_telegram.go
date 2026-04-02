@@ -1322,7 +1322,7 @@ func (c telegramConnector) HandleUpdate(
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, *incoming, content, traceID)
 		if err != nil {
 			return err
 		}
@@ -1587,6 +1587,7 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 	ctx context.Context,
 	repo *data.RunEventRepository,
 	run *data.Run,
+	incoming telegramIncomingMessage,
 	content, traceID string,
 ) (bool, error) {
 	if run == nil {
@@ -1594,6 +1595,19 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 	}
 	if strings.TrimSpace(content) == "" {
 		return false, nil
+	}
+	if incoming.ShouldCreateRun() {
+		events, err := repo.ListEvents(ctx, run.ID, 0, 1)
+		if err != nil {
+			return false, err
+		}
+		if len(events) > 0 {
+			if startedData, ok := events[0].DataJSON.(map[string]any); ok {
+				if runKind, _ := startedData["run_kind"].(string); strings.EqualFold(strings.TrimSpace(runKind), runkind.Heartbeat) {
+					return false, nil
+				}
+			}
+		}
 	}
 	if _, err := repo.ProvideInput(ctx, run.ID, content, traceID); err != nil {
 		var notActive data.RunNotActiveError
@@ -2428,7 +2442,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, content, traceID)
+		delivered, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, *incoming, content, traceID)
 		if err != nil {
 			return err
 		}
