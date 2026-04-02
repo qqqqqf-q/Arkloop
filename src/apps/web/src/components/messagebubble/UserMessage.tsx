@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, type CSSProperties } from 'react'
-import { Copy, Check, Pencil, Paperclip } from 'lucide-react'
+import { Pencil, Paperclip } from 'lucide-react'
 import type { MessageResponse } from '../../api'
 import type { ArtifactRef } from '../../storage'
 import { extractLegacyFilesFromContent, isFilePart, isImagePart, isPastedFile, messageAttachmentParts, messageTextContent } from '../../messageContent'
@@ -9,12 +9,15 @@ import { PastedBubbleCard } from './PastedBubbleCard'
 import { ArtifactDownload } from '../ArtifactDownload'
 import { MessageDate } from './MessageDate'
 import { AutoResizeTextarea } from '@arkloop/shared'
+import { CopyIconButton } from '../CopyIconButton'
 import {
   getUserPromptEnterScale,
   USER_PROMPT_ENTER_BASE_SCALE,
   USER_TEXT_COLLAPSED_HEIGHT,
   USER_TEXT_FADE_HEIGHT,
 } from './utils'
+
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 type Props = {
   message: MessageResponse
@@ -25,11 +28,8 @@ type Props = {
   accessToken?: string
 }
 
-const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
-
 export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnterAnimationEnd }: Props) {
   const { t } = useLocale()
-  const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const [userTextExpanded, setUserTextExpanded] = useState(false)
@@ -64,10 +64,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
 
   const handleCopy = () => {
     const plainText = messageTextContent(message)
-    void navigator.clipboard.writeText(plainText).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    void navigator.clipboard.writeText(plainText)
   }
 
   const handleEditStart = () => {
@@ -233,9 +230,10 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-        <button
-          onClick={handleCopy}
-          title={t.copyAction}
+        <CopyIconButton
+          onCopy={handleCopy}
+          size={16}
+          tooltip={t.copyAction}
           style={{
             width: '32px',
             height: '32px',
@@ -249,9 +247,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
             transition: 'background 60ms',
           }}
           className="hover:bg-[var(--c-bg-deep)]"
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-        </button>
+        />
         <button
           onClick={handleEditStart}
           title={t.editAction}

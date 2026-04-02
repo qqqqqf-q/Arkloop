@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Download, Copy } from 'lucide-react'
+import { X, Download } from 'lucide-react'
 import type { Attachment } from '../ChatInput'
 import { LIGHTBOX_ANIM_MS } from '../messagebubble/utils'
+import { CopyIconButton } from '../CopyIconButton'
 
 export const BAR_COUNT = 52
 
@@ -359,10 +360,10 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
                 {attachment.name}
               </span>
             </a>
-            <button
-              type="button"
-              onClick={handleCopyImage}
-              title="复制图片"
+            <CopyIconButton
+              onCopy={() => handleCopyImage({} as React.MouseEvent)}
+              size={16}
+              tooltip="复制图片"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -377,9 +378,7 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
                 transition: 'background 150ms',
               }}
               className="bg-[var(--c-bg-input)] hover:bg-[var(--c-bg-sub)]"
-            >
-              <Copy size={16} />
-            </button>
+            />
             <button
               type="button"
               onClick={handleDownload}

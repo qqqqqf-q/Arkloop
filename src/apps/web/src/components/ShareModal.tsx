@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { X, Copy, Check, Link, Lock, Globe, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
+import { X, Link, Lock, Globe, Trash2, Plus, Eye, EyeOff } from 'lucide-react'
 import { createThreadShare, listThreadShares, deleteThreadShare, isApiError, type ShareResponse } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
+import { CopyIconButton } from './CopyIconButton'
 
 function SpinnerIcon() {
   return (
@@ -31,7 +32,6 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [copiedId, setCopiedId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -95,8 +95,6 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
   const handleCopy = useCallback((share: ShareResponse) => {
     const url = `${window.location.origin}/s/${share.token}`
     void navigator.clipboard.writeText(url)
-    setCopiedId(share.id)
-    setTimeout(() => setCopiedId(null), 2000)
   }, [])
 
   useEffect(() => {
@@ -144,7 +142,6 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
                     <ShareItem
                       key={share.id}
                       share={share}
-                      copied={copiedId === share.id}
                       deleting={deletingId === share.id}
                       onCopy={() => handleCopy(share)}
                       onDelete={() => void handleDelete(share.id)}
@@ -283,14 +280,13 @@ export function ShareModal({ accessToken, threadId, open, onClose }: Props) {
 
 type ShareItemProps = {
   share: ShareResponse
-  copied: boolean
   deleting: boolean
   onCopy: () => void
   onDelete: () => void
   t: ReturnType<typeof useLocale>['t']
 }
 
-function ShareItem({ share, copied, deleting, onCopy, onDelete, t }: ShareItemProps) {
+function ShareItem({ share, deleting, onCopy, onDelete, t }: ShareItemProps) {
   const [showPassword, setShowPassword] = useState(false)
 
   return (
@@ -303,14 +299,13 @@ function ShareItem({ share, copied, deleting, onCopy, onDelete, t }: ShareItemPr
         <span className="flex-1 truncate text-sm" style={{ color: 'var(--c-text-primary)' }}>
           {window.location.origin}/s/{share.token}
         </span>
-        <button
-          onClick={onCopy}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
-          style={{ color: copied ? 'var(--c-success, #22c55e)' : 'var(--c-text-primary)' }}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? t.shareCopied : t.shareCopyLink}
-        </button>
+        <CopyIconButton
+          onCopy={onCopy}
+          size={12}
+          tooltip={t.shareCopyLink}
+          className="flex items-center rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
+          style={{ color: 'var(--c-text-primary)' }}
+        />
       </div>
 
       <div className="flex items-center justify-between">

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronRight, ChevronDown, Check, Copy, Loader2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTypewriter } from '../hooks/useTypewriter'
+import { CopyIconButton } from './CopyIconButton'
 
 type Status = 'running' | 'success' | 'failed' | 'completed'
 
@@ -49,28 +50,19 @@ function extractCommandPreview(code: string | undefined): string {
   return first.length > 72 ? first.slice(0, 72) + '...' : first
 }
 
-function CopyBtn({ copied, onClick }: { copied: boolean; onClick: () => void }) {
+function CopyBtn({ onClick }: { onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); onClick() }}
+    <CopyIconButton
+      onCopy={onClick}
+      size={12}
+      tooltip=""
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '22px',
-        height: '22px',
-        borderRadius: '4px',
-        border: 'none',
-        background: 'transparent',
-        cursor: 'pointer',
-        color: copied ? 'var(--c-text-secondary)' : 'var(--c-text-muted)',
-        transition: 'color 150ms ease',
         padding: 0,
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
       }}
-    >
-      {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={1.5} />}
-    </button>
+    />
   )
 }
 
@@ -109,8 +101,6 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
   const [expanded, setExpanded] = useState(false)
   const [cmdHovered, setCmdHovered] = useState(false)
   const [outHovered, setOutHovered] = useState(false)
-  const [cmdCopied, setCmdCopied] = useState(false)
-  const [outCopied, setOutCopied] = useState(false)
   const outputRef = useRef<HTMLDivElement>(null)
   const [scrollEdge, setScrollEdge] = useState<ScrollEdge>('none')
 
@@ -132,10 +122,8 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
   const expandable = !!(hasInputBlock || displayOutput || status === 'running')
   const showInlineStatus = status !== 'running'
 
-  const copyText = useCallback((text: string, setter: (v: boolean) => void) => {
+  const copyText = useCallback((text: string) => {
     void navigator.clipboard.writeText(text)
-    setter(true)
-    setTimeout(() => setter(false), 1500)
   }, [])
 
   useEffect(() => {
@@ -239,8 +227,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                         style={{ position: 'absolute', top: '2px', right: '6px', zIndex: 1 }}
                       >
                         <CopyBtn
-                          copied={cmdCopied}
-                          onClick={() => copyText(hasShellInput ? code!.trim() : label!.trim(), setCmdCopied)}
+                          onClick={() => copyText(hasShellInput ? code!.trim() : label!.trim())}
                         />
                       </motion.div>
                     )}
@@ -281,7 +268,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                         transition={{ duration: 0.15 }}
                         style={{ position: 'absolute', top: '4px', right: '6px', zIndex: 1 }}
                       >
-                        <CopyBtn copied={outCopied} onClick={() => copyText(displayOutput!, setOutCopied)} />
+                        <CopyBtn onClick={() => copyText(displayOutput!)} />
                       </motion.div>
                     )}
                   </AnimatePresence>

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { X, Download, ExternalLink, Copy } from 'lucide-react'
+import { X, Download, ExternalLink } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { ArtifactRef } from '../../storage'
 import { LIGHTBOX_ANIM_MS } from './utils'
+import { CopyIconButton } from '../CopyIconButton'
 
 type Props = {
   artifact: ArtifactRef
@@ -221,10 +222,10 @@ export function ImageThumbnailCard({ artifact, accessToken, pathPrefix = '/v1/ar
               </span>
               <ExternalLink size={14} style={{ color: 'var(--c-text-icon)', flexShrink: 0 }} />
             </a>
-            <button
-              type="button"
-              onClick={handleCopyImage}
-              title="复制图片"
+            <CopyIconButton
+              onCopy={() => handleCopyImage({} as React.MouseEvent)}
+              size={16}
+              tooltip="Copy"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -239,9 +240,7 @@ export function ImageThumbnailCard({ artifact, accessToken, pathPrefix = '/v1/ar
                 transition: 'background 150ms',
               }}
               className="bg-[var(--c-bg-sub)] hover:bg-[var(--c-bg-deep)]"
-            >
-              <Copy size={16} />
-            </button>
+            />
             <button
               type="button"
               onClick={handleDownload}

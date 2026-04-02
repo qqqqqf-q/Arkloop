@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
-import { Ticket, Copy, Check, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Ticket, RefreshCw } from 'lucide-react'
 import {
   type InviteCodeResponse,
   getMyInviteCode,
@@ -7,15 +7,14 @@ import {
   isApiError,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { CopyIconButton } from '../CopyIconButton'
 
 export function InviteCodeContent({ accessToken }: { accessToken: string }) {
   const { t } = useLocale()
   const [inviteCode, setInviteCode] = useState<InviteCodeResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [error, setError] = useState('')
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -33,9 +32,6 @@ export function InviteCodeContent({ accessToken }: { accessToken: string }) {
   const handleCopy = useCallback(async () => {
     if (!inviteCode) return
     await navigator.clipboard.writeText(inviteCode.code)
-    setCopied(true)
-    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
-    copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
   }, [inviteCode])
 
   const handleReset = useCallback(async () => {
@@ -68,7 +64,7 @@ export function InviteCodeContent({ accessToken }: { accessToken: string }) {
           ...
         </div>
       ) : inviteCode ? (
-        <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
           <div
             className="flex w-[360px] items-center gap-2 rounded-lg px-3 py-2"
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
@@ -79,13 +75,12 @@ export function InviteCodeContent({ accessToken }: { accessToken: string }) {
             <span className="text-xs text-[var(--c-text-tertiary)]">
               {t.inviteCodeUses(inviteCode.use_count, inviteCode.max_uses)}
             </span>
-            <button
-              onClick={handleCopy}
+            <CopyIconButton
+              onCopy={handleCopy}
+              size={13}
+              tooltip={t.inviteCodeCopy}
               className="flex h-6 w-6 items-center justify-center rounded text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
-              title={copied ? t.inviteCodeCopied : t.inviteCodeCopy}
-            >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-            </button>
+            />
             <button
               onClick={handleReset}
               disabled={resetting}

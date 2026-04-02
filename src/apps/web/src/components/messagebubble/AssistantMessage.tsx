@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Check, RefreshCw, Share2, Split, Terminal } from 'lucide-react'
+import { Check, Share2, Split, Terminal } from 'lucide-react'
 import type { MessageResponse } from '../../api'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../../storage'
 import { WidgetBlock } from '../WidgetBlock'
@@ -13,6 +13,7 @@ import { useTypewriter } from '../../hooks/useTypewriter'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { isDocumentArtifact, isArtifactReferenced, getDomain } from './utils'
 import { CopyIconButton } from '../CopyIconButton'
+import { RefreshIconButton } from '../RefreshIconButton'
 
 type Props = {
   message: MessageResponse
@@ -152,13 +153,12 @@ export function AssistantMessage({
                 resetDelay={1500}
               />
             </div>
-            <button
-              onClick={onRetry}
+            <RefreshIconButton
+              onRefresh={onRetry!}
               disabled={!onRetry}
+              size={16}
               className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,background,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:bg-[var(--c-bg-deep)] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
-            >
-              <RefreshCw size={16} />
-            </button>
+            />
             {!isDesktop() && (
             <div style={{ position: 'relative', display: 'inline-flex' }}>
               <button

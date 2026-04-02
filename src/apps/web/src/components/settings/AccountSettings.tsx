@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { LogOut, Pencil, Copy, Check } from 'lucide-react'
+import { useState, useCallback, useEffect } from 'react'
+import { LogOut, Pencil } from 'lucide-react'
 import {
   type MeResponse,
   updateMe,
@@ -8,6 +8,7 @@ import {
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { useToast } from '@arkloop/shared'
+import { CopyIconButton } from '../CopyIconButton'
 
 export function AccountContent({
   me,
@@ -104,13 +105,11 @@ export function ProfileContent({
   const { addToast } = useToast()
   const [displayName, setDisplayName] = useState(me?.username ?? '')
   const [saving, setSaving] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [sendingVerify, setSendingVerify] = useState(false)
   const [verifySent, setVerifySent] = useState(false)
   const [verifyCode, setVerifyCode] = useState('')
   const [verifying, setVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState('')
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDirty = displayName.trim() !== (me?.username ?? '')
 
@@ -140,9 +139,6 @@ export function ProfileContent({
   const handleCopyId = useCallback(async () => {
     if (!me?.id) return
     await navigator.clipboard.writeText(me.id)
-    setCopied(true)
-    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
-    copiedTimerRef.current = setTimeout(() => setCopied(false), 2000)
   }, [me?.id])
 
   const handleSendVerify = useCallback(async () => {
@@ -218,12 +214,12 @@ export function ProfileContent({
         <div className="flex items-center gap-2">
           <span className="font-mono text-xs text-[var(--c-text-tertiary)] select-all">{me?.id ?? '\u2014'}</span>
           {me?.id && (
-            <button
-              onClick={() => void handleCopyId()}
+            <CopyIconButton
+              onCopy={() => void handleCopyId()}
+              size={12}
+              tooltip={t.copyAction}
               className="flex h-6 w-6 items-center justify-center rounded text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-            </button>
+            />
           )}
         </div>
       </div>
