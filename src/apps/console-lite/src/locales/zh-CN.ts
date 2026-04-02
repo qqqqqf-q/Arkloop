@@ -115,6 +115,13 @@ export const zhCN: LocaleStrings = {
     deleteAll: '全部删除',
     importing: '导入中…',
     importAll: '全部导入',
+    modelCapabilities: '能力',
+    capVision: '视觉',
+    capImageOutput: '图片输出',
+    capEmbedding: 'Embedding',
+    contextWindow: '上下文窗口',
+    maxOutputTokens: '最大输出 Tokens',
+    errInvalidNumber: '请输入有效数字',
   },
   tools: {
     title: '工具管理',

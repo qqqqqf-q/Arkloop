@@ -115,6 +115,13 @@ export const en: LocaleStrings = {
     deleteAll: 'Delete all',
     importing: 'Importing…',
     importAll: 'Import all',
+    modelCapabilities: 'Capabilities',
+    capVision: 'Vision',
+    capImageOutput: 'Image Output',
+    capEmbedding: 'Embedding',
+    contextWindow: 'Context Window',
+    maxOutputTokens: 'Max Output Tokens',
+    errInvalidNumber: 'Please enter a valid number',
   },
   tools: {
     title: 'Tools',

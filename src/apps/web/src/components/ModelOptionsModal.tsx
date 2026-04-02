@@ -29,10 +29,14 @@ type Labels = {
   invalidJson: string
   invalidNumber: string
   visionBridgeHint: string
+  addModelTitle: string
+  modelNameLabel: string
+  modelNamePlaceholder: string
 }
 
 type Props = {
   open: boolean
+  mode?: 'create' | 'edit'
   model: LlmProviderModel | null
   availableModels: AvailableModel[] | null
   labels: Labels
@@ -41,9 +45,15 @@ type Props = {
     advancedJSON: Record<string, unknown> | null
     tags: string[]
   }) => Promise<void>
+  onCreate?: (payload: {
+    model: string
+    advancedJSON: Record<string, unknown> | null
+    tags: string[]
+  }) => Promise<void>
 }
 
 type DraftState = {
+  modelName: string
   vision: boolean
   imageOutput: boolean
   embedding: boolean
@@ -72,6 +82,7 @@ function deriveAutoCatalog(model: LlmProviderModel | null, availableModels: Avai
 function deriveDraft(model: LlmProviderModel | null): DraftState {
   if (!model) {
     return {
+      modelName: '',
       vision: false,
       imageOutput: false,
       embedding: false,
@@ -87,6 +98,7 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
   const contextLength = typeof catalog?.context_length === 'number' ? String(catalog.context_length) : ''
   const maxOutputTokens = typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : ''
   return {
+    modelName: '',
     vision: inputModalities.includes('image'),
     imageOutput: outputModalities.includes('image'),
     embedding: model.tags.includes('embedding'),
@@ -140,11 +152,13 @@ function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string
 
 export function ModelOptionsModal({
   open,
+  mode = 'edit',
   model,
   availableModels,
   labels,
   onClose,
   onSave,
+  onCreate,
 }: Props) {
   const [draft, setDraft] = useState<DraftState>(() => deriveDraft(model))
   const [saving, setSaving] = useState(false)
@@ -202,8 +216,9 @@ export function ModelOptionsModal({
     setError('')
   }
 
+  const isCreate = mode === 'create'
+
   const handleSave = async () => {
-    if (!model) return
     const contextWindow = normalizePositiveIntegerInput(draft.contextWindow)
     const maxOutputTokens = normalizePositiveIntegerInput(draft.maxOutputTokens)
     if ((contextWindow && !/^\d+$/.test(contextWindow)) || (maxOutputTokens && !/^\d+$/.test(maxOutputTokens))) {
@@ -227,27 +242,56 @@ export function ModelOptionsModal({
       delete providerOptions[AVAILABLE_CATALOG_ADVANCED_KEY]
     }
 
-    const nextDraft = {
-      ...draft,
-      contextWindow,
-      maxOutputTokens,
-    }
-    const catalog = buildCatalog(model, nextDraft)
-    const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
-    const nextTags = draft.embedding
-      ? Array.from(new Set([...model.tags.filter((tag) => tag !== 'embedding'), 'embedding']))
-      : model.tags.filter((tag) => tag !== 'embedding')
+    const nextDraft = { ...draft, contextWindow, maxOutputTokens }
 
-    setSaving(true)
-    setError('')
-    try {
-      await onSave({ advancedJSON, tags: nextTags })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : labels.invalidJson)
+    if (isCreate) {
+      if (!draft.modelName.trim()) {
+        setError(labels.modelNameLabel)
+        return
+      }
+      // build catalog from scratch for create mode
+      const catalog: Record<string, unknown> = {
+        id: draft.modelName.trim(),
+        name: draft.modelName.trim(),
+      }
+      if (nextDraft.vision) catalog.input_modalities = ['image']
+      if (nextDraft.imageOutput) catalog.output_modalities = ['image']
+      if (nextDraft.contextWindow) catalog.context_length = Number.parseInt(nextDraft.contextWindow, 10)
+      if (nextDraft.maxOutputTokens) catalog.max_output_tokens = Number.parseInt(nextDraft.maxOutputTokens, 10)
+      if (nextDraft.embedding) catalog.type = 'embedding'
+
+      const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
+      const tags = nextDraft.embedding ? ['embedding'] : []
+
+      setSaving(true)
+      setError('')
+      try {
+        await onCreate?.({ model: draft.modelName.trim(), advancedJSON, tags })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : labels.invalidJson)
+        setSaving(false)
+        return
+      }
       setSaving(false)
-      return
+    } else {
+      if (!model) return
+      const catalog = buildCatalog(model, nextDraft)
+      const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
+      const nextTags = draft.embedding
+        ? Array.from(new Set([...model.tags.filter((tag) => tag !== 'embedding'), 'embedding']))
+        : model.tags.filter((tag) => tag !== 'embedding')
+
+      setSaving(true)
+      setError('')
+      try {
+        await onSave({ advancedJSON, tags: nextTags })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : labels.invalidJson)
+        setSaving(false)
+        return
+      }
+      setSaving(false)
     }
-    setSaving(false)
   }
 
   if (!open) return null
@@ -265,7 +309,7 @@ export function ModelOptionsModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{labels.modelOptionsTitle}</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{isCreate ? labels.addModelTitle : labels.modelOptionsTitle}</h3>
           <button
             type="button"
             onClick={handleClose}
@@ -276,12 +320,24 @@ export function ModelOptionsModal({
           </button>
         </div>
 
-        {model && (
+        {(isCreate || model) && (
           <div className="space-y-5">
-            <p className="text-sm text-[var(--c-text-secondary)]">
-              {labels.modelOptionsFor}
-              <span className="ml-1 rounded bg-[var(--c-bg-sub)] px-2 py-0.5 text-[var(--c-text-primary)]">{model.model}</span>
-            </p>
+            {isCreate ? (
+              <FormField label={labels.modelNameLabel}>
+                <input
+                  value={draft.modelName}
+                  onChange={(e) => setDraft((prev) => ({ ...prev, modelName: e.target.value }))}
+                  placeholder={labels.modelNamePlaceholder}
+                  className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
+                  autoFocus
+                />
+              </FormField>
+            ) : model && (
+              <p className="text-sm text-[var(--c-text-secondary)]">
+                {labels.modelOptionsFor}
+                <span className="ml-1 rounded bg-[var(--c-bg-sub)] px-2 py-0.5 text-[var(--c-text-primary)]">{model.model}</span>
+              </p>
+            )}
 
             <section className="space-y-3">
               <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{labels.modelCapabilities}</h4>
@@ -343,21 +399,23 @@ export function ModelOptionsModal({
             <p className="text-xs text-[var(--c-text-muted)]">{labels.providerOptionsHint}</p>
 
             <div className="flex items-center justify-between pt-1">
-              <button
-                type="button"
-                onClick={handleReset}
-                disabled={saving}
-                className="rounded-lg bg-[var(--c-bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-                style={{ border: '0.5px solid var(--c-border-subtle)' }}
-              >
-                {labels.reset}
-              </button>
+              {!isCreate ? (
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={saving}
+                  className="rounded-lg bg-[var(--c-bg-page)] px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                >
+                  {labels.reset}
+                </button>
+              ) : <div />}
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={saving}
-                  className="rounded-lg bg-[var(--c-bg-page)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+                  className="rounded-lg bg-[var(--c-bg-page)] px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
                   style={{ border: '0.5px solid var(--c-border-subtle)' }}
                 >
                   {labels.cancel}
@@ -366,7 +424,7 @@ export function ModelOptionsModal({
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saving}
-                  className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
+                  className="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
                   style={{ background: 'var(--c-btn-bg)' }}
                 >
                   <span className="relative flex items-center justify-center">

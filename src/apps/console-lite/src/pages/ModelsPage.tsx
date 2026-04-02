@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
-  Loader2, Plus, Trash2, Download, X, Search,
+  Loader2, Plus, Trash2, Download, X, Search, Eye, Image as ImageIcon, Database, SlidersHorizontal,
 } from 'lucide-react'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
-import { useToast, PillToggle } from '@arkloop/shared'
+import { useToast, PillToggle, FormField } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { isApiError } from '../api/client'
 import {
@@ -20,8 +20,15 @@ import {
   routeAdvancedJsonFromAvailableCatalog,
   type LlmProviderScope,
   type LlmProvider,
+  type LlmProviderModel,
   type AvailableModel,
 } from '../api/llm-providers'
+import {
+  AVAILABLE_CATALOG_ADVANCED_KEY,
+  getAvailableCatalogFromAdvancedJson,
+  mergeAvailableCatalogIntoAdvancedJson,
+  stripAvailableCatalogFromAdvancedJson,
+} from '@arkloop/shared/llm/available-catalog-advanced-json'
 
 const PROVIDER_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -455,8 +462,7 @@ function ModelsSection({
   const [loadingAvailable, setLoadingAvailable] = useState(false)
   const [importing, setImporting] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
-  const [addingModel, setAddingModel] = useState(false)
-  const [newModel, setNewModel] = useState('')
+  const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; model: LlmProviderModel | null } | null>(null)
   const [err, setErr] = useState('')
   const [search, setSearch] = useState('')
 
@@ -507,19 +513,6 @@ function ModelsSection({
       setErr(tc.saveFailed ?? t.common.error)
     } finally {
       setImporting(false)
-    }
-  }
-
-  const handleAddModel = async () => {
-    if (!newModel.trim()) return
-    setErr('')
-    try {
-      await createProviderModel(provider.id, { scope, model: newModel.trim() }, accessToken)
-      setNewModel('')
-      setAddingModel(false)
-      onChanged()
-    } catch {
-      setErr(tc.saveFailed ?? t.common.error)
     }
   }
 
@@ -586,29 +579,13 @@ function ModelsSection({
             </button>
           )}
           <button
-            onClick={() => { setAddingModel(true); setNewModel('') }}
+            onClick={() => setModalState({ mode: 'create', model: null })}
             className="rounded-md bg-[var(--c-btn-bg)] px-3 py-1.5 text-xs font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90"
           >
             {tc.addModel}
           </button>
         </div>
       </div>
-
-      {addingModel && (
-        <div className="mt-3 flex items-center gap-2">
-          <input
-            value={newModel}
-            onChange={(e) => setNewModel(e.target.value)}
-            placeholder={tc.modelName}
-            className={inputCls + ' flex-1'}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }}
-            autoFocus
-          />
-          <button onClick={() => setAddingModel(false)} className="rounded p-1.5 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]">
-            <X size={14} />
-          </button>
-        </div>
-      )}
 
       {err && <p className="mt-2 text-xs text-red-400">{err}</p>}
 
@@ -624,7 +601,7 @@ function ModelsSection({
       )}
 
       <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: '320px' }}>
-        {provider.models.length === 0 && !addingModel ? (
+        {provider.models.length === 0 ? (
           <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">--</p>
         ) : filteredModels.length === 0 ? (
           <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">--</p>
@@ -655,7 +632,175 @@ function ModelsSection({
           ))
         )}
       </div>
+
+      {modalState?.mode === 'create' && (
+        <AddModelModal
+          providerId={provider.id}
+          accessToken={accessToken}
+          scope={scope}
+          tc={tc}
+          t={t}
+          onClose={() => setModalState(null)}
+          onCreated={() => {
+            setModalState(null)
+            onChanged()
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+// -- Add Model Modal --
+
+function AddModelModal({ providerId, accessToken, scope, tc, t, onClose, onCreated }: {
+  providerId: string
+  accessToken: string
+  scope: LlmProviderScope
+  tc: ReturnType<typeof useLocale>['t']['models']
+  t: ReturnType<typeof useLocale>['t']
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [modelName, setModelName] = useState('')
+  const [vision, setVision] = useState(false)
+  const [imageOutput, setImageOutput] = useState(false)
+  const [embedding, setEmbedding] = useState(false)
+  const [contextWindow, setContextWindow] = useState('')
+  const [maxOutputTokens, setMaxOutputTokens] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const handleSave = async () => {
+    if (!modelName.trim()) { setErr(tc.errModelRequired); return }
+    if (contextWindow.trim() && !/^\d+$/.test(contextWindow.trim())) { setErr(tc.errInvalidNumber); return }
+    if (maxOutputTokens.trim() && !/^\d+$/.test(maxOutputTokens.trim())) { setErr(tc.errInvalidNumber); return }
+
+    setSaving(true)
+    setErr('')
+    try {
+      const catalog: Record<string, unknown> = {
+        id: modelName.trim(),
+        name: modelName.trim(),
+      }
+      if (vision) catalog.input_modalities = ['image']
+      if (imageOutput) catalog.output_modalities = ['image']
+      if (contextWindow.trim()) catalog.context_length = Number.parseInt(contextWindow.trim(), 10)
+      if (maxOutputTokens.trim()) catalog.max_output_tokens = Number.parseInt(maxOutputTokens.trim(), 10)
+      if (embedding) catalog.type = 'embedding'
+
+      const advancedJson = mergeAvailableCatalogIntoAdvancedJson(catalog, {})
+      const tags = embedding ? ['embedding'] : undefined
+
+      await createProviderModel(providerId, {
+        scope,
+        model: modelName.trim(),
+        show_in_picker: false,
+        tags,
+        advanced_json: advancedJson,
+      }, accessToken)
+      onCreated()
+    } catch {
+      setErr(tc.saveFailed ?? t.common.error)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="flex w-[520px] flex-col gap-4 rounded-xl bg-[var(--c-bg-deep)] p-5 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--c-text-primary)]">{tc.addModel}</h3>
+          <button onClick={onClose} className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <LabelField label={tc.modelName}>
+            <input
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder="e.g. gpt-4o"
+              className={inputCls}
+              autoFocus
+            />
+          </LabelField>
+
+          <div>
+            <label className="mb-2 block text-xs font-medium text-[var(--c-text-tertiary)]">{tc.modelCapabilities}</label>
+            <div className="grid grid-cols-3 gap-2">
+              <CapabilityChip icon={<Eye size={14} />} label={tc.capVision} checked={vision} onChange={setVision} />
+              <CapabilityChip icon={<ImageIcon size={14} />} label={tc.capImageOutput} checked={imageOutput} onChange={setImageOutput} />
+              <CapabilityChip icon={<Database size={14} />} label={tc.capEmbedding} checked={embedding} onChange={setEmbedding} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <LabelField label={tc.contextWindow}>
+              <input
+                value={contextWindow}
+                onChange={(e) => setContextWindow(e.target.value)}
+                placeholder="e.g. 128000"
+                className={inputCls}
+                inputMode="numeric"
+              />
+            </LabelField>
+            <LabelField label={tc.maxOutputTokens}>
+              <input
+                value={maxOutputTokens}
+                onChange={(e) => setMaxOutputTokens(e.target.value)}
+                placeholder="e.g. 32768"
+                className={inputCls}
+                inputMode="numeric"
+              />
+            </LabelField>
+          </div>
+        </div>
+
+        {err && <p className="text-xs text-red-400">{err}</p>}
+
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={onClose} className="rounded-md border border-[var(--c-border-subtle)] px-3.5 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">
+            {t.common.cancel}
+          </button>
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving || !modelName.trim()}
+            className="rounded-md bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-colors hover:opacity-90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : t.common.save}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CapabilityChip({ icon, label, checked, onChange }: {
+  icon: React.ReactNode
+  label: string
+  checked: boolean
+  onChange: (next: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={[
+        'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+        checked
+          ? 'border-[var(--c-accent)] bg-[var(--c-accent)]/10 text-[var(--c-accent)]'
+          : 'border-[var(--c-border-subtle)] text-[var(--c-text-muted)] hover:bg-[var(--c-bg-sub)]',
+      ].join(' ')}
+    >
+      {icon}
+      {label}
+    </button>
   )
 }
 

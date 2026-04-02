@@ -528,8 +528,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   const [availableError, setAvailableError] = useState('')
   const [importing, setImporting] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
-  const [addingModel, setAddingModel] = useState(false)
-  const [newModel, setNewModel] = useState('')
+  const [creatingModel, setCreatingModel] = useState(false)
   const [err, setErr] = useState('')
   const [search, setSearch] = useState('')
   const [editingModel, setEditingModel] = useState<LlmProviderModel | null>(null)
@@ -608,19 +607,6 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
     }
   }
 
-  const handleAddModel = async () => {
-    if (!newModel.trim()) return
-    setErr('')
-    try {
-      await createProviderModel(accessToken, provider.id, { model: newModel.trim() })
-      setNewModel('')
-      setAddingModel(false)
-      onChanged()
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : p.saveFailed)
-    }
-  }
-
   const handleDeleteModel = async (modelId: string) => {
     try {
       await deleteProviderModel(accessToken, provider.id, modelId)
@@ -695,18 +681,11 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
                   : (p.importModels ?? 'Import models')}
             </button>
           )}
-          <button onClick={() => { setAddingModel(true); setNewModel('') }} className={primaryButtonSmCls} style={{ background: 'var(--c-btn-bg)' }}>
+          <button onClick={() => setCreatingModel(true)} className={primaryButtonSmCls} style={{ background: 'var(--c-btn-bg)' }}>
             {p.addModel}
           </button>
         </div>
       </div>
-
-      {addingModel && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input value={newModel} onChange={(e) => setNewModel(e.target.value)} placeholder={p.modelNamePlaceholder ?? 'Model name'} className={INPUT_CLS + ' flex-1'} onKeyDown={(e) => { if (e.key === 'Enter') void handleAddModel(); if (e.key === 'Escape') setAddingModel(false) }} autoFocus />
-          <button onClick={() => setAddingModel(false)} className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"><X size={14} /></button>
-        </div>
-      )}
 
       {err && <p className="mt-2 text-xs text-[var(--c-status-error-text)]">{err}</p>}
       {availableError && <p className="mt-2 text-xs text-[var(--c-status-error-text)]">{availableError}</p>}
@@ -721,7 +700,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       )}
 
       <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: '320px' }}>
-        {provider.models.length === 0 && !addingModel ? (
+        {provider.models.length === 0 ? (
           <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">--</p>
         ) : filteredModels.length === 0 ? (
           <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">--</p>
@@ -775,9 +754,56 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
           invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
           visionBridgeHint: t.models.visionBridgeHint,
+          addModelTitle: t.models.addModelTitle ?? 'Add Model',
+          modelNameLabel: t.models.modelName ?? 'Model name',
+          modelNamePlaceholder: t.models.modelNamePlaceholder ?? 'e.g. gpt-4o',
         }}
         onClose={() => setEditingModel(null)}
         onSave={handleSaveModelOptions}
+      />
+
+      <ModelOptionsModal
+        open={creatingModel}
+        mode="create"
+        model={null}
+        availableModels={available}
+        labels={{
+          modelOptionsTitle: p.modelOptionsTitle ?? 'Model Options',
+          modelOptionsFor: p.modelOptionsFor ?? 'Configure options for',
+          modelCapabilities: p.modelCapabilities ?? 'Model Capabilities',
+          vision: p.vision ?? 'Vision',
+          imageOutput: p.imageOutput ?? 'Image Output',
+          embedding: p.embedding ?? 'Embedding',
+          contextWindow: p.contextWindow ?? 'Context Window',
+          maxOutputTokens: p.maxOutputTokens ?? 'Max Output Tokens',
+          providerOptionsJson: p.providerOptionsJson ?? 'Provider Options (JSON)',
+          providerOptionsHint: p.providerOptionsHint ?? 'Only provider-specific fields belong here. Model capability fields are managed above.',
+          save: p.save,
+          cancel: p.cancel,
+          reset: p.reset ?? 'Reset',
+          invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
+          invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
+          visionBridgeHint: t.models.visionBridgeHint,
+          addModelTitle: t.models.addModelTitle ?? 'Add Model',
+          modelNameLabel: t.models.modelName ?? 'Model name',
+          modelNamePlaceholder: t.models.modelNamePlaceholder ?? 'e.g. gpt-4o',
+        }}
+        onClose={() => setCreatingModel(false)}
+        onSave={async () => {}}
+        onCreate={async (payload) => {
+          try {
+            await createProviderModel(accessToken, provider.id, {
+              model: payload.model,
+              show_in_picker: false,
+              tags: payload.tags.length > 0 ? payload.tags : undefined,
+              advanced_json: payload.advancedJSON,
+            })
+            setCreatingModel(false)
+            onChanged()
+          } catch (e) {
+            throw new Error(isApiError(e) ? e.message : p.saveFailed)
+          }
+        }}
       />
     </div>
   )

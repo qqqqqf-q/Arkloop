@@ -119,6 +119,13 @@ export interface LocaleStrings {
     deleteAll: string
     importing: string
     importAll: string
+    modelCapabilities: string
+    capVision: string
+    capImageOutput: string
+    capEmbedding: string
+    contextWindow: string
+    maxOutputTokens: string
+    errInvalidNumber: string
   }
   tools: {
     title: string
