@@ -172,22 +172,39 @@ ${buildThemeCSS(snapshot.cssVars)}
     border: 0.5px solid var(--color-border-tertiary);
     border-radius: var(--border-radius-md);
     background: var(--color-background-primary);
-    padding: 6px 14px;
+    padding: 7px 16px;
+    font-weight: 420;
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 80ms ease, border-color 80ms ease, opacity 80ms ease;
   }
   :where(button:hover) {
     background: var(--color-background-secondary);
+    border-color: var(--color-border-secondary);
   }
-  :where(select, input[type="text"], input[type="number"], textarea) {
+  :where(button:active) {
+    opacity: 0.82;
+  }
+  :where(select, input[type="text"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], input[type="url"], textarea) {
     appearance: none;
     border: 0.5px solid var(--color-border-tertiary);
     border-radius: var(--border-radius-md);
     background: var(--color-background-primary);
     min-height: 36px;
-    padding: 0 10px;
+    padding: 0 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  :where(select:focus, input[type="text"]:focus, input[type="number"]:focus, input[type="email"]:focus, input[type="password"]:focus, input[type="search"]:focus, input[type="url"]:focus, textarea:focus) {
+    outline: none;
+    border-color: var(--color-border-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-border-primary) 20%, transparent);
   }
   :where(textarea) {
     min-height: 80px;
-    padding: 10px;
+    padding: 10px 12px;
   }
   :where(input[type="range"]) {
     -webkit-appearance: none;

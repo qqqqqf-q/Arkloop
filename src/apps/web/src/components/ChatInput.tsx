@@ -133,6 +133,7 @@ export function ChatInput({
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
   const [chipExiting, setChipExiting] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string | null>(readSelectedModelFromStorage)
+  const [submittedText, setSubmittedText] = useState<string | null>(null)
 
   const { isRecording, isTranscribing, recordingSeconds, waveformBars, startRecording, stopAndTranscribe, cancelRecording } =
     useAudioRecorder({ accessTokenRef, valueRef, onChangeRef, onAsrErrorRef, onVoiceNotConfiguredRef })
@@ -232,6 +233,7 @@ export function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (!disabled && value.trim()) {
+        setSubmittedText(value)
         e.currentTarget.form?.requestSubmit()
       }
     }
@@ -359,7 +361,7 @@ export function ChatInput({
             type="button"
             onClick={cancelRecording}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-[33.5px] w-[33.5px] flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)] transition-[opacity,background] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:opacity-100 opacity-70 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X size={14} />
           </button>
@@ -368,7 +370,7 @@ export function ChatInput({
             type="button"
             onClick={stopAndTranscribe}
             disabled={isTranscribing}
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex h-[33.5px] w-[33.5px] flex-shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] transition-[background-color,opacity] duration-[60ms] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isTranscribing
               ? <Loader2 size={14} className="animate-spin" />
@@ -461,8 +463,8 @@ export function ChatInput({
             ref={textareaRef}
             rows={1}
             className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
+            value={submittedText ?? value}
+            onChange={(e) => { if (submittedText === null) onChange(e.target.value) }}
             onKeyDown={handleKeyDown}
             onPaste={handleTextareaPaste}
             onFocus={() => setFocused(true)}
@@ -505,7 +507,7 @@ export function ChatInput({
           />
 
           {/* mic + send 共用同一位置，disabled 时显示 spinner */}
-          <div style={{ position: 'relative', width: '30px', height: '30px', flexShrink: 0 }}>
+          <div style={{ position: 'relative', width: '31.5px', height: '31.5px', flexShrink: 0 }}>
             {disabled ? (
               <div className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)]" style={{ opacity: 0.5 }}>
                 <Loader2 size={14} className="animate-spin" style={{ color: 'var(--c-accent-send-text)' }} />
@@ -561,7 +563,7 @@ export function ChatInput({
                     pointerEvents: showSendButton ? 'none' : 'auto',
                   }}
                 >
-                  <Mic size={18} />
+                  <Mic size={19} />
                 </button>
                 <button
                   type="submit"
@@ -572,11 +574,11 @@ export function ChatInput({
                     inset: 0,
                     transform: showSendButton ? 'scale(1)' : 'scale(0)',
                     opacity: showSendButton ? 1 : 0,
-                    transition: 'transform 225ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 150ms ease, background-color 60ms ease',
+                    transition: 'transform 281ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 150ms ease, background-color 60ms ease',
                     pointerEvents: showSendButton ? 'auto' : 'none',
                   }}
                 >
-                  <ArrowUp size={16} />
+                  <ArrowUp size={17} />
                 </button>
               </>
             )}
@@ -600,6 +602,7 @@ export function ChatInput({
             background: 'rgba(0,0,0,0.06)',
             overflow: 'hidden',
             pointerEvents: 'none',
+            animation: 'freeze-overlay-in 1.8s ease forwards',
           }}
         >
           <div

@@ -154,7 +154,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
               ))}
             </div>
           )}
-          <div style={{ position: 'relative', background: 'var(--c-bg-deep)', borderRadius: '11px', padding: '10px 16px' }}>
+          <div style={{ position: 'relative', background: 'var(--c-bg-deep)', borderRadius: '12px', padding: '10px 16px' }}>
             <AutoResizeTextarea
               ref={textareaRef}
               value={editText}
@@ -348,7 +348,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
               className={[animateEnter ? 'user-prompt-bubble-enter' : '', 'user-prompt-bubble'].filter(Boolean).join(' ')}
               style={{
                 '--user-prompt-enter-scale': String(enterScale),
-                borderRadius: '11px',
+                borderRadius: '12px',
                 padding: '10px 16px',
                 fontSize: '16.5px',
                 fontWeight: 300,

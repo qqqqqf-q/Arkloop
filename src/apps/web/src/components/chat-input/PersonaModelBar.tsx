@@ -127,7 +127,7 @@ export function PersonaModelBar({
             ref={folderBtnRef}
             type="button"
             onClick={() => setFolderMenuOpen((v) => !v)}
-            className="flex h-8 items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+            className="flex h-[33.5px] items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
             style={{ maxWidth: '160px' }}
           >
             {clawFolder
@@ -226,7 +226,7 @@ export function PersonaModelBar({
           ref={plusBtnRef}
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
+          className="flex h-[33.5px] w-[33.5px] items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
         >
           <Plus size={20} strokeWidth={1.5} />
         </button>
@@ -299,7 +299,7 @@ export function PersonaModelBar({
             display: 'flex',
             alignItems: 'center',
             gap: '2px',
-            height: '32px',
+            height: '33.5px',
             padding: '0 8px 0 9px',
             borderRadius: '8px',
             background: 'var(--c-chip-active-bg)',

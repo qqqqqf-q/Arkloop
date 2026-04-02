@@ -131,7 +131,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
         onClick={() => setOpen((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative flex h-[31.5px] items-center gap-1 rounded-lg"
+        className="relative flex h-[33px] items-center gap-1 rounded-lg"
         style={{
           padding: '0 8px 0 10px',
           overflow: 'hidden',
