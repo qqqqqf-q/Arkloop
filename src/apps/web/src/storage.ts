@@ -758,20 +758,23 @@ function parseAssistantTurnSegment(raw: unknown): AssistantTurnSegment | null {
   return null
 }
 
+function parseAssistantTurnData(raw: unknown): AssistantTurnUi | null {
+  if (!raw || typeof raw !== 'object') return null
+  const obj = raw as Record<string, unknown>
+  if (!Array.isArray(obj.segments)) return null
+  const segments = (obj.segments as unknown[])
+    .map(parseAssistantTurnSegment)
+    .filter((s): s is AssistantTurnSegment => s != null)
+  if (segments.length === 0) return null
+  return { segments }
+}
+
 export function readMessageAssistantTurn(messageId: string): AssistantTurnUi | null {
   if (!canUseLocalStorage() || !messageId) return null
   try {
     const item = localStorage.getItem(messageAssistantTurnKey(messageId))
     if (!item) return null
-    const parsed = JSON.parse(item) as unknown
-    if (!parsed || typeof parsed !== 'object') return null
-    const obj = parsed as Record<string, unknown>
-    if (!Array.isArray(obj.segments)) return null
-    const segments = (obj.segments as unknown[])
-      .map(parseAssistantTurnSegment)
-      .filter((s): s is AssistantTurnSegment => s != null)
-    if (segments.length === 0) return null
-    return { segments }
+    return parseAssistantTurnData(JSON.parse(item) as unknown)
   } catch {
     return null
   }
@@ -987,6 +990,138 @@ export function writeMessageTerminalStatus(messageId: string, status: MessageTer
   if (!canUseLocalStorage() || !messageId) return
   try {
     localStorage.setItem(messageTerminalStatusKey(messageId), status)
+  } catch { /* ignore */ }
+}
+
+// -- Thread run handoff --
+
+export type ThreadRunHandoffRef = {
+  runId: string
+  status: Exclude<MessageTerminalStatusRef, 'completed'>
+  assistantTurn?: AssistantTurnUi | null
+  sources: WebSource[]
+  artifacts: ArtifactRef[]
+  widgets: WidgetRef[]
+  codeExecutions: CodeExecutionRef[]
+  browserActions: BrowserActionRef[]
+  subAgents: SubAgentRef[]
+  fileOps: FileOpRef[]
+  webFetches: WebFetchRef[]
+  searchSteps: MessageSearchStepRef[]
+}
+
+function threadRunHandoffKey(threadId: string): string {
+  return `arkloop:web:thread_run_handoff:${threadId}`
+}
+
+function isWebSource(value: unknown): value is WebSource {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.title !== 'string') return false
+  if (typeof item.url !== 'string' || item.url.trim() === '') return false
+  if (item.snippet != null && typeof item.snippet !== 'string') return false
+  return true
+}
+
+function isArtifactRef(value: unknown): value is ArtifactRef {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.key !== 'string' || item.key.trim() === '') return false
+  if (typeof item.filename !== 'string') return false
+  if (typeof item.size !== 'number') return false
+  if (typeof item.mime_type !== 'string') return false
+  if (item.title != null && typeof item.title !== 'string') return false
+  if (item.display != null && item.display !== 'inline' && item.display !== 'panel') return false
+  return true
+}
+
+function isWidgetRef(value: unknown): value is WidgetRef {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return typeof item.id === 'string' &&
+    item.id.trim() !== '' &&
+    typeof item.title === 'string' &&
+    typeof item.html === 'string'
+}
+
+function isBrowserActionRef(value: unknown): value is BrowserActionRef {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.id !== 'string' || item.id.trim() === '') return false
+  if (typeof item.command !== 'string') return false
+  if (item.output != null && typeof item.output !== 'string') return false
+  if (item.url != null && typeof item.url !== 'string') return false
+  if (item.exitCode != null && typeof item.exitCode !== 'number') return false
+  if (item.screenshotArtifact != null && !isArtifactRef(item.screenshotArtifact)) return false
+  return true
+}
+
+function isMessageSearchStepRef(value: unknown): value is MessageSearchStepRef {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.id !== 'string' || item.id.trim() === '') return false
+  if (item.kind !== 'planning' && item.kind !== 'searching' && item.kind !== 'reviewing' && item.kind !== 'finished') return false
+  if (item.status !== 'active' && item.status !== 'done') return false
+  if (typeof item.label !== 'string') return false
+  if (item.seq != null && typeof item.seq !== 'number') return false
+  if (item.resultSeq != null && typeof item.resultSeq !== 'number') return false
+  if (item.queries != null && (!Array.isArray(item.queries) || !item.queries.every((query) => typeof query === 'string'))) return false
+  if (item.sources != null && (!Array.isArray(item.sources) || !item.sources.every(isWebSource))) return false
+  return true
+}
+
+export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | null {
+  if (!canUseLocalStorage() || !threadId) return null
+  try {
+    const raw = localStorage.getItem(threadRunHandoffKey(threadId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const item = parsed as Record<string, unknown>
+    const runId = typeof item.runId === 'string' ? item.runId.trim() : ''
+    const status = item.status
+    if (!runId) return null
+    if (status !== 'cancelled' && status !== 'interrupted' && status !== 'failed') return null
+    const assistantTurn = item.assistantTurn == null ? null : parseAssistantTurnData(item.assistantTurn)
+    const sources = Array.isArray(item.sources) ? item.sources.filter(isWebSource) : []
+    const artifacts = Array.isArray(item.artifacts) ? item.artifacts.filter(isArtifactRef) : []
+    const widgets = Array.isArray(item.widgets) ? item.widgets.filter(isWidgetRef) : []
+    const codeExecutions = Array.isArray(item.codeExecutions) ? item.codeExecutions.filter(isCodeExecutionRef) : []
+    const browserActions = Array.isArray(item.browserActions) ? item.browserActions.filter(isBrowserActionRef) : []
+    const subAgents = Array.isArray(item.subAgents) ? item.subAgents.filter(isSubAgentRef) : []
+    const fileOps = Array.isArray(item.fileOps) ? item.fileOps.filter(isFileOpRef) : []
+    const webFetches = Array.isArray(item.webFetches) ? item.webFetches.filter(isWebFetchRef) : []
+    const searchSteps = Array.isArray(item.searchSteps) ? item.searchSteps.filter(isMessageSearchStepRef) : []
+    return {
+      runId,
+      status,
+      assistantTurn,
+      sources,
+      artifacts,
+      widgets,
+      codeExecutions,
+      browserActions,
+      subAgents,
+      fileOps,
+      webFetches,
+      searchSteps,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function writeThreadRunHandoff(threadId: string, data: ThreadRunHandoffRef): void {
+  if (!canUseLocalStorage() || !threadId || !data.runId) return
+  try {
+    localStorage.setItem(threadRunHandoffKey(threadId), JSON.stringify(data))
+  } catch { /* ignore */ }
+}
+
+export function clearThreadRunHandoff(threadId: string): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    localStorage.removeItem(threadRunHandoffKey(threadId))
   } catch { /* ignore */ }
 }
 

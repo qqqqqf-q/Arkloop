@@ -102,6 +102,9 @@ import {
   addSearchThreadId,
   SEARCH_PERSONA_KEY,
   isSearchThreadId,
+  readThreadRunHandoff,
+  writeThreadRunHandoff,
+  clearThreadRunHandoff,
   readSelectedPersonaKeyFromStorage,
   readSelectedModelFromStorage,
   readMessageSources,
@@ -143,6 +146,7 @@ import {
   readMsgRunEvents,
   writeMsgRunEvents,
   type MsgRunEvent,
+  type ThreadRunHandoffRef,
   readThreadClawFolder,
 } from '../storage'
 
@@ -1292,6 +1296,38 @@ export function ChatPage() {
     terminalStatus?: MessageTerminalStatusRef | null
   }
 
+function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): StreamingArtifactEntry[] {
+  const entries: StreamingArtifactEntry[] = []
+  let toolCallIndex = 0
+  for (const widget of handoff.widgets) {
+    entries.push({
+      toolCallIndex,
+      toolCallId: widget.id,
+      toolName: 'show_widget',
+      argumentsBuffer: '',
+      title: widget.title,
+      content: widget.html,
+      complete: true,
+    })
+    toolCallIndex += 1
+  }
+  for (const artifact of handoff.artifacts) {
+    entries.push({
+      toolCallIndex,
+      toolCallId: artifact.key,
+      toolName: 'create_artifact',
+      argumentsBuffer: '',
+      title: artifact.title,
+      filename: artifact.filename,
+      display: artifact.display,
+      complete: true,
+      artifactRef: artifact,
+    })
+    toolCallIndex += 1
+  }
+  return entries
+}
+
   type PersistRunDataOptions = {
     persistThinking?: boolean
     persistAssistantTurn?: boolean
@@ -1377,6 +1413,9 @@ export function ChatPage() {
         writeMsgRunEvents(messageId, runEvents)
         setMsgRunEventsMap((prev) => new Map(prev).set(messageId, runEvents))
       }
+      if (threadId) {
+        clearThreadRunHandoff(threadId)
+      }
     },
     [
       setMessageArtifactsMap,
@@ -1390,8 +1429,27 @@ export function ChatPage() {
       setMessageWebFetchesMap,
       setMessageWidgetsMap,
       setMsgRunEventsMap,
+      threadId,
     ],
   )
+
+  const persistThreadRunHandoff = useCallback((runId: string, runData: TerminalRunCache) => {
+    if (!threadId || !runId) return
+    writeThreadRunHandoff(threadId, {
+      runId,
+      status: (runData.terminalStatus ?? 'cancelled') as Exclude<MessageTerminalStatusRef, 'completed'>,
+      assistantTurn: runData.handoffAssistantTurn.segments.length > 0 ? runData.handoffAssistantTurn : null,
+      sources: [...runData.runSources],
+      artifacts: [...runData.runArtifacts],
+      widgets: [...runData.runWidgets],
+      codeExecutions: [...runData.runCodeExecs],
+      browserActions: [...runData.runBrowserActions],
+      subAgents: [...runData.runSubAgents],
+      fileOps: [...runData.runFileOps],
+      webFetches: [...runData.runWebFetches],
+      searchSteps: [...(runData.pendingSearchSteps ?? [])],
+    })
+  }, [threadId])
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -1609,7 +1667,7 @@ export function ChatPage() {
     } finally {
       setSending(false)
     }
-  }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync, resetSearchSteps])
+  }, [accessToken, threadId, activeRunId, sending, onLoggedOut, onRunStarted, invalidateMessageSync, markTerminalRunHistory, resetSearchSteps])
 
   // 用 ref 持有最新的 sendMessage，避免 widget 回调闭包中捕获旧引用
   const sendMessageRef = useRef(sendMessage)
@@ -1873,6 +1931,39 @@ export function ChatPage() {
           setTerminalRunHandoffStatus('failed')
         }
 
+        const cachedThreadHandoff = readThreadRunHandoff(threadId)
+        const shouldRestoreThreadHandoff =
+          !!cachedThreadHandoff &&
+          (!latest || latest.run_id === cachedThreadHandoff.runId) &&
+          !findAssistantMessageForRun(items, cachedThreadHandoff.runId)
+        if (
+          cachedThreadHandoff &&
+          shouldRestoreThreadHandoff
+        ) {
+          setPreserveLiveRunUi(true)
+          setTerminalRunDisplayId(cachedThreadHandoff.runId)
+          setTerminalRunHandoffStatus(cachedThreadHandoff.status)
+          setLiveAssistantTurn(cachedThreadHandoff.assistantTurn ?? null)
+          currentRunSourcesRef.current = [...cachedThreadHandoff.sources]
+          currentRunArtifactsRef.current = [...cachedThreadHandoff.artifacts]
+          currentRunCodeExecutionsRef.current = [...cachedThreadHandoff.codeExecutions]
+          currentRunBrowserActionsRef.current = [...cachedThreadHandoff.browserActions]
+          currentRunSubAgentsRef.current = [...cachedThreadHandoff.subAgents]
+          currentRunFileOpsRef.current = [...cachedThreadHandoff.fileOps]
+          currentRunWebFetchesRef.current = [...cachedThreadHandoff.webFetches]
+          setTopLevelCodeExecutions(cachedThreadHandoff.codeExecutions)
+          setTopLevelSubAgents(cachedThreadHandoff.subAgents)
+          setTopLevelFileOps(cachedThreadHandoff.fileOps)
+          setTopLevelWebFetches(cachedThreadHandoff.webFetches)
+          const restoredStreamingArtifacts = buildStreamingArtifactsFromHandoff(cachedThreadHandoff)
+          streamingArtifactsRef.current = restoredStreamingArtifacts
+          setStreamingArtifacts(restoredStreamingArtifacts)
+          searchStepsRef.current = cachedThreadHandoff.searchSteps
+          setSearchSteps(cachedThreadHandoff.searchSteps)
+        } else if (threadId) {
+          clearThreadRunHandoff(threadId)
+        }
+
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
         // 必须显式调用 setActiveRunId，因为 React Router 复用组件实例，useState 初始值不会重新求值
         if (
@@ -1885,7 +1976,7 @@ export function ChatPage() {
           setThinkingHint(hints[Math.floor(Math.random() * hints.length)])
           if (threadId) onRunStarted(threadId)
         } else {
-          const isActiveRun = latest?.status === 'running' || latest?.status === 'cancelling'
+          const isActiveRun = !shouldRestoreThreadHandoff && (latest?.status === 'running' || latest?.status === 'cancelling')
           setActiveRunId(isActiveRun ? latest.run_id : null)
           if (isActiveRun && threadId) onRunStarted(threadId)
           else if (threadId) onRunEnded(threadId)
@@ -2008,6 +2099,9 @@ export function ChatPage() {
   // 连接 SSE
   useEffect(() => {
     if (!activeRunId) return
+    if (threadId) {
+      clearThreadRunHandoff(threadId)
+    }
     clearCompletedTitleTail()
     freezeCutoffRef.current = null
     injectionBlockedRunIdRef.current = null
@@ -2038,7 +2132,7 @@ export function ChatPage() {
     setStreamingArtifacts([])
     setCancelSubmitting(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRunId, baseUrl, clearCompletedTitleTail, resetAssistantTurnLive])
+  }, [activeRunId, baseUrl, clearCompletedTitleTail, resetAssistantTurnLive, threadId])
 
   useEffect(() => {
     if (!sseRunId) return
@@ -2678,6 +2772,9 @@ export function ChatPage() {
           runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           runCache.runAssistantTurn = runCache.handoffAssistantTurn
         }
+        if (runId) {
+          persistThreadRunHandoff(runId, runCache)
+        }
         resetTerminalRunState({
           restoreQueuedDraft: true,
           preserveSearchSteps: true,
@@ -2720,6 +2817,9 @@ export function ChatPage() {
         if (runCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {
           runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           runCache.runAssistantTurn = runCache.handoffAssistantTurn
+        }
+        if (runId) {
+          persistThreadRunHandoff(runId, runCache)
         }
         resetTerminalRunState({
           restoreQueuedDraft: true,
@@ -2776,6 +2876,9 @@ export function ChatPage() {
           runCache.handoffAssistantTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           runCache.runAssistantTurn = runCache.handoffAssistantTurn
         }
+        if (runId) {
+          persistThreadRunHandoff(runId, runCache)
+        }
         resetTerminalRunState({
           restoreQueuedDraft: true,
           preserveSearchSteps: true,
@@ -2804,7 +2907,7 @@ export function ChatPage() {
         continue
       }
     }
-  }, [sseRunId, activeRunId, armCompletedTitleTail, clearCompletedTitleTail, clearContextCompactHideTimer, clearLiveRunSecurityArtifacts, clearQueuedDraft, completedTitleTailRunId, refreshMessages, refreshCredits, resetSearchSteps, restoreQueuedDraftToInput, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sseRunId, activeRunId, armCompletedTitleTail, clearCompletedTitleTail, clearContextCompactHideTimer, clearLiveRunSecurityArtifacts, clearQueuedDraft, completedTitleTailRunId, persistThreadRunHandoff, refreshMessages, refreshCredits, resetSearchSteps, restoreQueuedDraftToInput, sse.events]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 401 SSE 错误时登出
   useEffect(() => {
@@ -2843,6 +2946,10 @@ export function ChatPage() {
     setPreserveLiveRunUi(true)
     setTerminalRunHandoffStatus('interrupted')
     setLiveAssistantTurn(terminalCache.handoffAssistantTurn.segments.length > 0 ? terminalCache.handoffAssistantTurn : null)
+    persistThreadRunHandoff(terminalRunId, {
+      ...terminalCache,
+      terminalStatus: 'interrupted',
+    })
 
     setActiveRunId(null)
     setPendingThinking(false)
@@ -2860,7 +2967,7 @@ export function ChatPage() {
           persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage)
         }
       })
-  }, [activeRunId, sse.state, persistRunDataToMessage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeRunId, sse.state, persistRunDataToMessage, persistThreadRunHandoff]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 初始加载完成后，将最后一条 user 消息滚动至顶部
   useEffect(() => {
@@ -2990,6 +3097,7 @@ export function ChatPage() {
     e.preventDefault()
     if (sending || !threadId) return
     markTerminalRunHistory(null)
+    clearThreadRunHandoff(threadId)
 
     // streaming 期间排队，输出结束后自动发送
     if (isStreaming) {
@@ -3150,6 +3258,7 @@ export function ChatPage() {
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
+    clearThreadRunHandoff(threadId)
     try {
       const run = await retryThread(accessToken, threadId)
       // 乐观地移除最后一条 assistant 消息（后端已标记 hidden）
