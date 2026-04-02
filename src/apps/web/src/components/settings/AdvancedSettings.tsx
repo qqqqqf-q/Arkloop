@@ -76,6 +76,12 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat().format(value)
 }
 
+function formatChartTick(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000 % 1 === 0 ? n / 1_000_000 : (n / 1_000_000).toFixed(1))}M`
+  if (n >= 1_000) return `${(n / 1_000 % 1 === 0 ? n / 1_000 : (n / 1_000).toFixed(1))}K`
+  return String(n)
+}
+
 function actionBtnCls(disabled?: boolean) {
   return [
     'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
@@ -481,17 +487,30 @@ function UsagePane({
       weeks.push(week)
     }
 
-    // month labels
-    const monthLabels: Array<{ label: string; col: number }> = []
-    let lastMonth = -1
+    // month labels: place label at the first column where the 1st day of the month appears
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+    // collect (col, monthIndex) for every 1st-of-month day found in the grid
+    const firstOfMonthCols: Array<{ m: number; col: number }> = []
     for (let w = 0; w < weeks.length; w++) {
-      const firstDate = new Date(weeks[w][0].date)
-      const m = firstDate.getMonth()
-      if (m !== lastMonth) {
-        monthLabels.push({ label: monthNames[m], col: w })
-        lastMonth = m
+      for (const cell of weeks[w]) {
+        if (cell.date.endsWith('-01')) {
+          const m = new Date(cell.date).getMonth()
+          firstOfMonthCols.push({ m, col: w })
+        }
       }
+    }
+    // sort by column position, then deduplicate by month
+    firstOfMonthCols.sort((a, b) => a.col - b.col)
+    const seenMonths = new Set<number>()
+    const monthLabels: Array<{ label: string; col: number }> = []
+    let lastCol = -999
+    for (const { m, col } of firstOfMonthCols) {
+      if (seenMonths.has(m)) continue
+      seenMonths.add(m)
+      // skip if too close to previous label (less than 2 columns)
+      if (col - lastCol < 2) continue
+      monthLabels.push({ label: monthNames[m], col })
+      lastCol = col
     }
 
     return { weeks, maxVal, monthLabels, totalTokens }
@@ -512,8 +531,8 @@ function UsagePane({
   // SVG chart builders
   const compactChart = chartWidth > 0 && chartWidth < 560
   const chartPadding = compactChart
-    ? { top: 20, right: 12, bottom: 26, left: 44 }
-    : { top: 20, right: 16, bottom: 30, left: 56 }
+    ? { top: 20, right: 12, bottom: 26, left: 52 }
+    : { top: 20, right: 16, bottom: 30, left: 60 }
   const chartH = 320
   const modelLabelMaxLength = compactChart ? 10 : chartWidth < 720 ? 14 : 18
 
@@ -564,7 +583,7 @@ function UsagePane({
           return (
             <g key={i}>
               <line x1={chartPadding.left} y1={y} x2={width - chartPadding.right} y2={y} stroke="var(--c-border-subtle)" strokeDasharray="3,3" />
-              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={compactChart ? 9 : 10}>{formatNumber(Math.round(v))}</text>
+              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={compactChart ? 9 : 10}>{formatChartTick(Math.round(v))}</text>
             </g>
           )
         })}
@@ -629,7 +648,7 @@ function UsagePane({
           return (
             <g key={i}>
               <line x1={chartPadding.left} y1={y} x2={width - chartPadding.right} y2={y} stroke="var(--c-border-subtle)" strokeDasharray="3,3" />
-              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={compactChart ? 9 : 10}>{formatNumber(Math.round(v))}</text>
+              <text x={chartPadding.left - 6} y={y + 4} textAnchor="end" fill="var(--c-text-muted)" fontSize={compactChart ? 9 : 10}>{formatChartTick(Math.round(v))}</text>
             </g>
           )
         })}
