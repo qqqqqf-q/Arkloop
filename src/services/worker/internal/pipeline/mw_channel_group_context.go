@@ -87,6 +87,7 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 			return next(ctx, rc)
 		}
 
+		projectGroupEnvelopes(rc)
 		stripOlderImages(rc, keepImageTail)
 		compactResult := maybeGroupCompact(ctx, rc, dep, maxTokens)
 		trimRunContextMessagesToApproxTokens(rc, maxTokens)
