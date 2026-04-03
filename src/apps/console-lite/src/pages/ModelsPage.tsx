@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
-  Loader2, Plus, Trash2, Download, X, Search, Eye, Image as ImageIcon, Database, SlidersHorizontal,
+  Loader2, Plus, Trash2, Download, X, Search, Eye, Image as ImageIcon, Database,
 } from 'lucide-react'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
-import { useToast, PillToggle, FormField } from '@arkloop/shared'
+import { useToast, PillToggle } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { isApiError } from '../api/client'
 import {
@@ -24,10 +24,7 @@ import {
   type AvailableModel,
 } from '../api/llm-providers'
 import {
-  AVAILABLE_CATALOG_ADVANCED_KEY,
-  getAvailableCatalogFromAdvancedJson,
   mergeAvailableCatalogIntoAdvancedJson,
-  stripAvailableCatalogFromAdvancedJson,
 } from '@arkloop/shared/llm/available-catalog-advanced-json'
 
 const PROVIDER_PRESETS = [
