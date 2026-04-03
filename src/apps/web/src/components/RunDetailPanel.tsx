@@ -68,50 +68,6 @@ function formatEventJSON(event: RunEvent): string {
   )
 }
 
-function ThreadTurnCard({ turn, index }: { turn: RequestThreadTurn; index: number }) {
-  return (
-    <div
-      className={[
-        'space-y-2 rounded-lg border bg-[var(--c-bg-deep)] p-3',
-        turn.isCurrent ? 'border-[var(--c-accent)] shadow-[inset_0_0_0_1px_var(--c-accent)]' : 'border-[var(--c-border)]',
-      ].join(' ')}
-    >
-      <div className="flex items-center gap-2 text-xs text-[var(--c-text-muted)]">
-        <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 font-mono font-medium text-[var(--c-text-secondary)]">
-          Thread {index + 1}
-        </span>
-        {turn.isCurrent && (
-          <span className="rounded bg-[var(--c-bg-sub)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
-            current run
-          </span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {turn.messages.map((message, messageIndex) => (
-          <div key={`${turn.key}-${messageIndex}`} className="rounded border border-[var(--c-border)] overflow-hidden">
-            <div className="px-2.5 py-1.5 text-[11px] font-medium uppercase text-[var(--c-text-secondary)]">{message.role}</div>
-            <div className="border-t border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-2">
-              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
-                {message.text || '∅'}
-              </pre>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded border border-[var(--c-border)] overflow-hidden">
-        <div className="px-2.5 py-1.5 text-[11px] font-medium text-[var(--c-text-secondary)]">Assistant</div>
-        <div className="border-t border-[var(--c-border)] bg-[var(--c-bg-deep2)] px-2.5 py-2">
-          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
-            {turn.assistantText || 'Assistant output unavailable'}
-          </pre>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function RequestThreadTurnCard({ turn, index }: { turn: RequestThreadTurn; index: number }) {
   return (
     <div
@@ -225,7 +181,6 @@ export function RunDetailPanel({ runId, accessToken, onClose }: Props) {
     () => buildTurns((events ?? []) as unknown as RunEventRaw[]),
     [events],
   )
-  const threadTurns = useMemo(() => buildRequestThreadTurns(turns), [turns])
   const requestThreadTurns = useMemo(() => buildRequestThreadTurns(turns), [turns])
   const executionTurns = useMemo(() => {
     return turns
