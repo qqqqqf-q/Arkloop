@@ -44,6 +44,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
 	"arkloop/services/worker/internal/tools/builtin/acptool"
+	"arkloop/services/worker/internal/tools/builtin/read"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	"arkloop/services/worker/internal/tools/localshell"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -252,6 +253,15 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		slog.WarnContext(ctx, "desktop: message attachment store init failed", "err", err.Error())
 	} else {
 		messageAttachmentStore = mas
+	}
+	if messageAttachmentStore != nil {
+		for _, name := range []string{read.AgentSpec.Name, read.AgentSpecMiniMax.Name} {
+			if exec, ok := executors[name]; ok {
+				if readExec, ok := exec.(*read.Executor); ok {
+					readExec.AttachmentStore = messageAttachmentStore
+				}
+			}
+		}
 	}
 	var rolloutStore objectstore.BlobStore
 	if rs, err := openDesktopRolloutStore(ctx); err != nil {
