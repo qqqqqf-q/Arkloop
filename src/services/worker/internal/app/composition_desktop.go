@@ -837,6 +837,14 @@ func desktopChannelContext(db data.DesktopDB) pipeline.RunMiddleware {
 				channelCtx.SenderUserID = identity.UserID
 			}
 		}
+		// channel 场景下 bot 的 memory 归属于 channel owner
+		if db != nil && channelCtx.SenderUserID == nil && channelCtx.ChannelID != uuid.Nil {
+			ownerID, err := loadDesktopChannelOwner(ctx, db, channelCtx.ChannelID)
+			if err != nil {
+				return err
+			}
+			channelCtx.SenderUserID = ownerID
+		}
 		rc.ChannelContext = channelCtx
 		rc.ChannelToolSurface = pipeline.NewChannelToolSurfaceFromContext(channelCtx)
 		if channelCtx.SenderUserID != nil {
@@ -1183,6 +1191,24 @@ func loadDesktopChannelIdentity(ctx context.Context, db data.DesktopDB, identity
 		return nil, fmt.Errorf("desktop channel identity lookup: %w", err)
 	}
 	return &item, nil
+}
+
+func loadDesktopChannelOwner(ctx context.Context, db data.DesktopDB, channelID uuid.UUID) (*uuid.UUID, error) {
+	if db == nil {
+		return nil, nil
+	}
+	var ownerUserID *uuid.UUID
+	err := db.QueryRow(ctx,
+		`SELECT owner_user_id FROM channels WHERE id = $1`,
+		channelID,
+	).Scan(&ownerUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("desktop channel owner lookup: %w", err)
+	}
+	return ownerUserID, nil
 }
 
 func loadDesktopDeliveryChannel(ctx context.Context, db data.DesktopDB, channelID uuid.UUID) (*desktopDeliveryChannelRecord, error) {
