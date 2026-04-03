@@ -25,6 +25,7 @@ type EnvConfig struct {
 
 type ResolveInput struct {
 	HasConversationSearch  bool
+	HasGroupHistorySearch  bool
 	ArtifactStoreAvailable bool
 	BrowserEnabled         bool
 	Env                    EnvConfig
@@ -47,6 +48,7 @@ type SnapshotInput struct {
 	ConfigResolver          sharedconfig.Resolver
 	LoadPlatformProviders   func(context.Context) ([]ProviderConfig, error)
 	HasConversationSearch   bool
+	HasGroupHistorySearch   bool
 	ArtifactStoreAvailable  bool
 	SandboxAuthTokenEnvName string
 }
@@ -80,6 +82,7 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 
 	availability := ResolveBuiltin(ResolveInput{
 		HasConversationSearch:  input.HasConversationSearch,
+		HasGroupHistorySearch:  input.HasGroupHistorySearch,
 		ArtifactStoreAvailable: input.ArtifactStoreAvailable,
 		BrowserEnabled:         browserEnabled,
 		Env: EnvConfig{
@@ -179,6 +182,9 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	}
 	if input.HasConversationSearch {
 		available["conversation_search"] = struct{}{}
+	}
+	if input.HasGroupHistorySearch {
+		available["group_history_search"] = struct{}{}
 	}
 
 	sandboxBaseURL := normalizeBaseURL(input.Env.SandboxBaseURL)

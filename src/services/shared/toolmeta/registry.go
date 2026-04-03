@@ -288,6 +288,16 @@ var registry = []ToolMeta{
 			"Use to recall previously discussed facts not stored in long-term memory. Returns matching messages with thread_id, role, snippet, and timestamp. " +
 			"This is keyword search, not semantic search, and costs no model tokens.",
 	},
+	{
+		Name:      "group_history_search",
+		Group:     GroupMemory,
+		Label:     "Group history search",
+		ShortDesc: "keyword-search current group chat history",
+		LLMDescription: "keyword-search the current group chat history. " +
+			"Returns matching messages with role, content snippet, attachment_keys (for images), and timestamp. " +
+			"Use to recall previously discussed topics, shared images, or facts from earlier in this group conversation. " +
+			"This is keyword search, not semantic search, and costs no model tokens.",
+	},
 	// ── artifact ──
 	{
 		Name:      "visualize_read_me",

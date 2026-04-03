@@ -34,6 +34,13 @@ type ConversationSearchHit struct {
 	CreatedAt time.Time
 }
 
+type GroupSearchHit struct {
+	Role           string
+	Content        string
+	ContentJSON    json.RawMessage
+	CreatedAt      time.Time
+}
+
 func (MessagesRepository) InsertAssistantMessage(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -468,4 +475,59 @@ func escapeILikePattern(input string) string {
 		"_", "!_",
 	)
 	return replacer.Replace(input)
+}
+
+func (MessagesRepository) SearchByThread(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	threadID uuid.UUID,
+	query string,
+	limit int,
+) ([]GroupSearchHit, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("pool must not be nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	trimmedQuery := strings.TrimSpace(query)
+	if trimmedQuery == "" {
+		return nil, fmt.Errorf("query must not be empty")
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	like := "%" + escapeILikePattern(trimmedQuery) + "%"
+	rows, err := pool.Query(
+		ctx,
+		`SELECT m.role, m.content, m.content_json, m.created_at
+		 FROM messages m
+		 WHERE m.thread_id = $1
+		   AND m.deleted_at IS NULL
+		   AND m.hidden = FALSE
+		   AND m.content ILIKE $2 ESCAPE '!'
+		 ORDER BY m.created_at DESC, m.id DESC
+		 LIMIT $3`,
+		threadID, like, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	hits := make([]GroupSearchHit, 0, limit)
+	for rows.Next() {
+		var item GroupSearchHit
+		if err := rows.Scan(&item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		item.Role = strings.TrimSpace(item.Role)
+		item.Content = strings.TrimSpace(item.Content)
+		hits = append(hits, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return hits, nil
 }

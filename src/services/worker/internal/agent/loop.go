@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
@@ -1834,9 +1835,13 @@ func toolResultMessage(result llm.StreamToolResult) llm.Message {
 		encoded, _ := json.Marshal(envelope)
 		text = string(encoded)
 	}
+	parts := []llm.ContentPart{
+		{Type: messagecontent.PartTypeText, Text: text, TrustSource: "tool"},
+	}
+	parts = append(parts, result.ContentParts...)
 	return llm.Message{
 		Role:    "tool",
-		Content: []llm.TextPart{{Text: text, TrustSource: "tool"}},
+		Content: parts,
 	}
 }
 
@@ -2092,11 +2097,22 @@ func toolResultFromExecution(toolCallID string, toolName string, result tools.Ex
 	if result.ResultJSON != nil {
 		resultJSON = copyMap(result.ResultJSON)
 	}
+	var contentParts []llm.ContentPart
+	for _, att := range result.ContentParts {
+		contentParts = append(contentParts, llm.ContentPart{
+			Type: messagecontent.PartTypeImage,
+			Data: att.Data,
+			Attachment: &messagecontent.AttachmentRef{
+				MimeType: att.MimeType,
+			},
+		})
+	}
 	return llm.StreamToolResult{
-		ToolCallID: toolCallID,
-		ToolName:   toolName,
-		ResultJSON: resultJSON,
-		Error:      errObj,
+		ToolCallID:   toolCallID,
+		ToolName:     toolName,
+		ResultJSON:   resultJSON,
+		ContentParts: contentParts,
+		Error:        errObj,
 	}
 }
 

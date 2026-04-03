@@ -521,6 +521,21 @@ func toGeminiContents(messages []Message) (systemInstruction map[string]any, con
 				return
 			}
 			pendingToolParts = append(pendingToolParts, part)
+			for _, cp := range msg.Content {
+				if cp.Kind() != "image" || cp.Attachment == nil || len(cp.Data) == 0 {
+					continue
+				}
+				mimeType := strings.TrimSpace(cp.Attachment.MimeType)
+				if mimeType == "" {
+					mimeType = "application/octet-stream"
+				}
+				pendingToolParts = append(pendingToolParts, map[string]any{
+					"inlineData": map[string]any{
+						"mimeType": mimeType,
+						"data":     base64.StdEncoding.EncodeToString(cp.Data),
+					},
+				})
+			}
 			continue
 
 		default:

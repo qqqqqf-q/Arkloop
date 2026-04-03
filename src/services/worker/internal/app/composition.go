@@ -30,6 +30,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/channel_telegram"
 	"arkloop/services/worker/internal/tools/builtin/platform"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
+	"arkloop/services/worker/internal/tools/builtin/read"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -177,6 +178,18 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		slog.WarnContext(ctx, "message attachments: store init failed", "err", err.Error())
 	}
+
+	// 给 read executor 注入 attachment store 以支持 fallback 加载被压缩的图片
+	if messageAttachmentStore != nil {
+		for _, name := range []string{read.AgentSpec.Name, read.AgentSpecMiniMax.Name} {
+			if exec, ok := executors[name]; ok {
+				if readExec, ok := exec.(*read.Executor); ok {
+					readExec.AttachmentStore = messageAttachmentStore
+				}
+			}
+		}
+	}
+
 	rolloutStore, err := buildRolloutStore(ctx)
 	if err != nil {
 		slog.WarnContext(ctx, "rollout: store init failed", "err", err.Error())
@@ -184,9 +197,10 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	runtimeManager := workerruntime.NewManager(runtimeSnapshotTTL, func(loadCtx context.Context) (sharedtoolruntime.RuntimeSnapshot, error) {
 		return sharedtoolruntime.BuildRuntimeSnapshot(loadCtx, sharedtoolruntime.SnapshotInput{
-			ConfigResolver:         configResolver,
-			HasConversationSearch:  pool != nil,
-			ArtifactStoreAvailable: artifactStore != nil,
+			ConfigResolver:          configResolver,
+			HasConversationSearch:   pool != nil,
+			HasGroupHistorySearch:   pool != nil,
+			ArtifactStoreAvailable:  artifactStore != nil,
 			LoadPlatformProviders: func(innerCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
 				providers, err := toolProviderCache.GetPlatform(innerCtx, pool)
 				if err != nil {
@@ -233,6 +247,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		allLlmSpecs = append(allLlmSpecs, memorytool.NotebookLlmSpecs()...)
 	}
 
+	var groupSearchExec *conversationtool.GroupSearchExecutor
 	if pool != nil {
 		convExecutor := conversationtool.NewToolExecutor(pool, data.MessagesRepository{})
 		for _, spec := range conversationtool.AgentSpecs() {
@@ -242,6 +257,13 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 			executors[spec.Name] = convExecutor
 		}
 		allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
+
+		groupSearchExec = conversationtool.NewGroupSearchExecutor(pool, nil)
+		if err := toolRegistry.Register(conversationtool.GroupSearchAgentSpec); err != nil {
+			return nil, err
+		}
+		executors[conversationtool.GroupSearchAgentSpec.Name] = groupSearchExec
+		allLlmSpecs = append(allLlmSpecs, conversationtool.GroupSearchLlmSpec)
 	}
 
 	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore)
@@ -326,6 +348,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		RolloutBlobStore:             rolloutStore,
 		PlatformToolExecutor:         platformExec,
 		ChannelTelegramLoader:        chTelegram,
+		GroupSearchExecutor:          groupSearchExec,
 	})
 }
 

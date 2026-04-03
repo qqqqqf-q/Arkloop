@@ -36,6 +36,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/channel_telegram"
 	"arkloop/services/worker/internal/tools/builtin/sandbox"
+	conversationtool "arkloop/services/worker/internal/tools/conversation"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -107,6 +108,9 @@ type EngineV1Deps struct {
 
 	// ChannelTelegramLoader: Telegram Channel 工具取 token；nil 时不注入 telegram_react/reply
 	ChannelTelegramLoader channel_telegram.TokenLoader
+
+	// GroupSearchExecutor: 群聊搜索执行器；nil 时不注入 group_history_search
+	GroupSearchExecutor tools.Executor
 }
 
 func serviceExternalSkillDirs(_ context.Context) []string {
@@ -518,7 +522,11 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 			EmitDebugEvents: deps.EmitDebugEvents,
 			ConfigLoader:    deps.RoutingConfigLoader,
 		}),
-		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil),
+		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil, pipeline.ChannelTelegramToolsDeps{
+			TokenLoader:        deps.ChannelTelegramLoader,
+			GroupSearchExec:    deps.GroupSearchExecutor,
+			GroupSearchLlmSpec: conversationtool.GroupSearchLlmSpec,
+		}),
 	}
 }
 

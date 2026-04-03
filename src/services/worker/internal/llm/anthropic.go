@@ -392,7 +392,8 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 		}
 
 		if message.Role == "tool" {
-			block, err := anthropicToolResultBlock(text)
+			imageParts := collectImageParts(message.Content)
+			block, err := anthropicToolResultBlock(text, imageParts)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -496,7 +497,7 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 	return blocks, nil
 }
 
-func anthropicToolResultBlock(text string) (map[string]any, error) {
+func anthropicToolResultBlock(text string, imageParts []ContentPart) (map[string]any, error) {
 	var parsed any
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		return nil, fmt.Errorf("tool message is not valid JSON")
@@ -521,20 +522,54 @@ func anthropicToolResultBlock(text string) (map[string]any, error) {
 		contentSource = envelope["result"]
 	}
 
-	content, err := stablejson.Encode(contentSource)
+	contentText, err := stablejson.Encode(contentSource)
 	if err != nil {
-		content = "{}"
+		contentText = "{}"
 	}
 
 	block := map[string]any{
 		"type":        "tool_result",
 		"tool_use_id": toolCallID,
-		"content":     content,
 	}
 	if isError {
 		block["is_error"] = true
 	}
+
+	if len(imageParts) == 0 {
+		block["content"] = contentText
+		return block, nil
+	}
+
+	// content block 数组：text + image blocks
+	contentBlocks := []map[string]any{
+		{"type": "text", "text": contentText},
+	}
+	for _, part := range imageParts {
+		mimeType := strings.TrimSpace(part.Attachment.MimeType)
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		contentBlocks = append(contentBlocks, map[string]any{
+			"type": "image",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": mimeType,
+				"data":       base64.StdEncoding.EncodeToString(part.Data),
+			},
+		})
+	}
+	block["content"] = contentBlocks
 	return block, nil
+}
+
+func collectImageParts(parts []ContentPart) []ContentPart {
+	var images []ContentPart
+	for _, part := range parts {
+		if part.Kind() == "image" && part.Attachment != nil && len(part.Data) > 0 {
+			images = append(images, part)
+		}
+	}
+	return images
 }
 
 func anthropicToolChoice(tc *ToolChoice) map[string]any {

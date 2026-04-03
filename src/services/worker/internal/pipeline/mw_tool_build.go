@@ -12,13 +12,14 @@ import (
 )
 
 var runtimeManagedToolNames = map[string]struct{}{
-	"acp_agent":           {},
-	"browser":             {},
-	"conversation_search": {},
-	"create_artifact":     {},
-	"document_write":      {},
-	"exec_command":        {},
-	"memory_forget":       {},
+	"acp_agent":            {},
+	"browser":              {},
+	"conversation_search":  {},
+	"create_artifact":      {},
+	"document_write":       {},
+	"exec_command":         {},
+	"group_history_search": {},
+	"memory_forget":        {},
 	"memory_edit":         {},
 	"memory_read":         {},
 	"memory_search":       {},
@@ -92,7 +93,8 @@ func NewToolBuildMiddleware() RunMiddleware {
 
 		allSpecs := FilterToolSpecs(rc.ToolSpecs, filteredAllowlist, rc.ToolRegistry)
 		readImageBridgeEnabled := hasImageBridgeProvider(rc.ActiveToolProviderByGroup)
-		allSpecs = ApplyReadImageSourceVisibility(allSpecs, readImageBridgeEnabled)
+		nativeImageInput := supportsImageInput(rc.SelectedRoute)
+		allSpecs = ApplyReadImageSourceVisibility(allSpecs, readImageBridgeEnabled, nativeImageInput)
 
 		// Ensure load_tools LLM spec is present when core_tools is active.
 		// It might be missing if the persona's tool_allowlist narrowed ToolSpecs earlier.

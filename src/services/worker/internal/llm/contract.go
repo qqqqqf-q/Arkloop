@@ -410,12 +410,13 @@ func (c StreamLlmResponseChunk) ToDataJSON() map[string]any {
 }
 
 type StreamToolResult struct {
-	ToolCallID string
-	ToolName   string
-	ResultJSON map[string]any
-	Error      *GatewayError
-	Usage      *Usage
-	Cost       *Cost
+	ToolCallID   string
+	ToolName     string
+	ResultJSON   map[string]any
+	ContentParts []ContentPart // 多模态附件（图片等），由 agent loop 注入 tool result message
+	Error        *GatewayError
+	Usage        *Usage
+	Cost         *Cost
 }
 
 func (r StreamToolResult) ToDataJSON() map[string]any {

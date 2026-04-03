@@ -280,7 +280,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	}
 
 	envSnap, err := sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
-		HasConversationSearch:  true,
+		HasConversationSearch:   true,
+		HasGroupHistorySearch:   true,
 		ArtifactStoreAvailable: artifactToolsRegistered,
 		ConfigResolver:         nil,
 	})

@@ -34,7 +34,7 @@ func TestApplyReadImageSourceVisibility_RemovesImageKindsFromEnum(t *testing.T) 
 		},
 	}
 
-	patched := ApplyReadImageSourceVisibility(specs, false)
+	patched := ApplyReadImageSourceVisibility(specs, false, false)
 	readSpec, ok := findToolSpec(patched, "read")
 	if !ok {
 		t.Fatal("expected read spec")

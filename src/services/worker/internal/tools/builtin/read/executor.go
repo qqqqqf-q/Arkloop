@@ -55,8 +55,13 @@ type parsedArgs struct {
 	TimeoutOverride *int
 }
 
+type AttachmentFetcher interface {
+	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
+}
+
 type Executor struct {
-	Tracker *fileops.FileTracker
+	Tracker         *fileops.FileTracker
+	AttachmentStore AttachmentFetcher
 
 	provider Provider
 	timeout  time.Duration
@@ -206,19 +211,30 @@ func (e *Executor) executeMessageAttachment(
 		}
 	}
 
-	provider, providerErr := e.resolveProvider(execCtx)
-	if providerErr != nil {
-		return tools.ExecutionResult{Error: providerErr, DurationMs: durationMs(started)}
-	}
-
 	timeout := resolveTimeout(e.timeout, execCtx.TimeoutMs, parsed.TimeoutOverride)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	image, err := fetchMessageAttachmentImage(execCtx.PipelineRC, parsed.Source.AttachmentKey, parsed.MaxBytes)
+	image, err := fetchMessageAttachmentImage(execCtx.PipelineRC, parsed.Source.AttachmentKey, parsed.MaxBytes, e.AttachmentStore)
 	if err != nil {
 		return tools.ExecutionResult{
 			Error:      executionErrorFromFetchError(err),
+			DurationMs: durationMs(started),
+		}
+	}
+
+	provider, providerErr := e.resolveProvider(execCtx)
+	if providerErr != nil {
+		return tools.ExecutionResult{
+			ResultJSON: map[string]any{
+				"source_kind":    string(parsed.Source.Kind),
+				"attachment_key": parsed.Source.AttachmentKey,
+				"mime_type":      image.MimeType,
+				"bytes":          len(image.Bytes),
+			},
+			ContentParts: []tools.ContentAttachment{
+				{MimeType: image.MimeType, Data: image.Bytes},
+			},
 			DurationMs: durationMs(started),
 		}
 	}
@@ -406,7 +422,7 @@ func (e *Executor) providerFromConfig(cfg toolruntime.ProviderConfig) (Provider,
 	}
 }
 
-func fetchMessageAttachmentImage(pipelineRC any, attachmentKey string, maxBytes int) (fetchedImage, error) {
+func fetchMessageAttachmentImage(pipelineRC any, attachmentKey string, maxBytes int, store AttachmentFetcher) (fetchedImage, error) {
 	key := strings.TrimSpace(attachmentKey)
 	if key == "" {
 		return fetchedImage{}, fmt.Errorf("attachment key is required")
@@ -443,6 +459,27 @@ func fetchMessageAttachmentImage(pipelineRC any, attachmentKey string, maxBytes 
 			}, nil
 		}
 	}
+
+	// fallback: load from object store by key
+	if store != nil {
+		data, contentType, err := store.GetWithContentType(context.Background(), key)
+		if err == nil && len(data) > 0 {
+			if len(data) > maxBytes {
+				return fetchedImage{}, imageTooLargeError{MaxBytes: maxBytes}
+			}
+			mimeType := detectImageMimeType(contentType, data)
+			if mimeType == "" {
+				return fetchedImage{}, unsupportedMediaTypeError{DetectedMimeType: detectedMimeType(contentType, data)}
+			}
+			return fetchedImage{
+				SourceURL: "attachment:" + key,
+				FinalURL:  "attachment:" + key,
+				MimeType:  mimeType,
+				Bytes:     data,
+			}, nil
+		}
+	}
+
 	return fetchedImage{}, fmt.Errorf("message attachment not found")
 }
 
@@ -535,9 +572,6 @@ func parseArgs(args map[string]any) (parsedArgs, *tools.ExecutionError) {
 	case sourceKindMessageAttachment:
 		if source.AttachmentKey == "" {
 			return parsedArgs{}, requiredStringArgError("source.attachment_key")
-		}
-		if prompt == "" {
-			return parsedArgs{}, requiredStringArgError("prompt")
 		}
 	case sourceKindRemoteURL:
 		if source.URL == "" {

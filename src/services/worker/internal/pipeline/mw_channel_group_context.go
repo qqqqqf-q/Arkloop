@@ -102,7 +102,7 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 	}
 }
 
-// stripOlderImages 将尾部 keepTail 条之前的消息中的图片替换为 [image] 占位符。
+// stripOlderImages 将尾部 keepTail 条之前的消息中的图片替换为带 attachment_key 的占位符。
 func stripOlderImages(rc *RunContext, keepTail int) {
 	if rc == nil || len(rc.Messages) == 0 || keepTail < 0 {
 		return
@@ -116,9 +116,13 @@ func stripOlderImages(rc *RunContext, keepTail int) {
 		parts := rc.Messages[i].Content
 		for j := range parts {
 			if parts[j].Kind() == messagecontent.PartTypeImage {
+				tag := "[image]"
+				if parts[j].Attachment != nil && parts[j].Attachment.Key != "" {
+					tag = "[image attachment_key=" + strconv.Quote(parts[j].Attachment.Key) + "]"
+				}
 				parts[j] = llm.ContentPart{
 					Type: messagecontent.PartTypeText,
-					Text: "[image]",
+					Text: tag,
 				}
 				replaced = true
 			}
