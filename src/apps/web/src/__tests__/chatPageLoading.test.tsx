@@ -60,6 +60,7 @@ vi.mock('../api', async () => {
     getThread: vi.fn(),
     createThreadShare: vi.fn(),
     uploadThreadAttachment: vi.fn(),
+    uploadStagingAttachment: vi.fn(),
     starThread: vi.fn(),
     unstarThread: vi.fn(),
     updateThreadTitle: vi.fn(),

@@ -88,7 +88,7 @@ import {
   listRunEvents,
   listThreadRuns,
   createThreadShare,
-  uploadThreadAttachment,
+  uploadStagingAttachment,
   starThread,
   unstarThread,
   updateThreadTitle,
@@ -3095,7 +3095,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     })
     if (!threadId) return
     for (const att of newAttachments) {
-      uploadThreadAttachment(accessToken, threadId, att.file)
+      uploadStagingAttachment(accessToken, att.file)
         .then((uploaded) => {
           setAttachments((prev) =>
             prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -3126,7 +3126,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     }
     setAttachments((prev) => [...prev, att])
     if (!threadId) return
-    uploadThreadAttachment(accessToken, threadId, file)
+    uploadStagingAttachment(accessToken, file)
       .then((uploaded) => {
         setAttachments((prev) =>
           prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -3175,11 +3175,11 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     injectionBlockedRunIdRef.current = null
 
     try {
-      const uploadAttachments = async (targetThreadId: string) => {
+      const uploadAttachments = async () => {
         return await Promise.all(
           attachments.map(async (attachment) => {
             if (attachment.uploaded) return attachment.uploaded
-            return await uploadThreadAttachment(accessToken, targetThreadId, attachment.file)
+            return await uploadStagingAttachment(accessToken, attachment.file)
           }),
         )
       }
@@ -3190,7 +3190,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
         const forked = await forkThread(accessToken, threadId, lastMessageId, true)
         if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
         onThreadCreated(forked)
-        const uploaded = await uploadAttachments(forked.id)
+        const uploaded = await uploadAttachments()
         const forkUserMessage = await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
         const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
@@ -3240,7 +3240,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
         onRunStarted(threadId)
         scrollToBottom()
       } else {
-        const uploaded = await uploadAttachments(threadId)
+        const uploaded = await uploadAttachments()
         const message = await createMessage(accessToken, threadId, buildMessageRequest(text, uploaded))
         invalidateMessageSync()
         setUserEnterMessageId(message.id)

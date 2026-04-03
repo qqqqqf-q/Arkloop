@@ -5,7 +5,7 @@ import { ChatInput, type Attachment } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
+import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
 import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalClawFolderToThread, readClawWorkFolder } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 import { buildMessageRequest } from '../messageContent'
@@ -125,8 +125,6 @@ export function WelcomePage() {
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
   const { t } = useLocale()
-  const draftThreadRef = useRef<ThreadResponse | null>(null)
-  const draftThreadPromiseRef = useRef<Promise<ThreadResponse> | null>(null)
 
   const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
 
@@ -168,15 +166,6 @@ export function WelcomePage() {
     if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
   }, [])
 
-  const ensureDraftThread = useCallback((): Promise<ThreadResponse> => {
-    if (draftThreadRef.current) return Promise.resolve(draftThreadRef.current)
-    if (draftThreadPromiseRef.current) return draftThreadPromiseRef.current
-    const promise = createThread(accessToken, { title: t.newChatTitle, is_private: isPrivateMode })
-      .then((thread) => { draftThreadRef.current = thread; return thread })
-    draftThreadPromiseRef.current = promise
-    return promise
-  }, [accessToken, isPrivateMode, t.newChatTitle])
-
   useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
@@ -204,8 +193,7 @@ export function WelcomePage() {
       return [...prev, ...deduped]
     })
     for (const att of newAttachments) {
-      ensureDraftThread()
-        .then((thread) => uploadThreadAttachment(accessToken, thread.id, att.file))
+      uploadStagingAttachment(accessToken, att.file)
         .then((uploaded) => {
           setAttachments((prev) =>
             prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -217,7 +205,7 @@ export function WelcomePage() {
           )
         })
     }
-  }, [accessToken, ensureDraftThread])
+  }, [accessToken])
 
   const handlePasteContent = useCallback((text: string) => {
     const ts = Math.floor(Date.now() / 1000)
@@ -235,8 +223,7 @@ export function WelcomePage() {
       pasted: { text, lineCount },
     }
     setAttachments((prev) => [...prev, att])
-    ensureDraftThread()
-      .then((thread) => uploadThreadAttachment(accessToken, thread.id, file))
+    uploadStagingAttachment(accessToken, file)
       .then((uploaded) => {
         setAttachments((prev) =>
           prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -247,7 +234,7 @@ export function WelcomePage() {
           prev.map((a) => a.id === att.id ? { ...a, status: 'error' as const } : a),
         )
       })
-  }, [accessToken, ensureDraftThread])
+  }, [accessToken])
 
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
@@ -275,13 +262,11 @@ export function WelcomePage() {
 
     try {
       const title = deriveTitle(text, t.newChatTitle)
-      const thread = draftThreadRef.current
-        ? draftThreadRef.current
-        : await createThread(accessToken, { title, is_private: isPrivateMode })
+      const thread = await createThread(accessToken, { title, is_private: isPrivateMode })
       const uploaded = await Promise.all(
         attachments.map(async (attachment) => {
           if (attachment.uploaded) return attachment.uploaded
-          return await uploadThreadAttachment(accessToken, thread.id, attachment.file)
+          return await uploadStagingAttachment(accessToken, attachment.file)
         }),
       )
       const userMessage = await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
