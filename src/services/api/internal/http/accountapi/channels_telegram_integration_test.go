@@ -1053,6 +1053,9 @@ func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
 			t.Fatalf("expected prompt header to omit transport metadata %q, got %s", forbidden, content.Parts[0].Text)
 		}
 	}
+	if !strings.Contains(content.Parts[0].Text, `message-id: "`) {
+		t.Fatalf("expected prompt header to contain message-id field")
+	}
 	attachments, _ := metadata["media_attachments"].([]any)
 	if len(attachments) != 1 {
 		t.Fatalf("expected one media attachment in metadata, got %#v", metadata["media_attachments"])
@@ -1274,6 +1277,9 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 		if strings.Contains(content.Parts[0].Text, forbidden) {
 			t.Fatalf("expected group prompt header to omit transport metadata %q, got %s", forbidden, content.Parts[0].Text)
 		}
+	}
+	if !strings.Contains(content.Parts[0].Text, `message-id: "`) {
+		t.Fatalf("expected group prompt header to contain message-id field")
 	}
 }
 

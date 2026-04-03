@@ -165,8 +165,7 @@ time: "2026-03-28T13:31:16Z"
 		}
 	}
 	for _, want := range []string{
-		`Telegram supergroup`,
-		`title: Arkloop`,
+		`Telegram supergroup "Arkloop"`,
 		`[13:31:00-13:31:05] A ck:`,
 		`  xhelogo`,
 		`  怎么那么像`,
@@ -216,8 +215,7 @@ time: "2026-03-28T13:31:16Z"
 		t.Fatal("expected telegram burst to compact")
 	}
 	for _, want := range []string{
-		`Telegram supergroup`,
-		`title: Arkloop`,
+		`Telegram supergroup "Arkloop"`,
 		`[13:31:00-13:31:05] A ck:`,
 		`  第一条`,
 		`  第二条`,
@@ -324,8 +322,7 @@ func TestCompactTelegramGroupEnvelopeBurst_withImageParts(t *testing.T) {
 		t.Fatal("expected compact to succeed for mixed text+image burst")
 	}
 	for _, want := range []string{
-		"Telegram supergroup",
-		"title: Arkloop",
+		"Telegram supergroup \"Arkloop\"",
 		"[13:31:00] A ck:",
 		"[图片: image.jpg]",
 		"[13:31:10] 清凤: nice",
@@ -366,5 +363,279 @@ func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	}
 	if parts[1].Type != "image" || parts[1].Attachment.Key != "k2" {
 		t.Fatalf("expected image part preserved, got %+v", parts[1])
+	}
+}
+
+func TestMergeAll_compactsMiddleBurst(t *testing.T) {
+	mw := NewChannelTelegramGroupUserMergeMiddleware()
+	idA := uuid.New()
+	idU1, idU2 := uuid.New(), uuid.New()
+	idB := uuid.New()
+	idU3 := uuid.New()
+	msgs := []llm.Message{
+		{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "bot1"}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "x"}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "y"}}},
+		{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "bot2"}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "z"}}},
+	}
+	rc := tgGroupRC(msgs, []uuid.UUID{idA, idU1, idU2, idB, idU3})
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+	// assistant + merged(x,y) + assistant + user(z)
+	if len(rc.Messages) != 4 {
+		t.Fatalf("expected 4 messages, got %d", len(rc.Messages))
+	}
+	if rc.ThreadMessageIDs[1] != idU2 {
+		t.Fatalf("middle burst should keep last id, got %v", rc.ThreadMessageIDs[1])
+	}
+	if rc.ThreadMessageIDs[3] != idU3 {
+		t.Fatalf("tail single user should keep its id, got %v", rc.ThreadMessageIDs[3])
+	}
+}
+
+func TestCompactSingleEnvelopeMessage(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603-ae05-43f1-be4b-a8728a68e16f"
+conversation-title: "Arkloop"
+time: "2026-03-28T06:20:00Z"
+admin: "true"
+---
+[Telegram in Arkloop] hello world`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected single envelope message to compact")
+	}
+	for _, want := range []string{
+		`Telegram supergroup "Arkloop"`,
+		`[06:20:00] 清凤 [admin]: hello world`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected %q in output, got %q", want, text)
+		}
+	}
+	if strings.Contains(text, "---") {
+		t.Fatalf("should not contain yaml separator, got %q", text)
+	}
+}
+
+func TestCompactWithMessageIDs(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:38:23Z"
+admin: "true"
+message-id: "4814"
+---
+[Telegram in Arkloop] first`}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:38:29Z"
+admin: "true"
+message-id: "4815"
+---
+[Telegram in Arkloop] second`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected burst to compact")
+	}
+	if !strings.Contains(text, `[07:38:23-07:38:29 #4814,#4815] 清凤 [admin]:`) {
+		t.Fatalf("expected message-ids in output, got %q", text)
+	}
+}
+
+func TestCompactSingleMessageID(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "k ilock"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "abc12345"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:03:04Z"
+message-id: "4812"
+---
+[Telegram in Arkloop] hello`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected single msg to compact")
+	}
+	if !strings.Contains(text, `[07:03:04 #4812] k ilock: hello`) {
+		t.Fatalf("expected message-id in output, got %q", text)
+	}
+}
+
+func TestCompactNoMessageID(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "old user"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "abc12345"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:03:04Z"
+---
+[Telegram in Arkloop] legacy msg`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected single msg to compact")
+	}
+	if !strings.Contains(text, `[07:03:04] old user: legacy msg`) {
+		t.Fatalf("expected no message-id prefix, got %q", text)
+	}
+	if strings.Contains(text, "#") {
+		t.Fatalf("should not contain # when no message-id, got %q", text)
+	}
+}
+
+func TestCompactDifferentSpeakersEachGetMessageID(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "A"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "aaa11111"
+conversation-title: "Arkloop"
+time: "2026-03-28T10:00:00Z"
+message-id: "100"
+---
+[Telegram in Arkloop] msg a`}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "B"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "bbb22222"
+conversation-title: "Arkloop"
+time: "2026-03-28T10:00:05Z"
+message-id: "101"
+---
+[Telegram in Arkloop] msg b`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected burst to compact")
+	}
+	if !strings.Contains(text, `[10:00:00 #100] A: msg a`) {
+		t.Fatalf("expected A's message-id, got %q", text)
+	}
+	if !strings.Contains(text, `[10:00:05 #101] B: msg b`) {
+		t.Fatalf("expected B's message-id, got %q", text)
+	}
+}
+
+func TestFullScenarioFromSpec(t *testing.T) {
+	mw := NewChannelTelegramGroupUserMergeMiddleware()
+	ids := make([]uuid.UUID, 7)
+	for i := range ids {
+		ids[i] = uuid.New()
+	}
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603"
+conversation-title: "Arkloop"
+time: "2026-03-28T06:20:00Z"
+admin: "true"
+message-id: "4810"
+---
+[Telegram in Arkloop]`}}},
+		{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "回复1"}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "k ilock"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "abc12345"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:03:04Z"
+message-id: "4812"
+---
+[Telegram in Arkloop]`}}},
+		{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "回复2"}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:38:23Z"
+admin: "true"
+message-id: "4814"
+---
+[Telegram in Arkloop] 六个 cursor 同时干`}}},
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "supergroup"
+sender-ref: "509cb603"
+conversation-title: "Arkloop"
+time: "2026-03-28T07:38:29Z"
+admin: "true"
+message-id: "4815"
+---
+[Telegram in Arkloop]`},
+			{Type: "image", Attachment: &messagecontent.AttachmentRef{Key: "img1", Filename: "photo.jpg", MimeType: "image/jpeg"}, Data: []byte("fake")},
+		}},
+	}
+	rc := tgGroupRC(msgs, ids[:6])
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+
+	// user(compact) + assistant + user(compact) + assistant + user(compact merge)
+	if len(rc.Messages) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(rc.Messages))
+	}
+
+	// 第一条 user: 单条 compact，body 清理后为空
+	u1text := llm.PartPromptText(rc.Messages[0].Content[0])
+	if !strings.Contains(u1text, `Telegram supergroup "Arkloop"`) {
+		t.Fatalf("u1 missing header, got %q", u1text)
+	}
+	if !strings.Contains(u1text, `#4810`) {
+		t.Fatalf("u1 missing message-id, got %q", u1text)
+	}
+	if !strings.Contains(u1text, `清凤 [admin]`) {
+		t.Fatalf("u1 missing speaker, got %q", u1text)
+	}
+
+	// 第三条 user: 单条 compact，body 清理后为空
+	u2text := llm.PartPromptText(rc.Messages[2].Content[0])
+	if !strings.Contains(u2text, `[07:03:04 #4812] k ilock`) {
+		t.Fatalf("u2 missing content, got %q", u2text)
+	}
+
+	// 第五条 user: 两条 merged
+	u3text := llm.PartPromptText(rc.Messages[4].Content[0])
+	if !strings.Contains(u3text, `[07:38:23-07:38:29 #4814,#4815] 清凤 [admin]:`) {
+		t.Fatalf("u3 missing merged header, got %q", u3text)
+	}
+	if !strings.Contains(u3text, `六个 cursor 同时干`) {
+		t.Fatalf("u3 missing body, got %q", u3text)
+	}
+	// 图片 part 应保留
+	hasImage := false
+	for _, p := range rc.Messages[4].Content {
+		if p.Type == "image" {
+			hasImage = true
+		}
+	}
+	if !hasImage {
+		t.Fatal("u3 missing image part")
 	}
 }

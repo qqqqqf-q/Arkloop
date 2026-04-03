@@ -340,6 +340,9 @@ func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMe
 	if incoming.MessageThreadID != nil && strings.TrimSpace(*incoming.MessageThreadID) != "" {
 		lines = append(lines, fmt.Sprintf(`message-thread-id: "%s"`, escapeTelegramEnvelopeValue(strings.TrimSpace(*incoming.MessageThreadID))))
 	}
+	if strings.TrimSpace(incoming.PlatformMsgID) != "" {
+		lines = append(lines, fmt.Sprintf(`message-id: "%s"`, escapeTelegramEnvelopeValue(incoming.PlatformMsgID)))
+	}
 	lines = append(lines, fmt.Sprintf(`time: "%s"`, escapeTelegramEnvelopeValue(formatTelegramTimestamp(incoming.DateUnix))))
 	return "---\n" + strings.Join(lines, "\n") + "\n---\n" + body
 }
