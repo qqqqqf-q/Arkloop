@@ -38,5 +38,24 @@ func buildRuntimeContextBlock(ctx context.Context, rc *RunContext) string {
 		line += fmt.Sprintf(" | Sender: %s", senderHash)
 	}
 
+	if identity := formatBotIdentity(rc.ChannelContext); identity != "" {
+		line += fmt.Sprintf(" | Identity: %s", identity)
+	}
+
 	return "## Runtime Context\n" + line
+}
+
+func formatBotIdentity(cc *ChannelContext) string {
+	name := cc.BotDisplayName
+	uname := cc.BotUsername
+	if name == "" && uname == "" {
+		return ""
+	}
+	if name != "" && uname != "" {
+		return fmt.Sprintf("%s (@%s)", name, uname)
+	}
+	if uname != "" {
+		return "@" + uname
+	}
+	return name
 }

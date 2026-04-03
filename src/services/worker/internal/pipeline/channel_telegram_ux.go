@@ -9,6 +9,8 @@ import (
 type TelegramChannelUX struct {
 	TypingIndicator bool
 	ReactionEmoji   string
+	BotUsername     string
+	BotFirstName    string
 }
 
 // ParseTelegramChannelUX reads optional keys:
@@ -33,6 +35,18 @@ func ParseTelegramChannelUX(configJSON []byte) TelegramChannelUX {
 		var s string
 		if err := json.Unmarshal(raw, &s); err == nil {
 			out.ReactionEmoji = strings.TrimSpace(s)
+		}
+	}
+	if raw, ok := m["bot_username"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			out.BotUsername = strings.TrimSpace(s)
+		}
+	}
+	if raw, ok := m["bot_first_name"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			out.BotFirstName = strings.TrimSpace(s)
 		}
 	}
 	return out

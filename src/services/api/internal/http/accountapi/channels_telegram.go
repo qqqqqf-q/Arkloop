@@ -42,6 +42,7 @@ type telegramChannelConfig struct {
 	AllowedUserIDs        []string `json:"allowed_user_ids"`
 	DefaultModel          string   `json:"default_model,omitempty"`
 	BotUsername           string   `json:"bot_username,omitempty"`
+	BotFirstName          string   `json:"bot_first_name,omitempty"`
 	TelegramBotUserID     int64    `json:"telegram_bot_user_id,omitempty"`
 	TelegramTypingSignal  *bool    `json:"telegram_typing_indicator,omitempty"`
 	TelegramReactionEmoji string   `json:"telegram_reaction_emoji,omitempty"`
@@ -740,6 +741,11 @@ func mergeTelegramBotProfileFromGetMe(raw json.RawMessage, info *telegrambot.Bot
 	uname = strings.TrimPrefix(uname, "@")
 	if strings.TrimSpace(cfg.BotUsername) == "" && uname != "" {
 		generic["bot_username"] = uname
+		changed = true
+	}
+	firstName := strings.TrimSpace(info.FirstName)
+	if strings.TrimSpace(cfg.BotFirstName) == "" && firstName != "" {
+		generic["bot_first_name"] = firstName
 		changed = true
 	}
 	if !changed {

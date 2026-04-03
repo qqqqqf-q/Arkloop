@@ -106,6 +106,24 @@ func (ChannelDeliveryRepository) GetChannelOwner(ctx context.Context, pool *pgxp
 	return ownerUserID, nil
 }
 
+func (ChannelDeliveryRepository) GetChannelConfigJSON(ctx context.Context, pool *pgxpool.Pool, channelID uuid.UUID) ([]byte, error) {
+	if pool == nil {
+		return nil, nil
+	}
+	var configJSON []byte
+	err := pool.QueryRow(ctx,
+		`SELECT COALESCE(config_json, '{}'::jsonb) FROM channels WHERE id = $1`,
+		channelID,
+	).Scan(&configJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("channel_delivery.GetChannelConfigJSON: %w", err)
+	}
+	return configJSON, nil
+}
+
 func (ChannelDeliveryRepository) RecordDelivery(
 	ctx context.Context,
 	db channelDeliveryExecer,

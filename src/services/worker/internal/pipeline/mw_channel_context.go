@@ -23,6 +23,8 @@ type ChannelContext struct {
 	IsReplyToBot            bool
 	SenderChannelIdentityID uuid.UUID
 	SenderUserID            *uuid.UUID
+	BotDisplayName          string
+	BotUsername             string
 }
 
 func NewChannelContextMiddleware(pool *pgxpool.Pool) RunMiddleware {
@@ -55,6 +57,14 @@ func NewChannelContextMiddleware(pool *pgxpool.Pool) RunMiddleware {
 				return err
 			}
 			channelCtx.SenderUserID = ownerID
+		}
+		if pool != nil && channelCtx.ChannelID != uuid.Nil && channelCtx.ChannelType == "telegram" {
+			configJSON, err := repo.GetChannelConfigJSON(ctx, pool, channelCtx.ChannelID)
+			if err == nil && len(configJSON) > 0 {
+				ux := ParseTelegramChannelUX(configJSON)
+				channelCtx.BotDisplayName = ux.BotFirstName
+				channelCtx.BotUsername = ux.BotUsername
+			}
 		}
 		rc.ChannelContext = channelCtx
 		rc.ChannelToolSurface = NewChannelToolSurfaceFromContext(channelCtx)
