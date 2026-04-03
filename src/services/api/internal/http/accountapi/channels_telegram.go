@@ -1641,10 +1641,6 @@ func buildTelegramChannelDeliveryPayload(
 	channelIdentityID uuid.UUID,
 	incoming telegramIncomingMessage,
 ) map[string]any {
-	triggerMessageID := incoming.PlatformMsgID
-	if incoming.ReplyToMsgID != nil && strings.TrimSpace(*incoming.ReplyToMsgID) != "" {
-		triggerMessageID = strings.TrimSpace(*incoming.ReplyToMsgID)
-	}
 	payload := map[string]any{
 		"channel_id":   channelID.String(),
 		"channel_type": "telegram",
@@ -1655,11 +1651,11 @@ func buildTelegramChannelDeliveryPayload(
 			"message_id": incoming.PlatformMsgID,
 		},
 		"trigger_message_ref": map[string]any{
-			"message_id": triggerMessageID,
+			"message_id": incoming.PlatformMsgID,
 		},
 		"platform_chat_id":           incoming.PlatformChatID,
 		"platform_message_id":        incoming.PlatformMsgID,
-		"reply_to_message_id":        triggerMessageID,
+		"reply_to_message_id":        incoming.PlatformMsgID,
 		"sender_channel_identity_id": channelIdentityID.String(),
 		"conversation_type":          incoming.ChatType,
 		"mentions_bot":               incoming.MentionsBot,
