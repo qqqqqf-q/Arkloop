@@ -131,7 +131,7 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
           margin: '0.5em 0',
         }}
       >
-        {alt || 'Image'}
+        {alt || '\u56fe\u7247\u52a0\u8f7d\u5931\u8d25'}
       </span>
     )
   }
@@ -292,7 +292,7 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
       <CopyIconButton
         onCopy={handleCopy}
         size={13}
-        className="opacity-0 group-hover/codeblock:opacity-100 transition-opacity duration-150"
+        className="opacity-0 group-hover/codeblock:opacity-100"
         style={{
           position: 'absolute',
           top: '8px',
@@ -306,7 +306,7 @@ function CodeBlockWrapper({ children, compact = false }: { children: React.React
           border: '0.5px solid var(--c-border-subtle)',
           background: copyHover ? 'var(--c-bg-deep)' : 'transparent',
           color: 'var(--c-text-icon)',
-          transition: 'background 0.15s',
+          transition: 'opacity 150ms ease, background 150ms ease',
         }}
         onMouseEnter={() => setCopyHover(true)}
         onMouseLeave={() => setCopyHover(false)}
@@ -509,7 +509,7 @@ function buildMarkdownComponents(compact: boolean): Components {
     li: ({ children }) => <li style={{ marginBottom: '0.3em' }}><WithCitations prefix="li">{children}</WithCitations></li>,
 
     blockquote: ({ children }) => (
-      <blockquote style={{ borderLeft: '3px solid #383835', paddingLeft: '1em', margin: '1em 0', color: 'var(--c-text-secondary)', fontStyle: 'italic' }}>
+      <blockquote style={{ borderLeft: '3px solid var(--c-blockquote-bar)', paddingLeft: '1em', margin: '1em 0', color: 'var(--c-text-secondary)', fontStyle: 'italic' }}>
         <WithCitations prefix="bq">{children}</WithCitations>
       </blockquote>
     ),

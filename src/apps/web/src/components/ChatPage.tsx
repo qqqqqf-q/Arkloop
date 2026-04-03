@@ -3965,6 +3965,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
       {/* 主体区域：消息 + 输入 + 可选的 sources 侧边面板 */}
       <div className="relative flex flex-1 min-h-0">
         <div className="relative flex flex-1 min-w-0 flex-col">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-bg-page), transparent)' }} />
           {/* 消息列表 */}
           <div
             ref={scrollContainerRef}

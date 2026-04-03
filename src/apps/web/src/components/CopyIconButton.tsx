@@ -90,13 +90,11 @@ export function CopyIconButton({ onCopy, onCopied, size = 16, className, style, 
   const showTooltip = hovered && phase === 'idle'
 
   return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}>
+    <span style={{ position: 'relative', display: 'inline-flex', ...style }} className={className}>
       <button
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className={className}
-        style={style}
       >
         <span style={{
           display: 'flex',
