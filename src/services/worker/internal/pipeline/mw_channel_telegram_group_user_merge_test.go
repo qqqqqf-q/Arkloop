@@ -167,8 +167,8 @@ time: "2026-03-28T13:31:16Z"
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
 		`[13:31:00-13:31:05] A ck:`,
-		`  xhelogo`,
-		`  怎么那么像`,
+		"13:31, xhelogo",
+		"13:31, 怎么那么像",
 		`[13:31:16] 清凤: 哈`,
 	} {
 		if !strings.Contains(text, want) {
@@ -217,9 +217,9 @@ time: "2026-03-28T13:31:16Z"
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
 		`[13:31:00-13:31:05] A ck:`,
-		`  第一条`,
-		`  第二条`,
-		`  换行`,
+		"13:31, 第一条",
+		"13:31, 第二条",
+		"换行",
 		`[13:31:16] 清凤: 第三条`,
 	} {
 		if !strings.Contains(text, want) {
@@ -452,8 +452,14 @@ message-id: "4815"
 	if !ok {
 		t.Fatal("expected burst to compact")
 	}
-	if !strings.Contains(text, `[07:38:23-07:38:29 #4814,#4815] 清凤 [admin]:`) {
-		t.Fatalf("expected message-ids in output, got %q", text)
+	if !strings.Contains(text, `[07:38:23-07:38:29] 清凤 [admin]:`) {
+		t.Fatalf("expected merged header without ids, got %q", text)
+	}
+	if !strings.Contains(text, `07:38 #4814, first`) {
+		t.Fatalf("expected first entry with id, got %q", text)
+	}
+	if !strings.Contains(text, `07:38 #4815, second`) {
+		t.Fatalf("expected second entry with id, got %q", text)
 	}
 }
 

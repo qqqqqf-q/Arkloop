@@ -1,26 +1,35 @@
-import { Tray, Menu, nativeImage, app, BrowserWindow, globalShortcut } from 'electron'
+import { Tray, Menu, nativeImage, nativeTheme, app, BrowserWindow, globalShortcut } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 
 let tray: Tray | null = null
 
-function getTrayIcon(): Electron.NativeImage {
+function resolveResource(name: string): string {
   const candidates = app.isPackaged
     ? [
-        path.join(process.resourcesPath, 'tray-icon.png'),
-        path.join(process.resourcesPath, 'app.asar', 'resources', 'tray-icon.png'),
+        path.join(process.resourcesPath, name),
+        path.join(process.resourcesPath, 'app.asar', 'resources', name),
       ]
     : [
-        path.join(__dirname, '..', '..', 'resources', 'tray-icon.png'),
+        path.join(__dirname, '..', '..', 'resources', name),
       ]
-  const iconPath = candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
+  return candidates.find((c) => fs.existsSync(c)) ?? candidates[0]
+}
 
-  try {
-    const img = nativeImage.createFromPath(iconPath)
-    if (process.platform === 'darwin') {
-      return img.resize({ height: 18 })
+function getTrayIcon(): Electron.NativeImage {
+  if (process.platform === 'darwin') {
+    const img = nativeImage.createFromPath(resolveResource('trayTemplate.png'))
+    const path2x = resolveResource('trayTemplate@2x.png')
+    if (fs.existsSync(path2x)) {
+      img.addRepresentation({ scaleFactor: 2.0, dataURL: nativeImage.createFromPath(path2x).toDataURL() })
     }
+    img.setTemplateImage(true)
     return img
+  }
+
+  const name = nativeTheme.shouldUseDarkColors ? 'tray-icon-light.png' : 'tray-icon-dark.png'
+  try {
+    return nativeImage.createFromPath(resolveResource(name))
   } catch {
     return nativeImage.createEmpty()
   }
@@ -62,6 +71,12 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   tray.on('double-click', () => {
     openWindow()
   })
+
+  if (process.platform !== 'darwin') {
+    nativeTheme.on('updated', () => {
+      tray?.setImage(getTrayIcon())
+    })
+  }
 
   return tray
 }

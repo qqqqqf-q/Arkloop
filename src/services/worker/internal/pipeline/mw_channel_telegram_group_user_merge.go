@@ -134,6 +134,8 @@ type telegramEnvelopeMessage struct {
 // telegramCompactBurstEntry 存储单条消息在 burst block 中的内容和 reply 信息。
 type telegramCompactBurstEntry struct {
 	body         string
+	time         string // 完整时间 "15:04:05"
+	messageID    string
 	replyToID    string
 	replyPreview string
 }
@@ -215,6 +217,8 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 		msgID := strings.TrimSpace(item.meta["message-id"])
 		entry := telegramCompactBurstEntry{
 			body:         item.body,
+			time:         ts,
+			messageID:    msgID,
 			replyToID:    strings.TrimSpace(item.meta["reply-to-message-id"]),
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
 		}
@@ -446,7 +450,8 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 		trimmed := strings.TrimSpace(e.body)
 		if trimmed != "" || e.replyToID != "" {
 			entries = append(entries, telegramCompactBurstEntry{
-				body: trimmed, replyToID: e.replyToID, replyPreview: e.replyPreview,
+				body: trimmed, time: e.time, messageID: e.messageID,
+				replyToID: e.replyToID, replyPreview: e.replyPreview,
 			})
 		}
 	}
@@ -458,33 +463,51 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 	if len(entries) == 1 {
 		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, entries[0])
 	}
+	// 合并 block：头部只放时间范围和说话人，每条消息带分钟级时间 + id
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(tsRange)
-	sb.WriteString(idSuffix)
 	sb.WriteString("] ")
 	sb.WriteString(strings.TrimSpace(block.speaker))
 	sb.WriteString(":")
 	for _, entry := range entries {
+		sb.WriteString("\n  ")
+		sb.WriteString(entryMinuteTime(entry.time))
+		if entry.messageID != "" {
+			sb.WriteString(" #")
+			sb.WriteString(entry.messageID)
+		}
+		sb.WriteString(", ")
 		if entry.replyToID != "" {
-			sb.WriteString("\n  > #")
+			sb.WriteString("> #")
 			sb.WriteString(entry.replyToID)
 			if entry.replyPreview != "" {
 				sb.WriteString(` "`)
 				sb.WriteString(entry.replyPreview)
 				sb.WriteString(`"`)
 			}
+			sb.WriteString("\n  ")
 		}
-		for _, line := range strings.Split(entry.body, "\n") {
+		for i, line := range strings.Split(entry.body, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
 				continue
 			}
-			sb.WriteString("\n  ")
+			if i > 0 {
+				sb.WriteString("\n  ")
+			}
 			sb.WriteString(trimmed)
 		}
 	}
 	return sb.String()
+}
+
+// entryMinuteTime 将 "15:04:05" 缩短为 "15:04"。
+func entryMinuteTime(ts string) string {
+	if len(ts) >= 5 {
+		return ts[:5]
+	}
+	return ts
 }
 
 func formatMessageIDSuffix(ids []string) string {
