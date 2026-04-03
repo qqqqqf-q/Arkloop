@@ -68,7 +68,7 @@ func TestMergeTelegramBotProfileFromGetMe_fillsMissingIDAndUsername(t *testing.T
 	t.Helper()
 	raw := json.RawMessage(`{"allowed_user_ids":["1"]}`)
 	u := "chiffon_arkloop_bot"
-	info := &telegrambot.BotInfo{ID: 9001, Username: &u}
+	info := &telegrambot.BotInfo{ID: 9001, Username: &u, FirstName: "Chiffon"}
 	out, changed, err := mergeTelegramBotProfileFromGetMe(raw, info)
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +85,9 @@ func TestMergeTelegramBotProfileFromGetMe_fillsMissingIDAndUsername(t *testing.T
 	}
 	if cfg.BotUsername != "chiffon_arkloop_bot" {
 		t.Fatalf("username: %q", cfg.BotUsername)
+	}
+	if cfg.BotFirstName != "Chiffon" {
+		t.Fatalf("first_name: %q", cfg.BotFirstName)
 	}
 }
 
@@ -114,9 +117,9 @@ func TestMergeTelegramBotProfileFromGetMe_fillsOnlyMissingUsername(t *testing.T)
 
 func TestMergeTelegramBotProfileFromGetMe_noOverwriteWhenPresent(t *testing.T) {
 	t.Helper()
-	raw := json.RawMessage(`{"allowed_user_ids":["1"],"telegram_bot_user_id":1,"bot_username":"keep_me"}`)
+	raw := json.RawMessage(`{"allowed_user_ids":["1"],"telegram_bot_user_id":1,"bot_username":"keep_me","bot_first_name":"keep_me_too"}`)
 	u := "other"
-	info := &telegrambot.BotInfo{ID: 999, Username: &u}
+	info := &telegrambot.BotInfo{ID: 999, Username: &u, FirstName: "Other"}
 	out, changed, err := mergeTelegramBotProfileFromGetMe(raw, info)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +127,11 @@ func TestMergeTelegramBotProfileFromGetMe_noOverwriteWhenPresent(t *testing.T) {
 	if changed {
 		t.Fatal("expected unchanged")
 	}
-	if string(out) != string(raw) {
-		t.Fatalf("raw mutated: %s", string(out))
+	cfg, err := resolveTelegramConfig("telegram", out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BotFirstName != "keep_me_too" {
+		t.Fatalf("first_name should stay: %q", cfg.BotFirstName)
 	}
 }

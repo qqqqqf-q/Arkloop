@@ -876,6 +876,14 @@ func desktopChannelContext(db data.DesktopDB) pipeline.RunMiddleware {
 			}
 			channelCtx.SenderUserID = ownerID
 		}
+		if db != nil && channelCtx.ChannelID != uuid.Nil && channelCtx.ChannelType == "telegram" {
+			configJSON, err := loadDesktopChannelConfigJSON(ctx, db, channelCtx.ChannelID)
+			if err == nil && len(configJSON) > 0 {
+				ux := pipeline.ParseTelegramChannelUX(configJSON)
+				channelCtx.BotDisplayName = ux.BotFirstName
+				channelCtx.BotUsername = ux.BotUsername
+			}
+		}
 		rc.ChannelContext = channelCtx
 		rc.ChannelToolSurface = pipeline.NewChannelToolSurfaceFromContext(channelCtx)
 		if channelCtx.SenderUserID != nil {
@@ -1243,6 +1251,24 @@ func loadDesktopChannelOwner(ctx context.Context, db data.DesktopDB, channelID u
 		return nil, fmt.Errorf("desktop channel owner lookup: %w", err)
 	}
 	return ownerUserID, nil
+}
+
+func loadDesktopChannelConfigJSON(ctx context.Context, db data.DesktopDB, channelID uuid.UUID) ([]byte, error) {
+	if db == nil {
+		return nil, nil
+	}
+	var configJSON []byte
+	err := db.QueryRow(ctx,
+		`SELECT COALESCE(config_json, '{}') FROM channels WHERE id = $1`,
+		channelID,
+	).Scan(&configJSON)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("desktop channel config lookup: %w", err)
+	}
+	return configJSON, nil
 }
 
 func loadDesktopDeliveryChannel(ctx context.Context, db data.DesktopDB, channelID uuid.UUID) (*desktopDeliveryChannelRecord, error) {

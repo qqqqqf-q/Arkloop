@@ -131,11 +131,18 @@ type telegramEnvelopeMessage struct {
 	body string
 }
 
+// telegramCompactBurstEntry 存储单条消息在 burst block 中的内容和 reply 信息。
+type telegramCompactBurstEntry struct {
+	body         string
+	replyToID    string
+	replyPreview string
+}
+
 type telegramCompactBurstBlock struct {
 	startTime  string
 	endTime    string
 	speaker    string
-	bodies     []string
+	entries    []telegramCompactBurstEntry
 	messageIDs []string
 }
 
@@ -206,9 +213,14 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 		speaker := compactTelegramBurstSpeaker(item.meta, duplicateDisplay)
 		ts := compactTelegramBurstTime(item.meta["time"])
 		msgID := strings.TrimSpace(item.meta["message-id"])
+		entry := telegramCompactBurstEntry{
+			body:         item.body,
+			replyToID:    strings.TrimSpace(item.meta["reply-to-message-id"]),
+			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
+		}
 		if len(blocks) > 0 && blocks[len(blocks)-1].speaker == speaker {
 			blocks[len(blocks)-1].endTime = ts
-			blocks[len(blocks)-1].bodies = append(blocks[len(blocks)-1].bodies, item.body)
+			blocks[len(blocks)-1].entries = append(blocks[len(blocks)-1].entries, entry)
 			if msgID != "" {
 				blocks[len(blocks)-1].messageIDs = append(blocks[len(blocks)-1].messageIDs, msgID)
 			}
@@ -222,7 +234,7 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 			startTime:  ts,
 			endTime:    ts,
 			speaker:    speaker,
-			bodies:     []string{item.body},
+			entries:    []telegramCompactBurstEntry{entry},
 			messageIDs: mids,
 		})
 	}
@@ -392,12 +404,18 @@ func compactTelegramBurstTime(raw string) string {
 	return cleaned
 }
 
-func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker, body string) string {
-	text := strings.TrimSpace(body)
-	if text == "" {
+func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry telegramCompactBurstEntry) string {
+	text := strings.TrimSpace(entry.body)
+	replyLine := ""
+	if entry.replyToID != "" {
+		replyLine = "> #" + entry.replyToID
+		if entry.replyPreview != "" {
+			replyLine += ` "` + entry.replyPreview + `"`
+		}
+	}
+	if text == "" && replyLine == "" {
 		return fmt.Sprintf("[%s%s] %s", ts, msgIDSuffix, speaker)
 	}
-	lines := strings.Split(text, "\n")
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(ts)
@@ -405,6 +423,11 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker, body string) strin
 	sb.WriteString("] ")
 	sb.WriteString(strings.TrimSpace(speaker))
 	sb.WriteString(": ")
+	if replyLine != "" {
+		sb.WriteString(replyLine)
+		sb.WriteString("\n  ")
+	}
+	lines := strings.Split(text, "\n")
 	sb.WriteString(strings.TrimSpace(lines[0]))
 	for _, line := range lines[1:] {
 		trimmed := strings.TrimSpace(line)
@@ -418,20 +441,22 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker, body string) strin
 }
 
 func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
-	bodies := make([]string, 0, len(block.bodies))
-	for _, body := range block.bodies {
-		text := strings.TrimSpace(body)
-		if text != "" {
-			bodies = append(bodies, text)
+	entries := make([]telegramCompactBurstEntry, 0, len(block.entries))
+	for _, e := range block.entries {
+		trimmed := strings.TrimSpace(e.body)
+		if trimmed != "" || e.replyToID != "" {
+			entries = append(entries, telegramCompactBurstEntry{
+				body: trimmed, replyToID: e.replyToID, replyPreview: e.replyPreview,
+			})
 		}
 	}
 	tsRange := compactTelegramBurstRange(block.startTime, block.endTime)
 	idSuffix := formatMessageIDSuffix(block.messageIDs)
-	if len(bodies) == 0 {
-		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, "")
+	if len(entries) == 0 {
+		return fmt.Sprintf("[%s%s] %s", tsRange, idSuffix, strings.TrimSpace(block.speaker))
 	}
-	if len(bodies) == 1 {
-		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, bodies[0])
+	if len(entries) == 1 {
+		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, entries[0])
 	}
 	var sb strings.Builder
 	sb.WriteString("[")
@@ -440,8 +465,17 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 	sb.WriteString("] ")
 	sb.WriteString(strings.TrimSpace(block.speaker))
 	sb.WriteString(":")
-	for _, body := range bodies {
-		for _, line := range strings.Split(body, "\n") {
+	for _, entry := range entries {
+		if entry.replyToID != "" {
+			sb.WriteString("\n  > #")
+			sb.WriteString(entry.replyToID)
+			if entry.replyPreview != "" {
+				sb.WriteString(` "`)
+				sb.WriteString(entry.replyPreview)
+				sb.WriteString(`"`)
+			}
+		}
+		for _, line := range strings.Split(entry.body, "\n") {
 			trimmed := strings.TrimSpace(line)
 			if trimmed == "" {
 				continue

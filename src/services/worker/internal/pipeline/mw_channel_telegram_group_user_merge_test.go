@@ -639,3 +639,98 @@ message-id: "4815"
 		t.Fatal("u3 missing image part")
 	}
 }
+
+func TestCompactWithReply_single(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "Alice"
+channel: "telegram"
+conversation-type: "supergroup"
+conversation-title: "Arkloop"
+sender-ref: "aaa11111"
+reply-to-message-id: "100"
+reply-to-preview: "Bob: 昨天说的方案"
+time: "2026-04-03T10:00:00Z"
+message-id: "105"
+---
+[Telegram in Arkloop] 我同意`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected compact to succeed")
+	}
+	if !strings.Contains(text, `> #100 "Bob: 昨天说的方案"`) {
+		t.Fatalf("expected reply reference in output, got %q", text)
+	}
+	if !strings.Contains(text, `我同意`) {
+		t.Fatalf("expected body in output, got %q", text)
+	}
+}
+
+func TestCompactWithReply_merged(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "Alice"
+channel: "telegram"
+conversation-type: "supergroup"
+conversation-title: "Arkloop"
+sender-ref: "aaa11111"
+time: "2026-04-03T10:00:00Z"
+message-id: "105"
+---
+[Telegram in Arkloop] 普通消息`}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "Alice"
+channel: "telegram"
+conversation-type: "supergroup"
+conversation-title: "Arkloop"
+sender-ref: "aaa11111"
+reply-to-message-id: "99"
+reply-to-preview: "Charlie: 你好"
+time: "2026-04-03T10:00:05Z"
+message-id: "106"
+---
+[Telegram in Arkloop] 回复消息`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected compact to succeed")
+	}
+	// 合并到同一个 block，第二条带 reply
+	if !strings.Contains(text, `> #99 "Charlie: 你好"`) {
+		t.Fatalf("expected reply in merged block, got %q", text)
+	}
+	if !strings.Contains(text, `普通消息`) {
+		t.Fatalf("expected first body, got %q", text)
+	}
+	if !strings.Contains(text, `回复消息`) {
+		t.Fatalf("expected second body, got %q", text)
+	}
+}
+
+func TestCompactWithReply_noPreview(t *testing.T) {
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "Bob"
+channel: "telegram"
+conversation-type: "supergroup"
+conversation-title: "Arkloop"
+sender-ref: "bbb22222"
+reply-to-message-id: "50"
+time: "2026-04-03T10:00:00Z"
+message-id: "55"
+---
+[Telegram in Arkloop] 引用回复`}}},
+	}
+	text, _, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected compact to succeed")
+	}
+	if !strings.Contains(text, `> #50`) {
+		t.Fatalf("expected reply-to id, got %q", text)
+	}
+	// 没有 preview 时不应有引号
+	if strings.Contains(text, `""`) {
+		t.Fatalf("should not have empty quotes, got %q", text)
+	}
+}
