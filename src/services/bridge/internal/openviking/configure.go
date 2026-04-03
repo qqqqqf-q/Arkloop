@@ -147,7 +147,8 @@ func RenderConfig(configPath string, params ConfigureParams) ([]byte, error) {
 	vlm["provider"] = params.VLMProvider
 	vlm["model"] = params.VLMModel
 	vlm["api_key"] = params.VLMAPIKey
-	vlm["api_base"] = params.VLMAPIBase
+	// litellm 自动拼接 /v1 路径前缀，需要剥除用户配置中多余的 /v1
+	vlm["api_base"] = stripTrailingV1(params.VLMAPIBase)
 	vlm["temperature"] = 0.0
 	vlm["max_retries"] = 2
 	if len(params.VLMExtraHeaders) > 0 {
@@ -239,6 +240,15 @@ func ensureMap(cfg map[string]any, key string) {
 	if _, isMap := v.(map[string]any); !isMap {
 		cfg[key] = map[string]any{}
 	}
+}
+
+// stripTrailingV1 移除 URL 末尾的 /v1 或 /v1/，因为 litellm 会自行拼接。
+func stripTrailingV1(u string) string {
+	u = strings.TrimRight(u, "/")
+	if strings.HasSuffix(u, "/v1") {
+		return strings.TrimSuffix(u, "/v1")
+	}
+	return u
 }
 
 // OpenViking 会忽略旧版绝对 path 并打告警；统一用工作区相对路径。
