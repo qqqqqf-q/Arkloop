@@ -105,6 +105,62 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`
 
+const contextCompactGroupSystemPrompt = `You are a context summarization assistant for a group chat. Your task is to read a multi-participant group conversation and produce a structured summary following the exact format specified.
+
+Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
+
+const contextCompactGroupInitialPrompt = `The messages above are from a multi-participant group chat to summarize. Create a structured group chat summary that another LLM joining the conversation will use to understand context.
+
+Use this EXACT format:
+
+## Topics
+[What topics are being discussed? List each distinct topic or thread of discussion.]
+
+## Participants
+- [Name/handle]: [Their role, stance, or typical contributions in this conversation]
+
+## Key Points
+- [Important information, opinions, decisions, or events mentioned]
+- [Include any shared links, data, or references]
+
+## Mood & Context
+[Current atmosphere of the group — casual, heated, collaborative, etc. What direction is the conversation heading?]
+
+## Notable Details
+- [Specific facts, numbers, names, or quotes worth preserving]
+- [Or "(none)" if not applicable]
+
+Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
+
+const contextCompactGroupUpdatePrompt = `The messages above are NEW group chat messages to incorporate into the existing summary provided in <previous-summary> tags.
+
+Update the existing structured summary with new information. RULES:
+- PRESERVE all existing information from the previous summary
+- ADD new topics, participants, and key points from the new messages
+- UPDATE participant descriptions if their stance or activity changed
+- UPDATE "Mood & Context" to reflect the latest conversation direction
+- MERGE or remove topics that have concluded or are no longer relevant
+- PRESERVE usernames, links, and specific data exactly as stated
+
+Use this EXACT format:
+
+## Topics
+[Preserve ongoing topics, add new ones, mark concluded ones if needed]
+
+## Participants
+- [Preserve existing, add new participants, update descriptions]
+
+## Key Points
+- [Preserve existing important points, add new ones]
+
+## Mood & Context
+[Update to reflect the latest group atmosphere and conversation direction]
+
+## Notable Details
+- [Preserve important details, add new ones]
+
+Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
+
 var errContextCompactStreamDone = errors.New("context_compact_stream_done")
 
 // NewContextCompactMiddleware 在 TitleSummarizer 之后运行：可选将头部区间摘要持久化，再按预算裁切消息。
@@ -125,6 +181,9 @@ func NewContextCompactMiddleware(
 		if !cfg.Enabled && !cfg.PersistEnabled {
 			return next(ctx, rc)
 		}
+
+		// 群聊 compact 已在 GroupContextTrim 中独立处理，此处 skip persist 避免重复。
+		isGroupChat := rc.ChannelContext != nil && IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType)
 
 		var enc *tiktoken.Tiktoken
 		if rc.SelectedRoute != nil {
@@ -153,7 +212,7 @@ func NewContextCompactMiddleware(
 		var persistFailedEvent map[string]any
 		var persistCompletedEvent map[string]any
 
-		if cfg.PersistEnabled && pool != nil && rc.Gateway != nil && len(msgs[fixedPrefixCount:]) > 1 {
+		if cfg.PersistEnabled && !isGroupChat && pool != nil && rc.Gateway != nil && len(msgs[fixedPrefixCount:]) > 1 {
 			window := 0
 			if rc.SelectedRoute != nil {
 				window = routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
@@ -720,4 +779,67 @@ func serializeMessagesForCompact(msgs []llm.Message) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// runGroupCompactLLM 群聊专用的 compact LLM 调用，使用群聊 prompt 模板。
+func runGroupCompactLLM(ctx context.Context, gateway llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, error) {
+	if gateway == nil || strings.TrimSpace(model) == "" {
+		return "", fmt.Errorf("gateway or model missing")
+	}
+	prefix = TrimPrefixMessagesForCompactLLM(enc, prefix, contextCompactMaxLLMInputTokens)
+	conversationText := serializeMessagesForCompact(prefix)
+	if strings.TrimSpace(conversationText) == "" {
+		return "", nil
+	}
+	runes := []rune(conversationText)
+	if len(runes) > contextCompactMaxLLMInputRunes {
+		conversationText = string(runes[len(runes)-contextCompactMaxLLMInputRunes:])
+	}
+
+	var userBlock strings.Builder
+	userBlock.WriteString("<conversation>\n")
+	userBlock.WriteString(conversationText)
+	userBlock.WriteString("\n</conversation>\n\n")
+	if previousSummary != "" {
+		userBlock.WriteString("<previous-summary>\n")
+		userBlock.WriteString(previousSummary)
+		userBlock.WriteString("\n</previous-summary>\n\n")
+		userBlock.WriteString(contextCompactGroupUpdatePrompt)
+	} else {
+		userBlock.WriteString(contextCompactGroupInitialPrompt)
+	}
+
+	maxTok := contextCompactMaxOut
+	req := llm.Request{
+		Model: model,
+		Messages: []llm.Message{
+			{Role: "system", Content: []llm.TextPart{{Text: contextCompactGroupSystemPrompt}}},
+			{Role: "user", Content: []llm.TextPart{{Text: userBlock.String()}}},
+		},
+		MaxOutputTokens: &maxTok,
+	}
+	streamCtx, cancel := context.WithTimeout(ctx, contextCompactStreamTimeout)
+	defer cancel()
+
+	var chunks []string
+	err := gateway.Stream(streamCtx, req, func(ev llm.StreamEvent) error {
+		switch typed := ev.(type) {
+		case llm.StreamMessageDelta:
+			if typed.Channel != nil && *typed.Channel == "thinking" {
+				return nil
+			}
+			if typed.ContentDelta != "" {
+				chunks = append(chunks, typed.ContentDelta)
+			}
+		case llm.StreamRunCompleted:
+			return errContextCompactStreamDone
+		case llm.StreamRunFailed:
+			return fmt.Errorf("stream failed: %s", typed.Error.Message)
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errContextCompactStreamDone) {
+		return "", err
+	}
+	return strings.TrimSpace(strings.Join(chunks, "")), nil
 }

@@ -511,7 +511,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopChannelContext(e.db),
 		pipeline.NewChannelAdminTagMiddleware(e.db),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
-		pipeline.NewChannelGroupContextTrimMiddleware(),
+		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
+			Pool:            e.db,
+			MessagesRepo:    data.MessagesRepository{},
+			EventsRepo:      data.DesktopRunEventsRepository{},
+			AuxGateway:      e.auxGateway,
+			EmitDebugEvents: e.emitDebugEvents,
+			ConfigLoader:    e.routingLoader,
+		}),
 		pipeline.NewChannelTelegramToolsMiddleware(&desktopTelegramTokenLoader{db: e.db}, nil),
 		desktopSubAgentContext(e.db, subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{

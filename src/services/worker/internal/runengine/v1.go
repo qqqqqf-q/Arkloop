@@ -458,7 +458,7 @@ func buildPipeline(
 	var mws []pipeline.RunMiddleware
 	mws = append(mws, buildBaseLayer(runsRepo, eventsRepo, messagesRepo, deps.RunControlHub, deps.MessageAttachmentStore, deps.RolloutBlobStore, resolver, releaseSlot)...)
 	mws = append(mws, buildAgentConfigLayer(deps, runsRepo, eventsRepo, baseAllowlistSet, releaseSlot)...)
-	mws = append(mws, buildChannelLayer(deps)...)
+	mws = append(mws, buildChannelLayer(deps, messagesRepo, eventsRepo)...)
 	mws = append(mws, buildCapabilityLayer(deps, promptInjection, eventsRepo)...)
 	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot)...)
 	mws = append(mws, buildToolFinalizeLayer(deps)...)
@@ -504,13 +504,20 @@ func buildAgentConfigLayer(
 	}
 }
 
-func buildChannelLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
+func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, eventsRepo data.RunEventsRepository) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewChannelContextMiddleware(deps.DBPool),
 		pipeline.NewHeartbeatScheduleMiddleware(deps.DBPool),
 		pipeline.NewChannelAdminTagMiddleware(deps.DBPool),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
-		pipeline.NewChannelGroupContextTrimMiddleware(),
+		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
+			Pool:            deps.DBPool,
+			MessagesRepo:    messagesRepo,
+			EventsRepo:      eventsRepo,
+			AuxGateway:      deps.AuxGateway,
+			EmitDebugEvents: deps.EmitDebugEvents,
+			ConfigLoader:    deps.RoutingConfigLoader,
+		}),
 		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil),
 	}
 }
