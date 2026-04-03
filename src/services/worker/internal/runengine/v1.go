@@ -522,7 +522,7 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 			EmitDebugEvents: deps.EmitDebugEvents,
 			ConfigLoader:    deps.RoutingConfigLoader,
 		}),
-		pipeline.NewChannelTelegramToolsMiddleware(deps.ChannelTelegramLoader, nil, pipeline.ChannelTelegramToolsDeps{
+		pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
 			TokenLoader:        deps.ChannelTelegramLoader,
 			GroupSearchExec:    deps.GroupSearchExecutor,
 			GroupSearchLlmSpec: conversationtool.GroupSearchLlmSpec,
