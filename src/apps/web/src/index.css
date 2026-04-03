@@ -115,6 +115,9 @@ button:not(:disabled) {
   --c-claw-file-border: rgba(255, 255, 255, 0.06);
   --c-accent-fg: #141413;
   --c-bg-deep2: #0f0f0e;
+  --c-tooltip-bg: #0f0f0e;
+  --c-tooltip-text: #faf9f5;
+  --c-tooltip-border: rgba(255, 255, 255, 0.08);
   --c-bg-tag: #30302e;
   --c-bg-card: #242422;
   --c-border-console: #40403d;
@@ -223,6 +226,9 @@ button:not(:disabled) {
     --c-claw-file-border: rgba(0, 0, 0, 0.06);
     --c-accent-fg: #FAFAFA;
     --c-bg-deep2: #E5E5E3;
+    --c-tooltip-bg: #141413;
+    --c-tooltip-text: #FAFAFA;
+    --c-tooltip-border: rgba(255, 255, 255, 0.08);
     --c-bg-tag: #E5E5E3;
     --c-bg-card: #FFFFFF;
     --c-border-console: #DEDEDE;
@@ -332,6 +338,9 @@ button:not(:disabled) {
   --c-claw-file-border: rgba(0, 0, 0, 0.06);
   --c-accent-fg: #FAFAFA;
   --c-bg-deep2: #E5E5E3;
+  --c-tooltip-bg: #141413;
+  --c-tooltip-text: #FAFAFA;
+  --c-tooltip-border: rgba(255, 255, 255, 0.08);
   --c-bg-tag: #E5E5E3;
   --c-bg-card: #FFFFFF;
   --c-border-console: #DEDEDE;

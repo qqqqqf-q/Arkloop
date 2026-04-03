@@ -133,7 +133,6 @@ export function ChatInput({
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
   const [chipExiting, setChipExiting] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string | null>(readSelectedModelFromStorage)
-  const [submittedText, setSubmittedText] = useState<string | null>(null)
 
   const { isRecording, isTranscribing, recordingSeconds, waveformBars, startRecording, stopAndTranscribe, cancelRecording } =
     useAudioRecorder({ accessTokenRef, valueRef, onChangeRef, onAsrErrorRef, onVoiceNotConfiguredRef })
@@ -233,7 +232,6 @@ export function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (!disabled && value.trim()) {
-        setSubmittedText(value)
         e.currentTarget.form?.requestSubmit()
       }
     }
@@ -463,8 +461,8 @@ export function ChatInput({
             ref={textareaRef}
             rows={1}
             className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-            value={submittedText ?? value}
-            onChange={(e) => { if (submittedText === null) onChange(e.target.value) }}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handleTextareaPaste}
             onFocus={() => setFocused(true)}

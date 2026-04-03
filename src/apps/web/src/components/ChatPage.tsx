@@ -2120,6 +2120,13 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
+    setDraft('')
+    setAttachments((prev) => {
+      prev.forEach((attachment) => {
+        if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
+      })
+      return []
+    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, clearCompletedTitleTail, resetAssistantTurnLive])
 

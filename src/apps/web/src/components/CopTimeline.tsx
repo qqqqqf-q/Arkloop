@@ -228,8 +228,6 @@ function CopTimelineHeaderLabel({ text, phaseKey, shimmer }: { text: string; pha
     )
   }
 
-  // thinking-live → thought: phase 变化时触发打字机
-  // 也覆盖 thought 阶段 text 变化（抖动恢复后 text 不同的情况）
   if (prevRendered && shouldRetypeWholeHeader(prevRendered, target)) {
     return <PhaseRetypingLabel key={`${target.phaseKey}:${target.text}`} text={target.text} shimmer={shimmer} />
   }

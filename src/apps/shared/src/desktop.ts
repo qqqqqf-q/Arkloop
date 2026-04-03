@@ -68,6 +68,14 @@ export type MemoryEntry = {
   created_at: string
 }
 
+export type SnapshotHit = {
+  uri: string
+  abstract: string
+  score: number
+  match_reason: string
+  is_leaf: boolean
+}
+
 export type DesktopConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
@@ -159,7 +167,8 @@ export type ArkloopDesktopApi = {
     setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
     list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
     delete: (id: string, agentId?: string) => Promise<{ status: string }>
-    getSnapshot: (agentId?: string) => Promise<{ memory_block: string }>
+    getSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
+    getContent: (uri: string, layer?: 'overview' | 'read') => Promise<{ content: string }>
     add: (content: string, category?: string) => Promise<{ entry: MemoryEntry }>
   }
   sidecar: {

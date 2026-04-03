@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatPage } from '../components/ChatPage'
@@ -275,6 +275,15 @@ function countMatches(text: string, needle: string): number {
 
 function OutletShell({ context }: { context: Record<string, unknown> }) {
   return <Outlet context={context} />
+}
+
+function NavigateButton({ to, label }: { to: string; label: string }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      {label}
+    </button>
+  )
 }
 
 describe('ChatPage loading state', () => {
@@ -870,6 +879,109 @@ describe('ChatPage loading state', () => {
     }
     expect(restoredInput.value).toBe('resume after cancel')
     expect(container.textContent).not.toContain('已停止生成')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('切换 thread 时应清空输入框草稿', async () => {
+    mockedListMessages.mockImplementation(async (_accessToken, threadId) => [
+      {
+        id: `msg-${threadId}`,
+        role: 'user',
+        content: `hello ${threadId}`,
+        account_id: 'acc-1',
+        thread_id: threadId,
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedGetThread.mockImplementation(async (_accessToken, threadId) => ({
+      id: threadId,
+      title: `thread ${threadId}`,
+      account_id: 'acc-1',
+      created_by_user_id: 'user-1',
+      mode: 'chat',
+      project_id: 'proj-1',
+      active_run_id: null,
+      is_private: false,
+      title_locked: false,
+      hidden: false,
+      created_at: '2026-03-10T00:00:00Z',
+      updated_at: '2026-03-10T00:00:00Z',
+    }))
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route
+                element={(
+                  <>
+                    <NavigateButton to="/t/thread-2" label="go-thread-2" />
+                    <OutletShell context={outletContext} />
+                  </>
+                )}
+              >
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const input = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    const navigateButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'go-thread-2',
+    )
+    if (!input || !navigateButton) {
+      throw new Error('thread navigation controls not rendered')
+    }
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, 'stale draft')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(input.value).toBe('stale draft')
+
+    await act(async () => {
+      navigateButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    const nextInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    expect(nextInput?.value).toBe('')
 
     act(() => {
       root.unmount()
