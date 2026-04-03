@@ -2440,6 +2440,7 @@ func desktopWriteFailure(
 	message string,
 	details map[string]any,
 ) error {
+	slog.WarnContext(ctx, "desktop_run_failure", "run_id", run.ID, "error_class", errorClass, "message", message)
 	return desktopWriteTerminalEvent(ctx, db, run, emitter, runsRepo, eventsRepo, "run.failed", errorClass, message, details)
 }
 
