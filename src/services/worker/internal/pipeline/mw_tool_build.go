@@ -8,6 +8,7 @@ import (
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin/read"
 	loadtools "arkloop/services/worker/internal/tools/builtin/load_tools"
 )
 
@@ -39,6 +40,13 @@ func NewToolBuildMiddleware() RunMiddleware {
 		resolvedAllowlist, err := ResolveProviderAllowlist(effectiveAllowlist, rc.ToolRegistry, rc.ActiveToolProviderByGroup)
 		if err != nil {
 			return err
+		}
+		// 主模型原生支持图片时，不需要走 bridge：通过 ContentParts 直返图片给主模型
+		if supportsImageInput(rc.SelectedRoute) {
+			if _, has := resolvedAllowlist[read.ProviderNameMiniMax]; has {
+				delete(resolvedAllowlist, read.ProviderNameMiniMax)
+				resolvedAllowlist[read.AgentSpec.Name] = struct{}{}
+			}
 		}
 		resolvedAllowlist = filterAllowlistByRuntime(resolvedAllowlist, rc.Runtime, rc.ToolRegistry, rc.ActiveToolProviderByGroup)
 
