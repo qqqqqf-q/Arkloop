@@ -22,7 +22,7 @@ import (
 const (
 	// memorySnapshotFindLimit：后台刷新快照时 OpenViking Find 的 Top-K，越大快照越长（更多 L0 条目）。
 	memorySnapshotFindLimit = 100
-	memoryHighScoreL1       = 0.85 // 高分且非叶子时拉 L1 overview 拼进该条 bullet
+	memoryHighScoreL1       = 0.6  // 高分时拉详细内容（非叶子 L1 overview，叶子 L2 read）
 	// memorySnapshotL1MaxRunes：单条命中附加的 L1 上限，避免单条记忆把 system 撑爆。
 	memorySnapshotL1MaxRunes = 2000
 	memoryFindTimeout        = 5 * time.Second
@@ -138,12 +138,18 @@ func findMemoryLines(ctx context.Context, provider memory.MemoryProvider, ident 
 		}
 
 		line := strings.TrimSpace(hit.Abstract)
-		if hit.Score >= memoryHighScoreL1 && !hit.IsLeaf {
-			overview, ovErr := provider.Content(ctx, ident, hit.URI, memory.MemoryLayerOverview)
-			if ovErr == nil {
-				overview = clipRunes(strings.TrimSpace(overview), memorySnapshotL1MaxRunes)
-				if overview != "" {
-					line += "\n  " + indentContinuationLines(overview)
+		if hit.Score >= memoryHighScoreL1 {
+			var detail string
+			var detailErr error
+			if hit.IsLeaf {
+				detail, detailErr = provider.Content(ctx, ident, hit.URI, memory.MemoryLayerRead)
+			} else {
+				detail, detailErr = provider.Content(ctx, ident, hit.URI, memory.MemoryLayerOverview)
+			}
+			if detailErr == nil {
+				detail = clipRunes(strings.TrimSpace(detail), memorySnapshotL1MaxRunes)
+				if detail != "" {
+					line += "\n  " + indentContinuationLines(detail)
 				}
 			}
 		}
