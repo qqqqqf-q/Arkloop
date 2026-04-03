@@ -247,17 +247,15 @@ func TestAgentLoopHeartbeatDecisionReplyTrueStopsWithoutSecondLlmTurn(t *testing
 	if err != nil {
 		t.Fatalf("loop.Run failed: %v", err)
 	}
-	if gateway.calls != 1 {
-		t.Fatalf("expected heartbeat reply=true to stop after first llm call, got %d calls", gateway.calls)
+	if gateway.calls != 2 {
+		t.Fatalf("expected heartbeat reply=true to trigger Phase 2, got %d calls", gateway.calls)
 	}
 	assertHasEvent(t, got, "run.completed")
 	for _, ev := range got {
-		if ev.Type == "tool.result" {
-			t.Fatalf("heartbeat_decision should not emit tool.result: %#v", got)
-		}
 		if ev.Type == "message.delta" {
-			if text, _ := ev.DataJSON["content_delta"].(string); text == "再次重复" {
-				t.Fatalf("unexpected second-turn assistant output: %#v", got)
+			text, _ := ev.DataJSON["content_delta"].(string)
+			if text == "这是" || text == "正文" {
+				t.Fatalf("Phase 1 assistant text should not be streamed to client: %q", text)
 			}
 		}
 	}

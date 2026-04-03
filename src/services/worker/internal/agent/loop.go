@@ -1419,6 +1419,11 @@ func (l *Loop) runSingleTurn(
 			return nil
 		}
 		assistantChunks = append(assistantChunks, tail)
+		if runCtx.PipelineRC != nil &&
+			pipeline.IsHeartbeatRunContext(runCtx.PipelineRC) &&
+			runCtx.PipelineRC.HeartbeatToolOutcome == nil {
+			return nil
+		}
 		return yieldOrStop(emitter.Emit("message.delta", llm.StreamMessageDelta{
 			ContentDelta: tail,
 			Role:         "assistant",
@@ -1448,17 +1453,26 @@ func (l *Loop) runSingleTurn(
 			if typed.Channel != nil && *typed.Channel == "thinking" && !runCtx.StreamThinking {
 				return nil
 			}
-			// thinking 内容不计入对话上下文
+			// heartbeat Phase 1: outcome 未确定前，累积 context 但不 stream 给客户端
+			suppressHeartbeatStream := runCtx.PipelineRC != nil &&
+				pipeline.IsHeartbeatRunContext(runCtx.PipelineRC) &&
+				runCtx.PipelineRC.HeartbeatToolOutcome == nil
 			if typed.Channel == nil {
 				cleaned := visibleAssistantFilter.Push(typed.ContentDelta)
 				if cleaned == "" {
 					return nil
 				}
 				assistantChunks = append(assistantChunks, cleaned)
+				if suppressHeartbeatStream {
+					return nil
+				}
 				return yieldOrStop(emitter.Emit("message.delta", llm.StreamMessageDelta{
 					ContentDelta: cleaned,
 					Role:         typed.Role,
 				}.ToDataJSON(), nil, nil))
+			}
+			if suppressHeartbeatStream {
+				return nil
 			}
 			return yieldOrStop(emitter.Emit("message.delta", typed.ToDataJSON(), nil, nil))
 		case llm.StreamLlmRequest:
