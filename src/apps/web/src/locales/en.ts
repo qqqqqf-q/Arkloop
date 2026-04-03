@@ -578,6 +578,8 @@ export const en: LocaleStrings = {
     qqScanToLogin: 'Scan with QQ to log in',
     qqLoggedIn: 'Logged in',
     qqRefreshQR: 'Refresh',
+    qqQuickLogin: 'Quick Login',
+    qqScanNewAccount: 'Scan to login new account',
     qqAllowedUsers: 'Allowed QQ users',
     qqAllowedUsersPlaceholder: 'QQ numbers; commas or newlines; leave empty for no restriction',
     qqAllowAllUsers: 'Allow all users',

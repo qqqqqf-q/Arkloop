@@ -1890,6 +1890,7 @@ export type NapCatStatus = {
   qrcode_url?: string
   qrcode_text_url?: string
   login_error?: string
+  quick_login_list?: { uin: string; nickname: string; face_url: string }[]
   version?: string
   setup_phase?: string
   setup_progress?: number
@@ -1924,6 +1925,14 @@ export async function napCatFetchQRCode(accessToken: string): Promise<string> {
   if (!resp.ok) throw new Error(`qrcode fetch failed: ${resp.status}`)
   const blob = await resp.blob()
   return URL.createObjectURL(blob)
+}
+
+export async function napCatQuickLogin(accessToken: string, uin: string): Promise<void> {
+  await apiFetch<void>('/v1/napcat/quick-login', {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({ uin }),
+  })
 }
 
 // external skills

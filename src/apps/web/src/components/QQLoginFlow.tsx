@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { RefreshCw, Loader2, ChevronDown, ChevronUp, QrCode } from 'lucide-react'
 import {
   type NapCatStatus,
   getNapCatStatus,
   napCatDownload,
   napCatRefreshQR,
   napCatFetchQRCode,
+  napCatQuickLogin,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from './buttonStyles'
@@ -29,6 +30,8 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
   const [logsOpen, setLogsOpen] = useState(false)
   const [qrBlobUrl, setQrBlobUrl] = useState<string | null>(null)
   const [setupRequested, setSetupRequested] = useState(false)
+  const [showQRCode, setShowQRCode] = useState(false)
+  const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval>>()
   const logEndRef = useRef<HTMLDivElement>(null)
   const prevQrUrl = useRef<string | undefined>()
@@ -60,7 +63,6 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
 
   // fetch QR code image as blob when qrcode_url changes
   useEffect(() => {
-    // 登录成功后清理二维码
     if (status?.logged_in) {
       setQrBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return null })
       prevQrUrl.current = undefined
@@ -78,7 +80,7 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
             URL.revokeObjectURL(blobUrl)
           }
         })
-        .catch(() => { /* ignore, spinner will show */ })
+        .catch(() => { /* spinner will show */ })
       return () => { revoked = true }
     }
     if (!url) {
@@ -111,12 +113,26 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
     } catch { /* ignore */ }
   }
 
+  const handleQuickLogin = async (uin: string) => {
+    setQuickLoginLoading(uin)
+    setError('')
+    try {
+      await napCatQuickLogin(accessToken, uin)
+      await fetchStatus()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setQuickLoginLoading(null)
+    }
+  }
+
   const phase = status?.setup_phase ?? ''
   const isSetupInProgress = phase === 'fetch_info' || phase === 'downloading' || phase === 'extracting' || phase === 'starting'
   const logs = status?.logs ?? []
   const hasLogs = logs.length > 0
+  const quickLoginList = status?.quick_login_list ?? []
+  const hasQuickLogin = quickLoginList.length > 0
 
-  // 点击 Setup 后但 status 还没回来 -> 立即显示启动中 + 日志面板
   const showPendingSetup = setupRequested && !status?.running && !isSetupInProgress && phase !== 'done' && phase !== 'error'
 
   // --- logged in ---
@@ -144,19 +160,89 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
     )
   }
 
-  // --- running but not logged in: show QR ---
+  // --- running but not logged in ---
   if (status?.running) {
+    // 有快速登录列表且用户没有主动选择扫码
+    if (hasQuickLogin && !showQRCode) {
+      return (
+        <div className="flex flex-col gap-3 py-2">
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.qqQuickLogin}</span>
+
+          <div className="flex flex-col gap-1.5">
+            {quickLoginList.map(account => (
+              <button
+                key={account.uin}
+                onClick={() => handleQuickLogin(account.uin)}
+                disabled={quickLoginLoading !== null}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--c-bg-deep)]"
+                style={{ border: '0.5px solid var(--c-border-subtle)' }}
+              >
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-medium"
+                  style={{ background: 'var(--c-bg-deep)', color: 'var(--c-text-muted)' }}
+                >
+                  QQ
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm text-[var(--c-text-heading)] truncate">
+                    {account.nickname || account.uin}
+                  </span>
+                  <span className="text-xs text-[var(--c-text-tertiary)]">{account.uin}</span>
+                </div>
+                {quickLoginLoading === account.uin && (
+                  <Loader2 size={14} className="ml-auto animate-spin text-[var(--c-text-muted)]" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setShowQRCode(true)}
+            className="flex items-center gap-1.5 self-start rounded px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]"
+          >
+            <QrCode size={12} />
+            {ct.qqScanNewAccount}
+          </button>
+
+          {error && (
+            <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--c-status-error-text)', background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))' }}>
+              {error}
+            </div>
+          )}
+
+          {status?.login_error && (
+            <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--c-status-error-text)', background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))' }}>
+              {status.login_error}
+            </div>
+          )}
+
+          <LogPanel logs={logs} open={logsOpen} onToggle={() => setLogsOpen(v => !v)} label={ct.qqLogs} logEndRef={logEndRef} />
+        </div>
+      )
+    }
+
+    // 显示二维码（无快速登录列表 或 用户主动选择扫码）
     return (
       <div className="flex flex-col gap-3 py-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.qqScanToLogin}</span>
-          <button
-            onClick={handleRefreshQR}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]"
-          >
-            <RefreshCw size={12} />
-            {ct.qqRefreshQR}
-          </button>
+          <div className="flex items-center gap-2">
+            {hasQuickLogin && (
+              <button
+                onClick={() => setShowQRCode(false)}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]"
+              >
+                {ct.qqQuickLogin}
+              </button>
+            )}
+            <button
+              onClick={handleRefreshQR}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]"
+            >
+              <RefreshCw size={12} />
+              {ct.qqRefreshQR}
+            </button>
+          </div>
         </div>
 
         <div className="flex justify-center rounded-lg p-4" style={{ background: 'var(--c-bg-sub)', border: '0.5px solid var(--c-border-subtle)' }}>
@@ -185,7 +271,7 @@ export function QQLoginFlow({ accessToken, channelId: _channelId }: Props) {
     )
   }
 
-  // --- setup in progress or pending: show progress + logs ---
+  // --- setup in progress or pending ---
   if (isSetupInProgress || showPendingSetup) {
     const progress = status?.setup_progress ?? 0
     const total = status?.setup_total ?? 0

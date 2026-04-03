@@ -572,6 +572,8 @@ export const zh: LocaleStrings = {
     qqScanToLogin: '使用 QQ 扫码登录',
     qqLoggedIn: '已登录',
     qqRefreshQR: '刷新',
+    qqQuickLogin: '快速登录',
+    qqScanNewAccount: '扫码登录新账号',
     qqAllowedUsers: '允许的 QQ 用户',
     qqAllowedUsersPlaceholder: 'QQ 号；逗号或换行；留空不限制',
     qqAllowAllUsers: '允许所有用户',

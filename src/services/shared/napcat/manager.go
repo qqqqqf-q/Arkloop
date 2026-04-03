@@ -14,7 +14,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,20 +47,27 @@ const (
 )
 
 type Status struct {
-	Installed      bool       `json:"installed"`
-	Running        bool       `json:"running"`
-	LoggedIn       bool       `json:"logged_in"`
-	QQ             string     `json:"qq,omitempty"`
-	Nickname       string     `json:"nickname,omitempty"`
-	QRCodeURL      string     `json:"qrcode_url,omitempty"`
-	QRCodeTextURL  string     `json:"qrcode_text_url,omitempty"`
-	LoginError     string     `json:"login_error,omitempty"`
-	Version        string     `json:"version,omitempty"`
-	SetupPhase     SetupPhase `json:"setup_phase,omitempty"`
-	SetupProgress  int64      `json:"setup_progress,omitempty"`
-	SetupTotal     int64      `json:"setup_total,omitempty"`
-	SetupError     string     `json:"setup_error,omitempty"`
-	Logs           []string   `json:"logs,omitempty"`
+	Installed      bool                `json:"installed"`
+	Running        bool                `json:"running"`
+	LoggedIn       bool                `json:"logged_in"`
+	QQ             string              `json:"qq,omitempty"`
+	Nickname       string              `json:"nickname,omitempty"`
+	QRCodeURL      string              `json:"qrcode_url,omitempty"`
+	QRCodeTextURL  string              `json:"qrcode_text_url,omitempty"`
+	LoginError     string              `json:"login_error,omitempty"`
+	QuickLoginList []QuickLoginAccount `json:"quick_login_list,omitempty"`
+	Version        string              `json:"version,omitempty"`
+	SetupPhase     SetupPhase          `json:"setup_phase,omitempty"`
+	SetupProgress  int64               `json:"setup_progress,omitempty"`
+	SetupTotal     int64               `json:"setup_total,omitempty"`
+	SetupError     string              `json:"setup_error,omitempty"`
+	Logs           []string            `json:"logs,omitempty"`
+}
+
+type QuickLoginAccount struct {
+	Uin      string `json:"uin"`
+	Nickname string `json:"nickname"`
+	FaceURL  string `json:"face_url,omitempty"`
 }
 
 type Manager struct {
@@ -147,6 +156,8 @@ func (m *Manager) Status() Status {
 			info := m.getLoginInfo()
 			s.QQ = info.QQ
 			s.Nickname = info.Nickname
+		} else {
+			s.QuickLoginList = m.getQuickLoginList()
 		}
 	}
 	return s
@@ -315,13 +326,13 @@ func (m *Manager) Start(ctx context.Context) error {
 		}
 	}
 
-	m.webuiPort = 6099
+	m.webuiPort = 0 // 从 stdout 解析实际端口
 	m.wsPort = 6098
 	m.webuiToken = randomHex(16)
 	m.wsToken = randomHex(16)
 
 	configDir := filepath.Join(m.installDir, "napcat", "config")
-	if err := WriteWebUIConfig(configDir, m.webuiPort, m.webuiToken); err != nil {
+	if err := WriteWebUIConfig(configDir, 6099, m.webuiToken); err != nil {
 		return fmt.Errorf("napcat config: %w", err)
 	}
 
@@ -371,18 +382,32 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 // acquireCredential 通过 NapCat WebUI 的 /api/auth/login 获取签名凭证。
-// NapCat 不接受原始 token 作为 Bearer，需要先登录拿 credential。
+// 等待 stdout 中解析到实际端口后再尝试。
 func (m *Manager) acquireCredential() {
+	// 等待端口从 stdout 解析出来（最多 30 秒）
+	var port int
+	for i := 0; i < 60; i++ {
+		time.Sleep(500 * time.Millisecond)
+		m.mu.Lock()
+		port = m.webuiPort
+		m.mu.Unlock()
+		if port > 0 {
+			break
+		}
+	}
+	if port == 0 {
+		m.appendLog("webui credential acquisition failed: port not detected")
+		return
+	}
+
 	m.mu.Lock()
-	port, token := m.webuiPort, m.webuiToken
+	token := m.webuiToken
 	m.mu.Unlock()
 
 	hash := sha256Hex(token + ".napcat")
-
 	loginURL := fmt.Sprintf("http://127.0.0.1:%d/api/auth/login", port)
 	payload := map[string]string{"hash": hash}
 
-	// WebUI 启动需要时间，重试几次
 	var credential string
 	for i := 0; i < 10; i++ {
 		time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
@@ -503,7 +528,7 @@ func (m *Manager) checkLoginStatus() loginStatusResponse {
 		return loginStatusResponse{}
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/api/QQLogin/CheckLoginStatus", m.webuiPort)
-	body, err := m.webuiGetRaw(url, m.webuiCredential)
+	body, err := m.webuiPost(url, m.webuiCredential, nil)
 	if err != nil {
 		return loginStatusResponse{}
 	}
@@ -523,8 +548,8 @@ type loginInfoResult struct {
 }
 
 func (m *Manager) getLoginInfo() loginInfoResult {
-	url := fmt.Sprintf("http://127.0.0.1:%d/api/QQLogin/GetLoginInfo", m.webuiPort)
-	body, err := m.webuiGetRaw(url, m.webuiCredential)
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/QQLogin/GetQQLoginInfo", m.webuiPort)
+	body, err := m.webuiPost(url, m.webuiCredential, nil)
 	if err != nil {
 		return loginInfoResult{}
 	}
@@ -536,6 +561,66 @@ func (m *Manager) getLoginInfo() loginInfoResult {
 		return loginInfoResult{}
 	}
 	return resp.Data
+}
+
+func (m *Manager) getQuickLoginList() []QuickLoginAccount {
+	if m.webuiPort == 0 {
+		return nil
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/QQLogin/GetQuickLoginListNew", m.webuiPort)
+	body, err := m.webuiGetRaw(url, m.webuiCredential)
+	if err != nil {
+		return nil
+	}
+	var resp struct {
+		Code int `json:"code"`
+		Data []struct {
+			Uin      string `json:"uin"`
+			NickName string `json:"nickName"`
+			FaceURL  string `json:"faceUrl"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(body, &resp) != nil || resp.Code != 0 {
+		return nil
+	}
+	var list []QuickLoginAccount
+	for _, item := range resp.Data {
+		if item.Uin == "" {
+			continue
+		}
+		list = append(list, QuickLoginAccount{
+			Uin:      item.Uin,
+			Nickname: item.NickName,
+			FaceURL:  item.FaceURL,
+		})
+	}
+	return list
+}
+
+// QuickLogin 使用已有账号快速登录
+func (m *Manager) QuickLogin(uin string) error {
+	m.mu.Lock()
+	port, credential := m.webuiPort, m.webuiCredential
+	m.mu.Unlock()
+
+	if port == 0 {
+		return fmt.Errorf("napcat: webui not ready")
+	}
+
+	url := fmt.Sprintf("http://127.0.0.1:%d/api/QQLogin/SetQuickLogin", port)
+	payload := map[string]string{"uin": uin}
+	body, err := m.webuiPost(url, credential, payload)
+	if err != nil {
+		return fmt.Errorf("napcat quick login: %w", err)
+	}
+	var resp struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(body, &resp) == nil && resp.Code != 0 {
+		return fmt.Errorf("napcat quick login: %s", resp.Message)
+	}
+	return nil
 }
 
 func (m *Manager) webuiGetRaw(url, credential string) ([]byte, error) {
@@ -589,9 +674,12 @@ func (m *Manager) appendLog(line string) {
 	m.logMu.Unlock()
 }
 
+// logWriter 同时写入日志缓冲区并扫描 NapCat stdout 提取实际 WebUI 端口
 type logWriter struct {
 	mgr *Manager
 }
+
+var webuiURLRe = regexp.MustCompile(`WebUi User Panel Url: https?://127\.0\.0\.1:(\d+)/`)
 
 func (m *Manager) newLogWriter() *logWriter {
 	return &logWriter{mgr: m}
@@ -600,8 +688,20 @@ func (m *Manager) newLogWriter() *logWriter {
 func (w *logWriter) Write(p []byte) (n int, err error) {
 	lines := strings.Split(strings.TrimRight(string(p), "\n"), "\n")
 	for _, line := range lines {
-		if strings.TrimSpace(line) != "" {
-			w.mgr.appendLog(line)
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		w.mgr.appendLog(line)
+		// 从 NapCat stdout 提取实际 WebUI 端口
+		if matches := webuiURLRe.FindStringSubmatch(line); len(matches) == 2 {
+			if port, err := strconv.Atoi(matches[1]); err == nil && port > 0 {
+				w.mgr.mu.Lock()
+				if w.mgr.webuiPort == 0 {
+					w.mgr.webuiPort = port
+					w.mgr.logger.Info("napcat: detected webui port", "port", port)
+				}
+				w.mgr.mu.Unlock()
+			}
 		}
 	}
 	return len(p), nil

@@ -81,6 +81,21 @@ func RegisterNapCatRoutes(mux *nethttp.ServeMux, deps NapCatDeps) {
 		w.WriteHeader(nethttp.StatusOK)
 		w.Write(data)
 	}))
+
+	mux.HandleFunc("POST /v1/napcat/quick-login", napCatHandler(deps.AuthService, func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		var req struct {
+			Uin string `json:"uin"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Uin == "" {
+			writeNapCatJSON(w, nethttp.StatusBadRequest, map[string]string{"error": "uin is required"})
+			return
+		}
+		if err := mgr.QuickLogin(req.Uin); err != nil {
+			writeNapCatJSON(w, nethttp.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeNapCatJSON(w, nethttp.StatusOK, map[string]string{"status": "ok"})
+	}))
 }
 
 func napCatHandler(authService *auth.Service, handler nethttp.HandlerFunc) nethttp.HandlerFunc {
