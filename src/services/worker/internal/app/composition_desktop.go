@@ -1225,12 +1225,23 @@ func loadDesktopQQDeliveryChannel(ctx context.Context, db data.DesktopDB, channe
 		return nil, fmt.Errorf("desktop qq channel config: %w", err)
 	}
 	httpURL := strings.TrimSpace(cfg.OneBotHTTPURL)
+	token := strings.TrimSpace(cfg.OneBotToken)
+	if httpURL == "" || token == "" {
+		if addr, tk := desktop.GetOneBotHTTPEndpoint(); addr != "" {
+			if httpURL == "" {
+				httpURL = addr
+			}
+			if token == "" {
+				token = tk
+			}
+		}
+	}
 	if httpURL == "" {
 		httpURL = "http://127.0.0.1:3000"
 	}
 	return &desktopQQDeliveryChannelRecord{
 		OneBotHTTPURL: httpURL,
-		OneBotToken:   strings.TrimSpace(cfg.OneBotToken),
+		OneBotToken:   token,
 	}, nil
 }
 
@@ -2440,7 +2451,6 @@ func desktopWriteFailure(
 	message string,
 	details map[string]any,
 ) error {
-	slog.WarnContext(ctx, "desktop_run_failure", "run_id", run.ID, "error_class", errorClass, "message", message)
 	return desktopWriteTerminalEvent(ctx, db, run, emitter, runsRepo, eventsRepo, "run.failed", errorClass, message, details)
 }
 

@@ -41,6 +41,8 @@ var (
 	apiReady      chan struct{}
 
 	sharedSQLitePool *sqlitepgx.Pool
+
+	onebotHTTPEndpointFn func() (addr string, token string)
 )
 
 func init() {
@@ -122,4 +124,20 @@ func ClearSharedSQLitePool() {
 	mu.Lock()
 	defer mu.Unlock()
 	sharedSQLitePool = nil
+}
+
+func SetOneBotHTTPEndpointProvider(fn func() (addr string, token string)) {
+	mu.Lock()
+	defer mu.Unlock()
+	onebotHTTPEndpointFn = fn
+}
+
+func GetOneBotHTTPEndpoint() (addr string, token string) {
+	mu.Lock()
+	fn := onebotHTTPEndpointFn
+	mu.Unlock()
+	if fn == nil {
+		return "", ""
+	}
+	return fn()
 }

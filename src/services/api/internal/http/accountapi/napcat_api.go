@@ -9,6 +9,7 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
+	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/napcat"
 )
 
@@ -72,6 +73,8 @@ func RegisterQQCallbackRoute(mux *nethttp.ServeMux, deps QQCallbackDeps) {
 // RegisterNapCatRoutes adds /v1/napcat/* endpoints to the mux.
 func RegisterNapCatRoutes(mux *nethttp.ServeMux, deps NapCatDeps) {
 	mgr := getOrCreateNapCatManager(deps.DataDir, deps.APIPort)
+
+	desktop.SetOneBotHTTPEndpointProvider(mgr.OneBotHTTPEndpoint)
 
 	// 之前登录过的 NapCat 自动恢复启动
 	mgr.AutoStartIfReady()
