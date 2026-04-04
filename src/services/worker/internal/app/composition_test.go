@@ -99,6 +99,10 @@ func (fakeArtifactStore) Delete(_ context.Context, _ string) error {
 	return nil
 }
 
+func (fakeArtifactStore) ListPrefix(_ context.Context, _ string) ([]objectstore.ObjectInfo, error) {
+	return nil, nil
+}
+
 func TestRegisterStoredArtifactTools(t *testing.T) {
 	registry := tools.NewRegistry()
 	executors := map[string]tools.Executor{}

@@ -24,9 +24,6 @@ func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 		if strings.ToLower(strings.TrimSpace(rc.ChannelContext.ChannelType)) != "telegram" {
 			return next(ctx, rc)
 		}
-		if !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
-			return next(ctx, rc)
-		}
 		msgs, ids, lastScan := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
 		rc.Messages = msgs
 		rc.ThreadMessageIDs = ids
@@ -134,10 +131,11 @@ type telegramEnvelopeMessage struct {
 // telegramCompactBurstEntry 存储单条消息在 burst block 中的内容和 reply 信息。
 type telegramCompactBurstEntry struct {
 	body         string
-	time         string // 完整时间 "15:04:05"
+	time         string
 	messageID    string
 	replyToID    string
 	replyPreview string
+	forwardFrom  string
 }
 
 type telegramCompactBurstBlock struct {
@@ -221,6 +219,7 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 			messageID:    msgID,
 			replyToID:    strings.TrimSpace(item.meta["reply-to-message-id"]),
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
+			forwardFrom:  strings.TrimSpace(item.meta["forward-from"]),
 		}
 		if len(blocks) > 0 && blocks[len(blocks)-1].speaker == speaker {
 			blocks[len(blocks)-1].endTime = ts
@@ -417,7 +416,11 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 			replyLine += ` "` + entry.replyPreview + `"`
 		}
 	}
-	if text == "" && replyLine == "" {
+	fwdLine := ""
+	if entry.forwardFrom != "" {
+		fwdLine = "[Fwd: " + entry.forwardFrom + "]"
+	}
+	if text == "" && replyLine == "" && fwdLine == "" {
 		return fmt.Sprintf("[%s%s] %s", ts, msgIDSuffix, speaker)
 	}
 	var sb strings.Builder
@@ -429,6 +432,10 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 	sb.WriteString(": ")
 	if replyLine != "" {
 		sb.WriteString(replyLine)
+		sb.WriteString("\n  ")
+	}
+	if fwdLine != "" {
+		sb.WriteString(fwdLine)
 		sb.WriteString("\n  ")
 	}
 	lines := strings.Split(text, "\n")
@@ -448,10 +455,11 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 	entries := make([]telegramCompactBurstEntry, 0, len(block.entries))
 	for _, e := range block.entries {
 		trimmed := strings.TrimSpace(e.body)
-		if trimmed != "" || e.replyToID != "" {
+		if trimmed != "" || e.replyToID != "" || e.forwardFrom != "" {
 			entries = append(entries, telegramCompactBurstEntry{
 				body: trimmed, time: e.time, messageID: e.messageID,
 				replyToID: e.replyToID, replyPreview: e.replyPreview,
+				forwardFrom: e.forwardFrom,
 			})
 		}
 	}
@@ -463,7 +471,6 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 	if len(entries) == 1 {
 		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, entries[0])
 	}
-	// 合并 block：头部只放时间范围和说话人，每条消息带分钟级时间 + id
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(tsRange)
@@ -487,6 +494,11 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 				sb.WriteString(`"`)
 			}
 			sb.WriteString("\n  ")
+		}
+		if entry.forwardFrom != "" {
+			sb.WriteString("[Fwd: ")
+			sb.WriteString(entry.forwardFrom)
+			sb.WriteString("]\n  ")
 		}
 		for i, line := range strings.Split(entry.body, "\n") {
 			trimmed := strings.TrimSpace(line)

@@ -284,8 +284,8 @@ jobs:
           ARKLOOP_RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
           ARKLOOP_DESKTOP_MANIFEST_OUTPUT: release-files/desktop-manifest.json
           ARKLOOP_RELEASE_DIR: release-files
-          ARKLOOP_OPENVIKING_IMAGE: ghcr.io/volcengine/openviking:v0.1.18.dev0
-          ARKLOOP_OPENVIKING_VERSION: v0.1.18.dev0
+          ARKLOOP_OPENVIKING_IMAGE: ghcr.io/volcengine/openviking:v0.3.3
+          ARKLOOP_OPENVIKING_VERSION: v0.3.3
           ARKLOOP_RELEASE_LABEL: ${{ steps.release_meta.outputs.label }}
         run: node src/apps/desktop/scripts/generate-desktop-manifest.mjs
 

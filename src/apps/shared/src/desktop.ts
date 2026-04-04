@@ -37,6 +37,11 @@ export type OpenVikingDesktopConfig = {
   vlmModel?: string
   vlmApiKey?: string
   vlmApiBase?: string
+  rerankSelector?: string
+  rerankProvider?: string
+  rerankModel?: string
+  rerankApiKey?: string
+  rerankApiBase?: string
 }
 
 export type MemoryConfig = {
@@ -66,6 +71,12 @@ export type MemoryEntry = {
   key: string
   content: string
   created_at: string
+}
+
+export type SnapshotHit = {
+  uri: string
+  abstract: string
+  is_leaf: boolean
 }
 
 export type DesktopConfig = {
@@ -159,7 +170,9 @@ export type ArkloopDesktopApi = {
     setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
     list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
     delete: (id: string, agentId?: string) => Promise<{ status: string }>
-    getSnapshot: (agentId?: string) => Promise<{ memory_block: string }>
+    getSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
+    rebuildSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
+    getContent: (uri: string, layer?: 'overview' | 'read') => Promise<{ content: string }>
     add: (content: string, category?: string) => Promise<{ entry: MemoryEntry }>
   }
   sidecar: {

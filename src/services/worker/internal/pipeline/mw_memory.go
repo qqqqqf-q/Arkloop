@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
@@ -20,15 +19,12 @@ import (
 )
 
 const (
-	// memorySnapshotFindLimit：后台刷新快照时 OpenViking Find 的 Top-K，越大快照越长（更多 L0 条目）。
-	memorySnapshotFindLimit = 100
-	memoryHighScoreL1       = 0.85 // 高分且非叶子时拉 L1 overview 拼进该条 bullet
-	// memorySnapshotL1MaxRunes：单条命中附加的 L1 上限，避免单条记忆把 system 撑爆。
-	memorySnapshotL1MaxRunes = 2000
-	memoryFindTimeout        = 5 * time.Second
-	memoryFlushTimeout       = 120 * time.Second
-	// snapshotFindTimeout 用于刷写后的最佳努力快照重建。
-	snapshotFindTimeout = 15 * time.Second
+	memoryFlushTimeout = 120 * time.Second
+
+	// 目录树快照常量
+	memorySkeletonTimeout = 10 * time.Second // 骨架读取总超时
+	memorySkeletonMaxDirs = 10               // 最多读取的一级子目录数
+	memoryLeafMaxPerDir   = 30               // 每个目录下最多读取的叶子 abstract 数
 )
 
 var usageRepo = data.UsageRecordsRepository{}
@@ -112,98 +108,6 @@ func injectFromSnapshotOnly(ctx context.Context, rc *RunContext, snap MemorySnap
 	}
 }
 
-// renderMemoryBlock 通过 OpenViking Find 构建 <memory> 块，返回空串表示无结果。
-func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, targetURI string, query string) (string, []memory.MemoryHit) {
-	lines, hits, err := findMemoryLines(ctx, provider, ident, targetURI, query)
-	if err != nil {
-		slog.WarnContext(ctx, "memory: find failed", "target_uri", targetURI, "err", err.Error())
-		return "", nil
-	}
-	return buildMemoryBlock(lines), hits
-}
-
-func findMemoryLines(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, targetURI string, query string) ([]string, []memory.MemoryHit, error) {
-	hits, err := provider.Find(ctx, ident, targetURI, query, memorySnapshotFindLimit)
-	if err != nil {
-		return nil, nil, err
-	}
-	if len(hits) == 0 {
-		return nil, nil, nil
-	}
-
-	lines := make([]string, 0, len(hits))
-	for _, hit := range hits {
-		if strings.TrimSpace(hit.Abstract) == "" {
-			continue
-		}
-
-		line := strings.TrimSpace(hit.Abstract)
-		if hit.Score >= memoryHighScoreL1 && !hit.IsLeaf {
-			overview, ovErr := provider.Content(ctx, ident, hit.URI, memory.MemoryLayerOverview)
-			if ovErr == nil {
-				overview = clipRunes(strings.TrimSpace(overview), memorySnapshotL1MaxRunes)
-				if overview != "" {
-					line += "\n  " + indentContinuationLines(overview)
-				}
-			}
-		}
-		lines = append(lines, line)
-	}
-	return lines, hits, nil
-}
-
-func clipRunes(s string, max int) string {
-	if max <= 0 || s == "" {
-		return s
-	}
-	if utf8.RuneCountInString(s) <= max {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:max]) + "…"
-}
-
-// indentContinuationLines：首行随 bullet，后续行加两级空格，避免多行 L1 在列表里顶格乱掉。
-func indentContinuationLines(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return ""
-	}
-	parts := strings.Split(s, "\n")
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(parts[0]))
-	for i := 1; i < len(parts); i++ {
-		if t := strings.TrimSpace(parts[i]); t != "" {
-			b.WriteString("\n  ")
-			b.WriteString(t)
-		}
-	}
-	return b.String()
-}
-
-func buildMemoryBlock(lines []string) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("\n\n<memory>\n")
-	for _, line := range lines {
-		cleaned := strings.TrimSpace(line)
-		if cleaned == "" {
-			continue
-		}
-		sb.WriteString("- ")
-		sb.WriteString(cleaned)
-		sb.WriteString("\n")
-	}
-	sb.WriteString("</memory>")
-	block := sb.String()
-	if strings.TrimSpace(block) == "<memory>\n</memory>" {
-		return ""
-	}
-	return block
-}
-
 func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
@@ -267,36 +171,140 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 	if len(successfulQueries) == 0 {
 		return "", nil, false
 	}
-	allLines := make([]string, 0, memorySnapshotFindLimit*len(successfulQueries))
-	allHits := make([]memory.MemoryHit, 0, memorySnapshotFindLimit*len(successfulQueries))
-	for _, queries := range successfulQueries {
-		query := strings.TrimSpace(strings.Join(queries, "\n"))
-		if query == "" {
-			return "", nil, false
-		}
-		snapCtx, cancel := context.WithTimeout(ctx, snapshotFindTimeout)
-		lines, hits, err := findMemoryLines(snapCtx, provider, ident, memory.SelfURI(ident.UserID.String()), query)
-		cancel()
-		if err != nil {
-			slog.Warn("memory: snapshot rebuild find failed",
-				"account_id", ident.AccountID.String(),
-				"user_id", ident.UserID.String(),
-				"agent_id", ident.AgentID,
-				"err", err.Error(),
-			)
-			return "", nil, false
-		}
-		if len(lines) == 0 {
-			return "", nil, false
-		}
-		allLines = append(allLines, lines...)
-		allHits = append(allHits, hits...)
+
+	skelCtx, skelCancel := context.WithTimeout(ctx, memorySkeletonTimeout)
+	skeletonLines, leafLines, hits, ok := buildSnapshotFromTree(skelCtx, provider, ident)
+	skelCancel()
+
+	if !ok || (len(skeletonLines) == 0 && len(leafLines) == 0) {
+		return "", nil, false
 	}
-	block := buildMemoryBlock(allLines)
+
+	block := buildTreeShapedMemoryBlock(skeletonLines, leafLines)
 	if block == "" {
 		return "", nil, false
 	}
-	return block, allHits, true
+	return block, hits, true
+}
+
+// buildSnapshotFromTree 通过 ls + Content 构建完整的目录树快照。
+// 目录项读 overview，叶子文件读 read（L2 完整内容），对一级子目录递归一层收集叶子。
+// 同时收集 hits 用于前端 UI 展示。
+func buildSnapshotFromTree(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity) (skeletonLines []string, leafLines []string, hits []memory.MemoryHit, ok bool) {
+	rootURI := memory.SelfURI(ident.UserID.String())
+
+	rootOverview, err := provider.Content(ctx, ident, rootURI, memory.MemoryLayerOverview)
+	if err != nil || strings.TrimSpace(rootOverview) == "" {
+		return nil, nil, nil, false
+	}
+
+	skeletonLines = []string{strings.TrimSpace(rootOverview)}
+
+	children, err := provider.ListDir(ctx, ident, rootURI)
+	if err != nil {
+		return skeletonLines, nil, hits, true
+	}
+
+	dirCount := 0
+	for _, childURI := range children {
+		if strings.HasSuffix(childURI, "/") {
+			if dirCount >= memorySkeletonMaxDirs {
+				continue
+			}
+			dirCount++
+			childOverview, childErr := provider.Content(ctx, ident, childURI, memory.MemoryLayerOverview)
+			if childErr == nil && strings.TrimSpace(childOverview) != "" {
+				skeletonLines = append(skeletonLines, strings.TrimSpace(childOverview))
+				hits = append(hits, memory.MemoryHit{
+					URI:      strings.TrimSuffix(childURI, "/"),
+					Abstract: memoryFirstLine(strings.TrimSpace(childOverview)),
+					IsLeaf:   false,
+				})
+			}
+			subChildren, subErr := provider.ListDir(ctx, ident, childURI)
+			if subErr != nil {
+				continue
+			}
+			leafCount := 0
+			for _, subURI := range subChildren {
+				if leafCount >= memoryLeafMaxPerDir {
+					break
+				}
+				if strings.HasSuffix(subURI, "/") {
+					continue
+				}
+				content, readErr := provider.Content(ctx, ident, subURI, memory.MemoryLayerRead)
+				if readErr == nil && strings.TrimSpace(content) != "" {
+					leafLines = append(leafLines, strings.TrimSpace(content))
+					leafCount++
+					hits = append(hits, memory.MemoryHit{
+						URI:      subURI,
+						Abstract: memoryFirstLine(strings.TrimSpace(content)),
+						IsLeaf:   true,
+					})
+				}
+			}
+		} else {
+			content, readErr := provider.Content(ctx, ident, childURI, memory.MemoryLayerRead)
+			if readErr == nil && strings.TrimSpace(content) != "" {
+				leafLines = append(leafLines, strings.TrimSpace(content))
+				hits = append(hits, memory.MemoryHit{
+					URI:      childURI,
+					Abstract: memoryFirstLine(strings.TrimSpace(content)),
+					IsLeaf:   true,
+				})
+			}
+		}
+	}
+	return skeletonLines, leafLines, hits, true
+}
+
+func memoryFirstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	runes := []rune(s)
+	if len(runes) > 100 {
+		return string(runes[:100])
+	}
+	return s
+}
+
+// buildTreeShapedMemoryBlock 拼装骨架 + 叶子补充的 <memory> block。
+func buildTreeShapedMemoryBlock(skeletonLines []string, leafLines []string) string {
+	if len(skeletonLines) == 0 && len(leafLines) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<memory>\n")
+	for _, line := range skeletonLines {
+		cleaned := strings.TrimSpace(line)
+		if cleaned == "" {
+			continue
+		}
+		sb.WriteString(cleaned)
+		sb.WriteString("\n\n")
+	}
+	if len(leafLines) > 0 {
+		if len(skeletonLines) > 0 {
+			sb.WriteString("---\n")
+		}
+		for _, line := range leafLines {
+			cleaned := strings.TrimSpace(line)
+			if cleaned == "" {
+				continue
+			}
+			sb.WriteString("- ")
+			sb.WriteString(cleaned)
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("</memory>")
+	block := sb.String()
+	if strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(block, "<memory>", ""), "</memory>", "")) == "" {
+		return ""
+	}
+	return block
 }
 
 func tryRefreshSnapshotFromQueries(ctx context.Context, snap MemorySnapshotStore, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[string][]string) (bool, error) {

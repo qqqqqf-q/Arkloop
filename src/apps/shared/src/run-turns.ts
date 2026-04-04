@@ -111,6 +111,21 @@ function cleanText(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+function stripTelegramEnvelopeBodyPrefix(text: string, meta: Record<string, string>): string {
+  let cleaned = cleanText(text) ?? ''
+  const title = cleanText(meta['conversation-title'])
+  if (title) {
+    const titlePrefix = `[Telegram in ${title}]`
+    if (cleaned.startsWith(titlePrefix)) {
+      cleaned = cleanText(cleaned.slice(titlePrefix.length)) ?? ''
+    }
+  }
+  if (cleaned.startsWith('[Telegram]')) {
+    cleaned = cleanText(cleaned.slice('[Telegram]'.length)) ?? ''
+  }
+  return cleaned
+}
+
 // 与 worker context_compact.approxTokensFromText 同阶：按 UTF-8 字节粗算 token，仅用于调试对照账单 in。
 function approxContextTokensFromPayloadBytes(turn: LlmTurn): number | undefined {
   if (turn.systemBytes == null && turn.toolsBytes == null && turn.messagesBytes == null) {
@@ -139,12 +154,11 @@ function extractToolName(tool: Record<string, unknown>): string {
   return ''
 }
 
-function extractMessageText(msg: Record<string, unknown>): string {
+function readMessageText(msg: Record<string, unknown>): string {
   const content = msg.content
-  let out: string
-  if (typeof content === 'string') out = content
-  else if (Array.isArray(content)) {
-    out = content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
       .map((part: unknown) => {
         if (typeof part === 'string') return part
         if (typeof part === 'object' && part !== null) {
@@ -155,9 +169,17 @@ function extractMessageText(msg: Record<string, unknown>): string {
         return ''
       })
       .join('')
-  } else {
-    out = JSON.stringify(content)
   }
+  return JSON.stringify(content)
+}
+
+function extractMessageText(msg: Record<string, unknown>): string {
+  const out = readMessageText(msg)
+  return redactDataUrlsInString(normalizeChannelEnvelopeText(out))
+}
+
+function extractRawMessageText(msg: Record<string, unknown>): string {
+  const out = readMessageText(msg)
   return redactDataUrlsInString(out)
 }
 
@@ -192,26 +214,70 @@ function parseChannelEnvelope(text: string): { text: string; meta: Record<string
   return { text: body, meta }
 }
 
+export function normalizeChannelEnvelopeText(text: string): string {
+  const parsed = parseChannelEnvelope(text)
+  if (!parsed) return text
+
+  const lines: string[] = []
+  const replyToID = cleanText(parsed.meta['reply-to-message-id'])
+  const replyPreview = cleanText(parsed.meta['reply-to-preview'])
+  if (replyToID) {
+    let replyLine = `> Reply to #${replyToID}`
+    if (replyPreview) {
+      replyLine += ` "${replyPreview}"`
+    }
+    lines.push(replyLine)
+  }
+
+  const forwardFrom = cleanText(parsed.meta['forward-from'])
+  if (forwardFrom) {
+    lines.push(`[Fwd: ${forwardFrom}]`)
+  }
+
+  const body = stripTelegramEnvelopeBodyPrefix(parsed.text, parsed.meta)
+  if (body) {
+    lines.push(body)
+  }
+
+  return lines.join('\n').trim()
+}
+
+// Anthropic 将 tool_result 包装为 role:"user" 消息，需要排除这些消息以避免 userMessageCount 膨胀。
+function isToolResultOnlyMessage(message: Record<string, unknown>): boolean {
+  const content = message.content
+  if (!Array.isArray(content)) return false
+  if (content.length === 0) return false
+  return content.every((part: unknown) => {
+    if (typeof part !== 'object' || part === null) return false
+    const record = part as Record<string, unknown>
+    return record.type === 'tool_result'
+  })
+}
+
 function extractLatestUserInput(payload: Record<string, unknown> | undefined): UserInputInfo {
   const messages = Array.isArray(payload?.messages)
     ? (payload.messages as Array<Record<string, unknown>>)
     : []
-  const userMessages = messages.filter((message) => message.role === 'user')
+  const userMessages = messages.filter(
+    (message) => message.role === 'user' && !isToolResultOnlyMessage(message),
+  )
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
     if (message.role !== 'user') continue
-    const text = cleanText(extractMessageText(message))
-    if (!text) continue
-    const parsed = parseChannelEnvelope(text)
+    const rawText = cleanText(extractRawMessageText(message))
+    if (!rawText) continue
+    const parsed = parseChannelEnvelope(rawText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length,
       }
     }
+    const text = cleanText(normalizeChannelEnvelopeText(rawText))
+    if (!text) continue
     return {
       userInput: text,
       messages,
@@ -222,17 +288,19 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
   const fallbackCandidates = [payload?.input, payload?.prompt, payload?.input_text]
   for (const candidate of fallbackCandidates) {
     if (typeof candidate !== 'string') continue
-    const text = cleanText(candidate)
-    if (!text) continue
-    const parsed = parseChannelEnvelope(text)
+    const rawText = cleanText(redactDataUrlsInString(candidate))
+    if (!rawText) continue
+    const parsed = parseChannelEnvelope(rawText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length || 1,
       }
     }
+    const text = cleanText(normalizeChannelEnvelopeText(rawText))
+    if (!text) continue
     return {
       userInput: text,
       messages,
@@ -241,23 +309,26 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
   }
 
   const inputRecord = asRecord(payload?.input)
-  const inputText = cleanText(
+  const rawInputCandidate =
     typeof inputRecord?.text === 'string'
       ? inputRecord.text
-      : typeof inputRecord?.content === 'string'
-        ? inputRecord.content
-        : undefined,
+      : typeof payload?.input_text === 'string'
+        ? payload.input_text
+        : undefined
+  const rawInputText = cleanText(
+    rawInputCandidate ? redactDataUrlsInString(rawInputCandidate) : undefined,
   )
-  if (inputText) {
-    const parsed = parseChannelEnvelope(inputText)
+  if (rawInputText) {
+    const parsed = parseChannelEnvelope(rawInputText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawInputText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length || 1,
       }
     }
+    const inputText = cleanText(normalizeChannelEnvelopeText(rawInputText))
     return {
       userInput: inputText,
       messages,

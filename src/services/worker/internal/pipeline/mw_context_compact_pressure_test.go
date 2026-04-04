@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"arkloop/services/worker/internal/data"
@@ -226,5 +227,23 @@ func TestContextCompactPersistFailureDoesNotMarkTrimmedMessages(t *testing.T) {
 	}
 	if compacted || hidden {
 		t.Fatalf("expected message 3 to stay visible after persist failure, compacted=%v hidden=%v", compacted, hidden)
+	}
+
+	var eventType, phase, op, errText string
+	if err := pool.QueryRow(ctx,
+		`SELECT type, data_json->>'phase', data_json->>'op', data_json->>'error'
+		   FROM run_events
+		  WHERE run_id = $1 AND type = 'run.context_compact' AND data_json->>'phase' = 'mark_compacted'
+		  ORDER BY seq DESC
+		  LIMIT 1`,
+		runID,
+	).Scan(&eventType, &phase, &op, &errText); err != nil {
+		t.Fatalf("query failure event: %v", err)
+	}
+	if eventType != "run.context_compact" || phase != "mark_compacted" || op != "persist" {
+		t.Fatalf("unexpected failure event: type=%s phase=%s op=%s", eventType, phase, op)
+	}
+	if strings.TrimSpace(errText) == "" {
+		t.Fatal("expected failure event to include error text")
 	}
 }

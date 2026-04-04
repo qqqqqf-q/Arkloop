@@ -301,6 +301,10 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	if persistPct > 100 {
 		persistPct = 100
 	}
+	persistKeepTailPct := resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.persist_keep_tail_pct", platformScope, 0)
+	if persistKeepTailPct > 100 {
+		persistKeepTailPct = 100
+	}
 	rc.ContextCompact = pipeline.ContextCompactSettings{
 		Enabled:                     resolveBool(ctx, e.configResolver, registry, "context.compact.enabled", platformScope, false),
 		MaxMessages:                 resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.max_messages", platformScope, 0),
@@ -311,8 +315,10 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		PersistEnabled:              resolveBool(ctx, e.configResolver, registry, "context.compact.persist_enabled", platformScope, false),
 		PersistTriggerApproxTokens:  resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.persist_trigger_approx_tokens", platformScope, 0),
 		PersistTriggerContextPct:    persistPct,
-		FallbackContextWindowTokens: resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.fallback_context_window_tokens", platformScope, 200000),
+		FallbackContextWindowTokens: resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.fallback_context_window_tokens", platformScope, 128000),
 		PersistKeepLastMessages:     resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.persist_keep_last_messages", platformScope, defaultPersistKeepLastMessagesWorker),
+		PersistKeepTailPct:          persistKeepTailPct,
+		MicrocompactKeepRecentTools: resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.microcompact_keep_recent_tools", platformScope, 0),
 	}
 	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", platformScope, 0)
 	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", platformScope, 32)

@@ -204,7 +204,7 @@ describe('DesktopSettings', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('第三方接入')
+    expect(container.textContent).toContain('接入')
     expect(container.textContent).toContain('高级')
   })
 
@@ -228,7 +228,7 @@ describe('DesktopSettings', () => {
     })
     await flushEffects()
 
-    expect(container.textContent).toContain('记忆')
+    expect(container.textContent).toContain('Memory')
     expect(container.textContent).toContain('memory')
   })
 })

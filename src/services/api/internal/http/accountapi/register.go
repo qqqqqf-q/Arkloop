@@ -78,6 +78,12 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 		deps.ProjectRepo,
 		deps.Pool,
 	))
+	mux.HandleFunc("GET /v1/account/memory/errors", memoryErrorsEntry(
+		deps.AuthService,
+		deps.AccountMembershipRepo,
+		deps.APIKeysRepo,
+		deps.Pool,
+	))
 	if telegramModeUsesWebhook(deps.TelegramMode) {
 		mux.HandleFunc("/v1/channels/telegram/", telegramWebhookEntry(
 			deps.ChannelsRepo,

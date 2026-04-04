@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { memo, useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { isDesktop, isLocalMode, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage } from '@arkloop/shared'
@@ -23,11 +23,94 @@ import {
 } from '../api'
 import { clearActiveThreadIdInStorage, writeSelectedPersonaKeyToStorage, DEFAULT_PERSONA_KEY, readAppModeFromStorage, writeAppModeToStorage, writeThreadMode, readThreadMode } from '../storage'
 import type { AppMode } from '../storage'
+import { beginPerfTrace, endPerfTrace, recordPerfDuration } from '../perfDebug'
 
 type Props = {
   accessToken: string
   onLoggedOut: () => void
 }
+
+type LayoutMainProps = {
+  desktop: boolean
+  isSearchOpen: boolean
+  settingsOpen: boolean
+  me: MeResponse | null
+  accessToken: string
+  settingsInitialTab: SettingsTab
+  desktopSettingsSection: DesktopSettingsKey
+  onCloseSettings: () => void
+  onLogout: () => void
+  onCreditsChanged: (balance: number) => void
+  onMeUpdated: (updated: MeResponse) => void
+  onTrySkill: (prompt: string) => void
+  outletContext: unknown
+  notificationsOpen: boolean
+  onCloseNotifications: () => void
+  onMarkedRead: () => void
+  filteredThreads: ThreadResponse[]
+  onSearchClose: () => void
+}
+
+const LayoutMain = memo(function LayoutMain({
+  desktop,
+  isSearchOpen,
+  settingsOpen,
+  me,
+  accessToken,
+  settingsInitialTab,
+  desktopSettingsSection,
+  onCloseSettings,
+  onLogout,
+  onCreditsChanged,
+  onMeUpdated,
+  onTrySkill,
+  outletContext,
+  notificationsOpen,
+  onCloseNotifications,
+  onMarkedRead,
+  filteredThreads,
+  onSearchClose,
+}: LayoutMainProps) {
+  return (
+    <>
+      {settingsOpen && !desktop && (
+        <SettingsModal
+          me={me}
+          accessToken={accessToken}
+          initialTab={settingsInitialTab}
+          onClose={onCloseSettings}
+          onLogout={onLogout}
+          onCreditsChanged={onCreditsChanged}
+          onMeUpdated={onMeUpdated}
+          onTrySkill={onTrySkill}
+        />
+      )}
+
+      {isSearchOpen && (
+        <ChatsSearchModal threads={filteredThreads} accessToken={accessToken} onClose={onSearchClose} />
+      )}
+
+      {desktop && settingsOpen ? (
+        <DesktopSettings
+          me={me}
+          accessToken={accessToken}
+          initialSection={desktopSettingsSection}
+          onClose={onCloseSettings}
+          onLogout={onLogout}
+          onMeUpdated={onMeUpdated}
+          onTrySkill={onTrySkill}
+        />
+      ) : (
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <Outlet context={outletContext} />
+          {notificationsOpen && (
+            <NotificationsPanel accessToken={accessToken} onClose={onCloseNotifications} onMarkedRead={onMarkedRead} />
+          )}
+        </main>
+      )}
+    </>
+  )
+})
 
 export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const navigate = useNavigate()
@@ -67,6 +150,11 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   const [appMode, setAppMode] = useState<AppMode>(readAppModeFromStorage)
   const desktop = isDesktop()
   const usesHashRouting = window.location.protocol === 'file:'
+  const settingsOpenTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
+  const filteredThreads = useMemo(
+    () => threads.filter((t) => readThreadMode(t.id) === appMode),
+    [threads, appMode],
+  )
 
   const replaceQueryState = useCallback((params: URLSearchParams) => {
     const qs = params.toString()
@@ -82,7 +170,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     window.history.pushState({ searchMode: true }, '', next)
   }, [usesHashRouting])
 
-  const availableAppModes: AppMode[] = (desktop || me?.claw_enabled !== false) ? ['chat', 'claw'] : ['chat']
+  const availableAppModes: AppMode[] = (desktop || me?.work_enabled !== false) ? ['chat', 'work'] : ['chat']
 
   const handleSetAppMode = useCallback((mode: AppMode) => {
     writeAppModeToStorage(mode)
@@ -172,6 +260,12 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
   useEffect(() => {
     if (!desktop) return
     const openDesktopSettings = () => {
+      settingsOpenTraceRef.current = beginPerfTrace('desktop_settings_open', {
+        source: 'window-event',
+        requestedSection: 'general',
+        pathname: location.pathname,
+        threadCount: threads.length,
+      })
       setDesktopSettingsSection('general')
       setSettingsOpen(true)
     }
@@ -179,7 +273,18 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     return () => {
       window.removeEventListener('arkloop:app:open-settings', openDesktopSettings as EventListener)
     }
-  }, [desktop])
+  }, [desktop, location.pathname, threads.length])
+
+  useEffect(() => {
+    if (!(desktop && settingsOpen)) return
+    endPerfTrace(settingsOpenTraceRef.current, {
+      phase: 'visible',
+      section: desktopSettingsSection,
+      pathname: location.pathname,
+      threadCount: threads.length,
+    })
+    settingsOpenTraceRef.current = null
+  }, [desktop, settingsOpen, desktopSettingsSection, location.pathname, threads.length])
 
   // Mouse 5 / 浏览器返回键：退出搜索模式而非离开页面
   useEffect(() => {
@@ -328,6 +433,131 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     }).catch(() => { /* 静默失败，不影响主流程 */ })
   }, [accessToken])
 
+  const handleSettingsClose = useCallback(() => {
+    setSettingsOpen(false)
+  }, [])
+
+  const handleCreditsChanged = useCallback((balance: number) => {
+    setCreditsBalance(balance)
+  }, [])
+
+  const handleMeUpdated = useCallback((updated: MeResponse) => {
+    setMe(updated)
+  }, [])
+
+  const handleTrySkill = useCallback((prompt: string) => {
+    setSettingsOpen(false)
+    navigate('/')
+    setPendingSkillPrompt(prompt)
+  }, [navigate])
+
+  const handleBeforeNavigateToThread = useCallback(() => {
+    setSettingsOpen(false)
+  }, [])
+
+  const handleOpenSettings = useCallback((tab: SettingsTab | 'voice' = 'account') => {
+    if (desktop) {
+      const keyMap: Record<string, DesktopSettingsKey> = {
+        account: 'general',
+        settings: 'general',
+        skills: 'skills',
+        models: 'providers',
+        agents: 'personas',
+        channels: 'channels',
+        connection: 'advanced',
+        voice: 'advanced',
+      }
+      const section = keyMap[tab] ?? 'general'
+      recordPerfDuration('desktop_settings_open_request', 0, {
+        source: 'sidebar',
+        requestedTab: tab,
+        section,
+        pathname: location.pathname,
+        threadCount: threads.length,
+        alreadyOpen: settingsOpen,
+      })
+      settingsOpenTraceRef.current = beginPerfTrace('desktop_settings_open', {
+        source: 'sidebar',
+        requestedTab: tab,
+        section,
+        pathname: location.pathname,
+        threadCount: threads.length,
+      })
+      setDesktopSettingsSection(section)
+      setSettingsOpen(true)
+      return
+    }
+    setSettingsInitialTab(tab as SettingsTab)
+    setSettingsOpen(true)
+  }, [desktop, location.pathname, settingsOpen, threads.length])
+
+  const handleEnterSearchMode = useCallback(() => {
+    pushSearchModeState()
+    setIsSearchMode(true)
+  }, [pushSearchModeState])
+
+  const handleConsumePendingSkillPrompt = useCallback(() => {
+    setPendingSkillPrompt(null)
+  }, [])
+
+  const outletContext = useMemo(() => ({
+    accessToken,
+    onLoggedOut,
+    me,
+    creditsBalance,
+    onThreadCreated: handleThreadCreated,
+    onRunStarted: handleRunStarted,
+    onRunEnded: handleRunEnded,
+    onThreadTitleUpdated: handleThreadTitleUpdated,
+    refreshCredits,
+    onOpenNotifications: openNotifications,
+    notificationVersion,
+    isPrivateMode,
+    onTogglePrivateMode: handleTogglePrivateMode,
+    privateThreadIds,
+    isSearchMode,
+    onEnterSearchMode: handleEnterSearchMode,
+    onExitSearchMode: () => setIsSearchMode(false),
+    onSetPendingIncognito: handleSetPendingIncognito,
+    setTitleBarIncognitoClick,
+    onRightPanelChange: setRightPanelOpen,
+    threads,
+    onThreadDeleted: handleThreadDeleted,
+    pendingSkillPrompt,
+    onConsumeSkillPrompt: handleConsumePendingSkillPrompt,
+    onOpenSettings: handleOpenSettings,
+    appMode,
+    availableAppModes,
+    onSetAppMode: handleSetAppMode,
+  }), [
+    accessToken,
+    onLoggedOut,
+    me,
+    creditsBalance,
+    handleThreadCreated,
+    handleRunStarted,
+    handleRunEnded,
+    handleThreadTitleUpdated,
+    refreshCredits,
+    openNotifications,
+    notificationVersion,
+    isPrivateMode,
+    handleTogglePrivateMode,
+    privateThreadIds,
+    isSearchMode,
+    handleEnterSearchMode,
+    handleSetPendingIncognito,
+    setTitleBarIncognitoClick,
+    threads,
+    handleThreadDeleted,
+    pendingSkillPrompt,
+    handleConsumePendingSkillPrompt,
+    handleOpenSettings,
+    appMode,
+    availableAppModes,
+    handleSetAppMode,
+  ])
+
   // email 验证门控：flag 开启 + 未验证时全屏拦截
   if (!meLoaded) {
     return <LoadingPage label={t.loading} />
@@ -364,7 +594,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           appMode={appMode}
           onSetAppMode={handleSetAppMode}
           availableModes={availableAppModes}
-          showIncognitoToggle={appMode !== 'claw'}
+          showIncognitoToggle={appMode !== 'work'}
           isPrivateMode={titleBarIncognitoActive}
           onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
         />
@@ -373,32 +603,14 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
       <div className="flex min-h-0 flex-1">
         {!sidebarHiddenByWidth && <Sidebar
           me={me}
-          threads={threads.filter((t) => readThreadMode(t.id) === appMode)}
+          threads={filteredThreads}
           runningThreadIds={runningThreadIds}
           // 侧栏「小黑屋」仅跟全局开关与 pending fork；当前是否 private thread 不改变侧栏可导航性
           isPrivateMode={isPrivateMode || pendingIncognitoMode}
           accessToken={accessToken}
           onNewThread={handleNewThread}
           onLogout={handleLogout}
-          onOpenSettings={(tab = 'account') => {
-            if (desktop) {
-              const keyMap: Record<string, DesktopSettingsKey> = {
-                account: 'general',
-                settings: 'general',
-                skills: 'skills',
-                models: 'providers',
-                agents: 'personas',
-                channels: 'channels',
-                connection: 'advanced',
-                voice: 'advanced',
-              }
-              setDesktopSettingsSection(keyMap[tab] ?? 'general')
-              setSettingsOpen(true)
-            } else {
-              setSettingsInitialTab(tab)
-              setSettingsOpen(true)
-            }
-          }}
+          onOpenSettings={handleOpenSettings}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => {
             collapsedByWidthRef.current = !sidebarCollapsed
@@ -410,54 +622,29 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           desktopMode={desktop}
           appMode={appMode}
           suppressActiveThreadHighlight={settingsOpen}
-          beforeNavigateToThread={() => setSettingsOpen(false)}
+          beforeNavigateToThread={handleBeforeNavigateToThread}
         />}
 
-        {/* Settings modal for web mode */}
-        {settingsOpen && !desktop && (
-          <SettingsModal
-            me={me}
-            accessToken={accessToken}
-            initialTab={settingsInitialTab}
-            onClose={() => setSettingsOpen(false)}
-            onLogout={handleLogout}
-            onCreditsChanged={(balance) => setCreditsBalance(balance)}
-            onMeUpdated={(updated) => setMe(updated)}
-            onTrySkill={(prompt) => {
-              setSettingsOpen(false)
-              navigate('/')
-              setPendingSkillPrompt(prompt)
-            }}
-          />
-        )}
-
-        {isSearchOpen && (
-          <ChatsSearchModal threads={threads.filter((t) => readThreadMode(t.id) === appMode)} accessToken={accessToken} onClose={handleCloseSearch} />
-        )}
-
-        {/* Desktop mode: full-screen settings replaces main content */}
-        {desktop && settingsOpen ? (
-          <DesktopSettings
-            me={me}
-            accessToken={accessToken}
-            initialSection={desktopSettingsSection}
-            onClose={() => setSettingsOpen(false)}
-            onLogout={handleLogout}
-            onMeUpdated={(updated) => setMe(updated)}
-            onTrySkill={(prompt) => {
-              setSettingsOpen(false)
-              navigate('/')
-              setPendingSkillPrompt(prompt)
-            }}
-          />
-        ) : (
-          <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-            <Outlet context={{ accessToken, onLoggedOut, me, creditsBalance, onThreadCreated: handleThreadCreated, onRunStarted: handleRunStarted, onRunEnded: handleRunEnded, onThreadTitleUpdated: handleThreadTitleUpdated, refreshCredits, onOpenNotifications: openNotifications, notificationVersion, isPrivateMode, onTogglePrivateMode: handleTogglePrivateMode, privateThreadIds, isSearchMode, onEnterSearchMode: () => { pushSearchModeState(); setIsSearchMode(true) }, onExitSearchMode: () => setIsSearchMode(false), onSetPendingIncognito: handleSetPendingIncognito, setTitleBarIncognitoClick, onRightPanelChange: setRightPanelOpen, threads, onThreadDeleted: handleThreadDeleted, pendingSkillPrompt, onConsumeSkillPrompt: () => setPendingSkillPrompt(null), onOpenSettings: (tab: SettingsTab | 'voice' = 'account') => { if (desktop) { const keyMap: Record<string, DesktopSettingsKey> = { account: 'general', settings: 'general', skills: 'skills', models: 'providers', agents: 'personas', channels: 'channels', connection: 'advanced', voice: 'advanced' }; setDesktopSettingsSection(keyMap[tab] ?? 'general'); setSettingsOpen(true) } else { setSettingsInitialTab(tab as SettingsTab); setSettingsOpen(true) } }, appMode, availableAppModes, onSetAppMode: handleSetAppMode }} />
-            {notificationsOpen && (
-              <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={handleNotificationMarkedRead} />
-            )}
-          </main>
-        )}
+        <LayoutMain
+          desktop={desktop}
+          isSearchOpen={isSearchOpen}
+          settingsOpen={settingsOpen}
+          me={me}
+          accessToken={accessToken}
+          settingsInitialTab={settingsInitialTab}
+          desktopSettingsSection={desktopSettingsSection}
+          onCloseSettings={handleSettingsClose}
+          onLogout={handleLogout}
+          onCreditsChanged={handleCreditsChanged}
+          onMeUpdated={handleMeUpdated}
+          onTrySkill={handleTrySkill}
+          outletContext={outletContext}
+          notificationsOpen={notificationsOpen}
+          onCloseNotifications={closeNotifications}
+          onMarkedRead={handleNotificationMarkedRead}
+          filteredThreads={filteredThreads}
+          onSearchClose={handleCloseSearch}
+        />
       </div>
     </div>
   )

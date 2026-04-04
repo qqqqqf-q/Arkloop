@@ -108,7 +108,37 @@ func Up(ctx context.Context, db *sql.DB) ([]*goose.MigrationResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sqliteadapter: up: %w", err)
 	}
+	if err := checkForeignKeys(ctx, db); err != nil {
+		return nil, fmt.Errorf("sqliteadapter: post-migration fk check: %w", err)
+	}
 	return results, nil
+}
+
+// checkForeignKeys runs PRAGMA foreign_key_check and returns an error
+// if any rows violate foreign key constraints.
+func checkForeignKeys(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return fmt.Errorf("foreign_key_check query: %w", err)
+	}
+	defer rows.Close()
+
+	var violations []string
+	for rows.Next() {
+		var table, rowid, parent string
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return fmt.Errorf("foreign_key_check scan: %w", err)
+		}
+		violations = append(violations, fmt.Sprintf("%s(rowid=%s)->%s(fk=%d)", table, rowid, parent, fkid))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("foreign_key_check rows: %w", err)
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("foreign key violations after migration: %s", strings.Join(violations, "; "))
+	}
+	return nil
 }
 
 // DownOne rolls back the most recent migration.

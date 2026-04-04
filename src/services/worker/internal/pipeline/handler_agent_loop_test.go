@@ -234,3 +234,42 @@ func TestShouldAccumulateUsageForEvent(t *testing.T) {
 func f64ptr(v float64) *float64 {
 	return &v
 }
+
+func TestCaptureReplyOverride(t *testing.T) {
+	w := &eventWriter{}
+	w.captureReplyOverride(map[string]any{
+		"tool_name":    "telegram_reply",
+		"tool_call_id": "call-1",
+		"arguments":    map[string]any{"reply_to_message_id": "6592"},
+	})
+	if w.pendingReplyOverride != "6592" {
+		t.Fatalf("expected pendingReplyOverride=6592, got %q", w.pendingReplyOverride)
+	}
+}
+
+func TestCaptureReplyOverride_IgnoresOtherTools(t *testing.T) {
+	w := &eventWriter{}
+	w.captureReplyOverride(map[string]any{
+		"tool_name":    "telegram_react",
+		"tool_call_id": "call-2",
+		"arguments":    map[string]any{"emoji": "thumbs_up"},
+	})
+	if w.pendingReplyOverride != "" {
+		t.Fatalf("expected empty pendingReplyOverride, got %q", w.pendingReplyOverride)
+	}
+}
+
+func TestCaptureReplyOverride_OverwritesOnMultipleCalls(t *testing.T) {
+	w := &eventWriter{}
+	w.captureReplyOverride(map[string]any{
+		"tool_name": "telegram_reply",
+		"arguments": map[string]any{"reply_to_message_id": "100"},
+	})
+	w.captureReplyOverride(map[string]any{
+		"tool_name": "telegram_reply",
+		"arguments": map[string]any{"reply_to_message_id": "200"},
+	})
+	if w.pendingReplyOverride != "200" {
+		t.Fatalf("expected last override=200, got %q", w.pendingReplyOverride)
+	}
+}

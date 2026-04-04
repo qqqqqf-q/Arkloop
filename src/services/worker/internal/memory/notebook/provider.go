@@ -107,6 +107,10 @@ func (p *Provider) AppendSessionMessages(_ context.Context, _ memory.MemoryIdent
 	return nil
 }
 
+func (p *Provider) ListDir(_ context.Context, _ memory.MemoryIdentity, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func (p *Provider) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
 	return nil
 }

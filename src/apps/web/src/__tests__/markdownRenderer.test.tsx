@@ -1,16 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { WebSource } from '../storage'
 
-function renderMarkdown(content: string, options?: { webSources?: WebSource[]; disableMath?: boolean; accessToken?: string; runId?: string }): string {
+function renderMarkdown(content: string, options?: { webSources?: WebSource[]; disableMath?: boolean; streaming?: boolean; accessToken?: string; runId?: string }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
       <MarkdownRenderer
         content={content}
         webSources={options?.webSources}
         disableMath={options?.disableMath}
+        streaming={options?.streaming}
         accessToken={options?.accessToken}
         runId={options?.runId}
       />
@@ -115,5 +118,60 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('data-workspace-kind="loading"')
     expect(html).toContain('data-workspace-preview="text"')
     expect(html).toContain('example.py')
+  })
+
+  it('流式纯文本时仍保持 markdown 容器结构稳定', () => {
+    const html = renderMarkdown('plain text only\nnext line', { streaming: true })
+
+    expect(html).toContain('plain text only')
+    expect(html).toContain('<p ')
+  })
+
+  it('流式 markdown 语法时仍应保留 markdown 解析', () => {
+    const html = renderMarkdown('**bold** text', { streaming: true })
+
+    expect(html).toContain('<strong')
+  })
+
+  it('流式数学公式时应继续渲染 KaTeX', () => {
+    const html = renderMarkdown('行内公式 $a^2+b^2$', { streaming: true })
+
+    expect(html).toContain('class="katex"')
+  })
+
+  it('流式数学公式时应降频提交渲染内容', async () => {
+    vi.useFakeTimers()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MarkdownRenderer content="公式 $a$" streaming />
+        </LocaleProvider>,
+      )
+    })
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MarkdownRenderer content="公式 $a+b$" streaming />
+        </LocaleProvider>,
+      )
+    })
+
+    expect(container.textContent).toContain('a')
+    expect(container.textContent).not.toContain('a+b')
+
+    await act(async () => {
+      vi.advanceTimersByTime(96)
+    })
+
+    expect(container.textContent).toContain('a+b')
+
+    act(() => root.unmount())
+    container.remove()
+    vi.useRealTimers()
   })
 })

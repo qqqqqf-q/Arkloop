@@ -19,6 +19,9 @@ const JITTER_BRIDGE = 0.86
 
 const MIN_REVEAL_CPS = 18
 const MAX_REVEAL_CPS = 420
+const BASE_COMMIT_INTERVAL_MS = 44
+const FAST_COMMIT_INTERVAL_MS = 32
+const CATCHUP_COMMIT_INTERVAL_MS = 24
 
 /** 积压超过约这么多「典型包」时再明显提速，避免模型都结束了正文还落半篇 */
 const LAG_HARD_MULT = 2.35
@@ -151,10 +154,19 @@ export function useTypewriter(targetText: string, isComplete = false): string {
       if (current < target) {
         if (!prevTickRef.current) prevTickRef.current = now
         const elapsed = now - prevTickRef.current
-        if (elapsed >= 16) {
-          const pending = target - current
-          const chunk = Math.max(chunkEwmaRef.current, MIN_CHUNK_EWMA)
-          const gap = Math.max(gapEwmaRef.current, MIN_GAP_SAMPLE_MS)
+        const pending = target - current
+        const chunk = Math.max(chunkEwmaRef.current, MIN_CHUNK_EWMA)
+        const gap = Math.max(gapEwmaRef.current, MIN_GAP_SAMPLE_MS)
+        const softStart = chunk * 1.08
+        const hardLine = chunk * LAG_HARD_MULT
+        const commitInterval =
+          pending > hardLine
+            ? CATCHUP_COMMIT_INTERVAL_MS
+            : pending > softStart
+              ? FAST_COMMIT_INTERVAL_MS
+              : BASE_COMMIT_INTERVAL_MS
+
+        if (elapsed >= commitInterval) {
 
           let sustainableCps = (1000 * chunk) / gap
           if (sustainableCps < MIN_REVEAL_CPS) sustainableCps = MIN_REVEAL_CPS
@@ -162,12 +174,10 @@ export function useTypewriter(targetText: string, isComplete = false): string {
 
           let revealCps = sustainableCps * JITTER_BRIDGE
 
-          const softStart = chunk * 1.08
           if (pending > softStart) {
             revealCps +=
               ((pending - softStart) / Math.max(chunk, 1)) * sustainableCps * LAG_SOFT_BOOST
           }
-          const hardLine = chunk * LAG_HARD_MULT
           if (pending > hardLine) {
             revealCps += (pending - hardLine) * LAG_CATCHUP_PER_CHAR
           }
@@ -190,6 +200,7 @@ export function useTypewriter(targetText: string, isComplete = false): string {
           recordPerfCount('typewriter_tick', 1, {
             step,
             pending,
+            commitInterval,
             targetLength: target,
             nextLength: next,
           })

@@ -5,7 +5,7 @@ import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import type { MemoryEntry } from '@arkloop/shared/desktop'
-import { primaryButtonSmCls, secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
+import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 function formatDate(iso: string): string {

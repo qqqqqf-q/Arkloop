@@ -128,13 +128,9 @@ func TestExecutorReact_UsesNumericMessageIDArg(t *testing.T) {
 }
 
 func TestExecutorReply(t *testing.T) {
-	var methods []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if i := strings.Index(path, "/sendMessage"); i >= 0 {
-			methods = append(methods, "sendMessage")
-		}
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":99,"chat":{"id":1001}}}`))
+		// react/sendFile 仍需要 server，reply 不应到达此处
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 	}))
 	defer srv.Close()
 
@@ -146,14 +142,61 @@ func TestExecutorReply(t *testing.T) {
 		MessageThreadID: nil,
 	}
 	res := exec.Execute(context.Background(), ToolReply, map[string]any{
-		"text":                  "hello",
-		"reply_to_message_id":   "42",
+		"reply_to_message_id": "42",
 	}, tools.ExecutionContext{Channel: surface}, "")
 	if res.Error != nil {
 		t.Fatalf("reply: %v", res.Error)
 	}
-	if len(methods) != 1 || methods[0] != "sendMessage" {
-		t.Fatalf("methods: %v", methods)
+	result := res.ResultJSON
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result["reply_to_set"] != true {
+		t.Fatalf("expected reply_to_set=true, got %v", result["reply_to_set"])
+	}
+	if result["reply_to_message_id"] != "42" {
+		t.Fatalf("expected reply_to_message_id=42, got %v", result["reply_to_message_id"])
+	}
+}
+
+func TestExecutorReply_RejectsEmptyMessageID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+
+	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	surface := &tools.ChannelToolSurface{
+		ChannelID:      uuid.New(),
+		ChannelType:    "telegram",
+		PlatformChatID: "1001",
+	}
+	res := exec.Execute(context.Background(), ToolReply, map[string]any{}, tools.ExecutionContext{Channel: surface}, "")
+	if res.Error == nil {
+		t.Fatal("expected error for missing reply_to_message_id")
+	}
+}
+
+func TestExecutorReply_NumericMessageID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer srv.Close()
+
+	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	surface := &tools.ChannelToolSurface{
+		ChannelID:      uuid.New(),
+		ChannelType:    "telegram",
+		PlatformChatID: "1001",
+	}
+	res := exec.Execute(context.Background(), ToolReply, map[string]any{
+		"reply_to_message_id": float64(6687),
+	}, tools.ExecutionContext{Channel: surface}, "")
+	if res.Error != nil {
+		t.Fatalf("reply: %v", res.Error)
+	}
+	if res.ResultJSON["reply_to_message_id"] != "6687" {
+		t.Fatalf("expected 6687, got %v", res.ResultJSON["reply_to_message_id"])
 	}
 }
 

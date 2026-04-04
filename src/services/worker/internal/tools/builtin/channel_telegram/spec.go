@@ -23,10 +23,10 @@ var ReactAgentSpec = tools.AgentToolSpec{
 
 var ReplyAgentSpec = tools.AgentToolSpec{
 	Name:        ToolReply,
-	Version:     "1",
-	Description: "Send an HTML-formatted reply in the current Telegram chat (common Markdown converted), optionally quoting a message",
-	RiskLevel:   tools.RiskLevelMedium,
-	SideEffects: true,
+	Version:     "2",
+	Description: "Set the reply-to reference for the current Telegram conversation output",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
 }
 
 var ReactLlmSpec = llm.ToolSpec{
@@ -60,21 +60,20 @@ var ReactLlmSpec = llm.ToolSpec{
 var ReplyLlmSpec = llm.ToolSpec{
 	Name: ToolReply,
 	Description: sp(
-		"Send a text reply in the current Telegram conversation: body uses common Markdown (**bold**, `code`, links) converted to Telegram HTML; reply_to_message_id is required.",
+		"Set the reply-to reference for your output in the current Telegram conversation. " +
+			"Call this tool first with the target message_id, then write your reply text normally — " +
+			"the system will deliver your text as a reply to that message. " +
+			"Only use when you need to quote a specific message; for normal replies the system handles reply references automatically.",
 	),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"text": map[string]any{
-				"type":        "string",
-				"description": "Message body: common Markdown → Telegram HTML (bold, code, fenced block, https links)",
-			},
 			"reply_to_message_id": map[string]any{
 				"type":        "string",
 				"description": "Telegram message_id to reply to (decimal string)",
 			},
 		},
-		"required":             []string{"text", "reply_to_message_id"},
+		"required":             []string{"reply_to_message_id"},
 		"additionalProperties": false,
 	},
 }

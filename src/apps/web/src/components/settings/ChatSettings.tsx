@@ -12,7 +12,7 @@ import type { DesktopSettingsHydrationSnapshot } from '../DesktopSettings'
 
 /** 与 shared/config 注册表默认值一致（无 platform_settings 行时） */
 const DEFAULT_KEEP_LAST_MESSAGES = 40
-const DEFAULT_FALLBACK_WINDOW = 200_000
+const DEFAULT_FALLBACK_WINDOW = 128_000
 
 const KEY_ENABLED = 'context.compact.enabled'
 const KEY_PERSIST = 'context.compact.persist_enabled'

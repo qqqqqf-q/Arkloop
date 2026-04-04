@@ -71,7 +71,7 @@ export type MeResponse = {
   email?: string
   email_verified: boolean
   email_verification_required: boolean
-  claw_enabled: boolean
+  work_enabled: boolean
 }
 
 export type SkillReference = {
@@ -506,7 +506,7 @@ export type CreateThreadRequest = {
   project_id?: string
 }
 
-export type ThreadMode = 'chat' | 'claw'
+export type ThreadMode = 'chat' | 'work'
 
 export type ThreadResponse = {
   id: string
@@ -752,14 +752,13 @@ export type UploadedThreadAttachment = {
   extracted_text?: string
 }
 
-export async function uploadThreadAttachment(
+export async function uploadStagingAttachment(
   accessToken: string,
-  threadId: string,
   file: File,
 ): Promise<UploadedThreadAttachment> {
   const body = new FormData()
   body.append('file', file)
-  return await apiFetch<UploadedThreadAttachment>(`/v1/threads/${threadId}/attachments`, {
+  return await apiFetch<UploadedThreadAttachment>('/v1/attachments/stage', {
     method: 'POST',
     accessToken,
     body,
@@ -1687,6 +1686,7 @@ export type ResolveOpenVikingConfigRequest = {
   vlm_selector?: string
   embedding_selector?: string
   embedding_dimension_hint?: number
+  rerank_selector?: string
 }
 
 export type ResolvedOpenVikingModel = {
@@ -1706,6 +1706,7 @@ export type ResolvedOpenVikingEmbedding = ResolvedOpenVikingModel & {
 export type ResolveOpenVikingConfigResponse = {
   vlm?: ResolvedOpenVikingModel
   embedding?: ResolvedOpenVikingEmbedding
+  rerank?: ResolvedOpenVikingModel
 }
 
 export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
@@ -1735,6 +1736,29 @@ export async function resolveOpenVikingConfig(
     method: 'POST',
     accessToken,
     body: JSON.stringify(req),
+  })
+}
+
+export type MemoryErrorEvent = {
+  event_id: string
+  run_id: string
+  ts: string
+  type: string
+  data: Record<string, unknown> | null
+}
+
+export type MemoryErrorsResponse = {
+  errors: MemoryErrorEvent[]
+  total: number
+}
+
+export async function listMemoryErrors(
+  accessToken: string,
+  limit = 20,
+): Promise<MemoryErrorsResponse> {
+  return apiFetch<MemoryErrorsResponse>(`/v1/account/memory/errors?limit=${limit}`, {
+    method: 'GET',
+    accessToken,
   })
 }
 

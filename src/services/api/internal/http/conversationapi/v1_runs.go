@@ -216,7 +216,7 @@ func createThreadRun(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -230,7 +230,7 @@ func createThreadRun(
 		if outputRouteID == "" && outputModelKey != "" {
 			resolvedOutputRouteID, err := resolveSearchOutputRouteID(r.Context(), pool, thread, outputModelKey)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			if resolvedOutputRouteID != "" {
@@ -243,7 +243,7 @@ func createThreadRun(
 			// 从权益系统获取该 account 的并发上限，动态解析覆盖全局配置。
 			limitVal, err := entSvc.Resolve(r.Context(), thread.AccountID, "limit.concurrent_runs")
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			key := runlimit.Key(thread.AccountID.String())
@@ -272,19 +272,19 @@ func createThreadRun(
 
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		defer tx.Rollback(r.Context())
 
 		runRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		jobRepo, err := data.NewJobRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -301,13 +301,13 @@ func createThreadRun(
 				httpkit.WriteError(w, nethttp.StatusConflict, "runs.thread_busy", "thread already running", traceID, nil)
 				return
 			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
 		jobRepoTx := jobRepo.WithTx(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -321,12 +321,12 @@ func createThreadRun(
 			nil,
 		)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -537,7 +537,7 @@ func listThreadRuns(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -551,7 +551,7 @@ func listThreadRuns(
 
 		runs, err := runRepo.ListRunsByThread(r.Context(), actor.AccountID, threadID, limit)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -561,7 +561,7 @@ func listThreadRuns(
 			if status == "running" {
 				terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
 				if err != nil {
-					httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+					writeInternalError(w, traceID, err)
 					return
 				}
 				status = deriveRunStatus(terminal)
@@ -605,7 +605,7 @@ func getRun(
 
 		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if run == nil {
@@ -621,7 +621,7 @@ func getRun(
 		if status == "running" {
 			terminal, err := runRepo.GetLatestEventType(r.Context(), run.ID, runTerminalEventTypes)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			status = deriveRunStatus(terminal)
@@ -641,7 +641,7 @@ func getRun(
 
 		childIDs, err := runRepo.ListChildRunIDs(r.Context(), run.ID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		var childRunIDs []string
@@ -692,7 +692,7 @@ func cancelRun(
 
 		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if run == nil {
@@ -727,14 +727,14 @@ func cancelRun(
 
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		defer tx.Rollback(r.Context())
 
 		txRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -745,12 +745,12 @@ func cancelRun(
 				httpkit.WriteError(w, nethttp.StatusNotFound, "runs.not_found", "run not found", traceID, nil)
 				return
 			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -829,7 +829,7 @@ func submitRunInput(
 
 		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if run == nil {
@@ -843,14 +843,14 @@ func submitRunInput(
 
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		defer tx.Rollback(r.Context())
 
 		txRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -860,12 +860,12 @@ func submitRunInput(
 				httpkit.WriteError(w, nethttp.StatusConflict, "runs.not_active", "run is not active", traceID, nil)
 				return
 			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -909,7 +909,7 @@ func streamRunEvents(
 
 		run, err := runRepo.GetRunForAccount(r.Context(), actor.AccountID, runID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if run == nil {
@@ -1146,6 +1146,12 @@ func writeSseEvent(w nethttp.ResponseWriter, item data.RunEvent) error {
 	}
 	if payload["data"] == nil {
 		payload["data"] = map[string]any{}
+	}
+	if item.ToolName != nil {
+		payload["tool_name"] = *item.ToolName
+	}
+	if item.ErrorClass != nil {
+		payload["error_class"] = *item.ErrorClass
 	}
 
 	dataBytes, err := json.Marshal(payload)
@@ -1510,7 +1516,7 @@ func listGlobalRuns(
 
 		runs, total, err := runRepo.ListRuns(r.Context(), params)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 

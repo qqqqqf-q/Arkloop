@@ -95,7 +95,11 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
   const rest = stripAvailableCatalogFromAdvancedJson(model.advanced_json)
   const inputModalities = Array.isArray(catalog?.input_modalities) ? catalog?.input_modalities : []
   const outputModalities = Array.isArray(catalog?.output_modalities) ? catalog?.output_modalities : []
-  const contextLength = typeof catalog?.context_length === 'number' ? String(catalog.context_length) : ''
+  const overrideVal = catalog?.context_length_override
+  const catalogVal = catalog?.context_length
+  const contextLength = typeof overrideVal === 'number' ? String(overrideVal)
+    : typeof catalogVal === 'number' ? String(catalogVal)
+    : ''
   const maxOutputTokens = typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : ''
   return {
     modelName: '',
@@ -139,8 +143,11 @@ function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string
   if (outputModalities.size > 0) nextCatalog.output_modalities = [...outputModalities]
   else delete nextCatalog.output_modalities
 
-  if (draft.contextWindow.trim() !== '') nextCatalog.context_length = Number.parseInt(draft.contextWindow.trim(), 10)
-  else delete nextCatalog.context_length
+  if (draft.contextWindow.trim() !== '') {
+    nextCatalog.context_length_override = Number.parseInt(draft.contextWindow.trim(), 10)
+  } else {
+    delete nextCatalog.context_length_override
+  }
   if (draft.maxOutputTokens.trim() !== '') nextCatalog.max_output_tokens = Number.parseInt(draft.maxOutputTokens.trim(), 10)
   else delete nextCatalog.max_output_tokens
 
@@ -256,7 +263,7 @@ export function ModelOptionsModal({
       }
       if (nextDraft.vision) catalog.input_modalities = ['image']
       if (nextDraft.imageOutput) catalog.output_modalities = ['image']
-      if (nextDraft.contextWindow) catalog.context_length = Number.parseInt(nextDraft.contextWindow, 10)
+      if (nextDraft.contextWindow) catalog.context_length_override = Number.parseInt(nextDraft.contextWindow, 10)
       if (nextDraft.maxOutputTokens) catalog.max_output_tokens = Number.parseInt(nextDraft.maxOutputTokens, 10)
       if (nextDraft.embedding) catalog.type = 'embedding'
 

@@ -499,6 +499,214 @@ conversation-title: "Arkloop"
     ])
   })
 
+  it('normalizes telegram envelope request messages for debug display', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          payload: {
+            messages: [
+              {
+                role: 'user',
+                content: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "private"
+sender-ref: "cf842dbb-a8e5-4d0c-876d-533c8d0d1b11"
+platform-username: "chiffoncha"
+conversation-title: "chiffoncha"
+forward-from: "清凤"
+message-id: "616"
+time: "2026-04-04T06:21:00Z"
+---
+[Telegram] 还几把是在高速服务区？？`,
+              },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_1',
+          assistant_text: 'ok',
+        },
+      }),
+    ])
+
+    expect(buildRequestThreadTurns(turns)).toEqual([
+      {
+        key: 'call_1',
+        messages: [
+          {
+            role: 'user',
+            text: `[Fwd: 清凤]
+还几把是在高速服务区？？`,
+          },
+        ],
+        assistantText: 'ok',
+        isCurrent: true,
+      },
+    ])
+  })
+
+  it('keeps tool segments when Anthropic wraps tool_result in role:user messages', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'anthropic',
+          api_mode: 'messages',
+          payload: {
+            messages: [
+              { role: 'user', content: '搜一下群里之前的聊天' },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '能搜喵，试一下——' },
+      }),
+      makeEvent({ seq: 3, type: 'llm.turn.completed', data: { llm_call_id: 'call_1' } }),
+      makeEvent({
+        seq: 4,
+        type: 'tool.call',
+        data: {
+          tool_call_id: 'tc_1',
+          tool_name: 'group_history_search',
+          arguments: { query: '连云港煎蛋' },
+        },
+      }),
+      makeEvent({
+        seq: 5,
+        type: 'tool.result',
+        data: {
+          tool_call_id: 'tc_1',
+          tool_name: 'group_history_search',
+          result: { messages: ['found something'] },
+        },
+      }),
+      // Anthropic 风格: tool_result 以 role:"user" 出现
+      makeEvent({
+        seq: 6,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_2',
+          provider_kind: 'anthropic',
+          api_mode: 'messages',
+          payload: {
+            messages: [
+              { role: 'user', content: '搜一下群里之前的聊天' },
+              { role: 'assistant', content: [{ type: 'text', text: '能搜喵' }, { type: 'tool_use', id: 'tc_1', name: 'group_history_search', input: {} }] },
+              { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc_1', content: 'found something' }] },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 7,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '搜到了一些历史消息。' },
+      }),
+      makeEvent({ seq: 8, type: 'llm.turn.completed', data: { llm_call_id: 'call_2' } }),
+      makeEvent({ seq: 9, type: 'run.completed', data: {} }),
+    ])
+
+    // isToolResultOnlyMessage 过滤 tool_result user 消息后，userMessageCount 不膨胀 -> 1 turn
+    expect(turns).toHaveLength(1)
+    const toolCalls = turns[0]?.segments.filter((s) => s.kind === 'tool_call')
+    const toolResults = turns[0]?.segments.filter((s) => s.kind === 'tool_result')
+    expect(toolCalls).toHaveLength(1)
+    expect(toolResults).toHaveLength(1)
+    expect(turns[0]?.assistantText).toBe('搜到了一些历史消息。')
+  })
+
+  it('keeps tool segments when Anthropic tool_result increases userMessageCount', () => {
+    // Anthropic 场景下 tool_result 以 role:"user" 出现，
+    // 导致 userMessageCount 增加，shouldStartNewTurn 为 true
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'anthropic',
+          api_mode: 'messages',
+          payload: {
+            messages: [
+              { role: 'user', content: '查一下历史记录' },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '好的' },
+      }),
+      makeEvent({ seq: 3, type: 'llm.turn.completed', data: { llm_call_id: 'call_1' } }),
+      makeEvent({
+        seq: 4,
+        type: 'tool.call',
+        data: { tool_call_id: 'tc_1', tool_name: 'search', arguments: { q: 'test' } },
+      }),
+      makeEvent({
+        seq: 5,
+        type: 'tool.result',
+        data: { tool_call_id: 'tc_1', tool_name: 'search', result: { data: 'ok' } },
+      }),
+      makeEvent({
+        seq: 6,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_2',
+          provider_kind: 'anthropic',
+          api_mode: 'messages',
+          payload: {
+            messages: [
+              { role: 'user', content: '查一下历史记录' },
+              { role: 'assistant', content: '好的' },
+              // Anthropic: tool result 使用 role:"user"
+              { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tc_1', content: 'ok' }] },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 7,
+        type: 'message.delta',
+        data: { role: 'assistant', content_delta: '查到了结果。' },
+      }),
+      makeEvent({ seq: 8, type: 'llm.turn.completed', data: { llm_call_id: 'call_2' } }),
+      makeEvent({ seq: 9, type: 'run.completed', data: {} }),
+    ])
+
+    // 无论分成几个 turn，总 segments 中必须有 tool_call 和 tool_result
+    const allSegments = turns.flatMap((t) => t.segments)
+    const toolCallSegments = allSegments.filter((s) => s.kind === 'tool_call')
+    const toolResultSegments = allSegments.filter((s) => s.kind === 'tool_result')
+    expect(toolCallSegments).toHaveLength(1)
+    expect(toolResultSegments).toHaveLength(1)
+
+    // 检查是否因为 userMessageCount 增加而分成了 2 个 turn
+    if (turns.length === 2) {
+      // 如果分成 2 个 turn，tool segments 应该在第一个 turn 中
+      const firstTurnToolCalls = turns[0]?.segments.filter((s) => s.kind === 'tool_call')
+      const firstTurnToolResults = turns[0]?.segments.filter((s) => s.kind === 'tool_result')
+      expect(firstTurnToolCalls).toHaveLength(1)
+      expect(firstTurnToolResults).toHaveLength(1)
+    }
+  })
+
   it('ignores ACP delegate deltas/tools and inner run.completed; keeps host acp_agent tool result', () => {
     const delegate = { delegate_layer: ACP_DELEGATE_LAYER }
     const turns = buildTurns([

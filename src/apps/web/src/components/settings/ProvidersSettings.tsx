@@ -796,7 +796,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
               model: payload.model,
               show_in_picker: false,
               tags: payload.tags.length > 0 ? payload.tags : undefined,
-              advanced_json: payload.advancedJSON,
+              advanced_json: payload.advancedJSON ?? undefined,
             })
             setCreatingModel(false)
             onChanged()

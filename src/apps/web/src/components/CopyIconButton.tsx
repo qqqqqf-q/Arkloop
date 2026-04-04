@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Copy } from 'lucide-react'
 import { AnimatedCheck } from './AnimatedCheck'
+import { ActionIconButton } from './ActionIconButton'
 
 type Phase = 'idle' | 'exiting' | 'entering' | 'active' | 'exiting-back' | 'entering-back'
 
@@ -12,11 +13,23 @@ type Props = {
   style?: React.CSSProperties
   resetDelay?: number
   tooltip?: string
+  hoverBackground?: string
   onMouseEnter?: React.MouseEventHandler<HTMLButtonElement>
   onMouseLeave?: React.MouseEventHandler<HTMLButtonElement>
 }
 
-export function CopyIconButton({ onCopy, onCopied, size = 16, className, style, resetDelay = 1500, tooltip = 'Copy', onMouseEnter, onMouseLeave }: Props) {
+export function CopyIconButton({
+  onCopy,
+  onCopied,
+  size = 16,
+  className,
+  style,
+  resetDelay = 1500,
+  tooltip = 'Copy',
+  hoverBackground,
+  onMouseEnter,
+  onMouseLeave,
+}: Props) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [hovered, setHovered] = useState(false)
   const hoveredRef = useRef(false)
@@ -90,49 +103,27 @@ export function CopyIconButton({ onCopy, onCopied, size = 16, className, style, 
   const showTooltip = hovered && phase === 'idle'
 
   return (
-    <span style={{ position: 'relative', display: 'inline-flex', ...style }} className={className}>
-      <button
-        onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      >
-        <span style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          ...iconStyle(),
-        }}>
-          {showCheck
-            ? <AnimatedCheck size={size} />
-            : <Copy size={size} />
-          }
-        </span>
-      </button>
-      <span
-        style={{
-          position: 'absolute',
-          top: '100%',
-          left: '50%',
-          transform: showTooltip
-            ? 'translateX(-50%) translateY(0px)'
-            : 'translateX(-50%) translateY(-3px)',
-          marginTop: '3px',
-          fontSize: '11px',
-          fontWeight: 500,
-          color: 'rgba(255,255,255,0.9)',
-          background: 'rgba(0,0,0,0.75)',
-          borderRadius: '5px',
-          padding: '2px 7px',
-          whiteSpace: 'nowrap',
-          opacity: showTooltip ? 1 : 0,
-          transition: 'opacity 120ms ease, transform 120ms ease',
-          pointerEvents: 'none',
-          userSelect: 'none',
-          zIndex: 20,
-        }}
-      >
-        {tooltip}
+    <ActionIconButton
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      tooltip={tooltip}
+      showTooltip={showTooltip}
+      hoverBackground={hoverBackground}
+      className={className}
+      style={style}
+    >
+      <span style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...iconStyle(),
+      }}>
+        {showCheck
+          ? <AnimatedCheck size={size} />
+          : <Copy size={size} />
+        }
       </span>
-    </span>
+    </ActionIconButton>
   )
 }

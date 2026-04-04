@@ -136,6 +136,21 @@ func (l *Loop) Run(
 		return yield(emitter.Emit("run.failed", reasoningIterationsExceededError(runCtx.ReasoningIterations).ToJSON(), nil, stringPtr(ErrorClassAgentReasoningIterationsExceeded)))
 	}
 
+	// heartbeat Phase 1: 只暴露 heartbeat_decision 工具，防止模型绕过决策直接调用其他工具
+	var heartbeatFullTools []llm.ToolSpec
+	if runCtx.PipelineRC != nil &&
+		pipeline.IsHeartbeatRunContext(runCtx.PipelineRC) &&
+		runCtx.PipelineRC.HeartbeatToolOutcome == nil {
+		heartbeatFullTools = append([]llm.ToolSpec{}, request.Tools...)
+		var filtered []llm.ToolSpec
+		for _, spec := range request.Tools {
+			if spec.Name == "heartbeat_decision" {
+				filtered = append(filtered, spec)
+			}
+		}
+		request.Tools = filtered
+	}
+
 	messages := append([]llm.Message{}, request.Messages...)
 	webSourceCount := 0
 	seenToolResultKeys := map[string]toolResultDedupInfo{}
@@ -600,9 +615,13 @@ func (l *Loop) Run(
 				}
 				return yield(emitter.Emit("run.completed", completionTotals.Apply(turn.CompletedDataJSON), nil, nil))
 			}
-			// reply=true: 解除 tool_choice 约束，继续 loop
+			// reply=true: 解除 tool_choice 约束，恢复完整工具列表
 			if request.ToolChoice != nil {
 				request.ToolChoice = nil
+			}
+			if heartbeatFullTools != nil {
+				request.Tools = heartbeatFullTools
+				heartbeatFullTools = nil
 			}
 		}
 		if terminalSideEffectOnly && terminalSideEffectSucceeded {
@@ -1791,7 +1810,7 @@ func shouldSuppressToolResultReplay(runCtx RunContext, toolName string, success 
 
 func isTerminalSideEffectTool(toolName string) bool {
 	switch toolName {
-	case "telegram_reply", "telegram_react", "telegram_send_file":
+	case "telegram_react", "telegram_send_file":
 		return true
 	default:
 		return false

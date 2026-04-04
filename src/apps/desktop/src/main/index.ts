@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, Menu, nativeImage, session } from 'electron'
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { loadConfig, normalizeConfig, saveConfig } from './config'
 import {
@@ -28,6 +29,8 @@ setupMainProcessLogging()
 
 let mainWindow: BrowserWindow | null = null
 let activeSidecarPort: number | null = null
+
+const REACT_DEVTOOLS_EXTENSION_ID = 'fmkadmapgofadopljbjfkapdkoienihi'
 
 function getAppIconPath(): string {
   const candidates = app.isPackaged
@@ -70,6 +73,41 @@ function ensureDockPresence(): void {
   if (process.platform !== 'darwin') return
   app.setActivationPolicy('regular')
   app.dock?.show()
+}
+
+function getReactDevToolsExtensionPath(): string | null {
+  const home = os.homedir()
+  const extensionRoots = [
+    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'Default', 'Extensions', REACT_DEVTOOLS_EXTENSION_ID),
+    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'Profile 1', 'Extensions', REACT_DEVTOOLS_EXTENSION_ID),
+    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Beta', 'Default', 'Extensions', REACT_DEVTOOLS_EXTENSION_ID),
+    path.join(home, 'Library', 'Application Support', 'Google', 'Chrome Canary', 'Default', 'Extensions', REACT_DEVTOOLS_EXTENSION_ID),
+    path.join(home, 'Library', 'Application Support', 'Microsoft Edge', 'Default', 'Extensions', REACT_DEVTOOLS_EXTENSION_ID),
+  ]
+
+  for (const root of extensionRoots) {
+    if (!fs.existsSync(root)) continue
+    const versions = fs.readdirSync(root)
+      .map((entry) => path.join(root, entry))
+      .filter((entryPath) => fs.existsSync(path.join(entryPath, 'manifest.json')))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    const latest = versions.at(-1)
+    if (latest) return latest
+  }
+
+  return null
+}
+
+async function installReactDevTools(): Promise<void> {
+  if (process.env.ELECTRON_DEV !== 'true') return
+  const extensionPath = getReactDevToolsExtensionPath()
+  if (!extensionPath) return
+  try {
+    await session.defaultSession.loadExtension(extensionPath, { allowFileAccess: true })
+    console.info('[desktop]', { reactDevTools: 'loaded', extensionPath })
+  } catch (error) {
+    console.error('[desktop] react-devtools load failed', error instanceof Error ? error.message : String(error))
+  }
 }
 
 function getWindow(): BrowserWindow | null {
@@ -335,6 +373,7 @@ app.whenReady().then(async () => {
     packaged: app.isPackaged,
     version: app.getVersion(),
   })
+  await installReactDevTools()
   if (process.platform === 'win32') {
     Menu.setApplicationMenu(null)
   }

@@ -1838,6 +1838,83 @@ func TestTelegramWebhookGroupNewClearsBindingWhenBound(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_group_threads`, 1)
 }
 
+func TestTelegramWebhookGroupKeywordTriggerCreatesRun(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"bot_username":     "arkloopbot",
+		"bot_first_name":   "Arkloop",
+		"trigger_keywords": []string{"草洛"},
+	})
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	// passive: 不含关键词，不触发 run
+	passive := map[string]any{
+		"message": map[string]any{
+			"message_id": 101,
+			"date":       1710000000,
+			"text":       "群里聊天不提 bot",
+			"chat":       map[string]any{"id": -30001, "type": "supergroup", "title": "KW Group"},
+			"from":       map[string]any{"id": 10001, "is_bot": false, "first_name": "Alice"},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", passive, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("passive webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
+
+	// keyword: 包含配置的关键词 "草洛"，触发 run
+	keyword := map[string]any{
+		"message": map[string]any{
+			"message_id": 102,
+			"date":       1710000001,
+			"text":       "草洛出来",
+			"chat":       map[string]any{"id": -30001, "type": "supergroup", "title": "KW Group"},
+			"from":       map[string]any{"id": 10001, "is_bot": false, "first_name": "Alice"},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", keyword, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("keyword webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
+
+	// bot_first_name 也作为隐含关键词
+	firstName := map[string]any{
+		"message": map[string]any{
+			"message_id": 103,
+			"date":       1710000002,
+			"text":       "arkloop 你好",
+			"chat":       map[string]any{"id": -30001, "type": "supergroup", "title": "KW Group"},
+			"from":       map[string]any{"id": 10001, "is_bot": false, "first_name": "Alice"},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", firstName, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("first_name keyword webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 3)
+
+	// metadata 中 matches_keyword = true
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(),
+		`SELECT metadata_json::text::jsonb FROM messages ORDER BY created_at DESC LIMIT 1`,
+	).Scan(&metadataJSON); err != nil {
+		t.Fatalf("query metadata: %v", err)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(metadataJSON, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if got, _ := meta["matches_keyword"].(bool); !got {
+		t.Fatalf("expected matches_keyword=true in metadata, got %v", meta["matches_keyword"])
+	}
+}
+
 func doJSONAccount(handler nethttp.Handler, method string, path string, payload any, headers map[string]string) *httptest.ResponseRecorder {
 	var body io.Reader
 	if payload != nil {

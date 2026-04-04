@@ -137,7 +137,7 @@ func flushTelegramMediaGroupBucket(key string) {
 		slog.Error("telegram_media_group_flush", "phase", "config", "err", err)
 		return
 	}
-	merged, err := mergeTelegramAlbumIncoming(ch.ID, ch.ChannelType, items, cfg.BotUsername, cfg.TelegramBotUserID)
+	merged, err := mergeTelegramAlbumIncoming(ch.ID, ch.ChannelType, items, cfg.BotUsername, cfg.TelegramBotUserID, buildTelegramTriggerKeywords(cfg))
 	if err != nil || merged == nil {
 		slog.Error("telegram_media_group_flush", "phase", "merge", "err", err)
 		return
@@ -154,6 +154,7 @@ func mergeTelegramAlbumIncoming(
 	items []telegramUpdate,
 	botUsername string,
 	botUID int64,
+	triggerKeywords []string,
 ) (*telegramIncomingMessage, error) {
 	var merged *telegramIncomingMessage
 	for _, u := range items {
@@ -161,7 +162,7 @@ func mergeTelegramAlbumIncoming(
 		if err != nil {
 			return nil, err
 		}
-		inc, err := normalizeTelegramIncomingMessage(channelID, channelType, raw, u, botUsername, botUID)
+		inc, err := normalizeTelegramIncomingMessage(channelID, channelType, raw, u, botUsername, botUID, triggerKeywords)
 		if err != nil {
 			return nil, err
 		}
@@ -329,32 +330,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if err != nil {
 		return err
 	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-			"media_group":       true,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -377,7 +352,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if preTailMsg != nil {
 		preTailMessageID = preTailMsg.ID.String()
 	}
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
 		ch.AccountID,
 		threadID,
@@ -386,8 +361,36 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		contentJSON,
 		metadataJSON,
 		identity.UserID,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+			"media_group":       true,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MessageID:               &msg.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
 	}
 
 	if !incoming.ShouldCreateRun() {

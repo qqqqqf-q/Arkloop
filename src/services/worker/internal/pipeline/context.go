@@ -87,6 +87,10 @@ type RunContext struct {
 	FinalAssistantOutput string
 	// -- AgentLoopHandler 写入：按 turn 保留的 assistant 输出，供 Channel 逐条投递 --
 	FinalAssistantOutputs []string
+	// -- Channel tool / desktop writer 写入：正文已由具副作用的渠道工具直接送达，middleware 不应再次外发 --
+	ChannelOutputDelivered bool
+	// -- telegram_reply 工具写入：覆盖 delivery 层的默认 reply 引用 --
+	ChannelReplyOverride *ChannelMessageRef
 
 	// -- AgentLoopHandler 写入：本次 run 的 tool call 总数和 LLM 迭代轮数，供 MemoryMiddleware 判断提炼条件 --
 	RunToolCallCount  int
@@ -240,9 +244,9 @@ type RunContext struct {
 	ReleaseSlot func()
 
 	// -- Heartbeat --
-	HeartbeatRun          bool
-	HeartbeatSilent       bool // 由 heartbeat_decision 工具执行时设置，AgentLoop 只读
-	HeartbeatToolOutcome  *HeartbeatDecisionOutcome
+	HeartbeatRun         bool
+	HeartbeatSilent      bool // 由 heartbeat_decision 工具执行时设置，AgentLoop 只读
+	HeartbeatToolOutcome *HeartbeatDecisionOutcome
 
 	// -- Rollout --
 	// RolloutRecorder 用于写入 rollout 日志，为 nil 时不记录

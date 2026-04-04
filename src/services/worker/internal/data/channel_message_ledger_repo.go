@@ -35,6 +35,7 @@ type ChannelMessageLedgerRecordInput struct {
 	PlatformParentMessageID *string
 	PlatformThreadID        *string
 	SenderChannelIdentityID *uuid.UUID
+	MessageID               *uuid.UUID
 	MetadataJSON            json.RawMessage
 }
 
@@ -73,8 +74,9 @@ func (ChannelMessageLedgerRepository) Record(ctx context.Context, db channelMess
 			platform_parent_message_id,
 			platform_thread_id,
 			sender_channel_identity_id,
+			message_id,
 			metadata_json
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
 		ON CONFLICT (channel_id, direction, platform_conversation_id, platform_message_id) DO NOTHING`,
 		input.ChannelID,
 		strings.TrimSpace(input.ChannelType),
@@ -86,6 +88,7 @@ func (ChannelMessageLedgerRepository) Record(ctx context.Context, db channelMess
 		trimOptionalLedgerString(input.PlatformParentMessageID),
 		trimOptionalLedgerString(input.PlatformThreadID),
 		input.SenderChannelIdentityID,
+		input.MessageID,
 		metadataJSON,
 	)
 	if err != nil {

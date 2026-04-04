@@ -8,7 +8,9 @@ import (
 	"io"
 	nethttp "net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
@@ -28,15 +30,16 @@ var ErrUnsupportedAttachmentType = errors.New("unsupported attachment type")
 const MessageAttachmentOwnerKind = "message_attachment"
 const uploadMultipartBodyLimit = (20 << 20) + (1 << 20)
 
-func uploadThreadAttachment(
+const attachmentMetaCreatedAt = "created_at"
+
+func stagingAttachmentUpload(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
-	threadRepo *data.ThreadRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 	store messageAttachmentStore,
-) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
+) func(nethttp.ResponseWriter, *nethttp.Request) {
+	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		if r.Method != nethttp.MethodPost {
 			httpkit.WriteMethodNotAllowed(w, r)
@@ -46,7 +49,7 @@ func uploadThreadAttachment(
 			httpkit.WriteAuthNotConfigured(w, traceID)
 			return
 		}
-		if threadRepo == nil || store == nil {
+		if store == nil {
 			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "attachments.not_configured", "attachment storage not configured", traceID, nil)
 			return
 		}
@@ -56,19 +59,6 @@ func uploadThreadAttachment(
 			return
 		}
 		if !httpkit.RequirePerm(actor, auth.PermDataThreadsWrite, w, traceID) {
-			return
-		}
-
-		thread, err := threadRepo.GetByID(r.Context(), threadID)
-		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-		if thread == nil {
-			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
-			return
-		}
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "attachments.create", thread, auditWriter) {
 			return
 		}
 
@@ -102,9 +92,9 @@ func uploadThreadAttachment(
 			return
 		}
 
-		threadIDText := thread.ID.String()
-		key := fmt.Sprintf("threads/%s/attachments/%s/%s", thread.ID.String(), uuid.NewString(), sanitizeAttachmentKeyNameImpl(filename))
-		metadata := objectstore.ArtifactMetadata(MessageAttachmentOwnerKind, actor.UserID.String(), actor.AccountID.String(), &threadIDText)
+		key := fmt.Sprintf("staging/%s/%s/%s", actor.AccountID.String(), uuid.NewString(), sanitizeAttachmentKeyNameImpl(filename))
+		metadata := objectstore.ArtifactMetadata(MessageAttachmentOwnerKind, actor.UserID.String(), actor.AccountID.String(), nil)
+		metadata[attachmentMetaCreatedAt] = strconv.FormatInt(time.Now().Unix(), 10)
 		if err := store.PutObject(r.Context(), key, payload.bytes, objectstore.PutOptions{ContentType: payload.mimeType, Metadata: metadata}); err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
@@ -159,15 +149,15 @@ func messageAttachmentsEntry(
 			return
 		}
 
-		thread, ok := resolveAttachmentThread(r.Context(), threadRepo, info)
-		if !ok || thread == nil {
-			httpkit.WriteError(w, nethttp.StatusForbidden, "attachments.forbidden", "access denied", traceID, nil)
-			return
-		}
+		thread, threadResolved := resolveAttachmentThread(r.Context(), threadRepo, info)
 
 		shareToken := strings.TrimSpace(r.URL.Query().Get("share_token"))
 		hasAuthorization := strings.TrimSpace(r.Header.Get("Authorization")) != ""
 		if !hasAuthorization && shareToken != "" {
+			if !threadResolved || thread == nil {
+				httpkit.WriteError(w, nethttp.StatusForbidden, "attachments.forbidden", "access denied", traceID, nil)
+				return
+			}
 			if !authorizeAttachmentShare(w, r, traceID, threadShareRepo, shareToken, thread) {
 				return
 			}
@@ -183,8 +173,16 @@ func messageAttachmentsEntry(
 			if !httpkit.RequirePerm(actor, auth.PermDataThreadsRead, w, traceID) {
 				return
 			}
-			if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter) {
-				return
+			if threadResolved && thread != nil {
+				if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter) {
+					return
+				}
+			} else {
+				accountID := strings.TrimSpace(info.Metadata[objectstore.ArtifactMetaAccountID])
+				if accountID == "" || accountID != actor.AccountID.String() {
+					httpkit.WriteError(w, nethttp.StatusForbidden, "attachments.forbidden", "access denied", traceID, nil)
+					return
+				}
 			}
 		}
 

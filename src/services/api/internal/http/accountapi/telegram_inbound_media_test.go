@@ -81,7 +81,7 @@ func TestBuildTelegramStructuredMessageWithMedia_Photo(t *testing.T) {
 	if !strings.Contains(proj, "hello") {
 		t.Fatalf("projection: %q", proj)
 	}
-	if len(store.keys) != 1 || !strings.Contains(store.keys[0], "threads/"+threadID.String()+"/attachments/") {
+	if len(store.keys) != 1 || !strings.HasPrefix(store.keys[0], "attachments/"+accID.String()+"/") {
 		t.Fatalf("keys: %v", store.keys)
 	}
 	var c messagecontent.Content

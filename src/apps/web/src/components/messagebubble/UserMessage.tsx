@@ -8,8 +8,9 @@ import { ImageThumbnailCard } from './ImageThumbnailCard'
 import { PastedBubbleCard } from './PastedBubbleCard'
 import { ArtifactDownload } from '../ArtifactDownload'
 import { MessageDate } from './MessageDate'
-import { AutoResizeTextarea } from '@arkloop/shared'
+import { AutoResizeTextarea, normalizeChannelEnvelopeText } from '@arkloop/shared'
 import { CopyIconButton } from '../CopyIconButton'
+import { ActionIconButton } from '../ActionIconButton'
 import {
   getUserPromptEnterScale,
   USER_PROMPT_ENTER_BASE_SCALE,
@@ -33,7 +34,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
   const [editing, setEditing] = useState(false)
   const [editText, setEditText] = useState('')
   const [userTextExpanded, setUserTextExpanded] = useState(false)
-  const [userTextOverflows, setUserTextOverflows] = useState(false)
+  const [userTextFullHeight, setUserTextFullHeight] = useState<number | null>(null)
   const [enterScale, setEnterScale] = useState(USER_PROMPT_ENTER_BASE_SCALE)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const userTextRef = useRef<HTMLDivElement>(null)
@@ -94,21 +95,15 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
     }
   }, [editing])
 
-  useEffect(() => {
-    if (!userTextRef.current) return
-    const overflows = userTextRef.current.scrollHeight > USER_TEXT_COLLAPSED_HEIGHT + 1
-    setUserTextOverflows(overflows)
-    if (!overflows) setUserTextExpanded(false)
-  }, [message.content])
-
   const legacy = extractLegacyFilesFromContent(message.content)
   const attachmentParts = messageAttachmentParts(message)
   const imageAttachments = attachmentParts.filter(isImagePart)
   const allFileAttachments = attachmentParts.filter(isFilePart)
   const pastedAttachments = allFileAttachments.filter((p) => isPastedFile(p.attachment.filename))
   const fileAttachments = allFileAttachments.filter((p) => !isPastedFile(p.attachment.filename))
-  const text = messageTextContent(message)
+  const text = normalizeChannelEnvelopeText(messageTextContent(message))
   const displayText = !accessToken && attachmentParts.length > 0 ? message.content : text
+  const userTextOverflows = userTextFullHeight !== null
   const fileNames = attachmentParts.length > 0
     ? [...imageAttachments, ...allFileAttachments].map((part) => part.attachment.filename)
     : legacy.fileNames
@@ -121,6 +116,18 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
     const width = enterBubbleRef.current?.getBoundingClientRect().width ?? 0
     setEnterScale(getUserPromptEnterScale(width))
   }, [animateEnter, displayText])
+
+  useIsomorphicLayoutEffect(() => {
+    const el = userTextRef.current
+    if (!el) return
+    const prev = el.style.maxHeight
+    el.style.maxHeight = 'none'
+    const fullHeight = el.scrollHeight
+    el.style.maxHeight = prev
+    const nextHeight = fullHeight > USER_TEXT_COLLAPSED_HEIGHT + 1 ? fullHeight : null
+    setUserTextFullHeight(nextHeight)
+    if (nextHeight === null) setUserTextExpanded(false)
+  }, [displayText])
 
   if (editing) {
     return (
@@ -216,64 +223,13 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
 
   return (
     <div
-      className="group"
-      style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}
+      style={{ display: 'flex', justifyContent: 'flex-end' }}
     >
       <div
-        className="pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-[opacity] duration-[180ms] ease-out"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          position: 'sticky',
-          top: '6px',
-        }}
+        className="group"
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '663px' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-        <CopyIconButton
-          onCopy={handleCopy}
-          size={16}
-          tooltip={t.copyAction}
-          style={{
-            width: '32px',
-            height: '32px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: '8px',
-            border: 'none',
-            color: 'var(--c-text-secondary)',
-            cursor: 'pointer',
-            transition: 'background 60ms',
-          }}
-          className="hover:bg-[var(--c-bg-deep)]"
-        />
-        <button
-          onClick={handleEditStart}
-          title={t.editAction}
-          style={{
-            width: '32px',
-            height: '32px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: '8px',
-            border: 'none',
-            color: 'var(--c-text-secondary)',
-            cursor: 'pointer',
-            transition: 'background 60ms',
-          }}
-          className="hover:bg-[var(--c-bg-deep)]"
-        >
-          <Pencil size={16} />
-        </button>
-        </div>
-        <div style={{ marginTop: '4px', paddingRight: '2px' }}>
-          <MessageDate createdAt={message.created_at} />
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px', maxWidth: '663px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
         {(imageAttachments.length > 0 || pastedAttachments.length > 0) && accessToken && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end' }}>
             {imageAttachments.map((part) => (
@@ -338,6 +294,11 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
         {displayText && (() => {
           const isCollapsed = userTextOverflows && !userTextExpanded
           const fadeMask = `linear-gradient(to bottom, black calc(100% - ${USER_TEXT_FADE_HEIGHT}px), transparent)`
+          const resolvedMaxHeight = isCollapsed
+            ? `${USER_TEXT_COLLAPSED_HEIGHT}px`
+            : userTextFullHeight != null
+              ? `${userTextFullHeight}px`
+              : undefined
           return (
             <div
               ref={enterBubbleRef}
@@ -356,12 +317,19 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
               <div
                 ref={userTextRef}
                 style={{
-                  maxHeight: !userTextExpanded ? `${USER_TEXT_COLLAPSED_HEIGHT}px` : undefined,
+                  maxHeight: resolvedMaxHeight,
                   overflow: 'hidden',
-                  ...(isCollapsed ? {
-                    WebkitMaskImage: fadeMask,
-                    maskImage: fadeMask,
-                  } : {}),
+                  transition: 'max-height 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), mask-image 0.25s ease, -webkit-mask-image 0.25s ease',
+                  willChange: 'max-height',
+                  ...(isCollapsed
+                    ? {
+                        WebkitMaskImage: fadeMask,
+                        maskImage: fadeMask,
+                      }
+                    : {
+                        WebkitMaskImage: 'none',
+                        maskImage: 'none',
+                      }),
                 }}
               >
                 {displayText.split(/(\n{2,})/).map((part, i) =>
@@ -371,7 +339,8 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
                 )}
               </div>
               {userTextOverflows && (
-                <div
+                <button
+                  type="button"
                   onClick={() => setUserTextExpanded(prev => !prev)}
                   className="text-[var(--c-text-muted)] hover:text-[var(--c-text-icon)]"
                   style={{
@@ -381,14 +350,47 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
                     cursor: 'pointer',
                     userSelect: 'none',
                     transition: 'color 150ms',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
                   }}
                 >
                   {userTextExpanded ? 'Show less' : 'Show more'}
-                </div>
+                </button>
               )}
             </div>
           )
         })()}
+        </div>
+
+        <div
+          className="pointer-events-none opacity-0 transition-[opacity] duration-[180ms] ease-out group-hover:pointer-events-auto group-hover:opacity-100"
+          style={{
+            display: 'flex',
+            alignItems: 'flex-end',
+            gap: '2px',
+            marginTop: '8px',
+          }}
+        >
+          <div style={{ marginRight: '12px', marginBottom: '0px' }}>
+            <MessageDate createdAt={message.created_at} />
+          </div>
+          <ActionIconButton
+            onClick={handleEditStart}
+            tooltip={t.editAction}
+            hoverBackground="var(--c-bg-deep)"
+            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+          >
+            <Pencil size={16} />
+          </ActionIconButton>
+          <CopyIconButton
+            onCopy={handleCopy}
+            size={16}
+            tooltip={t.copyAction}
+            hoverBackground="var(--c-bg-deep)"
+            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+          />
+        </div>
       </div>
     </div>
   )

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -155,6 +156,13 @@ func convertArg(v any) any {
 	switch val := v.(type) {
 	case []string:
 		b, _ := json.Marshal(val)
+		return string(b)
+	case []uuid.UUID:
+		out := make([]string, len(val))
+		for i := range val {
+			out[i] = val[i].String()
+		}
+		b, _ := json.Marshal(out)
 		return string(b)
 	case []any:
 		b, _ := json.Marshal(val)

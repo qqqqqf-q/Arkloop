@@ -9,6 +9,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  migration-lint:
+    name: Migration Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PG migration number conflicts
+        run: |
+          cd src/services/api/internal/migrate/migrations
+          dupes=$(ls *.sql | sed 's/_.*//' | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate PG migration numbers: $dupes"
+            exit 1
+          fi
+
+      - name: Check SQLite migration number conflicts
+        run: |
+          cd src/services/shared/database/sqliteadapter/migrations
+          dupes=$(ls *.sql | sed 's/_.*//' | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate SQLite migration numbers: $dupes"
+            exit 1
+          fi
+
+      - name: Check goose format consistency
+        run: |
+          cd src/services/api/internal/migrate/migrations
+          bad=$(grep -FL '-- +goose Up' *.sql || true)
+          if [ -n "$bad" ]; then
+            echo "::error::PG migrations missing '-- +goose Up' marker: $bad"
+            exit 1
+          fi
+
   desktop-go:
     name: Desktop Go
     runs-on: ubuntu-latest
@@ -29,6 +63,10 @@ jobs:
       - name: Test desktop service
         working-directory: src/services/desktop
         run: go test -tags desktop ./cmd/desktop
+
+      - name: Test SQLite migrations (FK integrity)
+        working-directory: src/services/shared
+        run: go test -tags desktop -run 'TestAutoMigrate|TestMigrations_UpDown' ./database/sqliteadapter/ -v -count=1
 
   desktop-typescript:
     name: Desktop TypeScript

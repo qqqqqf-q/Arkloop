@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { memo, useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
   SquarePen,
   Search,
@@ -21,6 +20,7 @@ import { isLocalMode, isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
 import type { AppMode } from '../storage'
+import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
 
 type Props = {
   me: MeResponse | null
@@ -49,6 +49,138 @@ function threadTitle(thread: ThreadResponse, untitled: string): string {
   return title.length > 0 ? title : untitled
 }
 
+type SidebarThreadListProps = {
+  starredThreads: ThreadResponse[]
+  regularThreads: ThreadResponse[]
+  starredSet: Set<string>
+  runningThreadIds: Set<string>
+  menuThreadId: string | null
+  editingThreadId: string | null
+  editingTitle: string
+  activeThreadId?: string
+  untitled: string
+  editInputRef: React.RefObject<HTMLInputElement | null>
+  setEditingTitle: React.Dispatch<React.SetStateAction<string>>
+  setEditingThreadId: React.Dispatch<React.SetStateAction<string | null>>
+  commitRename: (id: string, newTitle: string) => void
+  beforeNavigateToThread?: () => void
+  navigate: ReturnType<typeof useNavigate>
+  openMenu: (event: React.MouseEvent, id: string) => void
+}
+
+const SidebarThreadList = memo(function SidebarThreadList({
+  starredThreads,
+  regularThreads,
+  starredSet,
+  runningThreadIds,
+  menuThreadId,
+  editingThreadId,
+  editingTitle,
+  activeThreadId,
+  untitled,
+  editInputRef,
+  setEditingTitle,
+  setEditingThreadId,
+  commitRename,
+  beforeNavigateToThread,
+  navigate,
+  openMenu,
+}: SidebarThreadListProps) {
+  const renderThread = (thread: ThreadResponse, section: 'starred' | 'regular') => {
+    const isRunning = runningThreadIds.has(thread.id)
+    const isMenuOpen = menuThreadId === thread.id
+    const isEditing = editingThreadId === thread.id
+    return (
+      <div
+        key={`${thread.id}-${section}`}
+        className={[
+          'group relative flex w-full items-center rounded-[6px]',
+          thread.id === activeThreadId || isMenuOpen
+            ? 'bg-[var(--c-bg-deep)]'
+            : 'hover:bg-[var(--c-bg-deep)]',
+        ].join(' ')}
+      >
+        {isEditing ? (
+          <input
+            ref={editInputRef}
+            value={editingTitle}
+            onChange={(e) => setEditingTitle(e.target.value)}
+            onBlur={() => commitRename(thread.id, editingTitle)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                commitRename(thread.id, editingTitle)
+              } else if (e.key === 'Escape') {
+                setEditingThreadId(null)
+              }
+            }}
+            className="min-w-0 flex-1 bg-transparent px-2 py-[7px] text-[13px] font-[350] text-[var(--c-text-primary)] outline-none"
+            style={{ border: 'none' }}
+            maxLength={200}
+          />
+        ) : (
+          <button
+            onClick={() => {
+              beforeNavigateToThread?.()
+              navigate(`/t/${thread.id}`)
+            }}
+            className={[
+              'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[14px] font-[325] group-hover:text-[var(--c-text-primary)]',
+              thread.id === activeThreadId
+                ? 'text-[var(--c-text-primary)]'
+                : 'text-[var(--c-text-secondary)]',
+            ].join(' ')}
+          >
+            {starredSet.has(thread.id) && (
+              <Star size={11} className="shrink-0 fill-[var(--c-text-muted)] text-[var(--c-text-muted)] opacity-70" />
+            )}
+            <span className="min-w-0 flex-1 truncate">{threadTitle(thread, untitled)}</span>
+          </button>
+        )}
+
+        {!isEditing && (
+          <div className="mr-1 flex shrink-0 items-center">
+            {isRunning && (
+              <span className="mr-1 h-3 w-3 shrink-0 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent" />
+            )}
+            <div
+              className={[
+                'shrink-0',
+                isRunning
+                  ? `overflow-hidden transition-[width] duration-150 ${isMenuOpen ? 'w-6' : 'w-0 group-hover:w-6'}`
+                  : 'w-6',
+              ].join(' ')}
+            >
+              <button
+                data-menu-button={thread.id}
+                onClick={(e) => openMenu(e, thread.id)}
+                className={[
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-transform duration-[80ms] active:scale-[0.96]',
+                  isMenuOpen
+                    ? 'opacity-100 bg-[var(--c-sidebar-btn-hover)] text-[var(--c-text-primary)]'
+                    : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[var(--c-sidebar-btn-hover)] hover:text-[var(--c-text-primary)]',
+                ].join(' ')}
+              >
+                <MoreHorizontal size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {starredThreads.map((thread) => renderThread(thread, 'starred'))}
+      {starredThreads.length > 0 && regularThreads.length > 0 && (
+        <div className="my-1 mx-2 h-px bg-[var(--c-border-subtle)]" />
+      )}
+      {regularThreads.map((thread) => renderThread(thread, 'regular'))}
+    </>
+  )
+})
+
 export function Sidebar({
   me,
   threads,
@@ -68,16 +200,13 @@ export function Sidebar({
   suppressActiveThreadHighlight,
   beforeNavigateToThread,
 }: Props) {
-  const isClawMode = appMode === 'claw'
+  const isWorkMode = appMode === 'work'
   const navigate = useNavigate()
   const location = useLocation()
   const { threadId } = useParams<{ threadId: string }>()
   const activeThreadId = suppressActiveThreadHighlight ? undefined : threadId
   const { t } = useLocale()
 
-  const [pressedCollapseBtn, setPressedCollapseBtn] = useState(false)
-  const [pressedSettingsBtn, setPressedSettingsBtn] = useState(false)
-  const [pressedMenuThreadId, setPressedMenuThreadId] = useState<string | null>(null)
   const [starredIds, setStarredIds] = useState<string[]>([])
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [shareModalThreadId, setShareModalThreadId] = useState<string | null>(null)
@@ -87,6 +216,19 @@ export function Sidebar({
   const [editingTitle, setEditingTitle] = useState<string>('')
   const editInputRef = useRef<HTMLInputElement>(null)
   const [deleteConfirmThreadId, setDeleteConfirmThreadId] = useState<string | null>(null)
+  const settingsPointerTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
+  const collapsePointerTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
+  const { starredSet, starredThreads, regularThreads } = useMemo(() => {
+    const nextStarredSet = new Set(starredIds)
+    const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const))
+    return {
+      starredSet: nextStarredSet,
+      starredThreads: starredIds
+        .map((id) => threadsById.get(id))
+        .filter((t): t is ThreadResponse => t !== undefined),
+      regularThreads: threads.filter((t) => !nextStarredSet.has(t.id)),
+    }
+  }, [starredIds, threads])
 
   // 初始化时从服务端拉取收藏列表
   useEffect(() => {
@@ -176,6 +318,33 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', handler)
   }, [deleteConfirmThreadId])
 
+  useEffect(() => {
+    if (!isPerfDebugEnabled()) return
+    recordPerfValue('sidebar_render_count', 1, 'count', {
+      collapsed,
+      desktopMode: !!desktopMode,
+      narrow: !!narrow,
+      isPrivateMode,
+      threadCount: threads.length,
+      starredCount: starredIds.length,
+      runningCount: runningThreadIds.size,
+      menuOpen: menuThreadId !== null,
+      editing: editingThreadId !== null,
+      deleting: deleteConfirmThreadId !== null,
+      appMode: appMode ?? 'chat',
+      pathname: location.pathname,
+    })
+    recordPerfValue('sidebar_thread_partition_count', 1, 'count', {
+      collapsed,
+      threadCount: threads.length,
+      starredCount: starredIds.length,
+      starredResolvedCount: starredThreads.length,
+      regularCount: regularThreads.length,
+      runningCount: runningThreadIds.size,
+      appMode: appMode ?? 'chat',
+    })
+  })
+
   const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
 
   return (
@@ -218,12 +387,31 @@ export function Sidebar({
               </div>
             </div>
             <button
-              onClick={onToggleCollapse}
-              onPointerDown={() => setPressedCollapseBtn(true)}
-              onPointerUp={() => setPressedCollapseBtn(false)}
-              onPointerLeave={() => setPressedCollapseBtn(false)}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-              style={{ transform: pressedCollapseBtn ? 'scale(0.96)' : 'scale(1)', transition: 'transform 80ms ease-out' }}
+              onClick={() => {
+                endPerfTrace(collapsePointerTraceRef.current, {
+                  phase: 'click',
+                  collapsed,
+                  threadCount: threads.length,
+                  starredCount: starredIds.length,
+                })
+                collapsePointerTraceRef.current = null
+                onToggleCollapse()
+              }}
+              onPointerDown={() => {
+                collapsePointerTraceRef.current = beginPerfTrace('sidebar_collapse_interaction', {
+                  phase: 'pointerdown',
+                  collapsed,
+                  threadCount: threads.length,
+                  starredCount: starredIds.length,
+                  runningCount: runningThreadIds.size,
+                  appMode: appMode ?? 'chat',
+                  pathname: location.pathname,
+                })
+              }}
+              onPointerLeave={() => {
+                collapsePointerTraceRef.current = null
+              }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--c-text-secondary)] transition-[background-color,color,transform] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)] active:scale-[0.96]"
             >
               <PanelLeftClose size={17} />
             </button>
@@ -238,7 +426,7 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.newTask : t.newChat}</span>
+          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.newTask : t.newChat}</span>
         </button>
 
         <button
@@ -250,7 +438,7 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.searchTasks : t.searchChats}</span>
+          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.searchTasks : t.searchChats}</span>
         </button>
 
       </nav>
@@ -306,122 +494,26 @@ export function Sidebar({
           >
             {threads.length === 0 ? (
               <p className="overflow-hidden whitespace-nowrap px-2 py-1 text-[12px] text-[var(--c-text-muted)]">{t.recentsEmpty}</p>
-            ) : (() => {
-              const starredSet = new Set(starredIds)
-              const starredThreads = starredIds
-                .map((id) => threads.find((t) => t.id === id))
-                .filter((t): t is ThreadResponse => t !== undefined)
-              const regularThreads = threads.filter((t) => !starredSet.has(t.id))
-
-              const renderThread = (thread: ThreadResponse, section: 'starred' | 'regular') => {
-                const isRunning = runningThreadIds.has(thread.id)
-                const isMenuOpen = menuThreadId === thread.id
-                const isEditing = editingThreadId === thread.id
-                return (
-                  <motion.div
-                    key={`${thread.id}-${section}`}
-                    initial={{ opacity: 0, scale: 0.97 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.97 }}
-                    transition={{ duration: 0.15, ease: 'easeOut' }}
-                    className={[
-                      'group relative flex w-full items-center rounded-[6px]',
-                      thread.id === activeThreadId || isMenuOpen
-                        ? 'bg-[var(--c-bg-deep)]'
-                        : 'hover:bg-[var(--c-bg-deep)]',
-                    ].join(' ')}
-                  >
-                    {isEditing ? (
-                      <input
-                        ref={editInputRef}
-                        value={editingTitle}
-                        onChange={(e) => setEditingTitle(e.target.value)}
-                        onBlur={() => commitRename(thread.id, editingTitle)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            commitRename(thread.id, editingTitle)
-                          } else if (e.key === 'Escape') {
-                            setEditingThreadId(null)
-                          }
-                        }}
-                        className="min-w-0 flex-1 bg-transparent px-2 py-[7px] text-[13px] font-[350] text-[var(--c-text-primary)] outline-none"
-                        style={{ border: 'none' }}
-                        maxLength={200}
-                      />
-                    ) : (
-                      <button
-                        onClick={() => {
-                          beforeNavigateToThread?.()
-                          navigate(`/t/${thread.id}`)
-                        }}
-                        className={[
-                          'flex min-w-0 flex-1 items-center gap-2 px-2 py-[7px] text-left text-[14px] font-[325] group-hover:text-[var(--c-text-primary)]',
-                          thread.id === activeThreadId
-                            ? 'text-[var(--c-text-primary)]'
-                            : 'text-[var(--c-text-secondary)]',
-                        ].join(' ')}
-                      >
-                        {starredSet.has(thread.id) && (
-                          <Star size={11} className="shrink-0 fill-[var(--c-text-muted)] text-[var(--c-text-muted)] opacity-70" />
-                        )}
-                        <span className="min-w-0 flex-1 truncate">{threadTitle(thread, t.untitled)}</span>
-                      </button>
-                    )}
-
-                    {!isEditing && (
-                      <div className="flex shrink-0 items-center mr-1">
-                        {isRunning && (
-                          <span className="shrink-0 h-3 w-3 animate-spin rounded-full border border-[var(--c-text-muted)] border-t-transparent mr-1" />
-                        )}
-                        <div
-                          className={[
-                            'shrink-0',
-                            isRunning
-                              ? `overflow-hidden transition-[width] duration-150 ${isMenuOpen ? 'w-6' : 'w-0 group-hover:w-6'}`
-                              : 'w-6',
-                          ].join(' ')}
-                        >
-                          <button
-                            data-menu-button={thread.id}
-                            onClick={(e) => openMenu(e, thread.id)}
-                            onPointerDown={() => setPressedMenuThreadId(thread.id)}
-                            onPointerUp={() => setPressedMenuThreadId(null)}
-                            onPointerLeave={() => setPressedMenuThreadId(null)}
-                            className={[
-                              'flex h-6 w-6 shrink-0 items-center justify-center rounded-md',
-                              isMenuOpen
-                                ? 'opacity-100 bg-[var(--c-sidebar-btn-hover)] text-[var(--c-text-primary)]'
-                                : 'opacity-0 group-hover:opacity-100 text-[var(--c-text-muted)] hover:bg-[var(--c-sidebar-btn-hover)] hover:text-[var(--c-text-primary)]',
-                            ].join(' ')}
-                            style={{ transform: pressedMenuThreadId === thread.id ? 'scale(0.96)' : 'scale(1)', transition: 'transform 80ms ease-out' }}
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                )
-              }
-
-              return (
-                <AnimatePresence initial={false}>
-                  {starredThreads.map((t) => renderThread(t, 'starred'))}
-                  {starredThreads.length > 0 && regularThreads.length > 0 && (
-                    <motion.div
-                      key="__divider__"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.15 }}
-                      className="my-1 mx-2 h-px bg-[var(--c-border-subtle)]"
-                    />
-                  )}
-                  {regularThreads.map((t) => renderThread(t, 'regular'))}
-                </AnimatePresence>
-              )
-            })()}
+            ) : (
+              <SidebarThreadList
+                starredThreads={starredThreads}
+                regularThreads={regularThreads}
+                starredSet={starredSet}
+                runningThreadIds={runningThreadIds}
+                menuThreadId={menuThreadId}
+                editingThreadId={editingThreadId}
+                editingTitle={editingTitle}
+                activeThreadId={activeThreadId}
+                untitled={t.untitled}
+                editInputRef={editInputRef}
+                setEditingTitle={setEditingTitle}
+                setEditingThreadId={setEditingThreadId}
+                commitRename={commitRename}
+                beforeNavigateToThread={beforeNavigateToThread}
+                navigate={navigate}
+                openMenu={openMenu}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -462,12 +554,34 @@ export function Sidebar({
             changes during sidebar collapse/expand — no justifyContent flip. */}
         <div className="mt-0.5 pl-1">
           <button
-            onClick={() => onOpenSettings('settings')}
-            onPointerDown={() => setPressedSettingsBtn(true)}
-            onPointerUp={() => setPressedSettingsBtn(false)}
-            onPointerLeave={() => setPressedSettingsBtn(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-            style={{ transform: pressedSettingsBtn ? 'scale(0.96)' : 'scale(1)', transition: 'transform 80ms ease-out' }}
+            onClick={() => {
+              endPerfTrace(settingsPointerTraceRef.current, {
+                phase: 'click',
+                collapsed,
+                threadCount: threads.length,
+                starredCount: starredIds.length,
+                runningCount: runningThreadIds.size,
+                appMode: appMode ?? 'chat',
+                pathname: location.pathname,
+              })
+              settingsPointerTraceRef.current = null
+              onOpenSettings('settings')
+            }}
+            onPointerDown={() => {
+              settingsPointerTraceRef.current = beginPerfTrace('sidebar_settings_interaction', {
+                phase: 'pointerdown',
+                collapsed,
+                threadCount: threads.length,
+                starredCount: starredIds.length,
+                runningCount: runningThreadIds.size,
+                appMode: appMode ?? 'chat',
+                pathname: location.pathname,
+              })
+            }}
+            onPointerLeave={() => {
+              settingsPointerTraceRef.current = null
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color,transform] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)] active:scale-[0.96]"
           >
             <Bolt size={18} />
           </button>

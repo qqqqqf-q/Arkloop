@@ -1,5 +1,5 @@
 import { act } from 'react'
-import type { FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -154,6 +154,52 @@ describe('ChatInput persona selector', () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1)
     expect(onSubmit.mock.calls[0]?.[1]).toBe('normal')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('回车提交后仍由外部 value 驱动，清空时输入框应立即清空', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    function Harness() {
+      const [value, setValue] = useState('hello')
+      return (
+        <LocaleProvider>
+          <ChatInput
+            value={value}
+            onChange={setValue}
+            onSubmit={(event) => {
+              event.preventDefault()
+              setValue('')
+            }}
+            accessToken="token"
+          />
+        </LocaleProvider>
+      )
+    }
+
+    await act(async () => {
+      root.render(<Harness />)
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect((textarea as HTMLTextAreaElement).value).toBe('')
 
     act(() => {
       root.unmount()

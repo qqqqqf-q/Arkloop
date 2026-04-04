@@ -1,18 +1,18 @@
 import { motion } from 'framer-motion'
 
-export type AppMode = 'chat' | 'claw'
+export type AppMode = 'chat' | 'work'
 
 type Props = {
   mode: AppMode
   onChange: (mode: AppMode) => void
-  labels: { chat: string; claw: string }
+  labels: { chat: string; work: string }
   availableModes?: AppMode[]
 }
 
-const OPTIONS: AppMode[] = ['chat', 'claw']
+const OPTIONS: AppMode[] = ['chat', 'work']
 
 export function ModeSwitch({ mode, onChange, labels, availableModes = OPTIONS }: Props) {
-  const labelMap: Record<AppMode, string> = { chat: labels.chat, claw: labels.claw }
+  const labelMap: Record<AppMode, string> = { chat: labels.chat, work: labels.work }
   const options = OPTIONS.filter((opt) => availableModes.includes(opt))
 
   return (

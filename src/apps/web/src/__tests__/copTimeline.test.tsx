@@ -638,7 +638,7 @@ describe('CopTimeline', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(400)
+      vi.advanceTimersByTime(800)
     })
 
     expect(container.textContent).toContain('load_tools "abc"')
@@ -694,7 +694,7 @@ describe('CopTimeline', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(400)
+      vi.advanceTimersByTime(800)
     })
 
     expect(container.textContent).toContain('load_tools "abc"')

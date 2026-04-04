@@ -160,7 +160,7 @@ func ingestTelegramMediaAttachments(
 			}
 		}
 		keySuffix := conversationapi.SanitizeAttachmentKeyName(displayFilename)
-		key := fmt.Sprintf("threads/%s/attachments/%s/%s", threadID.String(), uuid.NewString(), keySuffix)
+		key := fmt.Sprintf("attachments/%s/%s/%s", accountID.String(), uuid.NewString(), keySuffix)
 		threadIDText := threadID.String()
 		ownerID := ""
 		if userID != nil {

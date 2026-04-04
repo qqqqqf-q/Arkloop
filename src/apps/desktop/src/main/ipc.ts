@@ -262,12 +262,35 @@ export function registerIpcHandlers(
 
   ipcMain.handle('arkloop:memory:get-snapshot', async (_event, agentId?: string) => {
     const apiBaseUrl = getLocalApiBaseUrl()
-    if (!apiBaseUrl) return { memory_block: '' }
+    if (!apiBaseUrl) return { memory_block: '', hits: [] }
     const token = getDesktopAccessToken()
     const query = typeof agentId === 'string' && agentId.trim()
       ? `?agent_id=${encodeURIComponent(agentId.trim())}`
       : ''
     const url = `${apiBaseUrl}/v1/desktop/memory/snapshot${query}`
+    const resp = await makeApiRequest(url, 'GET', token)
+    return resp
+  })
+
+  ipcMain.handle('arkloop:memory:rebuild-snapshot', async (_event, agentId?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    if (!apiBaseUrl) return { memory_block: '', hits: [] }
+    const token = getDesktopAccessToken()
+    const query = typeof agentId === 'string' && agentId.trim()
+      ? `?agent_id=${encodeURIComponent(agentId.trim())}`
+      : ''
+    const url = `${apiBaseUrl}/v1/desktop/memory/snapshot/rebuild${query}`
+    const resp = await makeApiRequest(url, 'POST', token)
+    return resp
+  })
+
+  ipcMain.handle('arkloop:memory:get-content', async (_event, uri: string, layer?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    if (!apiBaseUrl) return { content: '' }
+    const token = getDesktopAccessToken()
+    const params = new URLSearchParams({ uri })
+    if (layer) params.set('layer', layer)
+    const url = `${apiBaseUrl}/v1/desktop/memory/content?${params.toString()}`
     const resp = await makeApiRequest(url, 'GET', token)
     return resp
   })

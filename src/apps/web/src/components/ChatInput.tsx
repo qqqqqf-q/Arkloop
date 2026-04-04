@@ -58,7 +58,7 @@ type Props = {
   onOpenSettings?: (tab: SettingsTab) => void
   appMode?: AppMode
   hasMessages?: boolean
-  clawThreadId?: string
+  workThreadId?: string
 }
 
 function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
@@ -109,7 +109,7 @@ export function ChatInput({
   onOpenSettings,
   appMode,
   hasMessages,
-  clawThreadId,
+  workThreadId,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -133,7 +133,6 @@ export function ChatInput({
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
   const [chipExiting, setChipExiting] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string | null>(readSelectedModelFromStorage)
-  const [submittedText, setSubmittedText] = useState<string | null>(null)
 
   const { isRecording, isTranscribing, recordingSeconds, waveformBars, startRecording, stopAndTranscribe, cancelRecording } =
     useAudioRecorder({ accessTokenRef, valueRef, onChangeRef, onAsrErrorRef, onVoiceNotConfiguredRef })
@@ -233,7 +232,6 @@ export function ChatInput({
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (!disabled && value.trim()) {
-        setSubmittedText(value)
         e.currentTarget.form?.requestSubmit()
       }
     }
@@ -463,8 +461,8 @@ export function ChatInput({
             ref={textareaRef}
             rows={1}
             className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-            value={submittedText ?? value}
-            onChange={(e) => { if (submittedText === null) onChange(e.target.value) }}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handleTextareaPaste}
             onFocus={() => setFocused(true)}
@@ -503,7 +501,7 @@ export function ChatInput({
             variant={variant}
             appMode={appMode}
             threadHasMessages={hasMessages}
-            clawThreadId={clawThreadId}
+            workThreadId={workThreadId}
           />
 
           {/* mic + send 共用同一位置，disabled 时显示 spinner */}
@@ -526,10 +524,10 @@ export function ChatInput({
                 <span
                   aria-hidden="true"
                   style={{
-                    width: '16px',
-                    height: '16px',
+                    width: '14px',
+                    height: '14px',
                     borderRadius: '999px',
-                    border: '1.5px solid #1A1A19',
+                    border: '1.3px solid #1A1A19',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -538,8 +536,8 @@ export function ChatInput({
                 >
                   <span
                     style={{
-                      width: '6px',
-                      height: '6px',
+                      width: '5px',
+                      height: '5px',
                       borderRadius: '1px',
                       background: '#1A1A19',
                       flexShrink: 0,

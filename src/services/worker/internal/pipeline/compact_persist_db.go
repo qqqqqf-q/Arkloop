@@ -9,10 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// CompactPersistDB 是 compact 持久化与相关 QueryRow 所需的最小 DB 面。
+// CompactPersistDB 是 compact 持久化与相关查询所需的最小 DB 面。
 // 由 *pgxpool.Pool 与 desktop SQLite 的 pgx 适配层实现。
 type CompactPersistDB interface {
 	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 

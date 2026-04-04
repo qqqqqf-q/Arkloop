@@ -23,11 +23,12 @@ export function PastedBubbleCard({ preview, fullText, size }: Props) {
           width: '120px',
           height: '120px',
           borderRadius: '10px',
-          background: 'var(--c-bg-page)',
+          background: 'var(--c-bg-input)',
           overflow: 'hidden',
           borderWidth: '0.7px',
           borderStyle: 'solid',
-          borderColor: hovered ? 'var(--c-attachment-border-hover)' : 'var(--c-border-subtle)',
+          borderColor: hovered ? 'var(--c-attachment-border-hover)' : 'var(--c-border)',
+          boxShadow: '0 1px 3px rgba(242, 247, 250, 0.35)',
           transition: 'border-color 0.2s ease',
           cursor: 'pointer',
           padding: '10px',
@@ -36,7 +37,7 @@ export function PastedBubbleCard({ preview, fullText, size }: Props) {
         }}
       >
         <div style={{
-          color: 'var(--c-text-secondary)',
+          color: 'var(--c-text-heading)',
           fontSize: '11px',
           lineHeight: '1.4',
           display: '-webkit-box',

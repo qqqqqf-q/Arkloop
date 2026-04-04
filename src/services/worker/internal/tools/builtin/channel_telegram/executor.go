@@ -198,22 +198,17 @@ func (e *Executor) react(
 	}
 }
 
+// reply sets the reply-to reference for the current run's delivery output.
+// It does NOT send a message; the assistant's text output will be delivered
+// by the channel delivery layer with this reply_to_message_id attached.
 func (e *Executor) reply(
-	ctx context.Context,
+	_ context.Context,
 	args map[string]any,
-	surface *tools.ChannelToolSurface,
-	chatID, token string,
+	_ *tools.ChannelToolSurface,
+	_ string, _ string,
 	started time.Time,
 ) tools.ExecutionResult {
 	ms := func() int { return int(time.Since(started).Milliseconds()) }
-	text, _ := args["text"].(string)
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return tools.ExecutionResult{
-			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "text is required"},
-			DurationMs: ms(),
-		}
-	}
 	replyToRaw := ""
 	if s, ok := coerceTelegramMessageID(args["reply_to_message_id"]); ok {
 		replyToRaw = s
@@ -230,45 +225,12 @@ func (e *Executor) reply(
 			DurationMs: ms(),
 		}
 	}
-
-	formatted := telegrambot.FormatAssistantMarkdownAsHTML(text)
-	segments := splitTelegramMessage(formatted, 4096)
-	if len(segments) == 0 {
-		return tools.ExecutionResult{
-			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "empty text after processing"},
-			DurationMs: ms(),
-		}
-	}
-
-	var ids []string
-	delay := replySegmentDelay()
-	for i, segment := range segments {
-		req := telegrambot.SendMessageRequest{
-			ChatID:           chatID,
-			Text:             segment,
-			ParseMode:        telegrambot.ParseModeHTML,
-			ReplyToMessageID: replyToRaw,
-		}
-		if surface.MessageThreadID != nil && strings.TrimSpace(*surface.MessageThreadID) != "" {
-			req.MessageThreadID = strings.TrimSpace(*surface.MessageThreadID)
-		}
-		sent, err := e.tg.SendMessageWithHTMLFallback(ctx, token, req)
-		if err != nil {
-			return tools.ExecutionResult{
-				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: err.Error()},
-				DurationMs: ms(),
-			}
-		}
-		if sent != nil && sent.MessageID != 0 {
-			ids = append(ids, strconv.FormatInt(sent.MessageID, 10))
-		}
-		if i < len(segments)-1 && delay > 0 {
-			time.Sleep(delay)
-		}
-	}
-
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"ok": true, "message_ids": ids, "segments": len(segments)},
+		ResultJSON: map[string]any{
+			"ok":                  true,
+			"reply_to_set":        true,
+			"reply_to_message_id": replyToRaw,
+		},
 		DurationMs: ms(),
 	}
 }
@@ -355,14 +317,3 @@ func (e *Executor) sendFile(
 	}
 }
 
-func replySegmentDelay() time.Duration {
-	raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_MESSAGE_SEGMENT_DELAY_MS"))
-	if raw == "" {
-		return 50 * time.Millisecond
-	}
-	value, err := strconv.Atoi(raw)
-	if err != nil || value < 0 {
-		return 50 * time.Millisecond
-	}
-	return time.Duration(value) * time.Millisecond
-}

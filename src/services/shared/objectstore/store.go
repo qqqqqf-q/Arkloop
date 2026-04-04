@@ -15,6 +15,7 @@ Get(ctx context.Context, key string) ([]byte, error)
 GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
 Head(ctx context.Context, key string) (ObjectInfo, error)
 Delete(ctx context.Context, key string) error
+ListPrefix(ctx context.Context, prefix string) ([]ObjectInfo, error)
 }
 
 type BlobStore interface {

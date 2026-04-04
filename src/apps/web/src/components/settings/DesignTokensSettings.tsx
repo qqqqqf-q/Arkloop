@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Loader2, Check, Trash2, Eye, EyeOff, ChevronDown,
-  Plus, Settings, Info, Globe, Search, Key, Monitor, Moon, Sun,
+  Plus, Settings, Info, Globe, Search, Key,
   CheckCircle, XCircle,
 } from 'lucide-react'
 import { PillToggle } from '@arkloop/shared'

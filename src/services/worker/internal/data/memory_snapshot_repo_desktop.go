@@ -82,9 +82,9 @@ func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool Desktop
 	}
 	_, err = pool.Exec(ctx,
 		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, hits_json, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, now())
+		 VALUES ($1, $2, $3, $4, $5, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id)
-		 DO UPDATE SET memory_block = EXCLUDED.memory_block, hits_json = EXCLUDED.hits_json, updated_at = now()`,
+		 DO UPDATE SET memory_block = EXCLUDED.memory_block, hits_json = EXCLUDED.hits_json, updated_at = datetime('now')`,
 		accountID, userID, agentID, memoryBlock, hitsJSON,
 	)
 	return err

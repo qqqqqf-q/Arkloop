@@ -24,6 +24,7 @@ button:not(:disabled) {
   --c-font-body: 'Inter', system-ui, sans-serif;
   --c-font-code: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   --c-font-size-base: 14px;
+  --chat-input-area-height: 72px;
   --c-bg-page: #1E1D1C;
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
@@ -106,15 +107,18 @@ button:not(:disabled) {
   --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
   --c-mode-switch-active-text: #faf9f5;
   --c-mode-switch-inactive-text: #6b6b68;
-  --c-claw-card-border: rgba(255, 255, 255, 0.12);
-  --c-claw-card-hover: rgba(255, 255, 255, 0.04);
-  --c-claw-step-done: var(--c-text-tertiary);
-  --c-claw-step-pending: rgba(255, 255, 255, 0.12);
-  --c-claw-step-line: rgba(255, 255, 255, 0.10);
-  --c-claw-file-bg: rgba(255, 255, 255, 0.03);
-  --c-claw-file-border: rgba(255, 255, 255, 0.06);
+  --c-work-card-border: rgba(255, 255, 255, 0.12);
+  --c-work-card-hover: rgba(255, 255, 255, 0.04);
+  --c-work-step-done: var(--c-text-tertiary);
+  --c-work-step-pending: rgba(255, 255, 255, 0.12);
+  --c-work-step-line: rgba(255, 255, 255, 0.10);
+  --c-work-file-bg: rgba(255, 255, 255, 0.03);
+  --c-work-file-border: rgba(255, 255, 255, 0.06);
   --c-accent-fg: #141413;
   --c-bg-deep2: #0f0f0e;
+  --c-tooltip-bg: #0f0f0e;
+  --c-tooltip-text: #faf9f5;
+  --c-tooltip-border: rgba(255, 255, 255, 0.08);
   --c-bg-tag: #30302e;
   --c-bg-card: #242422;
   --c-border-console: #40403d;
@@ -214,15 +218,18 @@ button:not(:disabled) {
     --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
     --c-mode-switch-active-text: #141412;
     --c-mode-switch-inactive-text: #8C8C8A;
-    --c-claw-card-border: rgba(0, 0, 0, 0.10);
-    --c-claw-card-hover: rgba(0, 0, 0, 0.03);
-    --c-claw-step-done: var(--c-text-tertiary);
-    --c-claw-step-pending: rgba(0, 0, 0, 0.12);
-    --c-claw-step-line: rgba(0, 0, 0, 0.10);
-    --c-claw-file-bg: rgba(0, 0, 0, 0.02);
-    --c-claw-file-border: rgba(0, 0, 0, 0.06);
+    --c-work-card-border: rgba(0, 0, 0, 0.10);
+    --c-work-card-hover: rgba(0, 0, 0, 0.03);
+    --c-work-step-done: var(--c-text-tertiary);
+    --c-work-step-pending: rgba(0, 0, 0, 0.12);
+    --c-work-step-line: rgba(0, 0, 0, 0.10);
+    --c-work-file-bg: rgba(0, 0, 0, 0.02);
+    --c-work-file-border: rgba(0, 0, 0, 0.06);
     --c-accent-fg: #FAFAFA;
     --c-bg-deep2: #E5E5E3;
+    --c-tooltip-bg: #141413;
+    --c-tooltip-text: #FAFAFA;
+    --c-tooltip-border: rgba(255, 255, 255, 0.08);
     --c-bg-tag: #E5E5E3;
     --c-bg-card: #FFFFFF;
     --c-border-console: #DEDEDE;
@@ -323,15 +330,18 @@ button:not(:disabled) {
   --c-mode-switch-pill-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 0.5px 1px rgba(0, 0, 0, 0.06);
   --c-mode-switch-active-text: #141412;
   --c-mode-switch-inactive-text: #8C8C8A;
-  --c-claw-card-border: rgba(0, 0, 0, 0.10);
-  --c-claw-card-hover: rgba(0, 0, 0, 0.03);
-  --c-claw-step-done: var(--c-text-tertiary);
-  --c-claw-step-pending: rgba(0, 0, 0, 0.12);
-  --c-claw-step-line: rgba(0, 0, 0, 0.10);
-  --c-claw-file-bg: rgba(0, 0, 0, 0.02);
-  --c-claw-file-border: rgba(0, 0, 0, 0.06);
+  --c-work-card-border: rgba(0, 0, 0, 0.10);
+  --c-work-card-hover: rgba(0, 0, 0, 0.03);
+  --c-work-step-done: var(--c-text-tertiary);
+  --c-work-step-pending: rgba(0, 0, 0, 0.12);
+  --c-work-step-line: rgba(0, 0, 0, 0.10);
+  --c-work-file-bg: rgba(0, 0, 0, 0.02);
+  --c-work-file-border: rgba(0, 0, 0, 0.06);
   --c-accent-fg: #FAFAFA;
   --c-bg-deep2: #E5E5E3;
+  --c-tooltip-bg: #141413;
+  --c-tooltip-text: #FAFAFA;
+  --c-tooltip-border: rgba(255, 255, 255, 0.08);
   --c-bg-tag: #E5E5E3;
   --c-bg-card: #FFFFFF;
   --c-border-console: #DEDEDE;
@@ -1217,13 +1227,13 @@ button:not(:disabled) {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
     background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
     color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
-    opacity: 0.7;
+    opacity: 0.3;
   }
-  15% {
+  35% {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
-    background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
-    color: color-mix(in srgb, var(--c-text-primary) 86%, var(--c-text-secondary) 14%);
-    opacity: 1;
+    background-color: color-mix(in srgb, var(--c-bg-deep) 92%, var(--c-bg-sub) 8%);
+    color: color-mix(in srgb, var(--c-text-primary) 90%, var(--c-text-secondary) 10%);
+    opacity: 0.8;
   }
   to {
     transform: scale(1);
@@ -1238,13 +1248,13 @@ button:not(:disabled) {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
     background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
     color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
-    opacity: 0.7;
+    opacity: 0.3;
   }
-  15% {
+  35% {
     transform: scale(var(--user-prompt-enter-scale, 1.025));
-    background-color: color-mix(in srgb, var(--c-bg-deep) 82%, var(--c-bg-sub) 18%);
-    color: color-mix(in srgb, var(--c-text-primary) 88%, var(--c-text-secondary) 12%);
-    opacity: 1;
+    background-color: color-mix(in srgb, var(--c-bg-deep) 88%, var(--c-bg-sub) 12%);
+    color: color-mix(in srgb, var(--c-text-primary) 92%, var(--c-text-secondary) 8%);
+    opacity: 0.8;
   }
   to {
     transform: scale(1);

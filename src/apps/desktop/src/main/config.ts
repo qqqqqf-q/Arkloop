@@ -113,6 +113,11 @@ function normalizeOpenVikingConfig(raw: unknown): OpenVikingDesktopConfig | unde
   if (s(r.vlmModel)) out.vlmModel = s(r.vlmModel)
   if (s(r.vlmApiKey)) out.vlmApiKey = s(r.vlmApiKey)
   if (s(r.vlmApiBase)) out.vlmApiBase = s(r.vlmApiBase)
+  if (s(r.rerankSelector)) out.rerankSelector = s(r.rerankSelector)
+  if (s(r.rerankProvider)) out.rerankProvider = s(r.rerankProvider)
+  if (s(r.rerankModel)) out.rerankModel = s(r.rerankModel)
+  if (s(r.rerankApiKey)) out.rerankApiKey = s(r.rerankApiKey)
+  if (s(r.rerankApiBase)) out.rerankApiBase = s(r.rerankApiBase)
   return out
 }
 

@@ -80,6 +80,9 @@ type MemoryProvider interface {
 	// Content 读取分层内容（L0/L1/L2）。
 	Content(ctx context.Context, ident MemoryIdentity, uri string, layer MemoryLayer) (string, error)
 
+	// ListDir 列出目录下的直接子项 URI。用于 snapshot 重建时读取目录骨架。
+	ListDir(ctx context.Context, ident MemoryIdentity, uri string) ([]string, error)
+
 	// AppendSessionMessages 向 session 追加消息（sessionID = thread_id）。
 	AppendSessionMessages(ctx context.Context, ident MemoryIdentity, sessionID string, msgs []MemoryMessage) error
 

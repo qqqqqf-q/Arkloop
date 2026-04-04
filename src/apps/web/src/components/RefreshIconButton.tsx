@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { AnimatedCheck } from './AnimatedCheck'
+import { ActionIconButton } from './ActionIconButton'
 
 type Phase = 'idle' | 'spinning' | 'done'
 
@@ -62,46 +63,22 @@ export function RefreshIconButton({ onRefresh, disabled = false, size = 16, clas
   const showTooltip = hovered && phase === 'idle' && !disabled
 
   return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}>
-      <button
-        onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        disabled={disabled}
-        className={className}
-      >
+    <ActionIconButton
+      onClick={handleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      disabled={disabled}
+      className={className}
+      tooltip={tooltip}
+      showTooltip={showTooltip}
+      hoverBackground="var(--c-bg-deep)"
+    >
         <span style={iconSpanStyle} onAnimationEnd={phase === 'spinning' ? handleAnimationEnd : undefined}>
           {phase === 'done'
             ? <AnimatedCheck size={size} />
             : <RefreshCw size={size} />
           }
         </span>
-      </button>
-      <span
-        style={{
-          position: 'absolute',
-          top: '100%',
-          left: '50%',
-          transform: showTooltip
-            ? 'translateX(-50%) translateY(0px)'
-            : 'translateX(-50%) translateY(-3px)',
-          marginTop: '3px',
-          fontSize: '11px',
-          fontWeight: 500,
-          color: 'rgba(255,255,255,0.9)',
-          background: 'rgba(0,0,0,0.75)',
-          borderRadius: '5px',
-          padding: '2px 7px',
-          whiteSpace: 'nowrap',
-          opacity: showTooltip ? 1 : 0,
-          transition: 'opacity 120ms ease, transform 120ms ease',
-          pointerEvents: 'none',
-          userSelect: 'none',
-          zIndex: 20,
-        }}
-      >
-        {tooltip}
-      </span>
-    </span>
+    </ActionIconButton>
   )
 }

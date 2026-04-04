@@ -159,6 +159,56 @@ func contextCompactAnyToInt64(v any) (int64, bool) {
 	return 0, false
 }
 
+const maxConsecutiveCompactFailures = 3
+
+// compactConsecutiveFailures 查询 thread 最近的 compact 事件，返回从最新往前的连续失败次数。
+func compactConsecutiveFailures(ctx context.Context, pool CompactPersistDB, accountID, threadID uuid.UUID) int {
+	if pool == nil || accountID == uuid.Nil || threadID == uuid.Nil {
+		return 0
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT re.data_json
+		   FROM run_events re
+		   JOIN runs r ON r.id = re.run_id
+		  WHERE r.account_id = $1
+		    AND r.thread_id = $2
+		    AND re.type = 'run.context_compact'
+		  ORDER BY re.ts DESC, re.seq DESC
+		  LIMIT $3`,
+		accountID,
+		threadID,
+		maxConsecutiveCompactFailures*2+1,
+	)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return count
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(raw, &payload); err != nil {
+			return count
+		}
+		phase, _ := payload["phase"].(string)
+		switch {
+		case phase == "completed":
+			return count
+		case phase == "started":
+			// started 是中间状态，不中断也不累加
+		case strings.Contains(phase, "failed") || phase == "circuit_breaker" || payload["error"] != nil:
+			count++
+		default:
+			return count
+		}
+	}
+	return count
+}
+
 func resolveContextCompactPressureAnchor(
 	ctx context.Context,
 	pool CompactPersistDB,

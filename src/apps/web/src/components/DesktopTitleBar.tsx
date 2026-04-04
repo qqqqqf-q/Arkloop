@@ -1,8 +1,10 @@
+import { useRef } from 'react'
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Glasses } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { ModeSwitch } from './ModeSwitch'
 import { useLocale } from '../contexts/LocaleContext'
 import type { AppMode } from '../storage'
+import { beginPerfTrace, endPerfTrace } from '../perfDebug'
 
 export const DESKTOP_TITLEBAR_HEIGHT = 44
 
@@ -12,7 +14,7 @@ type Props = {
   appMode: AppMode
   onSetAppMode: (mode: AppMode) => void
   availableModes: AppMode[]
-  /** chat 模式下显示；claw 下隐藏。线程内点击由 ChatPage 注册到 layout，与欢迎页共用同一按钮 */
+  /** chat 模式下显示；work 下隐藏。线程内点击由 ChatPage 注册到 layout，与欢迎页共用同一按钮 */
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
@@ -29,6 +31,7 @@ export function DesktopTitleBar({
   onTogglePrivateMode,
 }: Props) {
   const { t } = useLocale()
+  const sidebarToggleTrace = useRef<ReturnType<typeof beginPerfTrace>>(null)
 
   if (!isDesktop()) return null
 
@@ -57,7 +60,28 @@ export function DesktopTitleBar({
         className="flex items-center gap-1 self-start pt-[6px]"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        <button onClick={onToggleSidebar} className={btnCls}>
+        <button
+          onClick={() => {
+            endPerfTrace(sidebarToggleTrace.current, {
+              phase: 'click',
+              collapsed: sidebarCollapsed,
+              appMode,
+            })
+            sidebarToggleTrace.current = null
+            onToggleSidebar()
+          }}
+          onPointerDown={() => {
+            sidebarToggleTrace.current = beginPerfTrace('desktop_titlebar_sidebar_interaction', {
+              phase: 'pointerdown',
+              collapsed: sidebarCollapsed,
+              appMode,
+            })
+          }}
+          onPointerLeave={() => {
+            sidebarToggleTrace.current = null
+          }}
+          className={btnCls}
+        >
           {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
         </button>
         <button onClick={() => window.history.back()} className={btnCls}>
@@ -76,7 +100,7 @@ export function DesktopTitleBar({
         <ModeSwitch
           mode={appMode}
           onChange={onSetAppMode}
-          labels={{ chat: t.modeChat, claw: t.modeClaw }}
+          labels={{ chat: t.modeChat, work: t.modeWork }}
           availableModes={availableModes}
         />
       </div>

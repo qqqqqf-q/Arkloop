@@ -37,6 +37,11 @@ export type OpenVikingDesktopConfig = {
   vlmModel?: string
   vlmApiKey?: string
   vlmApiBase?: string
+  rerankSelector?: string
+  rerankProvider?: string
+  rerankModel?: string
+  rerankApiKey?: string
+  rerankApiBase?: string
 }
 
 export type MemoryConfig = {

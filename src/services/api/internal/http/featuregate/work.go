@@ -15,37 +15,37 @@ type ThreadGetter interface {
 	GetByID(ctx context.Context, threadID uuid.UUID) (*data.Thread, error)
 }
 
-func EnsureClawEnabled(
+func EnsureWorkEnabled(
 	w nethttp.ResponseWriter,
 	traceID string,
 	ctx context.Context,
 	flagService *featureflag.Service,
 ) bool {
-	if featureflag.IsClawEnabled(ctx, flagService) {
+	if featureflag.IsWorkEnabled(ctx, flagService) {
 		return true
 	}
 	httpkit.WriteError(
 		w,
 		nethttp.StatusForbidden,
-		"feature_flags.claw_disabled",
-		"claw is disabled",
+		"feature_flags.work_disabled",
+		"work is disabled",
 		traceID,
-		map[string]any{"flag_key": featureflag.ClawEnabledKey},
+		map[string]any{"flag_key": featureflag.WorkEnabledKey},
 	)
 	return false
 }
 
-func EnsureClawEnabledForThread(
+func EnsureWorkEnabledForThread(
 	w nethttp.ResponseWriter,
 	traceID string,
 	ctx context.Context,
 	thread *data.Thread,
 	flagService *featureflag.Service,
 ) bool {
-	return EnsureClawEnabled(w, traceID, ctx, flagService)
+	return EnsureWorkEnabled(w, traceID, ctx, flagService)
 }
 
-func EnsureClawEnabledForRun(
+func EnsureWorkEnabledForRun(
 	w nethttp.ResponseWriter,
 	traceID string,
 	ctx context.Context,
@@ -66,5 +66,5 @@ func EnsureClawEnabledForRun(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return false
 	}
-	return EnsureClawEnabledForThread(w, traceID, ctx, thread, flagService)
+	return EnsureWorkEnabledForThread(w, traceID, ctx, thread, flagService)
 }

@@ -39,7 +39,7 @@ func (s *TelegramChannelSender) SendText(ctx context.Context, target ChannelDeli
 			Text:      segment,
 			ParseMode: telegrambot.ParseModeHTML,
 		}
-		if target.ReplyTo != nil {
+		if idx == 0 && target.ReplyTo != nil {
 			req.ReplyToMessageID = target.ReplyTo.MessageID
 		}
 		if target.Conversation.ThreadID != nil {

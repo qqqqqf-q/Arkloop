@@ -216,6 +216,8 @@ func TestRewriteSQL_TypeCast(t *testing.T) {
 		{"col::bigint", "col"},
 		{"col::boolean", "col"},
 		{"col::inet", "col"},
+		{"col::uuid[]", "col"},
+		{"col::text[]", "col"},
 	}
 	for _, tt := range tests {
 		got := rewriteSQL(tt.input)
@@ -248,6 +250,36 @@ func TestRewriteSQL_Passthrough(t *testing.T) {
 	got := rewriteSQL(plain)
 	if got != plain {
 		t.Errorf("plain SQL was modified: %q -> %q", plain, got)
+	}
+}
+
+func TestExpandAnyArgs_UUIDSlice(t *testing.T) {
+	t.Parallel()
+	id1 := uuid.New()
+	id2 := uuid.New()
+	sql, args := expandAnyArgs(`SELECT id FROM items WHERE id = ANY($1::uuid[]) AND owner_id = $2`, []any{[]uuid.UUID{id1, id2}, "owner-1"})
+	if sql != `SELECT id FROM items WHERE id IN ($1, $2) AND owner_id = $3` {
+		t.Fatalf("unexpected sql rewrite: %q", sql)
+	}
+	if len(args) != 3 {
+		t.Fatalf("expected 3 args, got %d", len(args))
+	}
+	if args[0] != id1.String() || args[1] != id2.String() || args[2] != "owner-1" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestConvertArg_UUIDSlice(t *testing.T) {
+	t.Parallel()
+	id1 := uuid.New()
+	id2 := uuid.New()
+	got := convertArg([]uuid.UUID{id1, id2})
+	text, ok := got.(string)
+	if !ok {
+		t.Fatalf("expected string result, got %#v", got)
+	}
+	if text != `["`+id1.String()+`","`+id2.String()+`"]` {
+		t.Fatalf("unexpected converted arg: %s", text)
 	}
 }
 

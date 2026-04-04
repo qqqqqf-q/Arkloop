@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { UserMessage } from '../components/messagebubble/UserMessage'
@@ -30,6 +32,27 @@ function renderUserMessage(message: MessageResponse): string {
     </LocaleProvider>,
   )
 }
+
+function flushMicrotasks(): Promise<void> {
+  return Promise.resolve()
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve())
+}
+
+const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+
+beforeEach(() => {
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+})
+
+afterEach(() => {
+  if (originalActEnvironment === undefined) {
+    delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  } else {
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+  }
+})
 
 describe('UserMessage attachments', () => {
   it('pasted 文件只显示 pasted card，不再重复渲染文件名 chip', () => {
@@ -83,5 +106,63 @@ describe('UserMessage enter animation compensation', () => {
     expect(getUserPromptEnterScale(USER_PROMPT_MAX_WIDTH / 2)).toBeCloseTo(1.0425, 6)
     expect(getUserPromptEnterScale(120)).toBeGreaterThan(USER_PROMPT_ENTER_BASE_SCALE)
     expect(getUserPromptEnterScale(120)).toBeLessThanOrEqual(USER_PROMPT_ENTER_MAX_SCALE)
+  })
+})
+
+describe('UserMessage overflow toggle', () => {
+  it('长文本应渲染 show more 按钮并在点击后切换为 show less', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, 'scrollHeight')
+
+    Object.defineProperty(HTMLDivElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get() {
+        return 400
+      },
+    })
+
+    try {
+      await act(async () => {
+        root.render(
+          <LocaleProvider>
+            <UserMessage
+              accessToken="token"
+              message={makeMessage({
+                content: Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n'),
+              })}
+            />
+          </LocaleProvider>,
+        )
+      })
+      await act(async () => {
+        await flushMicrotasks()
+      })
+
+      const toggle = Array.from(container.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Show more',
+      ) as HTMLButtonElement | undefined
+      expect(toggle).toBeTruthy()
+      if (!toggle) return
+
+      await act(async () => {
+        toggle.click()
+        await flushMicrotasks()
+      })
+
+      expect(container.textContent).toContain('Show less')
+    } finally {
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLDivElement.prototype, 'scrollHeight', originalScrollHeight)
+      } else {
+        // @ts-expect-error test cleanup
+        delete HTMLDivElement.prototype.scrollHeight
+      }
+      act(() => {
+        root.unmount()
+      })
+      container.remove()
+    }
   })
 })

@@ -261,7 +261,7 @@ func TestAgentLoopHeartbeatDecisionReplyTrueStopsWithoutSecondLlmTurn(t *testing
 	}
 }
 
-func TestAgentLoopTelegramReplySuccessStopsWithoutReplay(t *testing.T) {
+func TestAgentLoopTelegramReplySetsRefAndContinues(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(channeltelegram.ReplyAgentSpec); err != nil {
 		t.Fatalf("register telegram_reply failed: %v", err)
@@ -272,7 +272,7 @@ func TestAgentLoopTelegramReplySuccessStopsWithoutReplay(t *testing.T) {
 	executor := tools.NewDispatchingExecutor(registry, policy)
 	if err := executor.Bind(channeltelegram.ToolReply, stubToolExecutor{
 		result: tools.ExecutionResult{
-			ResultJSON: map[string]any{"ok": true, "message_ids": []string{"42"}},
+			ResultJSON: map[string]any{"ok": true, "reply_to_set": true, "reply_to_message_id": "42"},
 		},
 	}); err != nil {
 		t.Fatalf("bind telegram_reply failed: %v", err)
@@ -303,23 +303,14 @@ func TestAgentLoopTelegramReplySuccessStopsWithoutReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loop.Run failed: %v", err)
 	}
-	if gateway.calls != 1 {
-		t.Fatalf("expected telegram_reply success to stop after first llm call, got %d calls", gateway.calls)
+	if gateway.calls < 2 {
+		t.Fatalf("expected telegram_reply to continue to second llm call, got %d calls", gateway.calls)
 	}
 	assertHasEvent(t, got, "run.completed")
-	for _, ev := range got {
-		if ev.Type == "tool.result" {
-			t.Fatalf("telegram_reply success should not emit tool.result: %#v", got)
-		}
-		if ev.Type == "message.delta" {
-			if text, _ := ev.DataJSON["content_delta"].(string); text == "第二轮重复" {
-				t.Fatalf("unexpected second-turn output: %#v", got)
-			}
-		}
-	}
+	assertHasEvent(t, got, "tool.result")
 }
 
-func TestAgentLoopTelegramReplyFailureKeepsToolResultReplay(t *testing.T) {
+func TestAgentLoopTelegramReplyFailureContinues(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(channeltelegram.ReplyAgentSpec); err != nil {
 		t.Fatalf("register telegram_reply failed: %v", err)
@@ -350,7 +341,7 @@ func TestAgentLoopTelegramReplyFailureKeepsToolResultReplay(t *testing.T) {
 			RunID:               uuid.New(),
 			TraceID:             "trace",
 			InputJSON:           map[string]any{},
-			ReasoningIterations: 1,
+			ReasoningIterations: 3,
 			ToolExecutor:        executor,
 			CancelSignal:        func() bool { return false },
 		},
@@ -361,15 +352,14 @@ func TestAgentLoopTelegramReplyFailureKeepsToolResultReplay(t *testing.T) {
 			return nil
 		},
 	)
-	if err == nil {
-		assertHasEvent(t, got, "run.failed")
-	} else if !errors.Is(err, errRetryGatewayCalled) {
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gateway.calls != 2 {
 		t.Fatalf("expected telegram_reply failure to continue to second llm call, got %d calls", gateway.calls)
 	}
 	assertHasEvent(t, got, "tool.result")
+	assertHasEvent(t, got, "run.completed")
 }
 
 func TestAgentLoopTelegramSendFileSuccessStopsWithoutReplay(t *testing.T) {
@@ -1786,19 +1776,16 @@ func (g *singleTelegramReplyGateway) Stream(ctx context.Context, request llm.Req
 		if err := yield(llm.ToolCall{
 			ToolCallID:    "tg_reply_1",
 			ToolName:      channeltelegram.ToolReply,
-			ArgumentsJSON: map[string]any{"text": "hello", "reply_to_message_id": "42"},
+			ArgumentsJSON: map[string]any{"reply_to_message_id": "42"},
 		}); err != nil {
 			return err
 		}
 		return yield(llm.StreamRunCompleted{})
 	}
-	if err := yield(llm.StreamMessageDelta{ContentDelta: "第二轮重复", Role: "assistant"}); err != nil {
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "reply body", Role: "assistant"}); err != nil {
 		return err
 	}
-	if err := yield(llm.StreamRunFailed{Error: llm.GatewayError{ErrorClass: "test.retry", Message: "retry happened"}}); err != nil {
-		return err
-	}
-	return errRetryGatewayCalled
+	return yield(llm.StreamRunCompleted{})
 }
 
 func (g *singleTelegramSendFileGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {

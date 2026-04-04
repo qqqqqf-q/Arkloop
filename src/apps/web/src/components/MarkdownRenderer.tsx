@@ -27,6 +27,7 @@ type ArtifactsContextValue = {
 }
 
 const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
+const STREAMING_MATH_COMMIT_INTERVAL_MS = 96
 
 function isDocumentArtifact(artifact: ArtifactRef): boolean {
   if (artifact.display === 'panel') return true
@@ -49,6 +50,50 @@ function normalizeLatexDelimiters(content: string): string {
         .replace(/\\\(([\s\S]*?)\\\)/g, (_, inner: string) => `$${inner}$`)
     }).join('')
   }).join('')
+}
+
+function containsLikelyMath(content: string): boolean {
+  return /\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(content)
+}
+
+function useStreamingRenderContent(content: string, throttle: boolean): string {
+  const [renderContent, setRenderContent] = useState(content)
+  const timerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!throttle) {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      setRenderContent((current) => (current === content ? current : content))
+      return
+    }
+
+    if (content.length <= renderContent.length) {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+      setRenderContent((current) => (current === content ? current : content))
+      return
+    }
+
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => {
+      setRenderContent(content)
+      timerRef.current = null
+    }, STREAMING_MATH_COMMIT_INTERVAL_MS)
+
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }, [content, renderContent.length, throttle])
+
+  return renderContent
 }
 
 const ARTIFACT_PREFIX = 'artifact:'
@@ -557,6 +602,7 @@ function buildMarkdownComponents(compact: boolean): Components {
 type Props = {
   content: string
   disableMath?: boolean
+  streaming?: boolean
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
   accessToken?: string
@@ -567,43 +613,61 @@ type Props = {
   trimTrailingMargin?: boolean
 }
 
-export function MarkdownRenderer({ content, disableMath, webSources, artifacts, accessToken, runId, onOpenDocument, compact = false, trimTrailingMargin = false }: Props) {
+export function MarkdownRenderer({ content, disableMath, streaming = false, webSources, artifacts, accessToken, runId, onOpenDocument, compact = false, trimTrailingMargin = false }: Props) {
   const sourceCount = webSources?.length ?? 0
   const artifactCount = artifacts?.length ?? 0
-  const remarkPlugins = disableMath
-    ? [remarkGfm]
-    : [remarkGfm, remarkMath]
+  const shouldThrottleStreamingMath = streaming && !disableMath && containsLikelyMath(content)
+  const renderContent = useStreamingRenderContent(content, shouldThrottleStreamingMath)
+  const effectiveDisableMath = !!disableMath
+  const remarkPlugins = useMemo(
+    () => (effectiveDisableMath ? [remarkGfm] : [remarkGfm, remarkMath]),
+    [effectiveDisableMath],
+  )
 
-  const rehypePlugins: NonNullable<Options['rehypePlugins']> = disableMath
-    ? [[rehypeHighlight, { ignoreMissing: true }]]
-    : [
-        [rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }],
-        [rehypeHighlight, { ignoreMissing: true }],
-      ]
+  const rehypePlugins = useMemo<NonNullable<Options['rehypePlugins']>>(
+    () => (
+      effectiveDisableMath
+        ? (streaming ? [] : [[rehypeHighlight, { ignoreMissing: true }]])
+        : streaming
+          ? [[rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }]]
+          : [
+              [rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }],
+              [rehypeHighlight, { ignoreMissing: true }],
+            ]
+    ),
+    [effectiveDisableMath, streaming],
+  )
 
-  const artifactsValue: ArtifactsContextValue = {
+  const artifactsValue = useMemo<ArtifactsContextValue>(() => ({
     artifacts: artifacts ?? [],
     accessToken: accessToken ?? '',
     runId,
     onOpenDocument,
-  }
+  }), [accessToken, artifacts, onOpenDocument, runId])
 
-  const normalizedContent = disableMath ? content : normalizeLatexDelimiters(content)
+  const normalizedContent = useMemo(
+    () => (effectiveDisableMath ? renderContent : normalizeLatexDelimiters(renderContent)),
+    [effectiveDisableMath, renderContent],
+  )
   const mdComponents = useMemo(() => buildMarkdownComponents(compact), [compact])
 
   useEffect(() => {
     recordPerfCount('markdown_render', 1, {
       length: content.length,
+      renderLength: renderContent.length,
       compact,
       disableMath: !!disableMath,
+      streaming,
+      throttledMath: shouldThrottleStreamingMath,
       hasWebSources: sourceCount > 0,
       hasArtifacts: artifactCount > 0,
     })
     recordPerfValue('markdown_content_length', content.length, 'chars', {
       compact,
       disableMath: !!disableMath,
+      streaming,
     })
-  }, [artifactCount, compact, content.length, disableMath, sourceCount])
+  }, [artifactCount, compact, content.length, disableMath, renderContent.length, shouldThrottleStreamingMath, sourceCount, streaming])
 
   return (
     <ArtifactsContext.Provider value={artifactsValue}>

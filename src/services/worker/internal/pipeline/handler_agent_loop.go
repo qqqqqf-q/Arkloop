@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -166,6 +167,11 @@ func NewAgentLoopHandler(
 		}
 		rc.RunToolCallCount = writer.toolCallCount
 		rc.RunIterationCount = writer.iterationCount
+		if writer.pendingReplyOverride != "" {
+			rc.ChannelReplyOverride = &ChannelMessageRef{
+				MessageID: writer.pendingReplyOverride,
+			}
+		}
 		return writer.Flush(ctx)
 	}
 }
@@ -216,6 +222,7 @@ type eventWriter struct {
 
 	telegramToolBoundaryFlush func(context.Context, string) error
 	telegramFlushSentDeltas   int
+	pendingReplyOverride      string
 
 	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
 	terminalRunStatus    string
@@ -431,6 +438,7 @@ func (w *eventWriter) Append(
 			}
 			w.telegramFlushSentDeltas = len(w.assistantDeltas)
 		}
+		w.captureReplyOverride(ev.DataJSON)
 		w.toolCallCount++
 	}
 	if ev.Type == "llm.request" {
@@ -535,7 +543,13 @@ func (w *eventWriter) commit(ctx context.Context) error {
 				continue
 			}
 			if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil, nil); err != nil {
-				_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
+				if markErr := w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job"); markErr != nil {
+					slog.Error("mark_child_run_failed",
+						"run_id", nextRunID.String(),
+						"enqueue_error", err.Error(),
+						"mark_error", markErr.Error(),
+					)
+				}
 			}
 		}
 		w.pendingEnqueueRunIDs = nil
@@ -650,6 +664,23 @@ func (w *eventWriter) captureAssistantTurnOutput() {
 	w.assistantMessageFresh = false
 	if trimmed := strings.TrimSpace(text); trimmed != "" {
 		w.assistantOutputs = append(w.assistantOutputs, trimmed)
+	}
+}
+
+func (w *eventWriter) captureReplyOverride(dataJSON map[string]any) {
+	if dataJSON == nil {
+		return
+	}
+	toolName, _ := dataJSON["tool_name"].(string)
+	if strings.TrimSpace(toolName) != "telegram_reply" {
+		return
+	}
+	args, _ := dataJSON["arguments"].(map[string]any)
+	if args == nil {
+		return
+	}
+	if mid, _ := args["reply_to_message_id"].(string); strings.TrimSpace(mid) != "" {
+		w.pendingReplyOverride = strings.TrimSpace(mid)
 	}
 }
 

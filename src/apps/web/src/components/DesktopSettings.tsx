@@ -17,6 +17,7 @@ import {
   Wrench,
   Code2,
   Loader2,
+  Shield,
 } from "lucide-react";
 import { getDesktopApi } from "@arkloop/shared/desktop";
 import type { MeResponse } from "../api";
@@ -73,19 +74,27 @@ type NavItem = {
   icon: typeof Settings;
 };
 
-const NAV_ITEMS: NavItem[] = [
+type NavEntry = NavItem | { header: string };
+
+const NAV_ENTRIES: NavEntry[] = [
+  // 第一段：基础用户设置（无 header，"< 设置"返回按钮充当隐含 header）
   { key: "general",    icon: Settings },
   { key: "appearance", icon: Palette },
   { key: "providers",  icon: Cpu },
-  { key: "routing",    icon: Route },
-  { key: "personas",   icon: Bot },
   { key: "channels",   icon: Radio },
-  { key: "skills",     icon: Puzzle },
-  { key: "mcp",        icon: Server },
+  // 第二段：agent 核心组件（英文专有名词区）
+  { header: "agentCoreHeader" },
+  { key: "skills",           icon: Puzzle },
+  { key: "mcp",              icon: Server },
+  { key: "notebook",         icon: Brain },
+  { key: "memory",           icon: Database },
+  { key: "chat",             icon: MessageSquare },
+  { key: "promptInjection",  icon: Shield },
+  // 第三段：低频管理
+  { header: "managementHeader" },
   { key: "tools",      icon: Wrench },
-  { key: "notebook",   icon: Brain },
-  { key: "memory",     icon: Database },
-  { key: "chat",       icon: MessageSquare },
+  { key: "personas",   icon: Bot },
+  { key: "routing",    icon: Route },
   { key: "advanced",   icon: SlidersHorizontal },
 ];
 
@@ -200,10 +209,10 @@ export function DesktopSettings({
     });
   }, [desktopApi]);
 
-  const navItems = useMemo(() => {
-    const items = [...NAV_ITEMS];
-    if (devMode) items.push({ key: "developer" as DesktopSettingsKey, icon: Code2 });
-    return items;
+  const navEntries = useMemo(() => {
+    const entries = [...NAV_ENTRIES];
+    if (devMode) entries.push({ key: "developer" as DesktopSettingsKey, icon: Code2 });
+    return entries;
   }, [devMode]);
 
   const handleTabChange = (key: DesktopSettingsKey) => {
@@ -212,22 +221,35 @@ export function DesktopSettings({
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   };
 
-  const renderNav = (items: NavItem[]) =>
-    items.map(({ key, icon: Icon }) => (
-      <button
-        key={key}
-        onClick={() => handleTabChange(key)}
-        className={[
-          "flex h-[38px] items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium transition-all duration-[120ms] active:scale-[0.96]",
-          activeKey === key
-            ? "bg-[var(--c-bg-deep)] text-[var(--c-text-heading)] rounded-[10px]"
-            : "text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]",
-        ].join(" ")}
-      >
-        <Icon size={16} />
-        <span>{(ds as unknown as Record<string, string>)[key]}</span>
-      </button>
-    ));
+  const renderNav = (entries: NavEntry[]) =>
+    entries.map((entry) => {
+      if ("header" in entry) {
+        return (
+          <div
+            key={entry.header}
+            className="mt-4 px-2.5 pb-1 pt-1 text-[12px] font-[375] text-[var(--c-text-tertiary)]"
+          >
+            {(ds as unknown as Record<string, string>)[entry.header]}
+          </div>
+        );
+      }
+      const { key, icon: Icon } = entry;
+      return (
+        <button
+          key={key}
+          onClick={() => handleTabChange(key)}
+          className={[
+            "flex h-[38px] items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-[425] transition-all duration-[120ms] active:scale-[0.96]",
+            activeKey === key
+              ? "bg-[var(--c-bg-deep)] text-[var(--c-text-heading)] rounded-[10px]"
+              : "text-[var(--c-text-secondary)] hover:bg-[color-mix(in_srgb,var(--c-bg-deep)_60%,transparent)] hover:text-[var(--c-text-heading)]",
+          ].join(" ")}
+        >
+          <Icon size={16} />
+          <span>{(ds as unknown as Record<string, string>)[key]}</span>
+        </button>
+      );
+    });
 
   const renderContent = () => {
     switch (activeKey) {
@@ -327,7 +349,7 @@ export function DesktopSettings({
         </div>
 
         <div className="px-4">
-          <div className="flex flex-col gap-[3px]">{renderNav(navItems)}</div>
+          <div className="flex flex-col gap-[3px]">{renderNav(navEntries)}</div>
         </div>
       </div>
 

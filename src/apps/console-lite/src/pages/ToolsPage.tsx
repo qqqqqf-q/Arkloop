@@ -70,6 +70,10 @@ const MEMORY_DEFAULTS: Record<string, string> = {
   'vlm.model': '',
   'vlm.api_key': '',
   'vlm.api_base': '',
+  'rerank.provider': 'volcengine',
+  'rerank.model': '',
+  'rerank.api_key': '',
+  'rerank.api_base': '',
   cost_per_commit: '0',
 }
 
@@ -895,6 +899,12 @@ function MemoryConfigSection({
     fieldVLMApiKey: string
     fieldVLMApiBase: string
     fieldVLMProviderHint: string
+    sectionRerankConfig: string
+    fieldRerankProvider: string
+    fieldRerankModel: string
+    fieldRerankApiKey: string
+    fieldRerankApiBase: string
+    fieldRerankProviderHint: string
     sectionConfig: string
     fieldCostPerCommit: string
     fieldCostPerCommitHint: string
@@ -921,6 +931,10 @@ function MemoryConfigSection({
         vlm_model: form['vlm.model'] || '',
         vlm_api_key: form['vlm.api_key'] || '',
         vlm_api_base: form['vlm.api_base'] || '',
+        rerank_provider: form['rerank.provider'] || '',
+        rerank_model: form['rerank.model'] || '',
+        rerank_api_key: form['rerank.api_key'] || '',
+        rerank_api_base: form['rerank.api_base'] || '',
         root_api_key: '',
       })
       addToast(tc.toastOVConfigApplied, 'success')
@@ -995,6 +1009,38 @@ function MemoryConfigSection({
           <div>
             <label className={labelCls}>{tc.fieldVLMApiBase}</label>
             <input type="text" className={inputCls} value={form['vlm.api_base'] ?? ''} onChange={onChange('vlm.api_base')} placeholder="https://api.openai.com/v1" />
+          </div>
+        </div>
+      </div>
+
+      {/* Rerank Configuration (optional) */}
+      <div className={sectionCls}>
+        <h3 className="text-sm font-medium text-[var(--c-text-primary)]">
+          {tc.sectionRerankConfig}
+        </h3>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className={labelCls}>{tc.fieldRerankProvider}</label>
+            <select className={inputCls} value={form['rerank.provider'] ?? 'volcengine'} onChange={onChange('rerank.provider')}>
+              <option value="volcengine">Volcengine</option>
+              <option value="openai">OpenAI</option>
+              <option value="jina">Jina</option>
+            </select>
+            <p className="mt-1 text-xs text-[var(--c-text-muted)]">
+              {tc.fieldRerankProviderHint}
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldRerankModel}</label>
+            <input type="text" className={inputCls} value={form['rerank.model'] ?? ''} onChange={onChange('rerank.model')} placeholder="e.g. doubao-rerank-250615" />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldRerankApiKey}</label>
+            <input type="password" className={inputCls} value={form['rerank.api_key'] ?? ''} onChange={onChange('rerank.api_key')} placeholder="sk-..." />
+          </div>
+          <div>
+            <label className={labelCls}>{tc.fieldRerankApiBase}</label>
+            <input type="text" className={inputCls} value={form['rerank.api_base'] ?? ''} onChange={onChange('rerank.api_base')} />
           </div>
         </div>
       </div>

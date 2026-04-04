@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE user_notebook_snapshots (
     account_id UUID NOT NULL,
     user_id UUID NOT NULL,
@@ -7,6 +8,5 @@ CREATE TABLE user_notebook_snapshots (
     PRIMARY KEY (account_id, user_id, agent_id)
 );
 
----- create above / drop below ----
-
+-- +goose Down
 DROP TABLE IF EXISTS user_notebook_snapshots;

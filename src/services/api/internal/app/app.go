@@ -650,6 +650,11 @@ func (a *Application) Run(ctx context.Context) error {
 		go storageGovernance.Run(ctx)
 	}
 
+	if messageAttachmentStore != nil {
+		stagingReaper := jobs.NewStagingAttachmentReaper(messageAttachmentStore, a.logger)
+		go stagingReaper.Run(ctx)
+	}
+
 	listener, err := net.Listen("tcp", a.config.Addr)
 	if err != nil {
 		return err

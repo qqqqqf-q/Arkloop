@@ -8,7 +8,7 @@ import {
 
 import { useLocale } from '../contexts/LocaleContext'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { readThreadClawFolder } from '../storage'
+import { readThreadWorkFolder } from '../storage'
 
 export type StepStatus = 'done' | 'active' | 'pending'
 
@@ -23,7 +23,7 @@ export type Connector = {
   icon: 'globe' | 'monitor'
 }
 
-export type ClawRightPanelProps = {
+export type WorkRightPanelProps = {
   accessToken?: string
   projectId?: string
   steps?: ProgressStep[]
@@ -70,7 +70,7 @@ function Card({
     <div
       style={{
         borderRadius: 12,
-        border: '0.5px solid var(--c-claw-card-border)',
+        border: '0.5px solid var(--c-work-card-border)',
         background: 'var(--c-bg-page)',
         overflow: 'hidden',
       }}
@@ -132,7 +132,7 @@ function ProgressPanel({ steps }: { steps: ProgressStep[] }) {
   if (steps.length === 0) {
     return (
       <p style={{ fontSize: '13px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
-        {t.claw.progressEmpty}
+        {t.work.progressEmpty}
       </p>
     )
   }
@@ -156,13 +156,13 @@ function ProgressPanel({ steps }: { steps: ProgressStep[] }) {
                   width: 20,
                   height: 20,
                   borderRadius: '50%',
-                  border: '1.5px solid var(--c-claw-step-done)',
+                  border: '1.5px solid var(--c-work-step-done)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <Check size={11} color="var(--c-claw-step-done)" strokeWidth={2.5} />
+                <Check size={11} color="var(--c-work-step-done)" strokeWidth={2.5} />
               </div>
             ) : (
               <div
@@ -170,7 +170,7 @@ function ProgressPanel({ steps }: { steps: ProgressStep[] }) {
                   width: 20,
                   height: 20,
                   borderRadius: '50%',
-                  border: '1.5px solid var(--c-claw-step-pending)',
+                  border: '1.5px solid var(--c-work-step-pending)',
                 }}
               />
             )}
@@ -180,7 +180,7 @@ function ProgressPanel({ steps }: { steps: ProgressStep[] }) {
                   width: 1.5,
                   flex: 1,
                   minHeight: 12,
-                  background: 'var(--c-claw-step-line)',
+                  background: 'var(--c-work-step-line)',
                 }}
               />
             ) : null}
@@ -214,8 +214,8 @@ function DocIcon({ ext }: { ext?: string }) {
         width: 22,
         height: 26,
         borderRadius: 3,
-        border: '0.5px solid var(--c-claw-card-border)',
-        background: 'var(--c-claw-file-bg)',
+        border: '0.5px solid var(--c-work-card-border)',
+        background: 'var(--c-work-file-bg)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -237,8 +237,8 @@ function DocIcon({ ext }: { ext?: string }) {
         }}
       />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1.5, alignItems: 'center', marginTop: 5 }}>
-        <div style={{ width: 10, height: 0.5, background: 'var(--c-claw-step-pending)', borderRadius: 0.5 }} />
-        <div style={{ width: 10, height: 0.5, background: 'var(--c-claw-step-pending)', borderRadius: 0.5 }} />
+        <div style={{ width: 10, height: 0.5, background: 'var(--c-work-step-pending)', borderRadius: 0.5 }} />
+        <div style={{ width: 10, height: 0.5, background: 'var(--c-work-step-pending)', borderRadius: 0.5 }} />
       </div>
       {tag ? (
         <span
@@ -276,14 +276,14 @@ function ContextPanel({ connectors }: { connectors: Connector[] }) {
   if (connectors.length === 0) {
     return (
       <p style={{ fontSize: '13px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
-        {t.claw.contextEmpty}
+        {t.work.contextEmpty}
       </p>
     )
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: '12px', color: 'var(--c-text-muted)', marginBottom: 2 }}>{t.claw.toolsCalled}</span>
+      <span style={{ fontSize: '12px', color: 'var(--c-text-muted)', marginBottom: 2 }}>{t.work.toolsCalled}</span>
       {connectors.map((connector) => (
         <div
           key={connector.name}
@@ -300,8 +300,8 @@ function ContextPanel({ connectors }: { connectors: Connector[] }) {
               width: 26,
               height: 26,
               borderRadius: 6,
-              border: '0.5px solid var(--c-claw-card-border)',
-              background: 'var(--c-claw-file-bg)',
+              border: '0.5px solid var(--c-work-card-border)',
+              background: 'var(--c-work-file-bg)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -323,7 +323,7 @@ function WorkingFolderPanel({ readFiles }: { readFiles: string[] }) {
   if (readFiles.length === 0) {
     return (
       <p style={{ fontSize: '13px', color: 'var(--c-text-muted)', margin: 0, lineHeight: 1.5 }}>
-        {t.claw.workingFolderEmpty}
+        {t.work.workingFolderEmpty}
       </p>
     )
   }
@@ -368,44 +368,44 @@ function WorkingFolderPanel({ readFiles }: { readFiles: string[] }) {
   )
 }
 
-const clawPanelWidth = 300
+const workPanelWidth = 300
 
-export function ClawRightPanel({
+export function WorkRightPanel({
   steps = [],
   connectors = [],
   readFiles = [],
   threadId,
-}: ClawRightPanelProps) {
+}: WorkRightPanelProps) {
   const { t } = useLocale()
   const doneCount = steps.filter((step) => step.status === 'done').length
 
   const [localFolder, setLocalFolder] = useState<string | null>(() =>
-    threadId ? readThreadClawFolder(threadId) : null,
+    threadId ? readThreadWorkFolder(threadId) : null,
   )
 
   useEffect(() => {
     const id = requestAnimationFrame(() =>
-      setLocalFolder(threadId ? readThreadClawFolder(threadId) : null),
+      setLocalFolder(threadId ? readThreadWorkFolder(threadId) : null),
     )
     return () => cancelAnimationFrame(id)
   }, [threadId])
 
   useEffect(() => {
-    const handler = () => setLocalFolder(threadId ? readThreadClawFolder(threadId) : null)
-    window.addEventListener('arkloop:claw-folder-changed', handler)
-    return () => window.removeEventListener('arkloop:claw-folder-changed', handler)
+    const handler = () => setLocalFolder(threadId ? readThreadWorkFolder(threadId) : null)
+    window.addEventListener('arkloop:work-folder-changed', handler)
+    return () => window.removeEventListener('arkloop:work-folder-changed', handler)
   }, [threadId])
 
   const folderDisplayName = isDesktop() && localFolder
     ? localFolder.split(/[/\\]/).filter(Boolean).pop() ?? localFolder
     : null
 
-  const workingFolderTitle = folderDisplayName ?? t.claw.workingFolder
+  const workingFolderTitle = folderDisplayName ?? t.work.workingFolder
 
   return (
     <div
       style={{
-        width: clawPanelWidth,
+        width: workPanelWidth,
         height: '100%',
         flexShrink: 0,
         display: 'flex',
@@ -424,7 +424,7 @@ export function ClawRightPanel({
           gap: 8,
         }}
       >
-        <Card title={t.claw.progress} badge={steps.length > 0 ? `${doneCount} of ${steps.length}` : undefined} defaultOpen>
+        <Card title={t.work.progress} badge={steps.length > 0 ? `${doneCount} of ${steps.length}` : undefined} defaultOpen>
           <ProgressPanel steps={steps} />
         </Card>
 
@@ -432,7 +432,7 @@ export function ClawRightPanel({
           <WorkingFolderPanel readFiles={readFiles} />
         </Card>
 
-        <Card title={t.claw.context} defaultOpen>
+        <Card title={t.work.context} defaultOpen>
           <ContextPanel connectors={connectors} />
         </Card>
       </div>

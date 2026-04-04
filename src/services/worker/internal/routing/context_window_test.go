@@ -63,6 +63,45 @@ func TestRouteModelCapabilities(t *testing.T) {
 	}
 }
 
+func TestRouteContextWindowTokensOverride(t *testing.T) {
+	// override 优先于 context_length
+	rule := ProviderRouteRule{
+		AdvancedJSON: map[string]any{
+			"available_catalog": map[string]any{
+				"context_length":          float64(200000),
+				"context_length_override": float64(128000),
+			},
+		},
+	}
+	if n := RouteContextWindowTokens(rule); n != 128000 {
+		t.Fatalf("expected override 128000, got %d", n)
+	}
+
+	// 仅有 override，无 context_length
+	ruleOnlyOverride := ProviderRouteRule{
+		AdvancedJSON: map[string]any{
+			"available_catalog": map[string]any{
+				"context_length_override": float64(64000),
+			},
+		},
+	}
+	if n := RouteContextWindowTokens(ruleOnlyOverride); n != 64000 {
+		t.Fatalf("expected override-only 64000, got %d", n)
+	}
+
+	// 仅有 context_length，无 override -> 回退到 context_length
+	ruleNoOverride := ProviderRouteRule{
+		AdvancedJSON: map[string]any{
+			"available_catalog": map[string]any{
+				"context_length": float64(200000),
+			},
+		},
+	}
+	if n := RouteContextWindowTokens(ruleNoOverride); n != 200000 {
+		t.Fatalf("expected fallback to context_length 200000, got %d", n)
+	}
+}
+
 func TestRouteModelCapabilitiesMissingCatalog(t *testing.T) {
 	caps := RouteModelCapabilities(ProviderRouteRule{})
 	if caps.ContextLength != 0 {

@@ -83,16 +83,28 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 		if rc == nil || rc.ChannelContext == nil {
 			return next(ctx, rc)
 		}
+
+		projectGroupEnvelopes(rc)
+
 		if !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
 			return next(ctx, rc)
 		}
 
-		projectGroupEnvelopes(rc)
 		stripOlderImages(rc, keepImageTail)
 		compactResult := maybeGroupCompact(ctx, rc, dep, maxTokens)
+		beforeTrim := snapshotGroupTrimStats(rc)
 		trimRunContextMessagesToApproxTokens(rc, maxTokens)
+		trimEvent := buildGroupTrimEvent(beforeTrim, snapshotGroupTrimStats(rc), maxTokens, compactResult != nil)
 
 		nextErr := next(ctx, rc)
+
+		if trimEvent != nil && dep.EmitDebugEvents {
+			postCtx, cancel := context.WithTimeout(context.Background(), contextCompactPostWriteTimeout)
+			defer cancel()
+			if err := appendContextCompactRunEvent(postCtx, dep.Pool, dep.EventsRepo, rc, trimEvent); err != nil {
+				slog.WarnContext(ctx, "group_trim", "phase", "run_event", "err", err.Error(), "run_id", rc.Run.ID.String())
+			}
+		}
 
 		// 持久化放在 next 之后，不阻塞 pipeline 主路径
 		if compactResult != nil {
@@ -329,6 +341,7 @@ func persistGroupCompact(
 
 	if lockErr := compactThreadCompactionAdvisoryXactLock(postCtx, tx, rc.Run.ThreadID); lockErr != nil {
 		_ = tx.Rollback(postCtx)
+		emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "advisory_lock", lockErr)
 		slog.WarnContext(ctx, "group_compact", "phase", "advisory_lock", "err", lockErr.Error(), "run_id", rc.Run.ID.String())
 		return
 	}
@@ -337,6 +350,7 @@ func persistGroupCompact(
 		still, chkErr := compactPrefixMessagesStillUncompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, filteredIDs)
 		if chkErr != nil {
 			_ = tx.Rollback(postCtx)
+			emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "prefix_precheck", chkErr)
 			slog.WarnContext(ctx, "group_compact", "phase", "prefix_precheck", "err", chkErr.Error(), "run_id", rc.Run.ID.String())
 			return
 		}
@@ -346,6 +360,7 @@ func persistGroupCompact(
 		}
 		if err := dep.MessagesRepo.MarkThreadMessagesCompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, filteredIDs); err != nil {
 			_ = tx.Rollback(postCtx)
+			emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "mark_compacted", err)
 			slog.WarnContext(ctx, "group_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", rc.Run.ID.String())
 			return
 		}
@@ -355,6 +370,7 @@ func persistGroupCompact(
 	_, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, result.Summary, meta)
 	if insErr != nil {
 		_ = tx.Rollback(postCtx)
+		emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "replace_snapshot", insErr)
 		slog.WarnContext(ctx, "group_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", rc.Run.ID.String())
 		return
 	}
@@ -395,6 +411,68 @@ func IsTelegramGroupLikeConversation(ct string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+type groupTrimStats struct {
+	MessageCount         int
+	RealMessageCount     int
+	HasSnapshotPrefix    bool
+	EstimatedTrimWeight  int
+	EstimatedTextTokens  int
+	EstimatedImageTokens int
+}
+
+func snapshotGroupTrimStats(rc *RunContext) groupTrimStats {
+	if rc == nil || len(rc.Messages) == 0 {
+		return groupTrimStats{}
+	}
+	msgs := rc.Messages
+	ids := rc.ThreadMessageIDs
+	alignedIDs := len(ids) == len(msgs)
+	hasSnapshot := rc.HasActiveCompactSnapshot && len(msgs) > 1 && alignedIDs && ids[0] == uuid.Nil
+	realStart := 0
+	if hasSnapshot {
+		realStart = 1
+	}
+	stats := groupTrimStats{
+		MessageCount:      len(msgs),
+		RealMessageCount:  len(msgs) - realStart,
+		HasSnapshotPrefix: hasSnapshot,
+	}
+	for i := range msgs {
+		stats.EstimatedTrimWeight += messageTokens(&msgs[i])
+		stats.EstimatedTextTokens += approxLLMMessageTextTokens(msgs[i])
+		stats.EstimatedImageTokens += approxLLMMessageImageTokens(msgs[i])
+	}
+	return stats
+}
+
+func buildGroupTrimEvent(before, after groupTrimStats, maxTokens int, compactTriggered bool) map[string]any {
+	if before.RealMessageCount <= after.RealMessageCount &&
+		before.EstimatedTrimWeight == after.EstimatedTrimWeight {
+		return nil
+	}
+	droppedCount := before.RealMessageCount - after.RealMessageCount
+	if droppedCount < 0 {
+		droppedCount = 0
+	}
+	return map[string]any{
+		"op":                            "group_trim",
+		"phase":                         "completed",
+		"max_tokens":                    maxTokens,
+		"messages_before":               before.MessageCount,
+		"messages_after":                after.MessageCount,
+		"kept_count":                    after.RealMessageCount,
+		"dropped_count":                 droppedCount,
+		"has_snapshot_prefix":           before.HasSnapshotPrefix,
+		"compact_triggered":             compactTriggered,
+		"estimated_trim_weight_before":  before.EstimatedTrimWeight,
+		"estimated_trim_weight_after":   after.EstimatedTrimWeight,
+		"estimated_text_tokens_before":  before.EstimatedTextTokens,
+		"estimated_text_tokens_after":   after.EstimatedTextTokens,
+		"estimated_image_tokens_before": before.EstimatedImageTokens,
+		"estimated_image_tokens_after":  after.EstimatedImageTokens,
 	}
 }
 
@@ -489,6 +567,23 @@ func approxLLMMessageTokens(m llm.Message) int {
 	if enc == nil {
 		return approxLLMMessageTokensLegacy(m)
 	}
+	n := approxLLMMessageTextTokensWithEncoder(enc, m)
+	n += approxLLMMessageImageTokens(m)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func approxLLMMessageTextTokens(m llm.Message) int {
+	enc := groupTrimEncoder()
+	if enc == nil {
+		return approxLLMMessageTextTokensLegacy(m)
+	}
+	return approxLLMMessageTextTokensWithEncoder(enc, m)
+}
+
+func approxLLMMessageTextTokensWithEncoder(enc *tiktoken.Tiktoken, m llm.Message) int {
 	const tokensPerMessage = 3
 	n := tokensPerMessage
 	n += len(enc.Encode(m.Role, nil, nil))
@@ -501,18 +596,32 @@ func approxLLMMessageTokens(m llm.Message) int {
 		}
 	}
 	n += len(enc.Encode(body, nil, nil))
-	for _, p := range m.Content {
-		if p.Kind() == messagecontent.PartTypeImage {
-			n += groupTrimVisionTokensPerImage
-		}
-	}
 	if n < 1 {
 		return 1
 	}
 	return n
 }
 
+func approxLLMMessageImageTokens(m llm.Message) int {
+	total := 0
+	for _, p := range m.Content {
+		if p.Kind() == messagecontent.PartTypeImage {
+			total += groupTrimVisionTokensPerImage
+		}
+	}
+	return total
+}
+
 func approxLLMMessageTokensLegacy(m llm.Message) int {
+	n := approxLLMMessageTextTokensLegacy(m)
+	n += approxLLMMessageImageTokensLegacy(m)
+	if n < 1 {
+		return 1
+	}
+	return n
+}
+
+func approxLLMMessageTextTokensLegacy(m llm.Message) int {
 	n := 0
 	for _, p := range m.Content {
 		n += utf8.RuneCountInString(p.Text)
@@ -520,11 +629,8 @@ func approxLLMMessageTokensLegacy(m llm.Message) int {
 		if p.Attachment != nil {
 			n += 64
 		}
-		if len(p.Data) > 0 {
+		if len(p.Data) > 0 && p.Kind() != messagecontent.PartTypeImage {
 			raw := len(p.Data) / 4
-			if p.Kind() == messagecontent.PartTypeImage && raw > 3072 {
-				raw = 3072
-			}
 			n += raw
 		}
 	}
@@ -539,4 +645,22 @@ func approxLLMMessageTokensLegacy(m llm.Message) int {
 		return 1
 	}
 	return out
+}
+
+func approxLLMMessageImageTokensLegacy(m llm.Message) int {
+	total := 0
+	for _, p := range m.Content {
+		if p.Kind() != messagecontent.PartTypeImage {
+			continue
+		}
+		raw := len(p.Data) / 4
+		if raw > 3072 {
+			raw = 3072
+		}
+		total += raw / 3
+		if total < 1 {
+			total = 1
+		}
+	}
+	return total
 }

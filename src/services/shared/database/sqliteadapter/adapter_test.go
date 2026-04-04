@@ -4,6 +4,7 @@ package sqliteadapter
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"arkloop/services/shared/database"
@@ -134,6 +135,33 @@ func TestAutoMigrate(t *testing.T) {
 	}
 	if !hasSQLiteColumns(columns, "key", "value", "updated_at") {
 		t.Fatalf("platform_settings columns = %v, want key/value/updated_at", columns)
+	}
+
+	assertSQLiteForeignKeyTargets(t, ctx, pool, "run_events", "runs")
+	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_events", "sub_agents", "runs")
+	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_pending_inputs", "sub_agents")
+	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_context_snapshots", "sub_agents")
+
+	// PRAGMA foreign_key_check must return zero violations after all migrations.
+	rows, fkErr := pool.Query(ctx, "PRAGMA foreign_key_check")
+	if fkErr != nil {
+		t.Fatalf("foreign_key_check: %v", fkErr)
+	}
+	defer rows.Close()
+	var fkViolations []string
+	for rows.Next() {
+		var table, rowid, parent string
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			t.Fatalf("foreign_key_check scan: %v", err)
+		}
+		fkViolations = append(fkViolations, fmt.Sprintf("%s(rowid=%s)->%s(fk=%d)", table, rowid, parent, fkid))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("foreign_key_check rows: %v", err)
+	}
+	if len(fkViolations) > 0 {
+		t.Fatalf("foreign key violations after migration: %v", fkViolations)
 	}
 }
 
@@ -440,5 +468,45 @@ func TestEmbeddedMigrations(t *testing.T) {
 	}
 	if EmbeddedMigrationCount <= 0 {
 		t.Errorf("EmbeddedMigrationCount = %d; want > 0", EmbeddedMigrationCount)
+	}
+}
+
+func assertSQLiteForeignKeyTargets(t *testing.T, ctx context.Context, pool *Pool, table string, want ...string) {
+	t.Helper()
+
+	rows, err := pool.Query(ctx, fmt.Sprintf("PRAGMA foreign_key_list(%s)", table))
+	if err != nil {
+		t.Fatalf("foreign_key_list %s: %v", table, err)
+	}
+	defer rows.Close()
+
+	got := map[string]bool{}
+	for rows.Next() {
+		var (
+			id       int
+			seq      int
+			target   string
+			fromCol  string
+			toCol    string
+			onUpdate string
+			onDelete string
+			match    string
+		)
+		if err := rows.Scan(&id, &seq, &target, &fromCol, &toCol, &onUpdate, &onDelete, &match); err != nil {
+			t.Fatalf("scan foreign_key_list %s: %v", table, err)
+		}
+		got[target] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows foreign_key_list %s: %v", table, err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("%s foreign key targets = %v; want %v", table, got, want)
+	}
+	for _, target := range want {
+		if !got[target] {
+			t.Fatalf("%s foreign key targets = %v; missing %s", table, got, target)
+		}
 	}
 }

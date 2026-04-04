@@ -358,6 +358,111 @@ func TestChannelDeliveryMiddlewareSendsTelegramOutputsAsSeparateMessages(t *test
 	}
 }
 
+func TestChannelDeliveryMiddlewarePreservesFinalOutputsWhenNoStreamFlush(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_steering_multi")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	var sentTexts []string
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		sentTexts = append(sentTexts, payload.Text)
+		messageID := 900 + len(sentTexts)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, messageID)))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx, `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`, secretID, encryptChannelToken(t, keyBytes, "bot-token")); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`, channelID, secretID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	mw := NewChannelDeliveryMiddleware(pool)
+	if err := mw(ctx, &RunContext{
+		Run: data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		ChannelContext: &ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     ChannelConversationRef{Target: "10001"},
+			TriggerMessage:   &ChannelMessageRef{MessageID: "55"},
+		},
+	}, func(_ context.Context, rc *RunContext) error {
+		if rc.TelegramToolBoundaryFlush == nil {
+			t.Fatal("expected TelegramToolBoundaryFlush to be set for telegram channel")
+		}
+		// Simulate steering: multi-turn outputs without any tool.call boundary flush
+		rc.FinalAssistantOutput = "turn1 replyturn2 reply"
+		rc.FinalAssistantOutputs = []string{"turn1 reply", "turn2 reply"}
+		return nil
+	}); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	if len(sentTexts) != 2 {
+		t.Fatalf("expected 2 separate telegram sends (one per turn), got %d (%#v)", len(sentTexts), sentTexts)
+	}
+	if !strings.Contains(sentTexts[0], "turn1") || !strings.Contains(sentTexts[1], "turn2") {
+		t.Fatalf("unexpected telegram texts: %#v", sentTexts)
+	}
+
+	var deliveryCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 2 {
+		t.Fatalf("expected 2 delivery records, got %d", deliveryCount)
+	}
+}
+
 func TestChannelDeliveryMiddlewareSkipsReplyReferenceInPrivateTelegram(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_private_no_reply")
@@ -458,6 +563,98 @@ func TestChannelDeliveryMiddlewareSkipsReplyReferenceInPrivateTelegram(t *testin
 	}
 	if parentID != nil {
 		t.Fatalf("expected no ledger parent for private telegram, got %#v", parentID)
+	}
+}
+
+func TestChannelDeliveryMiddlewareUsesReplyOverrideInGroupTelegram(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_reply_override")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 51)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	var sent struct {
+		ReplyToMessageID string `json:"reply_to_message_id"`
+	}
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.Contains(r.URL.Path, "/sendMessage") {
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":703,"chat":{"id":10002}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
+		secretID,
+		encryptChannelToken(t, keyBytes, "bot-token"),
+	); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`,
+		channelID,
+		secretID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "override reply text",
+		ChannelContext: &ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "group",
+			Conversation:     ChannelConversationRef{Target: "10002"},
+			InboundMessage:   ChannelMessageRef{MessageID: "100"},
+		},
+		ChannelReplyOverride: &ChannelMessageRef{MessageID: "999"},
+	}
+
+	mw := NewChannelDeliveryMiddleware(pool)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	if sent.ReplyToMessageID != "999" {
+		t.Fatalf("expected reply_to_message_id=999 (from override), got %q", sent.ReplyToMessageID)
 	}
 }
 

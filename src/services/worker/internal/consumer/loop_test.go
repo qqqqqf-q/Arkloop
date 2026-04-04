@@ -235,6 +235,125 @@ func TestEvaluateScalingScalesDownWhenIdle(t *testing.T) {
 	}
 }
 
+func TestLeaseLostWaitsForHandlerBeforeUnlock(t *testing.T) {
+	exitGate := make(chan struct{})
+	lease := queue.JobLease{
+		JobID:       uuid.New(),
+		JobType:     queue.RunExecuteJobType,
+		PayloadJSON: map[string]any{"type": queue.RunExecuteJobType, "run_id": uuid.New().String()},
+		LeaseToken:  uuid.New(),
+	}
+
+	fakeQueue := &stubQueue{
+		lease: &lease,
+		heartbeatErrors: []error{
+			&queue.LeaseLostError{JobID: lease.JobID},
+		},
+	}
+	handler := &stubHandler{blockUntilCancel: true, exitGate: exitGate}
+	locker := &stubLocker{acquired: true}
+
+	loop := newLoopForTest(t, fakeQueue, handler, locker, Config{
+		Concurrency:      1,
+		PollSeconds:      0,
+		LeaseSeconds:     1,
+		HeartbeatSeconds: 0.01,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		loop.RunOnce(context.Background())
+		close(done)
+	}()
+
+	// handler 被 cancel 后还没退出（exitGate 没关），RunOnce 应该仍在阻塞
+	time.Sleep(200 * time.Millisecond)
+	if locker.getUnlockCalls() != 0 {
+		t.Fatal("lock should not be released while handler is still running")
+	}
+	select {
+	case <-done:
+		t.Fatal("RunOnce should still be blocked waiting for handler")
+	default:
+	}
+
+	// 释放 handler
+	close(exitGate)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunOnce did not return after handler exited")
+	}
+
+	if locker.getUnlockCalls() != 1 {
+		t.Fatalf("lock should be released exactly once after handler exits, got %d", locker.getUnlockCalls())
+	}
+	if fakeQueue.ackCount != 0 {
+		t.Fatalf("ack should not be called on lease_lost, got %d", fakeQueue.ackCount)
+	}
+	if fakeQueue.nackCount != 0 {
+		t.Fatalf("nack should not be called on lease_lost, got %d", fakeQueue.nackCount)
+	}
+}
+
+func TestHeartbeatFailureWaitsForHandlerBeforeNack(t *testing.T) {
+	exitGate := make(chan struct{})
+	lease := queue.JobLease{
+		JobID:       uuid.New(),
+		JobType:     queue.RunExecuteJobType,
+		PayloadJSON: map[string]any{"type": queue.RunExecuteJobType, "run_id": uuid.New().String()},
+		LeaseToken:  uuid.New(),
+	}
+
+	fakeQueue := &stubQueue{
+		lease: &lease,
+		heartbeatErrors: []error{
+			errors.New("network failed"),
+			errors.New("network failed"),
+			errors.New("network failed"),
+		},
+	}
+	handler := &stubHandler{blockUntilCancel: true, exitGate: exitGate}
+	locker := &stubLocker{acquired: true}
+
+	loop := newLoopForTest(t, fakeQueue, handler, locker, Config{
+		Concurrency:      1,
+		PollSeconds:      0,
+		LeaseSeconds:     1,
+		HeartbeatSeconds: 0.01,
+		QueueJobTypes:    []string{queue.RunExecuteJobType},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		loop.RunOnce(context.Background())
+		close(done)
+	}()
+
+	// handler 还没退出，nack 不应被调用
+	time.Sleep(200 * time.Millisecond)
+	if fakeQueue.nackCount != 0 {
+		t.Fatal("nack should not be called while handler is still running")
+	}
+
+	close(exitGate)
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunOnce did not return after handler exited")
+	}
+
+	if fakeQueue.nackCount != 1 {
+		t.Fatalf("nack should be called once after handler exits, got %d", fakeQueue.nackCount)
+	}
+	if locker.getUnlockCalls() != 1 {
+		t.Fatalf("lock should be released exactly once, got %d", locker.getUnlockCalls())
+	}
+}
+
 func TestEvaluateScalingRespectsCooldown(t *testing.T) {
 	fakeQueue := &stubQueue{}
 	handler := &stubHandler{}
@@ -382,6 +501,8 @@ func (s *stubQueue) QueueStats(_ context.Context, _ []string) (queue.QueueStats,
 type stubHandler struct {
 	called           int
 	blockUntilCancel bool
+	// 非 nil 时 handler 在 ctx cancel 后等待此 channel 关闭才退出
+	exitGate chan struct{}
 }
 
 func (s *stubHandler) Handle(ctx context.Context, _ queue.JobLease) error {
@@ -390,16 +511,32 @@ func (s *stubHandler) Handle(ctx context.Context, _ queue.JobLease) error {
 		return nil
 	}
 	<-ctx.Done()
+	if s.exitGate != nil {
+		<-s.exitGate
+	}
 	return ctx.Err()
 }
 
 type stubLocker struct {
-	acquired bool
+	acquired    bool
+	unlockCalls int
+	mu          sync.Mutex
 }
 
 func (s *stubLocker) TryAcquire(_ context.Context, _ uuid.UUID) (UnlockFunc, bool, error) {
 	if !s.acquired {
 		return nil, false, nil
 	}
-	return func(context.Context) error { return nil }, true, nil
+	return func(context.Context) error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.unlockCalls++
+		return nil
+	}, true, nil
+}
+
+func (s *stubLocker) getUnlockCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.unlockCalls
 }

@@ -7,10 +7,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
-// typeCastRe matches PostgreSQL type casts like ::jsonb, ::text, ::uuid etc.
-var typeCastRe = regexp.MustCompile(`::(?:jsonb|json|text|integer|bigint|boolean|uuid|inet)\b`)
+// typeCastRe matches PostgreSQL scalar/array casts like ::jsonb, ::text, ::uuid[] etc.
+var typeCastRe = regexp.MustCompile(`::(?:jsonb|json|text|integer|bigint|boolean|uuid|inet)(?:\[\])?`)
 
 // platformSkillConflictRe matches the PostgreSQL partial-index ON CONFLICT
 // target used for platform skills: ON CONFLICT (account_id, skill_key, version)
@@ -116,7 +118,7 @@ var anyParamRe = regexp.MustCompile(`=\s*ANY\(\s*\$(\d+)(?:::[^)]+)?\s*\)`)
 var renumberParamRe = regexp.MustCompile(`\$(\d+)`)
 
 // expandAnyArgs rewrites PostgreSQL "col = ANY($N)" to "col IN ($N, $N+1, ...)"
-// by expanding []string arguments, adjusting all subsequent $M indices accordingly.
+// by expanding string-compatible slice arguments, adjusting all subsequent $M indices accordingly.
 func expandAnyArgs(sql string, args []any) (string, []any) {
 	if !strings.Contains(sql, "ANY(") {
 		return sql, args
@@ -162,10 +164,17 @@ func expandAnyArgs(sql string, args []any) (string, []any) {
 	return sql, args
 }
 
-// toStringSlice extracts a []string from v, or returns nil if not applicable.
+// toStringSlice extracts a string-compatible slice from v, or returns nil if not applicable.
 func toStringSlice(v any) []string {
-	if s, ok := v.([]string); ok {
-		return s
+	switch s := v.(type) {
+	case []string:
+		return append([]string(nil), s...)
+	case []uuid.UUID:
+		out := make([]string, len(s))
+		for i := range s {
+			out[i] = s[i].String()
+		}
+		return out
 	}
 	return nil
 }

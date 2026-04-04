@@ -66,7 +66,7 @@ func artifactsEntry(
 			httpkit.WriteError(w, nethttp.StatusForbidden, "artifacts.forbidden", "access denied", traceID, nil)
 			return
 		}
-		if !featuregate.EnsureClawEnabledForRun(w, traceID, r.Context(), run, threadRepo, flagService) {
+		if !featuregate.EnsureWorkEnabledForRun(w, traceID, r.Context(), run, threadRepo, flagService) {
 			return
 		}
 

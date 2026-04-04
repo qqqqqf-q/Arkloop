@@ -104,7 +104,7 @@ export { CollapseBlock, PreText, JsonBlock } from './components/TurnViewBlocks'
 
 export { TurnView } from './components/TurnView'
 
-export { buildTurns } from './run-turns'
+export { buildTurns, normalizeChannelEnvelopeText } from './run-turns'
 export type { LlmTurn, RunEventRaw } from './run-turns'
 export { ACP_DELEGATE_LAYER, isACPDelegateEventData } from './runEventDelegate'
 export { buildThreadTurns, buildRequestThreadTurns, threadMessageTextContent } from './thread-turns'

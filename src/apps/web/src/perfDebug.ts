@@ -1,6 +1,12 @@
 import { debugBus } from '@arkloop/shared'
+import { isDesktop } from '@arkloop/shared/desktop'
 
 type PerfSample = Record<string, string | number | boolean | null | undefined>
+export type PerfTrace = {
+  metric: string
+  startedAt: number
+  sample?: PerfSample
+}
 
 type Aggregate = {
   count: number
@@ -52,6 +58,11 @@ function ensureInitialized() {
   })
 }
 
+function shouldRecordPerf() {
+  ensureInitialized()
+  return enabled && import.meta.env.DEV && isDesktop() && typeof performance !== 'undefined'
+}
+
 function flushAggregates() {
   flushTimer = null
   if (!enabled || aggregates.size === 0) {
@@ -84,8 +95,7 @@ function scheduleFlush() {
 }
 
 function recordPerfMetric(metric: string, value: number, unit: string, sample?: PerfSample) {
-  ensureInitialized()
-  if (!enabled || !Number.isFinite(value)) return
+  if (!shouldRecordPerf() || !Number.isFinite(value)) return
   const current = aggregates.get(metric)
   if (current) {
     current.count += 1
@@ -118,7 +128,23 @@ export function recordPerfValue(metric: string, value: number, unit: string, sam
   recordPerfMetric(metric, value, unit, sample)
 }
 
+export function beginPerfTrace(metric: string, sample?: PerfSample): PerfTrace | null {
+  if (!shouldRecordPerf()) return null
+  return {
+    metric,
+    startedAt: performance.now(),
+    sample,
+  }
+}
+
+export function endPerfTrace(trace: PerfTrace | null, sample?: PerfSample) {
+  if (!trace || typeof performance === 'undefined') return
+  recordPerfDuration(trace.metric, performance.now() - trace.startedAt, {
+    ...trace.sample,
+    ...sample,
+  })
+}
+
 export function isPerfDebugEnabled() {
-  ensureInitialized()
-  return enabled
+  return shouldRecordPerf()
 }

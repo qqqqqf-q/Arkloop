@@ -5,8 +5,9 @@ import { ChatInput, type Attachment } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { createThread, createMessage, createRun, uploadThreadAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
-import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalClawFolderToThread, readClawWorkFolder } from '../storage'
+import { DebugTrigger } from '@arkloop/shared'
+import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
+import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalWorkFolderToThread, readWorkFolder, readDeveloperShowDebugPanel } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 import { buildMessageRequest } from '../messageContent'
 
@@ -118,6 +119,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 export function WelcomePage() {
   const { accessToken, onLoggedOut, onThreadCreated, refreshCredits, onOpenNotifications, notificationVersion, creditsBalance: _creditsBalance, me, isPrivateMode, onTogglePrivateMode, isSearchMode, onEnterSearchMode, onExitSearchMode, pendingSkillPrompt, onConsumeSkillPrompt, onOpenSettings, appMode } = useOutletContext<OutletContext>()
+  const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
@@ -125,10 +127,16 @@ export function WelcomePage() {
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
   const { t } = useLocale()
-  const draftThreadRef = useRef<ThreadResponse | null>(null)
-  const draftThreadPromiseRef = useRef<Promise<ThreadResponse> | null>(null)
 
   const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
+
+  useEffect(() => {
+    const handleChange = (e: Event) => {
+      setShowDebugPanel((e as CustomEvent<boolean>).detail)
+    }
+    window.addEventListener('arkloop:developer_show_debug_panel', handleChange)
+    return () => window.removeEventListener('arkloop:developer_show_debug_panel', handleChange)
+  }, [])
 
   useEffect(() => {
     if (pendingSkillPrompt) {
@@ -168,15 +176,6 @@ export function WelcomePage() {
     if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
   }, [])
 
-  const ensureDraftThread = useCallback((): Promise<ThreadResponse> => {
-    if (draftThreadRef.current) return Promise.resolve(draftThreadRef.current)
-    if (draftThreadPromiseRef.current) return draftThreadPromiseRef.current
-    const promise = createThread(accessToken, { title: t.newChatTitle, is_private: isPrivateMode })
-      .then((thread) => { draftThreadRef.current = thread; return thread })
-    draftThreadPromiseRef.current = promise
-    return promise
-  }, [accessToken, isPrivateMode, t.newChatTitle])
-
   useEffect(() => {
     attachmentsRef.current = attachments
   }, [attachments])
@@ -204,8 +203,7 @@ export function WelcomePage() {
       return [...prev, ...deduped]
     })
     for (const att of newAttachments) {
-      ensureDraftThread()
-        .then((thread) => uploadThreadAttachment(accessToken, thread.id, att.file))
+      uploadStagingAttachment(accessToken, att.file)
         .then((uploaded) => {
           setAttachments((prev) =>
             prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -217,7 +215,7 @@ export function WelcomePage() {
           )
         })
     }
-  }, [accessToken, ensureDraftThread])
+  }, [accessToken])
 
   const handlePasteContent = useCallback((text: string) => {
     const ts = Math.floor(Date.now() / 1000)
@@ -235,8 +233,7 @@ export function WelcomePage() {
       pasted: { text, lineCount },
     }
     setAttachments((prev) => [...prev, att])
-    ensureDraftThread()
-      .then((thread) => uploadThreadAttachment(accessToken, thread.id, file))
+    uploadStagingAttachment(accessToken, file)
       .then((uploaded) => {
         setAttachments((prev) =>
           prev.map((a) => a.id === att.id ? { ...a, status: 'ready' as const, uploaded } : a),
@@ -247,7 +244,7 @@ export function WelcomePage() {
           prev.map((a) => a.id === att.id ? { ...a, status: 'error' as const } : a),
         )
       })
-  }, [accessToken, ensureDraftThread])
+  }, [accessToken])
 
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
@@ -275,17 +272,15 @@ export function WelcomePage() {
 
     try {
       const title = deriveTitle(text, t.newChatTitle)
-      const thread = draftThreadRef.current
-        ? draftThreadRef.current
-        : await createThread(accessToken, { title, is_private: isPrivateMode })
+      const thread = await createThread(accessToken, { title, is_private: isPrivateMode })
       const uploaded = await Promise.all(
         attachments.map(async (attachment) => {
           if (attachment.uploaded) return attachment.uploaded
-          return await uploadThreadAttachment(accessToken, thread.id, attachment.file)
+          return await uploadStagingAttachment(accessToken, attachment.file)
         }),
       )
       const userMessage = await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
-      const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readClawWorkFolder() ?? undefined)
+      const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readWorkFolder() ?? undefined)
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
       attachments.forEach((attachment) => revokeDraftAttachment(attachment))
@@ -293,7 +288,7 @@ export function WelcomePage() {
       setAttachments([])
       refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
-      if (appMode === 'claw') transferGlobalClawFolderToThread(thread.id)
+      if (appMode === 'work') transferGlobalWorkFolderToThread(thread.id)
       onThreadCreated(thread)
       navigate(`/t/${thread.id}`, {
         state: {
@@ -341,7 +336,7 @@ export function WelcomePage() {
       <div
         className="flex flex-1 flex-col items-center px-5"
         style={{
-          paddingTop: appMode === 'claw' ? '32vh' : '27vh',
+          paddingTop: appMode === 'work' ? '32vh' : '27vh',
           transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
@@ -351,10 +346,10 @@ export function WelcomePage() {
           <h2
             className="relative whitespace-nowrap text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: (isSearchMode || appMode === 'claw') ? 0 : 1,
-              transform: (isSearchMode || appMode === 'claw') ? 'translateY(-6px)' : 'translateY(0)',
+              opacity: (isSearchMode || appMode === 'work') ? 0 : 1,
+              transform: (isSearchMode || appMode === 'work') ? 'translateY(-6px)' : 'translateY(0)',
               transition: 'opacity 0.22s ease, transform 0.24s ease',
-              pointerEvents: (isSearchMode || appMode === 'claw') ? 'none' : 'auto',
+              pointerEvents: (isSearchMode || appMode === 'work') ? 'none' : 'auto',
             }}
           >
             <span className="invisible select-none" aria-hidden="true">
@@ -377,18 +372,18 @@ export function WelcomePage() {
           >
             Search for everything
           </h2>
-          {/* Claw 模式欢迎语 */}
+          {/* Work 模式欢迎语 */}
           <h2
             className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: appMode === 'claw' && !isSearchMode ? 1 : 0,
-              transform: appMode === 'claw' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
+              opacity: appMode === 'work' && !isSearchMode ? 1 : 0,
+              transform: appMode === 'work' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
               transition: 'opacity 0.22s ease, transform 0.24s ease',
-              pointerEvents: appMode === 'claw' && !isSearchMode ? 'auto' : 'none',
+              pointerEvents: appMode === 'work' && !isSearchMode ? 'auto' : 'none',
               whiteSpace: 'nowrap',
             }}
           >
-            {t.clawGreeting}
+            {t.workGreeting}
           </h2>
         </div>
 
@@ -434,6 +429,7 @@ export function WelcomePage() {
           {error && <ErrorCallout error={error} />}
         </div>
       </div>
+      {showDebugPanel && <DebugTrigger />}
     </div>
   )
 }

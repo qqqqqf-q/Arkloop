@@ -43,24 +43,24 @@ func TestLoadRegistryLoadsClawPersona(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry failed: %v", err)
 	}
-	def, ok := registry.Get("claw")
+	def, ok := registry.Get("work")
 	if !ok {
-		t.Fatalf("expected claw persona loaded")
+		t.Fatalf("expected work persona loaded")
 	}
 	if def.UserSelectable {
-		t.Fatal("expected claw persona not user selectable")
+		t.Fatal("expected work persona not user selectable")
 	}
 	if def.ExecutorType != "agent.simple" {
 		t.Fatalf("unexpected executor_type: %s", def.ExecutorType)
 	}
 	if def.Budgets.MaxOutputTokens != nil {
-		t.Fatalf("claw persona.yaml omits max_output_tokens; got %#v", def.Budgets.MaxOutputTokens)
+		t.Fatalf("work persona.yaml omits max_output_tokens; got %#v", def.Budgets.MaxOutputTokens)
 	}
 	if len(def.ToolAllowlist) == 0 {
-		t.Fatal("expected claw tool allowlist")
+		t.Fatal("expected work tool allowlist")
 	}
 	if def.PromptMD == "" || def.SoulMD == "" {
-		t.Fatal("expected claw prompt and soul")
+		t.Fatal("expected work prompt and soul")
 	}
 }
 

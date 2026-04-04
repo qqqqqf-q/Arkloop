@@ -1720,6 +1720,191 @@ func TestDesktopEventWriterFinalizeCancelledIfRequested(t *testing.T) {
 	}
 }
 
+func TestDesktopPersistFinalAssistantOutputWritesRunFailedWhenMessageInsertFails(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	if _, err := db.Exec(ctx, `DROP TABLE messages`); err != nil {
+		t.Fatalf("drop messages: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("persist-failed"),
+	}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  rc.Run,
+		traceID:              "persist-failed",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		completed:            true,
+		terminalStatus:       "completed",
+		visibleAssistantText: "heartbeat reply",
+		assistantMessage:     &llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "heartbeat reply"}}},
+	}
+
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("select run status: %v", err)
+	}
+	if status != "failed" {
+		t.Fatalf("expected run status failed, got %q", status)
+	}
+
+	var (
+		eventType   string
+		errorClass  *string
+		rawDataJSON string
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT type, error_class, data_json
+		   FROM run_events
+		  WHERE run_id = $1
+		  ORDER BY seq DESC
+		  LIMIT 1`,
+		runID,
+	).Scan(&eventType, &errorClass, &rawDataJSON); err != nil {
+		t.Fatalf("select latest run event: %v", err)
+	}
+	if eventType != "run.failed" {
+		t.Fatalf("expected latest event run.failed, got %q", eventType)
+	}
+	if errorClass == nil || *errorClass != "database.write_failed" {
+		t.Fatalf("expected error_class database.write_failed, got %#v", errorClass)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(rawDataJSON), &payload); err != nil {
+		t.Fatalf("unmarshal run.failed payload: %v", err)
+	}
+	if payload["message"] != "assistant output persistence failed" {
+		t.Fatalf("unexpected run.failed message: %#v", payload["message"])
+	}
+	details, _ := payload["details"].(map[string]any)
+	reason, _ := details["reason"].(string)
+	if !strings.Contains(reason, "no such table") {
+		t.Fatalf("expected sqlite reason to mention missing table, got %q", reason)
+	}
+}
+
+func TestDesktopEventWriterCapturesTelegramReplyOverride(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "telegram-reply-override",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+		usageRepo:  data.UsageRecordsRepository{},
+	}
+
+	replyCall := events.NewEmitter("telegram-reply-override").Emit("tool.call", map[string]any{
+		"tool_name":    "telegram_reply",
+		"tool_call_id": "call-1",
+		"arguments": map[string]any{
+			"reply_to_message_id": "6592",
+		},
+	}, nil, nil)
+	if err := writer.append(ctx, runID, replyCall, "normal"); err != nil {
+		t.Fatalf("append tool.call: %v", err)
+	}
+
+	if writer.pendingReplyOverride != "6592" {
+		t.Fatalf("expected pendingReplyOverride=6592, got %q", writer.pendingReplyOverride)
+	}
+	if len(writer.toolDeliveredTexts) != 0 {
+		t.Fatalf("telegram_reply should not contribute to toolDeliveredTexts, got %v", writer.toolDeliveredTexts)
+	}
+}
+
+func TestDesktopPersistFinalAssistantOutputSetsReplyOverride(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	rc := &pipeline.RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("persist-reply-override"),
+	}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  rc.Run,
+		traceID:              "persist-reply-override",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		completed:            true,
+		terminalStatus:       "completed",
+		pendingReplyOverride: "6592",
+		assistantDeltas:      []string{"回复内容喵"},
+	}
+
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	if rc.ChannelReplyOverride == nil {
+		t.Fatal("expected ChannelReplyOverride to be set")
+	}
+	if rc.ChannelReplyOverride.MessageID != "6592" {
+		t.Fatalf("expected reply override message_id=6592, got %q", rc.ChannelReplyOverride.MessageID)
+	}
+	if rc.ChannelOutputDelivered {
+		t.Fatal("telegram_reply should not set ChannelOutputDelivered")
+	}
+}
+
 func TestDesktopSubAgentContextRestoresRoutingFromSnapshotFallback(t *testing.T) {
 	ctx := context.Background()
 
@@ -2737,6 +2922,152 @@ func TestDesktopChannelDeliverySuppressesSilentHeartbeat(t *testing.T) {
 	}
 }
 
+func TestDesktopChannelDeliverySkipsWhenToolAlreadyDeliveredOutput(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	sendCount := 0
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sendCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":905,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 91)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-tool-delivered-" + accountID.String(), "Desktop Channel Tool Delivered"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                    data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput:   "出来了喵（bug 太多了我也很无奈",
+		FinalAssistantOutputs:  []string{"出来了喵（bug 太多了我也很无奈"},
+		ChannelOutputDelivered: true,
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "group",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "666"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if sendCount != 0 {
+		t.Fatalf("expected no extra telegram send when tool already delivered output, got %d", sendCount)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("expected no new delivery rows, got %d", deliveryCount)
+	}
+}
+
 // mapStore 是一个简单的内存 objectstore.Store 实现，用于测试。
 type mapStore struct {
 	data map[string][]byte
@@ -2797,6 +3128,15 @@ func (m *mapStore) Head(_ context.Context, key string) (objectstore.ObjectInfo, 
 func (m *mapStore) Delete(_ context.Context, key string) error {
 	delete(m.data, key)
 	return nil
+}
+func (m *mapStore) ListPrefix(_ context.Context, prefix string) ([]objectstore.ObjectInfo, error) {
+	out := make([]objectstore.ObjectInfo, 0)
+	for key := range m.data {
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, objectstore.ObjectInfo{Key: key})
+		}
+	}
+	return out, nil
 }
 
 func TestEnsureSkillExtractedSkipsWhenHashMatches(t *testing.T) {

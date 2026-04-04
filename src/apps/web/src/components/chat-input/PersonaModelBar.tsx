@@ -7,12 +7,12 @@ import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import {
   SEARCH_PERSONA_KEY,
   LEARNING_PERSONA_KEY,
-  readClawWorkFolder,
-  writeClawWorkFolder,
-  clearClawWorkFolder,
-  readClawRecentFolders,
-  writeThreadClawFolder,
-  clearThreadClawFolder,
+  readWorkFolder,
+  writeWorkFolder,
+  clearWorkFolder,
+  readWorkRecentFolders,
+  writeThreadWorkFolder,
+  clearThreadWorkFolder,
 } from '../../storage'
 import type { AppMode } from '../../storage'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -33,7 +33,7 @@ type Props = {
   variant?: 'welcome' | 'chat'
   appMode?: AppMode
   threadHasMessages?: boolean
-  clawThreadId?: string
+  workThreadId?: string
 }
 
 export function PersonaModelBar({
@@ -52,7 +52,7 @@ export function PersonaModelBar({
   variant,
   appMode,
   threadHasMessages,
-  clawThreadId,
+  workThreadId,
 }: Props) {
   const { t } = useLocale()
   const menuRef = useRef<HTMLDivElement>(null)
@@ -62,8 +62,8 @@ export function PersonaModelBar({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [folderMenuOpen, setFolderMenuOpen] = useState(false)
-  const [clawFolder, setClawFolder] = useState<string | null>(() => readClawWorkFolder())
-  const [recentFolders, setRecentFolders] = useState<string[]>(() => readClawRecentFolders())
+  const [workFolder, setWorkFolder] = useState<string | null>(() => readWorkFolder())
+  const [recentFolders, setRecentFolders] = useState<string[]>(() => readWorkRecentFolders())
 
   // close plus menu on outside click
   useEffect(() => {
@@ -102,20 +102,20 @@ export function PersonaModelBar({
       }
     }
     if (!folder) return
-    if (clawThreadId) {
-      writeThreadClawFolder(clawThreadId, folder)
+    if (workThreadId) {
+      writeThreadWorkFolder(workThreadId, folder)
     } else {
-      writeClawWorkFolder(folder)
+      writeWorkFolder(folder)
     }
-    setClawFolder(folder)
-    setRecentFolders(readClawRecentFolders())
+    setWorkFolder(folder)
+    setRecentFolders(readWorkRecentFolders())
     setFolderMenuOpen(false)
-  }, [clawThreadId])
+  }, [workThreadId])
 
   return (
     <>
-      {/* claw folder picker -- desktop only, hidden once thread has messages */}
-      {appMode === 'claw' && isDesktop() && !threadHasMessages && (
+      {/* work folder picker -- desktop only, hidden once thread has messages */}
+      {appMode === 'work' && isDesktop() && !threadHasMessages && (
         <div
           className="relative -ml-1.5"
           style={{
@@ -130,16 +130,16 @@ export function PersonaModelBar({
             className="flex h-[33.5px] items-center gap-1.5 rounded-lg px-2 text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]"
             style={{ maxWidth: '160px' }}
           >
-            {clawFolder
+            {workFolder
               ? <FolderOpen size={15} strokeWidth={1.5} style={{ flexShrink: 0 }} />
               : <Folder size={15} strokeWidth={1.5} style={{ flexShrink: 0 }} />
             }
             <span
               className="text-[12px] truncate"
-              style={{ fontWeight: 400, maxWidth: '120px', color: clawFolder ? 'var(--c-text-primary)' : 'var(--c-text-secondary)' }}
+              style={{ fontWeight: 400, maxWidth: '120px', color: workFolder ? 'var(--c-text-primary)' : 'var(--c-text-secondary)' }}
             >
-              {clawFolder
-                ? clawFolder.split('/').pop() || clawFolder
+              {workFolder
+                ? workFolder.split('/').pop() || workFolder
                 : 'Work in a folder'
               }
             </span>
@@ -178,7 +178,7 @@ export function PersonaModelBar({
                         <span className="truncate" style={{ flex: 1, textAlign: 'left' }}>
                           {folder.split('/').pop() || folder}
                         </span>
-                        {clawFolder === folder ? (
+                        {workFolder === folder ? (
                           <Check size={12} style={{ flexShrink: 0, color: '#4691F6' }} />
                         ) : null}
                       </button>
@@ -196,16 +196,16 @@ export function PersonaModelBar({
                   Choose a different folder
                 </button>
 
-                {clawFolder && (
+                {workFolder && (
                   <button
                     type="button"
                     onClick={() => {
-                      if (clawThreadId) {
-                        clearThreadClawFolder(clawThreadId)
+                      if (workThreadId) {
+                        clearThreadWorkFolder(workThreadId)
                       } else {
-                        clearClawWorkFolder()
+                        clearWorkFolder()
                       }
-                      setClawFolder(null)
+                      setWorkFolder(null)
                       setFolderMenuOpen(false)
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
