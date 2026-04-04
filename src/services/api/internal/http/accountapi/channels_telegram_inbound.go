@@ -45,6 +45,7 @@ type telegramIncomingMessage struct {
 	IsReplyToBot      bool
 	MatchesKeyword    bool
 	MessageThreadID   *string
+	ForwardFromName   string
 	RawPayload        json.RawMessage
 }
 
@@ -81,6 +82,7 @@ func normalizeTelegramIncomingMessage(
 	replyToMessageID := optionalTelegramMessageID(msg.ReplyToMessage)
 	replyToPreview := buildTelegramReplyPreview(msg.ReplyToMessage)
 	messageThreadID := optionalTelegramThreadID(msg.MessageThreadID)
+	forwardFromName := extractTelegramForwardOriginName(msg.ForwardOrigin)
 	incoming := &telegramIncomingMessage{
 		ChannelID:         channelID,
 		ChannelType:       channelType,
@@ -100,6 +102,7 @@ func normalizeTelegramIncomingMessage(
 		IsReplyToBot:      telegramMessageRepliesToBot(msg, telegramBotUserID),
 		MatchesKeyword:    telegramMessageMatchesKeyword(msg, triggerKeywords),
 		MessageThreadID:   messageThreadID,
+		ForwardFromName:   forwardFromName,
 		RawPayload:        json.RawMessage(rawPayload),
 	}
 	return incoming, nil
@@ -352,6 +355,9 @@ func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMe
 	if title := strings.TrimSpace(incoming.ConversationTitle); title != "" {
 		lines = append(lines, fmt.Sprintf(`conversation-title: "%s"`, escapeTelegramEnvelopeValue(title)))
 	}
+	if fwd := strings.TrimSpace(incoming.ForwardFromName); fwd != "" {
+		lines = append(lines, fmt.Sprintf(`forward-from: "%s"`, escapeTelegramEnvelopeValue(fwd)))
+	}
 	if incoming.ReplyToMsgID != nil && strings.TrimSpace(*incoming.ReplyToMsgID) != "" {
 		lines = append(lines, fmt.Sprintf(`reply-to-message-id: "%s"`, escapeTelegramEnvelopeValue(strings.TrimSpace(*incoming.ReplyToMsgID))))
 		if strings.TrimSpace(incoming.ReplyToPreview) != "" {
@@ -421,6 +427,44 @@ func optionalTelegramMessageID(msg *telegramMessage) *string {
 	}
 	value := strconv.FormatInt(msg.MessageID, 10)
 	return &value
+}
+
+func extractTelegramForwardOriginName(origin *telegramMessageOrigin) string {
+	if origin == nil {
+		return ""
+	}
+	switch strings.TrimSpace(origin.Type) {
+	case "user":
+		if origin.SenderUser != nil {
+			return telegramUserDisplayName(origin.SenderUser)
+		}
+	case "hidden_user":
+		return strings.TrimSpace(origin.SenderUserName)
+	case "chat":
+		if origin.SenderChat != nil {
+			return strings.TrimSpace(trimOptional(origin.SenderChat.Title))
+		}
+	case "channel":
+		if origin.Chat != nil {
+			return strings.TrimSpace(trimOptional(origin.Chat.Title))
+		}
+	}
+	return ""
+}
+
+func telegramUserDisplayName(u *telegramUser) string {
+	if u == nil {
+		return ""
+	}
+	first := strings.TrimSpace(trimOptional(u.FirstName))
+	last := strings.TrimSpace(trimOptional(u.LastName))
+	if first == "" && last == "" {
+		return strings.TrimSpace(trimOptional(u.Username))
+	}
+	if last == "" {
+		return first
+	}
+	return first + " " + last
 }
 
 const telegramReplyPreviewMaxRunes = 80

@@ -84,7 +84,6 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 			return next(ctx, rc)
 		}
 
-		// envelope 投影对所有 Telegram 对话生效（含私聊）
 		projectGroupEnvelopes(rc)
 
 		if !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {

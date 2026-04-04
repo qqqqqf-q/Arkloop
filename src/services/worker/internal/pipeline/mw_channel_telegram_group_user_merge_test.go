@@ -740,3 +740,33 @@ message-id: "55"
 		t.Fatalf("should not have empty quotes, got %q", text)
 	}
 }
+
+func TestNewChannelTelegramGroupUserMergeMiddleware_skipsEnvelopeWithoutTelegramChannelContext(t *testing.T) {
+	mw := NewChannelTelegramGroupUserMergeMiddleware()
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "private"
+forward-from: "清凤"
+message-id: "616"
+time: "2026-04-04T06:21:00Z"
+---
+[Telegram] 还几把是在高速服务区？？`}}},
+	}
+	ids := []uuid.UUID{uuid.New()}
+	rc := &RunContext{
+		Messages:          append([]llm.Message(nil), msgs...),
+		ThreadMessageIDs:  append([]uuid.UUID(nil), ids...),
+		ChannelContext:    nil,
+	}
+
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+
+	if got := llm.PartPromptText(rc.Messages[0].Content[0]); strings.Contains(got, "[Fwd:") {
+		t.Fatalf("expected private envelope to skip merge rendering, got %q", got)
+	}
+	if got := llm.PartPromptText(rc.Messages[0].Content[0]); !strings.Contains(got, "forward-from: \"清凤\"") {
+		t.Fatalf("expected original envelope to remain, got %q", got)
+	}
+}

@@ -111,6 +111,21 @@ function cleanText(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
+function stripTelegramEnvelopeBodyPrefix(text: string, meta: Record<string, string>): string {
+  let cleaned = cleanText(text) ?? ''
+  const title = cleanText(meta['conversation-title'])
+  if (title) {
+    const titlePrefix = `[Telegram in ${title}]`
+    if (cleaned.startsWith(titlePrefix)) {
+      cleaned = cleanText(cleaned.slice(titlePrefix.length)) ?? ''
+    }
+  }
+  if (cleaned.startsWith('[Telegram]')) {
+    cleaned = cleanText(cleaned.slice('[Telegram]'.length)) ?? ''
+  }
+  return cleaned
+}
+
 // 与 worker context_compact.approxTokensFromText 同阶：按 UTF-8 字节粗算 token，仅用于调试对照账单 in。
 function approxContextTokensFromPayloadBytes(turn: LlmTurn): number | undefined {
   if (turn.systemBytes == null && turn.toolsBytes == null && turn.messagesBytes == null) {
@@ -158,7 +173,7 @@ function extractMessageText(msg: Record<string, unknown>): string {
   } else {
     out = JSON.stringify(content)
   }
-  return redactDataUrlsInString(out)
+  return redactDataUrlsInString(normalizeChannelEnvelopeText(out))
 }
 
 function extractRequestMessages(messages: Array<Record<string, unknown>>): RequestMessageView[] {
@@ -190,6 +205,34 @@ function parseChannelEnvelope(text: string): { text: string; meta: Record<string
 
   if (!body && Object.keys(meta).length === 0) return null
   return { text: body, meta }
+}
+
+export function normalizeChannelEnvelopeText(text: string): string {
+  const parsed = parseChannelEnvelope(text)
+  if (!parsed) return text
+
+  const lines: string[] = []
+  const replyToID = cleanText(parsed.meta['reply-to-message-id'])
+  const replyPreview = cleanText(parsed.meta['reply-to-preview'])
+  if (replyToID) {
+    let replyLine = `> Reply to #${replyToID}`
+    if (replyPreview) {
+      replyLine += ` "${replyPreview}"`
+    }
+    lines.push(replyLine)
+  }
+
+  const forwardFrom = cleanText(parsed.meta['forward-from'])
+  if (forwardFrom) {
+    lines.push(`[Fwd: ${forwardFrom}]`)
+  }
+
+  const body = stripTelegramEnvelopeBodyPrefix(parsed.text, parsed.meta)
+  if (body) {
+    lines.push(body)
+  }
+
+  return lines.join('\n').trim()
 }
 
 // Anthropic 将 tool_result 包装为 role:"user" 消息，需要排除这些消息以避免 userMessageCount 膨胀。

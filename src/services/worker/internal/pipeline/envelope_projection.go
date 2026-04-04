@@ -10,6 +10,7 @@ type envelopeFields struct {
 	MessageID      string
 	ReplyToMsgID   string
 	ReplyToPreview string
+	ForwardFrom    string
 	Body           string
 }
 
@@ -26,6 +27,7 @@ func parseEnvelope(text string) *envelopeFields {
 		MessageID:      meta["message-id"],
 		ReplyToMsgID:   meta["reply-to-message-id"],
 		ReplyToPreview: meta["reply-to-preview"],
+		ForwardFrom:    meta["forward-from"],
 		Body:           body,
 	}
 }
@@ -61,8 +63,7 @@ func formatNaturalPrefix(f *envelopeFields) string {
 }
 
 // projectGroupEnvelopes 遍历 rc.Messages，将 user 消息中的 YAML envelope 替换为自然语言前缀。
-// 仅在群聊中调用，就地修改 rc.Messages 的 Content。
-// envelope 信息总是位于 Content[0]（buildTelegramEnvelopeText 的产出格式保证）。
+// 就地修改 rc.Messages 的 Content，对所有含 Telegram envelope 的消息生效（含非 channel run）。
 func projectGroupEnvelopes(rc *RunContext) {
 	if rc == nil {
 		return

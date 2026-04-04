@@ -75,6 +75,20 @@ func TestNewChannelGroupContextTrimMiddleware_projectsButSkipsTrimForPrivate(t *
 	}
 }
 
+func TestNewChannelGroupContextTrimMiddleware_skipsProjectionWithoutChannelContext(t *testing.T) {
+	mw := NewChannelGroupContextTrimMiddleware()
+	original := "---\ndisplay-name: \"Alice\"\nchannel: \"telegram\"\nconversation-type: \"private\"\ntime: \"2026-04-03T10:00:00Z\"\n---\nhello"
+	rc := &RunContext{
+		Messages: []llm.Message{{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: original}}}},
+	}
+
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+
+	if got := llm.PartPromptText(rc.Messages[0].Content[0]); got != original {
+		t.Fatalf("expected envelope to stay untouched without channel context, got %q", got)
+	}
+}
+
 func TestNewChannelGroupContextTrimMiddleware_trimsSupergroup(t *testing.T) {
 	t.Setenv("ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS", "40")
 	mw := NewChannelGroupContextTrimMiddleware()

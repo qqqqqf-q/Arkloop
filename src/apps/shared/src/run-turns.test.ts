@@ -499,6 +499,62 @@ conversation-title: "Arkloop"
     ])
   })
 
+  it('normalizes telegram envelope request messages for debug display', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          payload: {
+            messages: [
+              {
+                role: 'user',
+                content: `---
+display-name: "清凤"
+channel: "telegram"
+conversation-type: "private"
+sender-ref: "cf842dbb-a8e5-4d0c-876d-533c8d0d1b11"
+platform-username: "chiffoncha"
+conversation-title: "chiffoncha"
+forward-from: "清凤"
+message-id: "616"
+time: "2026-04-04T06:21:00Z"
+---
+[Telegram] 还几把是在高速服务区？？`,
+              },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_1',
+          assistant_text: 'ok',
+        },
+      }),
+    ])
+
+    expect(buildRequestThreadTurns(turns)).toEqual([
+      {
+        key: 'call_1',
+        messages: [
+          {
+            role: 'user',
+            text: `[Fwd: 清凤]
+还几把是在高速服务区？？`,
+          },
+        ],
+        assistantText: 'ok',
+        isCurrent: true,
+      },
+    ])
+  })
+
   it('keeps tool segments when Anthropic wraps tool_result in role:user messages', () => {
     const turns = buildTurns([
       makeEvent({
