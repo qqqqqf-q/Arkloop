@@ -246,6 +246,9 @@ type noopCompactPersistDB struct{}
 func (noopCompactPersistDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
 	return noopTx{}, nil
 }
+func (noopCompactPersistDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, nil
+}
 func (noopCompactPersistDB) QueryRow(context.Context, string, ...any) pgx.Row { return noopRow{} }
 
 type noopTx struct{}

@@ -43,6 +43,10 @@ func (titleSummarizerTestDB) QueryRow(_ context.Context, _ string, _ ...any) pgx
 	}
 }
 
+func (titleSummarizerTestDB) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+
 func (titleSummarizerTestDB) Exec(_ context.Context, _ string, _ ...any) (pgconn.CommandTag, error) {
 	return pgconn.CommandTag{}, nil
 }

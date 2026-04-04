@@ -318,6 +318,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		FallbackContextWindowTokens: resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.fallback_context_window_tokens", platformScope, 128000),
 		PersistKeepLastMessages:     resolvePositiveInt(ctx, e.configResolver, registry, "context.compact.persist_keep_last_messages", platformScope, defaultPersistKeepLastMessagesWorker),
 		PersistKeepTailPct:          persistKeepTailPct,
+		MicrocompactKeepRecentTools: resolveNonNegativeInt(ctx, e.configResolver, registry, "context.compact.microcompact_keep_recent_tools", platformScope, 0),
 	}
 	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", platformScope, 0)
 	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", platformScope, 32)

@@ -254,3 +254,186 @@ func TestTruncateLargeTailMessages_OriginalUnmodified(t *testing.T) {
 		t.Fatal("original slice must not be modified")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// microcompactToolResults
+// ---------------------------------------------------------------------------
+
+func TestMicrocompactToolResults_NoTools(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hello"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "world"}}},
+	}
+	out := microcompactToolResults(msgs, 3)
+	if len(out) != len(msgs) {
+		t.Fatalf("expected same length, got %d", len(out))
+	}
+	for i := range out {
+		if messageText(out[i]) != messageText(msgs[i]) {
+			t.Fatalf("msg[%d] changed unexpectedly", i)
+		}
+	}
+}
+
+func TestMicrocompactToolResults_KeepAll(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "q"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "r1"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "r2"}}},
+	}
+	out := microcompactToolResults(msgs, 5)
+	for i := range out {
+		if messageText(out[i]) != messageText(msgs[i]) {
+			t.Fatalf("msg[%d] changed unexpectedly", i)
+		}
+	}
+}
+
+func TestMicrocompactToolResults_ClearOld(t *testing.T) {
+	msgs := make([]llm.Message, 0, 20)
+	for i := 0; i < 10; i++ {
+		msgs = append(msgs, llm.Message{Role: "user", Content: []llm.TextPart{{Text: "q"}}})
+		msgs = append(msgs, llm.Message{Role: "tool", Content: []llm.TextPart{{Text: "result-" + strings.Repeat("x", i)}}})
+	}
+	out := microcompactToolResults(msgs, 3)
+	if len(out) != len(msgs) {
+		t.Fatalf("expected same length, got %d", len(out))
+	}
+	toolCount := 0
+	clearedCount := 0
+	preservedCount := 0
+	for _, m := range out {
+		if m.Role != "tool" {
+			continue
+		}
+		toolCount++
+		if messageText(m) == "[Tool result cleared]" {
+			clearedCount++
+		} else {
+			preservedCount++
+		}
+	}
+	if toolCount != 10 {
+		t.Fatalf("expected 10 tool messages, got %d", toolCount)
+	}
+	if clearedCount != 7 {
+		t.Fatalf("expected 7 cleared, got %d", clearedCount)
+	}
+	if preservedCount != 3 {
+		t.Fatalf("expected 3 preserved, got %d", preservedCount)
+	}
+}
+
+func TestMicrocompactToolResults_PreservesNonTool(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "u1"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "old-tool"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "a1"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "new-tool"}}},
+	}
+	out := microcompactToolResults(msgs, 1)
+	if messageText(out[0]) != "u1" {
+		t.Fatal("user message should be unchanged")
+	}
+	if messageText(out[1]) != "[Tool result cleared]" {
+		t.Fatal("old tool should be cleared")
+	}
+	if messageText(out[2]) != "a1" {
+		t.Fatal("assistant message should be unchanged")
+	}
+	if messageText(out[3]) != "new-tool" {
+		t.Fatal("recent tool should be preserved")
+	}
+}
+
+func TestMicrocompactToolResults_OriginalUnmodified(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "tool", Content: []llm.TextPart{{Text: "old"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "new"}}},
+	}
+	origText := messageText(msgs[0])
+	out := microcompactToolResults(msgs, 1)
+	if messageText(msgs[0]) != origText {
+		t.Fatal("original slice must not be modified")
+	}
+	if messageText(out[0]) != "[Tool result cleared]" {
+		t.Fatal("output should be cleared")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// compactConsecutiveFailures
+// ---------------------------------------------------------------------------
+
+func TestCompactConsecutiveFailures_NilPool(t *testing.T) {
+	got := compactConsecutiveFailures(t.Context(), nil, uuid.New(), uuid.New())
+	if got != 0 {
+		t.Fatalf("expected 0 for nil pool, got %d", got)
+	}
+}
+
+func TestCompactConsecutiveFailures_NilIDs(t *testing.T) {
+	got := compactConsecutiveFailures(t.Context(), noopCompactPersistDB{}, uuid.Nil, uuid.New())
+	if got != 0 {
+		t.Fatalf("expected 0 for nil accountID, got %d", got)
+	}
+	got = compactConsecutiveFailures(t.Context(), noopCompactPersistDB{}, uuid.New(), uuid.Nil)
+	if got != 0 {
+		t.Fatalf("expected 0 for nil threadID, got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ensureToolPairIntegrity
+// ---------------------------------------------------------------------------
+
+func TestEnsureToolPairIntegrity_NotOnTool(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "a"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "b"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "c"}}},
+	}
+	if got := ensureToolPairIntegrity(msgs, 1); got != 1 {
+		t.Fatalf("expected 1, got %d", got)
+	}
+}
+
+func TestEnsureToolPairIntegrity_ToolWithAssistantBefore(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "a"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "b"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "c"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "d"}}},
+	}
+	if got := ensureToolPairIntegrity(msgs, 2); got != 1 {
+		t.Fatalf("expected 1, got %d", got)
+	}
+}
+
+func TestEnsureToolPairIntegrity_ConsecutiveTools(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "assistant", Content: []llm.TextPart{{Text: "a"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "b"}}},
+		{Role: "tool", Content: []llm.TextPart{{Text: "c"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "d"}}},
+	}
+	if got := ensureToolPairIntegrity(msgs, 2); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+func TestEnsureToolPairIntegrity_StartZeroTool(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "tool", Content: []llm.TextPart{{Text: "a"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "b"}}},
+	}
+	if got := ensureToolPairIntegrity(msgs, 0); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+func TestEnsureToolPairIntegrity_Empty(t *testing.T) {
+	if got := ensureToolPairIntegrity(nil, 0); got != 0 {
+		t.Fatalf("expected 0, got %d", got)
+	}
+}

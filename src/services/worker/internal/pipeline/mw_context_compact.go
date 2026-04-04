@@ -27,6 +27,8 @@ const (
 	// 发往压缩摘要 LLM 的用户块上限（tiktoken 用 HistoryThreadPromptTokens；单条超大时再按 rune 截断）。
 	contextCompactMaxLLMInputTokens = 120000
 	contextCompactMaxLLMInputRunes  = 400000
+	// 快速裁切：已有 snapshot 且待压缩前缀消息不超过此数量时，跳过 LLM 直接复用已有摘要
+	fastCompactMaxPrefixMessages = 4
 )
 
 const contextCompactSystemPrompt = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
@@ -197,6 +199,10 @@ func NewContextCompactMiddleware(
 			enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
 		}
 
+		if cfg.MicrocompactKeepRecentTools > 0 {
+			rc.Messages = microcompactToolResults(rc.Messages, cfg.MicrocompactKeepRecentTools)
+		}
+
 		beforeN := len(rc.Messages)
 		msgs := rc.Messages
 		ids := rc.ThreadMessageIDs
@@ -206,6 +212,7 @@ func NewContextCompactMiddleware(
 			fixedPrefixCount = 1
 		}
 		persistSplit := 0
+		persistFastPath := false
 		var persistPrefixIDs []uuid.UUID
 		var persistSummary string
 		var persistStartedEvent map[string]any
@@ -234,6 +241,15 @@ func NewContextCompactMiddleware(
 				return &anchor
 			}())
 			if pressure.ContextPressureTokens >= trigger && len(ids) == len(msgs) {
+				// 断路器：连续失败过多则跳过 persist
+				if pool != nil && compactConsecutiveFailures(ctx, pool, rc.Run.AccountID, rc.Run.ThreadID) >= maxConsecutiveCompactFailures {
+					slog.WarnContext(ctx, "context_compact", "phase", "circuit_breaker", "run_id", rc.Run.ID.String(), "thread_id", rc.Run.ThreadID.String())
+					persistStartedEvent = map[string]any{
+						"op":    "persist",
+						"phase": "circuit_breaker",
+					}
+					ApplyContextCompactPressureFields(persistStartedEvent, pressure)
+				} else {
 				compactBase := msgs[fixedPrefixCount:]
 				compactBaseIDs := ids[fixedPrefixCount:]
 				var tailKeep int
@@ -253,8 +269,46 @@ func NewContextCompactMiddleware(
 				if tailKeep < 1 {
 					tailKeep = 1
 				}
-				split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
-				if split > 0 {
+			split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
+			split = ensureToolPairIntegrity(compactBase, split)
+			if split > 0 {
+					if rc.HasActiveCompactSnapshot && split <= fastCompactMaxPrefixMessages && previousSummary != "" {
+						// 快速裁切：前缀少且已有 snapshot，跳过 LLM 复用已有摘要
+						persistFastPath = true
+						persistStartedEvent = map[string]any{
+							"op":                    "persist",
+							"phase":                 "started",
+							"persist_split":         split,
+							"trigger_tokens":        trigger,
+							"context_window_tokens": window,
+							"trigger_context_pct":   cfg.PersistTriggerContextPct,
+							"tail_keep_effective":   tailKeep,
+							"fast_path":             true,
+						}
+						ApplyContextCompactPressureFields(persistStartedEvent, pressure)
+						persistSplit = split
+						persistSummary = previousSummary
+						persistPrefixIDs = append([]uuid.UUID(nil), filterNonNilUUIDs(compactBaseIDs[:split])...)
+						persistCompletedEvent = map[string]any{
+							"op":                    "persist",
+							"phase":                 "completed",
+							"persist_split":         split,
+							"messages_before":       beforeN,
+							"context_window_tokens": window,
+							"fast_path":             true,
+							"tail_keep_effective":   tailKeep,
+						}
+						ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
+						tail := make([]llm.Message, len(compactBase)-split)
+						copy(tail, compactBase[split:])
+						tail = truncateLargeTailMessages(enc, tail)
+						msgs = append([]llm.Message{makeCompactSnapshotMessage(persistSummary)}, tail...)
+						ids = append([]uuid.UUID{uuid.Nil}, compactBaseIDs[split:]...)
+						rc.Messages = msgs
+						rc.ThreadMessageIDs = ids
+						rc.HasActiveCompactSnapshot = true
+						rc.ActiveCompactSnapshotText = persistSummary
+					} else {
 					gw, model := resolveCompactionGateway(ctx, pool, rc, auxGateway, emitDebugEvents, configLoader)
 					if gw == nil {
 						slog.WarnContext(ctx, "context_compact", "phase", "gateway_nil", "run_id", rc.Run.ID.String())
@@ -323,6 +377,8 @@ func NewContextCompactMiddleware(
 							rc.ActiveCompactSnapshotText = persistSummary
 						}
 					}
+					}
+				}
 				}
 			}
 		}
@@ -362,6 +418,7 @@ func NewContextCompactMiddleware(
 				"persist_split", persistSplit,
 				"before", beforeN,
 				"after", len(rc.Messages),
+				"fast_path", persistFastPath,
 			)
 		}
 
@@ -632,6 +689,7 @@ func MaybeInlineCompactMessages(
 		tailKeep = 1
 	}
 	split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
+	split = ensureToolPairIntegrity(compactBase, split)
 	if split <= 0 {
 		return msgs, stats, false, nil
 	}

@@ -263,6 +263,14 @@ func RegisterTrackB(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopePlatform,
 		},
+		{
+			Key:         "context.compact.microcompact_keep_recent_tools",
+			Type:        TypeInt,
+			Default:     "8",
+			Description: "microcompact 保留最近 N 个 tool result 原文，0 = 不做 microcompact",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+		},
 
 		{
 			Key:         "llm.max_response_bytes",

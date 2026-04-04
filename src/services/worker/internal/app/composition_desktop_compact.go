@@ -43,6 +43,7 @@ func resolveDesktopContextCompact(ctx context.Context, db data.DesktopDB) (pipel
 		FallbackContextWindowTokens: desktopResolvePositiveInt(ctx, resolver, registry, "context.compact.fallback_context_window_tokens", scope, 128000),
 		PersistKeepLastMessages:     desktopResolvePositiveInt(ctx, resolver, registry, "context.compact.persist_keep_last_messages", scope, 40),
 		PersistKeepTailPct:          persistKeepTailPct,
+		MicrocompactKeepRecentTools: desktopResolveNonNegInt(ctx, resolver, registry, "context.compact.microcompact_keep_recent_tools", scope, 0),
 	}, nil
 }
 

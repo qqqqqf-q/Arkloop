@@ -32,6 +32,9 @@ type ContextCompactSettings struct {
 	PersistKeepLastMessages     int
 	// PersistKeepTailPct 1–100：persist 时保留 context window 的百分比作为尾部 token 预算；0 = 用旧的条数逻辑。
 	PersistKeepTailPct int
+
+	// MicrocompactKeepRecentTools 保留最近 N 个 tool result 原文；0 = 不做 microcompact。
+	MicrocompactKeepRecentTools int
 }
 
 func approxTokensFromText(s string) int {
@@ -106,6 +109,15 @@ func stabilizeCompactStart(msgs []llm.Message, start int, maxMessages int) int {
 	}
 	for start < len(msgs)-1 && msgs[start].Role == "tool" {
 		start++
+	}
+	return start
+}
+
+// ensureToolPairIntegrity 确保 msgs[start:] 不以孤立 tool_result 开头。
+// 如果 start 处是 role="tool"，向前扩展直到遇到非 tool 消息。
+func ensureToolPairIntegrity(msgs []llm.Message, start int) int {
+	for start > 0 && start < len(msgs) && msgs[start].Role == "tool" {
+		start--
 	}
 	return start
 }
@@ -237,4 +249,43 @@ func ContextCompactHasActiveBudget(cfg ContextCompactSettings) bool {
 		cfg.MaxTotalTextTokens > 0 ||
 		cfg.MaxUserTextBytes > 0 ||
 		cfg.MaxTotalTextBytes > 0
+}
+
+// microcompactToolResults 保留最近 keepRecent 个 role="tool" 消息原文，其余替换为占位符。
+// 返回新 slice，不修改原始数据。
+func microcompactToolResults(msgs []llm.Message, keepRecent int) []llm.Message {
+	if keepRecent <= 0 || len(msgs) == 0 {
+		return msgs
+	}
+
+	// 从末尾往前收集 tool 消息索引
+	toolIndices := make([]int, 0, len(msgs))
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "tool" {
+			toolIndices = append(toolIndices, i)
+		}
+	}
+	if len(toolIndices) <= keepRecent {
+		return msgs
+	}
+
+	// toolIndices[0..keepRecent-1] 是从末尾数的最近 N 个，保留；其余需清理
+	clearSet := make(map[int]struct{}, len(toolIndices)-keepRecent)
+	for _, idx := range toolIndices[keepRecent:] {
+		clearSet[idx] = struct{}{}
+	}
+
+	out := make([]llm.Message, len(msgs))
+	copy(out, msgs)
+	placeholder := []llm.ContentPart{{Type: "text", Text: "[Tool result cleared]"}}
+	for idx := range clearSet {
+		m := out[idx]
+		out[idx] = llm.Message{
+			Role:      m.Role,
+			Phase:     m.Phase,
+			ToolCalls: m.ToolCalls,
+			Content:   placeholder,
+		}
+	}
+	return out
 }

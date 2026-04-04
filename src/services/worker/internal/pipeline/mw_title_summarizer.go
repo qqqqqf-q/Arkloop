@@ -21,6 +21,7 @@ import (
 
 // TitleSummarizerDB 由 *pgxpool.Pool 与 desktop 的 data.DesktopDB 实现。
 type TitleSummarizerDB interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
