@@ -351,7 +351,11 @@ func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
 		cancelJob()
 		select {
 		case <-jobDone:
-		case <-time.After(2 * time.Second):
+		case <-time.After(16 * time.Minute):
+			l.logger.Error("handler did not exit after cancel, possible goroutine leak",
+				"job_id", jobID, "trace_id", traceID, "run_id", runID,
+				"reason", reason, "timeout", "16m")
+			<-jobDone
 		}
 		if reason == "lease_lost" {
 			return
