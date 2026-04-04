@@ -103,6 +103,10 @@ func (p *refreshProviderStub) Delete(_ context.Context, _ memory.MemoryIdentity,
 	return nil
 }
 
+func (p *refreshProviderStub) ListDir(_ context.Context, _ memory.MemoryIdentity, _ string) ([]string, error) {
+	return nil, nil
+}
+
 func withShortSnapshotRefresh(t *testing.T) {
 	t.Helper()
 	prevWindow := snapshotRefreshWindow

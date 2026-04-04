@@ -235,52 +235,146 @@ func (h *handler) rebuildSnapshotHandler(w nethttp.ResponseWriter, r *nethttp.Re
 	writeJSON(w, map[string]any{"memory_block": block, "hits": hits})
 }
 
-// findAndBuildMemoryBlock 调用 OpenViking find API 检索全部记忆并构建 <memory> 块。
+// findAndBuildMemoryBlock 构建 tree-shaped <memory> 块：先读目录骨架（overview），再用 Find 补充叶子。
 func (h *handler) findAndBuildMemoryBlock(ctx context.Context, userID string) (string, []snapshotHit, error) {
 	targetURI := fmt.Sprintf("viking://user/%s/memories/", userID)
+
+	// 阶段 1：目录骨架
+	skeletonLines, skeletonOK := h.buildSkeletonLines(ctx, targetURI)
+
+	// 阶段 2：叶子补充（Find）
+	leafLines, hits := h.findLeafLines(ctx, targetURI)
+
+	if !skeletonOK {
+		// 骨架失败，仅用 Find 结果
+		if len(leafLines) == 0 {
+			return "", nil, nil
+		}
+		return buildFindOnlyBlock(leafLines), hits, nil
+	}
+
+	block := buildTreeShapedBlock(skeletonLines, leafLines)
+	if block == "" {
+		return "", nil, nil
+	}
+	return block, hits, nil
+}
+
+const (
+	skeletonMaxDirs     = 10
+	leafSupplementLimit = 20
+)
+
+func (h *handler) buildSkeletonLines(ctx context.Context, rootURI string) ([]string, bool) {
+	rootOverview, err := h.fetchOVContent(ctx, rootURI, "overview")
+	if err != nil || strings.TrimSpace(rootOverview) == "" {
+		return nil, false
+	}
+
+	lines := []string{strings.TrimSpace(rootOverview)}
+
+	children, err := h.fetchOVListDir(ctx, rootURI)
+	if err != nil {
+		return lines, true
+	}
+
+	dirCount := 0
+	for _, childURI := range children {
+		if dirCount >= skeletonMaxDirs {
+			break
+		}
+		if !strings.HasSuffix(childURI, "/") {
+			continue
+		}
+		dirCount++
+		childOverview, childErr := h.fetchOVContent(ctx, childURI, "overview")
+		if childErr != nil || strings.TrimSpace(childOverview) == "" {
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(childOverview))
+	}
+	return lines, true
+}
+
+func (h *handler) findLeafLines(ctx context.Context, targetURI string) ([]string, []snapshotHit) {
+	hits, err := h.fetchOVFind(ctx, targetURI, "*", leafSupplementLimit)
+	if err != nil || len(hits) == 0 {
+		return nil, nil
+	}
+
+	var lines []string
+	for _, hit := range hits {
+		line := strings.TrimSpace(hit.Abstract)
+		if line == "" {
+			continue
+		}
+		if hit.Score >= 0.6 {
+			var layer string
+			if hit.IsLeaf {
+				layer = "read"
+			} else {
+				layer = "overview"
+			}
+			detail, detailErr := h.fetchOVContent(ctx, hit.URI, layer)
+			if detailErr == nil {
+				detail = strings.TrimSpace(detail)
+				if runeLen := len([]rune(detail)); runeLen > 2000 {
+					detail = string([]rune(detail)[:2000]) + "..."
+				}
+				if detail != "" {
+					line += "\n  " + detail
+				}
+			}
+		}
+		lines = append(lines, line)
+	}
+	return lines, hits
+}
+
+func (h *handler) fetchOVFind(ctx context.Context, targetURI, query string, limit int) ([]snapshotHit, error) {
 	body := map[string]any{
-		"query":      "*",
+		"query":      query,
 		"target_uri": targetURI,
-		"limit":      32,
+		"limit":      limit,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
 	ovURL := strings.TrimRight(h.ovBaseURL, "/") + "/api/v1/search/find"
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, ovURL, strings.NewReader(string(payload)))
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if h.ovAPIKey != "" {
 		req.Header.Set("X-API-Key", h.ovAPIKey)
 	}
 	req.Header.Set("X-OpenViking-Account", auth.DesktopAccountID.String())
-	req.Header.Set("X-OpenViking-User", userID)
-	req.Header.Set("X-OpenViking-Agent", "user_"+userID)
+	req.Header.Set("X-OpenViking-User", auth.DesktopUserID.String())
+	req.Header.Set("X-OpenViking-Agent", "user_"+auth.DesktopUserID.String())
 
 	client := &nethttp.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("openviking find: %w", err)
+		return nil, fmt.Errorf("openviking find: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	if err != nil {
-		return "", nil, fmt.Errorf("read find response: %w", err)
+		return nil, fmt.Errorf("read find response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return "", nil, fmt.Errorf("openviking %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("openviking %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var apiResp struct {
 		Result json.RawMessage `json:"result"`
 	}
 	if err := json.Unmarshal(respBody, &apiResp); err != nil {
-		return "", nil, fmt.Errorf("decode response: %w", err)
+		return nil, fmt.Errorf("decode response: %w", err)
 	}
 
 	var findResult struct {
@@ -289,7 +383,7 @@ func (h *handler) findAndBuildMemoryBlock(ctx context.Context, userID string) (s
 		Skills    []ovFindHit `json:"skills"`
 	}
 	if err := json.Unmarshal(apiResp.Result, &findResult); err != nil {
-		return "", nil, fmt.Errorf("decode find result: %w", err)
+		return nil, fmt.Errorf("decode find result: %w", err)
 	}
 
 	var all []snapshotHit
@@ -304,25 +398,102 @@ func (h *handler) findAndBuildMemoryBlock(ctx context.Context, userID string) (s
 			})
 		}
 	}
+	return all, nil
+}
 
-	if len(all) == 0 {
-		return "", nil, nil
+func (h *handler) fetchOVListDir(ctx context.Context, uri string) ([]string, error) {
+	ovURL := fmt.Sprintf("%s/api/v1/fs/ls?uri=%s&simple=true",
+		strings.TrimRight(h.ovBaseURL, "/"), url.QueryEscape(uri))
+
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, ovURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if h.ovAPIKey != "" {
+		req.Header.Set("X-API-Key", h.ovAPIKey)
+	}
+	req.Header.Set("X-OpenViking-Account", auth.DesktopAccountID.String())
+	req.Header.Set("X-OpenViking-User", auth.DesktopUserID.String())
+	req.Header.Set("X-OpenViking-Agent", "user_"+auth.DesktopUserID.String())
+
+	client := &nethttp.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("openviking ls: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read ls response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("openviking %d: %s", resp.StatusCode, string(body))
 	}
 
+	var wrapper struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		return nil, fmt.Errorf("decode ls response: %w", err)
+	}
+	var entries []string
+	if err := json.Unmarshal(wrapper.Result, &entries); err != nil {
+		return nil, fmt.Errorf("decode ls result: %w", err)
+	}
+	return entries, nil
+}
+
+func buildFindOnlyBlock(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
 	var sb strings.Builder
 	sb.WriteString("\n\n<memory>\n")
-	for _, hit := range all {
-		line := strings.TrimSpace(hit.Abstract)
-		if line == "" {
+	for _, line := range lines {
+		cleaned := strings.TrimSpace(line)
+		if cleaned == "" {
 			continue
 		}
 		sb.WriteString("- ")
-		sb.WriteString(line)
+		sb.WriteString(cleaned)
 		sb.WriteString("\n")
 	}
 	sb.WriteString("</memory>")
+	return sb.String()
+}
 
-	return sb.String(), all, nil
+func buildTreeShapedBlock(skeletonLines []string, leafLines []string) string {
+	if len(skeletonLines) == 0 && len(leafLines) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<memory>\n")
+	for _, line := range skeletonLines {
+		cleaned := strings.TrimSpace(line)
+		if cleaned == "" {
+			continue
+		}
+		sb.WriteString(cleaned)
+		sb.WriteString("\n\n")
+	}
+	if len(leafLines) > 0 {
+		if len(skeletonLines) > 0 {
+			sb.WriteString("---\n")
+		}
+		for _, line := range leafLines {
+			cleaned := strings.TrimSpace(line)
+			if cleaned == "" {
+				continue
+			}
+			sb.WriteString("- ")
+			sb.WriteString(cleaned)
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("</memory>")
+	return sb.String()
 }
 
 // ---------- content ----------

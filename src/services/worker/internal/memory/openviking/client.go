@@ -405,6 +405,25 @@ func (c *client) Delete(ctx context.Context, ident memory.MemoryIdentity, uri st
 	return nil
 }
 
+// --- ListDir ---
+
+// ListDir lists direct children URIs under the given directory.
+func (c *client) ListDir(ctx context.Context, ident memory.MemoryIdentity, uri string) ([]string, error) {
+	path := "/api/v1/fs/ls?uri=" + url.QueryEscape(uri) + "&simple=true"
+	var resp apiResponse
+	if err := c.doJSONWithRetry(ctx, http.MethodGet, path, nil, ident, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("openviking ls error: [%s] %s", resp.Error.Code, resp.Error.Message)
+	}
+	var entries []string
+	if err := json.Unmarshal(resp.Result, &entries); err != nil {
+		return nil, fmt.Errorf("decode ls result: %w", err)
+	}
+	return entries, nil
+}
+
 // UpdateByURI overwrites an existing semantic memory file in place and waits
 // for semantic/vector refresh to complete.
 func (c *client) UpdateByURI(ctx context.Context, ident memory.MemoryIdentity, uri string, entry memory.MemoryEntry) error {

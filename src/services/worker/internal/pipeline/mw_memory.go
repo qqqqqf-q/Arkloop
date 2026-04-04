@@ -20,15 +20,18 @@ import (
 )
 
 const (
-	// memorySnapshotFindLimit：后台刷新快照时 OpenViking Find 的 Top-K，越大快照越长（更多 L0 条目）。
-	memorySnapshotFindLimit = 100
-	memoryHighScoreL1       = 0.6  // 高分时拉详细内容（非叶子 L1 overview，叶子 L2 read）
+	memoryHighScoreL1 = 0.6 // 高分时拉详细内容（非叶子 L1 overview，叶子 L2 read）
 	// memorySnapshotL1MaxRunes：单条命中附加的 L1 上限，避免单条记忆把 system 撑爆。
 	memorySnapshotL1MaxRunes = 2000
 	memoryFindTimeout        = 5 * time.Second
 	memoryFlushTimeout       = 120 * time.Second
 	// snapshotFindTimeout 用于刷写后的最佳努力快照重建。
 	snapshotFindTimeout = 15 * time.Second
+
+	// 目录骨架 + 叶子补充模式常量
+	memorySkeletonTimeout     = 10 * time.Second // 骨架读取总超时
+	memorySkeletonMaxDirs     = 10               // 最多读取的一级子目录数
+	memoryLeafSupplementLimit = 20               // Find 补充叶子上限
 )
 
 var usageRepo = data.UsageRecordsRepository{}
@@ -123,7 +126,7 @@ func renderMemoryBlock(ctx context.Context, provider memory.MemoryProvider, iden
 }
 
 func findMemoryLines(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, targetURI string, query string) ([]string, []memory.MemoryHit, error) {
-	hits, err := provider.Find(ctx, ident, targetURI, query, memorySnapshotFindLimit)
+	hits, err := provider.Find(ctx, ident, targetURI, query, memoryLeafSupplementLimit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -273,12 +276,19 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 	if len(successfulQueries) == 0 {
 		return "", nil, false
 	}
-	allLines := make([]string, 0, memorySnapshotFindLimit*len(successfulQueries))
-	allHits := make([]memory.MemoryHit, 0, memorySnapshotFindLimit*len(successfulQueries))
+
+	// 阶段 1：目录骨架
+	skelCtx, skelCancel := context.WithTimeout(ctx, memorySkeletonTimeout)
+	skeletonLines, skeletonOK := buildSkeletonLines(skelCtx, provider, ident)
+	skelCancel()
+
+	// 阶段 2：叶子补充（Find）
+	allLeafLines := make([]string, 0, memoryLeafSupplementLimit)
+	var allHits []memory.MemoryHit
 	for _, queries := range successfulQueries {
 		query := strings.TrimSpace(strings.Join(queries, "\n"))
 		if query == "" {
-			return "", nil, false
+			continue
 		}
 		snapCtx, cancel := context.WithTimeout(ctx, snapshotFindTimeout)
 		lines, hits, err := findMemoryLines(snapCtx, provider, ident, memory.SelfURI(ident.UserID.String()), query)
@@ -290,19 +300,102 @@ func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, i
 				"agent_id", ident.AgentID,
 				"err", err.Error(),
 			)
-			return "", nil, false
+			continue
 		}
-		if len(lines) == 0 {
-			return "", nil, false
-		}
-		allLines = append(allLines, lines...)
+		allLeafLines = append(allLeafLines, lines...)
 		allHits = append(allHits, hits...)
 	}
-	block := buildMemoryBlock(allLines)
+
+	if !skeletonOK {
+		// 骨架失败，仅用 Find 结果（旧行为的降级）
+		if len(allLeafLines) == 0 {
+			return "", nil, false
+		}
+		block := buildMemoryBlock(allLeafLines)
+		if block == "" {
+			return "", nil, false
+		}
+		return block, allHits, true
+	}
+
+	// 合并骨架 + 去重后的叶子
+	block := buildTreeShapedMemoryBlock(skeletonLines, allLeafLines)
 	if block == "" {
 		return "", nil, false
 	}
 	return block, allHits, true
+}
+
+// buildSkeletonLines 读取 memories/ 根 overview + 一级子目录 overview，构成目录骨架。
+func buildSkeletonLines(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity) ([]string, bool) {
+	rootURI := memory.SelfURI(ident.UserID.String())
+
+	rootOverview, err := provider.Content(ctx, ident, rootURI, memory.MemoryLayerOverview)
+	if err != nil || strings.TrimSpace(rootOverview) == "" {
+		return nil, false
+	}
+
+	lines := []string{strings.TrimSpace(rootOverview)}
+
+	children, err := provider.ListDir(ctx, ident, rootURI)
+	if err != nil {
+		// ls 失败但根 overview 已拿到，仍然返回骨架
+		return lines, true
+	}
+
+	dirCount := 0
+	for _, childURI := range children {
+		if dirCount >= memorySkeletonMaxDirs {
+			break
+		}
+		if !strings.HasSuffix(childURI, "/") {
+			continue
+		}
+		dirCount++
+		childOverview, childErr := provider.Content(ctx, ident, childURI, memory.MemoryLayerOverview)
+		if childErr != nil || strings.TrimSpace(childOverview) == "" {
+			continue
+		}
+		lines = append(lines, strings.TrimSpace(childOverview))
+	}
+	return lines, true
+}
+
+// buildTreeShapedMemoryBlock 拼装骨架 + 叶子补充的 <memory> block。
+func buildTreeShapedMemoryBlock(skeletonLines []string, leafLines []string) string {
+	if len(skeletonLines) == 0 && len(leafLines) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n<memory>\n")
+	for _, line := range skeletonLines {
+		cleaned := strings.TrimSpace(line)
+		if cleaned == "" {
+			continue
+		}
+		sb.WriteString(cleaned)
+		sb.WriteString("\n\n")
+	}
+	if len(leafLines) > 0 {
+		if len(skeletonLines) > 0 {
+			sb.WriteString("---\n")
+		}
+		for _, line := range leafLines {
+			cleaned := strings.TrimSpace(line)
+			if cleaned == "" {
+				continue
+			}
+			sb.WriteString("- ")
+			sb.WriteString(cleaned)
+			sb.WriteString("\n")
+		}
+	}
+	sb.WriteString("</memory>")
+	block := sb.String()
+	if strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(block, "<memory>", ""), "</memory>", "")) == "" {
+		return ""
+	}
+	return block
 }
 
 func tryRefreshSnapshotFromQueries(ctx context.Context, snap MemorySnapshotStore, provider memory.MemoryProvider, ident memory.MemoryIdentity, queries map[string][]string) (bool, error) {

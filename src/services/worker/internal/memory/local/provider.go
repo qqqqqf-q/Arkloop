@@ -120,6 +120,11 @@ func (p *Provider) Content(ctx context.Context, ident memory.MemoryIdentity, uri
 	return buildAbstract(sc, cat, key, content), nil
 }
 
+// ListDir is a no-op for the local provider; there is no directory tree in SQLite.
+func (p *Provider) ListDir(_ context.Context, _ memory.MemoryIdentity, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // AppendSessionMessages is a no-op for the local provider; session-level
 // message archiving is not used in the lightweight local memory mode.
 func (p *Provider) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {

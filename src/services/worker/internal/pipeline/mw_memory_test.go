@@ -99,6 +99,10 @@ func (m *memMock) Delete(_ context.Context, _ memory.MemoryIdentity, _ string) e
 	return nil
 }
 
+func (m *memMock) ListDir(_ context.Context, _ memory.MemoryIdentity, _ string) ([]string, error) {
+	return nil, nil
+}
+
 // --- helpers ---
 
 func userIDPtr() *uuid.UUID {
