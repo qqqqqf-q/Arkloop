@@ -62,6 +62,9 @@ func TestRenderConfigWritesGenericBackendsAndClearsRootKey(t *testing.T) {
 	if vlm["provider"] != "litellm" {
 		t.Fatalf("vlm provider = %#v, want litellm", vlm["provider"])
 	}
+	if vlm["api_base"] != "https://api.example.com/v1" {
+		t.Fatalf("vlm api_base = %#v, want https://api.example.com/v1", vlm["api_base"])
+	}
 	if vlm["extra_headers"].(map[string]any)["X-VLM"] != "1" {
 		t.Fatalf("unexpected vlm extra_headers: %#v", vlm["extra_headers"])
 	}
@@ -135,5 +138,38 @@ func TestRenderConfigPreservesExistingGeneratedRootKey(t *testing.T) {
 	server := cfg["server"].(map[string]any)
 	if server["root_api_key"] != "ovk_existing" {
 		t.Fatalf("root_api_key = %#v, want ovk_existing", server["root_api_key"])
+	}
+}
+
+func TestRenderConfigPreservesRerankAPIBaseVerbatim(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "ov.conf")
+
+	data, err := RenderConfig(configPath, ConfigureParams{
+		EmbeddingProvider:  "openai",
+		EmbeddingModel:     "text-embedding-3-large",
+		EmbeddingAPIKey:    "emb-key",
+		EmbeddingAPIBase:   "https://api.example.com/v1",
+		EmbeddingDimension: flexInt(3072),
+		VLMProvider:        "openai",
+		VLMModel:           "gpt-4.1-mini",
+		VLMAPIKey:          "vlm-key",
+		VLMAPIBase:         "https://openrouter.ai/api/v1",
+		RerankProvider:     "openai",
+		RerankModel:        "rerank-model",
+		RerankAPIKey:       "rerank-key",
+		RerankAPIBase:      "https://openrouter.ai/api/v1",
+	})
+	if err != nil {
+		t.Fatalf("RenderConfig() error = %v", err)
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("unmarshal config: %v", err)
+	}
+	rerank := cfg["rerank"].(map[string]any)
+	if rerank["api_base"] != "https://openrouter.ai/api/v1" {
+		t.Fatalf("rerank api_base = %#v, want https://openrouter.ai/api/v1", rerank["api_base"])
 	}
 }
