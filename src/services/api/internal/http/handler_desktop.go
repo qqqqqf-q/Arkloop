@@ -436,7 +436,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		MessageRepo:              cfg.MessageRepo,
 		RunEventRepo:             cfg.RunEventRepo,
 		JobRepo:                  cfg.JobRepo,
-		EntitlementSvc:           cfg.EntitlementService,
 		Pool:                     cfg.Pool,
 	})
 

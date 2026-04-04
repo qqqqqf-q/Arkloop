@@ -37,6 +37,12 @@ func (s *OneBotChannelSender) SendText(ctx context.Context, target ChannelDelive
 
 	for idx, seg := range segments {
 		msg := onebotclient.TextSegments(seg)
+
+		// 群聊第一段消息插入 reply 引用
+		if idx == 0 && msgType == "group" && target.ReplyTo != nil && strings.TrimSpace(target.ReplyTo.MessageID) != "" {
+			msg = append([]onebotclient.MessageSegment{onebotclient.ReplySegment(target.ReplyTo.MessageID)}, msg...)
+		}
+
 		var resp *onebotclient.SendMsgResponse
 		var err error
 

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/pgnotify"
@@ -32,7 +31,6 @@ type QQOneBotWSListenerDeps struct {
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
-	EntitlementSvc           *entitlement.Service
 	Pool                     data.DB
 }
 
@@ -64,7 +62,6 @@ func StartQQOneBotWSListener(ctx context.Context, deps QQOneBotWSListenerDeps) {
 		messageRepo:              deps.MessageRepo,
 		runEventRepo:             deps.RunEventRepo,
 		jobRepo:                  deps.JobRepo,
-		entitlementSvc:           deps.EntitlementSvc,
 		pool:                     deps.Pool,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if _, err := deps.Pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {

@@ -322,6 +322,7 @@ func deliverOneBotChannelOutput(
 	client := onebotclient.NewClient(obBaseURL, obToken, nil)
 	sender := NewOneBotChannelSender(client, resolveSegmentDelay())
 
+	replyTo := onebotReplyReference(rc)
 	metadata := map[string]any{}
 	if rc.ChannelContext.ConversationType == "group" {
 		metadata["message_type"] = "group"
@@ -330,12 +331,13 @@ func deliverOneBotChannelOutput(
 	messageIDs, err := sender.SendText(ctx, ChannelDeliveryTarget{
 		ChannelType:  rc.ChannelContext.ChannelType,
 		Conversation: rc.ChannelContext.Conversation,
+		ReplyTo:      replyTo,
 		Metadata:     metadata,
 	}, output)
 	if err != nil {
 		return err
 	}
-	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, nil, messageIDs); err != nil {
+	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs); err != nil {
 		slog.WarnContext(ctx, "qq channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
 		return err
 	}
@@ -374,6 +376,26 @@ func resolveOneBotAPIPort(channel *data.DeliveryChannelRecord) int {
 
 func discordReplyReference(rc *RunContext) *ChannelMessageRef {
 	if rc == nil || rc.ChannelContext == nil {
+		return nil
+	}
+	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {
+		return rc.ChannelContext.TriggerMessage
+	}
+	if strings.TrimSpace(rc.ChannelContext.InboundMessage.MessageID) == "" {
+		return nil
+	}
+	ref := rc.ChannelContext.InboundMessage
+	return &ref
+}
+
+func onebotReplyReference(rc *RunContext) *ChannelMessageRef {
+	if rc == nil || rc.ChannelContext == nil {
+		return nil
+	}
+	if rc.HeartbeatRun {
+		return nil
+	}
+	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
 		return nil
 	}
 	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {

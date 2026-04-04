@@ -13,6 +13,16 @@ type TextData struct {
 	Text string `json:"text"`
 }
 
+// At 消息段 data
+type AtData struct {
+	QQ string `json:"qq"`
+}
+
+// Reply 消息段 data
+type ReplyData struct {
+	ID string `json:"id"`
+}
+
 // 事件基础字段
 type Event struct {
 	Time        int64           `json:"time"`
@@ -126,12 +136,13 @@ type LoginInfo struct {
 // --- get_msg 响应 ---
 
 type GetMsgResponse struct {
-	Time        int64           `json:"time"`
-	MessageType string          `json:"message_type"`
-	MessageID   json.Number     `json:"message_id"`
-	RealID      json.Number     `json:"real_id"`
-	Sender      *Sender         `json:"sender,omitempty"`
-	Message     json.RawMessage `json:"message,omitempty"`
+	MessageID   json.Number      `json:"message_id"`
+	RealID      json.Number      `json:"real_id,omitempty"`
+	MessageType string           `json:"message_type"`
+	Sender      *Sender          `json:"sender,omitempty"`
+	Time        int64            `json:"time"`
+	Message     []MessageSegment `json:"message,omitempty"`
+	RawMessage  string           `json:"raw_message,omitempty"`
 }
 
 // --- get_group_member_info 响应 ---
@@ -140,22 +151,25 @@ type GroupMemberInfo struct {
 	GroupID  json.Number `json:"group_id"`
 	UserID   json.Number `json:"user_id"`
 	Nickname string      `json:"nickname"`
-	Card     string      `json:"card"`
+	Card     string      `json:"card,omitempty"`
 	Role     string      `json:"role"` // owner / admin / member
+	Title    string      `json:"title,omitempty"`
 }
 
-// AtData 是 type="at" 消息段的 data
-type AtData struct {
-	QQ string `json:"qq"`
+// TextSegments 将纯文本构造为消息段数组
+func TextSegments(text string) []MessageSegment {
+	data, _ := json.Marshal(TextData{Text: text})
+	return []MessageSegment{{Type: "text", Data: data}}
 }
 
-// ReplyData 是 type="reply" 消息段的 data（NapCat 扩展）
-type ReplyData struct {
-	ID string `json:"id"`
+// ReplySegment 构造引用回复消息段
+func ReplySegment(messageID string) MessageSegment {
+	data, _ := json.Marshal(ReplyData{ID: messageID})
+	return MessageSegment{Type: "reply", Data: data}
 }
 
-// ParseSegments 解析 message 字段为 MessageSegment 数组
-func (e *Event) ParseSegments() []MessageSegment {
+// ParsedSegments 解析 message 字段为消息段数组
+func (e *Event) ParsedSegments() []MessageSegment {
 	if len(e.Message) == 0 {
 		return nil
 	}
@@ -166,12 +180,12 @@ func (e *Event) ParseSegments() []MessageSegment {
 	return segments
 }
 
-// MentionsQQ 检查消息中是否 @了指定 QQ 号
+// MentionsQQ 检测消息中是否 @ 了指定 QQ 号
 func (e *Event) MentionsQQ(selfID string) bool {
 	if selfID == "" {
 		return false
 	}
-	for _, seg := range e.ParseSegments() {
+	for _, seg := range e.ParsedSegments() {
 		if seg.Type != "at" {
 			continue
 		}
@@ -186,9 +200,9 @@ func (e *Event) MentionsQQ(selfID string) bool {
 	return false
 }
 
-// HasReplySegment 检查消息中是否包含 reply 段（回复消息）
-func (e *Event) HasReplySegment() bool {
-	for _, seg := range e.ParseSegments() {
+// IsReplyToMessage 检测消息中是否包含 reply 段
+func (e *Event) IsReplyToMessage() bool {
+	for _, seg := range e.ParsedSegments() {
 		if seg.Type == "reply" {
 			return true
 		}
@@ -196,9 +210,9 @@ func (e *Event) HasReplySegment() bool {
 	return false
 }
 
-// ReplyMessageID 提取被回复消息的 ID，无回复返回空字符串
+// ReplyMessageID 从 reply 段提取被回复消息的 ID
 func (e *Event) ReplyMessageID() string {
-	for _, seg := range e.ParseSegments() {
+	for _, seg := range e.ParsedSegments() {
 		if seg.Type != "reply" {
 			continue
 		}
@@ -206,15 +220,7 @@ func (e *Event) ReplyMessageID() string {
 		if err := json.Unmarshal(seg.Data, &rd); err != nil {
 			continue
 		}
-		if rd.ID != "" {
-			return rd.ID
-		}
+		return rd.ID
 	}
 	return ""
-}
-
-// TextSegments 将纯文本构造为消息段数组
-func TextSegments(text string) []MessageSegment {
-	data, _ := json.Marshal(TextData{Text: text})
-	return []MessageSegment{{Type: "text", Data: data}}
 }

@@ -9,7 +9,6 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/napcat"
 )
@@ -52,7 +51,6 @@ type QQCallbackDeps struct {
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
-	EntitlementSvc           *entitlement.Service
 	Pool                     data.DB
 }
 
@@ -71,7 +69,6 @@ func RegisterQQCallbackRoute(mux *nethttp.ServeMux, deps QQCallbackDeps) {
 		deps.MessageRepo,
 		deps.RunEventRepo,
 		deps.JobRepo,
-		deps.EntitlementSvc,
 		deps.Pool,
 	)
 	mux.HandleFunc("POST /v1/napcat/onebot-callback", handler)

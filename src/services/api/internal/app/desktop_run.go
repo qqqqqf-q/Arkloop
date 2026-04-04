@@ -600,7 +600,6 @@ func RunDesktop(ctx context.Context) error {
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		EntitlementSvc:           entitlementService,
 		Pool:                     pgxPool,
 	})
 
