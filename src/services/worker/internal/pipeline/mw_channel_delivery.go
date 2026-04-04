@@ -142,7 +142,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		if strings.TrimSpace(output) == "" && notice != "" {
 			output = notice
 		}
-		if streamFlush != nil {
+		if streamFlush != nil && streamMidCount > 0 {
 			finalOutputs = nil
 		}
 
@@ -327,6 +327,9 @@ func discordReplyReference(rc *RunContext) *ChannelMessageRef {
 func telegramReplyReference(rc *RunContext) *ChannelMessageRef {
 	if rc == nil || rc.ChannelContext == nil {
 		return nil
+	}
+	if rc.ChannelReplyOverride != nil {
+		return rc.ChannelReplyOverride
 	}
 	if rc.HeartbeatRun {
 		return nil
