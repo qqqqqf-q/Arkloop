@@ -12,8 +12,8 @@ import (
 	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type capturedGroupTrimEventAppender struct {
@@ -50,7 +50,7 @@ func TestNewChannelGroupContextTrimMiddleware_projectsButSkipsTrimForPrivate(t *
 	mw := NewChannelGroupContextTrimMiddleware()
 	rc := &RunContext{
 		ChannelContext: &ChannelContext{ConversationType: "private"},
-		Messages: []llm.Message{{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "---\ndisplay-name: \"Alice\"\nchannel: \"telegram\"\nconversation-type: \"private\"\ntime: \"2026-04-03T10:00:00Z\"\n---\nhello"}}}},
+		Messages:       []llm.Message{{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "---\ndisplay-name: \"Alice\"\nchannel: \"telegram\"\nconversation-type: \"private\"\ntime: \"2026-04-03T10:00:00Z\"\n---\nhello"}}}},
 	}
 	called := false
 	err := mw(context.Background(), rc, func(context.Context, *RunContext) error {
@@ -243,14 +243,16 @@ func TestBuildGroupTrimEventIncludesSnapshotFlag(t *testing.T) {
 
 type noopCompactPersistDB struct{}
 
-func (noopCompactPersistDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) { return noopTx{}, nil }
-func (noopCompactPersistDB) QueryRow(context.Context, string, ...any) pgx.Row       { return noopRow{} }
+func (noopCompactPersistDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return noopTx{}, nil
+}
+func (noopCompactPersistDB) QueryRow(context.Context, string, ...any) pgx.Row { return noopRow{} }
 
 type noopTx struct{}
 
-func (noopTx) Begin(context.Context) (pgx.Tx, error)                                  { return noopTx{}, nil }
-func (noopTx) Commit(context.Context) error                                            { return nil }
-func (noopTx) Rollback(context.Context) error                                          { return nil }
+func (noopTx) Begin(context.Context) (pgx.Tx, error) { return noopTx{}, nil }
+func (noopTx) Commit(context.Context) error          { return nil }
+func (noopTx) Rollback(context.Context) error        { return nil }
 func (noopTx) CopyFrom(context.Context, pgx.Identifier, []string, pgx.CopyFromSource) (int64, error) {
 	return 0, nil
 }
@@ -259,10 +261,12 @@ func (noopTx) LargeObjects() pgx.LargeObjects                         { return p
 func (noopTx) Prepare(context.Context, string, string) (*pgconn.StatementDescription, error) {
 	return nil, nil
 }
-func (noopTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) { return pgconn.CommandTag{}, nil }
-func (noopTx) Query(context.Context, string, ...any) (pgx.Rows, error)          { return noopRows{}, nil }
-func (noopTx) QueryRow(context.Context, string, ...any) pgx.Row                 { return noopRow{} }
-func (noopTx) Conn() *pgx.Conn                                                  { return nil }
+func (noopTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, nil
+}
+func (noopTx) Query(context.Context, string, ...any) (pgx.Rows, error) { return noopRows{}, nil }
+func (noopTx) QueryRow(context.Context, string, ...any) pgx.Row        { return noopRow{} }
+func (noopTx) Conn() *pgx.Conn                                         { return nil }
 
 type noopRow struct{}
 
@@ -270,22 +274,22 @@ func (noopRow) Scan(...any) error { return nil }
 
 type noopRows struct{}
 
-func (noopRows) Close() {}
-func (noopRows) Err() error { return nil }
-func (noopRows) CommandTag() pgconn.CommandTag { return pgconn.CommandTag{} }
+func (noopRows) Close()                                       {}
+func (noopRows) Err() error                                   { return nil }
+func (noopRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (noopRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (noopRows) Next() bool { return false }
-func (noopRows) Scan(...any) error { return nil }
-func (noopRows) Values() ([]any, error) { return nil, nil }
-func (noopRows) RawValues() [][]byte { return nil }
-func (noopRows) Conn() *pgx.Conn { return nil }
+func (noopRows) Next() bool                                   { return false }
+func (noopRows) Scan(...any) error                            { return nil }
+func (noopRows) Values() ([]any, error)                       { return nil, nil }
+func (noopRows) RawValues() [][]byte                          { return nil }
+func (noopRows) Conn() *pgx.Conn                              { return nil }
 
 type noopBatchResults struct{}
 
 func (noopBatchResults) Exec() (pgconn.CommandTag, error) { return pgconn.CommandTag{}, nil }
-func (noopBatchResults) Query() (pgx.Rows, error) { return noopRows{}, nil }
-func (noopBatchResults) QueryRow() pgx.Row { return noopRow{} }
-func (noopBatchResults) Close() error { return nil }
+func (noopBatchResults) Query() (pgx.Rows, error)         { return noopRows{}, nil }
+func (noopBatchResults) QueryRow() pgx.Row                { return noopRow{} }
+func (noopBatchResults) Close() error                     { return nil }
 
 func dataRunForTest(runID uuid.UUID) data.Run {
 	return data.Run{ID: runID, AccountID: uuid.New(), ThreadID: uuid.New()}

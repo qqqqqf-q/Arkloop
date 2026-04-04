@@ -154,12 +154,11 @@ function extractToolName(tool: Record<string, unknown>): string {
   return ''
 }
 
-function extractMessageText(msg: Record<string, unknown>): string {
+function readMessageText(msg: Record<string, unknown>): string {
   const content = msg.content
-  let out: string
-  if (typeof content === 'string') out = content
-  else if (Array.isArray(content)) {
-    out = content
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
       .map((part: unknown) => {
         if (typeof part === 'string') return part
         if (typeof part === 'object' && part !== null) {
@@ -170,10 +169,18 @@ function extractMessageText(msg: Record<string, unknown>): string {
         return ''
       })
       .join('')
-  } else {
-    out = JSON.stringify(content)
   }
+  return JSON.stringify(content)
+}
+
+function extractMessageText(msg: Record<string, unknown>): string {
+  const out = readMessageText(msg)
   return redactDataUrlsInString(normalizeChannelEnvelopeText(out))
+}
+
+function extractRawMessageText(msg: Record<string, unknown>): string {
+  const out = readMessageText(msg)
+  return redactDataUrlsInString(out)
 }
 
 function extractRequestMessages(messages: Array<Record<string, unknown>>): RequestMessageView[] {
@@ -258,17 +265,19 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
     if (message.role !== 'user') continue
-    const text = cleanText(extractMessageText(message))
-    if (!text) continue
-    const parsed = parseChannelEnvelope(text)
+    const rawText = cleanText(extractRawMessageText(message))
+    if (!rawText) continue
+    const parsed = parseChannelEnvelope(rawText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length,
       }
     }
+    const text = cleanText(normalizeChannelEnvelopeText(rawText))
+    if (!text) continue
     return {
       userInput: text,
       messages,
@@ -279,17 +288,19 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
   const fallbackCandidates = [payload?.input, payload?.prompt, payload?.input_text]
   for (const candidate of fallbackCandidates) {
     if (typeof candidate !== 'string') continue
-    const text = cleanText(candidate)
-    if (!text) continue
-    const parsed = parseChannelEnvelope(text)
+    const rawText = cleanText(redactDataUrlsInString(candidate))
+    if (!rawText) continue
+    const parsed = parseChannelEnvelope(rawText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length || 1,
       }
     }
+    const text = cleanText(normalizeChannelEnvelopeText(rawText))
+    if (!text) continue
     return {
       userInput: text,
       messages,
@@ -298,23 +309,26 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
   }
 
   const inputRecord = asRecord(payload?.input)
-  const inputText = cleanText(
+  const rawInputCandidate =
     typeof inputRecord?.text === 'string'
       ? inputRecord.text
-      : typeof inputRecord?.content === 'string'
-        ? inputRecord.content
-        : undefined,
+      : typeof payload?.input_text === 'string'
+        ? payload.input_text
+        : undefined
+  const rawInputText = cleanText(
+    rawInputCandidate ? redactDataUrlsInString(rawInputCandidate) : undefined,
   )
-  if (inputText) {
-    const parsed = parseChannelEnvelope(inputText)
+  if (rawInputText) {
+    const parsed = parseChannelEnvelope(rawInputText)
     if (parsed) {
       return {
-        userInput: parsed.text,
+        userInput: normalizeChannelEnvelopeText(rawInputText),
         inputMeta: parsed.meta,
         messages,
         userMessageCount: userMessages.length || 1,
       }
     }
+    const inputText = cleanText(normalizeChannelEnvelopeText(rawInputText))
     return {
       userInput: inputText,
       messages,

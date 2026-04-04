@@ -18,12 +18,10 @@ import (
 func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		_ = ctx
-		if rc == nil {
+		if rc == nil || rc.ChannelContext == nil {
 			return next(ctx, rc)
 		}
-		isTelegram := rc.ChannelContext != nil &&
-			strings.ToLower(strings.TrimSpace(rc.ChannelContext.ChannelType)) == "telegram"
-		if !isTelegram && !hasTelegramEnvelopeMessages(rc.Messages) {
+		if strings.ToLower(strings.TrimSpace(rc.ChannelContext.ChannelType)) != "telegram" {
 			return next(ctx, rc)
 		}
 		msgs, ids, lastScan := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
@@ -34,24 +32,6 @@ func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 		}
 		return next(ctx, rc)
 	}
-}
-
-// hasTelegramEnvelopeMessages 检查消息列表中是否存在 Telegram envelope 格式的 user 消息。
-func hasTelegramEnvelopeMessages(msgs []llm.Message) bool {
-	for i := range msgs {
-		if msgs[i].Role != "user" || len(msgs[i].Content) == 0 {
-			continue
-		}
-		text := msgs[i].Content[0].Text
-		if !strings.HasPrefix(text, "---\n") {
-			continue
-		}
-		meta, _, ok := parseTelegramEnvelopeText(text)
-		if ok && strings.EqualFold(strings.TrimSpace(meta["channel"]), "telegram") {
-			return true
-		}
-	}
-	return false
 }
 
 // mergeAllTelegramGroupUserBursts 遍历全部消息，对每一段连续 user 消息都做 compact。

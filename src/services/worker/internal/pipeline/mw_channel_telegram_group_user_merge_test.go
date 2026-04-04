@@ -756,9 +756,9 @@ time: "2026-04-04T06:21:00Z"
 	}
 	ids := []uuid.UUID{uuid.New()}
 	rc := &RunContext{
-		Messages:          append([]llm.Message(nil), msgs...),
-		ThreadMessageIDs:  append([]uuid.UUID(nil), ids...),
-		ChannelContext:    nil,
+		Messages:         append([]llm.Message(nil), msgs...),
+		ThreadMessageIDs: append([]uuid.UUID(nil), ids...),
+		ChannelContext:   nil,
 	}
 
 	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })

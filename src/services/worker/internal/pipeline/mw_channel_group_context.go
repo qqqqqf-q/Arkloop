@@ -411,12 +411,12 @@ func IsTelegramGroupLikeConversation(ct string) bool {
 }
 
 type groupTrimStats struct {
-	MessageCount          int
-	RealMessageCount      int
-	HasSnapshotPrefix     bool
-	EstimatedTrimWeight   int
-	EstimatedTextTokens   int
-	EstimatedImageTokens  int
+	MessageCount         int
+	RealMessageCount     int
+	HasSnapshotPrefix    bool
+	EstimatedTrimWeight  int
+	EstimatedTextTokens  int
+	EstimatedImageTokens int
 }
 
 func snapshotGroupTrimStats(rc *RunContext) groupTrimStats {
@@ -454,19 +454,19 @@ func buildGroupTrimEvent(before, after groupTrimStats, maxTokens int, compactTri
 		droppedCount = 0
 	}
 	return map[string]any{
-		"op":                           "group_trim",
-		"phase":                        "completed",
-		"max_tokens":                   maxTokens,
-		"messages_before":              before.MessageCount,
-		"messages_after":               after.MessageCount,
-		"kept_count":                   after.RealMessageCount,
-		"dropped_count":                droppedCount,
-		"has_snapshot_prefix":          before.HasSnapshotPrefix,
-		"compact_triggered":            compactTriggered,
-		"estimated_trim_weight_before": before.EstimatedTrimWeight,
-		"estimated_trim_weight_after":  after.EstimatedTrimWeight,
-		"estimated_text_tokens_before": before.EstimatedTextTokens,
-		"estimated_text_tokens_after":  after.EstimatedTextTokens,
+		"op":                            "group_trim",
+		"phase":                         "completed",
+		"max_tokens":                    maxTokens,
+		"messages_before":               before.MessageCount,
+		"messages_after":                after.MessageCount,
+		"kept_count":                    after.RealMessageCount,
+		"dropped_count":                 droppedCount,
+		"has_snapshot_prefix":           before.HasSnapshotPrefix,
+		"compact_triggered":             compactTriggered,
+		"estimated_trim_weight_before":  before.EstimatedTrimWeight,
+		"estimated_trim_weight_after":   after.EstimatedTrimWeight,
+		"estimated_text_tokens_before":  before.EstimatedTextTokens,
+		"estimated_text_tokens_after":   after.EstimatedTextTokens,
 		"estimated_image_tokens_before": before.EstimatedImageTokens,
 		"estimated_image_tokens_after":  after.EstimatedImageTokens,
 	}
