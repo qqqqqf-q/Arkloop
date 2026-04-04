@@ -141,6 +141,28 @@ func TestAutoMigrate(t *testing.T) {
 	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_events", "sub_agents", "runs")
 	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_pending_inputs", "sub_agents")
 	assertSQLiteForeignKeyTargets(t, ctx, pool, "sub_agent_context_snapshots", "sub_agents")
+
+	// PRAGMA foreign_key_check must return zero violations after all migrations.
+	rows, fkErr := pool.Query(ctx, "PRAGMA foreign_key_check")
+	if fkErr != nil {
+		t.Fatalf("foreign_key_check: %v", fkErr)
+	}
+	defer rows.Close()
+	var fkViolations []string
+	for rows.Next() {
+		var table, rowid, parent string
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			t.Fatalf("foreign_key_check scan: %v", err)
+		}
+		fkViolations = append(fkViolations, fmt.Sprintf("%s(rowid=%s)->%s(fk=%d)", table, rowid, parent, fkid))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("foreign_key_check rows: %v", err)
+	}
+	if len(fkViolations) > 0 {
+		t.Fatalf("foreign key violations after migration: %v", fkViolations)
+	}
 }
 
 func TestMigrations_UpDown(t *testing.T) {

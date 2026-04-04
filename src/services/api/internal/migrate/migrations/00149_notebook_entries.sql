@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE notebook_entries (
     id         UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
     account_id UUID NOT NULL,
@@ -16,8 +17,7 @@ CREATE INDEX idx_notebook_entries_user
 CREATE INDEX idx_notebook_entries_scope
     ON notebook_entries (account_id, user_id, agent_id, scope);
 
----- create above / drop below ----
-
+-- +goose Down
 DROP INDEX IF EXISTS idx_notebook_entries_scope;
 DROP INDEX IF EXISTS idx_notebook_entries_user;
 DROP TABLE IF EXISTS notebook_entries;

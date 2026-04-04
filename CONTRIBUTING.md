@@ -187,6 +187,50 @@ Use `quick` before routine commits, `integration` after database or pipeline cha
 `quick` installs frontend dependencies automatically, so the first run can take longer.
 `bin/ci-local act go-integration` is not recommended right now; use `bin/ci-local integration` for local integration checks.
 
+### Database Migrations
+
+Arkloop uses [goose](https://github.com/pressly/goose) for schema migrations in both PostgreSQL and SQLite.
+
+**File locations:**
+
+- PostgreSQL: `src/services/api/internal/migrate/migrations/`
+- SQLite (Desktop): `src/services/shared/database/sqliteadapter/migrations/`
+
+**Schema snapshots** are committed at `docs/schema/sqlite.sql` and `docs/schema/postgres.sql`. Update them after adding migrations:
+
+```bash
+SCHEMA_DUMP_PATH=docs/schema/sqlite.sql go test -tags desktop -run TestDumpSchema ./database/sqliteadapter/ -count=1
+```
+
+**Naming and numbering:**
+
+- Filenames: `NNNNN_short_description.sql` (five-digit zero-padded number)
+- Numbers must be globally unique within each directory. CI rejects duplicates.
+- Use `-- +goose Up` / `-- +goose Down` markers (no alternative formats)
+- Indexes: `idx_<table>_<columns>` prefix
+- Constraints: explicit `CONSTRAINT <name>` form, no anonymous constraints
+- Timestamps: `TIMESTAMPTZ` (PostgreSQL), `TEXT` with `datetime('now')` (SQLite)
+
+**Dual-write rule:**
+
+If a PG migration adds/removes columns, indexes, or constraints, a corresponding SQLite migration must be created in the same PR. Exceptions: PG-only features (partitions, `pg_notify`, etc.).
+
+**SQLite table rebuild:**
+
+SQLite `ALTER TABLE` is limited. Rebuilding a table via DROP + CREATE + INSERT requires:
+
+1. Wrap in `PRAGMA foreign_keys = OFF` / `ON`
+2. After rebuilding, check all tables that reference the rebuilt table. If their foreign keys point to the old (now dropped) table, rebuild those tables too.
+3. The runtime `PRAGMA foreign_key_check` after `Up()` will catch any missed references.
+
+**Review checklist for migration PRs:**
+
+- [ ] Number is unique (check both PG and SQLite directories)
+- [ ] Uses `-- +goose Up` / `-- +goose Down` format
+- [ ] SQLite counterpart included (if applicable)
+- [ ] No "fix the previous migration" pattern -- get the design right in one migration
+- [ ] `Down` section reverses the `Up` section (or documents why it cannot)
+
 ## Trademark Usage
 
 The Arkloop name, logo, and brand assets are trademarks of The Arkloop Authors.

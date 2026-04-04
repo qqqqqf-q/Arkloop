@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -535,7 +536,13 @@ func (w *eventWriter) commit(ctx context.Context) error {
 				continue
 			}
 			if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil, nil); err != nil {
-				_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
+				if markErr := w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job"); markErr != nil {
+					slog.Error("mark_child_run_failed",
+						"run_id", nextRunID.String(),
+						"enqueue_error", err.Error(),
+						"mark_error", markErr.Error(),
+					)
+				}
 			}
 		}
 		w.pendingEnqueueRunIDs = nil

@@ -3,6 +3,7 @@ package conversationapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -145,19 +146,19 @@ func createThread(
 
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		defer tx.Rollback(r.Context()) //nolint:errcheck
 
 		txProjectRepo, err := data.NewProjectRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		txThreadRepo, err := data.NewThreadRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -165,7 +166,7 @@ func createThread(
 		if body.ProjectID.Present {
 			project, err := txProjectRepo.GetByID(r.Context(), *body.ProjectID.Value)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			if project == nil || project.AccountID != actor.AccountID {
@@ -176,7 +177,7 @@ func createThread(
 		} else {
 			project, err := txProjectRepo.GetOrCreateDefaultByOwner(r.Context(), actor.AccountID, actor.UserID)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			projectID = project.ID
@@ -184,11 +185,11 @@ func createThread(
 
 		thread, err := txThreadRepo.Create(r.Context(), actor.AccountID, &actor.UserID, projectID, body.Title, body.IsPrivate)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if err := tx.Commit(r.Context()); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -246,7 +247,7 @@ func listThreads(
 			beforeID,
 		)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -288,7 +289,7 @@ func getThread(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -361,7 +362,7 @@ func patchThread(
 		if isTitleOnlyThreadUpdate(body) {
 			updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.AccountID, actor.UserID, params)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			if updated != nil {
@@ -372,7 +373,7 @@ func patchThread(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -392,7 +393,7 @@ func patchThread(
 			}
 			project, err := projectRepo.GetByID(r.Context(), *body.ProjectID.Value)
 			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				writeInternalError(w, traceID, err)
 				return
 			}
 			if project == nil || project.AccountID != actor.AccountID {
@@ -405,7 +406,7 @@ func patchThread(
 		// 用户手动设置标题时同时锁定，防止 Worker 自动标题覆盖
 		updated, err := threadRepo.UpdateFieldsOwned(r.Context(), threadID, actor.AccountID, actor.UserID, params)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if updated == nil {
@@ -447,7 +448,7 @@ func deleteThread(
 
 		deleted, err := threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.AccountID, actor.UserID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if deleted != nil {
@@ -461,7 +462,7 @@ func deleteThread(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -475,7 +476,7 @@ func deleteThread(
 
 		deleted, err = threadRepo.DeleteOwnedReturning(r.Context(), threadID, actor.AccountID, actor.UserID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if deleted == nil {
@@ -564,7 +565,7 @@ func searchThreads(
 
 		threads, err := threadRepo.SearchByQuery(r.Context(), actor.AccountID, actor.UserID, q, limit)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -637,7 +638,7 @@ func forkThread(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -651,19 +652,19 @@ func forkThread(
 
 		tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		defer tx.Rollback(r.Context()) //nolint:errcheck
 
 		txThreadRepo, err := data.NewThreadRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		txMessageRepo, err := data.NewMessageRepository(tx)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -674,13 +675,13 @@ func forkThread(
 
 		forked, err := txThreadRepo.Fork(r.Context(), actor.AccountID, &actor.UserID, threadID, messageID, isPrivate)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
 		copied, err := txMessageRepo.CopyUpTo(r.Context(), actor.AccountID, threadID, forked.ID, messageID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if len(copied) == 0 {
@@ -689,7 +690,7 @@ func forkThread(
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -855,7 +856,7 @@ func authorizeThreadOrAudit(
 	auditWriter *audit.Writer,
 ) bool {
 	if actor == nil || thread == nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		writeInternalError(w, traceID, errors.New("nil actor or thread in authorize"))
 		return false
 	}
 
@@ -908,7 +909,7 @@ func authorizeThreadReadOrAudit(
 	auditWriter *audit.Writer,
 ) bool {
 	if actor == nil || thread == nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		writeInternalError(w, traceID, errors.New("nil actor or thread in authorize"))
 		return false
 	}
 
@@ -930,7 +931,7 @@ func authorizeThreadReadOrAudit(
 	if thread.ProjectID != nil && projectRepo != nil {
 		project, err := projectRepo.GetByID(r.Context(), *thread.ProjectID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return false
 		}
 		if project != nil {
@@ -941,7 +942,7 @@ func authorizeThreadReadOrAudit(
 				if project.TeamID != nil && teamRepo != nil {
 					isMember, err := teamRepo.IsMember(r.Context(), *project.TeamID, actor.UserID)
 					if err != nil {
-						httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+						writeInternalError(w, traceID, err)
 						return false
 					}
 					if isMember {
@@ -1034,7 +1035,7 @@ func handleThreadStar(
 
 	thread, err := threadRepo.GetByID(r.Context(), threadID)
 	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		writeInternalError(w, traceID, err)
 		return
 	}
 	if thread == nil {
@@ -1048,12 +1049,12 @@ func handleThreadStar(
 
 	if r.Method == nethttp.MethodPost {
 		if err := threadStarRepo.Star(r.Context(), actor.UserID, threadID); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 	} else {
 		if err := threadStarRepo.Unstar(r.Context(), actor.UserID, threadID); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 	}
@@ -1091,7 +1092,7 @@ func listStarredThreads(
 
 		ids, err := threadStarRepo.ListByUser(r.Context(), actor.UserID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 

@@ -1207,6 +1207,9 @@ func desktopTelegramReplyReference(rc *pipeline.RunContext) *pipeline.ChannelMes
 	if rc == nil || rc.ChannelContext == nil {
 		return nil
 	}
+	if rc.ChannelReplyOverride != nil {
+		return rc.ChannelReplyOverride
+	}
 	if rc.HeartbeatRun {
 		return nil
 	}
@@ -1833,7 +1836,12 @@ func desktopAgentLoop(
 				"error_class": "internal.error",
 				"message":     fmt.Sprintf("build executor %q: %s", executorType, err),
 			}, nil, pipeline.StringPtr("internal.error"))
-			_ = w.append(ctx, rc.Run.ID, failed, "")
+			if appendErr := w.append(ctx, rc.Run.ID, failed, ""); appendErr != nil {
+				slog.Error("desktop_append_run_failed",
+					"run_id", rc.Run.ID.String(),
+					"error", appendErr.Error(),
+				)
+			}
 			rc.ChannelTerminalNotice = strings.TrimSpace(w.terminalUserMessage)
 			return nil
 		}
@@ -1909,6 +1917,7 @@ type desktopEventWriter struct {
 	visibleAssistantText     string
 	visibleAssistantTexts    []string
 	toolDeliveredTexts       []string
+	pendingReplyOverride     string
 	draftVisibleContent      string
 	draftUseVisible          bool
 }
@@ -1941,7 +1950,12 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	}
 
 	if ev.Type == "run.route.selected" && personaID != "" {
-		_ = w.runsRepo.UpdateRunMetadata(ctx, tx, runID, w.model, personaID)
+		if err := w.runsRepo.UpdateRunMetadata(ctx, tx, runID, w.model, personaID); err != nil {
+			slog.Error("desktop_update_run_metadata",
+				"run_id", runID.String(),
+				"error", err.Error(),
+			)
+		}
 	}
 
 	cancelTypes := []string{"run.cancel_requested", "run.cancelled"}
@@ -2172,19 +2186,23 @@ func (w *desktopEventWriter) captureChannelToolCallOutput(dataJSON map[string]an
 		return
 	}
 
-	var text string
 	switch strings.TrimSpace(toolName) {
 	case "telegram_reply":
-		text, _ = args["text"].(string)
-	case "telegram_send_file":
-		text, _ = args["caption"].(string)
-		if strings.TrimSpace(text) == "" {
-			text, _ = args["text"].(string)
+		if mid, _ := args["reply_to_message_id"].(string); strings.TrimSpace(mid) != "" {
+			w.pendingReplyOverride = strings.TrimSpace(mid)
 		}
+		return
+	case "telegram_send_file":
+		// send_file 仍然是立即发送工具，保留 delivered text 捕获
 	default:
 		return
 	}
 
+	var text string
+	text, _ = args["caption"].(string)
+	if strings.TrimSpace(text) == "" {
+		text, _ = args["text"].(string)
+	}
 	if trimmed := strings.TrimSpace(text); trimmed != "" {
 		w.toolDeliveredTexts = append(w.toolDeliveredTexts, trimmed)
 		if strings.TrimSpace(w.visibleAssistantText) == "" {
@@ -2266,7 +2284,13 @@ func (w *desktopEventWriter) enqueueProjectedRuns(ctx context.Context, runIDs []
 			continue
 		}
 		if err := w.projector.EnqueueRun(ctx, w.run.AccountID, nextRunID, w.traceID, nil, nil); err != nil {
-			_ = w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job")
+			if markErr := w.projector.MarkRunFailed(context.Background(), nextRunID, "failed to enqueue child run job"); markErr != nil {
+				slog.Error("desktop_mark_child_run_failed",
+					"run_id", nextRunID.String(),
+					"enqueue_error", err.Error(),
+					"mark_error", markErr.Error(),
+				)
+			}
 		}
 	}
 }
@@ -2420,6 +2444,11 @@ func desktopPersistFinalAssistantOutput(
 		rc.FinalAssistantOutputs = w.visibleAssistantOutputs()
 		rc.TelegramStreamDeliveryRemainder = w.telegramStreamRemainder()
 		rc.ChannelOutputDelivered = len(w.toolDeliveredTexts) > 0
+		if w.pendingReplyOverride != "" {
+			rc.ChannelReplyOverride = &pipeline.ChannelMessageRef{
+				MessageID: w.pendingReplyOverride,
+			}
+		}
 	}
 	return nil
 }

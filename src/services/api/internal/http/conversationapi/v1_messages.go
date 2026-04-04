@@ -75,7 +75,7 @@ func createThreadMessage(
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
 			slog.Error("createThreadMessage: GetByID failed", "thread_id", threadID, "error", err)
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -94,7 +94,7 @@ func createThreadMessage(
 		contentJSON, err = migrateStagingAttachments(r.Context(), store, contentJSON, thread.AccountID, threadID)
 		if err != nil {
 			slog.Error("createThreadMessage: staging migration failed", "thread_id", threadID, "error", err)
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
@@ -110,7 +110,7 @@ func createThreadMessage(
 				httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 				return
 			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, internalErrorDetails(err))
+			writeInternalError(w, traceID, err)
 			return
 		}
 		slog.Debug("createThreadMessage: success", "message_id", message.ID)
@@ -159,7 +159,7 @@ func listThreadMessages(
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 		if thread == nil {
@@ -173,7 +173,7 @@ func listThreadMessages(
 
 		messages, err := messageRepo.ListByThread(r.Context(), actor.AccountID, threadID, limit)
 		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			writeInternalError(w, traceID, err)
 			return
 		}
 
