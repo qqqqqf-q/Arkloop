@@ -740,7 +740,7 @@ export const zh: LocaleStrings = {
     connection: "连接",
     chat: "Context",
     voice: "语音",
-    promptInjection: "注入防护",
+    promptInjection: "Safety",
     extensions: "扩展",
     developer: "开发者",
     appearance: "外观",

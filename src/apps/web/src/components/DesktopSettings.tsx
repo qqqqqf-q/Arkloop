@@ -17,6 +17,7 @@ import {
   Wrench,
   Code2,
   Loader2,
+  Shield,
 } from "lucide-react";
 import { getDesktopApi } from "@arkloop/shared/desktop";
 import type { MeResponse } from "../api";
@@ -83,11 +84,12 @@ const NAV_ENTRIES: NavEntry[] = [
   { key: "channels",   icon: Radio },
   // 第二段：agent 核心组件（英文专有名词区）
   { header: "agentCoreHeader" },
-  { key: "skills",     icon: Puzzle },
-  { key: "mcp",        icon: Server },
-  { key: "notebook",   icon: Brain },
-  { key: "memory",     icon: Database },
-  { key: "chat",       icon: MessageSquare },
+  { key: "skills",           icon: Puzzle },
+  { key: "mcp",              icon: Server },
+  { key: "notebook",         icon: Brain },
+  { key: "memory",           icon: Database },
+  { key: "chat",             icon: MessageSquare },
+  { key: "promptInjection",  icon: Shield },
   // 第三段：低频管理
   { header: "managementHeader" },
   { key: "tools",      icon: Wrench },

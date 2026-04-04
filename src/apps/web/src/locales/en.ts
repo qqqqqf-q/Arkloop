@@ -750,7 +750,7 @@ export const en: LocaleStrings = {
     connection: "Connection",
     chat: "Context",
     voice: "Voice",
-    promptInjection: "Prompt Injection",
+    promptInjection: "Safety",
     extensions: "Extensions",
     developer: "Developer",
     appearance: "Appearance",
