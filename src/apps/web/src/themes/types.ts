@@ -77,18 +77,18 @@ export type ThemeColorVars = {
   '--c-input-border-color': string
   '--c-input-border-color-hover': string
   '--c-input-border-color-focus': string
-  // Mode switch & Claw
+  // Mode switch & Work
   '--c-mode-switch-track': string
   '--c-mode-switch-border': string
   '--c-mode-switch-pill': string
   '--c-mode-switch-active-text': string
   '--c-mode-switch-inactive-text': string
-  '--c-claw-card-border': string
-  '--c-claw-card-hover': string
-  '--c-claw-step-pending': string
-  '--c-claw-step-line': string
-  '--c-claw-file-bg': string
-  '--c-claw-file-border': string
+  '--c-work-card-border': string
+  '--c-work-card-hover': string
+  '--c-work-step-pending': string
+  '--c-work-step-line': string
+  '--c-work-file-bg': string
+  '--c-work-file-border': string
   '--c-chip-active-bg': string
   '--c-chip-active-text': string
 }
@@ -139,7 +139,7 @@ export const COLOR_GROUPS: ColorGroup[] = [
     vars: ['--c-input-border-color', '--c-input-border-color-hover', '--c-input-border-color-focus'],
   },
   {
-    key: 'claw',
-    vars: ['--c-mode-switch-track', '--c-mode-switch-border', '--c-mode-switch-pill', '--c-mode-switch-active-text', '--c-mode-switch-inactive-text', '--c-claw-card-border', '--c-claw-card-hover', '--c-claw-file-bg', '--c-claw-file-border', '--c-claw-step-pending', '--c-claw-step-line'],
+    key: 'work',
+    vars: ['--c-mode-switch-track', '--c-mode-switch-border', '--c-mode-switch-pill', '--c-mode-switch-active-text', '--c-mode-switch-inactive-text', '--c-work-card-border', '--c-work-card-hover', '--c-work-file-bg', '--c-work-file-border', '--c-work-step-pending', '--c-work-step-line'],
   },
 ]

@@ -140,7 +140,7 @@ func handleShareGet(
 		httpkit.WriteError(w, nethttp.StatusNotFound, "shares.not_found", "share not found", traceID, nil)
 		return
 	}
-	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
+	if !featuregate.EnsureWorkEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return
 	}
 
@@ -221,7 +221,7 @@ func handleShareVerify(
 		httpkit.WriteError(w, nethttp.StatusNotFound, "shares.not_found", "share not found", traceID, nil)
 		return
 	}
-	if !featuregate.EnsureClawEnabledForThread(w, traceID, r.Context(), thread, flagService) {
+	if !featuregate.EnsureWorkEnabledForThread(w, traceID, r.Context(), thread, flagService) {
 		return
 	}
 

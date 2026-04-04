@@ -272,12 +272,12 @@ func TestProjectWorkspaceRequiresClawFlag(t *testing.T) {
 	env := buildArtifactEnv(t)
 	project := mustCreateTestProject(t, context.Background(), env.pool, env.aliceAccountID, &env.aliceUserID, "project-workspace-flag")
 
-	if _, err := env.featureFlagsRepo.UpdateFlagDefaultValue(context.Background(), featureflag.ClawEnabledKey, false); err != nil {
-		t.Fatalf("disable claw flag: %v", err)
+	if _, err := env.featureFlagsRepo.UpdateFlagDefaultValue(context.Background(), featureflag.WorkEnabledKey, false); err != nil {
+		t.Fatalf("disable work flag: %v", err)
 	}
 
 	resp := doArtifactRequest(t, env.handler, "/v1/projects/"+project.ID.String()+"/workspace", authHeader(env.aliceToken))
-	assertErrorEnvelope(t, resp, 403, "feature_flags.claw_disabled")
+	assertErrorEnvelope(t, resp, 403, "feature_flags.work_disabled")
 }
 
 func TestProjectWorkspaceMissingDefaultSessionStaysIdleAndReadsFiles(t *testing.T) {

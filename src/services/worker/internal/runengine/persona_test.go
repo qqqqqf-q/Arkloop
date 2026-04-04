@@ -107,8 +107,8 @@ func TestEngineV1InjectsPersonaSystemPromptAndBudgets(t *testing.T) {
 	}
 }
 
-func TestEngineV1AppliesClawPersonaPromptAndToolAllowlist(t *testing.T) {
-	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_claw_persona")
+func TestEngineV1AppliesWorkPersonaPromptAndToolAllowlist(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_wg09_work_persona")
 	pool, err := pgxpool.New(context.Background(), db.DSN)
 	if err != nil {
 		t.Fatalf("pgxpool.New failed: %v", err)
@@ -119,7 +119,7 @@ func TestEngineV1AppliesClawPersonaPromptAndToolAllowlist(t *testing.T) {
 	threadID := uuid.New()
 	runID := uuid.New()
 
-	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "claw@1"); err != nil {
+	if err := seedRunStartedWithPersona(t, pool, orgID, threadID, runID, "work@1"); err != nil {
 		t.Fatalf("seed run failed: %v", err)
 	}
 
@@ -169,8 +169,8 @@ func TestEngineV1AppliesClawPersonaPromptAndToolAllowlist(t *testing.T) {
 		t.Fatalf("expected system prompt injected")
 	}
 	systemPrompt := gateway.request.Messages[0].Content[0].Text
-	if !strings.Contains(systemPrompt, "Claw 模式") {
-		t.Fatalf("expected claw system prompt, got %q", systemPrompt)
+	if !strings.Contains(systemPrompt, "Work 模式") {
+		t.Fatalf("expected work system prompt, got %q", systemPrompt)
 	}
 	if gateway.request.MaxOutputTokens == nil || *gateway.request.MaxOutputTokens != 12288 {
 		t.Fatalf("expected max_output_tokens 12288, got %v", gateway.request.MaxOutputTokens)

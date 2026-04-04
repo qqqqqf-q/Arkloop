@@ -1,0 +1,28 @@
+id: work
+version: "1"
+title: Work
+description: 面向多步任务执行的自主 Agent 模式。
+soul_file: soul.md
+user_selectable: false
+selector_name: Work
+selector_order: 1
+core_tools:
+    - load_skill
+    - timeline_title
+    - ask_user
+    - read
+    - todo_write
+    - web_search
+    - web_fetch
+    - python_execute
+    - exec_command
+    - document_write
+    - memory_search
+    - notebook_write
+budgets:
+    reasoning_iterations: 99999
+    temperature: 0.8
+reasoning_mode: auto
+prompt_cache_control: none
+executor_type: agent.simple
+allow_platform_delegation: true

@@ -299,7 +299,7 @@ type meResponse struct {
 	Email                     *string  `json:"email,omitempty"`
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
-	ClawEnabled               bool     `json:"claw_enabled"`
+	WorkEnabled               bool     `json:"work_enabled"`
 	CreatedAt                 string   `json:"created_at"`
 	AccountID                 string   `json:"account_id,omitempty"`
 	AccountName               string   `json:"account_name,omitempty"`
@@ -702,17 +702,17 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 			}
 
 			emailVerifyRequired := false
-			clawEnabled := false
-			if flagService != nil {
-				emailVerifyRequired, _ = flagService.IsGloballyEnabled(r.Context(), "auth.require_email_verification")
-				clawEnabled = featureflag.IsClawEnabled(r.Context(), flagService)
-			}
-			resp := meResponse{
-				ID:                        user.ID.String(),
-				Email:                     user.Email,
-				EmailVerified:             user.EmailVerifiedAt != nil,
-				EmailVerificationRequired: emailVerifyRequired,
-				ClawEnabled:               clawEnabled,
+		workEnabled := false
+		if flagService != nil {
+			emailVerifyRequired, _ = flagService.IsGloballyEnabled(r.Context(), "auth.require_email_verification")
+			workEnabled = featureflag.IsWorkEnabled(r.Context(), flagService)
+		}
+		resp := meResponse{
+			ID:                        user.ID.String(),
+			Email:                     user.Email,
+			EmailVerified:             user.EmailVerifiedAt != nil,
+			EmailVerificationRequired: emailVerifyRequired,
+			WorkEnabled:               workEnabled,
 				CreatedAt:                 user.CreatedAt.UTC().Format(time.RFC3339Nano),
 				AccountID:                 membership.AccountID.String(),
 				Role:                      membership.Role,

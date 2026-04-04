@@ -57,7 +57,7 @@ export const en: LocaleStrings = {
   colorGroupCode: "Code",
   colorGroupInteractive: "Interactive",
   colorGroupInput: "Input",
-  colorGroupClaw: "Claw",
+  colorGroupWork: "Work",
   editColors: "Edit colors",
   resetToDefault: "Reset to default",
   saveAsCustom: "Save as...",
@@ -322,11 +322,11 @@ export const en: LocaleStrings = {
   incognitoForkDivider:
     "From this point on, messages will not be saved and will be permanently deleted within 24 hours.",
   modeChat: "Chat",
-  modeClaw: "Claw",
+  modeWork: "Work",
   newTask: "New task",
   tasks: "Tasks",
   tasksEmpty: "No tasks yet",
-  clawGreeting: "What's on the agenda?",
+  workGreeting: "What's on the agenda?",
   starThread: "Star",
   unstarThread: "Unstar",
   shareThread: "Share",
@@ -609,7 +609,7 @@ export const en: LocaleStrings = {
     searchPlaceholder: 'Search...',
     moreModels: 'More models',
   },
-  claw: {
+  work: {
     progress: 'Progress',
     progressEmpty: 'See task progress for longer tasks.',
     workingFolder: 'Working folder',

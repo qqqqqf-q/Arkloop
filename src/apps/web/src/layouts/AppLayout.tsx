@@ -170,7 +170,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
     window.history.pushState({ searchMode: true }, '', next)
   }, [usesHashRouting])
 
-  const availableAppModes: AppMode[] = (desktop || me?.claw_enabled !== false) ? ['chat', 'claw'] : ['chat']
+  const availableAppModes: AppMode[] = (desktop || me?.work_enabled !== false) ? ['chat', 'work'] : ['chat']
 
   const handleSetAppMode = useCallback((mode: AppMode) => {
     writeAppModeToStorage(mode)
@@ -594,7 +594,7 @@ export function AppLayout({ accessToken, onLoggedOut }: Props) {
           appMode={appMode}
           onSetAppMode={handleSetAppMode}
           availableModes={availableAppModes}
-          showIncognitoToggle={appMode !== 'claw'}
+          showIncognitoToggle={appMode !== 'work'}
           isPrivateMode={titleBarIncognitoActive}
           onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
         />

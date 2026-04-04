@@ -7,7 +7,7 @@ import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { DebugTrigger } from '@arkloop/shared'
 import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError, type ThreadResponse, type MeResponse } from '../api'
-import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalClawFolderToThread, readClawWorkFolder, readDeveloperShowDebugPanel } from '../storage'
+import { writeActiveThreadIdToStorage, addSearchThreadId, SEARCH_PERSONA_KEY, transferGlobalWorkFolderToThread, readWorkFolder, readDeveloperShowDebugPanel } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 import { buildMessageRequest } from '../messageContent'
 
@@ -280,7 +280,7 @@ export function WelcomePage() {
         }),
       )
       const userMessage = await createMessage(accessToken, thread.id, buildMessageRequest(text, uploaded))
-      const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readClawWorkFolder() ?? undefined)
+      const run = await createRun(accessToken, thread.id, personaKey, modelOverride, readWorkFolder() ?? undefined)
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
       attachments.forEach((attachment) => revokeDraftAttachment(attachment))
@@ -288,7 +288,7 @@ export function WelcomePage() {
       setAttachments([])
       refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
-      if (appMode === 'claw') transferGlobalClawFolderToThread(thread.id)
+      if (appMode === 'work') transferGlobalWorkFolderToThread(thread.id)
       onThreadCreated(thread)
       navigate(`/t/${thread.id}`, {
         state: {
@@ -336,7 +336,7 @@ export function WelcomePage() {
       <div
         className="flex flex-1 flex-col items-center px-5"
         style={{
-          paddingTop: appMode === 'claw' ? '32vh' : '27vh',
+          paddingTop: appMode === 'work' ? '32vh' : '27vh',
           transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
@@ -346,10 +346,10 @@ export function WelcomePage() {
           <h2
             className="relative whitespace-nowrap text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: (isSearchMode || appMode === 'claw') ? 0 : 1,
-              transform: (isSearchMode || appMode === 'claw') ? 'translateY(-6px)' : 'translateY(0)',
+              opacity: (isSearchMode || appMode === 'work') ? 0 : 1,
+              transform: (isSearchMode || appMode === 'work') ? 'translateY(-6px)' : 'translateY(0)',
               transition: 'opacity 0.22s ease, transform 0.24s ease',
-              pointerEvents: (isSearchMode || appMode === 'claw') ? 'none' : 'auto',
+              pointerEvents: (isSearchMode || appMode === 'work') ? 'none' : 'auto',
             }}
           >
             <span className="invisible select-none" aria-hidden="true">
@@ -372,18 +372,18 @@ export function WelcomePage() {
           >
             Search for everything
           </h2>
-          {/* Claw 模式欢迎语 */}
+          {/* Work 模式欢迎语 */}
           <h2
             className="absolute text-[40px] font-normal tracking-[-0.5px] text-[var(--c-text-heading)]"
             style={{
-              opacity: appMode === 'claw' && !isSearchMode ? 1 : 0,
-              transform: appMode === 'claw' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
+              opacity: appMode === 'work' && !isSearchMode ? 1 : 0,
+              transform: appMode === 'work' && !isSearchMode ? 'translateY(0)' : 'translateY(6px)',
               transition: 'opacity 0.22s ease, transform 0.24s ease',
-              pointerEvents: appMode === 'claw' && !isSearchMode ? 'auto' : 'none',
+              pointerEvents: appMode === 'work' && !isSearchMode ? 'auto' : 'none',
               whiteSpace: 'nowrap',
             }}
           >
-            {t.clawGreeting}
+            {t.workGreeting}
           </h2>
         </div>
 

@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { ClawRightPanel } from '../components/ClawRightPanel'
+import { WorkRightPanel } from '../components/WorkRightPanel'
 import { LocaleProvider } from '../contexts/LocaleContext'
 
 function flushMicrotasks(): Promise<void> {
@@ -11,7 +11,7 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
 }
 
-describe('ClawRightPanel', () => {
+describe('WorkRightPanel', () => {
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 
@@ -35,7 +35,7 @@ describe('ClawRightPanel', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <ClawRightPanel />
+          <WorkRightPanel />
         </LocaleProvider>,
       )
     })
@@ -59,7 +59,7 @@ describe('ClawRightPanel', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <ClawRightPanel
+          <WorkRightPanel
             steps={[
               { id: '1', label: '步骤一', status: 'done' },
               { id: '2', label: '步骤二', status: 'pending' },
@@ -92,7 +92,7 @@ describe('ClawRightPanel', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <ClawRightPanel connectors={[{ name: 'Web 搜索', icon: 'globe' }]} />
+          <WorkRightPanel connectors={[{ name: 'Web 搜索', icon: 'globe' }]} />
         </LocaleProvider>,
       )
     })

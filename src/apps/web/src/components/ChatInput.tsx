@@ -58,7 +58,7 @@ type Props = {
   onOpenSettings?: (tab: SettingsTab) => void
   appMode?: AppMode
   hasMessages?: boolean
-  clawThreadId?: string
+  workThreadId?: string
 }
 
 function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
@@ -109,7 +109,7 @@ export function ChatInput({
   onOpenSettings,
   appMode,
   hasMessages,
-  clawThreadId,
+  workThreadId,
 }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -501,7 +501,7 @@ export function ChatInput({
             variant={variant}
             appMode={appMode}
             threadHasMessages={hasMessages}
-            clawThreadId={clawThreadId}
+            workThreadId={workThreadId}
           />
 
           {/* mic + send 共用同一位置，disabled 时显示 spinner */}

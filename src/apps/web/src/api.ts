@@ -71,7 +71,7 @@ export type MeResponse = {
   email?: string
   email_verified: boolean
   email_verification_required: boolean
-  claw_enabled: boolean
+  work_enabled: boolean
 }
 
 export type SkillReference = {
@@ -506,7 +506,7 @@ export type CreateThreadRequest = {
   project_id?: string
 }
 
-export type ThreadMode = 'chat' | 'claw'
+export type ThreadMode = 'chat' | 'work'
 
 export type ThreadResponse = {
   id: string

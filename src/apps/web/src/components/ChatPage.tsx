@@ -28,7 +28,7 @@ import { ModeSwitch } from './ModeSwitch'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
 import { DocumentPanel } from './DocumentPanel'
-import { ClawRightPanel } from './ClawRightPanel'
+import { WorkRightPanel } from './WorkRightPanel'
 import { useSSE } from '../hooks/useSSE'
 import { SSEApiError } from '../sse'
 import { getInjectionBlockMessage, shouldSuppressLiveRunEventAfterInjectionBlock } from '../liveRunSecurity'
@@ -150,14 +150,14 @@ import {
   writeMsgRunEvents,
   type MsgRunEvent,
   type ThreadRunHandoffRef,
-  readThreadClawFolder,
+  readThreadWorkFolder,
 } from '../storage'
 
 const sidePanelWidth = 360
 const documentPanelWidth = 560
 const completedRunSseTailMs = 8000
 const chatContentPadding = { panelClosed: '60px', panelOpen: '40px' } as const
-const chatInputPadding = { panelClosed: '60px', panelOpen: '40px', claw: '14px' } as const
+const chatInputPadding = { panelClosed: '60px', panelOpen: '40px', work: '14px' } as const
 
 const TERMINAL_RUN_EVENT_TYPES = new Set([
   'run.completed',
@@ -1095,8 +1095,8 @@ export function ChatPage() {
   // segment 外的顶层代码执行（Ultra/Pro 模式，无 segment 包裹）
   const [topLevelCodeExecutions, setTopLevelCodeExecutions] = useState<CodeExecution[]>([])
 
-  // --- Claw todo 进度 ---
-  const [clawTodos, setClawTodos] = useState<Array<{ id: string; content: string; status: string }>>([])
+  // --- Work todo 进度 ---
+  const [workTodos, setWorkTodos] = useState<Array<{ id: string; content: string; status: string }>>([])
 
   // --- 开发者调试 ---
   const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
@@ -1623,7 +1623,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
   const prevActiveRunIdRef = useRef<string | null>(null)
   useEffect(() => {
     if (activeRunId && activeRunId !== prevActiveRunIdRef.current) {
-      setClawTodos([])
+      setWorkTodos([])
     }
     prevActiveRunIdRef.current = activeRunId
   }, [activeRunId])
@@ -1704,7 +1704,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
       setUserEnterMessageId(message.id)
       setMessages((prev) => [...prev, message])
       noResponseMsgIdRef.current = message.id
-      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
+      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
       resetSearchSteps()
       setActiveRunId(run.run_id)
@@ -2402,7 +2402,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
             if (typeof item.id !== 'string' || typeof item.content !== 'string' || typeof item.status !== 'string') return []
             return [{ id: item.id, content: item.content, status: item.status }]
           })
-          setClawTodos(items)
+          setWorkTodos(items)
         }
         continue
       }
@@ -3197,7 +3197,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
         onThreadCreated(forked)
         const uploaded = await uploadAttachments()
         const forkUserMessage = await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
-        const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
+        const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         setDraft('')
@@ -3256,7 +3256,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = message.id
 
-        const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadClawFolder(threadId) ?? undefined)
+        const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
         resetSearchSteps()
         setActiveRunId(run.run_id)
@@ -3922,7 +3922,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
             <ModeSwitch
               mode={appMode}
               onChange={onSetAppMode}
-              labels={{ chat: t.modeChat, claw: t.modeClaw }}
+              labels={{ chat: t.modeChat, work: t.modeWork }}
               availableModes={availableAppModes}
             />
           )}
@@ -4235,7 +4235,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
 
       {/* 输入区域 */}
       <div
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'claw' ? chatInputPadding.claw : isPanelOpen ? chatInputPadding.panelOpen : chatInputPadding.panelClosed} ${appMode === 'claw' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'work' ? chatInputPadding.work : isPanelOpen ? chatInputPadding.panelOpen : chatInputPadding.panelClosed} ${appMode === 'work' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
@@ -4324,7 +4324,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
             onOpenSettings={onOpenSettings}
             appMode={appMode}
             hasMessages={messages.length > 0}
-            clawThreadId={threadId}
+            workThreadId={threadId}
             />
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '11px', letterSpacing: '-0.3px', textAlign: 'center', marginBottom: 0, marginTop: '-2px' }}>
@@ -4334,7 +4334,7 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
 
         </div>
         {/* 右侧面板：flex 兄弟节点；chat 模式下用 motion 驱动 width，避免嵌套 flex + CSS transition 偶发不插值 */}
-        {appMode === 'claw' ? (
+        {appMode === 'work' ? (
           <div
             style={{
               width: '300px',
@@ -4342,10 +4342,10 @@ function buildStreamingArtifactsFromHandoff(handoff: ThreadRunHandoffRef): Strea
               overflow: 'hidden',
             }}
           >
-            <ClawRightPanel
+            <WorkRightPanel
               accessToken={accessToken}
               projectId={currentThread?.project_id || undefined}
-              steps={clawTodos.map((td) => ({
+              steps={workTodos.map((td) => ({
                 id: td.id,
                 label: td.content,
                 status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',

@@ -200,7 +200,7 @@ export function Sidebar({
   suppressActiveThreadHighlight,
   beforeNavigateToThread,
 }: Props) {
-  const isClawMode = appMode === 'claw'
+  const isWorkMode = appMode === 'work'
   const navigate = useNavigate()
   const location = useLocation()
   const { threadId } = useParams<{ threadId: string }>()
@@ -426,7 +426,7 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.newTask : t.newChat}</span>
+          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.newTask : t.newChat}</span>
         </button>
 
         <button
@@ -438,7 +438,7 @@ export function Sidebar({
           className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] font-[300] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isClawMode ? t.searchTasks : t.searchChats}</span>
+          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.searchTasks : t.searchChats}</span>
         </button>
 
       </nav>

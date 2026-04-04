@@ -14,7 +14,7 @@ type Props = {
   appMode: AppMode
   onSetAppMode: (mode: AppMode) => void
   availableModes: AppMode[]
-  /** chat 模式下显示；claw 下隐藏。线程内点击由 ChatPage 注册到 layout，与欢迎页共用同一按钮 */
+  /** chat 模式下显示；work 下隐藏。线程内点击由 ChatPage 注册到 layout，与欢迎页共用同一按钮 */
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
@@ -100,7 +100,7 @@ export function DesktopTitleBar({
         <ModeSwitch
           mode={appMode}
           onChange={onSetAppMode}
-          labels={{ chat: t.modeChat, claw: t.modeClaw }}
+          labels={{ chat: t.modeChat, work: t.modeWork }}
           availableModes={availableModes}
         />
       </div>

@@ -73,7 +73,7 @@ export interface LocaleStrings {
   colorGroupCode: string;
   colorGroupInteractive: string;
   colorGroupInput: string;
-  colorGroupClaw: string;
+  colorGroupWork: string;
   editColors: string;
   resetToDefault: string;
   saveAsCustom: string;
@@ -324,12 +324,12 @@ export interface LocaleStrings {
   incognitoForkDivider: string;
   // mode switch
   modeChat: string;
-  modeClaw: string;
-  // claw mode sidebar
+  modeWork: string;
+  // work mode sidebar
   newTask: string;
   tasks: string;
   tasksEmpty: string;
-  clawGreeting: string;
+  workGreeting: string;
   // thread context menu
   starThread: string
   unstarThread: string
@@ -608,8 +608,8 @@ export interface LocaleStrings {
     searchPlaceholder: string
     moreModels: string
   }
-  // claw right panel
-  claw: {
+  // work right panel
+  work: {
     progress: string;
     progressEmpty: string;
     workingFolder: string;
