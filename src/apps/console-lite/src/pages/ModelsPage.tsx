@@ -682,7 +682,7 @@ function AddModelModal({ providerId, accessToken, scope, tc, t, onClose, onCreat
       }
       if (vision) catalog.input_modalities = ['image']
       if (imageOutput) catalog.output_modalities = ['image']
-      if (contextWindow.trim()) catalog.context_length = Number.parseInt(contextWindow.trim(), 10)
+      if (contextWindow.trim()) catalog.context_length_override = Number.parseInt(contextWindow.trim(), 10)
       if (maxOutputTokens.trim()) catalog.max_output_tokens = Number.parseInt(maxOutputTokens.trim(), 10)
       if (embedding) catalog.type = 'embedding'
 

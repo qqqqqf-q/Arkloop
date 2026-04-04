@@ -242,7 +242,7 @@ func RegisterTrackB(r *Registry) error {
 		{
 			Key:         "context.compact.fallback_context_window_tokens",
 			Type:        TypeInt,
-			Default:     "200000",
+			Default:     "128000",
 			Description: "路由 advanced_json 未解析出上下文窗口时用于百分比换算的窗口上限",
 			Sensitive:   false,
 			Scope:       ScopePlatform,

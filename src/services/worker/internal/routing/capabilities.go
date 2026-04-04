@@ -22,11 +22,18 @@ func RouteModelCapabilities(rule ProviderRouteRule) ModelCapabilities {
 		return ModelCapabilities{}
 	}
 	return ModelCapabilities{
-		ContextLength:    normalizedPositiveInt(rawCatalog["context_length"]),
+		ContextLength:    resolveContextLength(rawCatalog),
 		MaxOutputTokens:  normalizedPositiveInt(rawCatalog["max_output_tokens"]),
 		InputModalities:  normalizeStringSlice(rawCatalog["input_modalities"]),
 		OutputModalities: normalizeStringSlice(rawCatalog["output_modalities"]),
 	}
+}
+
+func resolveContextLength(catalog map[string]any) int {
+	if n := normalizedPositiveInt(catalog["context_length_override"]); n > 0 {
+		return n
+	}
+	return normalizedPositiveInt(catalog["context_length"])
 }
 
 func SelectedRouteModelCapabilities(selected *SelectedProviderRoute) ModelCapabilities {

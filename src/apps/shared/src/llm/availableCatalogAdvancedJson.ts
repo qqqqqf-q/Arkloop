@@ -11,6 +11,7 @@ export type AvailableModelCatalogInput = {
   name: string
   type?: string | null
   context_length?: number | null
+  context_length_override?: number | null
   max_output_tokens?: number | null
   input_modalities?: string[] | null
   output_modalities?: string[] | null
