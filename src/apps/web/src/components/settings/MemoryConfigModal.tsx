@@ -115,11 +115,11 @@ type ProviderModelOption = {
 }
 
 type OVSelectionField = {
-  selector: keyof Pick<OpenVikingDesktopConfig, 'vlmSelector' | 'embeddingSelector'>
-  model: keyof Pick<OpenVikingDesktopConfig, 'vlmModel' | 'embeddingModel'>
-  provider: keyof Pick<OpenVikingDesktopConfig, 'vlmProvider' | 'embeddingProvider'>
-  apiKey: keyof Pick<OpenVikingDesktopConfig, 'vlmApiKey' | 'embeddingApiKey'>
-  apiBase: keyof Pick<OpenVikingDesktopConfig, 'vlmApiBase' | 'embeddingApiBase'>
+  selector: keyof Pick<OpenVikingDesktopConfig, 'vlmSelector' | 'embeddingSelector' | 'rerankSelector'>
+  model: keyof Pick<OpenVikingDesktopConfig, 'vlmModel' | 'embeddingModel' | 'rerankModel'>
+  provider: keyof Pick<OpenVikingDesktopConfig, 'vlmProvider' | 'embeddingProvider' | 'rerankProvider'>
+  apiKey: keyof Pick<OpenVikingDesktopConfig, 'vlmApiKey' | 'embeddingApiKey' | 'rerankApiKey'>
+  apiBase: keyof Pick<OpenVikingDesktopConfig, 'vlmApiBase' | 'embeddingApiBase' | 'rerankApiBase'>
 }
 
 type OVConfigFormProps = {
@@ -159,8 +159,9 @@ function buildOpenVikingModelOptions(
 function buildOpenVikingConfigureParams(
   vlm: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['vlm']>,
   embedding: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['embedding']>,
+  rerank?: Awaited<ReturnType<typeof resolveOpenVikingConfig>>['rerank'],
 ): Record<string, unknown> {
-  return {
+  const params: Record<string, unknown> = {
     embedding_provider: embedding.provider,
     embedding_model: embedding.model,
     embedding_api_key: embedding.api_key,
@@ -173,6 +174,14 @@ function buildOpenVikingConfigureParams(
     vlm_api_base: vlm.api_base,
     vlm_extra_headers: vlm.extra_headers ?? {},
   }
+  if (rerank) {
+    params.rerank_provider = rerank.provider
+    params.rerank_model = rerank.model
+    params.rerank_api_key = rerank.api_key
+    params.rerank_api_base = rerank.api_base
+    params.rerank_extra_headers = rerank.extra_headers ?? {}
+  }
+  return params
 }
 
 function resolveCurrentSelector(
@@ -322,8 +331,15 @@ function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, savin
     { requireShowInPicker: false },
   )
 
+  const rerankOptions = buildOpenVikingModelOptions(
+    providers,
+    (_provider, model) => !model.tags.includes('embedding'),
+    { requireShowInPicker: false },
+  )
+
   const currentVlm = resolveCurrentSelector(ov.vlmSelector, ov.vlmModel, vlmOptions)
   const currentEmb = resolveCurrentSelector(ov.embeddingSelector, ov.embeddingModel, embeddingOptions)
+  const currentRerank = resolveCurrentSelector(ov.rerankSelector, ov.rerankModel, rerankOptions)
 
   return (
     <div className="flex flex-col gap-4">
@@ -367,6 +383,24 @@ function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, savin
         {!loadingProviders && embeddingOptions.length === 0 && (
           <p className="mt-2 text-xs text-[var(--c-text-muted)]">{ds.memoryNoEmbeddingModels}</p>
         )}
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{ds.memoryRerankModel}</label>
+        <p className="mb-1 text-xs text-[var(--c-text-muted)]">{ds.memoryRerankModelDesc}</p>
+        <SettingsModelDropdown
+          value={loadingProviders ? '' : currentRerank}
+          placeholder={loadingProviders ? '...' : ds.memoryRerankOptional}
+          disabled={loadingProviders}
+          options={rerankOptions}
+          onChange={(v) => onChange(applySelectedOption(ov, v, {
+            selector: 'rerankSelector',
+            model: 'rerankModel',
+            provider: 'rerankProvider',
+            apiKey: 'rerankApiKey',
+            apiBase: 'rerankApiBase',
+          }, rerankOptions))}
+        />
       </div>
 
       <div className="flex items-center justify-end gap-3">
@@ -491,6 +525,21 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
         apiBase: 'embeddingApiBase',
       }, embeddingOptions)
     }
+    const rerankOptions = buildOpenVikingModelOptions(
+      providers,
+      (_provider, model) => !model.tags.includes('embedding'),
+      { requireShowInPicker: false },
+    )
+    const currentRerank = resolveCurrentSelector(draft.rerankSelector, draft.rerankModel, rerankOptions)
+    if (currentRerank && currentRerank !== draft.rerankSelector) {
+      next = applySelectedOption(next, currentRerank, {
+        selector: 'rerankSelector',
+        model: 'rerankModel',
+        provider: 'rerankProvider',
+        apiKey: 'rerankApiKey',
+        apiBase: 'rerankApiBase',
+      }, rerankOptions)
+    }
     return next
   }, [providers])
 
@@ -569,16 +618,24 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
           throw new Error(ds.memoryConfigureMissingModels)
         }
 
+        const rerankOptions = buildOpenVikingModelOptions(
+          providers,
+          (_provider, model) => !model.tags.includes('embedding'),
+          { requireShowInPicker: false },
+        )
+        const rerankSelector = resolveCurrentSelector(ovDraft.rerankSelector, ovDraft.rerankModel, rerankOptions)
+
         const resolved = await resolveOpenVikingConfig(accessToken, {
           vlm_selector: vlmSelector,
           embedding_selector: embeddingSelector,
           embedding_dimension_hint: ovDraft.embeddingDimension,
+          rerank_selector: rerankSelector || undefined,
         })
         if (!resolved.vlm || !resolved.embedding) {
           throw new Error(ds.memoryConfigureError)
         }
 
-        const params = buildOpenVikingConfigureParams(resolved.vlm, resolved.embedding)
+        const params = buildOpenVikingConfigureParams(resolved.vlm, resolved.embedding, resolved.rerank ?? undefined)
         const { operation_id } = await bridgeClient.performAction('openviking', 'configure', params)
         await new Promise<void>((resolve, reject) => {
           let done = false
@@ -612,6 +669,11 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
           embeddingApiBase: resolved.embedding.api_base,
           embeddingApiKey: undefined,
           embeddingDimension: resolved.embedding.dimension,
+          rerankSelector: resolved.rerank?.selector,
+          rerankProvider: resolved.rerank?.provider,
+          rerankModel: resolved.rerank?.model,
+          rerankApiBase: resolved.rerank?.api_base,
+          rerankApiKey: undefined,
         }
         setOvDraft(nextOvDraft)
 

@@ -16,6 +16,7 @@ type resolveOpenVikingConfigRequest struct {
 	VLMSelector            string `json:"vlm_selector"`
 	EmbeddingSelector      string `json:"embedding_selector"`
 	EmbeddingDimensionHint int    `json:"embedding_dimension_hint"`
+	RerankSelector         string `json:"rerank_selector"`
 }
 
 type resolvedOpenVikingModelResponse struct {
@@ -36,6 +37,7 @@ type resolvedOpenVikingEmbeddingResponse struct {
 type resolveOpenVikingConfigResponse struct {
 	VLM       *resolvedOpenVikingModelResponse     `json:"vlm,omitempty"`
 	Embedding *resolvedOpenVikingEmbeddingResponse `json:"embedding,omitempty"`
+	Rerank    *resolvedOpenVikingModelResponse     `json:"rerank,omitempty"`
 }
 
 func openVikingResolveEntry(
@@ -76,6 +78,7 @@ func openVikingResolveEntry(
 		}
 		body.VLMSelector = strings.TrimSpace(body.VLMSelector)
 		body.EmbeddingSelector = strings.TrimSpace(body.EmbeddingSelector)
+		body.RerankSelector = strings.TrimSpace(body.RerankSelector)
 		if body.VLMSelector == "" && body.EmbeddingSelector == "" {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "at least one selector is required", traceID, nil)
 			return
@@ -122,6 +125,22 @@ func openVikingResolveEntry(
 					ExtraHeaders:   resolved.ExtraHeaders,
 				},
 				Dimension: resolved.Dimension,
+			}
+		}
+		if body.RerankSelector != "" {
+			resolved, err := service.ResolveOpenVikingModel(r.Context(), actor.AccountID, "user", &actor.UserID, body.RerankSelector)
+			if err != nil {
+				writeOpenVikingResolveError(w, traceID, err)
+				return
+			}
+			resp.Rerank = &resolvedOpenVikingModelResponse{
+				Selector:       resolved.Selector,
+				CredentialName: resolved.CredentialName,
+				Provider:       llmproviders.OpenVikingRenderedProvider(resolved.Provider),
+				Model:          resolved.Model,
+				APIBase:        resolved.APIBase,
+				APIKey:         resolved.APIKey,
+				ExtraHeaders:   resolved.ExtraHeaders,
 			}
 		}
 

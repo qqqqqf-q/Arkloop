@@ -178,6 +178,12 @@ export interface LocaleStrings {
     fieldVLMApiKey: string
     fieldVLMApiBase: string
     fieldVLMProviderHint: string
+    sectionRerankConfig: string
+    fieldRerankProvider: string
+    fieldRerankModel: string
+    fieldRerankApiKey: string
+    fieldRerankApiBase: string
+    fieldRerankProviderHint: string
     ovRestartWarning: string
     applyAndRestart: string
     toastOVConfigApplied: string

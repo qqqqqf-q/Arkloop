@@ -2,8 +2,6 @@ package openviking
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -30,6 +28,14 @@ type ConfigureParams struct {
 	VLMAPIKey       string            `json:"vlm_api_key"`
 	VLMAPIBase      string            `json:"vlm_api_base"`
 	VLMExtraHeaders map[string]string `json:"vlm_extra_headers"`
+
+	// Rerank config (optional)
+	RerankProvider     string            `json:"rerank_provider,omitempty"`
+	RerankModel        string            `json:"rerank_model,omitempty"`
+	RerankAPIKey       string            `json:"rerank_api_key,omitempty"`
+	RerankAPIBase      string            `json:"rerank_api_base,omitempty"`
+	RerankExtraHeaders map[string]string `json:"rerank_extra_headers,omitempty"`
+	RerankThreshold    *float64          `json:"rerank_threshold,omitempty"`
 
 	// Server config (optional overrides)
 	RootAPIKey *string `json:"root_api_key"`
@@ -157,20 +163,37 @@ func RenderConfig(configPath string, params ConfigureParams) ([]byte, error) {
 		delete(vlm, "extra_headers")
 	}
 
+	// --- Rerank (optional) ---
+	if params.RerankModel != "" {
+		ensureMap(cfg, "rerank")
+		rerank := cfg["rerank"].(map[string]any)
+		rerank["provider"] = params.RerankProvider
+		rerank["model"] = params.RerankModel
+		rerank["api_key"] = params.RerankAPIKey
+		if params.RerankAPIBase != "" {
+			rerank["api_base"] = stripTrailingV1(params.RerankAPIBase)
+		} else {
+			delete(rerank, "api_base")
+		}
+		if len(params.RerankExtraHeaders) > 0 {
+			rerank["extra_headers"] = params.RerankExtraHeaders
+		} else {
+			delete(rerank, "extra_headers")
+		}
+		if params.RerankThreshold != nil {
+			rerank["threshold"] = *params.RerankThreshold
+		} else {
+			delete(rerank, "threshold")
+		}
+	} else {
+		delete(cfg, "rerank")
+	}
+
 	// --- Server ---
 	if params.RootAPIKey != nil && strings.TrimSpace(*params.RootAPIKey) != "" {
 		srv["root_api_key"] = strings.TrimSpace(*params.RootAPIKey)
 	} else {
-		// 保留现有 conf 中已有的 key；否则生成随机 key
-		existing, _ := srv["root_api_key"].(string)
-		if existing == "" {
-			buf := make([]byte, 32)
-			if _, err := rand.Read(buf); err != nil {
-				return nil, fmt.Errorf("generate root_api_key: %w", err)
-			}
-			existing = hex.EncodeToString(buf)
-		}
-		srv["root_api_key"] = existing
+		srv["root_api_key"] = nil
 	}
 
 	return json.MarshalIndent(cfg, "", "  ")

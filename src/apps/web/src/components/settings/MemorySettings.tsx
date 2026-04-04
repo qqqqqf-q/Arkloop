@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
-import { FileText, RefreshCw, Settings, Database, ChevronRight } from 'lucide-react'
+import { FileText, RefreshCw, Settings, Database, ChevronRight, AlertTriangle } from 'lucide-react'
 import { PillToggle } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -9,6 +9,7 @@ import { checkBridgeAvailable, bridgeClient, type ModuleStatus } from '../../api
 import { secondaryButtonSmCls, secondaryButtonXsCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { MemoryConfigModal } from './MemoryConfigModal'
+import { listMemoryErrors, type MemoryErrorEvent } from '../../api'
 
 // ---------------------------------------------------------------------------
 // Status dot — shows health on the provider card
@@ -291,6 +292,19 @@ function SnapshotView({ snapshot, hits, onLoadContent }: {
 }
 
 // ---------------------------------------------------------------------------
+// Memory error label
+// ---------------------------------------------------------------------------
+
+function memoryErrorLabel(type: string): string {
+  switch (type) {
+    case 'memory.write.failed': return 'Write failed'
+    case 'memory.distill.append_failed': return 'Distill append failed'
+    case 'memory.distill.commit_failed': return 'Distill commit failed'
+    default: return type
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -306,6 +320,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [loading, setLoading] = useState(true)
   const [rebuilding, setRebuilding] = useState(false)
   const [configModalOpen, setConfigModalOpen] = useState(false)
+  const [memoryErrors, setMemoryErrors] = useState<MemoryErrorEvent[]>([])
 
   // Runtime health probe (lightweight — no full Bridge UI, just status)
   const [health, setHealth] = useState<HealthStatus>('checking')
@@ -364,6 +379,12 @@ export function MemorySettings({ accessToken }: Props) {
       const cfg = await api.memory.getConfig()
       setMemConfigState(cfg)
       void probeHealth(cfg)
+      if (accessToken) {
+        try {
+          const errResp = await listMemoryErrors(accessToken, 5)
+          setMemoryErrors(errResp.errors)
+        } catch { /* ignore */ }
+      }
       if (cfg.enabled) {
         const snap = await api.memory.getSnapshot()
         setSnapshot(snap.memory_block ?? '')
@@ -495,6 +516,28 @@ export function MemorySettings({ accessToken }: Props) {
               </button>
             </div>
           </div>
+
+          {memoryErrors.length > 0 && (
+            <div
+              className="flex flex-col gap-2 rounded-xl px-4 py-3"
+              style={{ border: '1px solid var(--c-status-warning)', background: 'var(--c-status-warning-bg, rgba(245,158,11,0.06))' }}
+            >
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={14} style={{ color: 'var(--c-status-warning)' }} />
+                <span className="text-xs font-medium" style={{ color: 'var(--c-status-warning)' }}>
+                  {ds.memoryRecentErrors}
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {memoryErrors.map((evt) => (
+                  <div key={evt.event_id} className="flex items-start gap-2 text-xs text-[var(--c-text-muted)]">
+                    <span className="shrink-0 tabular-nums">{new Date(evt.ts).toLocaleString()}</span>
+                    <span className="truncate">{memoryErrorLabel(evt.type)}: {(evt.data as Record<string, string>)?.message ?? ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Auto-summarize toggle */}
           <div

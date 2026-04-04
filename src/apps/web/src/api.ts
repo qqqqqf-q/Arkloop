@@ -1686,6 +1686,7 @@ export type ResolveOpenVikingConfigRequest = {
   vlm_selector?: string
   embedding_selector?: string
   embedding_dimension_hint?: number
+  rerank_selector?: string
 }
 
 export type ResolvedOpenVikingModel = {
@@ -1705,6 +1706,7 @@ export type ResolvedOpenVikingEmbedding = ResolvedOpenVikingModel & {
 export type ResolveOpenVikingConfigResponse = {
   vlm?: ResolvedOpenVikingModel
   embedding?: ResolvedOpenVikingEmbedding
+  rerank?: ResolvedOpenVikingModel
 }
 
 export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
@@ -1734,6 +1736,29 @@ export async function resolveOpenVikingConfig(
     method: 'POST',
     accessToken,
     body: JSON.stringify(req),
+  })
+}
+
+export type MemoryErrorEvent = {
+  event_id: string
+  run_id: string
+  ts: string
+  type: string
+  data: Record<string, unknown> | null
+}
+
+export type MemoryErrorsResponse = {
+  errors: MemoryErrorEvent[]
+  total: number
+}
+
+export async function listMemoryErrors(
+  accessToken: string,
+  limit = 20,
+): Promise<MemoryErrorsResponse> {
+  return apiFetch<MemoryErrorsResponse>(`/v1/account/memory/errors?limit=${limit}`, {
+    method: 'GET',
+    accessToken,
   })
 }
 

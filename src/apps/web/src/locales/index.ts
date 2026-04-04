@@ -957,6 +957,9 @@ export interface LocaleStrings {
     memoryEmbeddingDimension: string;
     memoryOpenvikingRootApiKey: string;
     memoryOpenvikingRootApiKeyDesc: string;
+    memoryRerankModel: string;
+    memoryRerankModelDesc: string;
+    memoryRerankOptional: string;
     memoryConfigureSave: string;
     memoryConfiguring: string;
     memoryConfigured: string;
@@ -977,6 +980,7 @@ export interface LocaleStrings {
     memoryConfigureButton: string;
     memoryConfigureModalTitle: string;
     memoryNotConfiguredHint: string;
+    memoryRecentErrors: string;
     // tool model
     toolModel: string;
     toolModelDesc: string;
