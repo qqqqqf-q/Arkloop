@@ -50,8 +50,9 @@ type telegramChannelConfig struct {
 }
 
 type telegramUpdate struct {
-	UpdateID int64            `json:"update_id"`
-	Message  *telegramMessage `json:"message"`
+	UpdateID      int64            `json:"update_id"`
+	Message       *telegramMessage `json:"message"`
+	EditedMessage *telegramMessage `json:"edited_message"`
 }
 
 type telegramMessage struct {
@@ -65,6 +66,7 @@ type telegramMessage struct {
 	Chat            telegramChat            `json:"chat"`
 	From            *telegramUser           `json:"from"`
 	ReplyToMessage  *telegramMessage        `json:"reply_to_message,omitempty"`
+	ForwardOrigin   *telegramMessageOrigin  `json:"forward_origin,omitempty"`
 	Photo           []telegramPhotoSize     `json:"photo,omitempty"`
 	Document        *telegramDocument       `json:"document,omitempty"`
 	Audio           *telegramAudio          `json:"audio,omitempty"`
@@ -73,6 +75,15 @@ type telegramMessage struct {
 	Animation       *telegramAnimation      `json:"animation,omitempty"`
 	Sticker         *telegramSticker        `json:"sticker,omitempty"`
 	MediaGroupID    string                  `json:"media_group_id,omitempty"`
+}
+
+type telegramMessageOrigin struct {
+	Type           string        `json:"type"`
+	Date           int64         `json:"date"`
+	SenderUser     *telegramUser `json:"sender_user,omitempty"`
+	SenderUserName string        `json:"sender_user_name,omitempty"`
+	SenderChat     *telegramChat `json:"sender_chat,omitempty"`
+	Chat           *telegramChat `json:"chat,omitempty"`
 }
 
 type telegramChat struct {
@@ -674,7 +685,7 @@ func configureTelegramRemote(
 	if err := client.SetWebhook(remoteCtx, token, telegrambot.SetWebhookRequest{
 		URL:         strings.TrimSpace(*channel.WebhookURL),
 		SecretToken: secret,
-		Updates:     []string{"message"},
+		Updates:     []string{"message", "edited_message"},
 	}); err != nil {
 		return err
 	}
@@ -939,6 +950,91 @@ func telegramCommandBase(text, botUsername string) (cmd string, ok bool) {
 	return parts[0], true
 }
 
+func (c telegramConnector) handleTelegramEditedMessage(
+	ctx context.Context,
+	ch data.Channel,
+	edited *telegramMessage,
+) error {
+	if edited == nil || edited.From == nil {
+		return nil
+	}
+	if c.channelLedgerRepo == nil {
+		return nil
+	}
+	platformChatID := strconv.FormatInt(edited.Chat.ID, 10)
+	platformMsgID := strconv.FormatInt(edited.MessageID, 10)
+
+	messageID, threadID, err := c.channelLedgerRepo.LookupInboundMessage(ctx, ch.ID, platformChatID, platformMsgID)
+	if err != nil {
+		return fmt.Errorf("telegram edited_message lookup: %w", err)
+	}
+	if messageID == nil || threadID == nil {
+		return nil
+	}
+
+	newText := strings.TrimSpace(resolveTelegramMessageBody(edited))
+	if newText == "" {
+		return nil
+	}
+
+	// 构造与原始消息一致的 incoming 结构，复用 envelope 构建逻辑
+	incoming := telegramIncomingMessage{
+		ChannelID:      ch.ID,
+		ChannelType:    ch.ChannelType,
+		PlatformChatID: platformChatID,
+		PlatformMsgID:  platformMsgID,
+		PlatformUserID: strconv.FormatInt(edited.From.ID, 10),
+		ChatType:       strings.TrimSpace(edited.Chat.Type),
+		DateUnix:       edited.Date,
+		Text:           newText,
+	}
+	if edited.From.Username != nil {
+		incoming.PlatformUsername = strings.TrimSpace(*edited.From.Username)
+	}
+	if edited.Chat.Title != nil {
+		incoming.ConversationTitle = strings.TrimSpace(*edited.Chat.Title)
+	} else if edited.Chat.Username != nil {
+		incoming.ConversationTitle = strings.TrimSpace(*edited.Chat.Username)
+	}
+	incoming.ReplyToMsgID = optionalTelegramMessageID(edited.ReplyToMessage)
+	incoming.MessageThreadID = optionalTelegramThreadID(edited.MessageThreadID)
+
+	// 查找发送者 identity 用于构建 envelope
+	identity, err := c.channelIdentitiesRepo.GetByChannelAndSubject(ctx, incoming.ChannelType, strconv.FormatInt(edited.From.ID, 10))
+	if err != nil || identity == nil {
+		// identity 不存在时无法构建正确的 envelope，静默跳过
+		return nil
+	}
+
+	content, contentJSON, _, err := buildTelegramStructuredMessage(*identity, incoming)
+	if err != nil {
+		slog.WarnContext(ctx, "telegram_edited_message_build_failed",
+			"channel_id", ch.ID.String(),
+			"message_id", messageID.String(),
+			"platform_message_id", platformMsgID,
+			"error", err,
+		)
+		return nil
+	}
+
+	if _, err := c.messageRepo.UpdateStructuredContent(
+		ctx,
+		ch.AccountID,
+		*threadID,
+		*messageID,
+		content,
+		contentJSON,
+	); err != nil {
+		slog.WarnContext(ctx, "telegram_edited_message_update_failed",
+			"channel_id", ch.ID.String(),
+			"message_id", messageID.String(),
+			"platform_message_id", platformMsgID,
+			"error", err,
+		)
+	}
+	return nil
+}
+
 func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -957,6 +1053,33 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 
 	threadProjectID := derefUUID(persona.ProjectID)
 	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
+		ctx,
+		c.telegramClient,
+		c.attachmentStore,
+		token,
+		ch.AccountID,
+		threadID,
+		identity.UserID,
+		identity,
+		incoming,
+	)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+		ctx,
+		ch.AccountID,
+		threadID,
+		"user",
+		content,
+		contentJSON,
+		metadataJSON,
+		identity.UserID,
+	)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -980,36 +1103,11 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 			PlatformParentMessageID: incoming.ReplyToMsgID,
 			PlatformThreadID:        incoming.MessageThreadID,
 			SenderChannelIdentityID: &identity.ID,
+			MessageID:               &msg.ID,
 			MetadataJSON:            ledgerMetadata,
 		}); ledgerErr != nil {
 			return uuid.Nil, ledgerErr
 		}
-	}
-	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
-		ctx,
-		c.telegramClient,
-		c.attachmentStore,
-		token,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		identity,
-		incoming,
-	)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-		ctx,
-		ch.AccountID,
-		threadID,
-		"user",
-		content,
-		contentJSON,
-		metadataJSON,
-		identity.UserID,
-	); err != nil {
-		return uuid.Nil, err
 	}
 	return threadID, nil
 }
@@ -1021,6 +1119,9 @@ func (c telegramConnector) HandleUpdate(
 	token string,
 	update telegramUpdate,
 ) error {
+	if update.EditedMessage != nil {
+		return c.handleTelegramEditedMessage(ctx, ch, update.EditedMessage)
+	}
 	if update.Message == nil || update.Message.From == nil {
 		return nil
 	}
@@ -1314,31 +1415,6 @@ func (c telegramConnector) HandleUpdate(
 	if err != nil {
 		return err
 	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -1361,7 +1437,7 @@ func (c telegramConnector) HandleUpdate(
 	if preTailMsg != nil {
 		preTailMessageID = preTailMsg.ID.String()
 	}
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
 		ch.AccountID,
 		threadID,
@@ -1370,8 +1446,35 @@ func (c telegramConnector) HandleUpdate(
 		contentJSON,
 		metadataJSON,
 		identity.UserID,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MessageID:               &msg.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
 	}
 
 	runRepoTx := c.runEventRepo.WithTx(tx)
@@ -2158,6 +2261,9 @@ func (c telegramConnector) HandleUpdateForPoll(
 		fields = append(fields, extra...)
 		slog.DebugContext(ctx, "telegram_poll_phase", fields...)
 	}
+	if update.EditedMessage != nil {
+		return c.handleTelegramEditedMessage(ctx, ch, update.EditedMessage)
+	}
 	if update.Message == nil || update.Message.From == nil {
 		return nil
 	}
@@ -2468,31 +2574,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if err != nil {
 		return err
 	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -2515,7 +2596,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if preTailMsg != nil {
 		preTailMessageID = preTailMsg.ID.String()
 	}
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
 		ch.AccountID,
 		threadID,
@@ -2524,8 +2605,35 @@ func (c telegramConnector) HandleUpdateForPoll(
 		contentJSON,
 		metadataJSON,
 		identity.UserID,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MessageID:               &msg.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
 	}
 
 	runRepoTx := c.runEventRepo.WithTx(tx)

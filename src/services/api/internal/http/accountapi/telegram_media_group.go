@@ -330,32 +330,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if err != nil {
 		return err
 	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-			"media_group":       true,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -378,7 +352,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if preTailMsg != nil {
 		preTailMessageID = preTailMsg.ID.String()
 	}
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
 		ch.AccountID,
 		threadID,
@@ -387,8 +361,36 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		contentJSON,
 		metadataJSON,
 		identity.UserID,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if c.channelLedgerRepo != nil {
+		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+			"source":            "telegram",
+			"conversation_type": incoming.ChatType,
+			"mentions_bot":      incoming.MentionsBot,
+			"is_reply_to_bot":   incoming.IsReplyToBot,
+			"media_group":       true,
+		})
+		if metaErr != nil {
+			return metaErr
+		}
+		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			ThreadID:                &threadID,
+			PlatformConversationID:  incoming.PlatformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			PlatformThreadID:        incoming.MessageThreadID,
+			SenderChannelIdentityID: &identity.ID,
+			MessageID:               &msg.ID,
+			MetadataJSON:            ledgerMetadata,
+		}); ledgerErr != nil {
+			return ledgerErr
+		}
 	}
 
 	if !incoming.ShouldCreateRun() {

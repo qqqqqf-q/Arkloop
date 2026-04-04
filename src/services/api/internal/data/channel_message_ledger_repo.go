@@ -31,6 +31,7 @@ type ChannelMessageLedgerEntry struct {
 	PlatformParentMessageID *string
 	PlatformThreadID        *string
 	SenderChannelIdentityID *uuid.UUID
+	MessageID               *uuid.UUID
 	MetadataJSON            json.RawMessage
 	CreatedAt               time.Time
 }
@@ -46,6 +47,7 @@ type ChannelMessageLedgerRecordInput struct {
 	PlatformParentMessageID *string
 	PlatformThreadID        *string
 	SenderChannelIdentityID *uuid.UUID
+	MessageID               *uuid.UUID
 	MetadataJSON            json.RawMessage
 }
 
@@ -94,8 +96,9 @@ func (r *ChannelMessageLedgerRepository) Record(ctx context.Context, input Chann
 			platform_parent_message_id,
 			platform_thread_id,
 			sender_channel_identity_id,
+			message_id,
 			metadata_json
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
 		ON CONFLICT (channel_id, direction, platform_conversation_id, platform_message_id) DO NOTHING`,
 		input.ChannelID,
 		strings.TrimSpace(input.ChannelType),
@@ -107,6 +110,7 @@ func (r *ChannelMessageLedgerRepository) Record(ctx context.Context, input Chann
 		trimOptionalStringPtr(input.PlatformParentMessageID),
 		trimOptionalStringPtr(input.PlatformThreadID),
 		input.SenderChannelIdentityID,
+		input.MessageID,
 		metadataJSON,
 	)
 	if err != nil {
@@ -147,4 +151,31 @@ func (r *ChannelMessageLedgerRepository) DeleteOlderThan(ctx context.Context, cu
 		return 0, fmt.Errorf("channel_message_ledger.DeleteOlderThan: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// LookupInboundMessage 通过 channel 的 inbound 平台消息 ID 查找对应的 ledger 记录。
+func (r *ChannelMessageLedgerRepository) LookupInboundMessage(
+	ctx context.Context,
+	channelID uuid.UUID,
+	platformConversationID string,
+	platformMessageID string,
+) (*uuid.UUID, *uuid.UUID, error) {
+	var messageID, threadID *uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`SELECT message_id, thread_id FROM channel_message_ledger
+		 WHERE channel_id = $1
+		   AND direction = 'inbound'
+		   AND platform_conversation_id = $2
+		   AND platform_message_id = $3`,
+		channelID,
+		strings.TrimSpace(platformConversationID),
+		strings.TrimSpace(platformMessageID),
+	).Scan(&messageID, &threadID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, nil
+		}
+		return nil, nil, fmt.Errorf("channel_message_ledger.LookupInboundMessage: %w", err)
+	}
+	return messageID, threadID, nil
 }
