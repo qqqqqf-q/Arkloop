@@ -9,7 +9,7 @@
   --bg-elevated: #111111;
   --border-primary: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.14);
-  --text-primary: #f5f5f5;
+  --text-primary: #ffffff;
   --text-secondary: #b2b2b2;
   --text-muted: #8a8a8a;
   --text-strong: #ffffff;
@@ -20,13 +20,13 @@
   --shadow-soft: 0 20px 60px rgba(0, 0, 0, 0.3);
   --code-bg: #0d0d0d;
   --code-border: rgba(255, 255, 255, 0.08);
-  --link: #f5f5f5;
+  --link: #ffffff;
   --docs-gutter-x: 24px;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg-page: #f7f7f5;
+  --bg-page: #ffffff;
   --bg-surface: #ffffff;
   --bg-surface-soft: #f3f2ef;
   --bg-surface-muted: #eceae6;
