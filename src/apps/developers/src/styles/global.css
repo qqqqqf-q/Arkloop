@@ -2,47 +2,45 @@
 
 :root {
   color-scheme: dark;
-  --bg-page: #050505;
-  --bg-surface: #0d0d0d;
-  --bg-surface-soft: #1a1a1a;
-  --bg-surface-muted: #242424;
-  --bg-elevated: #111111;
+  --bg-page: #262624;
+  --bg-surface: #1E1D1B;
+  --bg-surface-soft: #30302E;
+  --bg-surface-muted: #38372f;
+  --bg-elevated: #1E1D1B;
   --border-primary: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text-primary: #ffffff;
-  --text-secondary: #b2b2b2;
-  --text-muted: #8a8a8a;
-  --text-strong: #ffffff;
-  --accent: #ffffff;
-  --accent-contrast: #0b0b0b;
-  --card-gradient: linear-gradient(135deg, rgba(255, 184, 107, 0.9), rgba(251, 113, 133, 0.85), rgba(232, 121, 249, 0.85));
-  --card-gradient-secondary: linear-gradient(135deg, rgba(244, 114, 182, 0.85), rgba(232, 121, 249, 0.85), rgba(253, 186, 116, 0.8));
+  --border-strong: #48473f;
+  --text-primary: #eeeeee;
+  --text-secondary: #c8c7c0;
+  --text-muted: #6b6a65;
+  --text-strong: #f5f5f5;
+  --accent: #ae5630;
+  --accent-contrast: #ffffff;
   --shadow-soft: 0 20px 60px rgba(0, 0, 0, 0.3);
-  --code-bg: #0d0d0d;
-  --code-border: rgba(255, 255, 255, 0.08);
-  --link: #ffffff;
+  --code-bg: #1E1D1B;
+  --code-border: #38372f;
+  --link: #C66140;
   --docs-gutter-x: 24px;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --bg-page: #ffffff;
-  --bg-surface: #ffffff;
-  --bg-surface-soft: #f3f2ef;
-  --bg-surface-muted: #eceae6;
+  --bg-page: #FAF9F6;
+  --bg-surface: #F5F4EE;
+  --bg-surface-soft: #F0EEE8;
+  --bg-surface-muted: #E8E5DC;
   --bg-elevated: #ffffff;
-  --border-primary: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.15);
-  --text-primary: #171717;
-  --text-secondary: #424242;
-  --text-muted: #686868;
-  --text-strong: #000000;
-  --accent: #111111;
+  --border-primary: rgba(0, 0, 0, 0.06);
+  --border-strong: #D8D5CC;
+  --text-primary: #1a1a18;
+  --text-secondary: #3D3830;
+  --text-muted: #9a9590;
+  --text-strong: #0f0f0d;
+  --accent: #ae5630;
   --accent-contrast: #ffffff;
-  --shadow-soft: 0 20px 60px rgba(0, 0, 0, 0.08);
-  --code-bg: #f8f8f8;
-  --code-border: rgba(0, 0, 0, 0.08);
-  --link: #111111;
+  --shadow-soft: 0 20px 60px rgba(0, 0, 0, 0.06);
+  --code-bg: #F0EEE8;
+  --code-border: #E8E5DC;
+  --link: #ae5630;
 }
 
 @layer base {
@@ -283,36 +281,36 @@
 }
 
 :root[data-theme='light'] .snippet-shell pre {
-  color: #171717;
+  color: var(--text-primary);
 }
 
 :root[data-theme='light'] .code-group-tabs {
-  background: #e8e8e8;
+  background: var(--bg-surface-muted);
 }
 
 :root[data-theme='light'] .code-group-tab {
-  color: #686868;
+  color: var(--text-muted);
 }
 
 :root[data-theme='light'] .code-group-tab:hover {
-  color: #171717;
+  color: var(--text-primary);
 }
 
 :root[data-theme='light'] .code-group-tab-active {
-  color: #171717;
+  color: var(--text-primary);
 }
 
 :root[data-theme='light'] .code-group-indicator {
-  background: #ffffff;
+  background: var(--bg-elevated);
 }
 
 :root[data-theme='light'] .nav-link-active,
 :root[data-theme='light'] .sidebar-link-active {
-  background: #ececec;
+  background: var(--bg-surface-soft);
 }
 
 :root[data-theme='light'] .doc-content :not(pre) > code {
-  background: #ececec;
+  background: var(--bg-surface-soft);
 }
 
 .topbar-icon {
@@ -517,7 +515,7 @@
 .snippet-shell pre {
   padding: 16px 18px;
   overflow-x: auto;
-  color: #f5f5f5;
+  color: var(--text-strong);
   font-size: 0.8rem;
   line-height: 1.7;
 }
@@ -1162,7 +1160,7 @@
   gap: 4px;
   padding: 4px;
   border-radius: 8px;
-  background: #0d0d0d;
+  background: var(--bg-surface);
 }
 
 .code-group-indicator {
@@ -1170,7 +1168,7 @@
   top: 4px;
   bottom: 4px;
   border-radius: 6px;
-  background: #303030;
+  background: var(--bg-surface-soft);
   transition: left 200ms cubic-bezier(0.4, 0, 0.2, 1), width 200ms cubic-bezier(0.4, 0, 0.2, 1);
   pointer-events: none;
   z-index: 0;
@@ -1183,18 +1181,18 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 0.78rem;
   cursor: pointer;
   transition: color 140ms ease;
 }
 
 .code-group-tab:hover {
-  color: #d4d4d8;
+  color: var(--text-secondary);
 }
 
 .code-group-tab-active {
-  color: #fff;
+  color: var(--text-strong);
 }
 
 .code-group-panel {

@@ -6,92 +6,70 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   <div class="landing-wrap">
 
     <!-- Hero -->
-    <div class="landing-card">
-      <div class="hero-center">
-        <div class="type-specimen" aria-label="Arkloop">
-          <svg class="type-svg" viewBox="0 0 526 210" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <g transform="translate(6, 0)">
-            <line x1="0" y1="15" x2="308" y2="15" stroke="var(--guide-line)" stroke-width="0.7" />
-            <line x1="0" y1="100" x2="308" y2="100" stroke="var(--guide-line)" stroke-width="0.7" />
-            <line x1="95" y1="6" x2="95" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="180" y1="6" x2="180" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="220" y1="6" x2="220" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="270" y1="6" x2="270" y2="108" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="137" y1="15" x2="97" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-            <line x1="137" y1="15" x2="177" y2="100" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-            <circle cx="137" cy="15" r="2.5" fill="var(--guide-dot)" />
-            <line x1="113" y1="65" x2="161" y2="65" stroke="var(--construct-line)" stroke-width="0.5" stroke-dasharray="2 2" />
-            <line x1="193" y1="58" x2="166" y2="18" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
-            <line x1="193" y1="58" x2="218" y2="100" stroke="var(--construct-line)" stroke-width="0.6" stroke-dasharray="3 3" />
-            <circle cx="193" cy="58" r="2" fill="var(--guide-dot)" />
-            <line x1="202" y1="138" x2="460" y2="138" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
-            <line x1="202" y1="147" x2="460" y2="147" stroke="var(--guide-line)" stroke-width="0.6" stroke-dasharray="2 3" />
-            <line x1="202" y1="190" x2="460" y2="190" stroke="var(--guide-line)" stroke-width="0.7" />
-            <line x1="202" y1="208" x2="460" y2="208" stroke="var(--guide-line)" stroke-width="0.5" stroke-dasharray="3 4" />
-            <line x1="213" y1="128" x2="213" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="264" y1="140" x2="264" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="332" y1="140" x2="332" y2="196" stroke="var(--guide-line)" stroke-width="0.4" />
-            <line x1="398" y1="140" x2="398" y2="210" stroke="var(--guide-line)" stroke-width="0.4" />
-            <circle cx="223" cy="128" r="2" fill="var(--guide-dot)" />
-            <circle cx="227" cy="190" r="2" fill="var(--guide-dot)" />
-            <circle cx="289" cy="168" r="21" stroke="var(--construct-line)" stroke-width="0.7" stroke-dasharray="3 3" />
-            <circle cx="289" cy="168" r="2" fill="var(--guide-dot)" />
-            <line x1="289" y1="145" x2="289" y2="191" stroke="var(--construct-line)" stroke-width="0.4" />
-            <line x1="266" y1="168" x2="312" y2="168" stroke="var(--construct-line)" stroke-width="0.4" />
-            <line x1="188" y1="108" x2="250" y2="108" stroke="var(--dimension-line)" stroke-width="0.5" />
-            <line x1="188" y1="106" x2="188" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
-            <line x1="250" y1="106" x2="250" y2="111" stroke="var(--dimension-line)" stroke-width="0.5" />
-            <text x="219" y="117" fill="var(--guide-label)" font-size="6" font-family="ui-monospace, monospace" text-anchor="middle">40</text>
-            <text x="95" y="100" fill="var(--text-strong)" font-size="120" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="600" letter-spacing="-0.04em">Ark</text>
-            <text x="217" y="190" fill="var(--text-strong)" font-size="82" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-weight="400" letter-spacing="-0.03em">loop</text>
-            </g>
-          </svg>
-        </div>
+    <section class="hero">
+      <h1 class="hero-title">
+        干净、强大，属于你的<br />AI Agent 平台
+      </h1>
 
-        <h1 class="hero-title">干净、强大，属于你的 AI Agent 平台</h1>
+      <p class="hero-desc">你的私人 AI 运行时 -- 工具执行、记忆系统、沙盒代码、多模型路由，全部运行在你自己的设备上。</p>
 
-        <div class="hero-actions">
-          <div class="dl-btn-wrap">
-            <button class="btn-hero-download" id="dl-main-zh">
-              <span id="dl-main-label-zh">下载</span>
-              <svg class="dl-chevron" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </button>
-            <div class="dl-dropdown" id="dl-dropdown-zh">
-              <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-arm64.dmg">
-                <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                macOS (Apple Silicon)
-              </a>
-              <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg">
-                <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                macOS (Intel)
-              </a>
-              <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-win-x64.exe">
-                <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l6-1.32v6.57H3zM20 3v8.75h-8V4.38L20 3zM3 13h6v6.43l-6-1.33V13zm17 .25V22l-8-1.42V13.25h8z"/></svg>
-                Windows (x64)
-              </a>
-              <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage">
-                <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
-                Linux (x64)
-              </a>
-            </div>
+      <div class="hero-actions">
+        <div class="dl-btn-wrap">
+          <button class="btn-primary" id="dl-main-zh">
+            <span id="dl-main-label-zh">下载 Arkloop</span>
+            <svg class="dl-chevron" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="dl-dropdown" id="dl-dropdown-zh">
+            <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-arm64.dmg">
+              <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              macOS (Apple Silicon)
+            </a>
+            <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg">
+              <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+              macOS (Intel)
+            </a>
+            <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-win-x64.exe">
+              <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l6-1.32v6.57H3zM20 3v8.75h-8V4.38L20 3zM3 13h6v6.43l-6-1.33V13zm17 .25V22l-8-1.42V13.25h8z"/></svg>
+              Windows (x64)
+            </a>
+            <a class="dl-option" href="https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage">
+              <svg class="dl-opt-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+              Linux (x64)
+            </a>
           </div>
-          <a class="btn-hero-secondary" href="https://github.com/qqqqqf-q/Arkloop" target="_blank" rel="noopener">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
-            GitHub
-          </a>
-          <a class="btn-hero-secondary" href="https://t.me/Arkloop_io" target="_blank" rel="noopener">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-1.97 9.289c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L6.514 14.51l-2.948-.924c-.64-.203-.654-.64.136-.95l11.52-4.44c.534-.194 1.001.13.34.052z"/></svg>
-            Telegram
-          </a>
+        </div>
+        <a class="btn-secondary" href="/docs">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          文档
+        </a>
+      </div>
+
+      <div class="hero-meta">
+        <a class="meta-link" href="https://github.com/qqqqqf-q/Arkloop" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+          GitHub
+        </a>
+        <a class="meta-link" href="https://t.me/Arkloop_io" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-1.97 9.289c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12L6.514 14.51l-2.948-.924c-.64-.203-.654-.64.136-.95l11.52-4.44c.534-.194 1.001.13.34.052z"/></svg>
+          Telegram
+        </a>
+      </div>
+    </section>
+
+    <!-- Showcase placeholder -->
+    <section class="showcase">
+      <div class="showcase-frame">
+        <div class="showcase-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"><polygon points="5 3 19 12 5 21 5 3"/></svg>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- 贡献 -->
+    <!-- Contributing -->
     <div class="contrib-card">
       <div class="contrib-left">
-        <svg class="contrib-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill="currentColor" stroke="none"/>
+        <svg class="contrib-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
         </svg>
         <div>
           <h2 class="contrib-title">贡献</h2>
@@ -123,47 +101,36 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
 </script>
 
 <style>
-  :root {
-    --guide-line: rgba(255, 255, 255, 0.22);
-    --guide-dot: rgba(255, 255, 255, 0.35);
-    --guide-label: rgba(255, 255, 255, 0.25);
-    --construct-line: rgba(255, 255, 255, 0.15);
-    --dimension-line: rgba(255, 255, 255, 0.18);
-    --card-bg: transparent;
-  }
-
-  :root[data-theme='light'] {
-    --guide-line: rgba(0, 0, 0, 0.22);
-    --guide-dot: rgba(0, 0, 0, 0.35);
-    --guide-label: rgba(0, 0, 0, 0.25);
-    --construct-line: rgba(0, 0, 0, 0.15);
-    --dimension-line: rgba(0, 0, 0, 0.18);
-    --card-bg: #ffffff;
-  }
-
   .landing-wrap {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 96px 24px 64px;
-    gap: 20px;
+    padding: 80px 24px 64px;
+    max-width: 960px;
+    margin: 0 auto;
   }
 
-  /* Hero card */
-  .landing-card {
+  /* Hero */
+  .hero {
     width: 100%;
-    max-width: 1080px;
-    border: 1px solid var(--border-strong);
-    border-radius: 16px;
+    padding: 40px 0 0;
   }
 
-  .hero-center {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 64px 48px 56px;
-    gap: 24px;
+  .hero-title {
+    margin: 0 0 20px;
+    font-size: clamp(2.2rem, 5vw, 3.4rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.12;
+    color: var(--text-strong);
+  }
+
+  .hero-desc {
+    margin: 0 0 32px;
+    font-size: 1.05rem;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    max-width: 680px;
   }
 
   .hero-actions {
@@ -171,22 +138,18 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
-    justify-content: center;
+    margin-bottom: 28px;
   }
 
-  .dl-btn-wrap {
-    position: relative;
+  /* Buttons */
+  .btn-primary {
     display: inline-flex;
-  }
-
-  .btn-hero-download {
-    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 10px 24px;
-    background: var(--text-strong);
-    color: var(--bg-page);
-    font-size: 0.9rem;
+    gap: 8px;
+    padding: 12px 28px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.92rem;
     font-weight: 600;
     border-radius: 8px;
     border: none;
@@ -194,8 +157,27 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     transition: opacity 140ms ease;
   }
 
-  .btn-hero-download:hover {
-    opacity: 0.8;
+  .btn-primary:hover {
+    opacity: 0.85;
+  }
+
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    font-size: 0.92rem;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .btn-secondary:hover {
+    background: var(--bg-surface-soft);
+    color: var(--text-strong);
   }
 
   .dl-chevron {
@@ -205,51 +187,24 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     flex-shrink: 0;
   }
 
-  .btn-hero-secondary {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 40px;
-    padding: 9px 18px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    border-radius: 8px;
-    border: 0.5px solid var(--border-strong);
-    color: var(--text-secondary);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-  }
-
-  .btn-hero-secondary:hover {
-    background: var(--bg-surface-soft);
-    border-color: var(--bg-surface-soft);
-    color: var(--text-strong);
-  }
-
-  :root[data-theme='light'] .btn-hero-secondary:hover {
-    background: #F0EEE8;
-    border-color: #F0EEE8;
+  /* Download dropdown */
+  .dl-btn-wrap {
+    position: relative;
+    display: inline-flex;
   }
 
   .dl-dropdown {
     display: none;
     position: absolute;
     top: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
     min-width: 240px;
-    background: var(--bg-surface, #1e1e1e);
+    background: var(--bg-elevated);
     border: 1px solid var(--border-strong);
     border-radius: 10px;
     padding: 6px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
     z-index: 100;
-  }
-
-  :root[data-theme='light'] .dl-dropdown {
-    background: #ffffff;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
   }
 
   .dl-dropdown-open {
@@ -258,8 +213,8 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   }
 
   @keyframes dl-slide-down {
-    from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   .dl-option {
@@ -278,48 +233,62 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     background: var(--bg-surface-soft);
   }
 
-  :root[data-theme='light'] .dl-option:hover {
-    background: #f0f0f0;
-  }
-
   .dl-opt-icon {
     width: 16px;
     height: 16px;
     flex-shrink: 0;
+    color: var(--text-muted);
+  }
+
+  /* Meta links */
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .meta-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+
+  .meta-link:hover {
     color: var(--text-secondary);
   }
 
-  .type-specimen {
+  /* Showcase */
+  .showcase {
     width: 100%;
-    max-width: 560px;
+    margin-top: 56px;
   }
 
-  .type-svg {
+  .showcase-frame {
     width: 100%;
-    height: auto;
+    aspect-ratio: 16 / 9.5;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface);
+    overflow: hidden;
   }
 
-  .hero-title {
-    margin: 0;
-    font-size: clamp(1.6rem, 2.8vw, 2.4rem);
-    font-weight: 700;
-    letter-spacing: -0.04em;
-    color: var(--text-strong);
-    line-height: 1.15;
+  .showcase-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
   }
 
-  .hero-desc {
-    margin: 0;
-    font-size: 0.9rem;
-    line-height: 1.65;
-    color: var(--text-secondary);
-    max-width: 520px;
-  }
-
-  /* 贡献 card */
+  /* Contributing card */
   .contrib-card {
     width: 100%;
-    max-width: 1080px;
     border: 1px solid var(--border-strong);
     border-radius: 12px;
     padding: 28px 32px;
@@ -327,7 +296,7 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    background: var(--card-bg);
+    margin-top: 40px;
   }
 
   .contrib-left {
@@ -384,147 +353,47 @@ import BaseLayout from '@/layouts/BaseLayout.astro';
   }
 
   .contrib-btn-primary {
-    background: var(--text-strong);
-    color: var(--bg-page);
+    background: var(--accent);
+    color: var(--accent-contrast);
   }
 
   .contrib-btn-secondary {
     padding: 9px 18px;
-    border-radius: 8px;
-    border: 0.5px solid var(--border-strong);
+    border: 1px solid var(--border-strong);
     color: var(--text-secondary);
-    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-  }
-
-  .btn-hero-secondary svg,
-  .contrib-btn-secondary svg {
-    flex-shrink: 0;
+    transition: background 120ms ease, color 120ms ease;
   }
 
   .contrib-btn-secondary:hover {
     background: var(--bg-surface-soft);
-    border-color: var(--bg-surface-soft);
     color: var(--text-strong);
     opacity: 1;
   }
 
-  :root[data-theme='light'] .contrib-btn-secondary:hover {
-    background: #F0EEE8;
-    border-color: #F0EEE8;
-  }
+  @media (max-width: 767px) {
+    .landing-wrap {
+      padding: 60px 16px 48px;
+    }
 
-  /* 使用方式三列 */
-  .section-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    width: 100%;
-    max-width: 1080px;
-  }
+    .hero {
+      padding: 24px 0 0;
+    }
 
-  .section-card {
-    border: 1px solid var(--border-strong);
-    border-radius: 12px;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    background: var(--card-bg);
-  }
+    .hero-title {
+      font-size: clamp(1.8rem, 6vw, 2.6rem);
+    }
 
-  .section-card-icon {
-    width: 32px;
-    height: 32px;
-    color: var(--text-secondary);
-  }
+    .hero-desc {
+      font-size: 0.95rem;
+    }
 
-  .section-card-icon svg {
-    width: 100%;
-    height: 100%;
-  }
-
-  .section-card-title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: var(--text-strong);
-  }
-
-  .section-card-desc {
-    margin: 0;
-    font-size: 0.82rem;
-    color: var(--text-secondary);
-    line-height: 1.65;
-    flex: 1;
-  }
-
-  .section-card-platforms {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .section-card-platforms span {
-    font-size: 0.72rem;
-    padding: 2px 8px;
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
-    color: var(--text-secondary);
-  }
-
-  .section-code {
-    background: var(--bg-surface-soft);
-    border-radius: 6px;
-    padding: 8px 12px;
-  }
-
-  .section-code code {
-    font-size: 0.8rem;
-    font-family: ui-monospace, monospace;
-    color: var(--text-primary);
-  }
-
-  .section-card-link {
-    font-size: 0.82rem;
-    color: #3b82f6;
-    text-decoration: none;
-    margin-top: auto;
-  }
-
-  .section-card-link:hover {
-    color: #60a5fa;
-  }
-
-  @media (max-width: 900px) {
-    .section-grid {
-      grid-template-columns: 1fr 1fr;
+    .showcase {
+      margin-top: 40px;
     }
 
     .contrib-card {
       flex-direction: column;
       align-items: flex-start;
-    }
-  }
-
-  @media (max-width: 767px) {
-    .landing-wrap {
-      padding: 88px 16px 48px;
-    }
-
-    .hero-center {
-      padding: 40px 24px 40px;
-    }
-
-    .dl-card {
-      padding: 40px 24px;
-    }
-
-    .dl-dropdown {
-      min-width: 220px;
-    }
-
-    .section-grid {
-      grid-template-columns: 1fr;
     }
   }
 </style>
