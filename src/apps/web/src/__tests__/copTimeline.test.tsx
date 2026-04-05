@@ -477,17 +477,49 @@ describe('CopTimeline', () => {
       )
     })
 
+    const header = container.querySelector('button')
+    expect(header?.textContent ?? '').toContain('Planning next moves')
+
     await act(async () => {
       await Promise.resolve()
     })
 
-    const header = container.querySelector('button')
     expect(header?.textContent ?? '').toContain('Planning next moves for 2s')
 
     await act(async () => {
       vi.advanceTimersByTime(500)
     })
     expect(header?.textContent ?? '').toMatch(/Planning next moves for 2s/)
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('pending 提示句应直接显示完整文案，不走整句打字', async () => {
+    vi.useFakeTimers()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <CopTimeline
+            isComplete={false}
+            live
+            shimmer
+            steps={[]}
+            sources={[]}
+            thinkingRows={[]}
+            thinkingHint="Planning next moves"
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    expect(container.textContent).toContain('Planning next moves...')
 
     act(() => {
       root.unmount()

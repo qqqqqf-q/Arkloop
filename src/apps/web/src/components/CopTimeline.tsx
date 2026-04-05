@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, Fragment, memo, type ReactNode } from 'react'
+import { debugBus } from '@arkloop/shared'
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useId, Fragment, memo, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight, Globe, Loader2, Search } from 'lucide-react'
 import { useTypewriter } from '../hooks/useTypewriter'
@@ -23,6 +24,7 @@ export const COP_TIMELINE_DOT_LEFT_PX = -19
 export const COP_TIMELINE_CONTENT_PADDING_LEFT_PX = 24
 /** 仅 thinking 完结直出时正文行高，与 DOT 几何中心对齐：DOT_TOP + DOT_SIZE/2 − lh/2 */
 export const COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX = 18
+const DEVELOPER_SHOW_DEBUG_PANEL_KEY = 'arkloop:web:developer_show_debug_panel'
 
 export type WebSearchPhaseStep = {
   id: string
@@ -72,6 +74,7 @@ type Props = {
   /** thinking 流式阶段 COP header 使用的随机提示句（不含 ...） */
   thinkingHint?: string
   forceCollapsed?: boolean
+  debugMeta?: Record<string, unknown>
 }
 
 type DoneTimelineEntry = { kind: 'done'; id: string; seq: number; item: { label: string } }
@@ -163,6 +166,28 @@ function longestCommonPrefix(left: string, right: string): string {
   return left.slice(0, idx)
 }
 
+type HeaderSuffixRetyping = {
+  key: string
+  targetText: string
+  prefix: string
+  suffix: string
+}
+
+function emitCopHeaderDebug(data: Record<string, unknown>) {
+  if (typeof window === 'undefined' || !import.meta.env.DEV) return
+  try {
+    if (window.localStorage.getItem(DEVELOPER_SHOW_DEBUG_PANEL_KEY) !== 'true') return
+  } catch {
+    return
+  }
+  debugBus.emit({
+    ts: Date.now(),
+    type: 'cop:header-transition',
+    source: 'web-cop',
+    data,
+  })
+}
+
 function useDelayedHeaderTarget(phaseKey: string, text: string) {
   const [target, setTarget] = useState({ phaseKey, text })
   const liveEnteredAtRef = useRef<number | null>(
@@ -216,14 +241,48 @@ function usePreviousHeaderRender(target: { phaseKey: string; text: string }) {
 function CopTimelineHeaderLabel({ text, phaseKey, shimmer }: { text: string; phaseKey: string; shimmer?: boolean }) {
   const target = useDelayedHeaderTarget(phaseKey, text)
   const prevRendered = usePreviousHeaderRender(target)
-  // 首次 mount 且处于 thinking phase 时，用打字机展示一次
+  const immediateSuffixRetyping: HeaderSuffixRetyping | null = (() => {
+    if (prevRendered?.phaseKey !== 'thinking-pending' || target.phaseKey !== 'thinking-live') return null
+    const prefix = trimThinkingEllipsis(longestCommonPrefix(trimThinkingEllipsis(prevRendered.text), target.text))
+    const suffix = target.text.slice(prefix.length)
+    if (!suffix) return null
+    return {
+      key: `${prevRendered.phaseKey}:${prevRendered.text}->${target.phaseKey}:${target.text}`,
+      targetText: target.text,
+      prefix,
+      suffix,
+    }
+  })()
+  const [persistedSuffixRetyping, setPersistedSuffixRetyping] = useState<HeaderSuffixRetyping | null>(null)
+  const activeSuffixRetyping = immediateSuffixRetyping?.targetText === target.text
+    ? immediateSuffixRetyping
+    : persistedSuffixRetyping?.targetText === target.text
+      ? persistedSuffixRetyping
+      : null
+  // 仅真实 live thinking 首次 mount 时使用打字机；pending hint 直接稳定显示
   const [retypingInitial, setRetypingInitial] = useState(
-    () => phaseKey === 'thinking-pending' || phaseKey === 'thinking-live',
+    () => phaseKey === 'thinking-live' || phaseKey === 'thinking',
   )
+
+  let renderMode: 'suffix-retyping' | 'pending-static' | 'initial-retyping' | 'whole-retyping' | 'stable' = 'stable'
+
+  useEffect(() => {
+    if (!immediateSuffixRetyping) return
+    setPersistedSuffixRetyping((current) => current?.key === immediateSuffixRetyping.key ? current : immediateSuffixRetyping)
+    const duration = HEADER_RETYPING_DELAY_MS + Math.ceil((immediateSuffixRetyping.suffix.length / HEADER_TYPE_CPS) * 1000) + 100
+    const id = window.setTimeout(() => {
+      setPersistedSuffixRetyping((current) => current?.key === immediateSuffixRetyping.key ? null : current)
+    }, duration)
+    return () => window.clearTimeout(id)
+  }, [immediateSuffixRetyping])
 
   // 打字机完成后或 phase 离开 thinking 时清除
   useEffect(() => {
     if (!retypingInitial) return
+    if (activeSuffixRetyping) {
+      setRetypingInitial(false)
+      return
+    }
     if (target.phaseKey !== 'thinking-pending' && target.phaseKey !== 'thinking-live') {
       setRetypingInitial(false)
       return
@@ -233,21 +292,63 @@ function CopTimelineHeaderLabel({ text, phaseKey, shimmer }: { text: string; pha
     const duration = HEADER_RETYPING_DELAY_MS + Math.ceil((target.text.length / cps) * 1000) + 100
     const id = window.setTimeout(() => setRetypingInitial(false), duration)
     return () => window.clearTimeout(id)
-  }, [retypingInitial, target.phaseKey, target.text])
+  }, [activeSuffixRetyping, retypingInitial, target.phaseKey, target.text])
+
+  if (activeSuffixRetyping) {
+    renderMode = 'suffix-retyping'
+  } else if (target.phaseKey === 'thinking-pending') {
+    renderMode = 'pending-static'
+  } else if (retypingInitial) {
+    renderMode = 'initial-retyping'
+  } else if (prevRendered && shouldRetypeWholeHeader(prevRendered, target)) {
+    renderMode = 'whole-retyping'
+  }
+
+  useEffect(() => {
+    emitCopHeaderDebug({
+      phaseKey,
+      targetPhaseKey: target.phaseKey,
+      text,
+      targetText: target.text,
+      renderMode,
+      shimmer: !!shimmer,
+      retypingInitial,
+      prevPhaseKey: prevRendered?.phaseKey ?? null,
+      prevText: prevRendered?.text ?? null,
+      suffixKey: activeSuffixRetyping?.key ?? null,
+      suffixPrefix: activeSuffixRetyping?.prefix ?? null,
+      suffixText: activeSuffixRetyping?.suffix ?? null,
+    })
+  }, [
+    activeSuffixRetyping?.key,
+    activeSuffixRetyping?.prefix,
+    activeSuffixRetyping?.suffix,
+    phaseKey,
+    prevRendered?.phaseKey,
+    prevRendered?.text,
+    renderMode,
+    retypingInitial,
+    shimmer,
+    target.phaseKey,
+    target.text,
+    text,
+  ])
+
+  if (activeSuffixRetyping) {
+    return (
+      <span className={shimmer ? 'thinking-shimmer' : undefined}>
+        {activeSuffixRetyping.prefix}
+        <PhaseRetypingLabel key={activeSuffixRetyping.key} text={activeSuffixRetyping.suffix} shimmer={shimmer} />
+      </span>
+    )
+  }
+
+  if (target.phaseKey === 'thinking-pending') {
+    return <span className={shimmer ? 'thinking-shimmer' : undefined}>{target.text}</span>
+  }
 
   if (retypingInitial) {
     return <PhaseRetypingLabel key="initial-typing" text={target.text} shimmer={shimmer} />
-  }
-
-  if (prevRendered?.phaseKey === 'thinking-pending' && target.phaseKey === 'thinking-live') {
-    const prefix = trimThinkingEllipsis(longestCommonPrefix(trimThinkingEllipsis(prevRendered.text), target.text))
-    const suffix = target.text.slice(prefix.length)
-    return (
-      <span className={shimmer ? 'thinking-shimmer' : undefined}>
-        {prefix}
-        <PhaseRetypingLabel key={`${target.phaseKey}:${target.text}`} text={suffix} shimmer={shimmer} />
-      </span>
-    )
   }
 
   if (prevRendered && shouldRetypeWholeHeader(prevRendered, target)) {
@@ -858,7 +959,7 @@ export function CopTimelineUnifiedRow({
   )
 }
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed, debugMeta }: Props) {
   const { t } = useLocale()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
@@ -1186,6 +1287,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const headerLabel = headerOverride ?? autoLabel
   const resolvedHeaderLabel = headerLabel
   const dottedStepCount = visibleSteps.length
+  const debugIdentity = useId()
 
   useEffect(() => {
     recordPerfCount('cop_timeline_render', 1, timelinePerfSample)
@@ -1195,6 +1297,44 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       unified: useUnified,
     })
   }, [collapsed, live, timelinePerfSample, unifiedEntries.length, useUnified])
+
+  useEffect(() => {
+    emitCopHeaderDebug({
+      event: 'timeline-render',
+      instanceId: debugIdentity,
+      live: !!live,
+      isComplete,
+      headerPhaseKey,
+      resolvedHeaderLabel,
+      hasAnyThinking,
+      anyThinkingLive,
+      debugMeta: debugMeta ?? null,
+    })
+  }, [anyThinkingLive, debugIdentity, debugMeta, hasAnyThinking, headerPhaseKey, isComplete, live, resolvedHeaderLabel])
+
+  useEffect(() => {
+    const instanceId = debugIdentity
+    emitCopHeaderDebug({
+      event: 'timeline-mount',
+      instanceId,
+      live: !!live,
+      isComplete,
+      headerPhaseKey,
+      resolvedHeaderLabel,
+      debugMeta: debugMeta ?? null,
+    })
+    return () => {
+      emitCopHeaderDebug({
+        event: 'timeline-unmount',
+        instanceId,
+        live: !!live,
+        isComplete,
+        headerPhaseKey,
+        resolvedHeaderLabel,
+        debugMeta: debugMeta ?? null,
+      })
+    }
+  }, [debugIdentity, debugMeta, headerPhaseKey, isComplete, live, resolvedHeaderLabel])
 
   if (!shouldRender) return null
 
