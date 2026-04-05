@@ -997,6 +997,8 @@ export interface LocaleStrings {
     toolModelDesc: string;
     toolModelPlatformDefault: string;
     toolModelSameAsChat: string;
+    toolModelAutoHint: string;
+    toolModelAutoSuffix: string;
     advancedTitle: string;
     advancedDesc: string;
     advancedOverview: string;

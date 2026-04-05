@@ -597,7 +597,10 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
         }
       }
       const toEnable = created.filter((pm) => pm.model.toLowerCase().includes('gpt-4o-mini') && !embeddingIds.has(pm.model.toLowerCase()))
-      await Promise.all(toEnable.map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
+      if (toEnable.length > 0) {
+        await patchProviderModel(accessToken, provider.id, toEnable[0].id, { show_in_picker: true, is_default: true })
+        await Promise.all(toEnable.slice(1).map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
+      }
       onChanged()
       await loadAvailable()
     } catch (e) {

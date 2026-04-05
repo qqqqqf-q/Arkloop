@@ -56,6 +56,16 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
 
   const toolModelValue = toolProfile?.has_override ? toolProfile.resolved_model : ''
 
+  const toolModelPlaceholder = (() => {
+    const autoModel = toolProfile?.auto_model
+    if (autoModel) {
+      const parts = autoModel.split('^')
+      const displayName = parts.length === 2 ? `${parts[0]} / ${parts[1]}` : autoModel
+      return `${displayName} (${ds.toolModelAutoSuffix})`
+    }
+    return nonSaaSUi ? ds.toolModelSameAsChat : ds.toolModelPlatformDefault
+  })()
+
   const buildOpenVikingConfigureParams = (
     rootApiKey: string | undefined,
     vlm: NonNullable<Awaited<ReturnType<typeof resolveOpenVikingConfig>>['vlm']>,
@@ -227,10 +237,13 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
           <SettingsModelDropdown
             value={toolModelValue}
             options={modelOptions}
-            placeholder={nonSaaSUi ? ds.toolModelSameAsChat : ds.toolModelPlatformDefault}
+            placeholder={toolModelPlaceholder}
             disabled={savingTool}
             onChange={handleToolModelChange}
           />
+          {!toolProfile?.has_override && toolProfile?.auto_model && (
+            <p className="text-xs text-[var(--c-text-muted)]">{ds.toolModelAutoHint}</p>
+          )}
         </div>
       </section>
 

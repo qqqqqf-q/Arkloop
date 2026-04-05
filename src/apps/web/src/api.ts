@@ -1565,7 +1565,7 @@ export async function patchProviderModel(
   accessToken: string,
   providerId: string,
   modelId: string,
-  data: { show_in_picker?: boolean; tags?: string[]; advanced_json?: Record<string, unknown> | null },
+  data: { show_in_picker?: boolean; is_default?: boolean; tags?: string[]; advanced_json?: Record<string, unknown> | null },
 ): Promise<LlmProviderModel> {
   return await apiFetch<LlmProviderModel>(
     withScope(`/v1/llm-providers/${providerId}/models/${modelId}`, BYOK_SCOPE),
@@ -1680,6 +1680,8 @@ export type SpawnProfile = {
   profile: string
   resolved_model: string
   has_override: boolean
+  is_auto?: boolean
+  auto_model?: string
 }
 
 export type ResolveOpenVikingConfigRequest = {

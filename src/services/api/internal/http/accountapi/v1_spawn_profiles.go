@@ -26,6 +26,8 @@ type spawnProfileResponse struct {
 	Profile       string `json:"profile"`
 	ResolvedModel string `json:"resolved_model"`
 	HasOverride   bool   `json:"has_override"`
+	IsAuto        bool   `json:"is_auto,omitempty"`
+	AutoModel     string `json:"auto_model,omitempty"`
 }
 
 type setSpawnProfileRequest struct {
@@ -39,11 +41,12 @@ func spawnProfilesEntry(
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	configResolver sharedconfig.Resolver,
+	routesRepo *data.LlmRoutesRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
-			listSpawnProfiles(w, r, authService, membershipRepo, entitlementsRepo, apiKeysRepo, configResolver)
+			listSpawnProfiles(w, r, authService, membershipRepo, entitlementsRepo, apiKeysRepo, configResolver, routesRepo)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -91,6 +94,7 @@ func listSpawnProfiles(
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	configResolver sharedconfig.Resolver,
+	routesRepo *data.LlmRoutesRepository,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	actor, ok := httpkit.ResolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
@@ -120,11 +124,23 @@ func listSpawnProfiles(
 			}
 		}
 
-		result = append(result, spawnProfileResponse{
+		entry := spawnProfileResponse{
 			Profile:       name,
 			ResolvedModel: resolvedModel,
 			HasOverride:   hasOverride,
-		})
+		}
+
+		if name == "tool" && routesRepo != nil {
+			if selector, err := routesRepo.GetDefaultSelector(r.Context(), actor.AccountID, data.LlmRouteScopeUser); err == nil && selector != "" {
+				entry.AutoModel = selector
+				if !hasOverride && resolvedModel == "" {
+					entry.ResolvedModel = selector
+					entry.IsAuto = true
+				}
+			}
+		}
+
+		result = append(result, entry)
 	}
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, result)

@@ -423,6 +423,35 @@ func scanLlmRoute(row llmRouteScanner) (LlmRoute, error) {
 	return route, err
 }
 
+// GetDefaultSelector returns "credential_name^model" for the default route
+// under the given account. Returns empty string if no default route exists.
+func (r *LlmRoutesRepository) GetDefaultSelector(ctx context.Context, accountID uuid.UUID, scope string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	query := `SELECT c.name, r.model
+		 FROM llm_routes r
+		 JOIN llm_credentials c ON c.id = r.credential_id
+		 WHERE r.is_default = true`
+	args := []any{}
+	if scope == LlmRouteScopePlatform {
+		query += ` AND r.project_id IS NULL AND r.account_id IS NULL`
+	} else {
+		query += fmt.Sprintf(` AND r.account_id = $%d`, len(args)+1)
+		args = append(args, accountID)
+	}
+	query += ` ORDER BY r.priority DESC LIMIT 1`
+	var credName, model string
+	err := r.db.QueryRow(ctx, query, args...).Scan(&credName, &model)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(credName) + "^" + strings.TrimSpace(model), nil
+}
+
 func (r *LlmRoutesRepository) list(ctx context.Context, query string, args ...any) ([]LlmRoute, error) {
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
