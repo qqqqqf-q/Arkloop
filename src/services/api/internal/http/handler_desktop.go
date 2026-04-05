@@ -437,6 +437,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		RunEventRepo:             cfg.RunEventRepo,
 		JobRepo:                  cfg.JobRepo,
 		Pool:                     cfg.Pool,
+		AttachmentStore:          cfg.MessageAttachmentStore,
 	})
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

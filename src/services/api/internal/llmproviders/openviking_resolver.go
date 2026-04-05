@@ -323,12 +323,28 @@ func probeOpenAIEmbeddingDimension(ctx context.Context, apiBase, apiKey, model s
 }
 
 func inferKnownEmbeddingDimension(model string) int {
-	switch strings.ToLower(strings.TrimSpace(model)) {
-	case "text-embedding-3-small", "openai/text-embedding-3-small", "text-embedding-ada-002", "openai/text-embedding-ada-002":
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch m {
+	// OpenAI
+	case "text-embedding-3-small", "openai/text-embedding-3-small",
+		"text-embedding-ada-002", "openai/text-embedding-ada-002":
 		return 1536
 	case "text-embedding-3-large", "openai/text-embedding-3-large":
 		return 3072
 	default:
+		// 通义 embedding
+		if strings.Contains(m, "tongyi-embedding") || strings.HasPrefix(m, "text-embedding-v") {
+			switch {
+			case strings.Contains(m, "text-embedding-v1"), strings.Contains(m, "text-embedding-v2"):
+				return 1536
+			default:
+				return 1024 // v3, v4, vision-plus 默认 1024
+			}
+		}
+		// 火山引擎 doubao embedding
+		if strings.Contains(m, "doubao-embedding") {
+			return 1024
+		}
 		return 0
 	}
 }

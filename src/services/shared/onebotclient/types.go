@@ -1,6 +1,9 @@
 package onebotclient
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // OneBot11 消息段
 type MessageSegment struct {
@@ -21,6 +24,13 @@ type AtData struct {
 // Reply 消息段 data
 type ReplyData struct {
 	ID string `json:"id"`
+}
+
+// Image 消息段 data
+type ImageData struct {
+	File string `json:"file,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Type string `json:"type,omitempty"`
 }
 
 // 事件基础字段
@@ -78,28 +88,27 @@ func (e *Event) IsLifecycle() bool {
 	return e.PostType == "meta_event" && e.MetaEvent == "lifecycle"
 }
 
-// PlainText 从 message 字段提取纯文本
+// PlainText 从 message 字段提取纯文本（过滤 CQ 码，只保留 text 段）
 func (e *Event) PlainText() string {
-	if e.RawMessage != "" {
-		return e.RawMessage
-	}
-	// 尝试解析 message array
-	var segments []MessageSegment
-	if err := json.Unmarshal(e.Message, &segments); err != nil {
-		return ""
-	}
-	var buf []byte
-	for _, seg := range segments {
-		if seg.Type != "text" {
-			continue
+	// 优先解析结构化 message 数组
+	if len(e.Message) > 0 {
+		var segments []MessageSegment
+		if err := json.Unmarshal(e.Message, &segments); err == nil && len(segments) > 0 {
+			var buf []byte
+			for _, seg := range segments {
+				if seg.Type != "text" {
+					continue
+				}
+				var td TextData
+				if err := json.Unmarshal(seg.Data, &td); err != nil {
+					continue
+				}
+				buf = append(buf, td.Text...)
+			}
+			return string(buf)
 		}
-		var td TextData
-		if err := json.Unmarshal(seg.Data, &td); err != nil {
-			continue
-		}
-		buf = append(buf, td.Text...)
 	}
-	return string(buf)
+	return e.RawMessage
 }
 
 // SenderDisplayName 返回发送者展示名（优先群名片）
@@ -223,4 +232,22 @@ func (e *Event) ReplyMessageID() string {
 		return rd.ID
 	}
 	return ""
+}
+
+// ImageURLs 从 message 字段提取所有 image 段的下载 URL
+func (e *Event) ImageURLs() []string {
+	var urls []string
+	for _, seg := range e.ParsedSegments() {
+		if seg.Type != "image" {
+			continue
+		}
+		var id ImageData
+		if err := json.Unmarshal(seg.Data, &id); err != nil {
+			continue
+		}
+		if u := strings.TrimSpace(id.URL); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	return urls
 }

@@ -163,3 +163,29 @@ func (c *Client) GetGroupMemberInfo(ctx context.Context, groupID, userID string)
 	}
 	return &info, nil
 }
+
+// DownloadURL 通过 HTTP GET 下载指定 URL 的内容（用于获取图片字节）。
+// maxBytes 限制最大读取量，防止过大响应。
+func (c *Client) DownloadURL(ctx context.Context, url string, maxBytes int64) (data []byte, contentType string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("onebot download request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("onebot download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("onebot download: status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("onebot download read: %w", err)
+	}
+	if int64(len(body)) > maxBytes {
+		return nil, "", fmt.Errorf("onebot download: response too large")
+	}
+	ct := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+	return body, ct, nil
+}

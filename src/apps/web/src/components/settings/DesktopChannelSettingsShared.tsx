@@ -288,10 +288,17 @@ function BindingRoleBadge({
 
 function BindingHeartbeatEditor({
   binding,
+  modelOptions,
+  enabledLabel,
+  intervalLabel,
+  modelLabel,
+  saveLabel,
+  savingLabel,
   ownerLabel,
   adminLabel,
   setOwnerLabel,
   unbindLabel,
+  onSaveHeartbeat,
   onMakeOwner,
   onUnbind,
   onOwnerUnbindAttempt,
@@ -313,6 +320,34 @@ function BindingHeartbeatEditor({
   onOwnerUnbindAttempt: () => void
 }) {
   const [promotingOwner, setPromotingOwner] = useState(false)
+  const [hbEnabled, setHbEnabled] = useState(binding.heartbeat_enabled)
+  const [hbInterval, setHbInterval] = useState(String(binding.heartbeat_interval_minutes || 30))
+  const [hbModel, setHbModel] = useState(binding.heartbeat_model ?? '')
+  const [hbSaving, setHbSaving] = useState(false)
+
+  const hbDirty =
+    hbEnabled !== binding.heartbeat_enabled ||
+    Number(hbInterval) !== (binding.heartbeat_interval_minutes || 30) ||
+    hbModel !== (binding.heartbeat_model ?? '')
+
+  useEffect(() => {
+    setHbEnabled(binding.heartbeat_enabled)
+    setHbInterval(String(binding.heartbeat_interval_minutes || 30))
+    setHbModel(binding.heartbeat_model ?? '')
+  }, [binding.heartbeat_enabled, binding.heartbeat_interval_minutes, binding.heartbeat_model])
+
+  const handleSave = async () => {
+    setHbSaving(true)
+    try {
+      await onSaveHeartbeat(binding, {
+        enabled: hbEnabled,
+        interval: Math.max(1, Number(hbInterval) || 30),
+        model: hbModel,
+      })
+    } finally {
+      setHbSaving(false)
+    }
+  }
 
   return (
     <div
@@ -365,6 +400,55 @@ function BindingHeartbeatEditor({
             className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
           >
             {unbindLabel}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="mt-3 rounded-lg px-3 py-3"
+        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-sub, var(--c-bg-deep))' }}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-[var(--c-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={hbEnabled}
+              onChange={(e) => setHbEnabled(e.target.checked)}
+              className="rounded"
+            />
+            {enabledLabel}
+          </label>
+
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{intervalLabel}</span>
+            <input
+              type="number"
+              min={1}
+              value={hbInterval}
+              onChange={(e) => setHbInterval(e.target.value)}
+              className="w-full rounded-md border-0 bg-[var(--c-bg-input)] px-2.5 py-1.5 text-xs text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] focus:ring-1 focus:ring-[var(--c-border-mid)]"
+            />
+          </div>
+
+          <div className="flex min-w-0 flex-[2] flex-col gap-1">
+            <span className="text-[11px] text-[var(--c-text-muted)]">{modelLabel}</span>
+            <ModelDropdown
+              value={hbModel}
+              options={modelOptions}
+              placeholder="--"
+              disabled={hbSaving}
+              onChange={setHbModel}
+            />
+          </div>
+
+          <button
+            type="button"
+            disabled={hbSaving || !hbDirty}
+            onClick={() => void handleSave()}
+            className="shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+          >
+            {hbSaving ? savingLabel : saveLabel}
           </button>
         </div>
       </div>

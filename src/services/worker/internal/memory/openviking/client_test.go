@@ -329,6 +329,106 @@ func TestClient_UpdateByURI_Correct(t *testing.T) {
 	}
 }
 
+// --- CommitSession: auto-resolve failed archive ---
+
+func TestClient_CommitSession_412_ResolvesAndRetries(t *testing.T) {
+	var calls []string
+
+	body412 := `{"status":"error","error":{"code":"FAILED_PRECONDITION","message":"unresolved failed archive","details":{"archive_id":"archive_004"}}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/commit"):
+			if len(calls) == 0 || calls[len(calls)-1] != "delete" {
+				calls = append(calls, "commit_412")
+				w.WriteHeader(http.StatusPreconditionFailed)
+				_, _ = w.Write([]byte(body412))
+			} else {
+				calls = append(calls, "commit_ok")
+				w.WriteHeader(http.StatusOK)
+			}
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/fs":
+			calls = append(calls, "delete")
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/content/read"):
+			calls = append(calls, "read_failed_json")
+			writeJSON(w, apiResp("LLM extraction timeout"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL, "root-key")
+	err := c.CommitSession(context.Background(), newIdent(), "sess-abc")
+	if err != nil {
+		t.Fatalf("CommitSession should succeed after resolve, got: %v", err)
+	}
+	want := []string{"commit_412", "read_failed_json", "delete", "commit_ok"}
+	if len(calls) != len(want) {
+		t.Fatalf("unexpected calls: %v, want %v", calls, want)
+	}
+	for i, v := range want {
+		if calls[i] != v {
+			t.Errorf("calls[%d]: got %q, want %q", i, calls[i], v)
+		}
+	}
+}
+
+func TestClient_CommitSession_412_DeleteFails_ReturnsOriginalError(t *testing.T) {
+	body412 := `{"status":"error","error":{"code":"FAILED_PRECONDITION","message":"unresolved","details":{"archive_id":"archive_007"}}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/commit"):
+			w.WriteHeader(http.StatusPreconditionFailed)
+			_, _ = w.Write([]byte(body412))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"status":"error"}`))
+		case r.Method == http.MethodGet:
+			writeJSON(w, apiResp("detail"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL, "")
+	err := c.CommitSession(context.Background(), newIdent(), "sess-xyz")
+	if err == nil {
+		t.Fatal("expected error when delete fails")
+	}
+	if !strings.Contains(err.Error(), "412") {
+		t.Fatalf("expected original 412 error, got: %v", err)
+	}
+}
+
+func TestClient_CommitSession_Non412_NoResolveAttempt(t *testing.T) {
+	var calls []string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/commit") {
+			calls = append(calls, "commit")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"status":"error","error":{"code":"BAD_REQUEST","message":"bad"}}`))
+			return
+		}
+		calls = append(calls, "other")
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := newClient(srv.URL, "")
+	err := c.CommitSession(context.Background(), newIdent(), "sess-123")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if len(calls) != 1 || calls[0] != "commit" {
+		t.Fatalf("expected only one commit call, got: %v", calls)
+	}
+}
+
 // --- Retry ---
 
 func TestClient_Retry_5xx(t *testing.T) {

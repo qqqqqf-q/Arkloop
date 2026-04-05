@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
+	"arkloop/services/api/internal/http/conversationapi"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/messagecontent"
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/pgnotify"
 
@@ -75,6 +77,7 @@ type qqIncomingMessage struct {
 	PlatformUserID string
 	ChatType       string // "private" / "group"
 	Text           string
+	ImageURLs      []string
 	MentionsBot    bool
 	IsReplyToBot   bool
 	ReplyToMsgID   *string
@@ -86,6 +89,10 @@ func (m qqIncomingMessage) IsPrivate() bool {
 
 func (m qqIncomingMessage) ShouldCreateRun() bool {
 	return m.IsPrivate() || m.MentionsBot || m.IsReplyToBot
+}
+
+func (m qqIncomingMessage) HasContent() bool {
+	return m.Text != "" || len(m.ImageURLs) > 0
 }
 
 // --- connector ---
@@ -105,6 +112,7 @@ type qqConnector struct {
 	runEventRepo             *data.RunEventRepository
 	jobRepo                  *data.JobRepository
 	pool                     data.DB
+	attachmentStore          MessageAttachmentPutStore
 	inputNotify              func(ctx context.Context, runID uuid.UUID)
 }
 
@@ -113,6 +121,14 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	if !event.IsMessageEvent() {
 		return nil
 	}
+
+	slog.InfoContext(ctx, "qq_inbound_event",
+		"post_type", event.PostType,
+		"message_type", event.MessageType,
+		"user_id", event.UserID.String(),
+		"group_id", event.GroupID.String(),
+		"message_id", event.MessageID.String(),
+	)
 
 	cfg, err := resolveQQChannelConfig(ch.ConfigJSON)
 	if err != nil {
@@ -130,7 +146,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	text := strings.TrimSpace(event.PlainText())
-	if text == "" {
+	imageURLs := event.ImageURLs()
+	if text == "" && len(imageURLs) == 0 {
 		return nil
 	}
 
@@ -155,6 +172,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		PlatformUserID: userID,
 		ChatType:       chatType,
 		Text:           text,
+		ImageURLs:      imageURLs,
 		MentionsBot:    !isPrivate && event.MentionsQQ(selfID),
 	}
 
@@ -202,10 +220,49 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		}
 	}
 
+	// --- 通用命令路径: /heartbeat（私聊/群聊均可） ---
+	{
+		cmdText := stripLeadingMention(text)
+		if cmd, ok := telegramCommandBase(cmdText, ""); ok && strings.HasPrefix(cmd, "/heartbeat") {
+			slog.InfoContext(ctx, "qq_heartbeat_command",
+				"chat_type", chatType,
+				"cmd", cmd,
+				"platform_chat_id", platformChatID,
+			)
+			heartbeatIdentity := identity
+			if !isPrivate {
+				// 群聊 heartbeat 挂载在 group identity 上
+				groupIdentity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
+				if err != nil {
+					return err
+				}
+				heartbeatIdentity = groupIdentity
+			}
+			replyText, err := handleTelegramHeartbeatCommand(
+				ctx, tx,
+				ch.ID, ch.AccountID, ch.PersonaID,
+				cfg.DefaultModel,
+				heartbeatIdentity,
+				cmdText,
+				c.channelIdentitiesRepo,
+				c.personasRepo,
+				nil,
+			)
+			if err != nil {
+				return err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			c.sendQQReply(ctx, cfg, chatType, platformChatID, replyText)
+			return nil
+		}
+	}
+
 	// --- 私聊路径 ---
 	if isPrivate {
-		// bind 访问控制
-		if c.channelIdentityLinksRepo != nil && !qqLinkBootstrapAllowed(text) {
+		// bind 访问控制（复用 Telegram 的 bootstrap 判断）
+		if c.channelIdentityLinksRepo != nil && !telegramLinkBootstrapAllowed(text) {
 			hasLink, err := c.channelIdentityLinksRepo.WithTx(tx).HasLink(ctx, ch.ID, identity.ID)
 			if err != nil {
 				return err
@@ -219,8 +276,17 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 			}
 		}
 
-		// 私聊命令处理
-		if handled, replyText, err := c.handleQQPrivateCommand(ctx, tx, &ch, identity, text); err != nil {
+		// 私聊命令处理（复用 Telegram 的命令处理器）
+		if handled, replyText, err := handleTelegramCommand(
+			ctx, tx, &ch, identity, text,
+			c.channelBindCodesRepo,
+			c.channelIdentitiesRepo,
+			c.channelIdentityLinksRepo,
+			c.channelDMThreadsRepo,
+			c.threadRepo,
+			c.runEventRepo.WithTx(tx),
+			c.pool,
+		); err != nil {
 			return err
 		} else if handled {
 			if err := tx.Commit(ctx); err != nil {
@@ -235,7 +301,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 
 	// --- 群聊命令路径 ---
 	if !isPrivate {
-		if cmd, ok := qqCommandBase(text); ok {
+		cmdText := stripLeadingMention(text)
+		if cmd, ok := telegramCommandBase(cmdText, ""); ok {
 			switch {
 			case cmd == "/new":
 				replyText := c.handleQQGroupNew(ctx, tx, ch, cfg, identity, platformChatID)
@@ -252,17 +319,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				}
 				if cancelRunID != uuid.Nil {
 					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-				}
-				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
-				return nil
-
-			case strings.HasPrefix(cmd, "/heartbeat"):
-				replyText, err := c.handleQQGroupHeartbeat(ctx, tx, ch, cfg, identity, platformChatID, text)
-				if err != nil {
-					return err
-				}
-				if err := tx.Commit(ctx); err != nil {
-					return err
 				}
 				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
 				return nil
@@ -308,26 +364,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	projection := buildQQEnvelopeText(identity.ID, displayName, chatType, text, event.Time, incoming)
-	content, err := messagecontent.Normalize(messagecontent.FromText(projection).Parts)
-	if err != nil {
-		return err
-	}
-	contentJSON, err := content.JSON()
-	if err != nil {
-		return err
-	}
-	metadataJSON, _ := json.Marshal(map[string]any{
-		"source":              "qq",
-		"channel_identity_id": identity.ID.String(),
-		"display_name":        displayName,
-		"platform_chat_id":    platformChatID,
-		"platform_message_id": incoming.PlatformMsgID,
-		"platform_user_id":    userID,
-		"chat_type":           chatType,
-		"mentions_bot":        incoming.MentionsBot,
-		"is_reply_to_bot":     incoming.IsReplyToBot,
-		"reply_to_message_id": incoming.ReplyToMsgID,
-	})
 
 	threadProjectID := derefUUID(persona.ProjectID)
 	if threadProjectID == uuid.Nil {
@@ -353,6 +389,24 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	if err != nil {
 		return err
 	}
+
+	content, contentJSON, err := c.buildQQContentWithMedia(ctx, cfg, projection, incoming, ch.AccountID, threadID, identity.UserID)
+	if err != nil {
+		return err
+	}
+	_ = content
+	metadataJSON, _ := json.Marshal(map[string]any{
+		"source":              "qq",
+		"channel_identity_id": identity.ID.String(),
+		"display_name":        displayName,
+		"platform_chat_id":    platformChatID,
+		"platform_message_id": incoming.PlatformMsgID,
+		"platform_user_id":    userID,
+		"chat_type":           chatType,
+		"mentions_bot":        incoming.MentionsBot,
+		"is_reply_to_bot":     incoming.IsReplyToBot,
+		"reply_to_message_id": incoming.ReplyToMsgID,
+	})
 
 	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx, ch.AccountID, threadID, "user", projection, contentJSON, metadataJSON, identity.UserID,
@@ -456,103 +510,6 @@ func (c *qqConnector) checkReplyToBot(ctx context.Context, cfg qqChannelConfig, 
 
 // --- commands ---
 
-func qqCommandBase(text string) (cmd string, ok bool) {
-	text = strings.TrimSpace(text)
-	if !strings.HasPrefix(text, "/") {
-		return "", false
-	}
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
-		return "", false
-	}
-	return strings.ToLower(fields[0]), true
-}
-
-func qqLinkBootstrapAllowed(text string) bool {
-	cmd, ok := qqCommandBase(text)
-	if !ok {
-		return false
-	}
-	return cmd == "/help" || cmd == "/bind" || cmd == "/start"
-}
-
-func (c *qqConnector) handleQQPrivateCommand(
-	ctx context.Context,
-	tx pgx.Tx,
-	channel *data.Channel,
-	identity data.ChannelIdentity,
-	text string,
-) (bool, string, error) {
-	cmd, ok := qqCommandBase(text)
-	if !ok {
-		return false, "", nil
-	}
-	parts := strings.Fields(text)
-
-	switch {
-	case cmd == "/help":
-		return true, "/bind <code> - 绑定你的账号\n/new - 开启新会话\n/stop - 停止当前任务\n/help - 显示此帮助", nil
-
-	case cmd == "/start":
-		if len(parts) > 1 && strings.HasPrefix(parts[1], "bind_") {
-			if c.channelBindCodesRepo == nil {
-				return true, "绑定功能不可用。", nil
-			}
-			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"),
-				c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo)
-			return true, replyText, err
-		}
-		return true, "已连接 Arkloop\n\n使用 /bind <code> 绑定账号\n私聊直接发消息开始对话，/new 开启新会话", nil
-
-	case cmd == "/bind":
-		if len(parts) < 2 {
-			return true, "用法: /bind <code>", nil
-		}
-		if c.channelBindCodesRepo == nil {
-			return true, "绑定功能不可用。", nil
-		}
-		replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, parts[1],
-			c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo)
-		return true, replyText, err
-
-	case cmd == "/new":
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return true, "当前会话未配置 persona。", nil
-		}
-		if err := c.channelDMThreadsRepo.WithTx(tx).DeleteByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID); err != nil {
-			return true, "", err
-		}
-		return true, "已开启新会话。", nil
-
-	case cmd == "/stop":
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return true, "当前没有运行中的任务。", nil
-		}
-		dmThread, err := c.channelDMThreadsRepo.GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID)
-		if err != nil {
-			return true, "", err
-		}
-		if dmThread == nil {
-			return true, "当前没有运行中的任务。", nil
-		}
-		activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, dmThread.ThreadID)
-		if err != nil {
-			return true, "", err
-		}
-		if activeRun == nil {
-			return true, "当前没有运行中的任务。", nil
-		}
-		if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
-			return true, "", err
-		}
-		_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
-		return true, "已请求停止当前任务。", nil
-
-	default:
-		return false, "", nil
-	}
-}
-
 func (c *qqConnector) handleQQGroupNew(
 	ctx context.Context, tx pgx.Tx,
 	ch data.Channel, cfg qqChannelConfig,
@@ -594,28 +551,6 @@ func (c *qqConnector) handleQQGroupStop(
 		return "操作失败。", uuid.Nil
 	}
 	return "已请求停止当前任务。", activeRun.ID
-}
-
-func (c *qqConnector) handleQQGroupHeartbeat(
-	ctx context.Context, tx pgx.Tx,
-	ch data.Channel, cfg qqChannelConfig,
-	identity data.ChannelIdentity, platformChatID, rawText string,
-) (string, error) {
-	// heartbeat 挂载在 group identity 上
-	groupIdentity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
-	if err != nil {
-		return "", err
-	}
-	return handleTelegramHeartbeatCommand(
-		ctx, tx,
-		ch.ID, ch.AccountID, ch.PersonaID,
-		cfg.DefaultModel,
-		groupIdentity,
-		rawText,
-		c.channelIdentitiesRepo,
-		c.personasRepo,
-		nil, // entitlement service -- desktop 模式下不需要
-	)
 }
 
 // isQQGroupAdmin 通过 OneBot API 校验群管理员权限
@@ -690,14 +625,11 @@ func (c *qqConnector) persistQQGroupPassiveMessage(
 	}
 
 	projection := buildQQEnvelopeText(identity.ID, displayName, incoming.ChatType, incoming.Text, unixTS, incoming)
-	content, err := messagecontent.Normalize(messagecontent.FromText(projection).Parts)
+	content, contentJSON, err := c.buildQQContentWithMedia(ctx, qqChannelConfig{}, projection, incoming, ch.AccountID, threadID, identity.UserID)
 	if err != nil {
 		return err
 	}
-	contentJSON, err := content.JSON()
-	if err != nil {
-		return err
-	}
+	_ = content
 	metadataJSON, _ := json.Marshal(map[string]any{
 		"source":              "qq",
 		"channel_identity_id": identity.ID.String(),
@@ -723,10 +655,22 @@ func (c *qqConnector) persistQQGroupPassiveMessage(
 
 func (c *qqConnector) buildOneBotClient(cfg qqChannelConfig) *onebotclient.Client {
 	httpURL := strings.TrimSpace(cfg.OneBotHTTPURL)
+	token := strings.TrimSpace(cfg.OneBotToken)
+	if httpURL == "" || token == "" {
+		if mgr := getNapCatManagerIfExists(); mgr != nil {
+			if addr, tk := mgr.OneBotHTTPEndpoint(); addr != "" {
+				if httpURL == "" {
+					httpURL = addr
+				}
+				if token == "" {
+					token = tk
+				}
+			}
+		}
+	}
 	if httpURL == "" {
 		return nil
 	}
-	token := strings.TrimSpace(cfg.OneBotToken)
 	if token == "" {
 		if mgr := getNapCatManagerIfExists(); mgr != nil {
 			_, token = mgr.WSEndpoint()
@@ -831,6 +775,116 @@ func (c *qqConnector) notifyInput(ctx context.Context, runID uuid.UUID) {
 	c.inputNotify(ctx, runID)
 }
 
+// --- media ingest ---
+
+// buildQQContentWithMedia 下载 OneBot image 消息段中的图片，上传到对象存储，
+// 构建多模态 Content（text + image parts）。无图片时退化为纯文本。
+func (c *qqConnector) buildQQContentWithMedia(
+	ctx context.Context,
+	cfg qqChannelConfig,
+	envelopeText string,
+	incoming qqIncomingMessage,
+	accountID, threadID uuid.UUID,
+	userID *uuid.UUID,
+) (messagecontent.Content, []byte, error) {
+	if len(incoming.ImageURLs) == 0 || c.attachmentStore == nil {
+		content, err := messagecontent.Normalize(messagecontent.FromText(envelopeText).Parts)
+		if err != nil {
+			return messagecontent.Content{}, nil, err
+		}
+		raw, err := content.JSON()
+		return content, raw, err
+	}
+
+	client := c.buildOneBotClient(cfg)
+	parts := []messagecontent.Part{{Type: messagecontent.PartTypeText, Text: envelopeText}}
+
+	dlCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	for i, imgURL := range incoming.ImageURLs {
+		if i >= 8 {
+			break
+		}
+		var dataBytes []byte
+		var sniffedMime string
+		var dlErr error
+
+		if client != nil {
+			dataBytes, sniffedMime, dlErr = client.DownloadURL(dlCtx, imgURL, conversationapi.MaxImageAttachmentBytes)
+		} else {
+			// 无 client 时直接用标准 http client
+			tmpClient := onebotclient.NewClient("", "", nil)
+			dataBytes, sniffedMime, dlErr = tmpClient.DownloadURL(dlCtx, imgURL, conversationapi.MaxImageAttachmentBytes)
+		}
+		if dlErr != nil {
+			slog.Warn("qq_image_download_failed", "url", imgURL, "error", dlErr)
+			continue
+		}
+		filename := fmt.Sprintf("image_%d.jpg", i)
+		payload, perr := conversationapi.BuildAttachmentUploadPayload(filename, sniffedMime, dataBytes)
+		if perr != nil {
+			slog.Warn("qq_image_payload_failed", "url", imgURL, "error", perr)
+			continue
+		}
+
+		keySuffix := conversationapi.SanitizeAttachmentKeyName(filename)
+		key := fmt.Sprintf("attachments/%s/%s/%s", accountID.String(), uuid.NewString(), keySuffix)
+		threadIDText := threadID.String()
+		ownerID := ""
+		if userID != nil {
+			ownerID = userID.String()
+		}
+		meta := objectstore.ArtifactMetadata(
+			conversationapi.MessageAttachmentOwnerKind,
+			ownerID,
+			accountID.String(),
+			&threadIDText,
+		)
+		if perr := c.attachmentStore.PutObject(ctx, key, payload.Bytes, objectstore.PutOptions{ContentType: payload.MimeType, Metadata: meta}); perr != nil {
+			slog.Warn("qq_image_store_failed", "key", key, "error", perr)
+			continue
+		}
+		ref := &messagecontent.AttachmentRef{
+			Key:      key,
+			Filename: filename,
+			MimeType: payload.MimeType,
+			Size:     int64(len(payload.Bytes)),
+		}
+		parts = append(parts, messagecontent.Part{Type: messagecontent.PartTypeImage, Attachment: ref})
+	}
+
+	content, err := messagecontent.Normalize(parts)
+	if err != nil {
+		return messagecontent.Content{}, nil, err
+	}
+	raw, err := content.JSON()
+	return content, raw, err
+}
+
+// --- helpers ---
+
+// stripLeadingMention 移除文本开头的 @mention 或 CQ 码 at 段，
+// 使命令检测能正确识别 "@bot /heartbeat on" 中的 "/heartbeat"。
+func stripLeadingMention(text string) string {
+	s := strings.TrimSpace(text)
+	// CQ 码格式: [CQ:at,qq=xxx]
+	for strings.HasPrefix(s, "[CQ:at,") {
+		end := strings.Index(s, "]")
+		if end < 0 {
+			break
+		}
+		s = strings.TrimSpace(s[end+1:])
+	}
+	// 纯文本格式: @xxx
+	if strings.HasPrefix(s, "@") {
+		if idx := strings.IndexByte(s, ' '); idx >= 0 {
+			s = strings.TrimSpace(s[idx+1:])
+		}
+	}
+	return s
+}
+
 // --- envelope ---
 
 func buildQQEnvelopeText(identityID uuid.UUID, displayName, chatType, body string, unixTS int64, incoming qqIncomingMessage) string {
@@ -881,6 +935,7 @@ func qqOneBotCallbackHandler(
 	runEventRepo *data.RunEventRepository,
 	jobRepo *data.JobRepository,
 	pool data.DB,
+	attachmentStore MessageAttachmentPutStore,
 ) nethttp.HandlerFunc {
 	var channelLedgerRepo *data.ChannelMessageLedgerRepository
 	if pool != nil {
@@ -906,6 +961,7 @@ func qqOneBotCallbackHandler(
 		runEventRepo:             runEventRepo,
 		jobRepo:                  jobRepo,
 		pool:                     pool,
+		attachmentStore:          attachmentStore,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
 				slog.Warn("qq_active_run_notify_failed", "run_id", runID, "error", err)

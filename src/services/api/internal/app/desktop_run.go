@@ -601,6 +601,7 @@ func RunDesktop(ctx context.Context) error {
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
 		Pool:                     pgxPool,
+		AttachmentStore:          messageAttachmentStore,
 	})
 
 	// ---- HTTP server ----

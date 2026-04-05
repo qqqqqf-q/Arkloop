@@ -2,6 +2,7 @@ package accountapi
 
 import (
 	"errors"
+	"log/slog"
 	nethttp "net/http"
 	"strings"
 
@@ -161,6 +162,7 @@ func writeOpenVikingResolveError(w nethttp.ResponseWriter, traceID string, err e
 		errors.As(err, &secretMissing):
 		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
 	default:
+		slog.Error("openviking_resolve_failed", "error", err, "trace_id", traceID)
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 	}
 }

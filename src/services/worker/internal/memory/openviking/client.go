@@ -334,8 +334,95 @@ func (c *client) AppendSessionMessages(ctx context.Context, ident memory.MemoryI
 // --- CommitSession ---
 
 func (c *client) CommitSession(ctx context.Context, ident memory.MemoryIdentity, sessionID string) error {
-	path := fmt.Sprintf("/api/v1/sessions/%s/commit", url.PathEscape(sessionID))
-	return c.doWriteJSON(ctx, http.MethodPost, path, nil, ident, nil)
+	commitPath := fmt.Sprintf("/api/v1/sessions/%s/commit", url.PathEscape(sessionID))
+	err := c.doWriteJSON(ctx, http.MethodPost, commitPath, nil, ident, nil)
+	if err == nil {
+		return nil
+	}
+
+	archiveID := c.extractFailedArchiveID(err)
+	if archiveID == "" {
+		return err
+	}
+
+	c.logFailedArchiveDetail(ctx, ident, sessionID, err)
+
+	if delErr := c.deleteFailedArchive(ctx, ident, sessionID, archiveID); delErr != nil {
+		slog.WarnContext(ctx, "memory: delete failed archive failed",
+			"session_id", sessionID,
+			"archive_id", archiveID,
+			"err", delErr.Error(),
+		)
+		return err
+	}
+
+	slog.InfoContext(ctx, "memory: deleted failed archive, retrying commit",
+		"session_id", sessionID,
+		"archive_id", archiveID,
+	)
+	return c.doWriteJSON(ctx, http.MethodPost, commitPath, nil, ident, nil)
+}
+
+// logFailedArchiveDetail 当 commit 返回 412 时，尝试读取 .failed.json 以记录根因。
+func (c *client) logFailedArchiveDetail(ctx context.Context, ident memory.MemoryIdentity, sessionID string, commitErr error) {
+	archiveID := c.extractFailedArchiveID(commitErr)
+	if archiveID == "" {
+		return
+	}
+
+	userID := ident.UserID.String()
+	if ident.ExternalUserID != "" {
+		userID = ident.ExternalUserID
+	}
+	failedURI := fmt.Sprintf("viking://session/%s/%s/history/%s/.failed.json", userID, sessionID, archiveID)
+	readPath := fmt.Sprintf("/api/v1/content/read?uri=%s", url.QueryEscape(failedURI))
+
+	var resp apiResponse
+	readErr := c.doJSON(ctx, http.MethodGet, readPath, nil, ident, &resp)
+	if readErr != nil {
+		slog.WarnContext(ctx, "memory: failed to read archive failure detail",
+			"session_id", sessionID,
+			"archive_id", archiveID,
+			"read_err", readErr.Error(),
+		)
+		return
+	}
+
+	slog.WarnContext(ctx, "memory: archive failure detail",
+		"session_id", sessionID,
+		"archive_id", archiveID,
+		"failed_json", string(resp.Result),
+	)
+}
+
+// extractFailedArchiveID 从 412 响应中提取 archive_id；非 412 或解析失败时返回空字符串。
+func (c *client) extractFailedArchiveID(err error) string {
+	var he *httpStatusError
+	if !errors.As(err, &he) || he.Status != http.StatusPreconditionFailed {
+		return ""
+	}
+	var parsed struct {
+		Error struct {
+			Details struct {
+				ArchiveID string `json:"archive_id"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(he.Body), &parsed) != nil {
+		return ""
+	}
+	return parsed.Error.Details.ArchiveID
+}
+
+// deleteFailedArchive 通过 fs API 删除指定 session 下的 failed archive 目录。
+func (c *client) deleteFailedArchive(ctx context.Context, ident memory.MemoryIdentity, sessionID, archiveID string) error {
+	userID := ident.UserID.String()
+	if ident.ExternalUserID != "" {
+		userID = ident.ExternalUserID
+	}
+	archiveURI := fmt.Sprintf("viking://session/%s/%s/history/%s/", userID, sessionID, archiveID)
+	path := "/api/v1/fs?uri=" + url.QueryEscape(archiveURI) + "&recursive=true"
+	return c.doJSON(ctx, http.MethodDelete, path, nil, ident, nil)
 }
 
 // --- Write ---

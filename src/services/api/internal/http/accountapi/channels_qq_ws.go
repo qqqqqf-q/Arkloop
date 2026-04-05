@@ -32,6 +32,7 @@ type QQOneBotWSListenerDeps struct {
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
 	Pool                     data.DB
+	AttachmentStore          MessageAttachmentPutStore
 }
 
 // StartQQOneBotWSListener 启动 QQ OneBot WS Client Listener（桌面模式）。
@@ -63,6 +64,7 @@ func StartQQOneBotWSListener(ctx context.Context, deps QQOneBotWSListenerDeps) {
 		runEventRepo:             deps.RunEventRepo,
 		jobRepo:                  deps.JobRepo,
 		pool:                     deps.Pool,
+		attachmentStore:          deps.AttachmentStore,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if _, err := deps.Pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
 				slog.Warn("qq_ws_active_run_notify_failed", "run_id", runID, "error", err)
@@ -104,6 +106,15 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 				continue
 			}
 
+			// NapCat 管理的 WS 连接：等待 QQ 登录完成后再启动 listener，
+			// 避免 NapCat 未就绪时产生大量无意义的连接失败日志。
+			if mgr := getNapCatManagerIfExists(); mgr != nil {
+				status := mgr.Status()
+				if !status.LoggedIn {
+					continue
+				}
+			}
+
 			chCopy := ch
 			token := cfg.OneBotToken
 			if token == "" {
@@ -113,6 +124,11 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 			}
 			listener := onebotclient.NewWSListener(wsURL, token, func(evCtx context.Context, event onebotclient.Event) {
 				traceID := observability.NewTraceID()
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("qq_ws_event_panic", "channel_id", chCopy.ID, "panic", r)
+					}
+				}()
 				if err := connector.HandleEvent(evCtx, traceID, chCopy, event); err != nil {
 					slog.Warn("qq_ws_event_error", "channel_id", chCopy.ID, "error", err)
 				}

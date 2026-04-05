@@ -440,7 +440,7 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 				ChannelType:      channelType,
 				PlatformChatID:   platformSubjectID,
 				IdentityID:       row.ChannelIdentityID,
-				ConversationType: "supergroup",
+				ConversationType: resolveGroupConversationType(channelType),
 			}, nil
 		}
 	}
@@ -525,4 +525,13 @@ func (ScheduledTriggersRepository) DeleteInactiveHeartbeats(
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+func resolveGroupConversationType(channelType string) string {
+	switch strings.TrimSpace(channelType) {
+	case "qq":
+		return "group"
+	default:
+		return "supergroup"
+	}
 }

@@ -52,6 +52,7 @@ type QQCallbackDeps struct {
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
 	Pool                     data.DB
+	AttachmentStore          MessageAttachmentPutStore
 }
 
 // RegisterQQCallbackRoute registers POST /v1/napcat/onebot-callback (no auth, NapCat calls directly).
@@ -70,6 +71,7 @@ func RegisterQQCallbackRoute(mux *nethttp.ServeMux, deps QQCallbackDeps) {
 		deps.RunEventRepo,
 		deps.JobRepo,
 		deps.Pool,
+		deps.AttachmentStore,
 	)
 	mux.HandleFunc("POST /v1/napcat/onebot-callback", handler)
 }

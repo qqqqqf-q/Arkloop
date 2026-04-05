@@ -399,7 +399,7 @@ SELECT cgt.thread_id, cgt.channel_id
 		err = db.QueryRow(ctx, groupQuery.String(), groupArgs...).Scan(&threadIDStr, &channelID)
 	}
 	if err == nil && strings.TrimSpace(threadIDStr) != "" {
-		conversationTy = "supergroup"
+		conversationTy = resolveGroupConversationType(channelType)
 		groupFound = true
 	}
 	if err != nil && !isNoRows(err) {
@@ -619,6 +619,16 @@ func DesktopCreateHeartbeatRunWithContext(
 
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// resolveGroupConversationType 根据 channel_type 确定群聊的 conversation_type。
+func resolveGroupConversationType(channelType string) string {
+	switch strings.TrimSpace(channelType) {
+	case "qq":
+		return "group"
+	default:
+		return "supergroup"
+	}
 }
 
 func buildDesktopHeartbeatStartedData(
