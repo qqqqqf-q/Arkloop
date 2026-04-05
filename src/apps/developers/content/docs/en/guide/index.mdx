@@ -1,0 +1,109 @@
+---
+title: Local Setup
+---
+
+## Dependencies
+
+- Go 1.22+
+- Node.js 20+
+- pnpm
+- Docker (for PostgreSQL)
+
+## 1. Start PostgreSQL
+
+```bash
+cp .env.example .env
+# edit .env and set ARKLOOP_POSTGRES_PASSWORD
+docker compose up -d
+```
+
+Connectivity check:
+
+```bash
+docker compose exec -T postgres psql -U arkloop -d arkloop -c "select 1;"
+```
+
+## 2. Start the API service
+
+The default listen address is `127.0.0.1:19001`.
+
+**Linux/macOS**
+
+```bash
+export ARKLOOP_LOAD_DOTENV=1
+export ARKLOOP_DOTENV_FILE=.env
+cd src/services/api && go run ./cmd/api
+```
+
+**Windows**
+
+```powershell
+$env:ARKLOOP_LOAD_DOTENV="1"
+$env:ARKLOOP_DOTENV_FILE=".env"
+cd src/services/api; go run ./cmd/api
+```
+
+To override the listen address:
+
+```bash
+ARKLOOP_API_GO_ADDR=127.0.0.1:19001
+```
+
+## 3. Start the Worker service
+
+```bash
+cd src/services/worker && go run ./cmd/worker
+```
+
+## 4. Start the Web app
+
+`docker compose up -d` already includes the Gateway on port 19000. Point the frontend proxy to the Gateway:
+
+**Linux/macOS**
+
+```bash
+export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:19000
+cd src/apps/web && pnpm install && pnpm dev
+```
+
+**Windows**
+
+```powershell
+$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:19000"
+cd src/apps/web; pnpm install; pnpm dev
+```
+
+## 5. Start the Console app
+
+**Linux/macOS**
+
+```bash
+export ARKLOOP_API_PROXY_TARGET=http://127.0.0.1:19000
+cd src/apps/console && pnpm install && pnpm dev
+```
+
+**Windows**
+
+```powershell
+$env:ARKLOOP_API_PROXY_TARGET="http://127.0.0.1:19000"
+cd src/apps/console; pnpm install; pnpm dev
+```
+
+## Integration tests
+
+```bash
+cd src/services/api && go test -tags integration ./...
+```
+
+## Environment variables at a glance
+
+| Variable | Description | Default |
+|------|------|--------|
+| `ARKLOOP_DATABASE_URL` | PostgreSQL connection string | — |
+| `ARKLOOP_API_GO_ADDR` | API listen address | `127.0.0.1:19001` |
+| `ARKLOOP_LOAD_DOTENV` | Automatically load from a .env file | `0` |
+| `ARKLOOP_DOTENV_FILE` | Path to the .env file | `.env` |
+| `ARKLOOP_TOOL_ALLOWLIST` | Deprecated compatibility flag; logged but does not gate runtime tools | — |
+| `ARKLOOP_JWT_SECRET` | JWT signing secret | — |
+
+See `.env.example` for the complete environment variable reference.

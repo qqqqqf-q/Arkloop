@@ -1,0 +1,139 @@
+---
+title: "Testing & Benchmarks"
+---
+## Daily CI Checks
+
+For daily local validation, use the repository CI helper first:
+
+```bash
+# Fast local checks
+bin/ci-local quick
+
+# Go integration checks with a temporary PostgreSQL container
+bin/ci-local integration
+
+# Full local pass
+bin/ci-local full
+
+# GitHub Actions style verification
+bin/ci-local act go-check
+bin/ci-local act typescript
+```
+
+Recommended order: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
+Use `quick` for routine pre-commit checks, `integration` after database or pipeline changes, and `act` when you need behavior close to GitHub Actions.
+`quick` installs frontend dependencies automatically, so the first run can take longer.
+`bin/ci-local act ...` pulls a large runner image on first use.
+`bin/ci-local act go-integration` is currently not recommended; use `bin/ci-local integration` instead.
+
+## Unit Tests
+
+```bash
+# Go
+cd src/services/api && go test ./...
+cd src/services/worker && go test ./...
+cd src/services/gateway && go test ./...
+
+# Frontend
+cd src/apps/web && pnpm test
+cd src/apps/console && pnpm test
+```
+
+## Integration Tests
+
+```bash
+bin/ci-local integration
+```
+
+If you need to isolate a single service while debugging, run `go test -count=1 -race ./...` from that service directory.
+
+## Smoke Tests
+
+Smoke tests verify a running Compose stack end-to-end (health check, register, login, create thread, send message, SSE streaming).
+
+```bash
+docker compose up -d
+
+ARKLOOP_SMOKE_API_URL=http://127.0.0.1:19000 \
+  go test -tags smoke ./tests/smoke/...
+```
+
+## Benchmark (Baseline)
+
+Benchmark suite measures single-node throughput and latency across core services (Gateway, API, Worker + stub LLM).
+
+### Prerequisites
+
+Start the dedicated bench Compose stack (ports offset by +5 to avoid conflicts):
+
+```bash
+docker compose -f compose.bench.yaml -p arkloop-bench up -d
+```
+
+Default bench ports:
+
+| Service | Port |
+|---------|------|
+| Gateway | `http://127.0.0.1:8005` |
+| API | `http://127.0.0.1:8006` |
+| Postgres | `127.0.0.1:5437` |
+
+Set `DATABASE_URL` for auto-registration and `pg_stat_activity` collection:
+
+```bash
+export DATABASE_URL="postgresql://arkloop:<ARKLOOP_POSTGRES_PASSWORD>@127.0.0.1:5437/arkloop"
+```
+
+### Run Baseline
+
+```bash
+go run ./tests/bench/cmd/bench baseline \
+  -out /tmp/arkloop-baseline.json
+```
+
+Optional: include OpenViking (requires a running instance and root key):
+
+```bash
+go run ./tests/bench/cmd/bench baseline \
+  -include-openviking \
+  -openviking-root-key "$ARKLOOP_OPENVIKING_ROOT_API_KEY" \
+  -out /tmp/arkloop-baseline.json
+```
+
+### Interpreting Results
+
+Output is JSON. `overall_pass=false` exits with code 1.
+
+| Field | Description |
+|-------|-------------|
+| `results[].pass` | Per-scenario pass/fail |
+| `results[].stats.latency_ms` | Latency distribution |
+| `results[].stats.pg_stat_activity_max_*` | DB connection peak during test |
+| `*.stats.net_error_kinds` | Network error breakdown (timeout, refused, reset) |
+
+### Recommended Env
+
+`compose.bench.yaml` ships with sensible defaults. Key overrides if running manually:
+
+```bash
+# Gateway: disable rate limiting
+ARKLOOP_RATELIMIT_CAPACITY=120000
+ARKLOOP_RATELIMIT_RATE_PER_MINUTE=120000
+
+# API: concurrent run cap
+ARKLOOP_LIMIT_CONCURRENT_RUNS=60
+
+# Worker: parallel execution
+ARKLOOP_WORKER_CONCURRENCY=50
+```
+
+Authentication: either provide `-access-token` explicitly, or ensure `DATABASE_URL` is set for auto-registration.
+
+### Troubleshooting
+
+| Error | Cause |
+|-------|-------|
+| `gateway.not_ready` / `api.not_ready` | Service not healthy, check `/healthz` |
+| `gateway_ratelimit` returns 404 | `ARKLOOP_GATEWAY_ENABLE_BENCHZ` not set (bench compose enables it by default) |
+| `auth.register.code.auth.invite_code_required` | Registration is invite-only, use `-force-open-registration` or provide a token |
+| `worker_runs.runs_create_failed` high | `limit.concurrent_runs` too low or Worker not consuming queue |

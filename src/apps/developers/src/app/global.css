@@ -1,0 +1,102 @@
+@import 'fumadocs-ui/style.css';
+
+:root {
+  --fd-primary: 21 57% 43%;
+  --fd-primary-foreground: 0 0% 100%;
+}
+
+/* Topbar */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: hsl(var(--fd-background) / 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid hsl(var(--fd-border));
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 24px;
+  height: 56px;
+}
+
+.brand {
+  font-size: 1rem;
+  font-weight: 700;
+  color: hsl(var(--fd-foreground));
+  text-decoration: none;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.nav-link {
+  padding: 6px 12px;
+  font-size: 0.88rem;
+  color: hsl(var(--fd-muted-foreground));
+  text-decoration: none;
+  border-radius: 6px;
+  transition: color 160ms ease, background 160ms ease;
+}
+
+.nav-link:hover {
+  color: hsl(var(--fd-foreground));
+  background: hsl(var(--fd-accent));
+}
+
+.nav-link-active {
+  color: hsl(var(--fd-foreground));
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.lang-switch {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: hsl(var(--fd-muted-foreground));
+  text-decoration: none;
+  border: 1px solid hsl(var(--fd-border));
+  border-radius: 6px;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.lang-switch:hover {
+  color: hsl(var(--fd-foreground));
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: hsl(var(--fd-muted-foreground));
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.theme-toggle:hover {
+  color: hsl(var(--fd-foreground));
+  background: hsl(var(--fd-accent));
+}

@@ -1,0 +1,4 @@
+{
+  "title": "API Reference",
+  "pages": ["index", "auth", "me", "threads", "messages", "runs", "projects", "accounts", "llm-providers", "mcp-configs", "asr-credentials", "tool-providers", "credits", "subscriptions", "entitlements", "api-keys", "notifications", "webhooks", "admin", "audit-logs", "ip-rules", "feature-flags", "health"]
+}
