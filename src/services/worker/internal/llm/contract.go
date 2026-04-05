@@ -243,7 +243,7 @@ func MessageFromJSONMap(raw map[string]any) (Message, error) {
 			if !ok {
 				return Message{}, fmt.Errorf("message tool_calls[%d] is not an object", idx)
 			}
-			call, err := toolCallFromJSONMap(callObj)
+			call, err := ToolCallFromJSONMap(callObj)
 			if err != nil {
 				return Message{}, err
 			}
@@ -666,6 +666,48 @@ func BuildAssistantThreadContentJSON(message Message) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// BuildIntermediateAssistantContentJSON serializes an intermediate assistant message
+// that includes tool_calls into content_json for persistence.
+func BuildIntermediateAssistantContentJSON(message Message, toolCalls []ToolCall) (json.RawMessage, error) {
+	visibleParts := VisibleContentParts(message.Content)
+	parts := make([]messagecontent.Part, 0, len(visibleParts))
+	for _, part := range visibleParts {
+		switch part.Kind() {
+		case messagecontent.PartTypeText:
+			parts = append(parts, messagecontent.Part{Type: messagecontent.PartTypeText, Text: part.Text})
+		case messagecontent.PartTypeFile:
+			parts = append(parts, messagecontent.Part{
+				Type:          messagecontent.PartTypeFile,
+				Attachment:    part.Attachment,
+				ExtractedText: part.ExtractedText,
+			})
+		case messagecontent.PartTypeImage:
+			parts = append(parts, messagecontent.Part{
+				Type:       messagecontent.PartTypeImage,
+				Attachment: part.Attachment,
+			})
+		}
+	}
+
+	payload := map[string]any{
+		"parts": parts,
+	}
+
+	if len(toolCalls) > 0 {
+		tcItems := make([]map[string]any, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			tcItems = append(tcItems, tc.ToDataJSON())
+		}
+		payload["tool_calls"] = tcItems
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
 func AssistantMessageFromThreadContentJSON(raw []byte) (*Message, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -793,7 +835,7 @@ func attachmentRefFromJSON(raw any) (*messagecontent.AttachmentRef, error) {
 	}, nil
 }
 
-func toolCallFromJSONMap(raw map[string]any) (ToolCall, error) {
+func ToolCallFromJSONMap(raw map[string]any) (ToolCall, error) {
 	callID := strings.TrimSpace(stringValue(firstNonNil(raw["tool_call_id"], raw["call_id"], raw["id"])))
 	toolName := strings.TrimSpace(stringValue(firstNonNil(raw["tool_name"], raw["name"])))
 	if callID == "" || toolName == "" {

@@ -238,11 +238,15 @@ func loadRunInputs(
 		if err != nil {
 			return nil, err
 		}
-		llmMessages = append(llmMessages, llm.Message{
+		lm := llm.Message{
 			Role:         msg.Role,
 			Content:      parts,
 			OutputTokens: msg.OutputTokens,
-		})
+		}
+		if msg.Role == "assistant" && len(msg.ContentJSON) > 0 {
+			lm.ToolCalls = parseToolCallsFromContentJSON(msg.ContentJSON)
+		}
+		llmMessages = append(llmMessages, lm)
 		ids = append(ids, msg.ID)
 		for _, insertion := range replayByAnchor[msg.ID] {
 			llmMessages = append(llmMessages, insertion.Messages...)
@@ -707,6 +711,24 @@ func replayToolResultMessage(result rollout.ReplayToolResult) llm.Message {
 		Role:    "tool",
 		Content: []llm.TextPart{{Text: text, TrustSource: "tool"}},
 	}
+}
+
+func parseToolCallsFromContentJSON(raw json.RawMessage) []llm.ToolCall {
+	var parsed struct {
+		ToolCalls []map[string]any `json:"tool_calls"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil || len(parsed.ToolCalls) == 0 {
+		return nil
+	}
+	result := make([]llm.ToolCall, 0, len(parsed.ToolCalls))
+	for _, tc := range parsed.ToolCalls {
+		toolCall, err := llm.ToolCallFromJSONMap(tc)
+		if err != nil {
+			continue
+		}
+		result = append(result, toolCall)
+	}
+	return result
 }
 
 func BuildMessageParts(ctx context.Context, store MessageAttachmentStore, msg data.ThreadMessage) ([]llm.ContentPart, error) {

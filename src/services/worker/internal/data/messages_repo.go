@@ -102,6 +102,29 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 	return messageID, nil
 }
 
+func (MessagesRepository) InsertIntermediateMessage(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID, threadID uuid.UUID,
+	role, content string,
+	contentJSON json.RawMessage,
+	toolCallID string,
+	metadataJSON json.RawMessage,
+	createdAt time.Time,
+) (uuid.UUID, error) {
+	id := uuid.New()
+	_, err := tx.Exec(
+		ctx,
+		`INSERT INTO messages (id, account_id, thread_id, role, content, content_json, tool_call_id, metadata_json, hidden, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb, TRUE, $9)`,
+		id, accountID, threadID, role, content, contentJSON, toolCallID, metadataJSON, createdAt,
+	)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
 func (MessagesRepository) FindAssistantMessageByRunID(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -157,7 +180,7 @@ func (MessagesRepository) ListByThread(
 			  FROM messages
 			 WHERE account_id = $1
 			   AND thread_id = $2
-			   AND hidden = FALSE
+			   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
 			   AND deleted_at IS NULL
 			   AND COALESCE(compacted, false) = false
 			 ORDER BY created_at DESC, id DESC
@@ -230,7 +253,7 @@ func (MessagesRepository) ListByIDs(
 		 WHERE m.account_id = $1
 		   AND m.thread_id = $2
 		   AND m.id = ANY($3)
-		   AND m.hidden = FALSE
+		   AND (m.hidden = FALSE OR m.metadata_json->>'intermediate' = 'true')
 		   AND m.deleted_at IS NULL
 		 ORDER BY m.created_at ASC, m.id ASC`,
 		accountID,
@@ -286,7 +309,7 @@ func (MessagesRepository) ListRecentByThread(
 		 	  FROM messages
 		 	 WHERE account_id = $1
 		 	   AND thread_id = $2
-		 	   AND hidden = FALSE
+		 	   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
 		 	   AND deleted_at IS NULL
 		 	   AND COALESCE(compacted, false) = false
 		 	 ORDER BY created_at DESC, id DESC
