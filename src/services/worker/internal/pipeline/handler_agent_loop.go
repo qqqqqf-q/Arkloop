@@ -437,7 +437,6 @@ func (w *eventWriter) Append(
 	}
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
-		w.flushPendingToolCalls()
 	}
 
 	if shouldAccumulateUsageForEvent(ev.Type) {
@@ -459,6 +458,7 @@ func (w *eventWriter) Append(
 		w.collectToolCall(ev.DataJSON)
 	}
 	if ev.Type == "llm.request" {
+		w.flushPendingToolCalls()
 		w.iterationCount++
 	}
 
@@ -476,6 +476,7 @@ func (w *eventWriter) Append(
 	}
 
 	if status, ok := TerminalStatuses[ev.Type]; ok {
+		w.flushPendingToolCalls()
 		if status == "completed" {
 			w.completed = true
 		}
@@ -740,7 +741,17 @@ func (w *eventWriter) flushPendingToolCalls() {
 }
 
 func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
-	raw, err := json.Marshal(dataJSON)
+	envelope := map[string]any{
+		"tool_call_id": dataJSON["tool_call_id"],
+		"tool_name":    dataJSON["tool_name"],
+	}
+	if v, ok := dataJSON["result"]; ok {
+		envelope["result"] = v
+	}
+	if v, ok := dataJSON["error"]; ok {
+		envelope["error"] = v
+	}
+	raw, err := json.Marshal(envelope)
 	if err != nil {
 		return
 	}
@@ -763,18 +774,20 @@ func (w *eventWriter) batchInsertIntermediateMessages(
 	baseTime := time.Now()
 	for i, msg := range w.intermediateMessages {
 		createdAt := baseTime.Add(time.Duration(i) * time.Microsecond)
-		metadataJSON, _ := json.Marshal(map[string]any{
+		meta := map[string]any{
 			"intermediate": true,
 			"run_id":       runID.String(),
-		})
-		if msg.Role == "tool" {
-			if _, err := repo.InsertIntermediateMessage(ctx, w.tx, accountID, threadID, msg.Role, msg.Content, nil, msg.ToolCallID, metadataJSON, createdAt); err != nil {
-				return err
-			}
-		} else {
-			if _, err := repo.InsertIntermediateMessage(ctx, w.tx, accountID, threadID, msg.Role, msg.Content, msg.ContentJSON, "", metadataJSON, createdAt); err != nil {
-				return err
-			}
+		}
+		if msg.ToolCallID != "" {
+			meta["tool_call_id"] = msg.ToolCallID
+		}
+		metadataJSON, _ := json.Marshal(meta)
+		var contentJSON json.RawMessage
+		if msg.Role != "tool" {
+			contentJSON = msg.ContentJSON
+		}
+		if _, err := repo.InsertIntermediateMessage(ctx, w.tx, accountID, threadID, msg.Role, msg.Content, contentJSON, metadataJSON, createdAt); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -100,16 +100,15 @@ func (MessagesRepository) InsertIntermediateMessage(
 	accountID, threadID uuid.UUID,
 	role, content string,
 	contentJSON json.RawMessage,
-	toolCallID string,
 	metadataJSON json.RawMessage,
 	createdAt time.Time,
 ) (uuid.UUID, error) {
 	id := uuid.New()
 	_, err := tx.Exec(
 		ctx,
-		`INSERT INTO messages (id, account_id, thread_id, role, content, content_json, tool_call_id, metadata_json, hidden, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)`,
-		id, accountID, threadID, role, content, contentJSON, toolCallID, metadataJSON, createdAt,
+		`INSERT INTO messages (id, account_id, thread_id, role, content, content_json, metadata_json, hidden, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8)`,
+		id, accountID, threadID, role, content, contentJSON, metadataJSON, createdAt,
 	)
 	if err != nil {
 		return uuid.Nil, err
