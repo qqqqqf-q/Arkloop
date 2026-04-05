@@ -367,7 +367,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
           className="pointer-events-none opacity-0 transition-[opacity] duration-[180ms] ease-out group-hover:pointer-events-auto group-hover:opacity-100"
           style={{
             display: 'flex',
-            alignItems: 'flex-end',
+            alignItems: 'center',
             gap: '2px',
             marginTop: '8px',
           }}

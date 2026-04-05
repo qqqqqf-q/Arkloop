@@ -5,8 +5,14 @@ export function isDocumentArtifact(artifact: ArtifactRef): boolean {
   return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
 }
 
+function parseDate(dateStr: string): Date {
+  if (dateStr.includes('T') || dateStr.includes('Z') || dateStr.includes('+'))
+    return new Date(dateStr)
+  return new Date(dateStr.replace(' ', 'T') + 'Z')
+}
+
 export function formatShortDate(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseDate(dateStr)
   const now = new Date()
   const isSameDay =
     d.getFullYear() === now.getFullYear()
@@ -24,7 +30,7 @@ export function formatShortDate(dateStr: string): string {
 }
 
 export function formatFullDate(dateStr: string): string {
-  const d = new Date(dateStr)
+  const d = parseDate(dateStr)
   return d.toLocaleString('en-US', {
     month: 'long',
     day: 'numeric',
