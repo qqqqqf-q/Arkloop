@@ -67,6 +67,7 @@ export function DesktopQQSettingsPanel({
   const [onebotWSUrl, setOnebotWSUrl] = useState((channel?.config_json?.onebot_ws_url as string | undefined) ?? '')
   const [onebotHTTPUrl, setOnebotHTTPUrl] = useState((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
   const [onebotToken, setOnebotToken] = useState((channel?.config_json?.onebot_token as string | undefined) ?? '')
+  const [autoLoginUin, setAutoLoginUin] = useState((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
   const refreshBindings = useCallback(async () => {
     if (!channel?.id) {
       setBindings([])
@@ -91,6 +92,7 @@ export function DesktopQQSettingsPanel({
     setOnebotWSUrl((channel?.config_json?.onebot_ws_url as string | undefined) ?? '')
     setOnebotHTTPUrl((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
     setOnebotToken((channel?.config_json?.onebot_token as string | undefined) ?? '')
+    setAutoLoginUin((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
   }, [channel, personas])
 
   useEffect(() => {
@@ -126,6 +128,7 @@ export function DesktopQQSettingsPanel({
   const persistedOnebotWSUrl = (channel?.config_json?.onebot_ws_url as string | undefined) ?? ''
   const persistedOnebotHTTPUrl = (channel?.config_json?.onebot_http_url as string | undefined) ?? ''
   const persistedOnebotToken = (channel?.config_json?.onebot_token as string | undefined) ?? ''
+  const persistedAutoLoginUin = (channel?.config_json?.auto_login_uin as string | undefined) ?? ''
   const dirty = useMemo(() => {
     if ((channel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
@@ -136,6 +139,7 @@ export function DesktopQQSettingsPanel({
     if (onebotWSUrl !== persistedOnebotWSUrl) return true
     if (onebotHTTPUrl !== persistedOnebotHTTPUrl) return true
     if (onebotToken !== persistedOnebotToken) return true
+    if (autoLoginUin !== persistedAutoLoginUin) return true
     return false
   }, [
     channel,
@@ -156,6 +160,8 @@ export function DesktopQQSettingsPanel({
     persistedOnebotWSUrl,
     persistedOnebotHTTPUrl,
     persistedOnebotToken,
+    autoLoginUin,
+    persistedAutoLoginUin,
   ])
   const canSave = dirty || channel === null
 
@@ -209,6 +215,8 @@ export function DesktopQQSettingsPanel({
       else delete configJSON.onebot_http_url
       if (onebotToken.trim()) configJSON.onebot_token = onebotToken.trim()
       else delete configJSON.onebot_token
+      if (autoLoginUin.trim()) configJSON.auto_login_uin = autoLoginUin.trim()
+      else delete configJSON.auto_login_uin
 
       if (channel == null) {
         const created = await createChannel(accessToken, {
@@ -293,6 +301,25 @@ export function DesktopQQSettingsPanel({
     }
   }, [onebotWSUrl, onebotHTTPUrl])
 
+  const autoLoginOptions = useMemo(() => {
+    const opts: { value: string; label: string }[] = []
+    const seen = new Set<string>()
+    if (napCatStatus?.logged_in && napCatStatus.qq) {
+      seen.add(napCatStatus.qq)
+      opts.push({ value: napCatStatus.qq, label: napCatStatus.nickname ? `${napCatStatus.nickname} (${napCatStatus.qq})` : napCatStatus.qq })
+    }
+    for (const a of napCatStatus?.quick_login_list ?? []) {
+      if (a.uin && !seen.has(a.uin)) {
+        seen.add(a.uin)
+        opts.push({ value: a.uin, label: a.nickname ? `${a.nickname} (${a.uin})` : a.uin })
+      }
+    }
+    if (autoLoginUin && !seen.has(autoLoginUin)) {
+      opts.push({ value: autoLoginUin, label: autoLoginUin })
+    }
+    return opts
+  }, [napCatStatus, autoLoginUin])
+
   const handleSaveHeartbeat = async (
     binding: ChannelBindingResponse,
     next: { enabled: boolean; interval: number; model: string },
@@ -355,6 +382,24 @@ export function DesktopQQSettingsPanel({
             style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           >
             <QQLoginFlow accessToken={accessToken} channelId={channel?.id ?? ''} onStatusChange={handleNapCatStatus} />
+          </div>
+
+          {/* Auto re-login */}
+          <div
+            className="rounded-xl px-4 py-4"
+            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+          >
+            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
+              {ct.qqAutoLogin}
+            </label>
+            <ModelDropdown
+              value={autoLoginUin}
+              options={autoLoginOptions}
+              placeholder={ct.qqAutoLoginNone}
+              disabled={saving}
+              onChange={(v) => { setAutoLoginUin(v); setSaved(false) }}
+            />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">{ct.qqAutoLoginDesc}</p>
           </div>
 
           {/* OneBot API config */}

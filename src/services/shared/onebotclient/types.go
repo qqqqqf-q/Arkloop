@@ -88,6 +88,34 @@ func (e *Event) IsLifecycle() bool {
 	return e.PostType == "meta_event" && e.MetaEvent == "lifecycle"
 }
 
+// IsNoticeEvent 通知事件（群撤回、群禁言等）
+func (e *Event) IsNoticeEvent() bool {
+	return e.PostType == "notice"
+}
+
+// IsGroupRecall 群消息撤回通知
+func (e *Event) IsGroupRecall() bool {
+	return e.PostType == "notice" && e.NoticeType == "group_recall"
+}
+
+// ForwardMessages 提取 forward 消息段中的 ID（NapCat 合并转发）
+func (e *Event) ForwardMessages() []string {
+	var ids []string
+	for _, seg := range e.ParsedSegments() {
+		if seg.Type != "forward" {
+			continue
+		}
+		var fd ForwardData
+		if err := json.Unmarshal(seg.Data, &fd); err != nil {
+			continue
+		}
+		if id := strings.TrimSpace(fd.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 // PlainText 从 message 字段提取纯文本（过滤 CQ 码，只保留 text 段）
 func (e *Event) PlainText() string {
 	// 优先解析结构化 message 数组
@@ -165,6 +193,28 @@ type GroupMemberInfo struct {
 	Title    string      `json:"title,omitempty"`
 }
 
+// --- get_group_info 响应 ---
+
+type GroupInfo struct {
+	GroupID   json.Number `json:"group_id"`
+	GroupName string      `json:"group_name"`
+}
+
+// RecordData 语音消息段 data
+type RecordData struct {
+	File string `json:"file"`
+}
+
+// VideoData 视频消息段 data
+type VideoData struct {
+	File string `json:"file"`
+}
+
+// ForwardData 合并转发消息段 data
+type ForwardData struct {
+	ID string `json:"id,omitempty"`
+}
+
 // TextSegments 将纯文本构造为消息段数组
 func TextSegments(text string) []MessageSegment {
 	data, _ := json.Marshal(TextData{Text: text})
@@ -175,6 +225,24 @@ func TextSegments(text string) []MessageSegment {
 func ReplySegment(messageID string) MessageSegment {
 	data, _ := json.Marshal(ReplyData{ID: messageID})
 	return MessageSegment{Type: "reply", Data: data}
+}
+
+// ImageSegment 构造图片消息段（file 支持 http:// / file:/// / base64:// ）
+func ImageSegment(file string) MessageSegment {
+	data, _ := json.Marshal(ImageData{File: file})
+	return MessageSegment{Type: "image", Data: data}
+}
+
+// RecordSegment 构造语音消息段
+func RecordSegment(file string) MessageSegment {
+	data, _ := json.Marshal(RecordData{File: file})
+	return MessageSegment{Type: "record", Data: data}
+}
+
+// VideoSegment 构造视频消息段
+func VideoSegment(file string) MessageSegment {
+	data, _ := json.Marshal(VideoData{File: file})
+	return MessageSegment{Type: "video", Data: data}
 }
 
 // ParsedSegments 解析 message 字段为消息段数组

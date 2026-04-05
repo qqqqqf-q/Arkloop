@@ -19,14 +19,19 @@ type ModelCapabilities struct {
 func RouteModelCapabilities(rule ProviderRouteRule) ModelCapabilities {
 	rawCatalog := routeAvailableCatalog(rule)
 	if len(rawCatalog) == 0 {
-		return ModelCapabilities{}
+		return inferModelCapabilities(rule.Model)
 	}
-	return ModelCapabilities{
+	caps := ModelCapabilities{
 		ContextLength:    resolveContextLength(rawCatalog),
 		MaxOutputTokens:  normalizedPositiveInt(rawCatalog["max_output_tokens"]),
 		InputModalities:  normalizeStringSlice(rawCatalog["input_modalities"]),
 		OutputModalities: normalizeStringSlice(rawCatalog["output_modalities"]),
 	}
+	if len(caps.InputModalities) == 0 {
+		inferred := inferModelCapabilities(rule.Model)
+		caps.InputModalities = inferred.InputModalities
+	}
+	return caps
 }
 
 func resolveContextLength(catalog map[string]any) int {
@@ -64,6 +69,65 @@ func routeAvailableCatalog(rule ProviderRouteRule) map[string]any {
 		return nil
 	}
 	return catalog
+}
+
+// inferModelCapabilities 根据模型名推断已知模型的 input modalities。
+// 当 available_catalog 未配置或缺少 input_modalities 时作为 fallback。
+func inferModelCapabilities(model string) ModelCapabilities {
+	if isKnownVisionModel(model) {
+		return ModelCapabilities{InputModalities: []string{"text", "image"}}
+	}
+	return ModelCapabilities{}
+}
+
+// isKnownVisionModel 判断模型是否为已知的支持视觉输入的模型。
+func isKnownVisionModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+
+	// GPT-4 vision 系列
+	for _, prefix := range []string{
+		"gpt-4o", "gpt-4-turbo", "gpt-4-vision", "gpt-4.1", "gpt-4.5",
+		"o1", "o3", "o4",
+	} {
+		if strings.HasPrefix(m, prefix) {
+			return true
+		}
+	}
+
+	// Claude 系列（全系支持视觉）
+	if strings.Contains(m, "claude") {
+		return true
+	}
+
+	// Gemini 系列
+	if strings.Contains(m, "gemini") {
+		return true
+	}
+
+	// Qwen VL / 通义千问视觉系列
+	if strings.Contains(m, "qwen") && (strings.Contains(m, "vl") || strings.Contains(m, "omni")) {
+		return true
+	}
+
+	// GLM-4V
+	if strings.Contains(m, "glm-4v") || strings.Contains(m, "glm4v") {
+		return true
+	}
+
+	// DeepSeek VL
+	if strings.Contains(m, "deepseek") && strings.Contains(m, "vl") {
+		return true
+	}
+
+	// 通用 pattern：模型名中包含 "vision" 或 "vl"
+	if strings.Contains(m, "vision") {
+		return true
+	}
+
+	return false
 }
 
 func normalizedPositiveInt(raw any) int {

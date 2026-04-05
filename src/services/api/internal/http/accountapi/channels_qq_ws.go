@@ -11,6 +11,7 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/napcat"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/pgnotify"
 
@@ -79,6 +80,7 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 	slog.Info("qq_ws_listener_started")
 
 	var activeListeners sync.Map // uuid.UUID -> *onebotclient.WSListener
+	var lastAutoLoginAttempt time.Time
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -106,11 +108,11 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 				continue
 			}
 
-			// NapCat 管理的 WS 连接：等待 QQ 登录完成后再启动 listener，
-			// 避免 NapCat 未就绪时产生大量无意义的连接失败日志。
-			if mgr := getNapCatManagerIfExists(); mgr != nil {
-				status := mgr.Status()
-				if !status.LoggedIn {
+			mgr := getNapCatManagerIfExists()
+			if mgr != nil {
+				if !mgr.IsLoggedIn() {
+					// 未登录：尝试自动快速登录
+					qqAutoQuickLogin(mgr, cfg, &lastAutoLoginAttempt)
 					continue
 				}
 			}
@@ -118,7 +120,7 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 			chCopy := ch
 			token := cfg.OneBotToken
 			if token == "" {
-				if mgr := getNapCatManagerIfExists(); mgr != nil {
+				if mgr != nil {
 					_, token = mgr.WSEndpoint()
 				}
 			}
@@ -165,6 +167,29 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 			return
 		case <-ticker.C:
 			check()
+		}
+	}
+}
+
+// qqAutoQuickLogin 在 NapCat 运行但未登录时，自动使用 auto_login_uin 快速登录。
+// 30 秒 cooldown 防止频繁重试。
+func qqAutoQuickLogin(mgr *napcat.Manager, cfg qqChannelConfig, lastAttempt *time.Time) {
+	uin := strings.TrimSpace(cfg.AutoLoginUin)
+	if uin == "" {
+		return
+	}
+	if time.Since(*lastAttempt) < 30*time.Second {
+		return
+	}
+	available := mgr.QuickLoginUins()
+	for _, u := range available {
+		if u == uin {
+			slog.Info("qq_auto_quick_login", "uin", uin)
+			*lastAttempt = time.Now()
+			if err := mgr.QuickLogin(uin); err != nil {
+				slog.Warn("qq_auto_quick_login_failed", "uin", uin, "error", err)
+			}
+			return
 		}
 	}
 }

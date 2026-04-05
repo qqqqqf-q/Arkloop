@@ -189,3 +189,48 @@ func (c *Client) DownloadURL(ctx context.Context, url string, maxBytes int64) (d
 	ct := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
 	return body, ct, nil
 }
+
+// SetMsgEmojiLike 对消息添加表情反应（NapCat 扩展 API）
+func (c *Client) SetMsgEmojiLike(ctx context.Context, messageID string, emojiID string) error {
+	req := map[string]any{
+		"message_id": messageID,
+		"emoji_id":   emojiID,
+	}
+	return c.callJSON(ctx, "set_msg_emoji_like", req, nil)
+}
+
+// DeleteMsg 撤回消息
+func (c *Client) DeleteMsg(ctx context.Context, messageID string) error {
+	req := map[string]any{"message_id": messageID}
+	return c.callJSON(ctx, "delete_msg", req, nil)
+}
+
+// UploadPrivateFile 私聊上传文件（NapCat 扩展 API）
+func (c *Client) UploadPrivateFile(ctx context.Context, userID, file, name string) error {
+	req := map[string]any{
+		"user_id": userID,
+		"file":    file,
+		"name":    name,
+	}
+	return c.callJSON(ctx, "upload_private_file", req, nil)
+}
+
+// UploadGroupFile 群聊上传文件（NapCat 扩展 API）
+func (c *Client) UploadGroupFile(ctx context.Context, groupID, file, name string) error {
+	req := map[string]any{
+		"group_id": groupID,
+		"file":     file,
+		"name":     name,
+	}
+	return c.callJSON(ctx, "upload_group_file", req, nil)
+}
+
+// GetGroupInfo 获取群信息
+func (c *Client) GetGroupInfo(ctx context.Context, groupID string) (*GroupInfo, error) {
+	req := map[string]any{"group_id": groupID, "no_cache": false}
+	var info GroupInfo
+	if err := c.callJSON(ctx, "get_group_info", req, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}

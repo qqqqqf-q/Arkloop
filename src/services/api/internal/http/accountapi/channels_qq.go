@@ -34,6 +34,9 @@ type qqChannelConfig struct {
 	OneBotHTTPURL   string   `json:"onebot_http_url,omitempty"`
 	OneBotToken     string   `json:"onebot_token,omitempty"`
 	BotQQ           string   `json:"bot_qq,omitempty"`
+	TriggerKeywords []string `json:"trigger_keywords,omitempty"`
+	ReactionEmojiID string   `json:"reaction_emoji_id,omitempty"`
+	AutoLoginUin    string   `json:"auto_login_uin,omitempty"`
 }
 
 func resolveQQChannelConfig(raw json.RawMessage) (qqChannelConfig, error) {
@@ -81,6 +84,9 @@ type qqIncomingMessage struct {
 	MentionsBot    bool
 	IsReplyToBot   bool
 	ReplyToMsgID   *string
+	MatchesKeyword bool
+	ForwardFrom    string
+	ReplyPreview   string
 }
 
 func (m qqIncomingMessage) IsPrivate() bool {
@@ -88,7 +94,7 @@ func (m qqIncomingMessage) IsPrivate() bool {
 }
 
 func (m qqIncomingMessage) ShouldCreateRun() bool {
-	return m.IsPrivate() || m.MentionsBot || m.IsReplyToBot
+	return m.IsPrivate() || m.MentionsBot || m.IsReplyToBot || m.MatchesKeyword
 }
 
 func (m qqIncomingMessage) HasContent() bool {
@@ -118,6 +124,9 @@ type qqConnector struct {
 
 // HandleEvent 处理来自 OneBot11 的入站事件
 func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.Channel, event onebotclient.Event) error {
+	if event.IsNoticeEvent() {
+		return c.handleNoticeEvent(ctx, ch, event)
+	}
 	if !event.IsMessageEvent() {
 		return nil
 	}
@@ -182,7 +191,18 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		if replyMsgID != "" {
 			incoming.ReplyToMsgID = &replyMsgID
 			incoming.IsReplyToBot = c.checkReplyToBot(ctx, cfg, replyMsgID, selfID)
+			incoming.ReplyPreview = c.fetchReplyPreview(ctx, cfg, replyMsgID)
 		}
+	}
+
+	// 转发消息来源
+	if fwdIDs := event.ForwardMessages(); len(fwdIDs) > 0 {
+		incoming.ForwardFrom = "forwarded"
+	}
+
+	// 关键词触发
+	if !isPrivate && !incoming.MentionsBot && !incoming.IsReplyToBot && len(cfg.TriggerKeywords) > 0 {
+		incoming.MatchesKeyword = qqMessageMatchesKeyword(incoming.Text, cfg.TriggerKeywords)
 	}
 
 	persona, personaRef, err := c.resolveQQPersona(ctx, ch)
@@ -900,11 +920,20 @@ func buildQQEnvelopeText(identityID uuid.UUID, displayName, chatType, body strin
 	if identityID != uuid.Nil {
 		lines = append(lines, fmt.Sprintf(`sender-ref: "%s"`, identityID.String()))
 	}
+	if incoming.PlatformUserID != "" {
+		lines = append(lines, fmt.Sprintf(`platform-user-id: "%s"`, escapeEnvelopeValue(incoming.PlatformUserID)))
+	}
 	if incoming.PlatformMsgID != "" {
 		lines = append(lines, fmt.Sprintf(`message-id: "%s"`, escapeEnvelopeValue(incoming.PlatformMsgID)))
 	}
 	if incoming.ReplyToMsgID != nil && *incoming.ReplyToMsgID != "" {
 		lines = append(lines, fmt.Sprintf(`reply-to-message-id: "%s"`, escapeEnvelopeValue(*incoming.ReplyToMsgID)))
+	}
+	if incoming.ReplyPreview != "" {
+		lines = append(lines, fmt.Sprintf(`reply-to-preview: "%s"`, escapeEnvelopeValue(incoming.ReplyPreview)))
+	}
+	if incoming.ForwardFrom != "" {
+		lines = append(lines, fmt.Sprintf(`forward-from: "%s"`, escapeEnvelopeValue(incoming.ForwardFrom)))
 	}
 	if incoming.MentionsBot {
 		lines = append(lines, `mentions-bot: true`)
@@ -917,6 +946,66 @@ func buildQQEnvelopeText(identityID uuid.UUID, displayName, chatType, body strin
 
 func escapeEnvelopeValue(value string) string {
 	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(strings.TrimSpace(value))
+}
+
+// qqMessageMatchesKeyword 检查消息文本是否包含任一触发关键词（大小写不敏感子串匹配）。
+func qqMessageMatchesKeyword(text string, keywords []string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	for _, kw := range keywords {
+		if kw = strings.TrimSpace(kw); kw == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(kw)) {
+			return true
+		}
+	}
+	return false
+}
+
+// fetchReplyPreview 获取被回复消息的摘要文本（截断 80 字符）。
+func (c *qqConnector) fetchReplyPreview(ctx context.Context, cfg qqChannelConfig, messageID string) string {
+	client := c.buildOneBotClient(cfg)
+	if client == nil {
+		return ""
+	}
+	msg, err := client.GetMsg(ctx, messageID)
+	if err != nil || msg == nil {
+		return ""
+	}
+	text := strings.TrimSpace(msg.RawMessage)
+	if text == "" {
+		for _, seg := range msg.Message {
+			if seg.Type == "text" {
+				var td onebotclient.TextData
+				if json.Unmarshal(seg.Data, &td) == nil && td.Text != "" {
+					text = td.Text
+					break
+				}
+			}
+		}
+	}
+	text = strings.TrimSpace(text)
+	runes := []rune(text)
+	if len(runes) > 80 {
+		return string(runes[:80]) + "..."
+	}
+	return text
+}
+
+// handleNoticeEvent 处理 OneBot 通知事件（群撤回等）。
+func (c *qqConnector) handleNoticeEvent(ctx context.Context, ch data.Channel, event onebotclient.Event) error {
+	if event.IsGroupRecall() {
+		slog.InfoContext(ctx, "qq_group_recall",
+			"group_id", event.GroupID.String(),
+			"user_id", event.UserID.String(),
+			"operator_id", event.OperatorID.String(),
+			"message_id", event.MessageID.String(),
+		)
+	}
+	return nil
 }
 
 // --- HTTP callback handler ---

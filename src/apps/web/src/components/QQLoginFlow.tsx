@@ -33,9 +33,9 @@ export function QQLoginFlow({ accessToken, channelId: _channelId, onStatusChange
   const [setupRequested, setSetupRequested] = useState(false)
   const [showQRCode, setShowQRCode] = useState(false)
   const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval>>()
+  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined)
   const logEndRef = useRef<HTMLDivElement>(null)
-  const prevQrUrl = useRef<string | undefined>()
+  const prevQrUrl = useRef<string | undefined>(undefined)
 
   const fetchStatus = useCallback(async () => {
     try {

@@ -53,6 +53,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		var preloaded *data.DeliveryChannelRecord
 		var ux TelegramChannelUX
+		var obUX OneBotChannelUX
 		channelType := normalizedChannelTypeFromContext(rc)
 		if pool != nil && rc != nil && rc.ChannelContext != nil && (channelType == "telegram" || channelType == "discord" || channelType == "qq") {
 			ch, prefetchErr := repo.GetChannel(ctx, pool, rc.ChannelContext.ChannelID)
@@ -62,6 +63,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 				preloaded = ch
 				if channelType == "telegram" {
 					ux = ParseTelegramChannelUX(ch.ConfigJSON)
+				}
+				if channelType == "qq" {
+					obUX = ParseOneBotChannelUX(ch.ConfigJSON)
 				}
 			}
 		}
@@ -81,6 +85,45 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 					ChannelType:  rc.ChannelContext.ChannelType,
 					Conversation: rc.ChannelContext.Conversation,
 					ReplyTo:      nil,
+				}, text)
+				if sendErr != nil {
+					return sendErr
+				}
+				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids); err != nil {
+					return err
+				}
+				if err := persistStreamChunkMessage(ctx2, pool, messagesRepo, rc, text); err != nil {
+					slog.WarnContext(ctx2, "persist stream chunk message failed", "run_id", rc.Run.ID, "err", err.Error())
+				}
+				streamMidCount++
+				return nil
+			}
+			rc.TelegramToolBoundaryFlush = streamFlush
+		}
+
+		// QQ 渠道流式投递
+		if preloaded != nil && pool != nil && rc != nil && rc.ChannelContext != nil && channelType == "qq" {
+			obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
+			if obBaseURL == "" {
+				obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(preloaded))
+			}
+			obToken := strings.TrimSpace(preloaded.Token)
+			obClient := onebotclient.NewClient(obBaseURL, obToken, nil)
+			obSender := NewOneBotChannelSender(obClient, resolveSegmentDelay())
+
+			metadata := map[string]any{}
+			if rc.ChannelContext.ConversationType == "group" {
+				metadata["message_type"] = "group"
+			}
+
+			streamFlush = func(ctx2 context.Context, text string) error {
+				if rc.HeartbeatRun && (rc.HeartbeatToolOutcome == nil || !rc.HeartbeatToolOutcome.Reply) {
+					return nil
+				}
+				ids, sendErr := obSender.SendText(ctx2, ChannelDeliveryTarget{
+					ChannelType:  rc.ChannelContext.ChannelType,
+					Conversation: rc.ChannelContext.Conversation,
+					Metadata:     metadata,
 				}, text)
 				if sendErr != nil {
 					return sendErr
@@ -184,6 +227,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
 				slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
 				return err
+			}
+			if strings.TrimSpace(obUX.ReactionEmojiID) != "" {
+				MaybeOneBotInboundReaction(ctx, channel, rc, obUX.ReactionEmojiID)
 			}
 		}
 		return err
@@ -482,6 +528,25 @@ func MaybeTelegramInboundReaction(ctx context.Context, client *telegrambot.Clien
 		Reaction:  []telegrambot.MessageReactionEmoji{{Type: "emoji", Emoji: strings.TrimSpace(emoji)}},
 	}); err != nil {
 		slog.WarnContext(ctx, "telegram inbound reaction failed", "run_id", rc.Run.ID, "err", err.Error())
+	}
+}
+
+// MaybeOneBotInboundReaction adds emoji reaction to the inbound QQ message (best effort).
+func MaybeOneBotInboundReaction(ctx context.Context, channel *data.DeliveryChannelRecord, rc *RunContext, emojiID string) {
+	if channel == nil || rc == nil || rc.ChannelContext == nil || strings.TrimSpace(emojiID) == "" {
+		return
+	}
+	midStr := strings.TrimSpace(rc.ChannelContext.InboundMessage.MessageID)
+	if midStr == "" {
+		return
+	}
+	obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
+	if obBaseURL == "" {
+		obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))
+	}
+	client := onebotclient.NewClient(obBaseURL, strings.TrimSpace(channel.Token), nil)
+	if err := client.SetMsgEmojiLike(ctx, midStr, strings.TrimSpace(emojiID)); err != nil {
+		slog.WarnContext(ctx, "qq inbound reaction failed", "run_id", rc.Run.ID, "err", err.Error())
 	}
 }
 

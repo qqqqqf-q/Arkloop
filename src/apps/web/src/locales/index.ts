@@ -597,6 +597,35 @@ export interface LocaleStrings {
     discordTokenHint: string
     discordServerIdHint: string
     bindCodeInGroupHint: string
+    qq: string
+    qqSetup: string
+    qqFetchingInfo: string
+    qqDownloading: string
+    qqExtracting: string
+    qqStarting: string
+    qqStopping: string
+    qqScanToLogin: string
+    qqLoggedIn: string
+    qqRefreshQR: string
+    qqQuickLogin: string
+    qqScanNewAccount: string
+    qqAllowedUsers: string
+    qqAllowedUsersPlaceholder: string
+    qqAllowAllUsers: string
+    qqAllowedGroups: string
+    qqAllowedGroupsPlaceholder: string
+    qqAutoLogin: string
+    qqAutoLoginNone: string
+    qqAutoLoginDesc: string
+    qqLogs: string
+    qqOneBotTitle: string
+    qqOneBotWSUrl: string
+    qqOneBotWSUrlPlaceholder: string
+    qqOneBotHTTPUrl: string
+    qqOneBotHTTPUrlPlaceholder: string
+    qqOneBotToken: string
+    qqOneBotTokenPlaceholder: string
+    qqOneBotAutoFilled: string
   }
   // model picker (chat input)
   modelPicker: {

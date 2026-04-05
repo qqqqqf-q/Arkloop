@@ -72,6 +72,24 @@ func (d *desktopTelegramTokenLoader) BotToken(ctx context.Context, channelID uui
 	return strings.TrimSpace(rec.Token), nil
 }
 
+type desktopQQOneBotConfigLoader struct {
+	db data.DesktopDB
+}
+
+func (d *desktopQQOneBotConfigLoader) OneBotConfig(ctx context.Context, channelID uuid.UUID) (string, string, error) {
+	if d.db == nil {
+		return "", "", fmt.Errorf("qq channel tools: db unavailable")
+	}
+	rec, err := loadDesktopQQDeliveryChannel(ctx, d.db, channelID)
+	if err != nil {
+		return "", "", err
+	}
+	if rec == nil {
+		return "", "", fmt.Errorf("qq channel tools: channel not found")
+	}
+	return rec.OneBotHTTPURL, rec.OneBotToken, nil
+}
+
 // DesktopEngine executes LLM agent runs backed by SQLite.
 type DesktopEngine struct {
 	db                     data.DesktopDB
@@ -551,6 +569,11 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			TokenLoader:        &desktopTelegramTokenLoader{db: e.db},
 			GroupSearchExec:    e.groupSearchExec,
 			GroupSearchLlmSpec: conversationtool.GroupSearchLlmSpec,
+		}),
+		pipeline.NewChannelQQToolsMiddleware(pipeline.ChannelQQToolsDeps{
+			ConfigLoader:    &desktopQQOneBotConfigLoader{db: e.db},
+			GroupSearchExec: e.groupSearchExec,
+			GroupSearchSpec:  conversationtool.GroupSearchLlmSpec,
 		}),
 		desktopSubAgentContext(e.db, subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{

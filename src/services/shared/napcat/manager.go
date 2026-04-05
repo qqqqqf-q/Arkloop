@@ -738,6 +738,30 @@ func (m *Manager) getQuickLoginList() []QuickLoginAccount {
 	return list
 }
 
+// IsLoggedIn 返回当前 QQ 是否处于登录状态。
+func (m *Manager) IsLoggedIn() bool {
+	m.mu.Lock()
+	running := m.cmd != nil && m.cmd.Process != nil
+	m.mu.Unlock()
+	if !running {
+		return false
+	}
+	login := m.checkLoginStatus()
+	return login.IsLogin || login.IsOffline
+}
+
+// QuickLoginUins 返回可用于快速登录的 QQ 号列表。
+func (m *Manager) QuickLoginUins() []string {
+	list := m.getQuickLoginList()
+	uins := make([]string, 0, len(list))
+	for _, a := range list {
+		if a.Uin != "" {
+			uins = append(uins, a.Uin)
+		}
+	}
+	return uins
+}
+
 // QuickLogin 使用已有账号快速登录
 func (m *Manager) QuickLogin(uin string) error {
 	m.mu.Lock()
