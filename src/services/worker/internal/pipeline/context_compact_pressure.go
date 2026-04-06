@@ -182,6 +182,9 @@ func compactConsecutiveFailures(ctx context.Context, pool CompactPersistDB, acco
 	if err != nil {
 		return 0
 	}
+	if rows == nil {
+		return 0
+	}
 	defer rows.Close()
 
 	count := 0

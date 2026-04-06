@@ -8,10 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
@@ -22,14 +24,16 @@ import (
 
 const defaultChannelGroupMaxContextTokens = 32768
 
-// 群聊截断在 Routing 之前执行，没有选定模型；用 o200k 统一估算正文，与 HistoryThreadPromptTokens 默认回退一致。
-// 每条里的图片单独加固定预算（PartPromptText 对 image 为空，不能仅靠正文 tiktoken）。
 const groupTrimVisionTokensPerImage = 1024
 
 const (
 	defaultGroupCompactTriggerPct = 80
 	defaultGroupCompactKeepPct    = 25
 	defaultGroupKeepImageTail     = 10
+
+	maxGroupCompactRetries       = 2
+	maxGroupCompactPrefixShrinks = 3
+	groupCompactSummaryMaxRunes  = 40000 // ~10k tokens
 )
 
 var (
@@ -53,20 +57,12 @@ type GroupContextTrimDeps struct {
 	Pool            CompactPersistDB
 	MessagesRepo    data.MessagesRepository
 	EventsRepo      CompactRunEventAppender
-	AuxGateway      llm.Gateway
 	EmitDebugEvents bool
-	ConfigLoader    *routing.ConfigLoader
 }
 
-// NewChannelGroupContextTrimMiddleware 在 Channel 群聊 Run 上按近似 token 预算裁剪 Thread 历史（保留时间轴尾部），
-// 并在上下文压力达到阈值时执行群聊专用 compact。
+// NewChannelGroupContextTrimMiddleware 在 Routing 之后运行，按近似 token 预算裁剪群聊 Thread 历史，
+// 并在上下文压力达到阈值时异步执行群聊专用 compact。
 func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddleware {
-	maxTokens := defaultChannelGroupMaxContextTokens
-	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			maxTokens = n
-		}
-	}
 	keepImageTail := defaultGroupKeepImageTail
 	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_GROUP_KEEP_IMAGE_TAIL")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
@@ -90,11 +86,13 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 			return next(ctx, rc)
 		}
 
+		maxTokens := resolveGroupMaxTokens(rc)
+
 		stripOlderImages(rc, keepImageTail)
-		compactResult := maybeGroupCompact(ctx, rc, dep, maxTokens)
+		compactParams := shouldGroupCompact(ctx, rc, dep, maxTokens)
 		beforeTrim := snapshotGroupTrimStats(rc)
 		trimRunContextMessagesToApproxTokens(rc, maxTokens)
-		trimEvent := buildGroupTrimEvent(beforeTrim, snapshotGroupTrimStats(rc), maxTokens, compactResult != nil)
+		trimEvent := buildGroupTrimEvent(beforeTrim, snapshotGroupTrimStats(rc), maxTokens, compactParams != nil)
 
 		nextErr := next(ctx, rc)
 
@@ -106,13 +104,29 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 			}
 		}
 
-		// 持久化放在 next 之后，不阻塞 pipeline 主路径
-		if compactResult != nil {
-			persistGroupCompact(ctx, rc, dep, *compactResult)
+		if compactParams != nil {
+			runGroupCompactAsync(ctx, rc, dep, *compactParams)
 		}
 
 		return nextErr
 	}
+}
+
+// resolveGroupMaxTokens 动态计算群聊 maxTokens：
+// 优先从 SelectedRoute 的 context window 按比例计算，fallback 到环境变量或硬编码值。
+func resolveGroupMaxTokens(rc *RunContext) int {
+	if rc.SelectedRoute != nil {
+		window := routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
+		if window > 0 {
+			return window * defaultGroupCompactTriggerPct / 100
+		}
+	}
+	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultChannelGroupMaxContextTokens
 }
 
 // stripOlderImages 将尾部 keepTail 条之前的消息中的图片替换为带 attachment_key 的占位符。
@@ -146,20 +160,21 @@ func stripOlderImages(rc *RunContext, keepTail int) {
 	}
 }
 
-// groupCompactResult 存储 compact LLM 结果，供 next 之后持久化。
-type groupCompactResult struct {
-	PrefixIDs     []uuid.UUID
-	Summary       string
-	Split         int
-	TotalTokens   int
-	TriggerTokens int
-	KeepCount     int
+// groupCompactParams 存储 compact 所需的参数，供异步 goroutine 使用。
+type groupCompactParams struct {
+	PrefixMsgs      []llm.Message
+	PrefixIDs       []uuid.UUID
+	PreviousSummary string
+	Gateway         llm.Gateway
+	Model           string
+	Split           int
+	TotalTokens     int
+	TriggerTokens   int
+	KeepCount       int
 }
 
-// maybeGroupCompact 双阈值群聊 compact：当消息 token 总量 >= maxTokens * 80% 时触发，
-// 从尾部保留 maxTokens * 25% token 的真实消息，其余压入 snapshot。
-// 返回非 nil 时表示需要在 next 之后持久化。
-func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrimDeps, maxTokens int) *groupCompactResult {
+// shouldGroupCompact 同步判断是否需要 compact，返回 compact 参数（不调用 LLM）。
+func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrimDeps, maxTokens int) *groupCompactParams {
 	if rc == nil || dep.Pool == nil || len(rc.Messages) < 3 {
 		return nil
 	}
@@ -169,10 +184,15 @@ func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrim
 		return nil
 	}
 
+	// 断路器
+	if compactConsecutiveFailures(ctx, dep.Pool, rc.Run.AccountID, rc.Run.ThreadID) >= maxConsecutiveCompactFailures {
+		slog.InfoContext(ctx, "group_compact", "phase", "circuit_breaker", "run_id", rc.Run.ID.String(), "thread_id", rc.Run.ThreadID.String())
+		return nil
+	}
+
 	triggerTokens := maxTokens * defaultGroupCompactTriggerPct / 100
 	keepTokens := maxTokens * defaultGroupCompactKeepPct / 100
 
-	// 跳过 snapshot 前缀
 	fixedPrefix := 0
 	if rc.HasActiveCompactSnapshot && len(msgs) > 0 && len(ids) > 0 && ids[0] == uuid.Nil {
 		fixedPrefix = 1
@@ -187,7 +207,6 @@ func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrim
 		return nil
 	}
 
-	// 从尾部往前累加，确定保留区边界（以整条消息为单位）
 	keepAccum := 0
 	split := len(realMsgs)
 	for i := len(realMsgs) - 1; i >= 0; i-- {
@@ -201,16 +220,11 @@ func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrim
 			split = 0
 		}
 	}
-	// 用 stabilizeCompactStart 确保不以孤立的 tool 消息开头
 	split = stabilizeCompactStart(realMsgs, split, 0)
 	split = ensureToolPairIntegrity(realMsgs, split)
 	if split <= 0 {
 		return nil
 	}
-
-	compactPrefix := realMsgs[:split]
-	compactPrefixIDs := make([]uuid.UUID, split)
-	copy(compactPrefixIDs, ids[fixedPrefix:fixedPrefix+split])
 
 	previousSummary := ""
 	if rc.HasActiveCompactSnapshot {
@@ -223,51 +237,145 @@ func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrim
 		return nil
 	}
 
-	// file lock 防止 Desktop 端并发 compact
-	fileLockCleanup, fileLockErr := CompactThreadCompactionLock(ctx, rc.Run.ThreadID)
-	if fileLockErr != nil {
-		slog.WarnContext(ctx, "group_compact", "phase", "file_lock", "err", fileLockErr.Error(), "run_id", rc.Run.ID.String())
-	}
-	if fileLockCleanup != nil {
-		defer fileLockCleanup()
-	}
+	prefixMsgs := make([]llm.Message, split)
+	copy(prefixMsgs, realMsgs[:split])
+	prefixIDs := make([]uuid.UUID, split)
+	copy(prefixIDs, ids[fixedPrefix:fixedPrefix+split])
 
-	enc := groupTrimEncoder()
-
-	slog.InfoContext(ctx, "group_compact", "phase", "started",
-		"run_id", rc.Run.ID.String(),
-		"thread_id", rc.Run.ThreadID.String(),
-		"total_tokens", totalTokens,
-		"trigger_tokens", triggerTokens,
-		"split", split,
-		"keep_count", len(realMsgs)-split,
-	)
-
-	summary, err := runGroupCompactLLM(ctx, gw, model, compactPrefix, enc, previousSummary)
-	if err != nil {
-		slog.WarnContext(ctx, "group_compact", "phase", "llm_failed", "err", err.Error(), "run_id", rc.Run.ID.String())
-		return nil
+	return &groupCompactParams{
+		PrefixMsgs:      prefixMsgs,
+		PrefixIDs:       prefixIDs,
+		PreviousSummary: previousSummary,
+		Gateway:         gw,
+		Model:           model,
+		Split:           split,
+		TotalTokens:     totalTokens,
+		TriggerTokens:   triggerTokens,
+		KeepCount:       len(realMsgs) - split,
 	}
-	if strings.TrimSpace(summary) == "" {
-		return nil
-	}
+}
 
-	// 更新内存中的消息：snapshot + 保留区
-	tail := make([]llm.Message, len(realMsgs)-split)
-	copy(tail, realMsgs[split:])
-	rc.Messages = append([]llm.Message{makeCompactSnapshotMessage(summary)}, tail...)
-	rc.ThreadMessageIDs = append([]uuid.UUID{uuid.Nil}, ids[fixedPrefix+split:]...)
-	rc.HasActiveCompactSnapshot = true
-	rc.ActiveCompactSnapshotText = summary
+// runGroupCompactAsync 异步执行群聊 compact LLM 调用 + 持久化。
+func runGroupCompactAsync(parentCtx context.Context, rc *RunContext, dep GroupContextTrimDeps, params groupCompactParams) {
+	// 快照 rc 中持久化所需的不可变数据
+	runID := rc.Run.ID
+	threadID := rc.Run.ThreadID
+	accountID := rc.Run.AccountID
+	emitter := rc.Emitter
 
-	return &groupCompactResult{
-		PrefixIDs:     compactPrefixIDs,
-		Summary:       summary,
-		Split:         split,
-		TotalTokens:   totalTokens,
-		TriggerTokens: triggerTokens,
-		KeepCount:     len(realMsgs) - split,
+	go func() {
+		ctx := context.WithoutCancel(parentCtx)
+
+		slog.InfoContext(ctx, "group_compact", "phase", "async_started",
+			"run_id", runID.String(),
+			"thread_id", threadID.String(),
+			"total_tokens", params.TotalTokens,
+			"trigger_tokens", params.TriggerTokens,
+			"split", params.Split,
+			"keep_count", params.KeepCount,
+		)
+
+		fileLockCleanup, fileLockErr := CompactThreadCompactionLock(ctx, threadID)
+		if fileLockErr != nil {
+			slog.WarnContext(ctx, "group_compact", "phase", "file_lock", "err", fileLockErr.Error(), "run_id", runID.String())
+		}
+		if fileLockCleanup != nil {
+			defer fileLockCleanup()
+		}
+
+		enc := groupTrimEncoder()
+		summary := runGroupCompactWithRetry(ctx, params.Gateway, params.Model, params.PrefixMsgs, enc, params.PreviousSummary)
+
+		if summary == "" {
+			emitGroupCompactFailure(ctx, dep, runID, accountID, threadID, emitter)
+			return
+		}
+
+		summary = truncateGroupSummary(summary)
+
+		result := groupCompactResult{
+			PrefixIDs:     params.PrefixIDs,
+			Summary:       summary,
+			Split:         params.Split,
+			TotalTokens:   params.TotalTokens,
+			TriggerTokens: params.TriggerTokens,
+			KeepCount:     params.KeepCount,
+		}
+		persistGroupCompact(ctx, runID, threadID, accountID, emitter, dep, result)
+	}()
+}
+
+// runGroupCompactWithRetry 带重试的群聊 compact LLM 调用。
+func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) string {
+	shrinkAttempts := 0
+	for attempt := 0; attempt <= maxGroupCompactRetries; attempt++ {
+		summary, err := runGroupCompactLLM(ctx, gw, model, prefix, enc, previousSummary)
+		if err == nil && strings.TrimSpace(summary) != "" {
+			return summary
+		}
+		if err == nil {
+			return ""
+		}
+
+		errMsg := strings.ToLower(err.Error())
+		if isContextWindowExceeded(errMsg) && shrinkAttempts < maxGroupCompactPrefixShrinks && len(prefix) > 1 {
+			prefix = prefix[1:]
+			shrinkAttempts++
+			attempt--
+			slog.WarnContext(ctx, "group_compact", "phase", "shrink_prefix", "remaining", len(prefix), "shrink_attempt", shrinkAttempts)
+			continue
+		}
+
+		slog.WarnContext(ctx, "group_compact", "phase", "llm_retry", "attempt", attempt, "err", err.Error())
+		if attempt < maxGroupCompactRetries {
+			time.Sleep(time.Duration(1<<uint(attempt)) * time.Second)
+		}
 	}
+	return ""
+}
+
+func isContextWindowExceeded(errMsg string) bool {
+	for _, kw := range []string{"context_length_exceeded", "max_tokens", "too many tokens", "maximum context length", "token limit"} {
+		if strings.Contains(errMsg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// truncateGroupSummary 防御性截断：超过上限时按 ## section 边界截断。
+func truncateGroupSummary(summary string) string {
+	runes := []rune(summary)
+	if len(runes) <= groupCompactSummaryMaxRunes {
+		return summary
+	}
+	truncated := string(runes[:groupCompactSummaryMaxRunes])
+	if idx := strings.LastIndex(truncated, "\n## "); idx > 0 {
+		truncated = truncated[:idx]
+	}
+	return truncated
+}
+
+func emitGroupCompactFailure(ctx context.Context, dep GroupContextTrimDeps, runID, accountID, threadID uuid.UUID, emitter events.Emitter) {
+	if dep.Pool == nil || dep.EventsRepo == nil {
+		return
+	}
+	postCtx, cancel := context.WithTimeout(ctx, contextCompactPostWriteTimeout)
+	defer cancel()
+	tx, txErr := dep.Pool.BeginTx(postCtx, pgx.TxOptions{})
+	if txErr != nil {
+		return
+	}
+	ev := emitter.Emit("run.context_compact", map[string]any{
+		"op":    "group_persist",
+		"phase": "failed",
+	}, nil, nil)
+	if _, err := dep.EventsRepo.AppendRunEvent(postCtx, tx, runID, ev); err != nil {
+		_ = tx.Rollback(postCtx)
+		slog.WarnContext(ctx, "group_compact", "phase", "emit_failure_event", "err", err.Error(), "run_id", runID.String())
+		return
+	}
+	_ = tx.Commit(postCtx)
 }
 
 func sumMessageTokens(msgs []llm.Message) int {
@@ -278,51 +386,56 @@ func sumMessageTokens(msgs []llm.Message) int {
 	return total
 }
 
-// resolveGroupCompactGateway 为群聊 compact 解析 LLM gateway。
-// Channel 层在 Routing 之前执行，rc.Gateway 还未设置，通过 AuxGateway + ConfigLoader 解析。
+// resolveGroupCompactGateway 在 Routing 之后执行，优先使用 rc.Gateway，
+// 其次查 platform_settings.context.compaction.model。
 func resolveGroupCompactGateway(ctx context.Context, dep GroupContextTrimDeps, rc *RunContext) (llm.Gateway, string) {
-	if dep.Pool == nil || dep.AuxGateway == nil {
+	if rc.Gateway == nil {
 		return nil, ""
 	}
-
-	// 先尝试 account 级别的 tool gateway
-	fallbackGw := dep.AuxGateway
+	fallbackGw := rc.Gateway
 	fallbackModel := ""
-	if gw, model, ok := resolveAccountToolGateway(ctx, dep.Pool, rc.Run.AccountID, dep.AuxGateway, dep.EmitDebugEvents, rc.LlmMaxResponseBytes, dep.ConfigLoader, rc.RoutingByokEnabled); ok {
-		fallbackGw = gw
-		fallbackModel = model
+	if rc.SelectedRoute != nil {
+		fallbackModel = rc.SelectedRoute.Route.Model
 	}
 
-	// 尝试 platform_settings 中的 context.compaction.model
+	if dep.Pool == nil {
+		return fallbackGw, fallbackModel
+	}
+
 	var selector string
 	err := dep.Pool.QueryRow(ctx,
 		`SELECT value FROM platform_settings WHERE key = $1`,
 		settingContextCompactionModel,
 	).Scan(&selector)
 	selector = strings.TrimSpace(selector)
-	if err != nil || selector == "" || dep.ConfigLoader == nil {
+	if err != nil || selector == "" {
 		return fallbackGw, fallbackModel
 	}
-	aid := rc.Run.AccountID
-	routingCfg, err := dep.ConfigLoader.Load(ctx, &aid)
-	if err != nil {
-		return fallbackGw, fallbackModel
+	// 使用 resolveCompactionGateway 的模式：通过 selector 解析专用 compact 路由
+	if rc.ResolveGatewayForRouteID != nil {
+		gw, selected, rerr := rc.ResolveGatewayForRouteID(ctx, selector)
+		if rerr == nil && gw != nil && selected != nil {
+			return gw, selected.Route.Model
+		}
 	}
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, rc.RoutingByokEnabled)
-	if err != nil || selected == nil {
-		return fallbackGw, fallbackModel
-	}
-	gw, err := gatewayFromSelectedRoute(*selected, dep.AuxGateway, dep.EmitDebugEvents, rc.LlmMaxResponseBytes)
-	if err != nil {
-		return fallbackGw, fallbackModel
-	}
-	return gw, selected.Route.Model
+	return fallbackGw, fallbackModel
 }
 
-// persistGroupCompact 将群聊 compact 结果持久化到数据库。在 next 之后调用，不阻塞 pipeline 主路径。
+// groupCompactResult 存储 compact 结果，供持久化使用。
+type groupCompactResult struct {
+	PrefixIDs     []uuid.UUID
+	Summary       string
+	Split         int
+	TotalTokens   int
+	TriggerTokens int
+	KeepCount     int
+}
+
+// persistGroupCompact 将群聊 compact 结果持久化到数据库。
 func persistGroupCompact(
 	ctx context.Context,
-	rc *RunContext,
+	runID, threadID, accountID uuid.UUID,
+	emitter events.Emitter,
 	dep GroupContextTrimDeps,
 	result groupCompactResult,
 ) {
@@ -336,48 +449,44 @@ func persistGroupCompact(
 
 	tx, txErr := dep.Pool.BeginTx(postCtx, pgx.TxOptions{})
 	if txErr != nil {
-		slog.WarnContext(ctx, "group_compact", "phase", "tx_begin", "err", txErr.Error(), "run_id", rc.Run.ID.String())
+		slog.WarnContext(ctx, "group_compact", "phase", "tx_begin", "err", txErr.Error(), "run_id", runID.String())
 		return
 	}
 
-	if lockErr := compactThreadCompactionAdvisoryXactLock(postCtx, tx, rc.Run.ThreadID); lockErr != nil {
+	if lockErr := compactThreadCompactionAdvisoryXactLock(postCtx, tx, threadID); lockErr != nil {
 		_ = tx.Rollback(postCtx)
-		emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "advisory_lock", lockErr)
-		slog.WarnContext(ctx, "group_compact", "phase", "advisory_lock", "err", lockErr.Error(), "run_id", rc.Run.ID.String())
+		slog.WarnContext(ctx, "group_compact", "phase", "advisory_lock", "err", lockErr.Error(), "run_id", runID.String())
 		return
 	}
 
 	if len(filteredIDs) > 0 {
-		still, chkErr := compactPrefixMessagesStillUncompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, filteredIDs)
+		still, chkErr := compactPrefixMessagesStillUncompacted(postCtx, tx, accountID, threadID, filteredIDs)
 		if chkErr != nil {
 			_ = tx.Rollback(postCtx)
-			emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "prefix_precheck", chkErr)
-			slog.WarnContext(ctx, "group_compact", "phase", "prefix_precheck", "err", chkErr.Error(), "run_id", rc.Run.ID.String())
+			slog.WarnContext(ctx, "group_compact", "phase", "prefix_precheck", "err", chkErr.Error(), "run_id", runID.String())
 			return
 		}
 		if !still {
 			_ = tx.Rollback(postCtx)
 			return
 		}
-		if err := dep.MessagesRepo.MarkThreadMessagesCompacted(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, filteredIDs); err != nil {
+		if err := dep.MessagesRepo.MarkThreadMessagesCompacted(postCtx, tx, accountID, threadID, filteredIDs); err != nil {
 			_ = tx.Rollback(postCtx)
-			emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "mark_compacted", err)
-			slog.WarnContext(ctx, "group_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", rc.Run.ID.String())
+			slog.WarnContext(ctx, "group_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", runID.String())
 			return
 		}
 	}
 
 	meta, _ := json.Marshal(map[string]string{"kind": "group_context_compact"})
-	_, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, rc.Run.AccountID, rc.Run.ThreadID, result.Summary, meta)
+	_, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, accountID, threadID, result.Summary, meta)
 	if insErr != nil {
 		_ = tx.Rollback(postCtx)
-		emitContextCompactFailure(ctx, postCtx, dep.Pool, dep.EventsRepo, rc, "group_persist", "replace_snapshot", insErr)
-		slog.WarnContext(ctx, "group_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", rc.Run.ID.String())
+		slog.WarnContext(ctx, "group_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", runID.String())
 		return
 	}
 
 	if dep.EventsRepo != nil {
-		ev := rc.Emitter.Emit("run.context_compact", map[string]any{
+		ev := emitter.Emit("run.context_compact", map[string]any{
 			"op":             "group_persist",
 			"phase":          "completed",
 			"persist_split":  result.Split,
@@ -385,21 +494,21 @@ func persistGroupCompact(
 			"trigger_tokens": result.TriggerTokens,
 			"keep_count":     result.KeepCount,
 		}, nil, nil)
-		if _, evErr := dep.EventsRepo.AppendRunEvent(postCtx, tx, rc.Run.ID, ev); evErr != nil {
+		if _, evErr := dep.EventsRepo.AppendRunEvent(postCtx, tx, runID, ev); evErr != nil {
 			_ = tx.Rollback(postCtx)
-			slog.WarnContext(ctx, "group_compact", "phase", "run_event", "err", evErr.Error(), "run_id", rc.Run.ID.String())
+			slog.WarnContext(ctx, "group_compact", "phase", "run_event", "err", evErr.Error(), "run_id", runID.String())
 			return
 		}
 	}
 
 	if err := tx.Commit(postCtx); err != nil {
-		slog.WarnContext(ctx, "group_compact", "phase", "tx_commit", "err", err.Error(), "run_id", rc.Run.ID.String())
+		slog.WarnContext(ctx, "group_compact", "phase", "tx_commit", "err", err.Error(), "run_id", runID.String())
 		return
 	}
 
 	slog.InfoContext(ctx, "group_compact", "phase", "persisted",
-		"run_id", rc.Run.ID.String(),
-		"thread_id", rc.Run.ThreadID.String(),
+		"run_id", runID.String(),
+		"thread_id", threadID.String(),
 		"compacted_messages", len(filteredIDs),
 		"keep_count", result.KeepCount,
 	)

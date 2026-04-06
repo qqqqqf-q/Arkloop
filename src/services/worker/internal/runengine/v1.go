@@ -521,14 +521,6 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 		pipeline.NewHeartbeatScheduleMiddleware(deps.DBPool),
 		pipeline.NewChannelAdminTagMiddleware(deps.DBPool),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
-		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
-			Pool:            deps.DBPool,
-			MessagesRepo:    messagesRepo,
-			EventsRepo:      eventsRepo,
-			AuxGateway:      deps.AuxGateway,
-			EmitDebugEvents: deps.EmitDebugEvents,
-			ConfigLoader:    deps.RoutingConfigLoader,
-		}),
 		pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
 			TokenLoader:        deps.ChannelTelegramLoader,
 			GroupSearchExec:    deps.GroupSearchExecutor,
@@ -568,6 +560,12 @@ func buildRoutingLayer(
 ) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.AuxGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
+		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
+			Pool:            deps.DBPool,
+			MessagesRepo:    messagesRepo,
+			EventsRepo:      eventsRepo,
+			EmitDebugEvents: deps.EmitDebugEvents,
+		}),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewContextCompactMiddleware(deps.DBPool, messagesRepo, eventsRepo, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 	}

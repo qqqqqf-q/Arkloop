@@ -56,7 +56,7 @@ func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm
 		}
 		// 收集连续 user burst
 		burstStart := i
-		for i < len(msgs) && isPlainUserMessage(msgs[i]) {
+		for i < len(msgs) && isPlainUserMessage(msgs[i]) && ids[i] != uuid.Nil {
 			i++
 		}
 		burst := msgs[burstStart:i]

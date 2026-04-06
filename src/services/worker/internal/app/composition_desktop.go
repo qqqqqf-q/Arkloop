@@ -411,6 +411,7 @@ func loadPersonaRegistryFromFS() func() *personas.Registry {
 	}
 	dirs = append(dirs, "personas", "src/personas", "../personas")
 	seen := make(map[string]struct{}, len(dirs))
+	var resolvedDir string
 	for _, dir := range dirs {
 		cleaned := filepath.Clean(strings.TrimSpace(dir))
 		if cleaned == "" {
@@ -423,10 +424,33 @@ func loadPersonaRegistryFromFS() func() *personas.Registry {
 		reg, err := personas.LoadRegistry(cleaned)
 		if err == nil && len(reg.ListIDs()) > 0 {
 			slog.Info("desktop: personas loaded from filesystem", "dir", cleaned, "count", len(reg.ListIDs()))
-			return func() *personas.Registry { return reg }
+			resolvedDir = cleaned
+			break
 		}
 	}
-	return nil
+	if resolvedDir == "" {
+		return nil
+	}
+	var (
+		cached   *personas.Registry
+		cachedAt time.Time
+		mu       sync.Mutex
+	)
+	return func() *personas.Registry {
+		mu.Lock()
+		defer mu.Unlock()
+		if cached != nil && time.Since(cachedAt) < 30*time.Second {
+			return cached
+		}
+		reg, err := personas.LoadRegistry(resolvedDir)
+		if err != nil {
+			slog.Warn("desktop: persona reload failed, using cache", "dir", resolvedDir, "err", err.Error())
+			return cached
+		}
+		cached = reg
+		cachedAt = time.Now()
+		return cached
+	}
 }
 
 // Execute runs the agent pipeline for a single run.
@@ -567,14 +591,6 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopObservedStage("channel_context", eventsRepo, desktopChannelContext(e.db)),
 		desktopObservedStage("channel_admin_tag", eventsRepo, pipeline.NewChannelAdminTagMiddleware(e.db)),
 		desktopObservedStage("channel_group_user_merge", eventsRepo, pipeline.NewChannelTelegramGroupUserMergeMiddleware()),
-		desktopObservedStage("channel_group_context_trim", eventsRepo, pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
-			Pool:            e.db,
-			MessagesRepo:    data.MessagesRepository{},
-			EventsRepo:      data.DesktopRunEventsRepository{},
-			AuxGateway:      e.auxGateway,
-			EmitDebugEvents: e.emitDebugEvents,
-			ConfigLoader:    e.routingLoader,
-		})),
 		desktopObservedStage("channel_telegram_tools", eventsRepo, pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
 			TokenLoader:        &desktopTelegramTokenLoader{db: e.db},
 			GroupSearchExec:    e.groupSearchExec,
@@ -591,6 +607,12 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	middlewares = append(middlewares, desktopCapabilityMiddlewares(memMiddleware, e.promptInjection, eventsRepo)...)
 	middlewares = append(middlewares,
 		desktopRouting(e.auxRouter, e.auxGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
+		desktopObservedStage("channel_group_context_trim", eventsRepo, pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
+			Pool:            e.db,
+			MessagesRepo:    data.MessagesRepository{},
+			EventsRepo:      data.DesktopRunEventsRepository{},
+			EmitDebugEvents: e.emitDebugEvents,
+		})),
 		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewImpressionPrepareMiddleware(impStore, e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),

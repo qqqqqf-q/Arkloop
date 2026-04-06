@@ -22,6 +22,7 @@ const (
 	settingContextCompactionModel  = "context.compaction.model"
 	contextCompactStreamTimeout    = 60 * time.Second
 	contextCompactMaxOut           = 4096
+	contextCompactGroupMaxOut      = 8192
 	contextCompactPostWriteTimeout = 30 * time.Second
 	defaultPersistKeepLastMessages = 40
 	// 发往压缩摘要 LLM 的用户块上限（tiktoken 用 HistoryThreadPromptTokens；单条超大时再按 rune 截断）。
@@ -142,7 +143,8 @@ Keep each section concise. Preserve usernames, links, and specific data exactly 
 const contextCompactGroupUpdatePrompt = `The messages above are NEW group chat messages to incorporate into the existing summary provided in <previous-summary> tags.
 
 Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
+- PRESERVE key information from the previous summary
+- CONDENSE older information: merge related topics, remove concluded discussions, shorten participant descriptions for inactive participants
 - ADD new topics, participants, and key points from the new messages
 - UPDATE participant descriptions if their stance or activity changed
 - UPDATE "Mood & Context" to reflect the latest conversation direction
@@ -150,6 +152,7 @@ Update the existing structured summary with new information. RULES:
 - PRESERVE usernames, links, and specific data exactly as stated
 - UPDATE "Assistant Voice" with the assistant's latest verbatim replies from the new messages; keep only the 2-3 most recent
 - Write the summary in the SAME language the group chat primarily uses
+- The summary MUST NOT exceed approximately 8000 tokens (~32000 characters). If approaching this limit, aggressively condense older sections to make room for new information
 
 Use this EXACT format:
 
@@ -920,7 +923,7 @@ func runGroupCompactLLM(ctx context.Context, gateway llm.Gateway, model string, 
 		userBlock.WriteString(contextCompactGroupInitialPrompt)
 	}
 
-	maxTok := contextCompactMaxOut
+	maxTok := contextCompactGroupMaxOut
 	req := llm.Request{
 		Model: model,
 		Messages: []llm.Message{
