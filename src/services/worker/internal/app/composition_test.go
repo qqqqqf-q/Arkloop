@@ -64,9 +64,14 @@ func TestBuildMessageAttachmentStoreFilesystem(t *testing.T) {
 	t.Setenv(objectstore.StorageRootEnv, t.TempDir())
 	t.Setenv("ARKLOOP_S3_BUCKET", "arkloop")
 
-	store, err := buildMessageAttachmentStore(context.Background())
+	opener, err := buildStorageBucketOpenerFromEnv()
 	if err != nil {
-		t.Fatalf("build message attachment store: %v", err)
+		t.Fatalf("build storage bucket opener: %v", err)
+	}
+	s3Bucket := os.Getenv("ARKLOOP_S3_BUCKET")
+	store, err := openBucket(context.Background(), opener, s3Bucket)
+	if err != nil {
+		t.Fatalf("open message attachment store: %v", err)
 	}
 	if _, ok := store.(*objectstore.FilesystemStore); !ok {
 		t.Fatalf("unexpected store type: %T", store)

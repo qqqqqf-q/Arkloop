@@ -114,9 +114,16 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
-	skillStore, err := buildSkillStore(ctx)
+	// 提前解析存储 bucket opener，出错说明存储配置有误（不是"未配置"），直接 fail fast。
+	// opener 为 nil 表示存储未启用，所有 optional store 均为 nil，下游消费方均有 nil guard。
+	storageBucketOpener, err := buildStorageBucketOpenerFromEnv()
 	if err != nil {
-		slog.WarnContext(ctx, "load_skill: skill store init failed", "err", err.Error())
+		return nil, fmt.Errorf("storage backend config: %w", err)
+	}
+
+	skillStore, err := openBucket(ctx, storageBucketOpener, objectstore.SkillStoreBucket)
+	if err != nil {
+		return nil, fmt.Errorf("open skill store: %w", err)
 	}
 	executors := builtin.Executors(pool, rdb, configResolver, skillStore)
 	allLlmSpecs := builtin.LlmSpecs()
@@ -171,13 +178,17 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	runControlHub := pipeline.NewRunControlHub()
 	runControlHub.Start(ctx, listenPool)
 
-	artifactStore, err := buildDocumentArtifactStore(ctx)
+	artifactStore, err := openBucket(ctx, storageBucketOpener, objectstore.ArtifactBucket)
 	if err != nil {
-		slog.WarnContext(ctx, "document_write: artifact store init failed, skipping", "err", err.Error())
+		return nil, fmt.Errorf("open artifact store: %w", err)
 	}
-	messageAttachmentStore, err := buildMessageAttachmentStore(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "message attachments: store init failed", "err", err.Error())
+
+	var messageAttachmentStore objectstore.Store
+	if s3Bucket := strings.TrimSpace(os.Getenv("ARKLOOP_S3_BUCKET")); s3Bucket != "" && storageBucketOpener != nil {
+		messageAttachmentStore, err = storageBucketOpener.Open(ctx, s3Bucket)
+		if err != nil {
+			return nil, fmt.Errorf("open message attachment store: %w", err)
+		}
 	}
 
 	// 给 read executor 注入 attachment store 以支持 fallback 加载被压缩的图片
@@ -191,9 +202,17 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
-	rolloutStore, err := buildRolloutStore(ctx)
-	if err != nil {
-		slog.WarnContext(ctx, "rollout: store init failed", "err", err.Error())
+	var rolloutStore objectstore.BlobStore
+	if storageBucketOpener != nil {
+		store, openErr := storageBucketOpener.Open(ctx, objectstore.RolloutBucket)
+		if openErr != nil {
+			return nil, fmt.Errorf("open rollout store: %w", openErr)
+		}
+		blobStore, ok := store.(objectstore.BlobStore)
+		if !ok {
+			return nil, fmt.Errorf("rollout store does not implement blob store")
+		}
+		rolloutStore = blobStore
 	}
 
 	runtimeManager := workerruntime.NewManager(runtimeSnapshotTTL, func(loadCtx context.Context) (sharedtoolruntime.RuntimeSnapshot, error) {
@@ -371,60 +390,12 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	})
 }
 
-func buildDocumentArtifactStore(ctx context.Context) (objectstore.Store, error) {
-	bucketOpener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	if bucketOpener == nil {
+// openBucket 在 opener 为 nil（存储未启用）时返回 (nil, nil)，其他情况透传 Open 的结果。
+func openBucket(ctx context.Context, opener objectstore.BucketOpener, bucket string) (objectstore.Store, error) {
+	if opener == nil {
 		return nil, nil
 	}
-	return bucketOpener.Open(ctx, objectstore.ArtifactBucket)
-}
-
-func buildMessageAttachmentStore(ctx context.Context) (objectstore.Store, error) {
-	bucketOpener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	if bucketOpener == nil {
-		return nil, nil
-	}
-	s3Bucket := strings.TrimSpace(os.Getenv("ARKLOOP_S3_BUCKET"))
-	if s3Bucket == "" {
-		return nil, nil
-	}
-	return bucketOpener.Open(ctx, s3Bucket)
-}
-
-func buildRolloutStore(ctx context.Context) (objectstore.BlobStore, error) {
-	bucketOpener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	if bucketOpener == nil {
-		return nil, nil
-	}
-	store, err := bucketOpener.Open(ctx, objectstore.RolloutBucket)
-	if err != nil {
-		return nil, err
-	}
-	blobStore, ok := store.(objectstore.BlobStore)
-	if !ok {
-		return nil, fmt.Errorf("rollout store does not implement blob store")
-	}
-	return blobStore, nil
-}
-
-func buildSkillStore(ctx context.Context) (objectstore.Store, error) {
-	bucketOpener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		return nil, err
-	}
-	if bucketOpener == nil {
-		return nil, nil
-	}
-	return bucketOpener.Open(ctx, objectstore.SkillStoreBucket)
+	return opener.Open(ctx, bucket)
 }
 
 func buildStorageBucketOpenerFromEnv() (objectstore.BucketOpener, error) {
