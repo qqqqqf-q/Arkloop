@@ -51,7 +51,7 @@ func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm
 
 	i := 0
 	for i < len(msgs) {
-		if !isPlainUserMessage(msgs[i]) {
+		if !isPlainUserMessage(msgs[i]) || ids[i] == uuid.Nil {
 			outMsgs = append(outMsgs, msgs[i])
 			outIDs = append(outIDs, ids[i])
 			i++
