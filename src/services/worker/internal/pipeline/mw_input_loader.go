@@ -109,8 +109,7 @@ func NewInputLoaderMiddleware(
 		}
 
 		rc.InputJSON = loaded.InputJSON
-		rc.Messages = loaded.Messages
-		rc.ThreadMessageIDs = loaded.ThreadMessageIDs
+		rc.Messages, rc.ThreadMessageIDs = sanitizeToolPairs(loaded.Messages, loaded.ThreadMessageIDs)
 		rc.HasActiveCompactSnapshot = loaded.HasActiveCompactSnapshot
 		rc.ActiveCompactSnapshotText = loaded.ActiveCompactSnapshotText
 

@@ -598,6 +598,17 @@ func (l *Loop) Run(
 			}
 
 			messages = append(messages, toolResultMessage(answerResult))
+			if runCtx.RolloutRecorder != nil {
+				var outputJSON json.RawMessage
+				if answerResult.ResultJSON != nil {
+					outputJSON, _ = json.Marshal(answerResult.ResultJSON)
+				}
+				errMsg := ""
+				if answerResult.Error != nil {
+					errMsg = answerResult.Error.Message
+				}
+				appendRollout(ctx, runCtx.RolloutRecorder, MakeToolResult(answerResult.ToolCallID, outputJSON, errMsg))
+			}
 			var askErrorClass *string
 			if answerResult.Error != nil {
 				askErrorClass = stringPtr(answerResult.Error.ErrorClass)
@@ -1695,7 +1706,7 @@ func compactedToolMessage(m llm.Message) llm.Message {
 		text, _ := json.Marshal(stub)
 		return llm.Message{
 			Role:    "tool",
-			Content: []llm.TextPart{{Text: string(text), TrustSource: m.Content[0].TrustSource}},
+			Content: compactedContentParts(m.Content, string(text)),
 		}
 	}
 	toolName, _ := envelope["tool_name"].(string)
@@ -1712,8 +1723,21 @@ func compactedToolMessage(m llm.Message) llm.Message {
 	text, _ := json.Marshal(stub)
 	return llm.Message{
 		Role:    "tool",
-		Content: []llm.TextPart{{Text: string(text), TrustSource: m.Content[0].TrustSource}},
+		Content: compactedContentParts(m.Content, string(text)),
 	}
+}
+
+// compactedContentParts replaces the first text part with stubText
+// while preserving non-text parts (images, attachments).
+func compactedContentParts(original []llm.ContentPart, stubText string) []llm.ContentPart {
+	parts := make([]llm.ContentPart, 0, len(original))
+	parts = append(parts, llm.ContentPart{Text: stubText, TrustSource: original[0].TrustSource})
+	for _, p := range original[1:] {
+		if p.Kind() != "text" {
+			parts = append(parts, p)
+		}
+	}
+	return parts
 }
 
 // extractToolCallIDFromText attempts to extract a tool_call_id from malformed JSON.

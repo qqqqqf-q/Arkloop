@@ -41,6 +41,8 @@ temp
 output/
 src/apps/developers/dist
 src/apps/developers/.astro
+src/apps/developers/.next
+src/apps/developers/.source
 src/services/api/api
 src/services/api/migrate
 .data/

@@ -19,11 +19,12 @@ func TestCompactThreadMessages_trimCount(t *testing.T) {
 	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
 	cfg := ContextCompactSettings{Enabled: true, MaxMessages: 2}
 	out, outIDs, dropped := CompactThreadMessages(msgs, ids, cfg, nil)
-	if dropped != 1 || len(out) != 2 {
-		t.Fatalf("expected drop 1, len 2, got dropped=%d len=%d", dropped, len(out))
+	// stabilizeCompactStart skips past assistant to land on user
+	if dropped != 2 || len(out) != 1 {
+		t.Fatalf("expected drop 2, len 1, got dropped=%d len=%d", dropped, len(out))
 	}
-	if out[0].Role != "assistant" || outIDs[0] != ids[1] {
-		t.Fatalf("unexpected suffix start: %#v", out[0].Role)
+	if out[0].Role != "user" || outIDs[0] != ids[2] {
+		t.Fatalf("expected user start, got %q", out[0].Role)
 	}
 }
 
@@ -307,7 +308,7 @@ func TestMicrocompactToolResults_ClearOld(t *testing.T) {
 			continue
 		}
 		toolCount++
-		if messageText(m) == "[Tool result cleared]" {
+		if strings.Contains(messageText(m), `"cleared":true`) {
 			clearedCount++
 		} else {
 			preservedCount++
@@ -335,7 +336,7 @@ func TestMicrocompactToolResults_PreservesNonTool(t *testing.T) {
 	if messageText(out[0]) != "u1" {
 		t.Fatal("user message should be unchanged")
 	}
-	if messageText(out[1]) != "[Tool result cleared]" {
+	if !strings.Contains(messageText(out[1]), `"cleared":true`) {
 		t.Fatal("old tool should be cleared")
 	}
 	if messageText(out[2]) != "a1" {
@@ -356,7 +357,7 @@ func TestMicrocompactToolResults_OriginalUnmodified(t *testing.T) {
 	if messageText(msgs[0]) != origText {
 		t.Fatal("original slice must not be modified")
 	}
-	if messageText(out[0]) != "[Tool result cleared]" {
+	if !strings.Contains(messageText(out[0]), `"cleared":true`) {
 		t.Fatal("output should be cleared")
 	}
 }
@@ -435,5 +436,218 @@ func TestEnsureToolPairIntegrity_StartZeroTool(t *testing.T) {
 func TestEnsureToolPairIntegrity_Empty(t *testing.T) {
 	if got := ensureToolPairIntegrity(nil, 0); got != 0 {
 		t.Fatalf("expected 0, got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// sanitizeToolPairs
+// ---------------------------------------------------------------------------
+
+func toolMsg(callID string) llm.Message {
+	return llm.Message{
+		Role:    "tool",
+		Content: []llm.TextPart{{Text: `{"tool_call_id":"` + callID + `","tool_name":"test","result":{}}`}},
+	}
+}
+
+func assistantWithCalls(ids ...string) llm.Message {
+	calls := make([]llm.ToolCall, len(ids))
+	for i, id := range ids {
+		calls[i] = llm.ToolCall{ToolCallID: id, ToolName: "test"}
+	}
+	return llm.Message{Role: "assistant", Content: []llm.TextPart{{Text: "ok"}}, ToolCalls: calls}
+}
+
+func TestSanitizeToolPairs_NormalPair(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		assistantWithCalls("c1"),
+		toolMsg("c1"),
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 4 {
+		t.Fatalf("expected 4, got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_OrphanAfterUser(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		toolMsg("c1"),
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 2 {
+		t.Fatalf("expected 2, got %d", len(out))
+	}
+	if out[0].Role != "user" || out[1].Role != "user" {
+		t.Fatal("expected only user messages")
+	}
+}
+
+func TestSanitizeToolPairs_OrphanAfterAssistantNoToolCalls(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "assistant", Content: []llm.TextPart{{Text: "plain"}}},
+		toolMsg("c1"),
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 1 {
+		t.Fatalf("expected 1, got %d", len(out))
+	}
+	if out[0].Role != "assistant" {
+		t.Fatal("expected assistant kept")
+	}
+}
+
+func TestSanitizeToolPairs_OrphanMismatchedID(t *testing.T) {
+	msgs := []llm.Message{
+		assistantWithCalls("c1"),
+		toolMsg("c2"),
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 0 {
+		t.Fatalf("expected 0 (both removed), got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_EmptySlice(t *testing.T) {
+	out, _ := sanitizeToolPairs(nil, nil)
+	if len(out) != 0 {
+		t.Fatalf("expected empty, got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_NoToolMessages(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "a"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "b"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if &out[0] != &msgs[0] {
+		t.Fatal("expected same slice returned when nothing to remove")
+	}
+}
+
+func TestSanitizeToolPairs_MultiToolCallsSameAssistant(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "go"}}},
+		assistantWithCalls("c1", "c2", "c3"),
+		toolMsg("c1"),
+		toolMsg("c2"),
+		toolMsg("c3"),
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 6 {
+		t.Fatalf("expected 6, got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_ToolAtIndex0(t *testing.T) {
+	msgs := []llm.Message{
+		toolMsg("c1"),
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 1 {
+		t.Fatalf("expected 1, got %d", len(out))
+	}
+	if out[0].Role != "user" {
+		t.Fatal("expected user only")
+	}
+}
+
+func TestSanitizeToolPairs_OriginalUnmodified(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		toolMsg("c1"),
+		{Role: "user", Content: []llm.TextPart{{Text: "bye"}}},
+	}
+	origLen := len(msgs)
+	origRole1 := msgs[1].Role
+	_, _ = sanitizeToolPairs(msgs, nil)
+	if len(msgs) != origLen {
+		t.Fatal("original slice length changed")
+	}
+	if msgs[1].Role != origRole1 {
+		t.Fatal("original slice content changed")
+	}
+}
+
+func TestSanitizeToolPairs_BadJSON(t *testing.T) {
+	msgs := []llm.Message{
+		assistantWithCalls("c1"),
+		{Role: "tool", Content: []llm.TextPart{{Text: "not json"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 0 {
+		t.Fatalf("expected 0 (both removed), got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_EmptyToolCallID(t *testing.T) {
+	msgs := []llm.Message{
+		assistantWithCalls("c1"),
+		{Role: "tool", Content: []llm.TextPart{{Text: `{"tool_name":"test","result":{}}`}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 0 {
+		t.Fatalf("expected 0 (both removed), got %d", len(out))
+	}
+}
+
+func TestSanitizeToolPairs_IDsAligned(t *testing.T) {
+	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New(), uuid.New()}
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		toolMsg("orphan"),
+		assistantWithCalls("c1"),
+		toolMsg("c1"),
+	}
+	outMsgs, outIDs := sanitizeToolPairs(msgs, ids)
+	if len(outMsgs) != 3 {
+		t.Fatalf("expected 3 msgs, got %d", len(outMsgs))
+	}
+	if len(outIDs) != 3 {
+		t.Fatalf("expected 3 ids, got %d", len(outIDs))
+	}
+	if outIDs[0] != ids[0] || outIDs[1] != ids[2] || outIDs[2] != ids[3] {
+		t.Fatal("ids not properly aligned")
+	}
+}
+
+func TestSanitizeToolPairs_OrphanAssistantToolUseRemoved(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		assistantWithCalls("c1"),
+		// tool for c1 is missing -> assistant should also be removed
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 2 {
+		t.Fatalf("expected 2 (both users), got %d", len(out))
+	}
+	for _, m := range out {
+		if m.Role != "user" {
+			t.Fatalf("expected only user messages, got %s", m.Role)
+		}
+	}
+}
+
+func TestSanitizeToolPairs_PartialToolCallsKeepsAssistant(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		assistantWithCalls("c1", "c2"),
+		toolMsg("c1"),
+		// c2 tool is missing, but c1 is present -> assistant kept
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 4 {
+		t.Fatalf("expected 4, got %d", len(out))
+	}
+	if out[1].Role != "assistant" || len(out[1].ToolCalls) != 2 {
+		t.Fatal("assistant should be kept since c1 tool survives")
 	}
 }

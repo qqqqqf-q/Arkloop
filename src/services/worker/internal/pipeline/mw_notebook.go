@@ -23,7 +23,11 @@ func NewNotebookInjectionMiddleware(pool *pgxpool.Pool) RunMiddleware {
 		provider := notebookprovider.NewProvider(pool)
 		block, err := provider.GetSnapshot(ctx, rc.Run.AccountID, *rc.UserID, StableAgentID(rc))
 		if err != nil {
-			slog.WarnContext(ctx, "notebook: snapshot read failed", "err", err.Error())
+			slog.ErrorContext(ctx, "notebook: snapshot read failed", "err", err.Error())
+			appendAsyncRunEvent(ctx, rc.MemoryServiceDB, rc.Run.ID, rc.Emitter.Emit("notebook.snapshot.read_failed", map[string]any{
+				"message": err.Error(),
+			}, nil, nil))
+			rc.SystemPrompt += "\n\n<notebook_unavailable>Notebook system temporarily unavailable. Proceed without notebook context.</notebook_unavailable>"
 			return next(ctx, rc)
 		}
 		if strings.TrimSpace(block) != "" {

@@ -64,9 +64,9 @@ func formatNaturalPrefix(f *envelopeFields) string {
 
 // projectGroupEnvelopes 遍历 rc.Messages，将 user 消息中的 YAML envelope 替换为自然语言前缀。
 // 就地修改 rc.Messages 的 Content，对所有含 Telegram envelope 的消息生效（含非 channel run）。
-func projectGroupEnvelopes(rc *RunContext) {
+func projectGroupEnvelopes(rc *RunContext) (projected, skipped int) {
 	if rc == nil {
-		return
+		return 0, 0
 	}
 	for i := range rc.Messages {
 		if rc.Messages[i].Role != "user" {
@@ -82,9 +82,12 @@ func projectGroupEnvelopes(rc *RunContext) {
 		}
 		fields := parseEnvelope(first.Text)
 		if fields == nil {
+			skipped++
 			continue
 		}
 		first.Text = formatNaturalPrefix(fields)
 		rc.Messages[i].Content = parts
+		projected++
 	}
+	return projected, skipped
 }

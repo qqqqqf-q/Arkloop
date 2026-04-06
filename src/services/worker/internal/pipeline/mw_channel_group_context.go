@@ -80,7 +80,10 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 			return next(ctx, rc)
 		}
 
-		projectGroupEnvelopes(rc)
+		projected, skipped := projectGroupEnvelopes(rc)
+		if skipped > 0 {
+			slog.WarnContext(ctx, "envelope_projection", "projected", projected, "skipped", skipped, "run_id", rc.Run.ID.String())
+		}
 
 		if !IsTelegramGroupLikeConversation(rc.ChannelContext.ConversationType) {
 			return next(ctx, rc)

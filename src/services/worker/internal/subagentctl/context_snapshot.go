@@ -166,7 +166,7 @@ func (b *SnapshotBuilder) loadMessages(ctx context.Context, tx pgx.Tx, parentRun
 		})
 	}
 	result = trimLeadingOrphanToolMessages(result)
-	return repairSpawnClosures(result), nil
+	return repairUnclosedToolCalls(result), nil
 }
 
 func snapshotRouting(parent SpawnParentContext) *ContextSnapshotRouting {
@@ -245,10 +245,10 @@ func trimLeadingOrphanToolMessages(msgs []ContextSnapshotMessage) []ContextSnaps
 	return msgs[start:]
 }
 
-// repairSpawnClosures 确保 fork 出的消息历史中不存在未闭合的 spawn 工具调用。
+// repairUnclosedToolCalls 确保 fork 出的消息历史中不存在未闭合的工具调用。
 // 扫描 content_json 中的 tool_use/tool_result 块，对缺少 tool_result 的
-// spawn 系列 tool_use 补充合成的闭包消息。
-func repairSpawnClosures(messages []ContextSnapshotMessage) []ContextSnapshotMessage {
+// tool_use 补充合成的闭包消息。
+func repairUnclosedToolCalls(messages []ContextSnapshotMessage) []ContextSnapshotMessage {
 	if len(messages) == 0 {
 		return messages
 	}
@@ -288,9 +288,9 @@ func repairSpawnClosures(messages []ContextSnapshotMessage) []ContextSnapshotMes
 			blockType, _ := block["type"].(string)
 			switch blockType {
 			case "tool_use":
-				toolName, _ := block["name"].(string)
 				toolID, _ := block["id"].(string)
-				if isSpawnToolName(toolName) && toolID != "" {
+				toolName, _ := block["name"].(string)
+				if toolID != "" {
 					openCalls = append(openCalls, toolUseEntry{id: toolID, name: toolName, afterIdx: i})
 				}
 			case "tool_result":

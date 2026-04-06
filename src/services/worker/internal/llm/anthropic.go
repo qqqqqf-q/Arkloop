@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -362,16 +363,44 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 	systemBlocks := []map[string]any{}
 	out := []map[string]any{}
 	pendingToolResults := []map[string]any{}
+	lastAssistantToolUseIDs := map[string]struct{}{}
+	// 记录最后一个带 tool_use 的 assistant 在 out 中的索引，便于回退
+	lastToolUseAssistantIdx := -1
 
 	flushToolResults := func() {
 		if len(pendingToolResults) == 0 {
+			// 没有 tool_result 但有 tool_use -> 回退 assistant 中的 tool_use blocks
+			if lastToolUseAssistantIdx >= 0 && lastToolUseAssistantIdx < len(out) {
+				stripToolUseBlocks(out, lastToolUseAssistantIdx, lastAssistantToolUseIDs)
+			}
+			lastAssistantToolUseIDs = map[string]struct{}{}
+			lastToolUseAssistantIdx = -1
+			return
+		}
+		filtered := make([]map[string]any, 0, len(pendingToolResults))
+		for _, block := range pendingToolResults {
+			id, _ := block["tool_use_id"].(string)
+			if _, ok := lastAssistantToolUseIDs[id]; ok {
+				filtered = append(filtered, block)
+			} else {
+				slog.Warn("dropped orphan tool_result", "tool_use_id", id)
+			}
+		}
+		pendingToolResults = []map[string]any{}
+		if len(filtered) == 0 {
+			if lastToolUseAssistantIdx >= 0 && lastToolUseAssistantIdx < len(out) {
+				stripToolUseBlocks(out, lastToolUseAssistantIdx, lastAssistantToolUseIDs)
+			}
+			lastAssistantToolUseIDs = map[string]struct{}{}
+			lastToolUseAssistantIdx = -1
 			return
 		}
 		out = append(out, map[string]any{
 			"role":    "user",
-			"content": pendingToolResults,
+			"content": filtered,
 		})
-		pendingToolResults = []map[string]any{}
+		lastAssistantToolUseIDs = map[string]struct{}{}
+		lastToolUseAssistantIdx = -1
 	}
 
 	for _, message := range messages {
@@ -379,7 +408,6 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 		if message.Role == "system" {
 			if strings.TrimSpace(text) != "" {
 				block := map[string]any{"type": "text", "text": text}
-				// 若任意 system TextPart 带 cache_control，取第一个非空值
 				for _, part := range message.Content {
 					if part.CacheControl != nil && strings.TrimSpace(*part.CacheControl) != "" {
 						block["cache_control"] = map[string]any{"type": *part.CacheControl}
@@ -404,11 +432,13 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 		flushToolResults()
 
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			lastAssistantToolUseIDs = make(map[string]struct{}, len(message.ToolCalls))
 			blocks, err := anthropicContentBlocks(message.Content)
 			if err != nil {
 				return nil, nil, err
 			}
 			for _, call := range message.ToolCalls {
+				lastAssistantToolUseIDs[call.ToolCallID] = struct{}{}
 				blocks = append(blocks, map[string]any{
 					"type":  "tool_use",
 					"id":    call.ToolCallID,
@@ -416,12 +446,16 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 					"input": mapOrEmpty(call.ArgumentsJSON),
 				})
 			}
+			lastToolUseAssistantIdx = len(out)
 			out = append(out, map[string]any{
 				"role":    "assistant",
 				"content": blocks,
 			})
 			continue
 		}
+
+		lastAssistantToolUseIDs = map[string]struct{}{}
+		lastToolUseAssistantIdx = -1
 
 		blocks, err := anthropicContentBlocks(message.Content)
 		if err != nil {
@@ -438,6 +472,32 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 
 	flushToolResults()
 	return systemBlocks, out, nil
+}
+
+// stripToolUseBlocks 从 out[idx] 的 content 中移除所有 tool_use blocks。
+// 如果移除后 content 为空，整条消息也从 out 中清除（置为空 assistant）。
+func stripToolUseBlocks(out []map[string]any, idx int, toolUseIDs map[string]struct{}) {
+	msg := out[idx]
+	content, ok := msg["content"].([]map[string]any)
+	if !ok {
+		return
+	}
+	filtered := make([]map[string]any, 0, len(content))
+	for _, block := range content {
+		if block["type"] == "tool_use" {
+			if id, _ := block["id"].(string); id != "" {
+				if _, match := toolUseIDs[id]; match {
+					slog.Warn("stripped orphan tool_use from assistant", "tool_use_id", id)
+					continue
+				}
+			}
+		}
+		filtered = append(filtered, block)
+	}
+	if len(filtered) == 0 {
+		filtered = []map[string]any{{"type": "text", "text": ""}}
+	}
+	out[idx]["content"] = filtered
 }
 
 func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {

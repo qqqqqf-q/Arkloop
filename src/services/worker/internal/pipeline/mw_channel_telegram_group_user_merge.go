@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -17,14 +18,15 @@ import (
 // InjectionScanUserTexts 仍取物理上最后一条 user 输入。
 func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		_ = ctx
 		if rc == nil || rc.ChannelContext == nil {
 			return next(ctx, rc)
 		}
 		if strings.ToLower(strings.TrimSpace(rc.ChannelContext.ChannelType)) != "telegram" {
 			return next(ctx, rc)
 		}
+		slog.DebugContext(ctx, "channel_group_user_merge", "msgs_before", len(rc.Messages), "ids_before", len(rc.ThreadMessageIDs))
 		msgs, ids, lastScan := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
+		slog.DebugContext(ctx, "channel_group_user_merge", "msgs_after", len(msgs), "ids_after", len(ids))
 		rc.Messages = msgs
 		rc.ThreadMessageIDs = ids
 		if len(lastScan) > 0 {
@@ -39,6 +41,7 @@ func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 // lastScan 取物理上最后一条 user 消息的 scan text。
 func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uuid.UUID, []string) {
 	if len(msgs) != len(ids) {
+		slog.Warn("channel_group_user_merge: msgs/ids length mismatch, skipping merge", "msgs", len(msgs), "ids", len(ids))
 		return msgs, ids, nil
 	}
 

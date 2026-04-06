@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -88,7 +89,8 @@ func countTotalBytes(msgs []llm.Message, start int) int {
 	return n
 }
 
-// stabilizeCompactStart 在「尾部条数上限」与「不以孤立 tool 开头」之间收敛切口。
+// stabilizeCompactStart 在「尾部条数上限」与「不以孤立 tool / assistant 开头」之间收敛切口。
+// Anthropic 要求对话以 user 开头，因此切口跳过 tool 和 assistant 直到遇到 user。
 func stabilizeCompactStart(msgs []llm.Message, start int, maxMessages int) int {
 	if len(msgs) == 0 {
 		return 0
@@ -107,7 +109,7 @@ func stabilizeCompactStart(msgs []llm.Message, start int, maxMessages int) int {
 			break
 		}
 	}
-	for start < len(msgs)-1 && msgs[start].Role == "tool" {
+	for start < len(msgs)-1 && msgs[start].Role != "user" {
 		start++
 	}
 	return start
@@ -120,6 +122,108 @@ func ensureToolPairIntegrity(msgs []llm.Message, start int) int {
 		start--
 	}
 	return start
+}
+
+// sanitizeToolPairs 扫描消息序列，移除不成对的 tool_use / tool_result。
+// 孤立 tool: tool_call_id 在前一个 assistant 的 ToolCalls 中找不到匹配。
+// 孤立 assistant(tool_use): 其所有 ToolCalls 对应的 tool 消息都不存在或已被移除。
+// ids 若与 msgs 等长则同步裁切。
+func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uuid.UUID) {
+	if len(msgs) == 0 {
+		return msgs, ids
+	}
+
+	removeSet := make(map[int]struct{})
+
+	// pass 1: 标记孤立 tool 消息
+	var activeCallIDs map[string]struct{}
+	for i, m := range msgs {
+		if m.Role == "tool" {
+			callID := extractToolCallID(m)
+			if callID == "" {
+				removeSet[i] = struct{}{}
+				continue
+			}
+			if _, ok := activeCallIDs[callID]; !ok {
+				removeSet[i] = struct{}{}
+			}
+			continue
+		}
+		activeCallIDs = nil
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			activeCallIDs = make(map[string]struct{}, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				activeCallIDs[tc.ToolCallID] = struct{}{}
+			}
+		}
+	}
+
+	// pass 2: 收集所有存活的 tool_call_id
+	survivingToolCallIDs := make(map[string]struct{})
+	for i, m := range msgs {
+		if _, removed := removeSet[i]; removed {
+			continue
+		}
+		if m.Role == "tool" {
+			if callID := extractToolCallID(m); callID != "" {
+				survivingToolCallIDs[callID] = struct{}{}
+			}
+		}
+	}
+
+	// pass 3: 标记 assistant(tool_use) 中所有 ToolCalls 都没有存活 tool 的
+	for i, m := range msgs {
+		if _, removed := removeSet[i]; removed {
+			continue
+		}
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		anyAlive := false
+		for _, tc := range m.ToolCalls {
+			if _, ok := survivingToolCallIDs[tc.ToolCallID]; ok {
+				anyAlive = true
+				break
+			}
+		}
+		if !anyAlive {
+			removeSet[i] = struct{}{}
+		}
+	}
+
+	if len(removeSet) == 0 {
+		return msgs, ids
+	}
+
+	alignedIDs := len(ids) == len(msgs)
+	outMsgs := make([]llm.Message, 0, len(msgs)-len(removeSet))
+	var outIDs []uuid.UUID
+	if alignedIDs {
+		outIDs = make([]uuid.UUID, 0, len(msgs)-len(removeSet))
+	}
+	for i, m := range msgs {
+		if _, skip := removeSet[i]; skip {
+			continue
+		}
+		outMsgs = append(outMsgs, m)
+		if alignedIDs {
+			outIDs = append(outIDs, ids[i])
+		}
+	}
+	return outMsgs, outIDs
+}
+
+func extractToolCallID(m llm.Message) string {
+	if len(m.Content) == 0 {
+		return ""
+	}
+	var envelope struct {
+		ToolCallID string `json:"tool_call_id"`
+	}
+	if json.Unmarshal([]byte(m.Content[0].Text), &envelope) != nil {
+		return ""
+	}
+	return envelope.ToolCallID
 }
 
 func budgetOK(msgs []llm.Message, start int, cfg ContextCompactSettings, enc *tiktoken.Tiktoken) bool {
@@ -277,15 +381,33 @@ func microcompactToolResults(msgs []llm.Message, keepRecent int) []llm.Message {
 
 	out := make([]llm.Message, len(msgs))
 	copy(out, msgs)
-	placeholder := []llm.ContentPart{{Type: "text", Text: "[Tool result cleared]"}}
 	for idx := range clearSet {
-		m := out[idx]
-		out[idx] = llm.Message{
-			Role:      m.Role,
-			Phase:     m.Phase,
-			ToolCalls: m.ToolCalls,
-			Content:   placeholder,
-		}
+		out[idx] = microcompactedStub(out[idx])
 	}
 	return out
+}
+
+// microcompactedStub replaces a tool message's result with a minimal stub
+// while preserving tool_call_id and tool_name so downstream LLM providers
+// can maintain conversation structure.
+func microcompactedStub(m llm.Message) llm.Message {
+	stub := map[string]any{"result": map[string]any{"cleared": true}}
+	if len(m.Content) > 0 {
+		var envelope map[string]any
+		if json.Unmarshal([]byte(m.Content[0].Text), &envelope) == nil {
+			if id, ok := envelope["tool_call_id"]; ok {
+				stub["tool_call_id"] = id
+			}
+			if name, _ := envelope["tool_name"].(string); strings.TrimSpace(name) != "" {
+				stub["tool_name"] = strings.TrimSpace(name)
+			}
+		}
+	}
+	text, _ := json.Marshal(stub)
+	return llm.Message{
+		Role:      m.Role,
+		Phase:     m.Phase,
+		ToolCalls: m.ToolCalls,
+		Content:   []llm.ContentPart{{Type: "text", Text: string(text), TrustSource: m.Content[0].TrustSource}},
+	}
 }

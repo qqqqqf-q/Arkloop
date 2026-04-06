@@ -123,6 +123,7 @@ func injectFromSnapshotOnly(ctx context.Context, rc *RunContext, snap MemorySnap
 		appendAsyncRunEvent(ctx, rc.MemoryServiceDB, rc.Run.ID, rc.Emitter.Emit("memory.snapshot.read_failed", map[string]any{
 			"message": err.Error(),
 		}, nil, nil))
+		rc.SystemPrompt += "\n\n<memory_unavailable>Memory system temporarily unavailable. Proceed without memory context.</memory_unavailable>"
 		return
 	}
 	if found && strings.TrimSpace(block) != "" {
