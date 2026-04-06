@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	nethttp "net/http"
@@ -19,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -772,6 +774,32 @@ func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
 	}
 	if engine.notebookProvider == nil {
 		t.Fatal("expected notebook provider to be configured")
+	}
+}
+
+func TestBuildDesktopStageEventDataIncludesTrimmedError(t *testing.T) {
+	eventType, ok := desktopObservedEventName("channel_group_context_trim")
+	if !ok {
+		t.Fatal("expected event name for channel_group_context_trim")
+	}
+	if eventType != "run.channel_group_context_trim" {
+		t.Fatalf("unexpected event type: %s", eventType)
+	}
+	payload := buildDesktopStageEventData(4200, 250, "failed", errors.New(strings.Repeat("x", 240)))
+
+	if got := payload["status"]; got != "failed" {
+		t.Fatalf("unexpected status: %v", got)
+	}
+	msg, _ := payload["error_message"].(string)
+	if len(msg) != 200 {
+		t.Fatalf("expected trimmed error message length 200, got %d", len(msg))
+	}
+}
+
+func TestDesktopObservedEventTypesContainChannelGroupCompactSignal(t *testing.T) {
+	items := desktopObservedEventTypes()
+	if !slices.Contains(items, "run.channel_group_context_trim") {
+		t.Fatalf("expected run.channel_group_context_trim in observed event types, got %v", items)
 	}
 }
 

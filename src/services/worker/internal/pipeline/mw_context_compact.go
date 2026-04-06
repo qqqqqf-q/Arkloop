@@ -113,6 +113,8 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
 
 const contextCompactGroupInitialPrompt = `The messages above are from a multi-participant group chat to summarize. Create a structured group chat summary that another LLM joining the conversation will use to understand context.
 
+CRITICAL: Write the summary in the SAME language the group chat primarily uses. If the conversation is in Chinese, write the summary in Chinese. If in English, write in English. Match the group's dominant language.
+
 Use this EXACT format:
 
 ## Topics
@@ -132,6 +134,9 @@ Use this EXACT format:
 - [Specific facts, numbers, names, or quotes worth preserving]
 - [Or "(none)" if not applicable]
 
+## Assistant Voice
+[Quote the assistant's 2-3 most recent replies VERBATIM (the full message text). If the assistant has not spoken in this segment, write "(no assistant messages in this segment)".]
+
 Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
 
 const contextCompactGroupUpdatePrompt = `The messages above are NEW group chat messages to incorporate into the existing summary provided in <previous-summary> tags.
@@ -143,6 +148,8 @@ Update the existing structured summary with new information. RULES:
 - UPDATE "Mood & Context" to reflect the latest conversation direction
 - MERGE or remove topics that have concluded or are no longer relevant
 - PRESERVE usernames, links, and specific data exactly as stated
+- UPDATE "Assistant Voice" with the assistant's latest verbatim replies from the new messages; keep only the 2-3 most recent
+- Write the summary in the SAME language the group chat primarily uses
 
 Use this EXACT format:
 
@@ -160,6 +167,9 @@ Use this EXACT format:
 
 ## Notable Details
 - [Preserve important details, add new ones]
+
+## Assistant Voice
+[Quote the assistant's 2-3 most recent replies VERBATIM. Replace older quotes with newer ones from the new messages. If no new assistant messages, preserve the previous quotes.]
 
 Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
 

@@ -203,6 +203,7 @@ func maybeGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTrim
 	}
 	// 用 stabilizeCompactStart 确保不以孤立的 tool 消息开头
 	split = stabilizeCompactStart(realMsgs, split, 0)
+	split = ensureToolPairIntegrity(realMsgs, split)
 	if split <= 0 {
 		return nil
 	}
@@ -518,6 +519,8 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 		total += t
 		start = i
 	}
+
+	start = ensureToolPairIntegrity(realMsgs, start)
 
 	if start <= 0 && !hasSnapshot {
 		return
