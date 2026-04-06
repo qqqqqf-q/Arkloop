@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
@@ -308,9 +309,27 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	var personaRegistryGetter func() *personas.Registry
 	personasRoot, err := personas.BuiltinPersonasRoot()
 	if err == nil {
-		baseRegistry, loadErr := personas.LoadRegistry(personasRoot)
-		if loadErr == nil && len(baseRegistry.ListIDs()) > 0 {
-			personaRegistryGetter = func() *personas.Registry { return baseRegistry }
+		if reg, loadErr := personas.LoadRegistry(personasRoot); loadErr == nil && len(reg.ListIDs()) > 0 {
+			var (
+				cached   = reg
+				cachedAt = time.Now()
+				mu       sync.Mutex
+			)
+			personaRegistryGetter = func() *personas.Registry {
+				mu.Lock()
+				defer mu.Unlock()
+				if time.Since(cachedAt) < 30*time.Second {
+					return cached
+				}
+				fresh, err := personas.LoadRegistry(personasRoot)
+				if err != nil {
+					slog.Warn("persona reload failed, using cache", "dir", personasRoot, "err", err.Error())
+					return cached
+				}
+				cached = fresh
+				cachedAt = time.Now()
+				return cached
+			}
 		}
 	}
 
