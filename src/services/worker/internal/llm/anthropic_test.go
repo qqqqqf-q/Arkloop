@@ -411,12 +411,16 @@ func TestAnthropicGateway_Stream_DoesNotDuplicateTextStartAndDelta(t *testing.T)
 	})
 
 	var deltas []string
+	var completed *Message
 	err := gateway.Stream(context.Background(), Request{
 		Model:    "claude-test",
 		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
 	}, func(ev StreamEvent) error {
 		if delta, ok := ev.(StreamMessageDelta); ok {
 			deltas = append(deltas, delta.ContentDelta)
+		}
+		if done, ok := ev.(StreamRunCompleted); ok {
+			completed = done.AssistantMessage
 		}
 		return nil
 	})
@@ -425,6 +429,51 @@ func TestAnthropicGateway_Stream_DoesNotDuplicateTextStartAndDelta(t *testing.T)
 	}
 	if strings.Join(deltas, "") != "hello" {
 		t.Fatalf("unexpected text deltas: %#v", deltas)
+	}
+	if completed == nil || len(completed.Content) != 1 || completed.Content[0].Text != "hello" {
+		t.Fatalf("unexpected completed assistant message: %#v", completed)
+	}
+}
+
+func TestAnthropicGateway_Stream_PreservesNonDuplicateTextDelta(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"he"}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"llo"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var deltas []string
+	var completed *Message
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		if delta, ok := ev.(StreamMessageDelta); ok {
+			deltas = append(deltas, delta.ContentDelta)
+		}
+		if done, ok := ev.(StreamRunCompleted); ok {
+			completed = done.AssistantMessage
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if strings.Join(deltas, "") != "hello" {
+		t.Fatalf("unexpected text deltas: %#v", deltas)
+	}
+	if completed == nil || len(completed.Content) != 1 || completed.Content[0].Text != "hello" {
+		t.Fatalf("unexpected completed assistant message: %#v", completed)
 	}
 }
 

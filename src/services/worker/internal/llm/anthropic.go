@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"arkloop/services/worker/internal/stablejson"
 	"github.com/google/uuid"
@@ -923,8 +924,6 @@ type anthropicAssistantBlock struct {
 	Type      string
 	Text      strings.Builder
 	Signature string
-	StartLen  int // content_block_start 中 text 的长度，用于 delta 去重
-	DeltaLen  int // 已收到的 delta 字节总数
 }
 
 type anthropicStreamError struct {
@@ -1000,7 +999,6 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 			case "text":
 				buffer := &anthropicAssistantBlock{Type: "text"}
 				buffer.Text.WriteString(event.ContentBlock.Text)
-				buffer.StartLen = len(event.ContentBlock.Text)
 				assistantBlocks[idx] = buffer
 				if strings.TrimSpace(event.ContentBlock.Text) == "" {
 					return nil
@@ -1009,7 +1007,6 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 			case "thinking":
 				buffer := &anthropicAssistantBlock{Type: "thinking"}
 				buffer.Text.WriteString(event.ContentBlock.Thinking)
-				buffer.StartLen = len(event.ContentBlock.Thinking)
 				assistantBlocks[idx] = buffer
 				if strings.TrimSpace(event.ContentBlock.Thinking) == "" {
 					return nil
@@ -1044,17 +1041,12 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 			switch event.Delta.Type {
 			case "text_delta":
 				if buffer := assistantBlocks[idx]; buffer != nil {
-					buffer.Text.WriteString(event.Delta.Text)
-					// 去重：content_block_start 已 yield 过的部分在首批 delta 中跳过
-					prevDeltaLen := buffer.DeltaLen
-					buffer.DeltaLen += len(event.Delta.Text)
-					if prevDeltaLen < buffer.StartLen {
-						skip := buffer.StartLen - prevDeltaLen
-						if skip >= len(event.Delta.Text) {
-							return nil
-						}
-						return yield(StreamMessageDelta{ContentDelta: event.Delta.Text[skip:], Role: "assistant"})
+					newDelta := anthropicUniqueDelta(buffer.Text.String(), event.Delta.Text)
+					if newDelta == "" {
+						return nil
 					}
+					buffer.Text.WriteString(newDelta)
+					return yield(StreamMessageDelta{ContentDelta: newDelta, Role: "assistant"})
 				}
 				if event.Delta.Text == "" {
 					return nil
@@ -1062,17 +1054,13 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 				return yield(StreamMessageDelta{ContentDelta: event.Delta.Text, Role: "assistant"})
 			case "thinking_delta":
 				if buffer := assistantBlocks[idx]; buffer != nil {
-					buffer.Text.WriteString(event.Delta.Thinking)
-					prevDeltaLen := buffer.DeltaLen
-					buffer.DeltaLen += len(event.Delta.Thinking)
-					if prevDeltaLen < buffer.StartLen {
-						skip := buffer.StartLen - prevDeltaLen
-						if skip >= len(event.Delta.Thinking) {
-							return nil
-						}
-						channel := "thinking"
-						return yield(StreamMessageDelta{ContentDelta: event.Delta.Thinking[skip:], Role: "assistant", Channel: &channel})
+					newDelta := anthropicUniqueDelta(buffer.Text.String(), event.Delta.Thinking)
+					if newDelta == "" {
+						return nil
 					}
+					buffer.Text.WriteString(newDelta)
+					channel := "thinking"
+					return yield(StreamMessageDelta{ContentDelta: newDelta, Role: "assistant", Channel: &channel})
 				}
 				if event.Delta.Thinking == "" {
 					return nil
@@ -1220,6 +1208,46 @@ func anthropicAssistantMessageParts(blocks map[int]*anthropicAssistantBlock) []C
 		}
 	}
 	return parts
+}
+
+func anthropicUniqueDelta(existing string, incoming string) string {
+	if incoming == "" {
+		return ""
+	}
+	if existing == "" {
+		return incoming
+	}
+	overlap := longestAnthropicTextOverlap(existing, incoming)
+	if overlap <= 0 {
+		return incoming
+	}
+	return incoming[overlap:]
+}
+
+func longestAnthropicTextOverlap(existing string, incoming string) int {
+	incomingBoundaries := utf8Boundaries(incoming)
+	for i := len(incomingBoundaries) - 1; i >= 0; i-- {
+		overlap := incomingBoundaries[i]
+		if overlap == 0 || overlap > len(existing) {
+			continue
+		}
+		start := len(existing) - overlap
+		if !utf8.RuneStart(existing[start]) {
+			continue
+		}
+		if existing[start:] == incoming[:overlap] {
+			return overlap
+		}
+	}
+	return 0
+}
+
+func utf8Boundaries(value string) []int {
+	boundaries := make([]int, 0, len(value)+1)
+	for idx := range value {
+		boundaries = append(boundaries, idx)
+	}
+	return append(boundaries, len(value))
 }
 
 func parseAnthropicUsageMap(usageObj map[string]any) *Usage {

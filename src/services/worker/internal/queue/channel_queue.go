@@ -30,7 +30,6 @@ type ChannelJobQueue struct {
 	mu          sync.Mutex
 	jobs        map[uuid.UUID]*channelJob
 	order       []uuid.UUID // insertion order for deterministic iteration
-	activeRuns  map[uuid.UUID]uuid.UUID // runID -> jobID, tracks non-terminal jobs per run
 	maxAttempts int
 	onEnqueue   func()
 }
@@ -41,7 +40,6 @@ func NewChannelJobQueue(maxAttempts int, onEnqueue func()) (*ChannelJobQueue, er
 	}
 	return &ChannelJobQueue{
 		jobs:        make(map[uuid.UUID]*channelJob),
-		activeRuns:  make(map[uuid.UUID]uuid.UUID),
 		maxAttempts: maxAttempts,
 		onEnqueue:   onEnqueue,
 	}, nil
@@ -111,16 +109,6 @@ func (q *ChannelJobQueue) EnqueueRun(
 	}
 
 	q.mu.Lock()
-	if chosenJobType == RunExecuteJobType {
-		if existingJobID, dup := q.activeRuns[runID]; dup {
-			if existing, ok := q.jobs[existingJobID]; ok && existing.status != JobStatusDone && existing.status != JobStatusDead {
-				q.mu.Unlock()
-				return existingJobID, nil
-			}
-			delete(q.activeRuns, runID)
-		}
-		q.activeRuns[runID] = jobID
-	}
 	q.jobs[jobID] = job
 	q.order = append(q.order, jobID)
 	if len(q.jobs) > defaultPruneThreshold {
@@ -189,7 +177,6 @@ func (q *ChannelJobQueue) Ack(ctx context.Context, lease JobLease) error {
 	job.status = JobStatusDone
 	job.leasedUntil = time.Time{}
 	job.leaseToken = uuid.Nil
-	q.removeActiveRunLocked(lease.JobID, job)
 	return nil
 }
 
@@ -206,7 +193,6 @@ func (q *ChannelJobQueue) Nack(ctx context.Context, lease JobLease, delaySeconds
 		job.status = JobStatusDead
 		job.leasedUntil = time.Time{}
 		job.leaseToken = uuid.Nil
-		q.removeActiveRunLocked(lease.JobID, job)
 		return nil
 	}
 
@@ -319,7 +305,6 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 		job.status = JobStatusDead
 		job.leasedUntil = time.Time{}
 		job.leaseToken = uuid.Nil
-		q.removeActiveRunLocked(id, job)
 		return true
 	}
 
@@ -407,30 +392,12 @@ func (q *ChannelJobQueue) pruneTerminalJobsLocked() {
 	for _, id := range q.order {
 		job := q.jobs[id]
 		if job.status == JobStatusDone || job.status == JobStatusDead {
-			q.removeActiveRunLocked(id, job)
 			delete(q.jobs, id)
 			continue
 		}
 		alive = append(alive, id)
 	}
 	q.order = alive
-}
-
-func (q *ChannelJobQueue) removeActiveRunLocked(jobID uuid.UUID, job *channelJob) {
-	if job == nil || job.payloadJSON == nil {
-		return
-	}
-	runIDStr, _ := job.payloadJSON["run_id"].(string)
-	if runIDStr == "" {
-		return
-	}
-	runID, err := uuid.Parse(runIDStr)
-	if err != nil {
-		return
-	}
-	if current, ok := q.activeRuns[runID]; ok && current == jobID {
-		delete(q.activeRuns, runID)
-	}
 }
 
 // jobBefore returns true when a should be leased before b (available_at ASC,
