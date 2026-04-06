@@ -202,9 +202,10 @@ export function SearchFetchSettings() {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const { addToast } = useToast()
+  const api = getDesktopApi()
 
   const [config, setConfig] = useState<ConnectorsConfig | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!!api?.connectors)
   const [savedAt, setSavedAt] = useState(0)
   const [runtimeProviders, setRuntimeProviders] = useState<
     Record<string, { runtime_state?: string; runtime_reason?: string }>
@@ -214,10 +215,8 @@ export function SearchFetchSettings() {
   const initializedRef = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const api = getDesktopApi()
-
   useEffect(() => {
-    if (!api?.connectors) { setLoading(false); return }
+    if (!api?.connectors) return
     void api.connectors.get().then((c) => {
       setConfig(c)
       savedConfigRef.current = c

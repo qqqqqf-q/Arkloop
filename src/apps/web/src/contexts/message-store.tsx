@@ -44,8 +44,16 @@ interface MessageStoreContextValue {
 const Ctx = createContext<MessageStoreContextValue | null>(null)
 
 export function MessageStoreProvider({ children }: { children: ReactNode }) {
-  const { accessToken } = useAuth()
   const { threadId } = useChatSession()
+  return (
+    <MessageStoreProviderContent key={threadId ?? '__no_thread__'} threadId={threadId}>
+      {children}
+    </MessageStoreProviderContent>
+  )
+}
+
+function MessageStoreProviderContent({ children, threadId }: { children: ReactNode; threadId: string | null }) {
+  const { accessToken } = useAuth()
 
   const [messages, setMessages] = useState<MessageResponse[]>([])
   const [messagesLoading, setMessagesLoading] = useState(true)
@@ -60,8 +68,6 @@ export function MessageStoreProvider({ children }: { children: ReactNode }) {
 
   const messageSyncVersionRef = useRef(0)
   const wasLoadingRef = useRef(false)
-  const hasMountedRef = useRef(false)
-
   const addAttachment = useCallback((a: Attachment) => {
     setAttachments((prev) => [...prev, a])
   }, [])
@@ -104,30 +110,11 @@ export function MessageStoreProvider({ children }: { children: ReactNode }) {
   }): Promise<MessageResponse[]> => {
     if (!threadId) return []
     const syncVersion = options?.syncVersion ?? beginMessageSync()
-    try {
-      const items = await readConsistentMessages(options?.requiredCompletedRunId)
-      if (!isMessageSyncCurrent(syncVersion)) return []
-      setMessages(items)
-      return items
-    } catch {
-      return []
-    }
+    const items = await readConsistentMessages(options?.requiredCompletedRunId)
+    if (!isMessageSyncCurrent(syncVersion)) return []
+    setMessages(items)
+    return items
   }, [threadId, beginMessageSync, readConsistentMessages, isMessageSyncCurrent])
-
-  // 切换 thread 时重置
-  useEffect(() => {
-    if (!hasMountedRef.current) {
-      hasMountedRef.current = true
-      return
-    }
-    setMessages([])
-    setMessagesLoading(true)
-    setDraft('')
-    setAttachments([])
-    setUserEnterMessageId(null)
-    setPendingIncognito(false)
-    wasLoadingRef.current = false
-  }, [threadId])
 
   const value = useMemo<MessageStoreContextValue>(() => ({
     messages,

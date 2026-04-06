@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -94,6 +95,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const [workTodos, setWorkTodos] = useState<Array<{ id: string; content: string; status: string }>>([])
 
   const segmentsRef = useRef<Segment[]>([])
+  useEffect(() => { segmentsRef.current = segments }, [segments])
   const searchStepsRef = useRef<WebSearchPhaseStep[]>([])
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const activeSegmentIdRef = useRef<string | null>(null)

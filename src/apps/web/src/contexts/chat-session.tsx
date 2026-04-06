@@ -1,9 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
-
-function isSearchThreadId(id: string | undefined): boolean {
-  return id != null && id.startsWith('search_')
-}
+import { isSearchThreadId } from '../storage'
 
 type ChatSessionContextValue = {
   threadId: string
@@ -18,7 +15,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const locationState = location.state as { isSearch?: boolean } | null
 
   const isSearchThread =
-    locationState?.isSearch === true || isSearchThreadId(threadId)
+    locationState?.isSearch === true || (threadId != null && isSearchThreadId(threadId))
 
   const value = useMemo(
     () => ({ threadId: threadId!, isSearchThread }),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { refreshAccessToken, writeAccessToken } from '@arkloop/shared'
 import { isLocalMode } from '@arkloop/shared/desktop'
 import { createSSEClient, type RunEvent, type SSEClient, type SSEClientState } from '../sse'
@@ -145,7 +145,7 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     }
   }, [disconnect])
 
-  return {
+  return useMemo(() => ({
     events,
     state,
     lastSeq,
@@ -155,5 +155,5 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     reconnect,
     clearEvents,
     reset,
-  }
+  }), [events, state, lastSeq, error, connect, disconnect, reconnect, clearEvents, reset])
 }

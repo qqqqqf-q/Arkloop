@@ -66,7 +66,6 @@ function useStreamingRenderContent(content: string, throttle: boolean): string {
         window.clearTimeout(timerRef.current)
         timerRef.current = null
       }
-      setRenderContent((current) => (current === content ? current : content))
       return
     }
 
@@ -75,13 +74,12 @@ function useStreamingRenderContent(content: string, throttle: boolean): string {
         window.clearTimeout(timerRef.current)
         timerRef.current = null
       }
-      setRenderContent((current) => (current === content ? current : content))
       return
     }
 
     if (timerRef.current !== null) window.clearTimeout(timerRef.current)
     timerRef.current = window.setTimeout(() => {
-      setRenderContent(content)
+      setRenderContent((current) => (current === content ? current : content))
       timerRef.current = null
     }, STREAMING_MATH_COMMIT_INTERVAL_MS)
 
@@ -92,6 +90,13 @@ function useStreamingRenderContent(content: string, throttle: boolean): string {
       }
     }
   }, [content, renderContent.length, throttle])
+
+  if (!throttle && renderContent !== content) {
+    return content
+  }
+  if (content.length <= renderContent.length && renderContent !== content) {
+    return content
+  }
 
   return renderContent
 }

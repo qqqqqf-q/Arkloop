@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react'
@@ -66,10 +67,12 @@ export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProvide
     onLoggedOut()
   }, [accessToken, onLoggedOut])
 
+  const value = useMemo<AuthContextValue>(() => ({
+    me, meLoaded, accessToken, logout: handleLogout, updateMe: setMe,
+  }), [me, meLoaded, accessToken, handleLogout])
+
   return (
-    <AuthContext.Provider
-      value={{ me, meLoaded, accessToken, logout: handleLogout, updateMe: setMe }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   )

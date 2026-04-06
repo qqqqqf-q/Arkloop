@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -44,10 +45,12 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
   }, [accessToken])
 
+  const value = useMemo<CreditsContextValue>(() => ({
+    creditsBalance, refreshCredits, setCreditsBalance,
+  }), [creditsBalance, refreshCredits])
+
   return (
-    <CreditsContext.Provider
-      value={{ creditsBalance, refreshCredits, setCreditsBalance }}
-    >
+    <CreditsContext.Provider value={value}>
       {children}
     </CreditsContext.Provider>
   )

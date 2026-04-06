@@ -1878,6 +1878,7 @@ export function ChatView() {
               sendMessageRef.current?.(pending)
             }
           })
+          .catch(() => {})
         continue
       }
 
@@ -1924,6 +1925,7 @@ export function ChatView() {
                 markTerminalRunHistory(assistant.id, false)
               }
             })
+            .catch(() => {})
         }
         continue
       }
@@ -1982,6 +1984,7 @@ export function ChatView() {
                 persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
               }
             })
+            .catch(() => {})
         }
         continue
       }
@@ -2035,6 +2038,7 @@ export function ChatView() {
                 persistRunDataToMessage(assistant.id, runCache, runEventsForMessage)
               }
             })
+            .catch(() => {})
         }
         continue
       }
@@ -2099,6 +2103,7 @@ export function ChatView() {
           persistRunDataToMessage(completedAssistant.id, terminalCache, runEventsForMessage)
         }
       })
+      .catch(() => {})
   }, [activeRunId, sse.state, persistRunDataToMessage, persistThreadRunHandoff]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const {

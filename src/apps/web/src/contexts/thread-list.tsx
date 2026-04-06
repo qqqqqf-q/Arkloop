@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -113,24 +114,37 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     [threads],
   )
 
+  const value = useMemo<ThreadListContextValue>(() => ({
+    threads,
+    runningThreadIds,
+    privateThreadIds,
+    isPrivateMode,
+    pendingIncognitoMode,
+    addThread,
+    removeThread,
+    updateTitle,
+    markRunning,
+    markIdle,
+    togglePrivateMode,
+    setPendingIncognito: setPendingIncognitoMode,
+    getFilteredThreads,
+  }), [
+    threads,
+    runningThreadIds,
+    privateThreadIds,
+    isPrivateMode,
+    pendingIncognitoMode,
+    addThread,
+    removeThread,
+    updateTitle,
+    markRunning,
+    markIdle,
+    togglePrivateMode,
+    getFilteredThreads,
+  ])
+
   return (
-    <ThreadListContext.Provider
-      value={{
-        threads,
-        runningThreadIds,
-        privateThreadIds,
-        isPrivateMode,
-        pendingIncognitoMode,
-        addThread,
-        removeThread,
-        updateTitle,
-        markRunning,
-        markIdle,
-        togglePrivateMode,
-        setPendingIncognito: setPendingIncognitoMode,
-        getFilteredThreads,
-      }}
-    >
+    <ThreadListContext.Provider value={value}>
       {children}
     </ThreadListContext.Provider>
   )

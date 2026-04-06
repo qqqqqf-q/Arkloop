@@ -67,9 +67,10 @@ export function LogoDrawAnimation({
   }, [onComplete]);
 
   useEffect(() => {
+    const timers = timersRef.current;
     const t = (ms: number, fn: () => void) => {
       const id = setTimeout(fn, ms);
-      timersRef.current.push(id);
+      timers.push(id);
     };
 
     const fillAt = DRAW_TOTAL;
@@ -88,7 +89,6 @@ export function LogoDrawAnimation({
     });
 
     return () => {
-      const timers = [...timersRef.current];
       timers.forEach(clearTimeout);
     };
   }, []);

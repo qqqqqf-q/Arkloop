@@ -21,6 +21,10 @@ import { NotificationBell } from './NotificationBell'
 
 export function ChatTitleMenu() {
   const { threadId } = useChatSession()
+  return <ChatTitleMenuContent key={threadId ?? '__no_thread__'} threadId={threadId} />
+}
+
+function ChatTitleMenuContent({ threadId }: { threadId: string | null }) {
   const { accessToken } = useAuth()
   const { t } = useLocale()
   const threadList = useThreadList()
@@ -53,12 +57,6 @@ export function ChatTitleMenu() {
       .then((ids) => setStarredIds(ids))
       .catch(() => {})
   }, [accessToken])
-
-  // reset on thread change
-  useEffect(() => {
-    setTitleMenuOpen(false)
-    setEditingTitle(null)
-  }, [threadId])
 
   // close menu on outside click
   useEffect(() => {
