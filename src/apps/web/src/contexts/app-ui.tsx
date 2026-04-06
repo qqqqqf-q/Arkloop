@@ -262,7 +262,6 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         },
       }))
     }
-    collapsedByWidthRef.current = nextCollapsed
     setSidebarCollapsed(nextCollapsed)
   }, [appMode, location.pathname, sidebarCollapsed])
 
