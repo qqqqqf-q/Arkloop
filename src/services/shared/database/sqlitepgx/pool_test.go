@@ -230,7 +230,7 @@ func TestRewriteSQL_TypeCast(t *testing.T) {
 func TestRewriteSQL_JSONBSet(t *testing.T) {
 	t.Parallel()
 	got := rewriteSQL("UPDATE profile_registries SET metadata_json = jsonb_set(COALESCE(metadata_json, '{}'::jsonb), '{installed_skill_refs}', $1::jsonb, true)")
-	want := "UPDATE profile_registries SET metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.installed_skill_refs', $1)"
+	want := "UPDATE profile_registries SET metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.installed_skill_refs', json($1))"
 	if got != want {
 		t.Errorf("rewriteSQL(jsonb_set) = %q; want %q", got, want)
 	}

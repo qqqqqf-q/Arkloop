@@ -5,7 +5,7 @@ import { getDesktopApi } from '@arkloop/shared/desktop'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getAccountSettings, updateAccountSettings } from '../../api'
-import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents, readDeveloperShowDebugPanel, writeDeveloperShowDebugPanel } from '../../storage'
+import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents, readDeveloperShowDebugPanel, writeDeveloperShowDebugPanel, readDeveloperPipelineTraceEnabled, writeDeveloperPipelineTraceEnabled } from '../../storage'
 import { RunsSettings } from './RunsSettings'
 import { PillToggle } from '@arkloop/shared'
 import type { DesktopSettingsKey } from '../DesktopSettings'
@@ -44,7 +44,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
   const [resetDone, setResetDone] = useState(false)
   const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
-  const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(false)
+  const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(() => readDeveloperPipelineTraceEnabled())
   const [pipelineTraceLoading, setPipelineTraceLoading] = useState(() => !!accessToken)
   const [pipelineTraceSaving, setPipelineTraceSaving] = useState(false)
   const [runsOpen, setRunsOpen] = useState(false)
@@ -69,6 +69,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
       .then((settings) => {
         if (cancelled) return
         setPipelineTraceEnabled(settings.pipeline_trace_enabled)
+        writeDeveloperPipelineTraceEnabled(settings.pipeline_trace_enabled)
       })
       .catch((error) => {
         if (cancelled) return
@@ -107,6 +108,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
         pipeline_trace_enabled: next,
       })
       setPipelineTraceEnabled(settings.pipeline_trace_enabled)
+      writeDeveloperPipelineTraceEnabled(settings.pipeline_trace_enabled)
     } catch (error) {
       setPipelineTraceEnabled(previous)
       addToast(error instanceof Error ? error.message : t.requestFailed, 'error')
