@@ -226,7 +226,6 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
       style={{ display: 'flex', justifyContent: 'flex-end' }}
     >
       <div
-        className="group"
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '663px' }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
@@ -364,7 +363,7 @@ export function UserMessage({ message, onEdit, accessToken, animateEnter, onEnte
         </div>
 
         <div
-          className="pointer-events-none opacity-0 transition-[opacity] duration-[180ms] ease-out group-hover:pointer-events-auto group-hover:opacity-100"
+          className="pointer-events-none opacity-0 transition-[opacity] duration-[180ms] ease-out group-hover/turn:pointer-events-auto group-hover/turn:opacity-100"
           style={{
             display: 'flex',
             alignItems: 'center',

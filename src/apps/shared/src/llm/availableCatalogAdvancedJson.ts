@@ -13,6 +13,9 @@ export type AvailableModelCatalogInput = {
   context_length?: number | null
   context_length_override?: number | null
   max_output_tokens?: number | null
+  tool_calling?: boolean | null
+  reasoning?: boolean | null
+  default_temperature?: number | null
   input_modalities?: string[] | null
   output_modalities?: string[] | null
 }
@@ -26,6 +29,9 @@ export function routeAdvancedJsonFromAvailableCatalog(am: AvailableModelCatalogI
   if (am.type != null && String(am.type).trim() !== '') cat.type = am.type
   if (am.context_length != null) cat.context_length = am.context_length
   if (am.max_output_tokens != null) cat.max_output_tokens = am.max_output_tokens
+  if (am.tool_calling === true) cat.tool_calling = true
+  if (am.reasoning === true) cat.reasoning = true
+  if (am.default_temperature != null) cat.default_temperature = am.default_temperature
   if (am.input_modalities != null && am.input_modalities.length > 0) {
     cat.input_modalities = [...am.input_modalities]
   }

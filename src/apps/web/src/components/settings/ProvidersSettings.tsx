@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -8,6 +8,7 @@ import {
   Loader2,
   ChevronDown,
   Check,
+  Zap,
   SlidersHorizontal,
 } from 'lucide-react'
 import {
@@ -22,13 +23,15 @@ import {
   deleteProviderModel,
   patchProviderModel,
   listAvailableModels,
+  testLlmProviderModel,
   isApiError,
 } from '../../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
-import { PillToggle } from '@arkloop/shared'
+import { ConfirmDialog, PillToggle } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { ModelOptionsModal } from '../ModelOptionsModal'
-import { destructiveButtonSmCls, primaryButtonSmCls, secondaryButtonBorderStyle, secondaryButtonSmCls } from '../buttonStyles'
+import { AnimatedCheck } from '../AnimatedCheck'
+import { secondaryButtonBorderStyle } from '../buttonStyles'
 
 const VENDOR_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -533,6 +536,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   const [search, setSearch] = useState('')
   const [editingModel, setEditingModel] = useState<LlmProviderModel | null>(null)
   const [hasLoadedAvailable, setHasLoadedAvailable] = useState(false)
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
 
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
@@ -658,6 +662,8 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   }, [accessToken, editingModel, onChanged, p.saveFailed, provider.id])
 
   const unconfiguredCount = available?.filter((am) => !am.configured).length ?? 0
+  const importDisabled = importing || loadingAvailable || (hasLoadedAvailable && unconfiguredCount === 0)
+  const deleteAllDisabled = deletingAll || provider.models.length === 0
   const filteredModels = search.trim()
     ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
     : provider.models
@@ -667,24 +673,33 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
         <div className="flex flex-wrap items-center gap-2">
-          {provider.models.length > 0 && (
-            <button onClick={() => void handleDeleteAll()} disabled={deletingAll} className={destructiveButtonSmCls} style={secondaryButtonBorderStyle}>
-              {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-              {p.deleteAll ?? 'Delete all'}
-            </button>
-          )}
-          {(loadingAvailable || importing) && !available && <Loader2 size={12} className="animate-spin text-[var(--c-text-muted)]" />}
-          {(unconfiguredCount > 0 || !hasLoadedAvailable) && (
-            <button onClick={() => void handleImportAll()} disabled={importing || loadingAvailable} className={secondaryButtonSmCls} style={secondaryButtonBorderStyle}>
-              <Download size={12} />
-              {loadingAvailable || importing
-                ? (p.importing ?? '...')
-                : unconfiguredCount > 0
-                  ? `${p.importAll ?? 'Import all'} (${unconfiguredCount})`
-                  : (p.importModels ?? 'Import models')}
-            </button>
-          )}
-          <button onClick={() => setCreatingModel(true)} className={primaryButtonSmCls} style={{ background: 'var(--c-btn-bg)' }}>
+          <button
+            type="button"
+            onClick={() => setShowDeleteAllConfirm(true)}
+            disabled={deleteAllDisabled}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+            style={secondaryButtonBorderStyle}
+          >
+            {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleImportAll()}
+            disabled={importDisabled}
+            className="button-secondary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--c-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            style={secondaryButtonBorderStyle}
+          >
+            {loadingAvailable || importing ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            {unconfiguredCount > 0 && !importing && !loadingAvailable && `${p.importAll ?? 'Import all'} (${unconfiguredCount})`}
+            {(loadingAvailable || importing) && (p.importing ?? '...')}
+          </button>
+          <ModelTestButton
+            accessToken={accessToken}
+            provider={provider}
+            label={p.testModel ?? 'Test'}
+            searchPlaceholder={p.searchProviders}
+          />
+          <button onClick={() => setCreatingModel(true)} className="button-primary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] disabled:cursor-not-allowed disabled:opacity-40" style={{ background: 'var(--c-btn-bg)' }}>
             {p.addModel}
           </button>
         </div>
@@ -726,8 +741,10 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
                 >
                   <SlidersHorizontal size={14} />
                 </button>
-                {/* Delete */}
-                <button onClick={() => void handleDeleteModel(pm.id)} className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500">
+                <button
+                  onClick={() => void handleDeleteModel(pm.id)}
+                  className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500"
+                >
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -744,6 +761,16 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           modelOptionsTitle: p.modelOptionsTitle ?? 'Model Options',
           modelOptionsFor: p.modelOptionsFor ?? 'Configure options for',
           modelCapabilities: p.modelCapabilities ?? 'Model Capabilities',
+          modelType: p.modelType ?? 'Model Type',
+          modelTypeChat: p.modelTypeChat ?? 'Chat',
+          modelTypeEmbedding: p.modelTypeEmbedding ?? 'Embedding',
+          modelTypeImage: p.modelTypeImage ?? 'Image',
+          modelTypeAudio: p.modelTypeAudio ?? 'Audio',
+          modelTypeModeration: p.modelTypeModeration ?? 'Moderation',
+          modelTypeOther: p.modelTypeOther ?? 'Other',
+          toolCalling: p.toolCalling ?? 'Tool Calling',
+          reasoning: p.reasoning ?? 'Reasoning',
+          defaultTemperature: p.defaultTemperature ?? 'Default Temperature',
           vision: p.vision ?? 'Vision',
           imageOutput: p.imageOutput ?? 'Image Output',
           embedding: p.embedding ?? 'Embedding',
@@ -755,7 +782,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           cancel: p.cancel,
           reset: p.reset ?? 'Reset',
           invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
-          invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
+          invalidNumber: p.invalidNumber ?? 'Context window, max output tokens, and temperature must be valid numbers',
           visionBridgeHint: t.models.visionBridgeHint,
           addModelTitle: t.models.addModelTitle ?? 'Add Model',
           modelNameLabel: t.models.modelName ?? 'Model name',
@@ -774,6 +801,16 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           modelOptionsTitle: p.modelOptionsTitle ?? 'Model Options',
           modelOptionsFor: p.modelOptionsFor ?? 'Configure options for',
           modelCapabilities: p.modelCapabilities ?? 'Model Capabilities',
+          modelType: p.modelType ?? 'Model Type',
+          modelTypeChat: p.modelTypeChat ?? 'Chat',
+          modelTypeEmbedding: p.modelTypeEmbedding ?? 'Embedding',
+          modelTypeImage: p.modelTypeImage ?? 'Image',
+          modelTypeAudio: p.modelTypeAudio ?? 'Audio',
+          modelTypeModeration: p.modelTypeModeration ?? 'Moderation',
+          modelTypeOther: p.modelTypeOther ?? 'Other',
+          toolCalling: p.toolCalling ?? 'Tool Calling',
+          reasoning: p.reasoning ?? 'Reasoning',
+          defaultTemperature: p.defaultTemperature ?? 'Default Temperature',
           vision: p.vision ?? 'Vision',
           imageOutput: p.imageOutput ?? 'Image Output',
           embedding: p.embedding ?? 'Embedding',
@@ -785,7 +822,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           cancel: p.cancel,
           reset: p.reset ?? 'Reset',
           invalidJson: p.invalidJson ?? 'Provider options must be a JSON object',
-          invalidNumber: p.invalidNumber ?? 'Context window and max output tokens must be positive integers',
+          invalidNumber: p.invalidNumber ?? 'Context window, max output tokens, and temperature must be valid numbers',
           visionBridgeHint: t.models.visionBridgeHint,
           addModelTitle: t.models.addModelTitle ?? 'Add Model',
           modelNameLabel: t.models.modelName ?? 'Model name',
@@ -808,6 +845,19 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           }
         }}
       />
+
+      <ConfirmDialog
+        open={showDeleteAllConfirm}
+        onClose={() => setShowDeleteAllConfirm(false)}
+        onConfirm={() => {
+          setShowDeleteAllConfirm(false)
+          void handleDeleteAll()
+        }}
+        title={p.deleteAllConfirmTitle ?? 'Delete all models'}
+        message={p.deleteAllConfirmDesc ?? 'This will remove every model under this provider. Continue?'}
+        confirmLabel={p.deleteAll ?? 'Delete all'}
+        loading={deletingAll}
+      />
     </div>
   )
 }
@@ -817,6 +867,142 @@ function LabelField({ label, children }: { label: string; children: React.ReactN
     <div>
       <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{label}</label>
       {children}
+    </div>
+  )
+}
+
+function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
+  accessToken: string
+  provider: LlmProvider
+  label: string
+  searchPlaceholder: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [testing, setTesting] = useState<string | null>(null)
+  const [result, setResult] = useState<{ modelId: string; success: boolean; latency?: number; error?: string } | null>(null)
+  const [showError, setShowError] = useState(false)
+
+  const pickerModels = useMemo(
+    () => provider.models.filter((m) => m.show_in_picker),
+    [provider.models],
+  )
+
+  const filtered = useMemo(() => {
+    if (!open) return []
+    const q = search.trim().toLowerCase()
+    return q ? pickerModels.filter((m) => m.model.toLowerCase().includes(q)) : pickerModels
+  }, [open, search, pickerModels])
+
+  const handleTest = async (model: LlmProviderModel) => {
+    setTesting(model.id)
+    setOpen(false)
+    try {
+      const res = await testLlmProviderModel(accessToken, provider.id, model.id)
+      setResult({ modelId: model.id, success: res.success, latency: res.latency_ms ?? undefined, error: res.error ?? undefined })
+    } catch (e) {
+      setResult({ modelId: model.id, success: false, error: isApiError(e) ? e.message : 'Unknown error' })
+    } finally {
+      setTesting(null)
+    }
+  }
+
+  return (
+    <div className="relative flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (result?.success && !testing) { setResult(null); return }
+          setOpen((prev) => { if (!prev) setSearch(''); return !prev })
+        }}
+        disabled={testing !== null || pickerModels.length === 0}
+        className="button-secondary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--c-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        style={secondaryButtonBorderStyle}
+      >
+        {testing
+          ? <Loader2 size={12} className="animate-spin" />
+          : result
+            ? result.success
+              ? <AnimatedCheck size={12} color="var(--c-status-success-text)" />
+              : <X size={12} className="text-[var(--c-status-error-text)]" />
+            : <Zap size={12} strokeWidth={1.5} />}
+        {label}
+      </button>
+      {result && !result.success && !testing && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowError((v) => !v)}
+            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2.5 text-xs text-[var(--c-status-error-text)] transition-colors hover:bg-[var(--c-bg-sub)]"
+            style={secondaryButtonBorderStyle}
+          >
+            Error
+          </button>
+          {showError && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowError(false)} />
+              <div
+                className="dropdown-menu absolute right-0 top-[calc(100%+6px)] z-50 max-w-[320px] min-w-[200px]"
+                style={{
+                  border: '0.5px solid var(--c-border-subtle)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: 'var(--c-bg-menu)',
+                  boxShadow: 'var(--c-dropdown-shadow)',
+                  maxHeight: '160px',
+                  overflowY: 'auto',
+                }}
+              >
+                <pre className="whitespace-pre-wrap break-all text-xs text-[var(--c-text-secondary)]">{result?.error ?? ''}</pre>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] overflow-hidden dropdown-menu"
+            style={{
+              border: '0.5px solid var(--c-border-subtle)',
+              borderRadius: '10px',
+              padding: '4px',
+              background: 'var(--c-bg-menu)',
+              boxShadow: 'var(--c-dropdown-shadow)',
+            }}
+          >
+            <div style={{ padding: '4px 4px 2px' }}>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full rounded-md px-3 py-1.5 text-sm outline-none"
+                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-deep)', color: 'var(--c-text-primary)' }}
+              />
+            </div>
+            <div className="max-h-[280px] overflow-y-auto py-1">
+              {filtered.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-[var(--c-text-muted)]">--</p>
+              ) : filtered.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  onClick={() => void handleTest(model)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
+                  style={{
+                    color: result?.modelId === model.id ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
+                    fontWeight: result?.modelId === model.id ? 600 : 400,
+                  }}
+                >
+                  <span className="truncate">{model.model}</span>
+                  {result?.modelId === model.id && result.success && <AnimatedCheck size={12} color="var(--c-status-success-text)" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

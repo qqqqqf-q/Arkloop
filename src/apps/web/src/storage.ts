@@ -1197,6 +1197,22 @@ export function writeDeveloperShowDebugPanel(value: boolean): void {
   } catch { /* ignore */ }
 }
 
+const DEVELOPER_PIPELINE_TRACE_KEY = 'arkloop:web:developer_pipeline_trace_enabled'
+
+export function readDeveloperPipelineTraceEnabled(): boolean {
+  if (!canUseLocalStorage()) return false
+  try {
+    return localStorage.getItem(DEVELOPER_PIPELINE_TRACE_KEY) === 'true'
+  } catch { return false }
+}
+
+export function writeDeveloperPipelineTraceEnabled(value: boolean): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(DEVELOPER_PIPELINE_TRACE_KEY, value ? 'true' : 'false')
+  } catch { /* ignore */ }
+}
+
 // -- Per-message run events (for inline debug display) --
 
 export type MsgRunEvent = {
@@ -1364,6 +1380,24 @@ export function readWorkRecentFolders(): string[] {
     if (!raw) return []
     return JSON.parse(raw) as string[]
   } catch { return [] }
+}
+
+// -- Thread Thinking Toggle --
+
+export function readThreadThinkingEnabled(threadId: string): boolean {
+  if (!canUseLocalStorage() || !threadId) return false
+  return localStorage.getItem(`arkloop:thinking:${threadId}`) === 'true'
+}
+
+export function writeThreadThinkingEnabled(threadId: string, enabled: boolean): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    if (enabled) {
+      localStorage.setItem(`arkloop:thinking:${threadId}`, 'true')
+    } else {
+      localStorage.removeItem(`arkloop:thinking:${threadId}`)
+    }
+  } catch { /* ignore */ }
 }
 
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'

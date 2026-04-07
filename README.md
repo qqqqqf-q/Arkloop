@@ -7,8 +7,8 @@
 <p align="center">
   <a href="./docs/zh-CN/README.md"><img alt="简体中文" src="https://img.shields.io/badge/简体中文-d9d9d9"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Arkloop%20License-blue"></a>
-  <a href="https://github.com/qqqqqf/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
-  <a href="https://github.com/qqqqqf/Arkloop/issues"><img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
+  <a href="https://github.com/qqqqqf-q/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf-q/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
+  <a href="https://github.com/qqqqqf-q/Arkloop/issues"><img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf-q%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
   <a href="https://x.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
 </p>
 
@@ -20,14 +20,7 @@ Arkloop is a design-focused open-source AI agent platform. Multi-model routing, 
 
 ## Download
 
-Download the latest desktop build directly:
-
-- macOS Apple Silicon: [Arkloop-mac-arm64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-arm64.dmg)
-- macOS Intel: [Arkloop-mac-x64.dmg](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-mac-x64.dmg)
-- Linux x64 (.deb): [Arkloop-linux-amd64.deb](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-amd64.deb)
-- Linux x64 (AppImage): [Arkloop-linux-x86_64.AppImage](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-linux-x86_64.AppImage)
-- Windows x64: [Arkloop-win-x64.exe](https://github.com/qqqqqf-q/Arkloop/releases/latest/download/Arkloop-win-x64.exe)
-- All release assets: [GitHub Releases](https://github.com/qqqqqf-q/Arkloop/releases)
+Download the latest version from [GitHub Releases](https://github.com/qqqqqf-q/Arkloop/releases), supporting macOS, Linux, and Windows.
 
 The desktop app bundles the full runtime — no Docker, no configuration. Just open and use. Automatic updates via GitHub Releases.
 
@@ -35,7 +28,7 @@ The desktop app bundles the full runtime — no Docker, no configuration. Just o
 
 We welcome contributions of all kinds.
 
-Even if you're not a developer, just a regular user — if anything feels off while using it, even a bit of spacing, a color, a tiny detail, or a big-picture direction — please [open an issue](https://github.com/qqqqqf/Arkloop/issues). We take every UX detail seriously, and your feedback makes the experience better for everyone.
+Even if you're not a developer, just a regular user — if anything feels off while using it, even a bit of spacing, a color, a tiny detail, or a big-picture direction — please [open an issue](https://github.com/qqqqqf-q/Arkloop/issues). We take every UX detail seriously, and your feedback makes the experience better for everyone.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions and development workflow.
 
@@ -55,7 +48,7 @@ Arkloop does what other AI chat tools do — multi-model support, tool calling, 
 - **MCP / ACP** — Model Context Protocol and Agent Communication Protocol support
 - **Skill Ecosystem** — Import skills from ClawHub, compatible with OpenClaw SKILL.md format
 
-Full documentation at [docs](https://arkloop.cn/docs/).
+Full documentation at [docs](https://arkloop.cn/en/docs/guide).
 
 ## Architecture
 
@@ -79,45 +72,14 @@ bin/ci-local integration  # Go integration tests
 bin/ci-local full          # Full check
 ```
 
-## Windows Desktop: local run and test
-
-For local Windows desktop development:
-
-```powershell
-pnpm install --frozen-lockfile
-pnpm -C src/apps/desktop dev
-```
-
-This starts the Vite renderer, Electron main process, and the embedded desktop sidecar together.
-
-For a production-like local smoke test:
-
-```powershell
-pnpm -C src/apps/desktop build
-pnpm -C src/apps/desktop exec electron .
-```
-
-To produce a Windows installer locally:
-
-```powershell
-pnpm -C src/apps/desktop dist:win
-```
-
-Recommended local checks on Windows:
-
-- Launch the app and confirm the main window opens
-- Verify the sidecar starts and the app can enter local mode
-- Open Settings and confirm desktop pages render correctly
-- Run an agent/tool call once to verify worker and bridge are healthy
-
 ## Self-Hosting
 
 > The self-hosting deployment path is still in development. While included in the current release, availability is not guaranteed. We are not focusing on this during the Alpha phase. We plan to provide full server deployment support once the desktop version stabilizes.
 
 ## Contributors
 
-<a href="https://github.com/qqqqqf/Arkloop/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=qqqqqf/Arkloop" />
+<a href="https://github.com/qqqqqf-q/Arkloop/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=qqqqqf-q/Arkloop" />
 </a>
 
 ## Security

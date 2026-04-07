@@ -492,14 +492,11 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 
 	flushToolResults()
 
-	// strip 后可能出现内容为空的 assistant 消息（只有空 text block），
-	// 若与前一条 assistant 相邻会触发 Anthropic 400，将其过滤掉。
+	// strip 后可能出现内容为空的 assistant 消息，无条件移除，避免 API 报 "text is required"。
 	compacted := make([]map[string]any, 0, len(out))
 	for _, msg := range out {
 		if msg["role"] == "assistant" && isEmptyAssistantMsg(msg) {
-			if len(compacted) > 0 && compacted[len(compacted)-1]["role"] == "assistant" {
-				continue
-			}
+			continue
 		}
 		compacted = append(compacted, msg)
 	}
@@ -528,7 +525,8 @@ func stripToolUseBlocks(out []map[string]any, idx int, toolUseIDs map[string]str
 		filtered = append(filtered, block)
 	}
 	if len(filtered) == 0 {
-		filtered = []map[string]any{{"type": "text", "text": ""}}
+		out[idx]["content"] = []map[string]any{}
+		return
 	}
 	out[idx]["content"] = filtered
 }
@@ -593,6 +591,12 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 			mimeType := strings.TrimSpace(part.Attachment.MimeType)
 			if mimeType == "" {
 				mimeType = "application/octet-stream"
+			}
+			if strings.TrimSpace(part.Attachment.Key) != "" {
+				blocks = append(blocks, map[string]any{
+					"type": "text",
+					"text": "[attachment_key:" + part.Attachment.Key + "]",
+				})
 			}
 			blocks = append(blocks, map[string]any{
 				"type": "image",

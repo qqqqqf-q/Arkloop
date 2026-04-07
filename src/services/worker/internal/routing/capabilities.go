@@ -10,10 +10,11 @@ import (
 const availableCatalogAdvancedKey = "available_catalog"
 
 type ModelCapabilities struct {
-	ContextLength    int
-	MaxOutputTokens  int
-	InputModalities  []string
-	OutputModalities []string
+	ContextLength      int
+	MaxOutputTokens    int
+	InputModalities    []string
+	OutputModalities   []string
+	DefaultTemperature *float64
 }
 
 func RouteModelCapabilities(rule ProviderRouteRule) ModelCapabilities {
@@ -22,10 +23,11 @@ func RouteModelCapabilities(rule ProviderRouteRule) ModelCapabilities {
 		return inferModelCapabilities(rule.Model)
 	}
 	caps := ModelCapabilities{
-		ContextLength:    resolveContextLength(rawCatalog),
-		MaxOutputTokens:  normalizedPositiveInt(rawCatalog["max_output_tokens"]),
-		InputModalities:  normalizeStringSlice(rawCatalog["input_modalities"]),
-		OutputModalities: normalizeStringSlice(rawCatalog["output_modalities"]),
+		ContextLength:      resolveContextLength(rawCatalog),
+		MaxOutputTokens:    normalizedPositiveInt(rawCatalog["max_output_tokens"]),
+		InputModalities:    normalizeStringSlice(rawCatalog["input_modalities"]),
+		OutputModalities:   normalizeStringSlice(rawCatalog["output_modalities"]),
+		DefaultTemperature: normalizedPositiveFloat(rawCatalog["default_temperature"]),
 	}
 	if len(caps.InputModalities) == 0 {
 		inferred := inferModelCapabilities(rule.Model)
@@ -46,6 +48,10 @@ func SelectedRouteModelCapabilities(selected *SelectedProviderRoute) ModelCapabi
 		return ModelCapabilities{}
 	}
 	return RouteModelCapabilities(selected.Route)
+}
+
+func RouteDefaultTemperature(rule ProviderRouteRule) *float64 {
+	return RouteModelCapabilities(rule).DefaultTemperature
 }
 
 func (c ModelCapabilities) SupportsInputModality(modality string) bool {
@@ -217,4 +223,37 @@ func normalizePositiveIntJSON(raw any) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func normalizedPositiveFloat(raw any) *float64 {
+	switch v := raw.(type) {
+	case float64:
+		if v >= 0 {
+			value := v
+			return &value
+		}
+	case int:
+		if v >= 0 {
+			value := float64(v)
+			return &value
+		}
+	case int64:
+		if v >= 0 {
+			value := float64(v)
+			return &value
+		}
+	case json.Number:
+		value, err := v.Float64()
+		if err == nil && value >= 0 {
+			out := value
+			return &out
+		}
+	case string:
+		value, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err == nil && value >= 0 {
+			out := value
+			return &out
+		}
+	}
+	return nil
 }

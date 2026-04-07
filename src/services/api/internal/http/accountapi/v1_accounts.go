@@ -130,7 +130,6 @@ func createWorkspace(
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toAccountResponse(result.Account))
 }
-
 func toAccountResponse(o data.Account) accountResponse {
 	return accountResponse{
 		ID:        o.ID.String(),

@@ -187,7 +187,7 @@ export function Sidebar({
   const { me, accessToken } = useAuth()
   const { runningThreadIds, isPrivateMode, pendingIncognitoMode, updateTitle: onThreadTitleUpdated } = useThreadList()
   const { sidebarCollapsed: collapsed, toggleSidebar: onToggleCollapse, rightPanelOpen: narrow } = useSidebarUI()
-  const { enterSearchMode: onEnterSearchMode } = useSearchUI()
+  const { openSearchOverlay: onOpenSearchOverlay } = useSearchUI()
   const { settingsOpen: suppressActiveThreadHighlight, openSettings: onOpenSettings } = useSettingsUI()
   const { appMode } = useAppModeUI()
   const desktopMode = isDesktop()
@@ -677,7 +677,7 @@ export function Sidebar({
             })
             searchPointerTraceRef.current = null
             recordSearchOpenStart()
-            onEnterSearchMode()
+            onOpenSearchOverlay()
           }}
           onPointerDown={() => {
             searchPointerTraceRef.current = beginPerfTrace('sidebar_search_interaction', {

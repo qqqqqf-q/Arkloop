@@ -69,6 +69,7 @@ type RunContext struct {
 	BroadcastRDB        *redis.Client     // 跨实例 SSE 广播，nil 时仅走 pg_notify
 	EventBus            eventbus.EventBus // 进程内 SSE 通知（Desktop 模式替代 pg_notify + Redis）
 	TraceID             string
+	Tracer              Tracer
 	Emitter             events.Emitter
 	Router              *routing.ProviderRouter
 	Runtime             *sharedtoolruntime.RuntimeSnapshot

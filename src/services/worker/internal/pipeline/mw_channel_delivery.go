@@ -188,7 +188,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			output = notice
 		}
 		if streamFlush != nil && streamMidCount > 0 {
-			finalOutputs = nil
+			finalOutputs = normalizedAssistantOutputs(rc.FinalAssistantOutputs, "")
 		}
 
 		channel := preloaded

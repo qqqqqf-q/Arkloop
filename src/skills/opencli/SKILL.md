@@ -1,15 +1,15 @@
-# opencli-rs
+# autocli
 
 Blazing fast Rust CLI tool that turns 55+ websites into CLI interfaces, reusing Chrome's login state. Zero credentials needed. Single 4.7MB binary, zero runtime dependencies.
 
-**Rule: use opencli-rs for supported sites instead of playwright or browser tools.**
+**Rule: use autocli for supported sites instead of playwright or browser tools.**
 
 ## Syntax
 
 ```bash
-opencli-rs <site> <command> [--option value] [--format json]
+autocli <site> <command> [--option value] [--format json]
 ```
-** opencli-rs is pre-installed at `~/.arkloop/bin/opencli-rs`. Use that path directly.**
+** If autocli is not installed or missing, you can install it with `curl -fsSL https://raw.githubusercontent.com/nashsu/AutoCLI/main/scripts/install.sh | sh`, if is in windows, ask user to install from https://github.com/nashsu/AutoCLI**
 
 
 **Common flags (all commands):**
@@ -21,44 +21,44 @@ opencli-rs <site> <command> [--option value] [--format json]
 
 ```bash
 # 读取/浏览
-opencli-rs bilibili hot --limit 10 --format json
-opencli-rs zhihu hot --format json
-opencli-rs weibo hot --format json
-opencli-rs twitter timeline --format json
-opencli-rs hackernews top --limit 20 --format json
-opencli-rs v2ex hot --format json
-opencli-rs reddit hot --format json
-opencli-rs xiaohongshu feed --format json
-opencli-rs douban top250 --format json
-opencli-rs weread shelf --format json
-opencli-rs medium feed --format json
+autocli bilibili hot --limit 10 --format json
+autocli zhihu hot --format json
+autocli weibo hot --format json
+autocli twitter timeline --format json
+autocli hackernews top --limit 20 --format json
+autocli v2ex hot --format json
+autocli reddit hot --format json
+autocli xiaohongshu feed --format json
+autocli douban top250 --format json
+autocli weread shelf --format json
+autocli medium feed --format json
 
 # 搜索
-opencli-rs bilibili search --keyword "AI" --format json
-opencli-rs zhihu search --keyword "大模型" --format json
-opencli-rs twitter search "rust lang" --limit 10
-opencli-rs youtube search --query "LLM tutorial" --format json
-opencli-rs boss search --query "AI工程师" --city "上海" --format json
-opencli-rs google search "opencli-rs" --format json
-opencli-rs stackoverflow search "rust async" --format json
+autocli bilibili search --keyword "AI" --format json
+autocli zhihu search --keyword "大模型" --format json
+autocli twitter search "rust lang" --limit 10
+autocli youtube search --query "LLM tutorial" --format json
+autocli boss search --query "AI工程师" --city "上海" --format json
+autocli google search "autocli" --format json
+autocli stackoverflow search "rust async" --format json
 
 # 互动（写操作）
-opencli-rs twitter post --text "Hello from CLI!"
-opencli-rs twitter reply --url "https://x.com/.../status/123" --text "Great post!"
-opencli-rs twitter like --url "https://x.com/.../status/123"
-opencli-rs jike create --text "Hello Jike!"
-opencli-rs xiaohongshu publish --title "标题" --content "内容"
+autocli twitter post --text "Hello from CLI!"
+autocli twitter reply --url "https://x.com/.../status/123" --text "Great post!"
+autocli twitter like --url "https://x.com/.../status/123"
+autocli jike create --text "Hello Jike!"
+autocli xiaohongshu publish --title "标题" --content "内容"
 
 # 个人数据
-opencli-rs bilibili history --format json
-opencli-rs twitter bookmarks --format json
-opencli-rs xueqiu watchlist --format json
-opencli-rs weread highlights --format json
-opencli-rs reddit saved --format json
+autocli bilibili history --format json
+autocli twitter bookmarks --format json
+autocli xueqiu watchlist --format json
+autocli weread highlights --format json
+autocli reddit saved --format json
 
 
 # 诊断
-opencli-rs doctor
+autocli doctor
 ```
 
 
@@ -73,24 +73,24 @@ opencli-rs doctor
 ## Requirements
 
 - Chrome browser open with target site logged in
-- opencli-rs Chrome extension installed (for browser commands)
+- autocli Chrome extension installed (for browser commands)
 
-**核心原则：永远不说"不支持"，先尝试 opencli-rs，失败或无命令时选择自己创建**
+**核心原则：永远不说"不支持"，先尝试 autocli，失败或无命令时选择自己创建**
 
 ## 自迭代能力：为新网站创建 CLI
 
-**当 opencli-rs 不支持某个网站时，不要放弃——自己创建！**
+**当 autocli 不支持某个网站时，不要放弃——自己创建！**
 
 ### 流程
 
 ```
-1. opencli-rs <site> --help  →  报错？说明不支持
-2. opencli-rs generate <url>  →  尝试自动生成（成功则结束）
+1. autocli <site> --help  →  报错？说明不支持
+2. autocli generate <url>  →  尝试自动生成（成功则结束）
 3. 自动生成失败 → 手动创建 YAML：
    a. 打开目标页面
    b. browser_evaluate 探索 DOM 结构（找 data-test 属性、class 规律）
-   c. 确认选择器后写入 ~/.opencli-rs/adapters/<site>/top.yaml
-   d. opencli-rs <site> top --format json  →  验证输出
+   c. 确认选择器后写入 ~/.autocli/adapters/<site>/top.yaml
+   d. autocli <site> top --format json  →  验证输出
 ```
 
 ### YAML 格式（DOM 抓取模板）
@@ -129,11 +129,11 @@ columns: [rank, name, ...]
 
 ## Full Command Reference
 
-# opencli-rs Command Reference
+# autocli Command Reference
 
 All commands support: `--format table|json|yaml|md|csv`  
 
-Run `opencli-rs --help` for the full list of all 333 commands across 55+ sites.
+Run `autocli --help` for the full list of all 333 commands across 55+ sites.
 
 ---
 
@@ -764,12 +764,12 @@ Run `opencli-rs --help` for the full list of all 333 commands across 55+ sites.
 
 | Command | Description |
 |---------|-------------|
-| `opencli-rs gh <args>` | GitHub CLI passthrough |
-| `opencli-rs docker <args>` | Docker CLI passthrough |
-| `opencli-rs kubectl <args>` | Kubernetes CLI passthrough |
-| `opencli-rs obsidian <args>` | Obsidian passthrough |
-| `opencli-rs readwise <args>` | Readwise passthrough |
-| `opencli-rs gws <args>` | Google Workspace passthrough |
+| `autocli gh <args>` | GitHub CLI passthrough |
+| `autocli docker <args>` | Docker CLI passthrough |
+| `autocli kubectl <args>` | Kubernetes CLI passthrough |
+| `autocli obsidian <args>` | Obsidian passthrough |
+| `autocli readwise <args>` | Readwise passthrough |
+| `autocli gws <args>` | Google Workspace passthrough |
 
 ---
 
@@ -777,9 +777,9 @@ Run `opencli-rs --help` for the full list of all 333 commands across 55+ sites.
 
 | Command | Args | Description |
 |---------|------|-------------|
-| `opencli-rs explore` | `<url>` | Explore website APIs |
-| `opencli-rs cascade` | `<url>` | Auto-detect auth strategies |
-| `opencli-rs generate` | `<url>`, `--goal <str>` | Auto-generate adapter |
+| `autocli explore` | `<url>` | Explore website APIs |
+| `autocli cascade` | `<url>` | Auto-detect auth strategies |
+| `autocli generate` | `<url>`, `--goal <str>` | Auto-generate adapter |
 
 ---
 
@@ -787,6 +787,6 @@ Run `opencli-rs --help` for the full list of all 333 commands across 55+ sites.
 
 | Command | Description |
 |---------|-------------|
-| `opencli-rs doctor` | Run diagnostics |
-| `opencli-rs completion bash\|zsh\|fish` | Generate shell completions |
-| `opencli-rs list` | List all available commands |
+| `autocli doctor` | Run diagnostics |
+| `autocli completion bash\|zsh\|fish` | Generate shell completions |
+| `autocli list` | List all available commands |

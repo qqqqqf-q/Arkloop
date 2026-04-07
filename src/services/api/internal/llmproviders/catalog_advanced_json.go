@@ -27,6 +27,15 @@ func RouteAdvancedJSONFromAvailableModel(am AvailableModel) map[string]any {
 	if len(am.OutputModalities) > 0 {
 		cat["output_modalities"] = append([]string(nil), am.OutputModalities...)
 	}
+	if am.ToolCalling != nil && *am.ToolCalling {
+		cat["tool_calling"] = true
+	}
+	if am.Reasoning != nil && *am.Reasoning {
+		cat["reasoning"] = true
+	}
+	if am.DefaultTemperature != nil {
+		cat["default_temperature"] = *am.DefaultTemperature
+	}
 	return map[string]any{
 		AvailableCatalogAdvancedKey: cat,
 	}

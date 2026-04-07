@@ -16,3 +16,6 @@ export const secondaryButtonBorderStyle = {
 
 export const destructiveButtonSmCls =
   'inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40'
+
+export const iconButtonSmCls =
+  'inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)] disabled:cursor-not-allowed disabled:opacity-40'

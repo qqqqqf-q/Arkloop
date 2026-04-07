@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	nethttp "net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,6 +123,7 @@ func listOpenAIModels(ctx context.Context, cfg CatalogProtocolConfig) ([]Availab
 			am.MaxOutputTokens = &mot
 		}
 		am.Type, am.InputModalities, am.OutputModalities = classifyOpenAIModel(id, item.Architecture)
+		am.ToolCalling, am.Reasoning, am.DefaultTemperature = inferModelCapabilities(id, am.Type, item.SupportedParameters, item.DefaultParameters)
 		models = append(models, am)
 	}
 	return models, nil
@@ -271,10 +273,20 @@ func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtoc
 
 	var payload struct {
 		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			Name        string `json:"name"`
-			Type        string `json:"type"`
+			ID             string `json:"id"`
+			DisplayName    string `json:"display_name"`
+			Name           string `json:"name"`
+			Type           string `json:"type"`
+			MaxInputTokens int    `json:"max_input_tokens"`
+			MaxTokens      int    `json:"max_tokens"`
+			Capabilities   *struct {
+				Thinking struct {
+					Supported bool `json:"supported"`
+				} `json:"thinking"`
+				ImageInput struct {
+					Supported bool `json:"supported"`
+				} `json:"image_input"`
+			} `json:"capabilities"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -293,11 +305,40 @@ func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtoc
 		if name == "" {
 			name = id
 		}
-		am := AvailableModel{ID: id, Name: name, Type: "chat"}
+		am := AvailableModel{
+			ID:               id,
+			Name:             name,
+			Type:             "chat",
+			InputModalities:  []string{"text"},
+			OutputModalities: []string{"text"},
+		}
+		if item.MaxInputTokens > 0 {
+			cl := item.MaxInputTokens
+			am.ContextLength = &cl
+		}
+		if item.MaxTokens > 0 {
+			mot := item.MaxTokens
+			am.MaxOutputTokens = &mot
+		}
 		if strings.Contains(strings.ToLower(id), "embed") {
 			am.Type = "embedding"
 			am.InputModalities = []string{"text"}
 			am.OutputModalities = []string{"embedding"}
+		} else {
+			toolCalling := true
+			am.ToolCalling = &toolCalling
+			if item.Capabilities != nil {
+				if item.Capabilities.Thinking.Supported || modelLooksReasoningCapable(id) {
+					reasoning := true
+					am.Reasoning = &reasoning
+				}
+				if item.Capabilities.ImageInput.Supported {
+					am.InputModalities = []string{"text", "image"}
+				}
+			} else if modelLooksReasoningCapable(id) {
+				reasoning := true
+				am.Reasoning = &reasoning
+			}
 		}
 		models = append(models, am)
 	}
@@ -378,8 +419,14 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 			am.InputModalities = []string{"text"}
 			am.OutputModalities = []string{"embedding"}
 		} else {
+			toolCalling := true
+			am.ToolCalling = &toolCalling
 			am.InputModalities = []string{"text"}
 			am.OutputModalities = []string{"text"}
+			if modelLooksReasoningCapable(id) {
+				reasoning := true
+				am.Reasoning = &reasoning
+			}
 		}
 		models = append(models, am)
 	}
@@ -400,6 +447,111 @@ func geminiModelIsEmbedding(id string, methods []string) bool {
 		}
 	}
 	return false
+}
+
+var reasoningPrefixes = []string{
+	"o1",
+	"o3",
+	"o4",
+	"gpt-5",
+	"claude-3.7",
+	"claude-3-7",
+	"claude-sonnet-4",
+	"claude-opus-4",
+	"gemini-2.5",
+}
+
+func inferModelCapabilities(modelID string, modelType string, supportedParameters []string, defaultParameters map[string]any) (*bool, *bool, *float64) {
+	lowerID := strings.ToLower(strings.TrimSpace(modelID))
+	if lowerID == "" {
+		return nil, nil, nil
+	}
+
+	paramSet := make(map[string]struct{}, len(supportedParameters))
+	for _, param := range supportedParameters {
+		cleaned := strings.ToLower(strings.TrimSpace(param))
+		if cleaned == "" {
+			continue
+		}
+		paramSet[cleaned] = struct{}{}
+	}
+
+	var toolCalling *bool
+	if strings.EqualFold(strings.TrimSpace(modelType), "chat") {
+		if _, ok := paramSet["tools"]; ok {
+			value := true
+			toolCalling = &value
+		}
+		if _, ok := paramSet["tool_choice"]; ok {
+			value := true
+			toolCalling = &value
+		}
+	}
+
+	var reasoning *bool
+	if _, ok := paramSet["reasoning"]; ok {
+		value := true
+		reasoning = &value
+	}
+	if _, ok := paramSet["reasoning_effort"]; ok {
+		value := true
+		reasoning = &value
+	}
+	if _, ok := paramSet["include_reasoning"]; ok {
+		value := true
+		reasoning = &value
+	}
+
+	if reasoning == nil && modelLooksReasoningCapable(modelID) {
+		value := true
+		reasoning = &value
+	}
+
+	var defaultTemperature *float64
+	if defaultParameters != nil {
+		if value, ok := normalizedCatalogFloat(defaultParameters["temperature"]); ok {
+			defaultTemperature = &value
+		}
+	}
+
+	return toolCalling, reasoning, defaultTemperature
+}
+
+func modelLooksReasoningCapable(modelID string) bool {
+	lowerID := strings.ToLower(strings.TrimSpace(modelID))
+	if lowerID == "" {
+		return false
+	}
+	for _, prefix := range reasoningPrefixes {
+		if strings.HasPrefix(lowerID, strings.ToLower(prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedCatalogFloat(raw any) (float64, bool) {
+	switch value := raw.(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	case json.Number:
+		parsed, err := value.Float64()
+		if err == nil {
+			return parsed, true
+		}
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 func upstreamNetworkError(err error) error {

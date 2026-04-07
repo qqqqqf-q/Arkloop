@@ -1933,6 +1933,62 @@ func TestDesktopPersistFinalAssistantOutputSetsReplyOverride(t *testing.T) {
 	}
 }
 
+func TestDesktopEventWriterPendingTelegramFlushChunk(t *testing.T) {
+	writer := &desktopEventWriter{
+		visibleAssistantTexts:   []string{"第一段", "第二段"},
+		telegramSentOutputCount: 1,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+
+	if got := writer.pendingTelegramFlushChunk(); got != "第二段" {
+		t.Fatalf("expected pending flush chunk to be 第二段, got %q", got)
+	}
+}
+
+func TestDesktopEventWriterPendingTelegramFlushChunkFromAssistantMessage(t *testing.T) {
+	// 无 delta，LLM 通过 assistantMessage 完成一轮时，captureAssistantTurnOutput 追加到 visibleAssistantTexts，
+	// pendingTelegramFlushChunk 应返回该内容
+	writer := &desktopEventWriter{
+		visibleAssistantTexts: []string{},
+		telegramSentOutputCount: 0,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "来自 assistantMessage 的内容"}}}
+	writer.assistantMessage = &msg
+	writer.assistantMessageFresh = true
+	writer.captureAssistantTurnOutput()
+
+	got := writer.pendingTelegramFlushChunk()
+	if !strings.Contains(got, "来自 assistantMessage 的内容") {
+		t.Fatalf("expected flush chunk to contain assistantMessage content, got %q", got)
+	}
+}
+
+func TestDesktopEventWriterTelegramUnsentOutputsMixedScenario(t *testing.T) {
+	// Turn 1：已 mid-stream 发出（telegramSentOutputCount=1）
+	// Turn 2：无 delta，通过 assistantMessage 到达
+	// 期望 telegramUnsentOutputs() 只返回 Turn 2 的内容
+	writer := &desktopEventWriter{
+		visibleAssistantTexts:   []string{"Turn1 内容"},
+		telegramSentOutputCount: 1,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "Turn2 内容"}}}
+	writer.assistantMessage = &msg
+	writer.assistantMessageFresh = true
+	writer.captureAssistantTurnOutput()
+
+	unsent := writer.telegramUnsentOutputs()
+	if len(unsent) != 1 || unsent[0] != "Turn2 内容" {
+		t.Fatalf("expected unsent=[Turn2 内容], got %v", unsent)
+	}
+	remainder := writer.telegramStreamRemainder()
+	if remainder != "Turn2 内容" {
+		t.Fatalf("expected remainder=Turn2 内容, got %q", remainder)
+	}
+}
+
 func TestDesktopSubAgentContextRestoresRoutingFromSnapshotFallback(t *testing.T) {
 	ctx := context.Background()
 
@@ -2347,6 +2403,7 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 			platform_parent_message_id TEXT NULL,
 			platform_thread_id TEXT NULL,
 			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
 			metadata_json TEXT NOT NULL DEFAULT '{}',
 			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
 		)`,
@@ -2523,6 +2580,7 @@ func TestDesktopChannelDeliverySkipsReplyReferenceInPrivateTelegram(t *testing.T
 			platform_parent_message_id TEXT NULL,
 			platform_thread_id TEXT NULL,
 			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
 			metadata_json TEXT NOT NULL DEFAULT '{}',
 			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
 		)`,
@@ -2629,6 +2687,148 @@ func TestDesktopChannelDeliverySkipsReplyReferenceInPrivateTelegram(t *testing.T
 	}
 	if parentID != nil {
 		t.Fatalf("expected private telegram ledger parent to be nil, got %#v", parentID)
+	}
+}
+
+func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	var sentTexts []string
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		sentTexts = append(sentTexts, payload.Text)
+		messageID := 910 + len(sentTexts)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, messageID)))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 61)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
+			args: []any{secretID, encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, channel_type, credentials_id, config_json, is_active) VALUES ($1, 'telegram', $2, '{}', 1)`,
+			args: []any{channelID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	mw := desktopChannelDelivery(db)
+	if err := mw(ctx, &pipeline.RunContext{
+		Run: data.Run{ID: runID, ThreadID: threadID},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     pipeline.ChannelConversationRef{Target: "10001"},
+			TriggerMessage:   &pipeline.ChannelMessageRef{MessageID: "55"},
+		},
+	}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush == nil {
+			t.Fatal("expected TelegramToolBoundaryFlush to be set for telegram channel")
+		}
+		rc.FinalAssistantOutput = "turn1 replyturn2 reply"
+		rc.FinalAssistantOutputs = []string{"turn1 reply", "turn2 reply"}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if len(sentTexts) != 2 {
+		t.Fatalf("expected 2 separate telegram sends, got %d (%#v)", len(sentTexts), sentTexts)
+	}
+	if !strings.Contains(sentTexts[0], "turn1") || !strings.Contains(sentTexts[1], "turn2") {
+		t.Fatalf("unexpected telegram texts: %#v", sentTexts)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 2 {
+		t.Fatalf("expected 2 delivery rows, got %d", deliveryCount)
 	}
 }
 

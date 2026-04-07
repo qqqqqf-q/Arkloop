@@ -149,6 +149,8 @@ CREATE INDEX ix_jobs_status_available_at ON jobs(status, available_at);
 
 CREATE INDEX ix_jobs_status_leased_until ON jobs(status, leased_until);
 
+CREATE UNIQUE INDEX ux_jobs_run_execute_active_run ON jobs (json_extract(payload_json, '$.run_id')) WHERE job_type = 'run.execute' AND status IN ('queued', 'leased');
+
 CREATE INDEX ix_llm_credentials_account_id ON llm_credentials(account_id);
 
 CREATE INDEX ix_llm_routes_account_id ON llm_routes(account_id);
@@ -1235,4 +1237,3 @@ CREATE TABLE workspace_skill_enablements (
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (workspace_ref, skill_key)
 );
-

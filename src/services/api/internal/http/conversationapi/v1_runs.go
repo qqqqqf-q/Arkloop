@@ -60,6 +60,7 @@ type createRunRequest struct {
 	OutputModelKey *string `json:"output_model_key"`
 	Model          *string `json:"model"`
 	WorkDir        *string `json:"work_dir"`
+	ReasoningMode  *string `json:"reasoning_mode"`
 }
 
 type createRunResponse struct {
@@ -213,6 +214,14 @@ func createThreadRun(
 				startedData["work_dir"] = wd
 			}
 		}
+		if body != nil && body.ReasoningMode != nil {
+			reasoningMode := normalizeRunReasoningMode(*body.ReasoningMode)
+			if reasoningMode == "" {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+			startedData["reasoning_mode"] = reasoningMode
+		}
 
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
@@ -337,6 +346,21 @@ func createThreadRun(
 			RunID:   run.ID.String(),
 			TraceID: traceID,
 		})
+	}
+}
+
+func normalizeRunReasoningMode(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "auto":
+		return "auto"
+	case "enabled":
+		return "enabled"
+	case "disabled":
+		return "disabled"
+	case "none":
+		return "none"
+	default:
+		return ""
 	}
 }
 

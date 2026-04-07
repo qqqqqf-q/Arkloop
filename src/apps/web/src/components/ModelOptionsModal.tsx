@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Eye, Image as ImageIcon, Database, Loader2, X } from 'lucide-react'
-import { AutoResizeTextarea, FormField } from '@arkloop/shared'
+import { Brain, ChevronDown, Eye, Image as ImageIcon, Loader2, Wrench, X } from 'lucide-react'
+import { AutoResizeTextarea, FormField, PillToggle } from '@arkloop/shared'
 import type { AvailableModel, LlmProviderModel } from '../api'
 import {
   AVAILABLE_CATALOG_ADVANCED_KEY,
@@ -10,15 +10,24 @@ import {
   routeAdvancedJsonFromAvailableCatalog,
   stripAvailableCatalogFromAdvancedJson,
 } from '@arkloop/shared/llm/available-catalog-advanced-json'
-import { PillToggle } from '@arkloop/shared'
 
 type Labels = {
   modelOptionsTitle: string
   modelOptionsFor: string
   modelCapabilities: string
+  modelType?: string
+  modelTypeChat?: string
+  modelTypeEmbedding?: string
+  modelTypeImage?: string
+  modelTypeAudio?: string
+  modelTypeModeration?: string
+  modelTypeOther?: string
   vision: string
   imageOutput: string
   embedding: string
+  toolCalling?: string
+  reasoning?: string
+  defaultTemperature?: string
   contextWindow: string
   maxOutputTokens: string
   providerOptionsJson: string
@@ -54,11 +63,15 @@ type Props = {
 
 type DraftState = {
   modelName: string
+  modelType: string
   vision: boolean
   imageOutput: boolean
   embedding: boolean
+  toolCalling: boolean
+  reasoning: boolean
   contextWindow: string
   maxOutputTokens: string
+  defaultTemperature: string
   providerOptionsJSON: string
 }
 
@@ -73,6 +86,22 @@ function normalizePositiveIntegerInput(value: string): string {
   return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : trimmed
 }
 
+function normalizeFloatInput(value: string): string {
+  const trimmed = value.trim()
+  if (trimmed === '') return ''
+  if (!/^-?\d+(?:\.\d+)?$/.test(trimmed)) return trimmed
+  const parsed = Number.parseFloat(trimmed)
+  return Number.isFinite(parsed) ? String(parsed) : trimmed
+}
+
+function resolvedModelType(model: LlmProviderModel | null, catalog: Record<string, unknown> | null): string {
+  if (typeof catalog?.type === 'string' && catalog.type.trim() !== '') {
+    return catalog.type.trim()
+  }
+  if (model?.tags.includes('embedding')) return 'embedding'
+  return 'chat'
+}
+
 function deriveAutoCatalog(model: LlmProviderModel | null, availableModels: AvailableModel[] | null): Record<string, unknown> | null {
   if (!model || !availableModels) return null
   const matched = availableModels.find((item) => item.id.toLowerCase() === model.model.toLowerCase())
@@ -83,31 +112,39 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
   if (!model) {
     return {
       modelName: '',
+      modelType: 'chat',
       vision: false,
       imageOutput: false,
       embedding: false,
+      toolCalling: true,
+      reasoning: false,
       contextWindow: '',
       maxOutputTokens: '',
+      defaultTemperature: '',
       providerOptionsJSON: '{}',
     }
   }
   const catalog = getAvailableCatalogFromAdvancedJson(model.advanced_json)
   const rest = stripAvailableCatalogFromAdvancedJson(model.advanced_json)
-  const inputModalities = Array.isArray(catalog?.input_modalities) ? catalog?.input_modalities : []
-  const outputModalities = Array.isArray(catalog?.output_modalities) ? catalog?.output_modalities : []
+  const modelType = resolvedModelType(model, catalog)
+  const inputModalities = Array.isArray(catalog?.input_modalities) ? catalog.input_modalities : []
+  const outputModalities = Array.isArray(catalog?.output_modalities) ? catalog.output_modalities : []
   const overrideVal = catalog?.context_length_override
   const catalogVal = catalog?.context_length
   const contextLength = typeof overrideVal === 'number' ? String(overrideVal)
     : typeof catalogVal === 'number' ? String(catalogVal)
     : ''
-  const maxOutputTokens = typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : ''
   return {
     modelName: '',
+    modelType,
     vision: inputModalities.includes('image'),
     imageOutput: outputModalities.includes('image'),
-    embedding: model.tags.includes('embedding'),
+    embedding: modelType === 'embedding',
+    toolCalling: modelType === 'chat' ? catalog?.tool_calling !== false : false,
+    reasoning: modelType === 'chat' ? catalog?.reasoning === true : false,
     contextWindow: contextLength,
-    maxOutputTokens,
+    maxOutputTokens: typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : '',
+    defaultTemperature: typeof catalog?.default_temperature === 'number' ? String(catalog.default_temperature) : '',
     providerOptionsJSON: JSON.stringify(rest, null, 2),
   }
 }
@@ -115,6 +152,7 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
 function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string, unknown> | null {
   const currentCatalog = getAvailableCatalogFromAdvancedJson(model.advanced_json) ?? {}
   const nextCatalog: Record<string, unknown> = { ...currentCatalog }
+
   if (typeof nextCatalog.id !== 'string' || nextCatalog.id.trim() === '') {
     nextCatalog.id = model.model
   }
@@ -124,35 +162,59 @@ function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string
 
   const inputModalities = new Set<string>(
     Array.isArray(currentCatalog.input_modalities)
-      ? currentCatalog.input_modalities.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+      ? currentCatalog.input_modalities
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
       : [],
   )
   const outputModalities = new Set<string>(
     Array.isArray(currentCatalog.output_modalities)
-      ? currentCatalog.output_modalities.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean)
+      ? currentCatalog.output_modalities
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean)
       : [],
   )
 
-  if (draft.vision) inputModalities.add('image')
-  else inputModalities.delete('image')
-  if (draft.imageOutput) outputModalities.add('image')
-  else outputModalities.delete('image')
-
-  if (inputModalities.size > 0) nextCatalog.input_modalities = [...inputModalities]
-  else delete nextCatalog.input_modalities
-  if (outputModalities.size > 0) nextCatalog.output_modalities = [...outputModalities]
-  else delete nextCatalog.output_modalities
+  if (draft.modelType === 'chat') {
+    if (draft.vision) inputModalities.add('image')
+    else inputModalities.delete('image')
+    if (draft.imageOutput) outputModalities.add('image')
+    else outputModalities.delete('image')
+    if (inputModalities.size > 0) nextCatalog.input_modalities = [...inputModalities]
+    else delete nextCatalog.input_modalities
+    if (outputModalities.size > 0) nextCatalog.output_modalities = [...outputModalities]
+    else delete nextCatalog.output_modalities
+  } else if (draft.modelType === 'embedding') {
+    nextCatalog.input_modalities = ['text']
+    nextCatalog.output_modalities = ['embedding']
+  }
 
   if (draft.contextWindow.trim() !== '') {
     nextCatalog.context_length_override = Number.parseInt(draft.contextWindow.trim(), 10)
   } else {
     delete nextCatalog.context_length_override
   }
-  if (draft.maxOutputTokens.trim() !== '') nextCatalog.max_output_tokens = Number.parseInt(draft.maxOutputTokens.trim(), 10)
-  else delete nextCatalog.max_output_tokens
+  if (draft.maxOutputTokens.trim() !== '') {
+    nextCatalog.max_output_tokens = Number.parseInt(draft.maxOutputTokens.trim(), 10)
+  } else {
+    delete nextCatalog.max_output_tokens
+  }
+  if (draft.modelType === 'chat' && draft.defaultTemperature.trim() !== '') {
+    nextCatalog.default_temperature = Number.parseFloat(draft.defaultTemperature.trim())
+  } else {
+    delete nextCatalog.default_temperature
+  }
 
-  if (draft.embedding) nextCatalog.type = 'embedding'
-  else if (nextCatalog.type === 'embedding') delete nextCatalog.type
+  if (draft.modelType === 'embedding') nextCatalog.type = 'embedding'
+  else if (draft.modelType !== 'chat') nextCatalog.type = draft.modelType
+  else delete nextCatalog.type
+
+  if (draft.modelType === 'chat' && draft.toolCalling) nextCatalog.tool_calling = true
+  else delete nextCatalog.tool_calling
+  if (draft.modelType === 'chat' && draft.reasoning) nextCatalog.reasoning = true
+  else delete nextCatalog.reasoning
 
   return Object.keys(nextCatalog).length > 0 ? nextCatalog : null
 }
@@ -210,6 +272,13 @@ export function ModelOptionsModal({
       if (typeof autoCatalog.max_output_tokens === 'number') {
         nextDraft.maxOutputTokens = String(autoCatalog.max_output_tokens)
       }
+      nextDraft.modelType = typeof autoCatalog.type === 'string' && autoCatalog.type.trim() !== ''
+        ? autoCatalog.type.trim()
+        : nextDraft.modelType
+      nextDraft.embedding = nextDraft.modelType === 'embedding'
+      nextDraft.defaultTemperature = typeof autoCatalog.default_temperature === 'number' ? String(autoCatalog.default_temperature) : ''
+      nextDraft.toolCalling = nextDraft.modelType === 'chat' ? autoCatalog.tool_calling !== false : false
+      nextDraft.reasoning = nextDraft.modelType === 'chat' ? autoCatalog.reasoning === true : false
     }
     if (availableModels) {
       const matched = availableModels.find(
@@ -228,7 +297,12 @@ export function ModelOptionsModal({
   const handleSave = async () => {
     const contextWindow = normalizePositiveIntegerInput(draft.contextWindow)
     const maxOutputTokens = normalizePositiveIntegerInput(draft.maxOutputTokens)
-    if ((contextWindow && !/^\d+$/.test(contextWindow)) || (maxOutputTokens && !/^\d+$/.test(maxOutputTokens))) {
+    const defaultTemperature = normalizeFloatInput(draft.defaultTemperature)
+    if (
+      (contextWindow && !/^\d+$/.test(contextWindow)) ||
+      (maxOutputTokens && !/^\d+$/.test(maxOutputTokens)) ||
+      (defaultTemperature && !/^-?\d+(?:\.\d+)?$/.test(defaultTemperature))
+    ) {
       setError(labels.invalidNumber)
       return
     }
@@ -249,14 +323,23 @@ export function ModelOptionsModal({
       delete providerOptions[AVAILABLE_CATALOG_ADVANCED_KEY]
     }
 
-    const nextDraft = { ...draft, contextWindow, maxOutputTokens }
+    const nextType = draft.modelType.trim() || 'chat'
+    const nextDraft: DraftState = {
+      ...draft,
+      modelType: nextType,
+      embedding: nextType === 'embedding',
+      toolCalling: nextType === 'chat' ? draft.toolCalling : false,
+      reasoning: nextType === 'chat' ? draft.reasoning : false,
+      contextWindow,
+      maxOutputTokens,
+      defaultTemperature,
+    }
 
     if (isCreate) {
       if (!draft.modelName.trim()) {
         setError(labels.modelNameLabel)
         return
       }
-      // build catalog from scratch for create mode
       const catalog: Record<string, unknown> = {
         id: draft.modelName.trim(),
         name: draft.modelName.trim(),
@@ -265,7 +348,11 @@ export function ModelOptionsModal({
       if (nextDraft.imageOutput) catalog.output_modalities = ['image']
       if (nextDraft.contextWindow) catalog.context_length_override = Number.parseInt(nextDraft.contextWindow, 10)
       if (nextDraft.maxOutputTokens) catalog.max_output_tokens = Number.parseInt(nextDraft.maxOutputTokens, 10)
-      if (nextDraft.embedding) catalog.type = 'embedding'
+      if (nextDraft.modelType === 'embedding') catalog.type = 'embedding'
+      else if (nextDraft.modelType !== 'chat') catalog.type = nextDraft.modelType
+      if (nextDraft.defaultTemperature) catalog.default_temperature = Number.parseFloat(nextDraft.defaultTemperature)
+      if (nextDraft.modelType === 'chat' && nextDraft.toolCalling) catalog.tool_calling = true
+      if (nextDraft.modelType === 'chat' && nextDraft.reasoning) catalog.reasoning = true
 
       const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
       const tags = nextDraft.embedding ? ['embedding'] : []
@@ -284,7 +371,7 @@ export function ModelOptionsModal({
       if (!model) return
       const catalog = buildCatalog(model, nextDraft)
       const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
-      const nextTags = draft.embedding
+      const nextTags = nextDraft.embedding
         ? Array.from(new Set([...model.tags.filter((tag) => tag !== 'embedding'), 'embedding']))
         : model.tags.filter((tag) => tag !== 'embedding')
 
@@ -348,24 +435,61 @@ export function ModelOptionsModal({
 
             <section className="space-y-3">
               <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{labels.modelCapabilities}</h4>
+
+              <FormField label={labels.modelType ?? 'Model Type'}>
+                <ModelTypeDropdown
+                  value={draft.modelType}
+                  options={[
+                    { value: 'chat', label: labels.modelTypeChat ?? 'Chat' },
+                    { value: 'embedding', label: labels.modelTypeEmbedding ?? 'Embedding' },
+                    { value: 'image', label: labels.modelTypeImage ?? 'Image' },
+                    { value: 'audio', label: labels.modelTypeAudio ?? 'Audio' },
+                    { value: 'moderation', label: labels.modelTypeModeration ?? 'Moderation' },
+                    { value: 'other', label: labels.modelTypeOther ?? 'Other' },
+                  ]}
+                  onChange={(next) => {
+                    setDraft((prev) => ({
+                      ...prev,
+                      modelType: next,
+                      embedding: next === 'embedding',
+                      vision: next === 'chat' ? prev.vision : false,
+                      imageOutput: next === 'chat' ? prev.imageOutput : false,
+                      toolCalling: next === 'chat' ? prev.toolCalling : false,
+                      reasoning: next === 'chat' ? prev.reasoning : false,
+                      defaultTemperature: next === 'chat' ? prev.defaultTemperature : '',
+                    }))
+                  }}
+                />
+              </FormField>
+
               <div className="grid gap-3 md:grid-cols-2">
                 <CapabilityTile
                   icon={<Eye size={18} />}
                   label={labels.vision}
                   checked={draft.vision}
+                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, vision: next }))}
                 />
                 <CapabilityTile
                   icon={<ImageIcon size={18} />}
                   label={labels.imageOutput}
                   checked={draft.imageOutput}
+                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, imageOutput: next }))}
                 />
                 <CapabilityTile
-                  icon={<Database size={18} />}
-                  label={labels.embedding}
-                  checked={draft.embedding}
-                  onChange={(next) => setDraft((prev) => ({ ...prev, embedding: next }))}
+                  icon={<Wrench size={18} />}
+                  label={labels.toolCalling ?? 'Tool Calling'}
+                  checked={draft.toolCalling}
+                  disabled={draft.modelType !== 'chat'}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, toolCalling: next }))}
+                />
+                <CapabilityTile
+                  icon={<Brain size={18} />}
+                  label={labels.reasoning ?? 'Reasoning'}
+                  checked={draft.reasoning}
+                  disabled={draft.modelType !== 'chat'}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, reasoning: next }))}
                 />
               </div>
 
@@ -386,6 +510,18 @@ export function ModelOptionsModal({
                     placeholder="e.g. 32768"
                     className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
                     inputMode="numeric"
+                  />
+                </FormField>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <FormField label={labels.defaultTemperature ?? 'Default Temperature'}>
+                  <input
+                    value={draft.defaultTemperature}
+                    onChange={(e) => setDraft((prev) => ({ ...prev, defaultTemperature: e.target.value }))}
+                    placeholder="e.g. 0.7"
+                    className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
+                    inputMode="decimal"
+                    disabled={draft.modelType !== 'chat'}
                   />
                 </FormField>
               </div>
@@ -455,26 +591,99 @@ function CapabilityTile({
   icon,
   label,
   checked,
+  disabled = false,
   onChange,
 }: {
   icon: ReactNode
   label: string
   checked: boolean
+  disabled?: boolean
   onChange: (next: boolean) => void
 }) {
   return (
     <button
       type="button"
-      onClick={() => onChange(!checked)}
-      className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-4 py-3 transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
+      disabled={disabled}
+      onClick={() => { if (!disabled) onChange(!checked) }}
+      className="flex w-full items-center justify-between rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-4 py-3 transition-colors duration-150 hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       <div className="flex items-center gap-3 text-[var(--c-text-primary)]">
         <span className="text-[var(--c-text-secondary)]">{icon}</span>
         <span className="text-sm font-medium">{label}</span>
       </div>
       <span onClick={(e) => e.stopPropagation()}>
-        <PillToggle checked={checked} onChange={onChange} />
+        <PillToggle checked={checked} onChange={disabled ? () => {} : onChange} />
       </span>
     </button>
+  )
+}
+
+function ModelTypeDropdown({ value, options, onChange }: {
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const currentLabel = options.find((o) => o.value === value)?.label ?? value
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm"
+        style={{
+          border: `0.5px solid ${hovered ? 'var(--c-border-mid)' : 'var(--c-border-subtle)'}`,
+          background: hovered ? 'var(--c-bg-deep)' : 'var(--c-bg-page)',
+          color: 'var(--c-text-secondary)',
+          transition: 'border-color 0.15s, background-color 0.15s',
+        }}
+      >
+        <span className="truncate">{currentLabel}</span>
+        <ChevronDown size={13} className="ml-2 shrink-0" />
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-[calc(100%+4px)] z-30 w-full overflow-hidden rounded-lg dropdown-menu"
+          style={{
+            border: '0.5px solid var(--c-border-subtle)',
+            borderRadius: '10px',
+            padding: '4px',
+            background: 'var(--c-bg-menu)',
+            boxShadow: 'var(--c-dropdown-shadow)',
+          }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => { onChange(opt.value); setOpen(false) }}
+              className="flex w-full items-center px-3 py-2 text-sm transition-colors bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
+              style={{
+                borderRadius: '8px',
+                fontWeight: value === opt.value ? 600 : 400,
+                color: value === opt.value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

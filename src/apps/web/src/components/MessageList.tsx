@@ -246,7 +246,7 @@ export const MessageList = memo(function MessageList({
     const msgThinking = msg.role === 'assistant' ? msgMeta?.thinking : undefined
 
     return (
-      <div key={msg.id}>
+      <div key={msg.id} className="group/turn">
         {msg.role === 'assistant' && hasAssistantTurn && (
           <div style={{ marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
             {!isSearchThread &&
@@ -482,7 +482,7 @@ export const MessageList = memo(function MessageList({
     <>
       {messages.slice(0, lastTurnStartIdx).map(renderMessage)}
       {(hasLastTurn || lastTurnChildren) && (
-        <div ref={lastTurnRef} style={{ minHeight: hasLastTurn ? 'calc(100dvh - var(--chat-input-area-height, 72px) - 50px)' : undefined }} className="flex flex-col gap-6">
+        <div ref={lastTurnRef} className="flex flex-col gap-6">
           {hasLastTurn && messages.slice(lastTurnStartIdx).map((msg, i) => renderMessage(msg, lastTurnStartIdx + i))}
           {lastTurnChildren}
         </div>

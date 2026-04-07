@@ -17,7 +17,6 @@ import { useChatSession } from './chat-session'
 interface MessageStoreContextValue {
   messages: MessageResponse[]
   messagesLoading: boolean
-  draft: string
   attachments: Attachment[]
   userEnterMessageId: string | null
   pendingIncognito: boolean
@@ -27,7 +26,6 @@ interface MessageStoreContextValue {
 
   setMessages: (msgs: MessageResponse[] | ((prev: MessageResponse[]) => MessageResponse[])) => void
   setMessagesLoading: (v: boolean) => void
-  setDraft: (v: string | ((prev: string) => string)) => void
   setAttachments: (v: Attachment[] | ((prev: Attachment[]) => Attachment[])) => void
   addAttachment: (a: Attachment) => void
   removeAttachment: (id: string) => void
@@ -57,7 +55,6 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
 
   const [messages, setMessages] = useState<MessageResponse[]>([])
   const [messagesLoading, setMessagesLoading] = useState(true)
-  const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [userEnterMessageId, setUserEnterMessageId] = useState<string | null>(null)
   const [pendingIncognito, setPendingIncognito] = useState(false)
@@ -119,7 +116,6 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
   const value = useMemo<MessageStoreContextValue>(() => ({
     messages,
     messagesLoading,
-    draft,
     attachments,
     userEnterMessageId,
     pendingIncognito,
@@ -127,7 +123,6 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
     attachmentsRef,
     setMessages,
     setMessagesLoading,
-    setDraft,
     setAttachments,
     addAttachment,
     removeAttachment,
@@ -142,7 +137,6 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
   }), [
     messages,
     messagesLoading,
-    draft,
     attachments,
     userEnterMessageId,
     pendingIncognito,

@@ -211,14 +211,13 @@ export class SSEClient {
         return
       }
 
-      this.options.onError?.(error)
-
       // 401: attempt token refresh before giving up
       if (error instanceof SSEApiError && error.status === 401) {
         if (await this.tryTokenRefresh()) {
           await this.connect()
           return
         }
+        this.options.onError?.(error)
         this.setState('error')
         return
       }
@@ -229,10 +228,12 @@ export class SSEClient {
         error.status < 500 &&
         error.status !== 429
       if (isNonRetryableClientError) {
+        this.options.onError?.(error)
         this.setState('error')
         return
       }
 
+      // 可重试的网络错误不立即通知，重试耗尽后 scheduleRetry 内部才调用 onError
       await this.scheduleRetry()
     }
   }

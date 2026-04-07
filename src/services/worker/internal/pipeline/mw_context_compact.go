@@ -192,8 +192,15 @@ func NewContextCompactMiddleware(
 		configLoader = loaders[0]
 	}
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
+		beforeMsgs := append([]llm.Message(nil), rc.Messages...)
 		cfg := rc.ContextCompact
 		if !cfg.Enabled && !cfg.PersistEnabled {
+			beforeTokens := traceContextCompactTokens(nil, rc.SystemPrompt, beforeMsgs)
+			emitTraceEvent(rc, "context_compact", "context_compact.completed", map[string]any{
+				"compacted":     false,
+				"tokens_before": beforeTokens,
+				"tokens_after":  beforeTokens,
+			})
 			return next(ctx, rc)
 		}
 
@@ -211,6 +218,7 @@ func NewContextCompactMiddleware(
 		if enc == nil {
 			enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
 		}
+		beforeTokens := traceContextCompactTokens(enc, rc.SystemPrompt, beforeMsgs)
 
 		if cfg.MicrocompactKeepRecentTools > 0 {
 			rc.Messages = microcompactToolResults(rc.Messages, cfg.MicrocompactKeepRecentTools)
@@ -263,109 +271,44 @@ func NewContextCompactMiddleware(
 					}
 					ApplyContextCompactPressureFields(persistStartedEvent, pressure)
 				} else {
-				compactBase := msgs[fixedPrefixCount:]
-				compactBaseIDs := ids[fixedPrefixCount:]
-				var tailKeep int
-				tailPct := cfg.PersistKeepTailPct
-				if tailPct > 100 {
-					tailPct = 100
-				}
-				if tailPct > 0 && window > 0 {
-					tailTokenBudget := window * tailPct / 100
-					tailKeep = computeTailKeepByTokenBudget(enc, compactBase, tailTokenBudget, keep)
-				} else {
-					tailKeep = keep
-				}
-				if tailKeep >= len(compactBase) {
-					tailKeep = len(compactBase) - 1
-				}
-				if tailKeep < 1 {
-					tailKeep = 1
-				}
-			split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
-			split = ensureToolPairIntegrity(compactBase, split)
-			if split > 0 {
-					if rc.HasActiveCompactSnapshot && split <= fastCompactMaxPrefixMessages && previousSummary != "" {
-						// 快速裁切：前缀少且已有 snapshot，跳过 LLM 复用已有摘要
-						persistFastPath = true
-						persistStartedEvent = map[string]any{
-							"op":                    "persist",
-							"phase":                 "started",
-							"persist_split":         split,
-							"trigger_tokens":        trigger,
-							"context_window_tokens": window,
-							"trigger_context_pct":   cfg.PersistTriggerContextPct,
-							"tail_keep_effective":   tailKeep,
-							"fast_path":             true,
-						}
-						ApplyContextCompactPressureFields(persistStartedEvent, pressure)
-						persistSplit = split
-						persistSummary = previousSummary
-						persistPrefixIDs = append([]uuid.UUID(nil), filterNonNilUUIDs(compactBaseIDs[:split])...)
-						persistCompletedEvent = map[string]any{
-							"op":                    "persist",
-							"phase":                 "completed",
-							"persist_split":         split,
-							"messages_before":       beforeN,
-							"context_window_tokens": window,
-							"fast_path":             true,
-							"tail_keep_effective":   tailKeep,
-						}
-						ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
-						tail := make([]llm.Message, len(compactBase)-split)
-						copy(tail, compactBase[split:])
-						tail = truncateLargeTailMessages(enc, tail)
-						msgs = append([]llm.Message{makeCompactSnapshotMessage(persistSummary)}, tail...)
-						ids = append([]uuid.UUID{uuid.Nil}, compactBaseIDs[split:]...)
-						rc.Messages = msgs
-						rc.ThreadMessageIDs = ids
-						rc.HasActiveCompactSnapshot = true
-						rc.ActiveCompactSnapshotText = persistSummary
+					compactBase := msgs[fixedPrefixCount:]
+					compactBaseIDs := ids[fixedPrefixCount:]
+					var tailKeep int
+					tailPct := cfg.PersistKeepTailPct
+					if tailPct > 100 {
+						tailPct = 100
+					}
+					if tailPct > 0 && window > 0 {
+						tailTokenBudget := window * tailPct / 100
+						tailKeep = computeTailKeepByTokenBudget(enc, compactBase, tailTokenBudget, keep)
 					} else {
-					gw, model := resolveCompactionGateway(ctx, pool, rc, auxGateway, emitDebugEvents, configLoader)
-					if gw == nil {
-						slog.WarnContext(ctx, "context_compact", "phase", "gateway_nil", "run_id", rc.Run.ID.String())
-					} else {
-						persistStartedEvent = map[string]any{
-							"op":                    "persist",
-							"phase":                 "started",
-							"persist_split":         split,
-							"trigger_tokens":        trigger,
-							"context_window_tokens": window,
-							"trigger_context_pct":   cfg.PersistTriggerContextPct,
-							"tail_keep_effective":   tailKeep,
-						}
-						ApplyContextCompactPressureFields(persistStartedEvent, pressure)
-
-						// Acquire file lock BEFORE LLM call to prevent concurrent compacts on Desktop.
-						// For PostgreSQL, advisory lock inside tx provides DB-level protection,
-						// but file lock ensures LLM call (expensive) is not duplicated.
-						var fileLockCleanup func()
-						var fileLockErr error
-						if pool != nil {
-							fileLockCleanup, fileLockErr = CompactThreadCompactionLock(ctx, rc.Run.ThreadID)
-							if fileLockErr != nil {
-								slog.WarnContext(ctx, "context_compact", "phase", "file_lock", "err", fileLockErr.Error(), "run_id", rc.Run.ID.String())
+						tailKeep = keep
+					}
+					if tailKeep >= len(compactBase) {
+						tailKeep = len(compactBase) - 1
+					}
+					if tailKeep < 1 {
+						tailKeep = 1
+					}
+					split := stabilizeCompactStart(compactBase, len(compactBase)-tailKeep, 0)
+					split = ensureToolPairIntegrity(compactBase, split)
+					if split > 0 {
+						if rc.HasActiveCompactSnapshot && split <= fastCompactMaxPrefixMessages && previousSummary != "" {
+							// 快速裁切：前缀少且已有 snapshot，跳过 LLM 复用已有摘要
+							persistFastPath = true
+							persistStartedEvent = map[string]any{
+								"op":                    "persist",
+								"phase":                 "started",
+								"persist_split":         split,
+								"trigger_tokens":        trigger,
+								"context_window_tokens": window,
+								"trigger_context_pct":   cfg.PersistTriggerContextPct,
+								"tail_keep_effective":   tailKeep,
+								"fast_path":             true,
 							}
-							if fileLockCleanup != nil {
-								defer fileLockCleanup()
-							}
-						}
-
-						summary, sumErr := runContextCompactLLM(ctx, gw, model, compactBase[:split], enc, previousSummary)
-						if sumErr != nil {
-							slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
-							persistFailedEvent = map[string]any{
-								"op":             "persist",
-								"phase":          "llm_failed",
-								"persist_split":  split,
-								"llm_error":      sumErr.Error(),
-								"trigger_tokens": trigger,
-							}
-							ApplyContextCompactPressureFields(persistFailedEvent, pressure)
-						} else if strings.TrimSpace(summary) != "" {
+							ApplyContextCompactPressureFields(persistStartedEvent, pressure)
 							persistSplit = split
-							persistSummary = strings.TrimSpace(summary)
+							persistSummary = previousSummary
 							persistPrefixIDs = append([]uuid.UUID(nil), filterNonNilUUIDs(compactBaseIDs[:split])...)
 							persistCompletedEvent = map[string]any{
 								"op":                    "persist",
@@ -373,9 +316,7 @@ func NewContextCompactMiddleware(
 								"persist_split":         split,
 								"messages_before":       beforeN,
 								"context_window_tokens": window,
-								"trigger_tokens":        trigger,
-								"trigger_context_pct":   cfg.PersistTriggerContextPct,
-								"tail_keep_configured":  keep,
+								"fast_path":             true,
 								"tail_keep_effective":   tailKeep,
 							}
 							ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
@@ -388,10 +329,77 @@ func NewContextCompactMiddleware(
 							rc.ThreadMessageIDs = ids
 							rc.HasActiveCompactSnapshot = true
 							rc.ActiveCompactSnapshotText = persistSummary
+						} else {
+							gw, model := resolveCompactionGateway(ctx, pool, rc, auxGateway, emitDebugEvents, configLoader)
+							if gw == nil {
+								slog.WarnContext(ctx, "context_compact", "phase", "gateway_nil", "run_id", rc.Run.ID.String())
+							} else {
+								persistStartedEvent = map[string]any{
+									"op":                    "persist",
+									"phase":                 "started",
+									"persist_split":         split,
+									"trigger_tokens":        trigger,
+									"context_window_tokens": window,
+									"trigger_context_pct":   cfg.PersistTriggerContextPct,
+									"tail_keep_effective":   tailKeep,
+								}
+								ApplyContextCompactPressureFields(persistStartedEvent, pressure)
+
+								// Acquire file lock BEFORE LLM call to prevent concurrent compacts on Desktop.
+								// For PostgreSQL, advisory lock inside tx provides DB-level protection,
+								// but file lock ensures LLM call (expensive) is not duplicated.
+								var fileLockCleanup func()
+								var fileLockErr error
+								if pool != nil {
+									fileLockCleanup, fileLockErr = CompactThreadCompactionLock(ctx, rc.Run.ThreadID)
+									if fileLockErr != nil {
+										slog.WarnContext(ctx, "context_compact", "phase", "file_lock", "err", fileLockErr.Error(), "run_id", rc.Run.ID.String())
+									}
+									if fileLockCleanup != nil {
+										defer fileLockCleanup()
+									}
+								}
+
+								summary, sumErr := runContextCompactLLM(ctx, gw, model, compactBase[:split], enc, previousSummary)
+								if sumErr != nil {
+									slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
+									persistFailedEvent = map[string]any{
+										"op":             "persist",
+										"phase":          "llm_failed",
+										"persist_split":  split,
+										"llm_error":      sumErr.Error(),
+										"trigger_tokens": trigger,
+									}
+									ApplyContextCompactPressureFields(persistFailedEvent, pressure)
+								} else if strings.TrimSpace(summary) != "" {
+									persistSplit = split
+									persistSummary = strings.TrimSpace(summary)
+									persistPrefixIDs = append([]uuid.UUID(nil), filterNonNilUUIDs(compactBaseIDs[:split])...)
+									persistCompletedEvent = map[string]any{
+										"op":                    "persist",
+										"phase":                 "completed",
+										"persist_split":         split,
+										"messages_before":       beforeN,
+										"context_window_tokens": window,
+										"trigger_tokens":        trigger,
+										"trigger_context_pct":   cfg.PersistTriggerContextPct,
+										"tail_keep_configured":  keep,
+										"tail_keep_effective":   tailKeep,
+									}
+									ApplyContextCompactPressureFields(persistCompletedEvent, pressure)
+									tail := make([]llm.Message, len(compactBase)-split)
+									copy(tail, compactBase[split:])
+									tail = truncateLargeTailMessages(enc, tail)
+									msgs = append([]llm.Message{makeCompactSnapshotMessage(persistSummary)}, tail...)
+									ids = append([]uuid.UUID{uuid.Nil}, compactBaseIDs[split:]...)
+									rc.Messages = msgs
+									rc.ThreadMessageIDs = ids
+									rc.HasActiveCompactSnapshot = true
+									rc.ActiveCompactSnapshotText = persistSummary
+								}
+							}
 						}
 					}
-					}
-				}
 				}
 			}
 		}
@@ -536,9 +544,22 @@ func NewContextCompactMiddleware(
 				slog.WarnContext(ctx, "context_compact", "phase", "run_event_trim", "err", err.Error(), "run_id", rc.Run.ID.String())
 			}
 		}
+		afterTokens := traceContextCompactTokens(enc, rc.SystemPrompt, rc.Messages)
+		emitTraceEvent(rc, "context_compact", "context_compact.completed", map[string]any{
+			"compacted":     beforeTokens != afterTokens || len(beforeMsgs) != len(rc.Messages),
+			"tokens_before": beforeTokens,
+			"tokens_after":  afterTokens,
+		})
 
 		return nextErr
 	}
+}
+
+func traceContextCompactTokens(enc *tiktoken.Tiktoken, systemPrompt string, msgs []llm.Message) int {
+	if enc == nil {
+		enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+	}
+	return HistoryThreadPromptTokens(enc, contextCompactRequestMessages(systemPrompt, msgs))
 }
 
 func filterNonNilUUIDs(ids []uuid.UUID) []uuid.UUID {

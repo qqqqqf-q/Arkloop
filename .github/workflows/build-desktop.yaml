@@ -80,6 +80,9 @@ jobs:
       - name: Build sidecar
         run: |
           BIN_NAME="desktop-${{ matrix.electron_platform }}-${{ matrix.electron_arch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="${BIN_NAME}.exe"
+          fi
           mkdir -p dist
           CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
             go build -tags desktop -trimpath -ldflags '-s -w' \

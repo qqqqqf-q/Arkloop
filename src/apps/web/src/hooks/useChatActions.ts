@@ -30,6 +30,7 @@ import {
   readSelectedModelFromStorage,
   readSelectedPersonaKeyFromStorage,
   readThreadWorkFolder,
+  readThreadThinkingEnabled,
   SEARCH_PERSONA_KEY,
 } from '../storage'
 import { createEmptyAssistantTurnFoldState } from '../assistantTurnSegments'
@@ -133,7 +134,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
       setUserEnterMessageId(message.id)
       setMessages((prev) => [...prev, message])
       noResponseMsgIdRef.current = message.id
-      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined)
+      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadThinkingEnabled(threadId) ? 'enabled' : undefined)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
       resetSearchSteps()
       setActiveRunId(run.run_id)

@@ -63,6 +63,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/projects/", projectEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProjectRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/accounts", accountsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AccountRepo, deps.AccountService, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/accounts/me", accountsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AccountRepo, deps.AccountService, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/account/settings", accountSettingsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AccountRepo, deps.APIKeysRepo))
 	mux.HandleFunc("GET /v1/workspace-files", workspaceFilesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.AuditWriter, deps.Pool, deps.EnvironmentStore))
 	mux.HandleFunc("/v1/webhook-endpoints", webhookEndpointsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool))
 	mux.HandleFunc("/v1/webhook-endpoints/", webhookEndpointEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo))

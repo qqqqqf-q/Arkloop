@@ -27,6 +27,19 @@ type JobEnqueuer interface {
 		payload map[string]any,
 		availableAt *time.Time,
 	) (uuid.UUID, error)
+	// EnqueueRunWithID 与 EnqueueRun 相同，但允许调用方指定 jobID，
+	// 以便在异步提交后调用方与队列持有相同的 ID。
+	EnqueueRunWithID(
+		ctx context.Context,
+		jobID uuid.UUID,
+		accountID uuid.UUID,
+		runID uuid.UUID,
+		traceID string,
+		queueJobType string,
+		payload map[string]any,
+		availableAt *time.Time,
+	) (uuid.UUID, error)
+	HasActiveRun(ctx context.Context, runID uuid.UUID, queueJobType string) (bool, error)
 }
 
 var (

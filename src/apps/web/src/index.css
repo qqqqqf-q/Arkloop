@@ -85,6 +85,7 @@ button:not(:disabled) {
   --c-error-text: #fca5a5;
   --c-error-subtext: rgba(248, 113, 113, 0.70);
   --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.32);
+  --c-model-selected-bg: #2e2e2c;
   --c-code-panel-bg: #141413;
   --c-code-panel-output-bg: rgba(255, 255, 255, 0.04);
   --c-artifact-card-bg: rgba(255, 255, 255, 0.04);
@@ -196,6 +197,7 @@ button:not(:disabled) {
     --c-error-text: #b91c1c;
     --c-error-subtext: #ef4444;
     --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    --c-model-selected-bg: #F5F3F1;
     --c-code-panel-bg: #F6F4F2;
     --c-code-panel-output-bg: rgba(0, 0, 0, 0.04);
     --c-artifact-card-bg: rgba(0, 0, 0, 0.02);
@@ -308,6 +310,7 @@ button:not(:disabled) {
   --c-error-text: #b91c1c;
   --c-error-subtext: #ef4444;
   --c-dropdown-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  --c-model-selected-bg: #F5F3F1;
   --c-code-panel-bg: #F6F4F2;
   --c-code-panel-output-bg: rgba(0, 0, 0, 0.04);
   --c-artifact-card-bg: rgba(0, 0, 0, 0.02);

@@ -189,6 +189,55 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestPgQueueRejectsDuplicateRunExecute(t *testing.T) {
+	fixture := newQueueFixture(t, 25)
+	queue := fixture.queue
+
+	accountID := uuid.New()
+	runID := uuid.New()
+
+	jobID, err := queue.EnqueueRun(
+		context.Background(),
+		accountID,
+		runID,
+		"0123456789abcdef0123456789abcdef",
+		RunExecuteJobType,
+		map[string]any{"note": "first"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("first enqueue failed: %v", err)
+	}
+	if jobID == uuid.Nil {
+		t.Fatal("expected non-nil job id")
+	}
+
+	_, err = queue.EnqueueRun(
+		context.Background(),
+		accountID,
+		runID,
+		"fedcba9876543210fedcba9876543210",
+		RunExecuteJobType,
+		map[string]any{"note": "second"},
+		nil,
+	)
+	if !errors.Is(err, ErrRunExecuteAlreadyQueued) {
+		t.Fatalf("expected ErrRunExecuteAlreadyQueued, got %v", err)
+	}
+
+	var count int
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`SELECT COUNT(*) FROM jobs WHERE payload_json->>'run_id' = $1`,
+		runID.String(),
+	).Scan(&count); err != nil {
+		t.Fatalf("count jobs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one persisted job, got %d", count)
+	}
+}
+
 func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue
@@ -233,6 +282,9 @@ func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 	if leaseGo.JobID != goJobID || leaseGo.JobType != otherJobType {
 		t.Fatalf("unexpected go lease: %+v", leaseGo)
 	}
+	if leaseGo.PayloadJSON["type"] != otherJobType {
+		t.Fatalf("unexpected payload type for other job: %#v", leaseGo.PayloadJSON["type"])
+	}
 	if err := queue.Ack(context.Background(), *leaseGo); err != nil {
 		t.Fatalf("ack go job failed: %v", err)
 	}
@@ -246,6 +298,9 @@ func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 	}
 	if leasePython.JobID != pythonJobID || leasePython.JobType != RunExecuteJobType {
 		t.Fatalf("unexpected python lease: %+v", leasePython)
+	}
+	if leasePython.PayloadJSON["type"] != RunExecuteJobType {
+		t.Fatalf("unexpected payload type for run.execute job: %#v", leasePython.PayloadJSON["type"])
 	}
 	if err := queue.Ack(context.Background(), *leasePython); err != nil {
 		t.Fatalf("ack python job failed: %v", err)

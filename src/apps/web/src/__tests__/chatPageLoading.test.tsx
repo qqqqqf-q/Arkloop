@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState, forwardRef, useImperativeHandle, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -111,28 +111,33 @@ vi.mock('../storage', async () => {
 })
 
 vi.mock('../components/ChatInput', () => ({
-  ChatInput: ({
-    value,
-    onChange,
+  ChatInput: forwardRef(({
     onSubmit,
     isStreaming,
     canCancel,
     onCancel,
     cancelSubmitting,
   }: {
-    value: string
-    onChange: (value: string) => void
     onSubmit: (e: { preventDefault: () => void }, personaKey: string, modelOverride?: string) => void
     isStreaming?: boolean
     canCancel?: boolean
     onCancel?: () => void
     cancelSubmitting?: boolean
-  }) => (
+  }, ref: React.Ref<{ clear: () => void; setValue: (v: string) => void; getValue: () => string }>) => {
+    const [value, setValue] = useState('')
+    const valueRef = useRef(value)
+    valueRef.current = value
+    useImperativeHandle(ref, () => ({
+      clear: () => setValue(''),
+      setValue: (v: string) => setValue(v),
+      getValue: () => valueRef.current,
+    }))
+    return (
     <form onSubmit={(event) => onSubmit(event, 'default')}>
       <input
         aria-label="chat-input"
         value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => setValue(event.target.value)}
         />
         <button type="submit">send</button>
         {isStreaming && canCancel && (
@@ -143,7 +148,8 @@ vi.mock('../components/ChatInput', () => ({
         <div>{isStreaming ? 'streaming' : 'idle'}</div>
         <div>{cancelSubmitting ? 'canceling' : 'ready'}</div>
       </form>
-    ),
+    )
+  }),
 }))
 
 vi.mock('../components/MessageBubble', () => ({
@@ -329,6 +335,7 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
     sidebarHiddenByWidth: false,
     rightPanelOpen: false,
     isSearchMode: false,
+    searchOverlayOpen: false,
     settingsOpen: false,
     settingsInitialTab: 'account',
     desktopSettingsSection: 'general',
@@ -341,6 +348,8 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
     setRightPanelOpen: context.onRightPanelChange,
     enterSearchMode: () => {},
     exitSearchMode: () => {},
+    openSearchOverlay: () => {},
+    closeSearchOverlay: () => {},
     openSettings: () => {},
     closeSettings: () => {},
     openNotifications: context.onOpenNotifications,
@@ -3118,7 +3127,7 @@ describe('ChatPage loading state', () => {
     })
 
     expect(mockedCreateMessage).toHaveBeenCalled()
-    expect(mockedCreateRun).toHaveBeenCalledWith('token', 'thread-1', 'default', undefined, undefined)
+    expect(mockedCreateRun).toHaveBeenCalledWith('token', 'thread-1', 'default', undefined, undefined, undefined)
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
 
     act(() => {

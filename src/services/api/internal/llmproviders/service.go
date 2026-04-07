@@ -20,15 +20,24 @@ type Provider struct {
 	Models     []data.LlmRoute
 }
 
+type ProviderModelTestConfig struct {
+	Credential data.LlmCredential
+	Model      data.LlmRoute
+	APIKey     string
+}
+
 type AvailableModel struct {
-	ID               string
-	Name             string
-	Configured       bool
-	Type             string // "chat", "embedding", "moderation", "image", "audio", "other"
-	ContextLength    *int
-	MaxOutputTokens  *int
-	InputModalities  []string // e.g. ["text","image"]
-	OutputModalities []string // e.g. ["text"] or ["embedding"]
+	ID                 string
+	Name               string
+	Configured         bool
+	Type               string // "chat", "embedding", "moderation", "image", "audio", "other"
+	ContextLength      *int
+	MaxOutputTokens    *int
+	InputModalities    []string // e.g. ["text","image"]
+	OutputModalities   []string // e.g. ["text"] or ["embedding"]
+	ToolCalling        *bool
+	Reasoning          *bool
+	DefaultTemperature *float64
 }
 
 type CreateProviderInput struct {
@@ -630,6 +639,42 @@ func (s *Service) ListAvailableModels(ctx context.Context, accountID, providerID
 	return models, nil
 }
 
+func (s *Service) ResolveModelTestConfig(ctx context.Context, accountID, providerID, modelID uuid.UUID, scope string, userID *uuid.UUID) (ProviderModelTestConfig, error) {
+	if err := s.requireSecretReady(); err != nil {
+		return ProviderModelTestConfig{}, err
+	}
+	ownerKind, ownerUserID := credentialOwner(scope, userID)
+	provider, err := s.credentials.GetByID(ctx, ownerKind, ownerUserID, providerID)
+	if err != nil {
+		return ProviderModelTestConfig{}, err
+	}
+	if provider == nil {
+		return ProviderModelTestConfig{}, ProviderNotFoundError{ID: providerID}
+	}
+	if provider.SecretID == nil {
+		return ProviderModelTestConfig{}, ProviderSecretMissingError{ProviderID: providerID}
+	}
+	apiKey, err := s.secrets.DecryptByID(ctx, *provider.SecretID)
+	if err != nil {
+		return ProviderModelTestConfig{}, err
+	}
+	if apiKey == nil || strings.TrimSpace(*apiKey) == "" {
+		return ProviderModelTestConfig{}, ProviderSecretMissingError{ProviderID: providerID}
+	}
+	model, err := s.routes.GetByID(ctx, accountID, modelID, scope)
+	if err != nil {
+		return ProviderModelTestConfig{}, err
+	}
+	if model == nil || model.CredentialID != providerID {
+		return ProviderModelTestConfig{}, ModelNotFoundError{ID: modelID}
+	}
+	return ProviderModelTestConfig{
+		Credential: *provider,
+		Model:      *model,
+		APIKey:     strings.TrimSpace(*apiKey),
+	}, nil
+}
+
 func (s *Service) requireListReady() error {
 	if s.credentials == nil || s.routes == nil {
 		return ErrNotConfigured
@@ -639,6 +684,13 @@ func (s *Service) requireListReady() error {
 
 func (s *Service) requireWriteReady() error {
 	if s.pool == nil || s.credentials == nil || s.routes == nil || s.secrets == nil || s.projects == nil {
+		return ErrNotConfigured
+	}
+	return nil
+}
+
+func (s *Service) requireSecretReady() error {
+	if s.credentials == nil || s.routes == nil || s.secrets == nil {
 		return ErrNotConfigured
 	}
 	return nil

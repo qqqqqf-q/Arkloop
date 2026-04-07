@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Glasses } from 'lucide-react'
-import { ChatInput, type Attachment } from './ChatInput'
+import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
@@ -115,7 +115,7 @@ export function WelcomePage() {
   const { pendingSkillPrompt, consumeSkillPrompt } = useSkillPromptUI()
   const { refreshCredits } = useCredits()
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
-  const [draft, setDraft] = useState('')
+  const chatInputRef = useRef<ChatInputHandle>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
   const [sending, setSending] = useState(false)
@@ -135,7 +135,7 @@ export function WelcomePage() {
 
   useEffect(() => {
     if (pendingSkillPrompt) {
-      setDraft(pendingSkillPrompt)
+      chatInputRef.current?.setValue(pendingSkillPrompt)
       consumeSkillPrompt()
     }
   }, [pendingSkillPrompt, consumeSkillPrompt])
@@ -259,7 +259,7 @@ export function WelcomePage() {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
     e.preventDefault()
-    const text = draft.trim()
+    const text = (chatInputRef.current?.getValue() ?? '').trim()
     if ((!text && attachments.length === 0) || sending) return
 
     setSending(true)
@@ -279,7 +279,7 @@ export function WelcomePage() {
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)
       attachments.forEach((attachment) => revokeDraftAttachment(attachment))
-      setDraft('')
+      chatInputRef.current?.clear()
       setAttachments([])
       refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
@@ -384,8 +384,7 @@ export function WelcomePage() {
 
         <div className="w-full max-w-[675px]">
           <ChatInput
-            value={draft}
-            onChange={setDraft}
+            ref={chatInputRef}
             onSubmit={handleSubmit}
             placeholder={isSearchMode ? '今天有什么想搜索的吗？' : t.chatPlaceholder}
             disabled={sending}

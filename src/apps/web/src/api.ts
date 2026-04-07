@@ -819,8 +819,9 @@ export async function createRun(
   personaId?: string,
   modelOverride?: string,
   workDir?: string,
+  reasoningMode?: 'enabled' | 'disabled',
 ): Promise<CreateRunResponse> {
-  const hasBody = personaId || modelOverride || workDir
+  const hasBody = personaId || modelOverride || workDir || reasoningMode
   return await apiFetch<CreateRunResponse>(`/v1/threads/${threadId}/runs`, {
     method: 'POST',
     accessToken,
@@ -829,6 +830,7 @@ export async function createRun(
           ...(personaId ? { persona_id: personaId } : {}),
           ...(modelOverride ? { model: modelOverride } : {}),
           ...(workDir ? { work_dir: workDir } : {}),
+          ...(reasoningMode ? { reasoning_mode: reasoningMode } : {}),
         })
       : undefined,
   })
@@ -1481,8 +1483,17 @@ export type AvailableModel = {
   type?: string
   context_length?: number | null
   max_output_tokens?: number | null
+  tool_calling?: boolean | null
+  reasoning?: boolean | null
+  default_temperature?: number | null
   input_modalities?: string[]
   output_modalities?: string[]
+}
+
+export type TestLlmProviderModelResponse = {
+  success: boolean
+  latency_ms?: number | null
+  error?: string
 }
 
 const BYOK_SCOPE = 'user'
@@ -1585,6 +1596,20 @@ export async function listAvailableModels(
     withScope(`/v1/llm-providers/${providerId}/available-models`, BYOK_SCOPE),
     {
       method: 'GET',
+      accessToken,
+    },
+  )
+}
+
+export async function testLlmProviderModel(
+  accessToken: string,
+  providerId: string,
+  modelId: string,
+): Promise<TestLlmProviderModelResponse> {
+  return await apiFetch<TestLlmProviderModelResponse>(
+    withScope(`/v1/llm-providers/${providerId}/models/${modelId}/test`, BYOK_SCOPE),
+    {
+      method: 'POST',
       accessToken,
     },
   )
@@ -1711,6 +1736,10 @@ export type ResolveOpenVikingConfigResponse = {
   rerank?: ResolvedOpenVikingModel
 }
 
+export type AccountSettingsResponse = {
+  pipeline_trace_enabled: boolean
+}
+
 export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
   return apiFetch<SpawnProfile[]>('/v1/accounts/me/spawn-profiles', { accessToken })
 }
@@ -1738,6 +1767,24 @@ export async function resolveOpenVikingConfig(
     method: 'POST',
     accessToken,
     body: JSON.stringify(req),
+  })
+}
+
+export async function getAccountSettings(accessToken: string): Promise<AccountSettingsResponse> {
+  return apiFetch<AccountSettingsResponse>('/v1/account/settings', {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export async function updateAccountSettings(
+  accessToken: string,
+  settings: AccountSettingsResponse,
+): Promise<AccountSettingsResponse> {
+  return apiFetch<AccountSettingsResponse>('/v1/account/settings', {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify(settings),
   })
 }
 

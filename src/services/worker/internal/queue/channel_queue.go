@@ -29,7 +29,8 @@ type channelJob struct {
 type ChannelJobQueue struct {
 	mu          sync.Mutex
 	jobs        map[uuid.UUID]*channelJob
-	order       []uuid.UUID // insertion order for deterministic iteration
+	order       []uuid.UUID             // insertion order for deterministic iteration
+	activeRuns  map[uuid.UUID]uuid.UUID // runID -> jobID, tracks non-terminal run.execute jobs
 	maxAttempts int
 	onEnqueue   func()
 }
@@ -40,6 +41,7 @@ func NewChannelJobQueue(maxAttempts int, onEnqueue func()) (*ChannelJobQueue, er
 	}
 	return &ChannelJobQueue{
 		jobs:        make(map[uuid.UUID]*channelJob),
+		activeRuns:  make(map[uuid.UUID]uuid.UUID),
 		maxAttempts: maxAttempts,
 		onEnqueue:   onEnqueue,
 	}, nil
@@ -54,11 +56,43 @@ func (q *ChannelJobQueue) EnqueueRun(
 	payload map[string]any,
 	availableAt *time.Time,
 ) (uuid.UUID, error) {
-	jobID := uuid.New()
+	return q.enqueueRunWithID(ctx, uuid.Nil, accountID, runID, traceID, queueJobType, payload, availableAt)
+}
+
+func (q *ChannelJobQueue) EnqueueRunWithID(
+	ctx context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	availableAt *time.Time,
+) (uuid.UUID, error) {
+	return q.enqueueRunWithID(ctx, jobID, accountID, runID, traceID, queueJobType, payload, availableAt)
+}
+
+func (q *ChannelJobQueue) enqueueRunWithID(
+	ctx context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	availableAt *time.Time,
+) (uuid.UUID, error) {
+	if jobID == uuid.Nil {
+		jobID = uuid.New()
+	}
 
 	chosenTraceID := normalizeTraceID(traceID)
 	if chosenTraceID == "" {
 		chosenTraceID = strings.ReplaceAll(uuid.New().String(), "-", "")
+	}
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
 	}
 
 	payloadCopy := map[string]any{}
@@ -69,7 +103,7 @@ func (q *ChannelJobQueue) EnqueueRun(
 	payloadJSON := map[string]any{
 		"v":          JobPayloadVersionV1,
 		"job_id":     jobID.String(),
-		"type":       RunExecuteJobType,
+		"type":       chosenJobType,
 		"trace_id":   chosenTraceID,
 		"account_id": accountID.String(),
 		"run_id":     runID.String(),
@@ -85,11 +119,6 @@ func (q *ChannelJobQueue) EnqueueRun(
 	var roundTripped map[string]any
 	if err := json.Unmarshal(encoded, &roundTripped); err != nil {
 		return uuid.Nil, err
-	}
-
-	chosenJobType := strings.TrimSpace(queueJobType)
-	if chosenJobType == "" {
-		chosenJobType = RunExecuteJobType
 	}
 
 	now := time.Now()
@@ -109,6 +138,16 @@ func (q *ChannelJobQueue) EnqueueRun(
 	}
 
 	q.mu.Lock()
+	if chosenJobType == RunExecuteJobType {
+		if existingJobID, dup := q.activeRuns[runID]; dup {
+			if existing, ok := q.jobs[existingJobID]; ok && existing.status != JobStatusDone && existing.status != JobStatusDead {
+				q.mu.Unlock()
+				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+			}
+			delete(q.activeRuns, runID)
+		}
+		q.activeRuns[runID] = jobID
+	}
 	q.jobs[jobID] = job
 	q.order = append(q.order, jobID)
 	if len(q.jobs) > defaultPruneThreshold {
@@ -121,6 +160,25 @@ func (q *ChannelJobQueue) EnqueueRun(
 	}
 
 	return jobID, nil
+}
+
+func (q *ChannelJobQueue) HasActiveRun(_ context.Context, runID uuid.UUID, queueJobType string) (bool, error) {
+	if runID == uuid.Nil || strings.TrimSpace(queueJobType) != RunExecuteJobType {
+		return false, nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	jobID, ok := q.activeRuns[runID]
+	if !ok {
+		return false, nil
+	}
+	job, ok := q.jobs[jobID]
+	if !ok || job == nil || job.status == JobStatusDone || job.status == JobStatusDead {
+		delete(q.activeRuns, runID)
+		return false, nil
+	}
+	return true, nil
 }
 
 func (q *ChannelJobQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {
@@ -177,6 +235,7 @@ func (q *ChannelJobQueue) Ack(ctx context.Context, lease JobLease) error {
 	job.status = JobStatusDone
 	job.leasedUntil = time.Time{}
 	job.leaseToken = uuid.Nil
+	q.removeActiveRunLocked(lease.JobID, job)
 	return nil
 }
 
@@ -193,6 +252,7 @@ func (q *ChannelJobQueue) Nack(ctx context.Context, lease JobLease, delaySeconds
 		job.status = JobStatusDead
 		job.leasedUntil = time.Time{}
 		job.leaseToken = uuid.Nil
+		q.removeActiveRunLocked(lease.JobID, job)
 		return nil
 	}
 
@@ -236,9 +296,6 @@ func (q *ChannelJobQueue) tryLeaseOne(leaseSeconds int, jobTypes []string) *JobL
 
 		eligible := false
 		if job.status == JobStatusQueued && !job.availableAt.After(now) {
-			eligible = true
-		}
-		if job.status == JobStatusLeased && !job.leasedUntil.IsZero() && !job.leasedUntil.After(now) {
 			eligible = true
 		}
 		if !eligible {
@@ -295,9 +352,6 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 		if job.status == JobStatusQueued && !job.availableAt.After(now) {
 			eligible = true
 		}
-		if job.status == JobStatusLeased && !job.leasedUntil.IsZero() && !job.leasedUntil.After(now) {
-			eligible = true
-		}
 		if !eligible {
 			continue
 		}
@@ -305,6 +359,7 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 		job.status = JobStatusDead
 		job.leasedUntil = time.Time{}
 		job.leaseToken = uuid.Nil
+		q.removeActiveRunLocked(id, job)
 		return true
 	}
 
@@ -392,12 +447,30 @@ func (q *ChannelJobQueue) pruneTerminalJobsLocked() {
 	for _, id := range q.order {
 		job := q.jobs[id]
 		if job.status == JobStatusDone || job.status == JobStatusDead {
+			q.removeActiveRunLocked(id, job)
 			delete(q.jobs, id)
 			continue
 		}
 		alive = append(alive, id)
 	}
 	q.order = alive
+}
+
+func (q *ChannelJobQueue) removeActiveRunLocked(jobID uuid.UUID, job *channelJob) {
+	if job == nil || job.payloadJSON == nil {
+		return
+	}
+	runIDStr, _ := job.payloadJSON["run_id"].(string)
+	if runIDStr == "" {
+		return
+	}
+	runID, err := uuid.Parse(runIDStr)
+	if err != nil {
+		return
+	}
+	if current, ok := q.activeRuns[runID]; ok && current == jobID {
+		delete(q.activeRuns, runID)
+	}
 }
 
 // jobBefore returns true when a should be leased before b (available_at ASC,

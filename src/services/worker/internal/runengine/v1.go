@@ -261,6 +261,12 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	if directPool == nil {
 		directPool = pool
 	}
+	var tracer pipeline.Tracer
+	if enabled, traceErr := data.NewAccountSettingsRepository(pool).PipelineTraceEnabled(ctx, run.AccountID); traceErr != nil {
+		slog.WarnContext(ctx, "pipeline trace setting load failed", "account_id", run.AccountID.String(), "err", traceErr.Error())
+	} else if enabled {
+		tracer = pipeline.NewBufTracer(run.ID, run.AccountID, data.NewRunPipelineEventsRepository(pool))
+	}
 	rc := &pipeline.RunContext{
 		Run:                 run,
 		DB:                  pool,
@@ -271,6 +277,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		DirectPool:          directPool,
 		BroadcastRDB:        e.broadcastRDB,
 		TraceID:             traceID,
+		Tracer:              tracer,
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
 		Runtime:             &runtimeSnapshot,
@@ -360,6 +367,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		})
 	}
 	defer rc.ReleaseSlot()
+	defer pipeline.FlushTracer(rc.Tracer)
 
 	handler := pipeline.Build(e.middlewares, e.terminal)
 	err = handler(ctx, rc)
@@ -534,6 +542,15 @@ func buildCapabilityLayer(
 	promptInjection securitycap.Runtime,
 	eventsRepo data.RunEventsRepository,
 ) []pipeline.RunMiddleware {
+	memoryMW := pipeline.NewMemoryMiddleware(
+		nil,
+		pipeline.NewPgxMemorySnapshotStore(deps.DBPool),
+		deps.DBPool,
+		deps.ConfigResolver,
+		pipeline.NewPgxImpressionStore(deps.DBPool),
+		newPgxImpressionRefresh(deps),
+	)
+	notebookMW := pipeline.NewNotebookInjectionMiddleware(deps.DBPool)
 	mws := []pipeline.RunMiddleware{
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{
@@ -542,12 +559,37 @@ func buildCapabilityLayer(
 			},
 			ExternalDirs: serviceExternalSkillDirs,
 		}),
-		pipeline.NewMemoryMiddleware(nil, pipeline.NewPgxMemorySnapshotStore(deps.DBPool), deps.DBPool, deps.ConfigResolver, pipeline.NewPgxImpressionStore(deps.DBPool), newPgxImpressionRefresh(deps)),
-		pipeline.NewNotebookInjectionMiddleware(deps.DBPool),
+		traceMemoryInjectionMiddleware(func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+			return notebookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
+				return memoryMW(ctx, rc, next)
+			})
+		}),
 		pipeline.NewRuntimeContextMiddleware(),
 	}
 	mws = append(mws, promptInjection.Middlewares(eventsRepo)...)
 	return mws
+}
+
+func traceMemoryInjectionMiddleware(inner pipeline.RunMiddleware) pipeline.RunMiddleware {
+	if inner == nil {
+		return nil
+	}
+	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+		before := rc.SystemPrompt
+		err := inner(ctx, rc, next)
+		if rc != nil && rc.Tracer != nil {
+			delta := rc.SystemPrompt
+			if strings.HasPrefix(delta, before) {
+				delta = delta[len(before):]
+			}
+			rc.Tracer.Event("memory_injection", "memory_injection.completed", map[string]any{
+				"memory_injected":   strings.Contains(delta, "<memory>"),
+				"notebook_injected": strings.Contains(delta, "<notebook>"),
+				"injection_len":     len(delta),
+			})
+		}
+		return err
+	}
 }
 
 func buildRoutingLayer(

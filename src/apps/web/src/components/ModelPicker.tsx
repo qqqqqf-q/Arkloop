@@ -1,8 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
+import { PillToggle } from '@arkloop/shared'
 import { listLlmProviders, type LlmProvider } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { isDesktop } from '@arkloop/shared/desktop'
+import { getAvailableCatalogFromAdvancedJson } from '@arkloop/shared/llm/available-catalog-advanced-json'
 
 // 模块级缓存：accessToken -> providers，打开时先展示缓存，后台静默刷新
 const providersCache = new Map<string, LlmProvider[]>()
@@ -24,9 +26,11 @@ type Props = {
   onChange: (model: string | null) => void
   onAddApiKey: () => void
   variant?: 'welcome' | 'chat'
+  thinkingEnabled: boolean
+  onThinkingChange: (v: boolean) => void
 }
 
-export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant = 'chat' }: Props) {
+export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant = 'chat', thinkingEnabled, onThinkingChange }: Props) {
   const { t } = useLocale()
   const mp = t.modelPicker
   const desktopShell = isDesktop()
@@ -96,7 +100,8 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
   const displayLabel = (() => {
     if (value) {
       const parts = value.split('^')
-      return parts[parts.length - 1]
+      const modelName = parts[parts.length - 1]
+      return thinkingEnabled ? `${modelName} ${mp.thinking}` : modelName
     }
     if (desktopShell) {
       if (anyPickerModel) return '…'
@@ -119,7 +124,22 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
     }))
     .filter((p) => p.models.length > 0)
 
-  const hasModels = visibleProviders.length > 0
+  const selectedProviderName = value ? value.split('^')[0] : null
+  const selectedModelId = value ? value.split('^').slice(1).join('^') : null
+
+  const sortedProviders = selectedProviderName
+    ? [
+        ...visibleProviders.filter(p => p.name === selectedProviderName).map(p => ({
+          ...p,
+          models: selectedModelId
+            ? [...p.models.filter(m => m.model === selectedModelId), ...p.models.filter(m => m.model !== selectedModelId)]
+            : p.models,
+        })),
+        ...visibleProviders.filter(p => p.name !== selectedProviderName),
+      ]
+    : visibleProviders
+
+  const hasModels = sortedProviders.length > 0
 
   const showWebDefaultRow = !desktopShell
 
@@ -149,7 +169,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
           transition: 'background-color 120ms ease, color 120ms ease, opacity 120ms ease',
         }}
       >
-        <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', paddingLeft: '1px' }}>
+        <span style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', paddingLeft: '1px' }}>
           {displayLabel}
         </span>
         <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
@@ -229,7 +249,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
                   <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                  {visibleProviders.map((provider) => (
+                  {sortedProviders.map((provider) => (
                     <div key={provider.id}>
                       <div
                         style={{
@@ -246,6 +266,57 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
                       {provider.models.map((m) => {
                         const combo = `${provider.name}^${m.model}`
                         const isSelected = value === combo
+                        const supportsReasoning = getAvailableCatalogFromAdvancedJson(m.advanced_json)?.reasoning === true
+                        const showThinkingRow = isSelected && supportsReasoning
+
+                        if (showThinkingRow) {
+                          return (
+                            <div
+                              key={combo}
+                              className="overflow-hidden rounded-lg"
+                              style={{
+                                background: 'var(--c-model-selected-bg)',
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleSelect(combo)}
+                                className="flex w-full items-center rounded-lg px-3 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
+                                style={{
+                                  color: 'var(--c-text-primary)',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    flex: 1,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    textAlign: 'left',
+                                  }}
+                                >
+                                  {m.model}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onThinkingChange(!thinkingEnabled)}
+                                className="flex w-full items-center justify-between rounded-lg pl-3 pr-2 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
+                                style={{
+                                  color: 'var(--c-text-secondary)',
+                                  fontWeight: 400,
+                                }}
+                              >
+                                <span>{mp.thinking}</span>
+                                <span onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none', lineHeight: 0 }}>
+                                  <PillToggle checked={thinkingEnabled} onChange={onThinkingChange} size="sm" />
+                                </span>
+                              </button>
+                            </div>
+                          )
+                        }
+
                         return (
                           <button
                             key={combo}

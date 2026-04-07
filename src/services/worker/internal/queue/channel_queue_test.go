@@ -280,6 +280,9 @@ func TestChannelQueueLeaseCanFilterByJobType(t *testing.T) {
 	if leaseGo.JobID != goJobID || leaseGo.JobType != otherJobType {
 		t.Fatalf("unexpected go lease: %+v", leaseGo)
 	}
+	if leaseGo.PayloadJSON["type"] != otherJobType {
+		t.Fatalf("unexpected payload type for other job: %#v", leaseGo.PayloadJSON["type"])
+	}
 	if err := q.Ack(ctx, *leaseGo); err != nil {
 		t.Fatalf("ack go job failed: %v", err)
 	}
@@ -294,6 +297,9 @@ func TestChannelQueueLeaseCanFilterByJobType(t *testing.T) {
 	}
 	if leasePython.JobID != pythonJobID || leasePython.JobType != RunExecuteJobType {
 		t.Fatalf("unexpected python lease: %+v", leasePython)
+	}
+	if leasePython.PayloadJSON["type"] != RunExecuteJobType {
+		t.Fatalf("unexpected payload type for run.execute job: %#v", leasePython.PayloadJSON["type"])
 	}
 	if err := q.Ack(ctx, *leasePython); err != nil {
 		t.Fatalf("ack python job failed: %v", err)
@@ -475,7 +481,7 @@ func TestChannelQueueDelayedJob(t *testing.T) {
 	}
 }
 
-func TestChannelQueueExpiredLeaseCanBeReclaimed(t *testing.T) {
+func TestChannelQueueExpiredLeaseNotReclaimed(t *testing.T) {
 	q := newChannelQueue(t, 5)
 	ctx := context.Background()
 
@@ -495,22 +501,19 @@ func TestChannelQueueExpiredLeaseCanBeReclaimed(t *testing.T) {
 		t.Fatal("expected lease but got nil")
 	}
 
-	// Manipulate the internal leasedUntil to simulate expiration
+	// Simulate lease expiration by manipulating internal state
 	q.mu.Lock()
 	job := q.jobs[lease.JobID]
 	job.leasedUntil = time.Now().Add(-1 * time.Second)
 	q.mu.Unlock()
 
-	// Another lease should succeed because the previous lease expired
+	// Expired leased job should NOT be re-leased in single-process mode
 	lease2, err := q.Lease(ctx, 60, []string{RunExecuteJobType})
 	if err != nil {
-		t.Fatalf("second lease failed: %v", err)
+		t.Fatalf("second lease call failed: %v", err)
 	}
-	if lease2 == nil {
-		t.Fatal("expected lease after expiration but got nil")
-	}
-	if lease2.Attempts != 2 {
-		t.Fatalf("expected attempts 2 after reclaim, got %d", lease2.Attempts)
+	if lease2 != nil {
+		t.Fatal("expected nil lease for expired leased job, but got a lease")
 	}
 }
 
@@ -526,18 +529,24 @@ func TestChannelQueueOnEnqueueCallback(t *testing.T) {
 	runID := uuid.New()
 
 	for i := 0; i < 3; i++ {
-		_, err := q.EnqueueRun(ctx, accountID, runID, "0123456789abcdef0123456789abcdef", RunExecuteJobType, map[string]any{"i": i}, nil)
-		if err != nil {
+		jobID, err := q.EnqueueRun(ctx, accountID, runID, "0123456789abcdef0123456789abcdef", RunExecuteJobType, map[string]any{"i": i}, nil)
+		if i == 0 && err != nil {
 			t.Fatalf("enqueue #%d failed: %v", i, err)
+		}
+		if i == 0 && jobID == uuid.Nil {
+			t.Fatalf("enqueue #%d returned nil job id", i)
+		}
+		if i > 0 && !errors.Is(err, ErrRunExecuteAlreadyQueued) {
+			t.Fatalf("enqueue #%d expected ErrRunExecuteAlreadyQueued, got %v", i, err)
 		}
 	}
 
-	if got := callCount.Load(); got != 3 {
-		t.Fatalf("expected onEnqueue to be called 3 times, got %d", got)
+	if got := callCount.Load(); got != 1 {
+		t.Fatalf("expected onEnqueue to be called 1 time, got %d", got)
 	}
 }
 
-func TestChannelQueueAllowsMultipleJobsForSameRun(t *testing.T) {
+func TestChannelQueueRejectsDuplicateRunExecute(t *testing.T) {
 	q := newChannelQueue(t, 5)
 	ctx := context.Background()
 
@@ -548,31 +557,20 @@ func TestChannelQueueAllowsMultipleJobsForSameRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first enqueue failed: %v", err)
 	}
-	jobID2, err := q.EnqueueRun(ctx, accountID, runID, "fedcba9876543210fedcba9876543210", RunExecuteJobType, map[string]any{"i": 2}, nil)
-	if err != nil {
-		t.Fatalf("second enqueue failed: %v", err)
+	_, err = q.EnqueueRun(ctx, accountID, runID, "fedcba9876543210fedcba9876543210", RunExecuteJobType, map[string]any{"i": 2}, nil)
+	if !errors.Is(err, ErrRunExecuteAlreadyQueued) {
+		t.Fatalf("expected ErrRunExecuteAlreadyQueued, got %v", err)
 	}
 
-	if jobID1 == jobID2 {
-		t.Fatalf("expected distinct job ids for repeated enqueue, got %s", jobID1)
-	}
-
-	lease1, err := q.Lease(ctx, 60, []string{RunExecuteJobType})
+	lease, err := q.Lease(ctx, 60, []string{RunExecuteJobType})
 	if err != nil {
-		t.Fatalf("first lease failed: %v", err)
+		t.Fatalf("lease failed: %v", err)
 	}
-	if lease1 == nil {
-		t.Fatal("expected first lease but got nil")
+	if lease == nil {
+		t.Fatal("expected lease but got nil")
 	}
-	lease2, err := q.Lease(ctx, 60, []string{RunExecuteJobType})
-	if err != nil {
-		t.Fatalf("second lease failed: %v", err)
-	}
-	if lease2 == nil {
-		t.Fatal("expected second lease but got nil")
-	}
-	if lease1.JobID == lease2.JobID {
-		t.Fatalf("expected two different queued jobs, got duplicated lease %s", lease1.JobID)
+	if lease.JobID != jobID1 {
+		t.Fatalf("expected original job id %s, got %s", jobID1, lease.JobID)
 	}
 }
 

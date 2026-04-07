@@ -1,4 +1,5 @@
 import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { useLocale } from '../contexts/LocaleContext'
 
 function formatSize(bytes: number): string {
@@ -22,7 +23,7 @@ export function PastedContentModal({ text, size, lineCount, onClose, title, subt
   const displayTitle = title ?? t.pastedContent
   const displaySubtitle = subtitle ?? `${formatSize(size)} · ${t.pastedLines(lineCount)}`
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-[2px]"
       style={{ background: 'var(--c-overlay)' }}
@@ -111,6 +112,7 @@ export function PastedContentModal({ text, size, lineCount, onClose, title, subt
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

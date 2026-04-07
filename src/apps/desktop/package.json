@@ -7,7 +7,7 @@
   "homepage": "https://github.com/qqqqqf-q/Arkloop",
   "author": {
     "name": "Arkloop",
-    "email": "security@arkloop.ai"
+    "email": "security@arkloop.cn"
   },
   "packageManager": "pnpm@10.29.3",
   "main": "dist/main/index.js",

@@ -6,8 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
+	"net/url"
 	"strings"
+	"time"
 
 	nethttp "net/http"
 
@@ -82,14 +86,24 @@ type llmProviderAvailableModelsResponse struct {
 }
 
 type llmProviderAvailableModel struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Configured       bool     `json:"configured"`
-	Type             string   `json:"type,omitempty"`
-	ContextLength    *int     `json:"context_length,omitempty"`
-	MaxOutputTokens  *int     `json:"max_output_tokens,omitempty"`
-	InputModalities  []string `json:"input_modalities,omitempty"`
-	OutputModalities []string `json:"output_modalities,omitempty"`
+	ID                 string   `json:"id"`
+	Name               string   `json:"name"`
+	Configured         bool     `json:"configured"`
+	Type               string   `json:"type,omitempty"`
+	ContextLength      *int     `json:"context_length,omitempty"`
+	MaxOutputTokens    *int     `json:"max_output_tokens,omitempty"`
+	InputModalities    []string `json:"input_modalities,omitempty"`
+	OutputModalities   []string `json:"output_modalities,omitempty"`
+	ToolCalling        *bool    `json:"tool_calling,omitempty"`
+	Reasoning          *bool    `json:"reasoning,omitempty"`
+	DefaultTemperature *float64 `json:"default_temperature,omitempty"`
+}
+
+type llmProviderModelTestResponse struct {
+	Success   bool   `json:"success"`
+	ModelID   string `json:"model_id"`
+	LatencyMS int64  `json:"latency_ms"`
+	Error     string `json:"error,omitempty"`
 }
 
 var validLlmProviders = map[string]bool{
@@ -192,6 +206,17 @@ func llmProviderEntry(
 			default:
 				httpkit.WriteMethodNotAllowed(w, r)
 			}
+		case len(parts) == 4 && parts[1] == "models" && parts[3] == "test":
+			if r.Method != nethttp.MethodPost {
+				httpkit.WriteMethodNotAllowed(w, r)
+				return
+			}
+			modelID, err := uuid.Parse(parts[2])
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid model id", traceID, nil)
+				return
+			}
+			testLlmProviderModel(w, r, traceID, providerID, modelID, authService, membershipRepo, service)
 		default:
 			httpkit.WriteNotFound(w, r)
 		}
@@ -732,17 +757,258 @@ func listLlmProviderAvailableModels(
 	resp := llmProviderAvailableModelsResponse{Models: make([]llmProviderAvailableModel, 0, len(models))}
 	for _, model := range models {
 		resp.Models = append(resp.Models, llmProviderAvailableModel{
-			ID:               model.ID,
-			Name:             model.Name,
-			Configured:       model.Configured,
-			Type:             model.Type,
-			ContextLength:    model.ContextLength,
-			MaxOutputTokens:  model.MaxOutputTokens,
-			InputModalities:  model.InputModalities,
-			OutputModalities: model.OutputModalities,
+			ID:                 model.ID,
+			Name:               model.Name,
+			Configured:         model.Configured,
+			Type:               model.Type,
+			ContextLength:      model.ContextLength,
+			MaxOutputTokens:    model.MaxOutputTokens,
+			InputModalities:    model.InputModalities,
+			OutputModalities:   model.OutputModalities,
+			ToolCalling:        model.ToolCalling,
+			Reasoning:          model.Reasoning,
+			DefaultTemperature: model.DefaultTemperature,
 		})
 	}
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
+}
+
+func testLlmProviderModel(
+	w nethttp.ResponseWriter,
+	r *nethttp.Request,
+	traceID string,
+	providerID uuid.UUID,
+	modelID uuid.UUID,
+	authService *auth.Service,
+	membershipRepo *data.AccountMembershipRepository,
+	service *llmproviders.Service,
+) {
+	actor, ok := authenticateLLMProviderActor(w, r, traceID, authService, membershipRepo)
+	if !ok {
+		return
+	}
+	scope, ok := resolveLlmProviderScope(w, r, traceID, actor, nil)
+	if !ok {
+		return
+	}
+
+	cfg, err := service.ResolveModelTestConfig(r.Context(), actor.AccountID, providerID, modelID, scope, &actor.UserID)
+	if err != nil {
+		writeLlmProviderServiceError(r.Context(), w, traceID, err)
+		return
+	}
+
+	startedAt := time.Now()
+	err = runLlmProviderModelTest(r.Context(), cfg)
+	resp := llmProviderModelTestResponse{
+		Success:   err == nil,
+		ModelID:   cfg.Model.ID.String(),
+		LatencyMS: time.Since(startedAt).Milliseconds(),
+	}
+	if err != nil {
+		resp.Error = err.Error()
+	}
+	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
+}
+
+const testTimeout = 15 * time.Second
+
+func runLlmProviderModelTest(ctx context.Context, cfg llmproviders.ProviderModelTestConfig) error {
+	testCtx, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	protocolConfig, err := llmproviders.ResolveCatalogProtocolConfig(cfg.Credential, cfg.APIKey)
+	if err != nil {
+		return fmt.Errorf("resolve protocol config: %w", err)
+	}
+
+	baseURL := strings.TrimRight(protocolConfig.BaseURL, "/")
+	switch determineModelTestType(cfg.Model) {
+	case "embedding":
+		return testEmbeddingModel(testCtx, protocolConfig, baseURL, cfg.APIKey, cfg.Model.Model)
+	default:
+		return testChatModel(testCtx, protocolConfig, baseURL, cfg.APIKey, cfg.Model.Model)
+	}
+}
+
+func determineModelTestType(model data.LlmRoute) string {
+	for _, tag := range model.Tags {
+		if strings.EqualFold(strings.TrimSpace(tag), "embedding") {
+			return "embedding"
+		}
+	}
+	if rawCatalog, ok := model.AdvancedJSON[llmproviders.AvailableCatalogAdvancedKey].(map[string]any); ok {
+		if modelType, ok := rawCatalog["type"].(string); ok && strings.EqualFold(strings.TrimSpace(modelType), "embedding") {
+			return "embedding"
+		}
+	}
+	return "chat"
+}
+
+func testChatModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
+	switch cfg.Kind {
+	case llmproviders.ProtocolKindAnthropicMessages:
+		return testAnthropicChat(ctx, cfg, baseURL, apiKey, model)
+	case llmproviders.ProtocolKindGeminiGenerateContent:
+		return testGeminiChat(ctx, baseURL, apiKey, model)
+	case llmproviders.ProtocolKindOpenAIResponses:
+		return testOpenAIResponsesChat(ctx, baseURL, apiKey, model)
+	default:
+		return testOpenAIChat(ctx, baseURL, apiKey, model)
+	}
+}
+
+func testEmbeddingModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
+	switch cfg.Kind {
+	case llmproviders.ProtocolKindGeminiGenerateContent:
+		return testGeminiEmbedding(ctx, baseURL, apiKey, model)
+	default:
+		return testOpenAIEmbedding(ctx, baseURL, apiKey, model)
+	}
+}
+
+func testOpenAIChat(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+		"max_tokens": 32,
+	}
+	return doTestHTTPPost(ctx, baseURL+"/chat/completions", apiKey, "Bearer", payload)
+}
+
+func testOpenAIResponsesChat(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"model":             model,
+		"input":             "ping",
+		"max_output_tokens": 32,
+	}
+	return doTestHTTPPost(ctx, baseURL+"/responses", apiKey, "Bearer", payload)
+}
+
+func testOpenAIEmbedding(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"model": model,
+		"input": "ping",
+	}
+	return doTestHTTPPost(ctx, baseURL+"/embeddings", apiKey, "Bearer", payload)
+}
+
+func testAnthropicChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
+	if strings.HasSuffix(baseURL, "/v1") {
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
+	payload := map[string]any{
+		"model":      model,
+		"max_tokens": 32,
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", cfg.Anthropic.Version)
+	for key, value := range cfg.Anthropic.ExtraHeaders {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return doTestRequest(req)
+}
+
+func testGeminiChat(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"contents": []map[string]any{
+			{
+				"parts": []map[string]string{
+					{"text": "ping"},
+				},
+			},
+		},
+		"generationConfig": map[string]any{"maxOutputTokens": 32},
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, geminiTestEndpoint(baseURL, model, ":generateContent"), bytes.NewReader(mustJSON(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-goog-api-key", apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return doTestRequest(req)
+}
+
+func testGeminiEmbedding(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"content": map[string]any{
+			"parts": []map[string]string{
+				{"text": "ping"},
+			},
+		},
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, geminiTestEndpoint(baseURL, model, ":embedContent"), bytes.NewReader(mustJSON(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-goog-api-key", apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return doTestRequest(req)
+}
+
+func doTestHTTPPost(ctx context.Context, url, apiKey, authPrefix string, payload map[string]any) error {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", strings.TrimSpace(authPrefix)+" "+apiKey)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return doTestRequest(req)
+}
+
+func doTestRequest(req *nethttp.Request) error {
+	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(req.URL.String()); err != nil {
+		return err
+	}
+	resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(testTimeout).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if readErr != nil {
+		return readErr
+	}
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return fmt.Errorf("request failed: status=%s body=%s", resp.Status, strings.TrimSpace(string(body)))
+}
+
+func mustJSON(payload map[string]any) []byte {
+	body, _ := json.Marshal(payload)
+	return body
+}
+
+func geminiTestEndpoint(baseURL, model, suffix string) string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	escapedModel := url.PathEscape(strings.TrimSpace(model))
+	return base + "/models/" + escapedModel + suffix
 }
 
 func authenticateLLMProviderActor(

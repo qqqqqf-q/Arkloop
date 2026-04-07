@@ -168,6 +168,9 @@ func NewAgentLoopHandler(
 				rc.FinalAssistantOutput = writer.AssistantOutput()
 				rc.FinalAssistantOutputs = writer.AssistantOutputs()
 				rc.TelegramStreamDeliveryRemainder = writer.telegramStreamRemainder()
+				if writer.hasStreamedChunks() {
+					rc.FinalAssistantOutputs = writer.telegramUnsentOutputs()
+				}
 			}
 		}
 		rc.RunToolCallCount = writer.toolCallCount
@@ -226,7 +229,7 @@ type eventWriter struct {
 	totalCostUSD             float64
 
 	telegramToolBoundaryFlush func(context.Context, string) error
-	telegramFlushSentDeltas   int
+	telegramSentOutputCount   int
 	pendingReplyOverride      string
 
 	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
@@ -235,6 +238,7 @@ type eventWriter struct {
 	pendingEnqueueRunIDs []uuid.UUID
 
 	pendingToolCalls     []llm.ToolCall
+	pendingToolResults   []intermediateMessage
 	intermediateMessages []intermediateMessage
 }
 
@@ -301,14 +305,39 @@ func (w *eventWriter) telegramStreamRemainder() string {
 	if w.telegramToolBoundaryFlush == nil {
 		return ""
 	}
-	if w.telegramFlushSentDeltas >= len(w.assistantDeltas) {
+	unsent := w.assistantOutputs[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
 }
 
 func (w *eventWriter) hasStreamedChunks() bool {
-	return w.telegramToolBoundaryFlush != nil && w.telegramFlushSentDeltas > 0
+	return w.telegramToolBoundaryFlush != nil && w.telegramSentOutputCount > 0
+}
+
+func (w *eventWriter) pendingTelegramFlushChunk() string {
+	if w.telegramToolBoundaryFlush == nil {
+		return ""
+	}
+	unsent := w.assistantOutputs[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
+}
+
+func (w *eventWriter) telegramUnsentOutputs() []string {
+	if w.telegramSentOutputCount >= len(w.assistantOutputs) {
+		return nil
+	}
+	out := make([]string, 0, len(w.assistantOutputs)-w.telegramSentOutputCount)
+	for _, item := range w.assistantOutputs[w.telegramSentOutputCount:] {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func (w *eventWriter) insertStreamRemainder(
@@ -435,8 +464,10 @@ func (w *eventWriter) Append(
 		w.assistantMessage = &assistantMessage
 		w.assistantMessageFresh = true
 	}
+	flushChunk := ""
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
+		flushChunk = w.pendingTelegramFlushChunk()
 	}
 
 	if shouldAccumulateUsageForEvent(ev.Type) {
@@ -444,15 +475,7 @@ func (w *eventWriter) Append(
 	}
 
 	if ev.Type == "tool.call" {
-		if w.telegramToolBoundaryFlush != nil && len(w.assistantDeltas) > w.telegramFlushSentDeltas {
-			chunk := strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], "")
-			if trimmed := strings.TrimSpace(chunk); trimmed != "" {
-				if err := w.telegramToolBoundaryFlush(ctx, trimmed); err != nil {
-					return err
-				}
-			}
-			w.telegramFlushSentDeltas = len(w.assistantDeltas)
-		}
+		flushChunk = w.pendingTelegramFlushChunk()
 		w.captureReplyOverride(ev.DataJSON)
 		w.toolCallCount++
 		w.collectToolCall(ev.DataJSON)
@@ -521,7 +544,16 @@ func (w *eventWriter) Append(
 	}
 
 	if _, ok := streamingEventTypes[ev.Type]; !ok {
-		return w.commit(ctx)
+		if err := w.commit(ctx); err != nil {
+			return err
+		}
+		if flushChunk != "" && w.telegramToolBoundaryFlush != nil {
+			if err := w.telegramToolBoundaryFlush(ctx, flushChunk); err != nil {
+				return err
+			}
+			w.telegramSentOutputCount = len(w.assistantOutputs)
+		}
+		return nil
 	}
 
 	now := time.Now()
@@ -728,13 +760,36 @@ func (w *eventWriter) collectToolCall(dataJSON map[string]any) {
 
 func (w *eventWriter) flushPendingToolCalls() {
 	if len(w.pendingToolCalls) == 0 {
+		w.pendingToolResults = w.pendingToolResults[:0]
 		return
 	}
+
+	// 只保留已有对应 result 的 call，确保 tool_use/tool_result 配对写入
+	resolved := make(map[string]struct{}, len(w.pendingToolResults))
+	for _, r := range w.pendingToolResults {
+		resolved[r.ToolCallID] = struct{}{}
+	}
+	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
+	for _, call := range w.pendingToolCalls {
+		if _, ok := resolved[call.ToolCallID]; ok {
+			filteredCalls = append(filteredCalls, call)
+		}
+	}
+
+	w.pendingToolCalls = w.pendingToolCalls[:0]
+	results := w.pendingToolResults
+	w.pendingToolResults = w.pendingToolResults[:0]
+
+	if len(filteredCalls) == 0 {
+		// 所有 call 均无结果（suppressed 或未执行），不写入孤立消息
+		return
+	}
+
 	msg := w.assistantMessage
 	if msg == nil {
 		msg = &llm.Message{Role: "assistant"}
 	}
-	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, w.pendingToolCalls)
+	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, filteredCalls)
 	if err != nil {
 		return
 	}
@@ -743,11 +798,10 @@ func (w *eventWriter) flushPendingToolCalls() {
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
 	})
-	w.pendingToolCalls = w.pendingToolCalls[:0]
+	w.intermediateMessages = append(w.intermediateMessages, results...)
 }
 
 func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
-	w.flushPendingToolCalls()
 	envelope := map[string]any{
 		"tool_call_id": dataJSON["tool_call_id"],
 		"tool_name":    dataJSON["tool_name"],
@@ -763,7 +817,7 @@ func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
 		return
 	}
 	callID, _ := dataJSON["tool_call_id"].(string)
-	w.intermediateMessages = append(w.intermediateMessages, intermediateMessage{
+	w.pendingToolResults = append(w.pendingToolResults, intermediateMessage{
 		Role:       "tool",
 		Content:    string(raw),
 		ToolCallID: callID,

@@ -32,8 +32,16 @@ var datetimeNowAddRe = regexp.MustCompile(`datetime\('now'\)\s*\+\s*('[^']*')`)
 var forUpdateRe = regexp.MustCompile(`(?i)\s+FOR\s+(UPDATE|SHARE|NO\s+KEY\s+UPDATE|KEY\s+SHARE)(\s+SKIP\s+LOCKED|\s+NOWAIT)?`)
 
 // jsonbSetCreateMissingTrueRe rewrites PostgreSQL jsonb_set(target, path, value, true)
-// to SQLite json_set(target, path, value).
+// to SQLite json_set(target, path, value). The value parameter is then wrapped with
+// json() by jsonSetValueParamRe to ensure JSON-encoded strings are stored as the
+// correct JSON type rather than as SQL text.
 var jsonbSetCreateMissingTrueRe = regexp.MustCompile(`(?i)jsonb_set\((.*?),\s*(.*?),\s*(.*?),\s*true\s*\)`)
+
+// jsonSetValueParamRe wraps bare $N placeholders that appear as the third argument
+// of json_set() with json(), so JSON-encoded values (e.g. "true", "[1,2,3]") are
+// stored as their correct JSON types rather than as SQL text strings.
+// Matches the tail fragment: '$.key', $N) which is unambiguous in our usage.
+var jsonSetValueParamRe = regexp.MustCompile(`('\$\.[A-Za-z0-9_]+'\s*,\s*)(\$\d+)(\s*\))`)
 
 // pgJSONPathRe rewrites simple PostgreSQL json path literals like '{foo}'
 // to the SQLite form '$.foo'.
@@ -64,6 +72,9 @@ func rewriteSQL(sql string) string {
 
 	if strings.Contains(sql, "json_set(") {
 		sql = pgJSONPathRe.ReplaceAllString(sql, "'$$.$1'")
+		// Wrap bare $N value params with json() so JSON-encoded strings
+		// (e.g. "true", "false") are stored as proper JSON types, not SQL text.
+		sql = jsonSetValueParamRe.ReplaceAllString(sql, "${1}json($2)${3}")
 	}
 
 	if intervalRe.MatchString(sql) {

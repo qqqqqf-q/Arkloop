@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { DebugTrigger } from "@arkloop/shared";
 import {
   ChevronLeft,
   SlidersHorizontal,
@@ -47,6 +48,7 @@ import { DesktopPromptInjectionSettings } from "./settings/DesktopPromptInjectio
 import { VoiceSettings } from "./settings/VoiceSettings";
 import { DesignTokensSettings } from "./settings/DesignTokensSettings";
 import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from "../perfDebug";
+import { useDevTools } from "../hooks/useDevTools";
 
 export type DesktopSettingsKey =
   | "general"
@@ -135,12 +137,27 @@ export function DesktopSettings({
   onTrySkill,
 }: Props) {
   const { t } = useLocale();
+  const { showDebugPanel } = useDevTools();
   const ds = t.desktopSettings;
   const desktopApi = useMemo(() => getDesktopApi(), []);
   const mountTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(beginPerfTrace("desktop_settings_mount_commit", {
     initialSection,
   }));
   const hydrationTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null);
+  const motionStartedAtRef = useRef<number>(
+    typeof performance !== "undefined" ? performance.now() : 0,
+  );
+  const motionCompletedRef = useRef(false);
+  const motionFrameRef = useRef<{
+    startedAt: number;
+    lastFrameAt: number;
+    frameCount: number;
+    totalGap: number;
+    maxGap: number;
+    rafId: number;
+  } | null>(null);
+  const pendingHydrationSnapshotRef = useRef<DesktopSettingsHydrationSnapshot | null>(null);
+  const pendingHydrationLoadingRef = useRef(false);
   const [activeKey, setActiveKey] =
     useState<DesktopSettingsKey>(initialSection);
   const [scrolled, setScrolled] = useState(false);
@@ -178,7 +195,7 @@ export function DesktopSettings({
 
       if (cancelled) return;
 
-      setHydrationSnapshot({
+      const nextSnapshot = {
         config:
           configResult.status === "fulfilled"
             ? configResult.value
@@ -199,8 +216,14 @@ export function DesktopSettings({
           executionResult.status === "rejected"
             ? (executionResult.reason instanceof Error ? executionResult.reason.message : t.requestFailed)
             : "",
-      });
-      setHydrationLoading(false);
+      };
+      if (motionCompletedRef.current) {
+        setHydrationSnapshot(nextSnapshot);
+        setHydrationLoading(false);
+      } else {
+        pendingHydrationSnapshotRef.current = nextSnapshot;
+        pendingHydrationLoadingRef.current = false;
+      }
       endPerfTrace(hydrationTraceRef.current, {
         initialSection,
         configStatus: configResult.status,
@@ -233,11 +256,97 @@ export function DesktopSettings({
     });
   }, [desktopApi]);
 
+  useEffect(() => {
+    return () => {
+      const current = motionFrameRef.current;
+      if (current) cancelAnimationFrame(current.rafId);
+    };
+  }, []);
+
   const navEntries = useMemo(() => {
     const entries = [...NAV_ENTRIES];
     if (devMode) entries.push({ key: "developer" as DesktopSettingsKey, icon: Code2 });
     return entries;
   }, [devMode]);
+
+  const activePaneNeedsHydration =
+    activeKey === "chat" ||
+    activeKey === "connection" ||
+    activeKey === "voice";
+
+  const settingsMotionStyle = {
+    willChange: "transform, opacity",
+    transform: "translateZ(0)",
+    backfaceVisibility: "hidden" as const,
+    contain: "paint" as const,
+  };
+
+  const handleMotionStart = () => {
+    if (!isPerfDebugEnabled() || typeof performance === "undefined") return;
+    const startedAt = performance.now();
+    recordPerfValue("desktop_settings_motion_start_delay", startedAt - motionStartedAtRef.current, "ms", {
+      initialSection,
+      activeKey,
+    });
+    const tracker = {
+      startedAt,
+      lastFrameAt: startedAt,
+      frameCount: 0,
+      totalGap: 0,
+      maxGap: 0,
+      rafId: 0,
+    };
+    const tick = () => {
+      const current = motionFrameRef.current;
+      if (!current || typeof performance === "undefined") return;
+      const now = performance.now();
+      const gap = now - current.lastFrameAt;
+      current.lastFrameAt = now;
+      if (current.frameCount > 0) {
+        current.totalGap += gap;
+        current.maxGap = Math.max(current.maxGap, gap);
+      }
+      current.frameCount += 1;
+      current.rafId = requestAnimationFrame(tick);
+    };
+    tracker.rafId = requestAnimationFrame(tick);
+    motionFrameRef.current = tracker;
+  };
+
+  const handleMotionComplete = () => {
+    if (motionCompletedRef.current) return;
+    motionCompletedRef.current = true;
+    const pendingSnapshot = pendingHydrationSnapshotRef.current;
+    if (pendingSnapshot) {
+      setHydrationSnapshot(pendingSnapshot);
+      setHydrationLoading(pendingHydrationLoadingRef.current);
+      pendingHydrationSnapshotRef.current = null;
+    }
+    if (!isPerfDebugEnabled() || typeof performance === "undefined") return;
+    recordPerfValue("desktop_settings_motion_complete", performance.now() - motionStartedAtRef.current, "ms", {
+      initialSection,
+      activeKey,
+    });
+    const current = motionFrameRef.current;
+    if (!current) return;
+    cancelAnimationFrame(current.rafId);
+    const sample = {
+      initialSection,
+      activeKey,
+      frameCount: current.frameCount,
+    };
+    recordPerfValue("desktop_settings_motion_frame_count", current.frameCount, "count", sample);
+    if (current.frameCount > 1) {
+      recordPerfValue("desktop_settings_motion_max_frame_gap", current.maxGap, "ms", sample);
+      recordPerfValue(
+        "desktop_settings_motion_avg_frame_gap",
+        current.totalGap / (current.frameCount - 1),
+        "ms",
+        sample,
+      );
+    }
+    motionFrameRef.current = null;
+  };
 
   useEffect(() => {
     if (!isPerfDebugEnabled()) return;
@@ -360,52 +469,62 @@ export function DesktopSettings({
   };
 
   return (
-    <motion.div
-      className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
-      initial={{ opacity: 0, x: 10 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-    >
-      {/* Left navigation sidebar */}
-      <div
-        className="flex w-[280px] shrink-0 flex-col overflow-y-auto py-4"
-        style={{ borderRight: "0.5px solid var(--c-border-subtle)" }}
+    <>
+      <motion.div
+        className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        style={settingsMotionStyle}
+        initial={{ opacity: 0, x: 10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+        onAnimationStart={handleMotionStart}
+        onAnimationComplete={handleMotionComplete}
       >
-        {/* Back button / header */}
-        <div className="mb-4 px-4">
-          <button
-            onClick={onClose}
-            className="flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium transition-colors text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
-          >
-            <ChevronLeft size={16} />
-            {ds.settingsTitle}
-          </button>
-        </div>
-
-        <div className="px-4">
-          <div className="flex flex-col gap-[3px]">{renderNav(navEntries)}</div>
-        </div>
-      </div>
-
-      {/* Right content area with scroll-aware top fade mask */}
-      <div className="relative flex min-w-0 flex-1 overflow-hidden">
-        {/* Fade mask — only visible once the user has scrolled down */}
         <div
-          className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8 transition-opacity duration-200"
+          className="flex w-[280px] shrink-0 flex-col overflow-y-auto py-4"
           style={{
-            background: 'linear-gradient(to bottom, var(--c-bg-page) 0%, transparent 100%)',
-            opacity: scrolled ? 1 : 0,
+            borderRight: "0.5px solid var(--c-border-subtle)",
+            transform: "translateZ(0)",
+            backfaceVisibility: "hidden",
           }}
-        />
-        <div
-          ref={scrollRef}
-          className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6"
-          style={{ scrollbarGutter: 'stable' }}
-          onScroll={(e) => setScrolled((e.currentTarget as HTMLDivElement).scrollTop > 8)}
         >
-          {hydrationLoading ? <SettingsPaneFallback /> : renderContent()}
+          <div className="mb-4 px-4">
+            <button
+              onClick={onClose}
+              className="flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-[14px] font-medium transition-colors text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
+            >
+              <ChevronLeft size={16} />
+              {ds.settingsTitle}
+            </button>
+          </div>
+
+          <div className="px-4">
+            <div className="flex flex-col gap-[3px]">{renderNav(navEntries)}</div>
+          </div>
         </div>
-      </div>
-    </motion.div>
+
+        <div className="relative flex min-w-0 flex-1 overflow-hidden">
+          <div
+            className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8 transition-opacity duration-200"
+            style={{
+              background: 'linear-gradient(to bottom, var(--c-bg-page) 0%, transparent 100%)',
+              opacity: scrolled ? 1 : 0,
+            }}
+          />
+          <div
+            ref={scrollRef}
+            className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6"
+            style={{
+              scrollbarGutter: 'stable',
+              transform: "translateZ(0)",
+              backfaceVisibility: "hidden",
+            }}
+            onScroll={(e) => setScrolled((e.currentTarget as HTMLDivElement).scrollTop > 8)}
+          >
+            {hydrationLoading && activePaneNeedsHydration ? <SettingsPaneFallback /> : renderContent()}
+          </div>
+        </div>
+      </motion.div>
+      {showDebugPanel && <DebugTrigger />}
+    </>
   );
 }

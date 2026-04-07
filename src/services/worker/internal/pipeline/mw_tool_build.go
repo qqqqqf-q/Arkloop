@@ -8,8 +8,8 @@ import (
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
-	"arkloop/services/worker/internal/tools/builtin/read"
 	loadtools "arkloop/services/worker/internal/tools/builtin/load_tools"
+	"arkloop/services/worker/internal/tools/builtin/read"
 )
 
 var runtimeManagedToolNames = map[string]struct{}{
@@ -21,14 +21,14 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"exec_command":         {},
 	"group_history_search": {},
 	"memory_forget":        {},
-	"memory_edit":         {},
-	"memory_read":         {},
-	"memory_search":       {},
-	"memory_write":        {},
-	"python_execute":      {},
-	"web_fetch":           {},
-	"web_search":          {},
-	"write_stdin":         {},
+	"memory_edit":          {},
+	"memory_read":          {},
+	"memory_search":        {},
+	"memory_write":         {},
+	"python_execute":       {},
+	"web_fetch":            {},
+	"web_search":           {},
+	"write_stdin":          {},
 }
 
 // NewToolBuildMiddleware 根据最终的 allowlist 构建 DispatchingExecutor 和过滤后的 ToolSpecs。
@@ -153,6 +153,16 @@ func NewToolBuildMiddleware() RunMiddleware {
 			rc.FinalSpecs,
 			rc.ActiveToolProviderByGroup,
 		)
+		toolNames := make([]string, 0, len(rc.FinalSpecs))
+		for _, spec := range rc.FinalSpecs {
+			if name := strings.TrimSpace(spec.Name); name != "" {
+				toolNames = append(toolNames, name)
+			}
+		}
+		emitTraceEvent(rc, "tool_build", "tool_build.completed", map[string]any{
+			"final_tool_count": len(rc.FinalSpecs),
+			"tool_names":       traceToolNames(toolNames),
+		})
 
 		return next(ctx, rc)
 	}
@@ -246,14 +256,14 @@ func FilterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *shared
 
 // identityRequiredTools are tools that need a valid UserID to function.
 var identityRequiredTools = map[string]struct{}{
-	"memory_search":  {},
-	"memory_read":    {},
-	"memory_write":   {},
-	"memory_edit":    {},
-	"memory_forget":  {},
-	"notebook_read":  {},
-	"notebook_write": {},
-	"notebook_edit":  {},
+	"memory_search":   {},
+	"memory_read":     {},
+	"memory_write":    {},
+	"memory_edit":     {},
+	"memory_forget":   {},
+	"notebook_read":   {},
+	"notebook_write":  {},
+	"notebook_edit":   {},
 	"notebook_forget": {},
 }
 

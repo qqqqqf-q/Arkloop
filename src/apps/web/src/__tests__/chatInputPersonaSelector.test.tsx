@@ -1,5 +1,5 @@
 import { act } from 'react'
-import { useState, type FormEvent } from 'react'
+import { type FormEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -92,8 +92,6 @@ describe('ChatInput persona selector', () => {
       root.render(
         <LocaleProvider>
           <ChatInput
-            value="hello"
-            onChange={vi.fn()}
             onSubmit={onSubmit}
             accessToken="token"
           />
@@ -167,15 +165,11 @@ describe('ChatInput persona selector', () => {
     const root = createRoot(container)
 
     function Harness() {
-      const [value, setValue] = useState('hello')
       return (
         <LocaleProvider>
           <ChatInput
-            value={value}
-            onChange={setValue}
             onSubmit={(event) => {
               event.preventDefault()
-              setValue('')
             }}
             accessToken="token"
           />

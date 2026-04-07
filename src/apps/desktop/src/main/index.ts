@@ -403,6 +403,7 @@ app.whenReady().then(async () => {
       await ensureLocalSidecar(config)
     } catch (error) {
       console.error('[desktop] failed to start local sidecar:', error)
+      syncRuntimeToRenderer(getSidecarRuntime())
     }
   } else {
     activeSidecarPort = null

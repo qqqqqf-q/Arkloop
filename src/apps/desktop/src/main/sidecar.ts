@@ -314,19 +314,19 @@ export async function downloadSidecar(
   }
 }
 
-const OPENCLI_GITHUB_API = 'https://api.github.com/repos/nashsu/opencli-rs/releases/latest'
+const OPENCLI_GITHUB_API = 'https://api.github.com/repos/nashsu/AutoCLI/releases/latest'
 const OPENCLI_VERSION_FILE = path.join(os.homedir(), '.arkloop', 'bin', 'opencli.version.json')
 
 function getOpenCLIAssetName(): string {
   const { platform, arch } = process
-  if (platform === 'win32') return 'opencli-rs-x86_64-pc-windows-msvc.zip'
-  if (platform === 'darwin') return arch === 'arm64' ? 'opencli-rs-aarch64-apple-darwin.tar.gz' : 'opencli-rs-x86_64-apple-darwin.tar.gz'
-  if (platform === 'linux') return arch === 'arm64' ? 'opencli-rs-aarch64-unknown-linux-musl.tar.gz' : 'opencli-rs-x86_64-unknown-linux-musl.tar.gz'
+  if (platform === 'win32') return 'autocli-x86_64-pc-windows-msvc.zip'
+  if (platform === 'darwin') return arch === 'arm64' ? 'autocli-aarch64-apple-darwin.tar.gz' : 'autocli-x86_64-apple-darwin.tar.gz'
+  if (platform === 'linux') return arch === 'arm64' ? 'autocli-aarch64-unknown-linux-musl.tar.gz' : 'autocli-x86_64-unknown-linux-musl.tar.gz'
   throw new Error(`unsupported platform: ${platform}`)
 }
 
 function getOpenCLIDestPath(): string {
-  return path.join(SIDECAR_DIR, process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs')
+  return path.join(SIDECAR_DIR, process.platform === 'win32' ? 'autocli.exe' : 'autocli')
 }
 
 function getOpenCLIArchivePath(destPath: string): string {
@@ -349,7 +349,7 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
     if (targetVersion) {
       version = targetVersion
       const assetName = getOpenCLIAssetName()
-      downloadUrl = `https://github.com/nashsu/opencli-rs/releases/download/v${version}/${assetName}`
+      downloadUrl = `https://github.com/nashsu/AutoCLI/releases/download/v${version}/${assetName}`
     } else {
       const releaseRes = await httpsGet(OPENCLI_GITHUB_API)
       const releaseBody = await new Promise<string>((resolve, reject) => {
@@ -359,7 +359,7 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
         releaseRes.on('error', reject)
       })
       if (releaseRes.statusCode !== 200) {
-        throw new Error(`failed to fetch opencli-rs release info: ${releaseRes.statusCode}`)
+        throw new Error(`failed to fetch autocli release info: ${releaseRes.statusCode}`)
       }
 
       const release = JSON.parse(releaseBody) as {
@@ -367,11 +367,11 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
         assets?: Array<{ name: string; browser_download_url: string }>
       }
       version = (release.tag_name as string)?.replace(/^v/, '')
-      if (!version) throw new Error('invalid opencli-rs release: missing tag_name')
+      if (!version) throw new Error('invalid autocli release: missing tag_name')
 
       const assetName = getOpenCLIAssetName()
       const asset = (release.assets ?? []).find((a) => a.name === assetName)
-      if (!asset) throw new Error(`opencli-rs asset not found: ${assetName}`)
+      if (!asset) throw new Error(`autocli asset not found: ${assetName}`)
       downloadUrl = asset.browser_download_url
     }
 
@@ -380,7 +380,7 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
     const dlRes = await httpsGet(downloadUrl)
     if (dlRes.statusCode !== 200) {
       dlRes.resume()
-      throw new Error(`opencli-rs download failed: ${dlRes.statusCode}`)
+      throw new Error(`autocli download failed: ${dlRes.statusCode}`)
     }
 
     const bytesTotal = parseInt(dlRes.headers['content-length'] || '0', 10)
@@ -414,7 +414,7 @@ export async function downloadOpenCLI(onProgress?: (progress: DownloadProgress) 
         execFileSync('tar', ['xzf', tmpArchive, '-C', extractDir])
       }
 
-      const binaryName = process.platform === 'win32' ? 'opencli-rs.exe' : 'opencli-rs'
+      const binaryName = process.platform === 'win32' ? 'autocli.exe' : 'autocli'
       const extractedBin = path.join(extractDir, binaryName)
       if (!fs.existsSync(extractedBin)) {
         throw new Error(`extracted binary not found: ${extractedBin}`)
@@ -451,7 +451,7 @@ export async function ensureOpenCLI(): Promise<void> {
       await downloadOpenCLI()
     }
   } catch (error) {
-    console.error('[sidecar] opencli-rs ensure failed:', error instanceof Error ? error.message : String(error))
+    console.error('[sidecar] autocli ensure failed:', error instanceof Error ? error.message : String(error))
   }
 }
 

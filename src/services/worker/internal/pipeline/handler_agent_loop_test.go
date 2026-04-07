@@ -1,10 +1,13 @@
 package pipeline
 
 import (
+	"context"
 	"math"
+	"strings"
 	"testing"
 
 	"arkloop/services/shared/creditpolicy"
+	"arkloop/services/worker/internal/llm"
 )
 
 func TestCalcPlatformCost_AnthropicCacheFamily(t *testing.T) {
@@ -114,6 +117,69 @@ func TestExtractAssistantDeltaFiltersHeartbeatTerminalToken(t *testing.T) {
 		"content_delta": "<end_turn>",
 	}); got != "" {
 		t.Fatalf("expected empty delta, got %q", got)
+	}
+}
+
+func TestEventWriterPendingTelegramFlushChunk(t *testing.T) {
+	w := &eventWriter{
+		assistantOutputs:          []string{"第一段输出", "第二段输出", "第三段输出"},
+		telegramSentOutputCount:   1,
+		telegramToolBoundaryFlush: func(_ context.Context, _ string) error { return nil },
+	}
+
+	got := w.pendingTelegramFlushChunk()
+	// 期望返回 index=1 之后的 "第二段输出\n第三段输出"
+	if !strings.Contains(got, "第二段输出") || !strings.Contains(got, "第三段输出") {
+		t.Fatalf("expected pending flush chunk to include 第二段输出 and 第三段输出, got %q", got)
+	}
+	if strings.Contains(got, "第一段输出") {
+		t.Fatalf("expected pending flush chunk to NOT include 第一段输出, got %q", got)
+	}
+}
+
+func TestEventWriterPendingTelegramFlushChunkFromAssistantMessage(t *testing.T) {
+	// 当 turn 通过 assistantMessage 完成（无 delta）时，captureAssistantTurnOutput 依然能追加到 assistantOutputs
+	// 然后 pendingTelegramFlushChunk 应该返回该内容
+	w := &eventWriter{
+		assistantOutputs:          []string{},
+		telegramSentOutputCount:   0,
+		telegramToolBoundaryFlush: func(_ context.Context, _ string) error { return nil },
+	}
+	// 模拟 LLM 直接给完整 message（而非 delta）
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "来自 assistantMessage 的内容"}}}
+	w.assistantMessage = &msg
+	w.assistantMessageFresh = true
+	w.captureAssistantTurnOutput()
+
+	got := w.pendingTelegramFlushChunk()
+	if !strings.Contains(got, "来自 assistantMessage 的内容") {
+		t.Fatalf("expected flush chunk to contain assistantMessage content, got %q", got)
+	}
+}
+
+func TestEventWriterTelegramUnsentOutputsMixedScenario(t *testing.T) {
+	// Turn 1：有 delta，已通过 mid-stream flush 发出（telegramSentOutputCount=1）
+	// Turn 2：LLM 直接给完整 assistantMessage，无 delta
+	// 期望 telegramUnsentOutputs() 只返回 Turn 2 的内容
+	w := &eventWriter{
+		assistantOutputs:          []string{"Turn1 内容"},
+		telegramSentOutputCount:   1,
+		telegramToolBoundaryFlush: func(_ context.Context, _ string) error { return nil },
+	}
+
+	// 模拟 Turn 2：无 delta，通过 assistantMessage 到达
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "Turn2 内容"}}}
+	w.assistantMessage = &msg
+	w.assistantMessageFresh = true
+	w.captureAssistantTurnOutput()
+
+	unsent := w.telegramUnsentOutputs()
+	if len(unsent) != 1 || unsent[0] != "Turn2 内容" {
+		t.Fatalf("expected unsent=[Turn2 内容], got %v", unsent)
+	}
+	remainder := w.telegramStreamRemainder()
+	if remainder != "Turn2 内容" {
+		t.Fatalf("expected remainder=Turn2 内容, got %q", remainder)
 	}
 }
 

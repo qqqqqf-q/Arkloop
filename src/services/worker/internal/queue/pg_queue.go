@@ -5,14 +5,18 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const activeRunExecuteJobIndex = "ux_jobs_run_execute_active_run"
 
 type PgQueue struct {
 	pool         *pgxpool.Pool
@@ -49,6 +53,10 @@ func (q *PgQueue) EnqueueRun(
 		chosenTraceID = uuid.New().String()
 		chosenTraceID = strings.ReplaceAll(chosenTraceID, "-", "")
 	}
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
+	}
 
 	payloadCopy := map[string]any{}
 	for key, value := range payload {
@@ -58,7 +66,7 @@ func (q *PgQueue) EnqueueRun(
 	payloadJSON := map[string]any{
 		"v":          JobPayloadVersionV1,
 		"job_id":     jobID.String(),
-		"type":       RunExecuteJobType,
+		"type":       chosenJobType,
 		"trace_id":   chosenTraceID,
 		"account_id": accountID.String(),
 		"run_id":     runID.String(),
@@ -70,9 +78,14 @@ func (q *PgQueue) EnqueueRun(
 		return uuid.Nil, err
 	}
 
-	chosenJobType := strings.TrimSpace(queueJobType)
-	if chosenJobType == "" {
-		chosenJobType = RunExecuteJobType
+	if chosenJobType == RunExecuteJobType {
+		existingJobID, err := q.findActiveRunExecuteJob(ctx, runID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if existingJobID != uuid.Nil {
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+		}
 	}
 
 	_, err = q.pool.Exec(
@@ -91,12 +104,53 @@ func (q *PgQueue) EnqueueRun(
 		availableAt,
 	)
 	if err != nil {
+		if chosenJobType == RunExecuteJobType && isActiveRunExecuteConflict(err) {
+			existingJobID, lookupErr := q.findActiveRunExecuteJob(ctx, runID)
+			if lookupErr == nil && existingJobID != uuid.Nil {
+				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+			}
+			// 即使找不到（对方 job 瞬间完成），unique 冲突本身已经明确，仍然返回语义错误
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s", ErrRunExecuteAlreadyQueued, runID)
+		}
 		return uuid.Nil, err
 	}
 
 	_, _ = q.pool.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
 
 	return jobID, nil
+}
+
+func isActiveRunExecuteConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == activeRunExecuteJobIndex
+}
+
+func (q *PgQueue) findActiveRunExecuteJob(ctx context.Context, runID uuid.UUID) (uuid.UUID, error) {
+	if runID == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	var existingJobID uuid.UUID
+	err := q.pool.QueryRow(
+		ctx,
+		`SELECT id
+		   FROM jobs
+		  WHERE job_type = $1
+		    AND payload_json->>'run_id' = $2
+		    AND status IN ($3, $4)
+		  ORDER BY created_at ASC, id ASC
+		  LIMIT 1`,
+		RunExecuteJobType,
+		runID.String(),
+		JobStatusQueued,
+		JobStatusLeased,
+	).Scan(&existingJobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return existingJobID, nil
 }
 
 func (q *PgQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {

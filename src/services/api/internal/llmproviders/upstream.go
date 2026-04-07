@@ -45,11 +45,13 @@ func listUpstreamModels(ctx context.Context, provider data.LlmCredential, apiKey
 }
 
 type openAIModelEntry struct {
-	ID            string               `json:"id"`
-	Name          string               `json:"name"`
-	ContextLength int                  `json:"context_length"`
-	Architecture  openAIModelArchEntry `json:"architecture"`
-	TopProvider   struct {
+	ID                  string               `json:"id"`
+	Name                string               `json:"name"`
+	ContextLength       int                  `json:"context_length"`
+	Architecture        openAIModelArchEntry `json:"architecture"`
+	SupportedParameters []string             `json:"supported_parameters"`
+	DefaultParameters   map[string]any       `json:"default_parameters"`
+	TopProvider         struct {
 		MaxCompletionTokens int `json:"max_completion_tokens"`
 	} `json:"top_provider"`
 }

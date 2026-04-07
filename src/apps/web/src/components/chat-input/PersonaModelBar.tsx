@@ -27,6 +27,8 @@ type Props = {
   onModeSelect: (personaKey: string) => void
   onDeactivateMode: () => void
   onModelChange: (model: string | null) => void
+  thinkingEnabled: boolean
+  onThinkingChange: (v: boolean) => void
   onOpenSettings?: (tab: SettingsTab) => void
   onFileInputClick: () => void
   accessToken?: string
@@ -46,6 +48,8 @@ export function PersonaModelBar({
   onModeSelect,
   onDeactivateMode,
   onModelChange,
+  thinkingEnabled,
+  onThinkingChange,
   onOpenSettings,
   onFileInputClick,
   accessToken,
@@ -339,6 +343,8 @@ export function PersonaModelBar({
           onChange={onModelChange}
           onAddApiKey={() => onOpenSettings?.('models')}
           variant={variant}
+          thinkingEnabled={thinkingEnabled}
+          onThinkingChange={onThinkingChange}
         />
       </div>
     </>

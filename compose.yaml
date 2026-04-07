@@ -380,6 +380,14 @@ services:
     restart: unless-stopped
     profiles:
       - openviking
+    entrypoint:
+      - /app/.venv/bin/openviking-server
+    command:
+      - --config
+      - /app/ov.conf
+      - --with-bot
+      - --workers
+      - "${ARKLOOP_OPENVIKING_WORKERS:-1}"
     ports:
       - "${ARKLOOP_OPENVIKING_PORT:-19010}:19010"
     environment:

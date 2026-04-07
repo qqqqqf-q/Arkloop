@@ -6,7 +6,7 @@ If you discover a security vulnerability in Arkloop, please report it responsibl
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Send an email to **security@arkloop.ai** with:
+Send an email to **security@arkloop.cn** with:
 
 - A description of the vulnerability
 - Steps to reproduce

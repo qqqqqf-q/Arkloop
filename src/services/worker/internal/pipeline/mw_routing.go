@@ -223,6 +223,9 @@ func NewRoutingMiddleware(
 
 		rc.Gateway = gateway
 		rc.SelectedRoute = selected
+		if rc.Temperature == nil {
+			rc.Temperature = routing.RouteDefaultTemperature(selected.Route)
+		}
 		slog.InfoContext(ctx, "routing_selected_model",
 			"run_id", rc.Run.ID.String(),
 			"thread_id", rc.Run.ThreadID.String(),
@@ -234,6 +237,12 @@ func NewRoutingMiddleware(
 		)
 		rc.ResolveGatewayForRouteID = resolveGatewayForRouteID
 		rc.ResolveGatewayForAgentName = resolveGatewayForAgentName
+		emitTraceEvent(rc, "routing", "routing.selected", map[string]any{
+			"model":          selected.Route.Model,
+			"provider":       string(selected.Credential.ProviderKind),
+			"byok":           byokEnabled,
+			"context_window": routing.RouteContextWindowTokens(selected.Route),
+		})
 
 		return next(ctx, rc)
 	}

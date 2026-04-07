@@ -132,6 +132,12 @@ func NewPersonaResolutionMiddleware(
 		rc.Temperature = profile.Temperature
 		rc.TopP = profile.TopP
 		rc.ReasoningMode = profile.ReasoningMode
+		if override := normalizeRunReasoningModeOverride(rc.InputJSON["reasoning_mode"]); override != "" {
+			rc.ReasoningMode = override
+			if rc.AgentConfig != nil {
+				rc.AgentConfig.ReasoningMode = override
+			}
+		}
 		rc.ToolTimeoutMs = profile.ToolTimeoutMs
 		rc.ToolBudget = profile.ToolBudget
 		rc.PerToolSoftLimits = tools.CopyPerToolSoftLimits(profile.PerToolSoftLimits)
@@ -214,4 +220,23 @@ func joinPromptSegments(parts ...string) string {
 		segments = append(segments, trimmed)
 	}
 	return strings.Join(segments, "\n\n")
+}
+
+func normalizeRunReasoningModeOverride(raw any) string {
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "auto":
+		return "auto"
+	case "enabled":
+		return "enabled"
+	case "disabled":
+		return "disabled"
+	case "none":
+		return "none"
+	default:
+		return ""
+	}
 }

@@ -23,9 +23,14 @@ const (
 	ErrorClassToolHardTimeout     = "tool.hard_timeout"
 )
 
+type Tracer interface {
+	Event(middleware, event string, fields map[string]any)
+}
+
 type ExecutionContext struct {
 	RunID                            uuid.UUID
 	TraceID                          string
+	Tracer                           Tracer
 	AccountID                        *uuid.UUID
 	ThreadID                         *uuid.UUID
 	ProjectID                        *uuid.UUID
