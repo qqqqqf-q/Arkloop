@@ -5,6 +5,10 @@ import Topbar from '@/components/Topbar';
 const validLangs = ['zh', 'en'] as const;
 type Lang = (typeof validLangs)[number];
 
+export function generateStaticParams() {
+  return validLangs.map((lang) => ({ lang }));
+}
+
 export default async function LangLayout({
   children,
   params,
