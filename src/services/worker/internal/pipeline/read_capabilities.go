@@ -32,25 +32,30 @@ func ResolveReadCapabilities(
 }
 
 // ApplyReadImageSourceVisibility 按 bridge 能力和主模型图片支持裁剪 read 的图片 source 暴露面。
-// exposeImageSources=true 时全部暴露。nativeImageInput=true 时只暴露 message_attachment（不暴露 remote_url）。
+//
+// 四种情况：
+//   - exposeImageSources=false, nativeImageInput=false：剥所有图片源（stripReadImageSources）
+//   - exposeImageSources=false, nativeImageInput=true：保留 message_attachment，剥 remote_url + prompt/max_bytes/timeout_ms
+//   - exposeImageSources=true,  nativeImageInput=false：全暴露，直接返回
+//   - exposeImageSources=true,  nativeImageInput=true：保留所有 source kinds，仅剥 prompt/max_bytes/timeout_ms
 func ApplyReadImageSourceVisibility(specs []llm.ToolSpec, exposeImageSources bool, nativeImageInput bool) []llm.ToolSpec {
-	if len(specs) == 0 || exposeImageSources {
+	if len(specs) == 0 {
 		return specs
 	}
-	if nativeImageInput {
-		// 主模型支持图片：只暴露 message_attachment（用于回看被压缩的图片），隐藏 remote_url
-		out := make([]llm.ToolSpec, 0, len(specs))
-		for _, spec := range specs {
-			if spec.Name != readToolName {
-				out = append(out, spec)
-				continue
-			}
-			patched := spec
-			patched.JSONSchema = stripReadRemoteURLOnly(spec.JSONSchema)
-			out = append(out, patched)
-		}
-		return out
+	if exposeImageSources && !nativeImageInput {
+		return specs
 	}
+
+	var patchFn func(map[string]any) map[string]any
+	switch {
+	case !exposeImageSources && !nativeImageInput:
+		patchFn = stripReadImageSources
+	case !exposeImageSources && nativeImageInput:
+		patchFn = stripReadForNativeModel
+	default: // exposeImageSources && nativeImageInput
+		patchFn = stripReadPromptParams
+	}
+
 	out := make([]llm.ToolSpec, 0, len(specs))
 	for _, spec := range specs {
 		if spec.Name != readToolName {
@@ -58,7 +63,7 @@ func ApplyReadImageSourceVisibility(specs []llm.ToolSpec, exposeImageSources boo
 			continue
 		}
 		patched := spec
-		patched.JSONSchema = stripReadImageSources(spec.JSONSchema)
+		patched.JSONSchema = patchFn(spec.JSONSchema)
 		out = append(out, patched)
 	}
 	return out
@@ -124,9 +129,9 @@ func stripReadImageSources(schema map[string]any) map[string]any {
 	return cloned
 }
 
-// stripReadRemoteURLOnly 移除 remote_url source，保留 message_attachment。
-// 主模型原生支持图片时使用，允许 read 回看被压缩的群聊图片。
-func stripReadRemoteURLOnly(schema map[string]any) map[string]any {
+// stripReadPromptParams 仅剥 prompt/max_bytes/timeout_ms，保留所有 source kinds。
+// exposeImageSources=true, nativeImageInput=true 时使用。
+func stripReadPromptParams(schema map[string]any) map[string]any {
 	if len(schema) == 0 {
 		return schema
 	}
@@ -138,6 +143,29 @@ func stripReadRemoteURLOnly(schema map[string]any) map[string]any {
 	if len(properties) == 0 {
 		return cloned
 	}
+	delete(properties, "prompt")
+	delete(properties, "max_bytes")
+	delete(properties, "timeout_ms")
+	return cloned
+}
+
+// stripReadForNativeModel 保留 message_attachment，剥 remote_url（enum + url 属性）+ prompt/max_bytes/timeout_ms。
+// exposeImageSources=false, nativeImageInput=true 时使用。
+func stripReadForNativeModel(schema map[string]any) map[string]any {
+	if len(schema) == 0 {
+		return schema
+	}
+	cloned, ok := cloneJSONValue(schema).(map[string]any)
+	if !ok {
+		return schema
+	}
+	properties := nestedObject(cloned, "properties")
+	if len(properties) == 0 {
+		return cloned
+	}
+	delete(properties, "prompt")
+	delete(properties, "max_bytes")
+	delete(properties, "timeout_ms")
 
 	source := nestedObject(properties, "source")
 	if len(source) == 0 {

@@ -594,6 +594,12 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 			if mimeType == "" {
 				mimeType = "application/octet-stream"
 			}
+			if strings.TrimSpace(part.Attachment.Key) != "" {
+				blocks = append(blocks, map[string]any{
+					"type": "text",
+					"text": "[attachment_key:" + part.Attachment.Key + "]",
+				})
+			}
 			blocks = append(blocks, map[string]any{
 				"type": "image",
 				"source": map[string]any{
