@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
+import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import { ArrowUp, Mic, X, Check, Loader2 } from 'lucide-react'
 import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
 import { listSelectablePersonas, type SelectablePersona, type UploadedThreadAttachment } from '../api'
@@ -24,6 +24,13 @@ import { useAttachments } from './chat-input/useAttachments'
 import { PersonaModelBar } from './chat-input/PersonaModelBar'
 import { AutoResizeTextarea } from '@arkloop/shared'
 import { useLatest } from '../hooks/useLatest'
+import { useInputPerfDebug } from '../hooks/useInputPerfDebug'
+
+export type ChatInputHandle = {
+  clear: () => void
+  setValue: (text: string) => void
+  getValue: () => string
+}
 
 export type Attachment = {
   id: string
@@ -38,8 +45,6 @@ export type Attachment = {
 }
 
 type Props = {
-  value: string
-  onChange: (val: string) => void
   onSubmit: (e: FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => void
   onCancel?: () => void
   placeholder?: string
@@ -88,9 +93,7 @@ function countLinesWithinLimit(text: string, limit: number) {
   return lines
 }
 
-export function ChatInput({
-  value,
-  onChange,
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onCancel,
   placeholder = '输入消息...',
@@ -111,11 +114,25 @@ export function ChatInput({
   appMode,
   hasMessages,
   workThreadId,
-}: Props) {
+}, ref) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const valueRef = useLatest(value)
-  const onChangeRef = useLatest(onChange)
+
+  const [draft, setDraft] = useState('')
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+
+  useImperativeHandle(ref, () => ({
+    clear: () => setDraft(''),
+    setValue: (text: string) => setDraft(text),
+    getValue: () => draftRef.current,
+  }))
+
+  const { wrapOnChange } = useInputPerfDebug()
+  const trackedSetDraft = useMemo(() => wrapOnChange(setDraft), [wrapOnChange])
+
+  const valueRef = useLatest(draft)
+  const onChangeRef = useLatest(setDraft)
   const accessTokenRef = useLatest(accessToken)
   const onAsrErrorRef = useLatest(onAsrError)
   const onVoiceNotConfiguredRef = useLatest<(() => void) | undefined>(() => onOpenSettings?.('voice' as never))
@@ -189,7 +206,7 @@ export function ChatInput({
   }, [])
 
   const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
-  const showSendButton = value.trim().length > 0 || attachments.length > 0
+  const showSendButton = draft.trim().length > 0 || attachments.length > 0
 
   const deactivateMode = useCallback(() => {
     setChipExiting(true)
@@ -227,7 +244,7 @@ export function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      if (!disabled && value.trim()) {
+      if (!disabled && draft.trim()) {
         e.currentTarget.form?.requestSubmit()
       }
     }
@@ -265,9 +282,9 @@ export function ChatInput({
       const el = e.currentTarget
       const start = el.selectionStart
       const end = el.selectionEnd
-      const before = value.slice(0, start)
-      const after = value.slice(end)
-      onChange(before + cleaned + after)
+      const before = draft.slice(0, start)
+      const after = draft.slice(end)
+      setDraft(before + cleaned + after)
       requestAnimationFrame(() => {
         const pos = start + cleaned.length
         el.selectionStart = el.selectionEnd = pos
@@ -457,8 +474,8 @@ export function ChatInput({
             ref={textareaRef}
             rows={1}
             className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
+            value={draft}
+            onChange={(e) => trackedSetDraft(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handleTextareaPaste}
             onFocus={() => setFocused(true)}
@@ -561,7 +578,7 @@ export function ChatInput({
                 </button>
                 <button
                   type="submit"
-                  disabled={isStreaming || (!value.trim() && attachments.length === 0)}
+                  disabled={isStreaming || (!draft.trim() && attachments.length === 0)}
                   className="flex h-full w-full items-center justify-center rounded-lg bg-[var(--c-accent-send)] text-[var(--c-accent-send-text)] hover:bg-[var(--c-accent-send-hover)] active:opacity-[0.75] active:scale-[0.93] disabled:cursor-not-allowed"
                   style={{
                     position: 'absolute',
@@ -623,4 +640,4 @@ export function ChatInput({
       )}
     </div>
   )
-}
+})

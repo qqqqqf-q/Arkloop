@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowDown, Info, X } from 'lucide-react'
 import { AutoResizeTextarea, Button, DebugTrigger } from '@arkloop/shared'
-import { ChatInput } from './ChatInput'
+import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { RunDetailPanel } from './RunDetailPanel'
 import type { CodeExecution } from './CodeExecutionCard'
 import {
@@ -544,8 +544,6 @@ export function ChatView() {
     setMessages,
     messagesLoading,
     setMessagesLoading,
-    draft,
-    setDraft,
     attachments,
     setAttachments,
     setUserEnterMessageId,
@@ -719,7 +717,8 @@ export function ChatView() {
     pendingMessageRef.current = null
     setQueuedDraft(null)
     if (!pending) return
-    setDraft((prev) => prev.trim() ? prev : pending)
+    const current = chatInputRef.current?.getValue() ?? ''
+    if (!current.trim()) chatInputRef.current?.setValue(pending)
   }, [])
 
   const liveRunUiVisible = isStreaming || preserveLiveRunUi
@@ -1169,7 +1168,7 @@ export function ChatView() {
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
-    setDraft('')
+    chatInputRef.current?.clear()
     setAttachments((prev) => {
       prev.forEach((attachment) => {
         if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
@@ -1269,8 +1268,7 @@ export function ChatView() {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [sseRunId, sse.state, sse.reconnect]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const draftRef = useRef(draft)
-  draftRef.current = draft
+  const chatInputRef = useRef<ChatInputHandle>(null)
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
   const pendingIncognitoRef = useRef(pendingIncognito)
@@ -1291,7 +1289,7 @@ export function ChatView() {
     markTerminalRunHistory(null)
     clearThreadRunHandoff(threadId)
 
-    const draft = draftRef.current
+    const draft = chatInputRef.current?.getValue() ?? ''
     const attachments = attachmentsRef.current
     const pendingIncognito = pendingIncognitoRef.current
     const messages = messagesRef.current
@@ -1301,7 +1299,7 @@ export function ChatView() {
       if (text) {
         pendingMessageRef.current = text
         setQueuedDraft(text)
-        setDraft('')
+        chatInputRef.current?.clear()
       }
       return
     }
@@ -1336,7 +1334,7 @@ export function ChatView() {
         const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
-        setDraft('')
+        chatInputRef.current?.clear()
         setAttachments([])
         navigate(`/t/${forked.id}`, {
           state: {
@@ -1356,7 +1354,7 @@ export function ChatView() {
 
       if (replaceMessageId && attachments.length === 0) {
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
-        setDraft('')
+        chatInputRef.current?.clear()
         setAttachments([])
         injectionBlockedRunIdRef.current = null
         invalidateMessageSync()
@@ -1386,7 +1384,7 @@ export function ChatView() {
         setUserEnterMessageId(message.id)
         setMessages((prev) => [...prev, message])
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
-        setDraft('')
+        chatInputRef.current?.clear()
         setAttachments([])
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = message.id
@@ -1423,7 +1421,6 @@ export function ChatView() {
     sending,
     setActiveRunId,
     setAttachments,
-    setDraft,
     setError,
     setInjectionBlocked,
     setMessages,
@@ -1699,8 +1696,7 @@ export function ChatView() {
 
   const chatInputEl = useMemo(() => (
     <ChatInput
-      value={draft}
-      onChange={setDraft}
+      ref={chatInputRef}
       onSubmit={handleSend}
       onCancel={handleCancel}
       placeholder={t.replyPlaceholder}
@@ -1721,7 +1717,7 @@ export function ChatView() {
       hasMessages={hasMessages}
       workThreadId={threadId}
     />
-  ), [draft, attachments, sending, isStreaming, canCancel, cancelSubmitting, appMode, isSearchThread, hasMessages, threadId, accessToken, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings, setDraft])
+  ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, appMode, isSearchThread, hasMessages, threadId, accessToken, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings])
 
   const renderLiveCopSegment = (
     seg: Extract<AssistantTurnSegment, { type: 'cop' }>,
