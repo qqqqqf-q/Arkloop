@@ -31,6 +31,7 @@ type Props = {
 export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeUpdated }: Props) {
   const { t, locale, setLocale } = useLocale()
   const ds = t.desktopSettings
+  const docsUrl = locale === 'en' ? 'https://arkloop.cn/en/docs/guide' : 'https://arkloop.cn/zh/docs/guide'
   const localMode = isLocalMode()
   // 桌面壳或本地连接都不应出现「平台默认」文案（与 isDesktop 是否已挂 arkloop 解耦）
   const nonSaaSUi =
@@ -355,7 +356,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
       <div className="flex flex-col gap-1.5">
         <button
             type="button"
-            onClick={() => openExternal('https://arkloop.cn/docs')}
+            onClick={() => openExternal(docsUrl)}
             className="flex w-fit items-center gap-1.5 rounded-lg px-1 py-1 text-sm text-[var(--c-text-secondary)] hover:text-[var(--c-text-primary)]"
           >
             <HelpCircle size={14} /> {t.getHelp} <ArrowUpRight size={11} />

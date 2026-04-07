@@ -101,7 +101,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
     if (value) {
       const parts = value.split('^')
       const modelName = parts[parts.length - 1]
-      return thinkingEnabled ? `${modelName} · ${mp.thinking}` : modelName
+      return thinkingEnabled ? `${modelName} ${mp.thinking}` : modelName
     }
     if (desktopShell) {
       if (anyPickerModel) return '…'
@@ -169,7 +169,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
           transition: 'background-color 120ms ease, color 120ms ease, opacity 120ms ease',
         }}
       >
-        <span style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', paddingLeft: '1px' }}>
+        <span style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', paddingLeft: '1px' }}>
           {displayLabel}
         </span>
         <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
@@ -271,11 +271,17 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
 
                         if (showThinkingRow) {
                           return (
-                            <div key={combo} className="overflow-hidden rounded-lg mx-1 border border-[var(--c-border-subtle)]">
+                            <div
+                              key={combo}
+                              className="overflow-hidden rounded-lg"
+                              style={{
+                                background: 'var(--c-model-selected-bg)',
+                              }}
+                            >
                               <button
                                 type="button"
                                 onClick={() => handleSelect(combo)}
-                                className="flex w-full items-center px-3 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
+                                className="flex w-full items-center rounded-lg px-3 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
                                 style={{
                                   color: 'var(--c-text-primary)',
                                   fontWeight: 600,
@@ -292,15 +298,21 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
                                 >
                                   {m.model}
                                 </span>
-                                <span style={{ marginLeft: '6px', fontSize: '12px', color: 'var(--c-text-muted)', flexShrink: 0 }}>✓</span>
                               </button>
-                              <div className="h-px bg-[var(--c-border-subtle)]" />
-                              <div className="flex items-center justify-between px-3 py-[6px]">
-                                <span className="text-sm text-[var(--c-text-secondary)]">{mp.thinking}</span>
-                                <span onClick={(e) => e.stopPropagation()}>
-                                  <PillToggle checked={thinkingEnabled} onChange={onThinkingChange} />
+                              <button
+                                type="button"
+                                onClick={() => onThinkingChange(!thinkingEnabled)}
+                                className="flex w-full items-center justify-between rounded-lg pl-3 pr-2 py-[6px] text-sm hover:bg-[var(--c-bg-deep)]"
+                                style={{
+                                  color: 'var(--c-text-secondary)',
+                                  fontWeight: 400,
+                                }}
+                              >
+                                <span>{mp.thinking}</span>
+                                <span onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'none', lineHeight: 0 }}>
+                                  <PillToggle checked={thinkingEnabled} onChange={onThinkingChange} size="sm" />
                                 </span>
-                              </div>
+                              </button>
                             </div>
                           )
                         }

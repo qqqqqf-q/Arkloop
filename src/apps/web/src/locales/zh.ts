@@ -615,7 +615,7 @@ export const zh: LocaleStrings = {
     noByok: '无匹配模型',
     searchPlaceholder: '搜索...',
     moreModels: '更多模型',
-    thinking: '思考',
+    thinking: 'Thinking',
   },
   work: {
     progress: '进度',

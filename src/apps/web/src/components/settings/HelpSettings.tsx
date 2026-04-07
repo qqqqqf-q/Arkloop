@@ -6,11 +6,14 @@ import { openExternal } from '../../openExternal'
 import { AutoResizeTextarea } from '@arkloop/shared'
 
 export function HelpContent({ label }: { label: string }) {
+  const { locale } = useLocale()
+  const docsUrl = locale === 'en' ? 'https://arkloop.cn/en/docs/guide' : 'https://arkloop.cn/zh/docs/guide'
+
   return (
     <div className="flex flex-col gap-2">
       <button
         type="button"
-        onClick={() => openExternal('https://docs.arkloop.cn')}
+        onClick={() => openExternal(docsUrl)}
         className="flex h-9 w-[240px] items-center gap-2 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
       >
