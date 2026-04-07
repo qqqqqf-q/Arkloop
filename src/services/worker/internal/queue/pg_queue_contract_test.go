@@ -189,6 +189,55 @@ func TestPgQueueDeadLettersAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestPgQueueRejectsDuplicateRunExecute(t *testing.T) {
+	fixture := newQueueFixture(t, 25)
+	queue := fixture.queue
+
+	accountID := uuid.New()
+	runID := uuid.New()
+
+	jobID, err := queue.EnqueueRun(
+		context.Background(),
+		accountID,
+		runID,
+		"0123456789abcdef0123456789abcdef",
+		RunExecuteJobType,
+		map[string]any{"note": "first"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("first enqueue failed: %v", err)
+	}
+	if jobID == uuid.Nil {
+		t.Fatal("expected non-nil job id")
+	}
+
+	_, err = queue.EnqueueRun(
+		context.Background(),
+		accountID,
+		runID,
+		"fedcba9876543210fedcba9876543210",
+		RunExecuteJobType,
+		map[string]any{"note": "second"},
+		nil,
+	)
+	if !errors.Is(err, ErrRunExecuteAlreadyQueued) {
+		t.Fatalf("expected ErrRunExecuteAlreadyQueued, got %v", err)
+	}
+
+	var count int
+	if err := fixture.pool.QueryRow(
+		context.Background(),
+		`SELECT COUNT(*) FROM jobs WHERE payload_json->>'run_id' = $1`,
+		runID.String(),
+	).Scan(&count); err != nil {
+		t.Fatalf("count jobs: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly one persisted job, got %d", count)
+	}
+}
+
 func TestPgQueueLeaseCanFilterByJobType(t *testing.T) {
 	fixture := newQueueFixture(t, 25)
 	queue := fixture.queue

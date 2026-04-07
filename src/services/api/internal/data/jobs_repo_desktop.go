@@ -32,6 +32,13 @@ func init() {
 		if enq == nil {
 			return uuid.Nil, true, fmt.Errorf("desktop job queue not initialized")
 		}
+		active, err := enq.HasActiveRun(ctx, runID, jobType)
+		if err != nil {
+			return uuid.Nil, true, err
+		}
+		if active {
+			return uuid.Nil, true, fmt.Errorf("%w: run_id=%s", ErrRunExecuteAlreadyQueued, runID)
+		}
 		if ac, ok := db.(afterCommitter); ok {
 			ac.AfterCommit(func() {
 				if _, err := enq.EnqueueRun(ctx, accountID, runID, traceID, jobType, payload, availableAt); err != nil {

@@ -27,6 +27,7 @@ type JobEnqueuer interface {
 		payload map[string]any,
 		availableAt *time.Time,
 	) (uuid.UUID, error)
+	HasActiveRun(ctx context.Context, runID uuid.UUID, queueJobType string) (bool, error)
 }
 
 var (

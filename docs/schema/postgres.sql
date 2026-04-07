@@ -168,6 +168,7 @@ CREATE TABLE jobs (
 CREATE INDEX ix_jobs_job_type ON jobs(job_type);
 CREATE INDEX ix_jobs_status_available_at ON jobs(status, available_at);
 CREATE INDEX ix_jobs_status_leased_until ON jobs(status, leased_until);
+CREATE UNIQUE INDEX ux_jobs_run_execute_active_run ON jobs (((payload_json ->> 'run_id'::text))) WHERE ((job_type = 'run.execute'::text) AND (status = ANY (ARRAY['queued'::text, 'leased'::text])));
 
 
 -- === 00009_jobs_add_lease_token.sql ===
@@ -3714,5 +3715,4 @@ UPDATE threads SET mode = 'work' WHERE mode = 'claw';
 ALTER TABLE threads DROP CONSTRAINT chk_threads_mode;
 ALTER TABLE threads ADD CONSTRAINT chk_threads_mode CHECK (mode IN ('chat', 'work'));
 UPDATE feature_flags SET key = 'work_enabled', description = 'enable work mode' WHERE key = 'claw_enabled';
-
 

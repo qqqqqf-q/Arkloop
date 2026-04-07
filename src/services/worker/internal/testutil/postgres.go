@@ -132,6 +132,7 @@ func initJobsSchema(t *testing.T, dsn string) error {
 		`CREATE INDEX ix_jobs_job_type ON jobs (job_type)`,
 		`CREATE INDEX ix_jobs_status_available_at ON jobs (status, available_at)`,
 		`CREATE INDEX ix_jobs_status_leased_until ON jobs (status, leased_until)`,
+		`CREATE UNIQUE INDEX ux_jobs_run_execute_active_run ON jobs ((payload_json->>'run_id')) WHERE job_type = 'run.execute' AND status IN ('queued', 'leased')`,
 	}
 
 	for _, statement := range statements {

@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -32,6 +33,7 @@ const (
 )
 
 var traceIDRegex = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+var ErrRunExecuteAlreadyQueued = errors.New("run.execute already queued")
 
 func normalizeTraceID(value string) string {
 	cleaned := strings.TrimSpace(value)

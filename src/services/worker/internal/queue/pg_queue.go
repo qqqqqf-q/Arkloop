@@ -5,14 +5,18 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const activeRunExecuteJobIndex = "ux_jobs_run_execute_active_run"
 
 type PgQueue struct {
 	pool         *pgxpool.Pool
@@ -74,6 +78,15 @@ func (q *PgQueue) EnqueueRun(
 	if chosenJobType == "" {
 		chosenJobType = RunExecuteJobType
 	}
+	if chosenJobType == RunExecuteJobType {
+		existingJobID, err := q.findActiveRunExecuteJob(ctx, runID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if existingJobID != uuid.Nil {
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+		}
+	}
 
 	_, err = q.pool.Exec(
 		ctx,
@@ -91,12 +104,51 @@ func (q *PgQueue) EnqueueRun(
 		availableAt,
 	)
 	if err != nil {
+		if chosenJobType == RunExecuteJobType && isActiveRunExecuteConflict(err) {
+			existingJobID, lookupErr := q.findActiveRunExecuteJob(ctx, runID)
+			if lookupErr == nil && existingJobID != uuid.Nil {
+				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+			}
+		}
 		return uuid.Nil, err
 	}
 
 	_, _ = q.pool.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
 
 	return jobID, nil
+}
+
+func isActiveRunExecuteConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == activeRunExecuteJobIndex
+}
+
+func (q *PgQueue) findActiveRunExecuteJob(ctx context.Context, runID uuid.UUID) (uuid.UUID, error) {
+	if runID == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	var existingJobID uuid.UUID
+	err := q.pool.QueryRow(
+		ctx,
+		`SELECT id
+		   FROM jobs
+		  WHERE job_type = $1
+		    AND payload_json->>'run_id' = $2
+		    AND status IN ($3, $4)
+		  ORDER BY created_at ASC, id ASC
+		  LIMIT 1`,
+		RunExecuteJobType,
+		runID.String(),
+		JobStatusQueued,
+		JobStatusLeased,
+	).Scan(&existingJobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return existingJobID, nil
 }
 
 func (q *PgQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {

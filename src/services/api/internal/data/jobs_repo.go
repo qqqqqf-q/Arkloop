@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -19,9 +20,14 @@ const (
 	EmailSendJobType  = "email.send"
 
 	JobStatusQueued = "queued"
+	JobStatusLeased = "leased"
 
 	JobPayloadVersionV1 = 1
 )
+
+const activeRunExecuteJobIndex = "ux_jobs_run_execute_active_run"
+
+var ErrRunExecuteAlreadyQueued = errors.New("run.execute already queued")
 
 // afterCommitter is satisfied by sqlitepgx.Tx and allows deferring
 // side-effects (like worker notification) until the transaction commits.
@@ -128,6 +134,16 @@ func (r *JobRepository) EnqueueRun(
 		}
 	}
 
+	if chosenJobType == RunExecuteJobType {
+		existingJobID, err := findActiveRunExecuteJob(ctx, r.db, runID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if existingJobID != uuid.Nil {
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+		}
+	}
+
 	_, err = r.db.Exec(
 		ctx,
 		`INSERT INTO jobs (
@@ -144,6 +160,12 @@ func (r *JobRepository) EnqueueRun(
 		availableAt,
 	)
 	if err != nil {
+		if chosenJobType == RunExecuteJobType && isActiveRunExecuteConflict(err) {
+			existingJobID, lookupErr := findActiveRunExecuteJob(ctx, r.db, runID)
+			if lookupErr == nil && existingJobID != uuid.Nil {
+				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
+			}
+		}
 		return uuid.Nil, err
 	}
 
@@ -163,6 +185,47 @@ func (r *JobRepository) EnqueueRun(
 	}
 
 	return jobID, nil
+}
+
+func isActiveRunExecuteConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505" && pgErr.ConstraintName == activeRunExecuteJobIndex
+	}
+	msg := err.Error()
+	return (strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "constraint failed: UNIQUE")) &&
+		strings.Contains(msg, activeRunExecuteJobIndex)
+}
+
+func findActiveRunExecuteJob(ctx context.Context, db Querier, runID uuid.UUID) (uuid.UUID, error) {
+	if db == nil || runID == uuid.Nil {
+		return uuid.Nil, nil
+	}
+	var existingJobID uuid.UUID
+	err := db.QueryRow(
+		ctx,
+		`SELECT id
+		   FROM jobs
+		  WHERE job_type = $1
+		    AND payload_json->>'run_id' = $2
+		    AND status IN ($3, $4)
+		  ORDER BY created_at ASC, id ASC
+		  LIMIT 1`,
+		RunExecuteJobType,
+		runID.String(),
+		JobStatusQueued,
+		JobStatusLeased,
+	).Scan(&existingJobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, nil
+	}
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return existingJobID, nil
 }
 
 // EnqueueEmail 将一封邮件加入异步队列，由 Worker 的 email.send handler 发送。
