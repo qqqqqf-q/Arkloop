@@ -56,7 +56,7 @@ import { useRunLifecycle } from '../contexts/run-lifecycle'
 import { useMessageMeta, type MessageMeta } from '../contexts/message-meta'
 import { useStream } from '../contexts/stream'
 import { usePanels } from '../contexts/panels'
-import { useScrollPin } from '../hooks/useScrollPin'
+import { useScrollPin, SCROLL_BOTTOM_PAD } from '../hooks/useScrollPin'
 import { useDevTools } from '../hooks/useDevTools'
 import { useChatActions } from '../hooks/useChatActions'
 import { useThreadSseEffect } from '../hooks/useThreadSseEffect'
@@ -739,9 +739,12 @@ export function ChatView() {
     inputAreaRef,
     forceInstantBottomScrollRef,
     isAtBottomRef,
+    programmaticScrollDepthRef,
     handleScrollContainerScroll,
     stabilizeDocumentPanelScroll,
     scrollToBottom,
+    activateAnchor,
+    spacerRef,
   } = useScrollPin({
     messagesLoading,
     messages,
@@ -750,13 +753,14 @@ export function ChatView() {
     topLevelCodeExecutionsLength: topLevelCodeExecutions.length,
   })
 
-  const { resetAssistantTurnLive } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef })
+  const { resetAssistantTurnLive } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef })
 
   useThreadSseEffect({
     restoreQueuedDraftToInput,
     clearQueuedDraft,
     forceInstantBottomScrollRef,
     lastUserMsgRef,
+    programmaticScrollDepthRef,
   })
 
   const prevActiveRunIdRef = useRef<string | null>(null)
@@ -788,7 +792,7 @@ export function ChatView() {
     handleUserInputDismiss,
     handleAsrError,
     handleArtifactAction,
-  } = useChatActions({ scrollToBottom })
+  } = useChatActions({ scrollToBottom: activateAnchor })
   void sendMessage
 
   // 加载 thread 数据
@@ -1374,7 +1378,7 @@ export function ChatView() {
         resetSearchSteps()
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
-        scrollToBottom()
+        activateAnchor()
       } else {
         const uploaded = await uploadAttachments()
         const message = await createMessage(accessToken, threadId, buildMessageRequest(text, uploaded))
@@ -1392,7 +1396,7 @@ export function ChatView() {
         resetSearchSteps()
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
-        scrollToBottom()
+        activateAnchor()
       }
     } catch (err) {
       setPendingThinking(false)
@@ -1415,7 +1419,7 @@ export function ChatView() {
     onThreadCreated,
     resetSearchSteps,
     revokeDraftAttachment,
-    scrollToBottom,
+    activateAnchor,
     sending,
     setActiveRunId,
     setAttachments,
@@ -1841,7 +1845,7 @@ export function ChatView() {
             className="chat-scroll-hidden relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
           >
         <div
-          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? chatContentPadding.panelOpen : chatContentPadding.panelClosed} 200px` }}
+          style={{ maxWidth: 800, margin: '0 auto', padding: `50px ${isPanelOpen ? chatContentPadding.panelOpen : chatContentPadding.panelClosed} ${SCROLL_BOTTOM_PAD}px` }}
           className="flex w-full flex-col gap-6"
         >
           {messagesLoading ? (
@@ -1895,7 +1899,7 @@ export function ChatView() {
                     incognitoDividerText={t.incognitoForkDivider}
                     onIncognitoDividerComplete={() => {
                       if (isAtBottomRef.current) {
-                        bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+                        activateAnchor()
                       }
                     }}
                     terminalRunHandoffStatus={terminalRunHandoffStatus}
@@ -1932,6 +1936,7 @@ export function ChatView() {
             </>
           )}
         </div>
+        <div ref={spacerRef} style={{ flexShrink: 0, overflowAnchor: 'none' }} />
       </div>
 
       {/* 输入区域 */}

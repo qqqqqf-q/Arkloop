@@ -121,7 +121,7 @@ export function AssistantMessage({
   }, [displayedAssistantMd])
 
   return (
-    <div className="group" style={{ display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
       {widgets && widgets.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px', width: '100%' }}>
           {widgets.map((w) => (
@@ -160,7 +160,7 @@ export function AssistantMessage({
           />
         </div>
         <div
-          className={isLast ? '' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 transition-[opacity] duration-[180ms] ease-out'}
+          className={isLast ? '' : 'pointer-events-none opacity-0 group-hover/turn:pointer-events-auto group-hover/turn:opacity-100 transition-[opacity] duration-[180ms] ease-out'}
           style={{ marginTop: contentCompact ? '-4px' : '4px', marginLeft: '-6px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>

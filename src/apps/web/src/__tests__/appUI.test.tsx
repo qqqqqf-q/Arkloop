@@ -70,7 +70,7 @@ describe('AppUIProvider sidebar state', () => {
     }
   })
 
-  it('保留宽屏下的手动折叠状态，即使后续触发 resize', async () => {
+  it('保留手动折叠状态，即使跨过宽度断点后再回来', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -102,6 +102,30 @@ describe('AppUIProvider sidebar state', () => {
         configurable: true,
         writable: true,
         value: 1300,
+      })
+      window.dispatchEvent(new Event('resize'))
+      vi.runAllTimers()
+    })
+
+    expect(collapsedState?.textContent).toBe('collapsed')
+
+    await act(async () => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: 1100,
+      })
+      window.dispatchEvent(new Event('resize'))
+      vi.runAllTimers()
+    })
+
+    expect(collapsedState?.textContent).toBe('collapsed')
+
+    await act(async () => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        writable: true,
+        value: 1400,
       })
       window.dispatchEvent(new Event('resize'))
       vi.runAllTimers()

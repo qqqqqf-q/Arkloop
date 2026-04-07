@@ -53,6 +53,7 @@ type UseThreadSseEffectDeps = {
   clearQueuedDraft: () => void
   forceInstantBottomScrollRef: React.RefObject<boolean>
   lastUserMsgRef: React.RefObject<HTMLDivElement | null>
+  programmaticScrollDepthRef: React.MutableRefObject<number>
 }
 
 export function useThreadSseEffect({
@@ -60,6 +61,7 @@ export function useThreadSseEffect({
   clearQueuedDraft,
   forceInstantBottomScrollRef,
   lastUserMsgRef,
+  programmaticScrollDepthRef,
 }: UseThreadSseEffectDeps): void {
   const { logout: onLoggedOut } = useAuth()
   const { threadId } = useChatSession()
@@ -142,7 +144,7 @@ export function useThreadSseEffect({
     captureTerminalRunCache,
     persistRunDataToMessage,
     persistThreadRunHandoff,
-  } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef })
+  } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef })
 
   const markTerminalRunHistory = useCallback((messageId: string | null, expanded = true) => {
     markTerminalRunHistoryState(messageId, expanded)

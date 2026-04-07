@@ -31,9 +31,10 @@ type PersistRunDataOptions = {
 type UseRunTransitionDeps = {
   forceInstantBottomScrollRef: React.RefObject<boolean>
   lastUserMsgRef: React.RefObject<HTMLDivElement | null>
+  programmaticScrollDepthRef: React.MutableRefObject<number>
 }
 
-export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef }: UseRunTransitionDeps) {
+export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef }: UseRunTransitionDeps) {
   const { threadId } = useChatSession()
   const {
     setTerminalRunDisplayId,
@@ -123,7 +124,11 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef }
 
   const releaseCompletedHandoffToHistory = useCallback(() => {
     forceInstantBottomScrollRef.current = true
+    programmaticScrollDepthRef.current++
     lastUserMsgRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })
+    requestAnimationFrame(() => {
+      programmaticScrollDepthRef.current--
+    })
     assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
     setPreserveLiveRunUi(false)
     setLiveAssistantTurn(null)
@@ -143,6 +148,7 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef }
     clearLiveRunTransientState,
     forceInstantBottomScrollRef,
     lastUserMsgRef,
+    programmaticScrollDepthRef,
     setLiveAssistantTurn,
     setPendingThinking,
     setPreserveLiveRunUi,

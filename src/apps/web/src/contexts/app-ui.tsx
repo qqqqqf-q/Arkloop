@@ -217,7 +217,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
   const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 900)
-  const collapsedByWidthRef = useRef(window.innerWidth < 1200)
+  const autoCollapsedByWidthRef = useRef(window.innerWidth < 1200)
+  const manualSidebarCollapsedRef = useRef<boolean | null>(null)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
@@ -279,6 +280,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         },
       }))
     }
+    manualSidebarCollapsedRef.current = nextCollapsed
     setSidebarCollapsed(nextCollapsed)
   }, [appMode, location.pathname, sidebarCollapsed])
 
@@ -423,12 +425,13 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         const hidden = width < 900
         setSidebarHiddenByWidth((prev) => (prev === hidden ? prev : hidden))
         const narrow = width < 1200
-        if (narrow && !collapsedByWidthRef.current) {
-          collapsedByWidthRef.current = true
-          setSidebarCollapsed(true)
-        } else if (!narrow && collapsedByWidthRef.current) {
-          collapsedByWidthRef.current = false
-          setSidebarCollapsed(false)
+        if (manualSidebarCollapsedRef.current !== null) {
+          autoCollapsedByWidthRef.current = narrow
+          return
+        }
+        if (narrow !== autoCollapsedByWidthRef.current) {
+          autoCollapsedByWidthRef.current = narrow
+          setSidebarCollapsed(narrow)
         }
       })
     }
