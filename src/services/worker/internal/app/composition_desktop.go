@@ -473,6 +473,12 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 
 	runsRepo := data.DesktopRunsRepository{}
 	eventsRepo := data.DesktopRunEventsRepository{}
+	var tracer pipeline.Tracer
+	if enabled, traceErr := data.NewAccountSettingsRepository(e.db).PipelineTraceEnabled(ctx, run.AccountID); traceErr != nil {
+		slog.WarnContext(ctx, "desktop pipeline trace setting load failed", "account_id", run.AccountID.String(), "err", traceErr.Error())
+	} else if enabled {
+		tracer = pipeline.NewBufTracer(run.ID, run.AccountID, data.NewRunPipelineEventsRepository(e.db))
+	}
 
 	rc := &pipeline.RunContext{
 		Run:                 run,
@@ -483,6 +489,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		MemorySnapshotStore: pipeline.NewDesktopMemorySnapshotStore(e.db),
 		EventBus:            e.bus,
 		TraceID:             traceID,
+		Tracer:              tracer,
 		Emitter:             emitter,
 		Router:              e.auxRouter,
 		Runtime:             e.runtimeSnapshot,
@@ -528,6 +535,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	if e.jobQueue != nil && subAgentsEnabled {
 		rc.SubAgentControl = subagentctl.NewService(e.db, nil, e.jobQueue, run, traceID, subagentctl.SubAgentLimits{}, subagentctl.BackpressureConfig{}, e.rolloutStore)
 	}
+	defer pipeline.FlushTracer(rc.Tracer)
 
 	// pipeline 限制规范化
 	limits := sharedexec.NormalizePlatformLimits(sharedexec.PlatformLimits{
@@ -571,6 +579,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		// Local SQLite: lightweight snapshot injection
 		memMiddleware = desktopMemoryInjection(e.db)
 	}
+	memMiddleware = traceDesktopMemoryInjection(memMiddleware)
 
 	middlewares := []pipeline.RunMiddleware{
 		desktopCancelGuard(e.db, e.bus),
@@ -626,6 +635,28 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	handler := pipeline.Build(middlewares, terminal)
 
 	return handler(ctx, rc)
+}
+
+func traceDesktopMemoryInjection(inner pipeline.RunMiddleware) pipeline.RunMiddleware {
+	if inner == nil {
+		return nil
+	}
+	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+		before := rc.SystemPrompt
+		err := inner(ctx, rc, next)
+		if rc != nil && rc.Tracer != nil {
+			delta := rc.SystemPrompt
+			if strings.HasPrefix(delta, before) {
+				delta = delta[len(before):]
+			}
+			rc.Tracer.Event("memory_injection", "memory_injection.completed", map[string]any{
+				"memory_injected":   strings.Contains(delta, "<memory>"),
+				"notebook_injected": strings.Contains(delta, "<notebook>"),
+				"injection_len":     len(delta),
+			})
+		}
+		return err
+	}
 }
 
 func desktopCapabilityMiddlewares(
@@ -1020,9 +1051,23 @@ func desktopInputLoader(
 		rc.ThreadMessageIDs = loaded.ThreadMessageIDs
 		rc.HasActiveCompactSnapshot = loaded.HasActiveCompactSnapshot
 		rc.ActiveCompactSnapshotText = loaded.ActiveCompactSnapshotText
+		if rc.Tracer != nil {
+			rc.Tracer.Event("input_loader", "input_loader.loaded", map[string]any{
+				"run_kind":      strings.TrimSpace(desktopStringValue(loaded.InputJSON["run_kind"])),
+				"message_count": len(rc.Messages),
+				"history_limit": messageLimit,
+			})
+		}
 
 		return next(ctx, rc)
 	}
+}
+
+func desktopStringValue(value any) string {
+	if raw, ok := value.(string); ok {
+		return raw
+	}
+	return ""
 }
 
 // desktopToolInit sets tool specs, executors, allowlist and registry on RunContext
@@ -1210,7 +1255,7 @@ func desktopChannelDelivery(db data.DesktopDB) pipeline.RunMiddleware {
 		if strings.TrimSpace(output) == "" && notice != "" {
 			output = notice
 		}
-		if streamFlush != nil {
+		if streamFlush != nil && streamMidCount > 0 {
 			finalOutputs = nil
 		}
 
@@ -1969,6 +2014,14 @@ func desktopRouting(
 		}
 
 		rc.RoutingByokEnabled = false
+		if rc.Tracer != nil && rc.SelectedRoute != nil {
+			rc.Tracer.Event("routing", "routing.selected", map[string]any{
+				"model":          rc.SelectedRoute.Route.Model,
+				"provider":       string(rc.SelectedRoute.Credential.ProviderKind),
+				"byok":           false,
+				"context_window": routing.RouteContextWindowTokens(rc.SelectedRoute.Route),
+			})
+		}
 
 		return next(ctx, rc)
 	}
@@ -2115,7 +2168,7 @@ type desktopEventWriter struct {
 	totalCostUSD             float64
 	usageRepo                data.UsageRecordsRepository
 	telegramBoundaryFlush    func(context.Context, string) error
-	telegramFlushSentDeltas  int
+	telegramSentOutputCount  int
 	terminalUserMessage      string
 	terminalStatus           string
 	visibleAssistantText     string
@@ -2142,10 +2195,35 @@ func (w *desktopEventWriter) telegramStreamRemainder() string {
 	if w.telegramBoundaryFlush == nil {
 		return ""
 	}
-	if w.telegramFlushSentDeltas >= len(w.assistantDeltas) {
+	unsent := w.visibleAssistantTexts[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
+}
+
+func (w *desktopEventWriter) pendingTelegramFlushChunk() string {
+	if w.telegramBoundaryFlush == nil {
+		return ""
+	}
+	unsent := w.visibleAssistantTexts[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
+}
+
+func (w *desktopEventWriter) telegramUnsentOutputs() []string {
+	if w.telegramSentOutputCount >= len(w.visibleAssistantTexts) {
+		return nil
+	}
+	out := make([]string, 0, len(w.visibleAssistantTexts)-w.telegramSentOutputCount)
+	for _, item := range w.visibleAssistantTexts[w.telegramSentOutputCount:] {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev events.RunEvent, personaID string) error {
@@ -2213,20 +2291,19 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		w.assistantMessage = &assistantMessage
 		w.assistantMessageFresh = true
 	}
+	flushChunk := ""
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
+		flushChunk = w.pendingTelegramFlushChunk()
 	}
 
 	if shouldAccumulateUsageForDesktopEvent(ev.Type) {
 		w.accumUsage(ev.DataJSON)
 	}
 
-	flushChunk := ""
 	if ev.Type == "tool.call" {
 		w.captureChannelToolCallOutput(ev.DataJSON)
-		if w.telegramBoundaryFlush != nil && len(w.assistantDeltas) > w.telegramFlushSentDeltas {
-			flushChunk = strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
-		}
+		flushChunk = w.pendingTelegramFlushChunk()
 		w.toolCallCount++
 		w.collectToolCall(ev.DataJSON)
 	}
@@ -2297,7 +2374,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		if err := w.telegramBoundaryFlush(ctx, flushChunk); err != nil {
 			return err
 		}
-		w.telegramFlushSentDeltas = len(w.assistantDeltas)
+		w.telegramSentOutputCount = len(w.visibleAssistantTexts)
 	}
 	w.enqueueProjectedRuns(ctx, nextRunIDs)
 	return nil
@@ -2670,7 +2747,7 @@ func desktopPersistFinalAssistantOutput(
 	}
 
 	content := w.visibleAssistantOutput()
-	hasStreamedChunks := w.telegramBoundaryFlush != nil && w.telegramFlushSentDeltas > 0
+	hasStreamedChunks := w.telegramBoundaryFlush != nil && w.telegramSentOutputCount > 0
 	shouldPersistAssistantOutput := (w.completed || w.terminalStatus == "cancelled" || w.terminalStatus == "interrupted") && strings.TrimSpace(content) != ""
 	if !shouldPersistAssistantOutput || pipeline.ShouldSuppressHeartbeatOutput(rc, content) {
 		return nil
@@ -2728,6 +2805,9 @@ func desktopPersistFinalAssistantOutput(
 		rc.FinalAssistantOutputs = w.visibleAssistantOutputs()
 		rc.TelegramStreamDeliveryRemainder = w.telegramStreamRemainder()
 		rc.ChannelOutputDelivered = len(w.toolDeliveredTexts) > 0
+		if hasStreamedChunks {
+			rc.FinalAssistantOutputs = w.telegramUnsentOutputs()
+		}
 		if w.pendingReplyOverride != "" {
 			rc.ChannelReplyOverride = &pipeline.ChannelMessageRef{
 				MessageID: w.pendingReplyOverride,
@@ -3297,56 +3377,3 @@ func recoverOrphanRuns(ctx context.Context, db data.DesktopDB) error {
 	}
 	return nil
 }
-\tvar tracer pipeline.Tracer
-\tif enabled, traceErr := data.NewAccountSettingsRepository(e.db).PipelineTraceEnabled(ctx, run.AccountID); traceErr != nil {
-\t\tslog.WarnContext(ctx, "desktop pipeline trace setting load failed", "account_id", run.AccountID.String(), "err", traceErr.Error())
-\t} else if enabled {
-\t\ttracer = pipeline.NewBufTracer(run.ID, run.AccountID, data.NewRunPipelineEventsRepository(e.db))
-\t}
-\t\tTracer:              tracer,
-\tdefer pipeline.FlushTracer(rc.Tracer)
-\tmemMiddleware = traceDesktopMemoryInjection(memMiddleware)
-func traceDesktopMemoryInjection(inner pipeline.RunMiddleware) pipeline.RunMiddleware {
-\tif inner == nil {
-\t\treturn nil
-\t}
-\treturn func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
-\t\tbefore := rc.SystemPrompt
-\t\terr := inner(ctx, rc, next)
-\t\tif rc != nil && rc.Tracer != nil {
-\t\t\tdelta := rc.SystemPrompt
-\t\t\tif strings.HasPrefix(delta, before) {
-\t\t\t\tdelta = delta[len(before):]
-\t\t\t}
-\t\t\trc.Tracer.Event("memory_injection", "memory_injection.completed", map[string]any{
-\t\t\t\t"memory_injected":   strings.Contains(delta, "<memory>"),
-\t\t\t\t"notebook_injected": strings.Contains(delta, "<notebook>"),
-\t\t\t\t"injection_len":     len(delta),
-\t\t\t})
-\t\t}
-\t\treturn err
-\t}
-}
-
-\t\tif rc.Tracer != nil {
-\t\t\trc.Tracer.Event("input_loader", "input_loader.loaded", map[string]any{
-\t\t\t\t"run_kind":      strings.TrimSpace(desktopStringValue(loaded.InputJSON["run_kind"])),
-\t\t\t\t"message_count": len(rc.Messages),
-\t\t\t\t"history_limit": messageLimit,
-\t\t\t})
-\t\t}
-func desktopStringValue(value any) string {
-\tif raw, ok := value.(string); ok {
-\t\treturn raw
-\t}
-\treturn ""
-}
-
-\t\tif rc.Tracer != nil && rc.SelectedRoute != nil {
-\t\t\trc.Tracer.Event("routing", "routing.selected", map[string]any{
-\t\t\t\t"model":          rc.SelectedRoute.Route.Model,
-\t\t\t\t"provider":       string(rc.SelectedRoute.Credential.ProviderKind),
-\t\t\t\t"byok":           false,
-\t\t\t\t"context_window": routing.RouteContextWindowTokens(rc.SelectedRoute.Route),
-\t\t\t})
-\t\t}

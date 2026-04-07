@@ -168,6 +168,9 @@ func NewAgentLoopHandler(
 				rc.FinalAssistantOutput = writer.AssistantOutput()
 				rc.FinalAssistantOutputs = writer.AssistantOutputs()
 				rc.TelegramStreamDeliveryRemainder = writer.telegramStreamRemainder()
+				if writer.hasStreamedChunks() {
+					rc.FinalAssistantOutputs = writer.telegramUnsentOutputs()
+				}
 			}
 		}
 		rc.RunToolCallCount = writer.toolCallCount
@@ -226,7 +229,7 @@ type eventWriter struct {
 	totalCostUSD             float64
 
 	telegramToolBoundaryFlush func(context.Context, string) error
-	telegramFlushSentDeltas   int
+	telegramSentOutputCount   int
 	pendingReplyOverride      string
 
 	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
@@ -301,14 +304,39 @@ func (w *eventWriter) telegramStreamRemainder() string {
 	if w.telegramToolBoundaryFlush == nil {
 		return ""
 	}
-	if w.telegramFlushSentDeltas >= len(w.assistantDeltas) {
+	unsent := w.assistantOutputs[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], ""))
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
 }
 
 func (w *eventWriter) hasStreamedChunks() bool {
-	return w.telegramToolBoundaryFlush != nil && w.telegramFlushSentDeltas > 0
+	return w.telegramToolBoundaryFlush != nil && w.telegramSentOutputCount > 0
+}
+
+func (w *eventWriter) pendingTelegramFlushChunk() string {
+	if w.telegramToolBoundaryFlush == nil {
+		return ""
+	}
+	unsent := w.assistantOutputs[w.telegramSentOutputCount:]
+	if len(unsent) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(unsent, "\n"))
+}
+
+func (w *eventWriter) telegramUnsentOutputs() []string {
+	if w.telegramSentOutputCount >= len(w.assistantOutputs) {
+		return nil
+	}
+	out := make([]string, 0, len(w.assistantOutputs)-w.telegramSentOutputCount)
+	for _, item := range w.assistantOutputs[w.telegramSentOutputCount:] {
+		if trimmed := strings.TrimSpace(item); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
 }
 
 func (w *eventWriter) insertStreamRemainder(
@@ -435,8 +463,10 @@ func (w *eventWriter) Append(
 		w.assistantMessage = &assistantMessage
 		w.assistantMessageFresh = true
 	}
+	flushChunk := ""
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
+		flushChunk = w.pendingTelegramFlushChunk()
 	}
 
 	if shouldAccumulateUsageForEvent(ev.Type) {
@@ -444,15 +474,7 @@ func (w *eventWriter) Append(
 	}
 
 	if ev.Type == "tool.call" {
-		if w.telegramToolBoundaryFlush != nil && len(w.assistantDeltas) > w.telegramFlushSentDeltas {
-			chunk := strings.Join(w.assistantDeltas[w.telegramFlushSentDeltas:], "")
-			if trimmed := strings.TrimSpace(chunk); trimmed != "" {
-				if err := w.telegramToolBoundaryFlush(ctx, trimmed); err != nil {
-					return err
-				}
-			}
-			w.telegramFlushSentDeltas = len(w.assistantDeltas)
-		}
+		flushChunk = w.pendingTelegramFlushChunk()
 		w.captureReplyOverride(ev.DataJSON)
 		w.toolCallCount++
 		w.collectToolCall(ev.DataJSON)
@@ -521,7 +543,16 @@ func (w *eventWriter) Append(
 	}
 
 	if _, ok := streamingEventTypes[ev.Type]; !ok {
-		return w.commit(ctx)
+		if err := w.commit(ctx); err != nil {
+			return err
+		}
+		if flushChunk != "" && w.telegramToolBoundaryFlush != nil {
+			if err := w.telegramToolBoundaryFlush(ctx, flushChunk); err != nil {
+				return err
+			}
+			w.telegramSentOutputCount = len(w.assistantOutputs)
+		}
+		return nil
 	}
 
 	now := time.Now()
