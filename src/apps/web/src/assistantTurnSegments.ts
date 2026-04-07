@@ -363,6 +363,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Run
   if (event.type === 'tool.result') {
     if (isACPDelegateEventData(event.data)) return
     const toolName = pickToolName(event.data)
+    if (toolName === TIMELINE_TITLE_TOOL) return
     const toolCallId = pickToolCallId(event)
     const result = extractResultPayload(event)
     const err =
