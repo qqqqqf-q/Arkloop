@@ -238,6 +238,7 @@ type eventWriter struct {
 	pendingEnqueueRunIDs []uuid.UUID
 
 	pendingToolCalls     []llm.ToolCall
+	pendingToolResults   []intermediateMessage
 	intermediateMessages []intermediateMessage
 }
 
@@ -759,13 +760,36 @@ func (w *eventWriter) collectToolCall(dataJSON map[string]any) {
 
 func (w *eventWriter) flushPendingToolCalls() {
 	if len(w.pendingToolCalls) == 0 {
+		w.pendingToolResults = w.pendingToolResults[:0]
 		return
 	}
+
+	// 只保留已有对应 result 的 call，确保 tool_use/tool_result 配对写入
+	resolved := make(map[string]struct{}, len(w.pendingToolResults))
+	for _, r := range w.pendingToolResults {
+		resolved[r.ToolCallID] = struct{}{}
+	}
+	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
+	for _, call := range w.pendingToolCalls {
+		if _, ok := resolved[call.ToolCallID]; ok {
+			filteredCalls = append(filteredCalls, call)
+		}
+	}
+
+	w.pendingToolCalls = w.pendingToolCalls[:0]
+	results := w.pendingToolResults
+	w.pendingToolResults = w.pendingToolResults[:0]
+
+	if len(filteredCalls) == 0 {
+		// 所有 call 均无结果（suppressed 或未执行），不写入孤立消息
+		return
+	}
+
 	msg := w.assistantMessage
 	if msg == nil {
 		msg = &llm.Message{Role: "assistant"}
 	}
-	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, w.pendingToolCalls)
+	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, filteredCalls)
 	if err != nil {
 		return
 	}
@@ -774,11 +798,10 @@ func (w *eventWriter) flushPendingToolCalls() {
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
 	})
-	w.pendingToolCalls = w.pendingToolCalls[:0]
+	w.intermediateMessages = append(w.intermediateMessages, results...)
 }
 
 func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
-	w.flushPendingToolCalls()
 	envelope := map[string]any{
 		"tool_call_id": dataJSON["tool_call_id"],
 		"tool_name":    dataJSON["tool_name"],
@@ -794,7 +817,7 @@ func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
 		return
 	}
 	callID, _ := dataJSON["tool_call_id"].(string)
-	w.intermediateMessages = append(w.intermediateMessages, intermediateMessage{
+	w.pendingToolResults = append(w.pendingToolResults, intermediateMessage{
 		Role:       "tool",
 		Content:    string(raw),
 		ToolCallID: callID,
