@@ -280,6 +280,9 @@ func TestChannelQueueLeaseCanFilterByJobType(t *testing.T) {
 	if leaseGo.JobID != goJobID || leaseGo.JobType != otherJobType {
 		t.Fatalf("unexpected go lease: %+v", leaseGo)
 	}
+	if leaseGo.PayloadJSON["type"] != otherJobType {
+		t.Fatalf("unexpected payload type for other job: %#v", leaseGo.PayloadJSON["type"])
+	}
 	if err := q.Ack(ctx, *leaseGo); err != nil {
 		t.Fatalf("ack go job failed: %v", err)
 	}
@@ -294,6 +297,9 @@ func TestChannelQueueLeaseCanFilterByJobType(t *testing.T) {
 	}
 	if leasePython.JobID != pythonJobID || leasePython.JobType != RunExecuteJobType {
 		t.Fatalf("unexpected python lease: %+v", leasePython)
+	}
+	if leasePython.PayloadJSON["type"] != RunExecuteJobType {
+		t.Fatalf("unexpected payload type for run.execute job: %#v", leasePython.PayloadJSON["type"])
 	}
 	if err := q.Ack(ctx, *leasePython); err != nil {
 		t.Fatalf("ack python job failed: %v", err)

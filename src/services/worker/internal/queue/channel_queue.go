@@ -56,11 +56,43 @@ func (q *ChannelJobQueue) EnqueueRun(
 	payload map[string]any,
 	availableAt *time.Time,
 ) (uuid.UUID, error) {
-	jobID := uuid.New()
+	return q.enqueueRunWithID(ctx, uuid.Nil, accountID, runID, traceID, queueJobType, payload, availableAt)
+}
+
+func (q *ChannelJobQueue) EnqueueRunWithID(
+	ctx context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	availableAt *time.Time,
+) (uuid.UUID, error) {
+	return q.enqueueRunWithID(ctx, jobID, accountID, runID, traceID, queueJobType, payload, availableAt)
+}
+
+func (q *ChannelJobQueue) enqueueRunWithID(
+	ctx context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	availableAt *time.Time,
+) (uuid.UUID, error) {
+	if jobID == uuid.Nil {
+		jobID = uuid.New()
+	}
 
 	chosenTraceID := normalizeTraceID(traceID)
 	if chosenTraceID == "" {
 		chosenTraceID = strings.ReplaceAll(uuid.New().String(), "-", "")
+	}
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
 	}
 
 	payloadCopy := map[string]any{}
@@ -71,7 +103,7 @@ func (q *ChannelJobQueue) EnqueueRun(
 	payloadJSON := map[string]any{
 		"v":          JobPayloadVersionV1,
 		"job_id":     jobID.String(),
-		"type":       RunExecuteJobType,
+		"type":       chosenJobType,
 		"trace_id":   chosenTraceID,
 		"account_id": accountID.String(),
 		"run_id":     runID.String(),
@@ -87,11 +119,6 @@ func (q *ChannelJobQueue) EnqueueRun(
 	var roundTripped map[string]any
 	if err := json.Unmarshal(encoded, &roundTripped); err != nil {
 		return uuid.Nil, err
-	}
-
-	chosenJobType := strings.TrimSpace(queueJobType)
-	if chosenJobType == "" {
-		chosenJobType = RunExecuteJobType
 	}
 
 	now := time.Now()
@@ -133,6 +160,25 @@ func (q *ChannelJobQueue) EnqueueRun(
 	}
 
 	return jobID, nil
+}
+
+func (q *ChannelJobQueue) HasActiveRun(_ context.Context, runID uuid.UUID, queueJobType string) (bool, error) {
+	if runID == uuid.Nil || strings.TrimSpace(queueJobType) != RunExecuteJobType {
+		return false, nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	jobID, ok := q.activeRuns[runID]
+	if !ok {
+		return false, nil
+	}
+	job, ok := q.jobs[jobID]
+	if !ok || job == nil || job.status == JobStatusDone || job.status == JobStatusDead {
+		delete(q.activeRuns, runID)
+		return false, nil
+	}
+	return true, nil
 }
 
 func (q *ChannelJobQueue) Lease(ctx context.Context, leaseSeconds int, jobTypes []string) (*JobLease, error) {

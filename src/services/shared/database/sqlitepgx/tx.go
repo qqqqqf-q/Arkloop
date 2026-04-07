@@ -5,6 +5,7 @@ package sqlitepgx
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -13,14 +14,19 @@ import (
 
 // Tx wraps *sql.Tx to satisfy the pgx.Tx interface.
 type Tx struct {
-	tx               *sql.Tx
-	afterCommitHooks []func()
+	tx                 *sql.Tx
+	afterCommitHooks   []func()
+	afterRollbackHooks []func()
 }
 
 // AfterCommit registers fn to run after the transaction commits successfully.
 // If Commit is never called or fails, fn is never executed.
 func (t *Tx) AfterCommit(fn func()) {
 	t.afterCommitHooks = append(t.afterCommitHooks, fn)
+}
+
+func (t *Tx) AfterRollback(fn func()) {
+	t.afterRollbackHooks = append(t.afterRollbackHooks, fn)
 }
 
 func (t *Tx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
@@ -61,11 +67,21 @@ func (t *Tx) Commit(_ context.Context) error {
 		fn()
 	}
 	t.afterCommitHooks = nil
+	t.afterRollbackHooks = nil
 	return nil
 }
 
 func (t *Tx) Rollback(_ context.Context) error {
-	return translateError(t.tx.Rollback())
+	err := translateError(t.tx.Rollback())
+	// 事务已结束（正常回滚或已隐式回滚），都需要执行清理 hooks
+	if err == nil || errors.Is(err, sql.ErrTxDone) {
+		for _, fn := range t.afterRollbackHooks {
+			fn()
+		}
+	}
+	t.afterCommitHooks = nil
+	t.afterRollbackHooks = nil
+	return err
 }
 
 // -- pgx.Tx interface stubs (unused in desktop pipeline) --
@@ -101,5 +117,5 @@ func (e *errBatchResults) Exec() (pgconn.CommandTag, error) {
 	return pgconn.NewCommandTag(""), e.err
 }
 func (e *errBatchResults) Query() (pgx.Rows, error) { return nil, e.err }
-func (e *errBatchResults) QueryRow() pgx.Row         { return &shimRow{err: e.err} }
-func (e *errBatchResults) Close() error               { return nil }
+func (e *errBatchResults) QueryRow() pgx.Row        { return &shimRow{err: e.err} }
+func (e *errBatchResults) Close() error             { return nil }

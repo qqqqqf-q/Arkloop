@@ -53,6 +53,10 @@ func (q *PgQueue) EnqueueRun(
 		chosenTraceID = uuid.New().String()
 		chosenTraceID = strings.ReplaceAll(chosenTraceID, "-", "")
 	}
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
+	}
 
 	payloadCopy := map[string]any{}
 	for key, value := range payload {
@@ -62,7 +66,7 @@ func (q *PgQueue) EnqueueRun(
 	payloadJSON := map[string]any{
 		"v":          JobPayloadVersionV1,
 		"job_id":     jobID.String(),
-		"type":       RunExecuteJobType,
+		"type":       chosenJobType,
 		"trace_id":   chosenTraceID,
 		"account_id": accountID.String(),
 		"run_id":     runID.String(),
@@ -74,10 +78,6 @@ func (q *PgQueue) EnqueueRun(
 		return uuid.Nil, err
 	}
 
-	chosenJobType := strings.TrimSpace(queueJobType)
-	if chosenJobType == "" {
-		chosenJobType = RunExecuteJobType
-	}
 	if chosenJobType == RunExecuteJobType {
 		existingJobID, err := q.findActiveRunExecuteJob(ctx, runID)
 		if err != nil {
@@ -109,6 +109,8 @@ func (q *PgQueue) EnqueueRun(
 			if lookupErr == nil && existingJobID != uuid.Nil {
 				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
 			}
+			// 即使找不到（对方 job 瞬间完成），unique 冲突本身已经明确，仍然返回语义错误
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s", ErrRunExecuteAlreadyQueued, runID)
 		}
 		return uuid.Nil, err
 	}

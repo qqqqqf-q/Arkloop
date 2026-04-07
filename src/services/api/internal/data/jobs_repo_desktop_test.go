@@ -19,6 +19,7 @@ import (
 
 type stubDesktopEnqueuer struct {
 	callCount int
+	lastJobID uuid.UUID
 	accountID uuid.UUID
 	runID     uuid.UUID
 	traceID   string
@@ -43,6 +44,29 @@ func (s *stubDesktopEnqueuer) EnqueueRun(
 	s.jobType = queueJobType
 	s.payload = payload
 	return uuid.New(), nil
+}
+
+func (s *stubDesktopEnqueuer) EnqueueRunWithID(
+	_ context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	_ *time.Time,
+) (uuid.UUID, error) {
+	s.callCount++
+	s.lastJobID = jobID
+	s.accountID = accountID
+	s.runID = runID
+	s.traceID = traceID
+	s.jobType = queueJobType
+	s.payload = payload
+	if jobID == uuid.Nil {
+		return uuid.New(), nil
+	}
+	return jobID, nil
 }
 
 func (s *stubDesktopEnqueuer) HasActiveRun(_ context.Context, runID uuid.UUID, queueJobType string) (bool, error) {
@@ -77,8 +101,12 @@ func TestJobRepositoryDesktopRunExecuteBypassesPersistentJobs(t *testing.T) {
 
 	accountID := uuid.New()
 	runID := uuid.New()
-	if _, err := repo.EnqueueRun(ctx, accountID, runID, "", RunExecuteJobType, map[string]any{"source": "test"}, nil); err != nil {
+	returnedJobID, err := repo.EnqueueRun(ctx, accountID, runID, "", RunExecuteJobType, map[string]any{"source": "test"}, nil)
+	if err != nil {
 		t.Fatalf("enqueue run: %v", err)
+	}
+	if returnedJobID == uuid.Nil {
+		t.Fatal("expected non-nil job id from EnqueueRun")
 	}
 
 	var beforeCommit int
@@ -105,6 +133,9 @@ func TestJobRepositoryDesktopRunExecuteBypassesPersistentJobs(t *testing.T) {
 	}
 	if stub.callCount != 1 {
 		t.Fatalf("expected one enqueue call after commit, got %d", stub.callCount)
+	}
+	if stub.lastJobID != returnedJobID {
+		t.Fatalf("job id mismatch: EnqueueRun returned %s but EnqueueRunWithID received %s", returnedJobID, stub.lastJobID)
 	}
 	if stub.accountID != accountID || stub.runID != runID {
 		t.Fatalf("unexpected enqueue target: account=%s run=%s", stub.accountID, stub.runID)

@@ -93,6 +93,10 @@ func (r *JobRepository) EnqueueRun(
 	if chosenTraceID == "" {
 		chosenTraceID = observability.NewTraceID()
 	}
+	chosenJobType := strings.TrimSpace(queueJobType)
+	if chosenJobType == "" {
+		chosenJobType = RunExecuteJobType
+	}
 
 	payloadCopy := map[string]any{}
 	for key, value := range payload {
@@ -102,7 +106,7 @@ func (r *JobRepository) EnqueueRun(
 	payloadJSON := map[string]any{
 		"v":          JobPayloadVersionV1,
 		"job_id":     jobID.String(),
-		"type":       RunExecuteJobType,
+		"type":       chosenJobType,
 		"trace_id":   chosenTraceID,
 		"account_id": accountID.String(),
 		"run_id":     runID.String(),
@@ -112,11 +116,6 @@ func (r *JobRepository) EnqueueRun(
 	encoded, err := json.Marshal(payloadJSON)
 	if err != nil {
 		return uuid.Nil, err
-	}
-
-	chosenJobType := strings.TrimSpace(queueJobType)
-	if chosenJobType == "" {
-		chosenJobType = RunExecuteJobType
 	}
 
 	if jobEnqueueDirect != nil {
@@ -165,6 +164,8 @@ func (r *JobRepository) EnqueueRun(
 			if lookupErr == nil && existingJobID != uuid.Nil {
 				return uuid.Nil, fmt.Errorf("%w: run_id=%s job_id=%s", ErrRunExecuteAlreadyQueued, runID, existingJobID)
 			}
+			// 即使找不到（对方 job 瞬间完成），unique 冲突本身已经明确，仍然返回语义错误
+			return uuid.Nil, fmt.Errorf("%w: run_id=%s", ErrRunExecuteAlreadyQueued, runID)
 		}
 		return uuid.Nil, err
 	}
