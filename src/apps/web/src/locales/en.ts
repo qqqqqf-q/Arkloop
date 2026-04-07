@@ -842,6 +842,8 @@ export const en: LocaleStrings = {
     logLevelDebug: "Debug",
     logLevelWarn: "Warning",
     logLevelError: "Error",
+    pipelineTrace: "Pipeline Trace",
+    pipelineTraceDesc: "Record pipeline stage summaries for debugging runs.",
     showRunEvents: "Show run detail button",
     showRunEventsDesc: "Show a 'View run detail' button on AI messages for deep debugging.",
     showDebugPanel: "Debug panel",

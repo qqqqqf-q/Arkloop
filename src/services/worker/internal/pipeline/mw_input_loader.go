@@ -113,9 +113,21 @@ func NewInputLoaderMiddleware(
 		rc.Messages, rc.ThreadMessageIDs = sanitizeToolPairs(loaded.Messages, loaded.ThreadMessageIDs)
 		rc.HasActiveCompactSnapshot = loaded.HasActiveCompactSnapshot
 		rc.ActiveCompactSnapshotText = loaded.ActiveCompactSnapshotText
+		emitTraceEvent(rc, "input_loader", "input_loader.loaded", map[string]any{
+			"run_kind":      strings.TrimSpace(stringValue(rc.InputJSON["run_kind"])),
+			"message_count": len(rc.Messages),
+			"history_limit": messageLimit,
+		})
 
 		return next(ctx, rc)
 	}
+}
+
+func stringValue(value any) string {
+	if raw, ok := value.(string); ok {
+		return raw
+	}
+	return ""
 }
 
 func loadRunInputs(

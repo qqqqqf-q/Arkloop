@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -162,4 +163,56 @@ func (r *AccountRepository) CountActive(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("accounts.CountActive: %w", err)
 	}
 	return count, nil
+}
+
+func (r *AccountRepository) UpdateSettings(ctx context.Context, accountID uuid.UUID, key string, value any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return fmt.Errorf("account_id must not be empty")
+	}
+	key = strings.TrimSpace(key)
+	if !isValidAccountSettingKey(key) {
+		return fmt.Errorf("invalid account setting key")
+	}
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("marshal settings value: %w", err)
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		fmt.Sprintf(
+			`UPDATE accounts
+			    SET settings_json = jsonb_set(COALESCE(settings_json, '{}'::jsonb), '{%s}', $2::jsonb, true)
+			  WHERE id = $1`,
+			key,
+		),
+		accountID,
+		string(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("accounts.UpdateSettings: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("account not found: %s", accountID)
+	}
+	return nil
+}
+
+func isValidAccountSettingKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }

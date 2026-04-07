@@ -52,6 +52,7 @@ type RunContext struct {
 	Model                            string
 	MemoryScope                      string
 	TraceID                          string
+	Tracer                           pipeline.Tracer
 	InputJSON                        map[string]any
 	ReasoningIterations              int
 	ToolContinuationBudget           int
@@ -907,6 +908,7 @@ func (l *Loop) executeToolCall(
 	execCtx := tools.ExecutionContext{
 		RunID:                            runCtx.RunID,
 		TraceID:                          runCtx.TraceID,
+		Tracer:                           runCtx.Tracer,
 		AccountID:                        runCtx.AccountID,
 		ThreadID:                         runCtx.ThreadID,
 		ProjectID:                        runCtx.ProjectID,
@@ -1587,6 +1589,16 @@ func (l *Loop) runSingleTurn(
 	var completedJSON map[string]any
 	if completed != nil {
 		completedJSON = completed.ToDataJSON()
+		if runCtx.Tracer != nil {
+			runCtx.Tracer.Event("agent_loop", "agent_loop.llm_call_completed", map[string]any{
+				"model":          request.Model,
+				"messages_count": len(request.Messages),
+				"tools_count":    len(request.Tools),
+				"input_tokens":   traceUsageToken(completedJSON, "input_tokens"),
+				"output_tokens":  traceUsageToken(completedJSON, "output_tokens"),
+				"tool_calls":     traceTurnToolCalls(toolCalls),
+			})
+		}
 	}
 
 	// Rollout: 写入 TurnEnd
@@ -1637,6 +1649,38 @@ func attachContextPressureAnchor(data map[string]any, requestEstimateTokens int)
 	if inputTokens, ok := anyToInt64(usage["input_tokens"]); ok && inputTokens > 0 {
 		data["last_real_prompt_tokens"] = inputTokens
 	}
+}
+
+func traceUsageToken(completed map[string]any, key string) int64 {
+	if completed == nil {
+		return 0
+	}
+	usage, _ := completed["usage"].(map[string]any)
+	if usage == nil {
+		return 0
+	}
+	value, _ := anyToInt64(usage[key])
+	return value
+}
+
+func traceTurnToolCalls(calls []llm.ToolCall) []string {
+	if len(calls) == 0 {
+		return nil
+	}
+	limit := len(calls)
+	if limit > 20 {
+		limit = 20
+	}
+	names := make([]string, 0, limit)
+	for _, call := range calls[:limit] {
+		if name := strings.TrimSpace(call.ToolName); name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return names
 }
 
 func pressureAnchorFromCompleted(data map[string]any) *pipeline.ContextCompactPressureAnchor {

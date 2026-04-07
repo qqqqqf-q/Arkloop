@@ -3297,3 +3297,56 @@ func recoverOrphanRuns(ctx context.Context, db data.DesktopDB) error {
 	}
 	return nil
 }
+\tvar tracer pipeline.Tracer
+\tif enabled, traceErr := data.NewAccountSettingsRepository(e.db).PipelineTraceEnabled(ctx, run.AccountID); traceErr != nil {
+\t\tslog.WarnContext(ctx, "desktop pipeline trace setting load failed", "account_id", run.AccountID.String(), "err", traceErr.Error())
+\t} else if enabled {
+\t\ttracer = pipeline.NewBufTracer(run.ID, run.AccountID, data.NewRunPipelineEventsRepository(e.db))
+\t}
+\t\tTracer:              tracer,
+\tdefer pipeline.FlushTracer(rc.Tracer)
+\tmemMiddleware = traceDesktopMemoryInjection(memMiddleware)
+func traceDesktopMemoryInjection(inner pipeline.RunMiddleware) pipeline.RunMiddleware {
+\tif inner == nil {
+\t\treturn nil
+\t}
+\treturn func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+\t\tbefore := rc.SystemPrompt
+\t\terr := inner(ctx, rc, next)
+\t\tif rc != nil && rc.Tracer != nil {
+\t\t\tdelta := rc.SystemPrompt
+\t\t\tif strings.HasPrefix(delta, before) {
+\t\t\t\tdelta = delta[len(before):]
+\t\t\t}
+\t\t\trc.Tracer.Event("memory_injection", "memory_injection.completed", map[string]any{
+\t\t\t\t"memory_injected":   strings.Contains(delta, "<memory>"),
+\t\t\t\t"notebook_injected": strings.Contains(delta, "<notebook>"),
+\t\t\t\t"injection_len":     len(delta),
+\t\t\t})
+\t\t}
+\t\treturn err
+\t}
+}
+
+\t\tif rc.Tracer != nil {
+\t\t\trc.Tracer.Event("input_loader", "input_loader.loaded", map[string]any{
+\t\t\t\t"run_kind":      strings.TrimSpace(desktopStringValue(loaded.InputJSON["run_kind"])),
+\t\t\t\t"message_count": len(rc.Messages),
+\t\t\t\t"history_limit": messageLimit,
+\t\t\t})
+\t\t}
+func desktopStringValue(value any) string {
+\tif raw, ok := value.(string); ok {
+\t\treturn raw
+\t}
+\treturn ""
+}
+
+\t\tif rc.Tracer != nil && rc.SelectedRoute != nil {
+\t\t\trc.Tracer.Event("routing", "routing.selected", map[string]any{
+\t\t\t\t"model":          rc.SelectedRoute.Route.Model,
+\t\t\t\t"provider":       string(rc.SelectedRoute.Credential.ProviderKind),
+\t\t\t\t"byok":           false,
+\t\t\t\t"context_window": routing.RouteContextWindowTokens(rc.SelectedRoute.Route),
+\t\t\t})
+\t\t}

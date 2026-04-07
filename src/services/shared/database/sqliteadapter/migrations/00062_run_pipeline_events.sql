@@ -1,0 +1,13 @@
+CREATE TABLE run_pipeline_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
+    middleware TEXT NOT NULL,
+    event_name TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    fields_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX run_pipeline_events_run_id_idx ON run_pipeline_events(run_id);
+CREATE INDEX run_pipeline_events_created_at_idx ON run_pipeline_events(created_at);

@@ -1507,6 +1507,7 @@ func (rt *luaRuntime) runAgentLoop(
 		Model:                  modelFromRunContext(rt.rc),
 		MemoryScope:            "same_user",
 		TraceID:                rt.rc.TraceID,
+		Tracer:                 rt.rc.Tracer,
 		InputJSON:              rt.rc.InputJSON,
 		ReasoningIterations:    maxIter,
 		ToolContinuationBudget: rt.rc.ToolContinuationBudget,

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
+import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
+import { getAccountSettings, updateAccountSettings } from '../../api'
 import { readDeveloperShowRunEvents, writeDeveloperShowRunEvents, readDeveloperShowDebugPanel, writeDeveloperShowDebugPanel } from '../../storage'
 import { RunsSettings } from './RunsSettings'
 import { PillToggle } from '@arkloop/shared'
@@ -36,11 +38,15 @@ function PanelButton({ onClick, disabled, children }: PanelBtnProps) {
 
 export function DeveloperSettings({ accessToken, onNavigate }: Props) {
   const { t } = useLocale()
+  const { addToast } = useToast()
   const ds = t.desktopSettings
   const [appVersion, setAppVersion] = useState('')
   const [resetDone, setResetDone] = useState(false)
   const [showRunEvents, setShowRunEvents] = useState(() => readDeveloperShowRunEvents())
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
+  const [pipelineTraceEnabled, setPipelineTraceEnabled] = useState(false)
+  const [pipelineTraceLoading, setPipelineTraceLoading] = useState(() => !!accessToken)
+  const [pipelineTraceSaving, setPipelineTraceSaving] = useState(false)
   const [runsOpen, setRunsOpen] = useState(false)
 
   useEffect(() => {
@@ -49,6 +55,33 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
       api.app.getVersion().then(setAppVersion).catch(() => {})
     }
   }, [])
+
+  useEffect(() => {
+    if (!accessToken) {
+      setPipelineTraceEnabled(false)
+      setPipelineTraceLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setPipelineTraceLoading(true)
+    void getAccountSettings(accessToken)
+      .then((settings) => {
+        if (cancelled) return
+        setPipelineTraceEnabled(settings.pipeline_trace_enabled)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        addToast(error instanceof Error ? error.message : t.requestFailed, 'error')
+      })
+      .finally(() => {
+        if (!cancelled) setPipelineTraceLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken, addToast, t.requestFailed])
 
   const handleResetOnboarding = async () => {
     const api = getDesktopApi()
@@ -60,6 +93,25 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
       setTimeout(() => setResetDone(false), 3000)
     } catch {
       /* ignore */
+    }
+  }
+
+  const handlePipelineTraceChange = async (next: boolean) => {
+    if (!accessToken || pipelineTraceSaving) return
+
+    const previous = pipelineTraceEnabled
+    setPipelineTraceEnabled(next)
+    setPipelineTraceSaving(true)
+    try {
+      const settings = await updateAccountSettings(accessToken, {
+        pipeline_trace_enabled: next,
+      })
+      setPipelineTraceEnabled(settings.pipeline_trace_enabled)
+    } catch (error) {
+      setPipelineTraceEnabled(previous)
+      addToast(error instanceof Error ? error.message : t.requestFailed, 'error')
+    } finally {
+      setPipelineTraceSaving(false)
     }
   }
 
@@ -90,6 +142,27 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
       </div>
 
       <div className="flex flex-col gap-4">
+        <div
+          className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <div>
+            <div className="text-sm font-medium text-[var(--c-text-primary)]">
+              {ds.pipelineTrace}
+            </div>
+            <div className="text-xs text-[var(--c-text-muted)]">
+              {ds.pipelineTraceDesc}
+            </div>
+          </div>
+          <PillToggle
+            checked={pipelineTraceEnabled}
+            disabled={!accessToken || pipelineTraceLoading || pipelineTraceSaving}
+            onChange={(next) => {
+              void handlePipelineTraceChange(next)
+            }}
+          />
+        </div>
+
         {/* Show run events toggle */}
         <div
           className="flex items-center justify-between rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"

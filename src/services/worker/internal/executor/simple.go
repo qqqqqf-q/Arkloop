@@ -71,6 +71,7 @@ func (e *SimpleExecutor) Execute(
 		Model:                            rc.SelectedRoute.Route.Model,
 		MemoryScope:                      "same_user",
 		TraceID:                          rc.TraceID,
+		Tracer:                           rc.Tracer,
 		InputJSON:                        rc.InputJSON,
 		ReasoningIterations:              rc.ReasoningIterations,
 		ToolContinuationBudget:           rc.ToolContinuationBudget,

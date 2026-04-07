@@ -234,6 +234,12 @@ func NewRoutingMiddleware(
 		)
 		rc.ResolveGatewayForRouteID = resolveGatewayForRouteID
 		rc.ResolveGatewayForAgentName = resolveGatewayForAgentName
+		emitTraceEvent(rc, "routing", "routing.selected", map[string]any{
+			"model":          selected.Route.Model,
+			"provider":       string(selected.Credential.ProviderKind),
+			"byok":           byokEnabled,
+			"context_window": routing.RouteContextWindowTokens(selected.Route),
+		})
 
 		return next(ctx, rc)
 	}

@@ -73,6 +73,9 @@ func (m *lifecycleManager) Bootstrap(ctx context.Context) error {
 	if m == nil {
 		return nil
 	}
+	if err := m.cleanupPipelineTraceEvents(ctx); err != nil {
+		return err
+	}
 	if err := m.markLegacyRunJobsDead(ctx); err != nil {
 		return err
 	}
@@ -80,6 +83,14 @@ func (m *lifecycleManager) Bootstrap(ctx context.Context) error {
 		return err
 	}
 	return m.recoverRuns(ctx)
+}
+
+func (m *lifecycleManager) cleanupPipelineTraceEvents(ctx context.Context) error {
+	if m == nil || m.db == nil {
+		return nil
+	}
+	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour)
+	return data.NewRunPipelineEventsRepository(m.db).DeleteOlderThan(ctx, cutoff)
 }
 
 func (m *lifecycleManager) Start(ctx context.Context) {

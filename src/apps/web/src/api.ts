@@ -1711,6 +1711,10 @@ export type ResolveOpenVikingConfigResponse = {
   rerank?: ResolvedOpenVikingModel
 }
 
+export type AccountSettingsResponse = {
+  pipeline_trace_enabled: boolean
+}
+
 export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
   return apiFetch<SpawnProfile[]>('/v1/accounts/me/spawn-profiles', { accessToken })
 }
@@ -1738,6 +1742,24 @@ export async function resolveOpenVikingConfig(
     method: 'POST',
     accessToken,
     body: JSON.stringify(req),
+  })
+}
+
+export async function getAccountSettings(accessToken: string): Promise<AccountSettingsResponse> {
+  return apiFetch<AccountSettingsResponse>('/v1/account/settings', {
+    method: 'GET',
+    accessToken,
+  })
+}
+
+export async function updateAccountSettings(
+  accessToken: string,
+  settings: AccountSettingsResponse,
+): Promise<AccountSettingsResponse> {
+  return apiFetch<AccountSettingsResponse>('/v1/account/settings', {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify(settings),
   })
 }
 

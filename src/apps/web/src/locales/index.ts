@@ -790,6 +790,8 @@ export interface LocaleStrings {
     logLevelDebug: string;
     logLevelWarn: string;
     logLevelError: string;
+    pipelineTrace: string;
+    pipelineTraceDesc: string;
     showRunEvents: string;
     showRunEventsDesc: string;
     showDebugPanel: string;
