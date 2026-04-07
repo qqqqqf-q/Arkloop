@@ -298,9 +298,6 @@ func (q *ChannelJobQueue) tryLeaseOne(leaseSeconds int, jobTypes []string) *JobL
 		if job.status == JobStatusQueued && !job.availableAt.After(now) {
 			eligible = true
 		}
-		if job.status == JobStatusLeased && !job.leasedUntil.IsZero() && !job.leasedUntil.After(now) {
-			eligible = true
-		}
 		if !eligible {
 			continue
 		}
@@ -353,9 +350,6 @@ func (q *ChannelJobQueue) tryMarkDeadOne(jobTypes []string) bool {
 
 		eligible := false
 		if job.status == JobStatusQueued && !job.availableAt.After(now) {
-			eligible = true
-		}
-		if job.status == JobStatusLeased && !job.leasedUntil.IsZero() && !job.leasedUntil.After(now) {
 			eligible = true
 		}
 		if !eligible {

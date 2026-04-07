@@ -481,7 +481,7 @@ func TestChannelQueueDelayedJob(t *testing.T) {
 	}
 }
 
-func TestChannelQueueExpiredLeaseCanBeReclaimed(t *testing.T) {
+func TestChannelQueueExpiredLeaseNotReclaimed(t *testing.T) {
 	q := newChannelQueue(t, 5)
 	ctx := context.Background()
 
@@ -501,22 +501,19 @@ func TestChannelQueueExpiredLeaseCanBeReclaimed(t *testing.T) {
 		t.Fatal("expected lease but got nil")
 	}
 
-	// Manipulate the internal leasedUntil to simulate expiration
+	// Simulate lease expiration by manipulating internal state
 	q.mu.Lock()
 	job := q.jobs[lease.JobID]
 	job.leasedUntil = time.Now().Add(-1 * time.Second)
 	q.mu.Unlock()
 
-	// Another lease should succeed because the previous lease expired
+	// Expired leased job should NOT be re-leased in single-process mode
 	lease2, err := q.Lease(ctx, 60, []string{RunExecuteJobType})
 	if err != nil {
-		t.Fatalf("second lease failed: %v", err)
+		t.Fatalf("second lease call failed: %v", err)
 	}
-	if lease2 == nil {
-		t.Fatal("expected lease after expiration but got nil")
-	}
-	if lease2.Attempts != 2 {
-		t.Fatalf("expected attempts 2 after reclaim, got %d", lease2.Attempts)
+	if lease2 != nil {
+		t.Fatal("expected nil lease for expired leased job, but got a lease")
 	}
 }
 

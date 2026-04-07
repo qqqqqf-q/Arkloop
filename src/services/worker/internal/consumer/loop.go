@@ -361,26 +361,28 @@ func (l *Loop) processLease(ctx context.Context, lease queue.JobLease) {
 			return
 		}
 		l.logger.Error("heartbeat consecutive failures, stopped current job", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "reason", reason)
-		l.safeNack(ctx, lease, nil)
+		l.safeNack(context.Background(), lease, nil)
 	}
 }
 
-func (l *Loop) settleJob(ctx context.Context, lease queue.JobLease, runErr error) {
+func (l *Loop) settleJob(_ context.Context, lease queue.JobLease, runErr error) {
+	settleCtx := context.Background()
 	jobID := lease.JobID.String()
 	traceID := stringValue(lease.PayloadJSON, "trace_id")
 	accountID := stringValue(lease.PayloadJSON, "account_id")
 	runID := stringValue(lease.PayloadJSON, "run_id")
 
 	if runErr == nil {
-		l.safeAck(ctx, lease)
+		l.safeAck(settleCtx, lease)
 		return
 	}
 	if errors.Is(runErr, context.Canceled) {
-		l.logger.Info("job cancelled", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID)
+		l.logger.Info("job cancelled, nacking for retry", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID)
+		l.safeNack(settleCtx, lease, nil)
 		return
 	}
 	l.logger.Error("job execution failed, will nack for retry", "job_id", jobID, "trace_id", traceID, "account_id", accountID, "run_id", runID, "error", runErr.Error())
-	l.safeNack(ctx, lease, nil)
+	l.safeNack(settleCtx, lease, nil)
 }
 
 func (l *Loop) heartbeatEnabled() bool {
