@@ -66,6 +66,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
   )
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const allowOutsideCloseRef = useRef(false)
   const openMarkerRef = useRef<{
     startedAt: number
     sample: Record<string, string | number | boolean | null | undefined>
@@ -102,6 +103,10 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
 
   useEffect(() => {
     inputRef.current?.focus()
+    allowOutsideCloseRef.current = false
+    const unlockId = requestAnimationFrame(() => {
+      allowOutsideCloseRef.current = true
+    })
     if (!isPerfDebugEnabled() || typeof performance === 'undefined') return
     const marker = openMarkerRef.current
     if (!marker) return
@@ -113,7 +118,10 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
       })
       openMarkerRef.current = null
     })
-    return () => cancelAnimationFrame(frameId)
+    return () => {
+      cancelAnimationFrame(unlockId)
+      cancelAnimationFrame(frameId)
+    }
   }, [])
 
   useEffect(() => {
@@ -222,6 +230,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
       className="overlay-fade-in fixed inset-0 z-50 flex items-start justify-center pt-[120px]"
       style={{ background: 'var(--c-overlay)' }}
       onMouseDown={(e) => {
+        if (!allowOutsideCloseRef.current) return
         if (e.target === e.currentTarget) onClose()
       }}
     >

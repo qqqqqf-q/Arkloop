@@ -16,6 +16,8 @@ import { LanguageContent, ThemeModePicker } from './AppearanceSettings'
 import { bridgeClient, checkBridgeAvailable } from '../../api-bridge'
 import { SettingsModelDropdown } from './SettingsModelDropdown'
 
+const SETTINGS_ENTER_SETTLE_DELAY_MS = 240
+
 type Props = {
   me: MeResponse | null
   accessToken: string
@@ -42,10 +44,24 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
   }, [localMode])
 
   useEffect(() => {
-    listLlmProviders(accessToken).then(setProviders).catch(() => {})
-    listSpawnProfiles(accessToken)
-      .then((ps) => setToolProfileState(ps.find((p) => p.profile === 'tool') ?? null))
-      .catch(() => {})
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      listLlmProviders(accessToken)
+        .then((nextProviders) => {
+          if (!cancelled) setProviders(nextProviders)
+        })
+        .catch(() => {})
+      listSpawnProfiles(accessToken)
+        .then((ps) => {
+          if (!cancelled) setToolProfileState(ps.find((p) => p.profile === 'tool') ?? null)
+        })
+        .catch(() => {})
+    }, SETTINGS_ENTER_SETTLE_DELAY_MS)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [accessToken])
 
   const modelOptions = providers

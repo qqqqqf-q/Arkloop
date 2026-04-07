@@ -142,7 +142,7 @@ export function AppLayout() {
     getFilteredThreads,
   } = useThreadList()
   const { sidebarCollapsed, sidebarHiddenByWidth, toggleSidebar } = useSidebarUI()
-  const { isSearchMode, exitSearchMode } = useSearchUI()
+  const { isSearchMode, searchOverlayOpen, exitSearchMode, closeSearchOverlay } = useSearchUI()
   const { appMode, availableAppModes, setAppMode } = useAppModeUI()
   const { closeSettings } = useSettingsUI()
   const { closeNotifications } = useNotificationsUI()
@@ -155,7 +155,7 @@ export function AppLayout() {
   const desktop = isDesktop()
 
   const pathnameSearchOpen = location.pathname.endsWith('/search')
-  const isSearchOpen = isSearchMode || pathnameSearchOpen
+  const isSearchOpen = searchOverlayOpen || pathnameSearchOpen
   const filteredThreads = useMemo(() => getFilteredThreads(appMode), [getFilteredThreads, appMode])
 
   const handleDesktopTitleBarIncognitoClick = useCallback(() => {
@@ -171,11 +171,11 @@ export function AppLayout() {
   }, [isSearchMode, exitSearchMode, closeNotifications, desktop, closeSettings, navigate])
 
   const handleCloseSearch = useCallback(() => {
-    exitSearchMode()
+    closeSearchOverlay()
     if (!location.pathname.endsWith('/search')) return
     const basePath = location.pathname.replace(/\/search$/, '') || '/'
     navigate(basePath)
-  }, [exitSearchMode, location.pathname, navigate])
+  }, [closeSearchOverlay, location.pathname, navigate])
 
   const handleTrySkill = useCallback((prompt: string) => {
     closeSettings()

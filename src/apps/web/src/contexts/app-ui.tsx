@@ -32,6 +32,7 @@ export interface AppUIContextValue {
   sidebarHiddenByWidth: boolean
   rightPanelOpen: boolean
   isSearchMode: boolean
+  searchOverlayOpen: boolean
   settingsOpen: boolean
   settingsInitialTab: SettingsTab
   desktopSettingsSection: DesktopSettingsKey
@@ -45,6 +46,8 @@ export interface AppUIContextValue {
   setRightPanelOpen: (open: boolean) => void
   enterSearchMode: () => void
   exitSearchMode: () => void
+  openSearchOverlay: () => void
+  closeSearchOverlay: () => void
   openSettings: (tab?: SettingsTab | 'voice') => void
   closeSettings: () => void
   openNotifications: () => void
@@ -62,7 +65,10 @@ type SidebarUIContextValue = Pick<
   'sidebarCollapsed' | 'sidebarHiddenByWidth' | 'rightPanelOpen' | 'toggleSidebar' | 'setRightPanelOpen'
 >
 
-type SearchUIContextValue = Pick<AppUIContextValue, 'isSearchMode' | 'enterSearchMode' | 'exitSearchMode'>
+type SearchUIContextValue = Pick<
+  AppUIContextValue,
+  'isSearchMode' | 'searchOverlayOpen' | 'enterSearchMode' | 'exitSearchMode' | 'openSearchOverlay' | 'closeSearchOverlay'
+>
 type SettingsUIContextValue = Pick<AppUIContextValue, 'settingsOpen' | 'settingsInitialTab' | 'desktopSettingsSection' | 'openSettings' | 'closeSettings'>
 type NotificationsUIContextValue = Pick<AppUIContextValue, 'notificationsOpen' | 'notificationVersion' | 'openNotifications' | 'closeNotifications' | 'markNotificationRead'>
 type AppModeUIContextValue = Pick<AppUIContextValue, 'appMode' | 'availableAppModes' | 'setAppMode'>
@@ -105,10 +111,20 @@ function AppUIProviders({
   const searchValue = useMemo<SearchUIContextValue>(
     () => ({
       isSearchMode: value.isSearchMode,
+      searchOverlayOpen: value.searchOverlayOpen,
       enterSearchMode: value.enterSearchMode,
       exitSearchMode: value.exitSearchMode,
+      openSearchOverlay: value.openSearchOverlay,
+      closeSearchOverlay: value.closeSearchOverlay,
     }),
-    [value.isSearchMode, value.enterSearchMode, value.exitSearchMode],
+    [
+      value.isSearchMode,
+      value.searchOverlayOpen,
+      value.enterSearchMode,
+      value.exitSearchMode,
+      value.openSearchOverlay,
+      value.closeSearchOverlay,
+    ],
   )
 
   const settingsValue = useMemo<SettingsUIContextValue>(
@@ -204,6 +220,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const collapsedByWidthRef = useRef(window.innerWidth < 1200)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [isSearchMode, setIsSearchMode] = useState(false)
+  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
   const isSearchModeRef = useRef(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
@@ -272,6 +289,14 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
 
   const exitSearchMode = useCallback(() => {
     setIsSearchMode(false)
+  }, [])
+
+  const openSearchOverlay = useCallback(() => {
+    setSearchOverlayOpen(true)
+  }, [])
+
+  const closeSearchOverlay = useCallback(() => {
+    setSearchOverlayOpen(false)
   }, [])
 
   const openSettings = useCallback((tab: SettingsTab | 'voice' = 'account') => {
@@ -491,6 +516,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     recordPerfValue('app_ui_render_count', 1, 'count', {
       sidebarCollapsed,
       settingsOpen,
+      searchOverlayOpen,
       notificationsOpen,
       isSearchMode,
       appMode,
@@ -511,6 +537,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     sidebarHiddenByWidth,
     rightPanelOpen,
     isSearchMode,
+    searchOverlayOpen,
     settingsOpen,
     settingsInitialTab,
     desktopSettingsSection,
@@ -523,6 +550,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     setRightPanelOpen,
     enterSearchMode,
     exitSearchMode,
+    openSearchOverlay,
+    closeSearchOverlay,
     openSettings,
     closeSettings,
     openNotifications,
@@ -538,6 +567,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     sidebarHiddenByWidth,
     rightPanelOpen,
     isSearchMode,
+    searchOverlayOpen,
     settingsOpen,
     settingsInitialTab,
     desktopSettingsSection,
@@ -550,6 +580,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     setRightPanelOpen,
     enterSearchMode,
     exitSearchMode,
+    openSearchOverlay,
+    closeSearchOverlay,
     openSettings,
     closeSettings,
     openNotifications,
