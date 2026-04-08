@@ -2369,10 +2369,12 @@ func TestOpenAIErrorMessageAndDetails(t *testing.T) {
 func TestOpenAIReasoningEffort(t *testing.T) {
 	cases := map[string]string{
 		"enabled":      "medium",
+		"off":          "none",
 		"minimal":      "minimal",
 		"low":          "low",
 		"medium":       "medium",
 		"high":         "high",
+		"max":          "xhigh",
 		"xhigh":        "xhigh",
 		"none":         "none",
 		"extra_high":   "xhigh",

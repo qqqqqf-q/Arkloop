@@ -42,7 +42,11 @@ const (
 	anthropicAdvancedKeyVersion      = "anthropic_version"
 	anthropicAdvancedKeyExtraHeaders = "extra_headers"
 	anthropicBetaHeader              = "anthropic-beta"
+	anthropicMinThinkingBudget       = 1024
+	anthropicLowThinkingBudget       = 4096
 	defaultAnthropicThinkingBudget   = 8192
+	anthropicHighThinkingBudget      = 16384
+	anthropicMaxThinkingBudget       = 32768
 )
 
 type anthropicAdvancedJSONError struct {
@@ -183,31 +187,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			payload[k] = v
 		}
 	}
-	// reasoning_mode 控制是否发送 thinking 参数
-	switch request.ReasoningMode {
-	case "enabled":
-		if tObj, ok := payload["thinking"].(map[string]any); ok {
-			tObj["type"] = "enabled"
-			if _, has := tObj["budget_tokens"]; !has {
-				tObj["budget_tokens"] = defaultAnthropicThinkingBudget
-			}
-		} else {
-			payload["thinking"] = map[string]any{
-				"type":          "enabled",
-				"budget_tokens": defaultAnthropicThinkingBudget,
-			}
-		}
-		ensureAnthropicMaxTokensForThinking(payload)
-	case "disabled":
-		delete(payload, "thinking")
-	default: // "auto", "none", ""
-		if tObj, ok := payload["thinking"].(map[string]any); ok {
-			if _, has := tObj["budget_tokens"]; !has {
-				tObj["budget_tokens"] = defaultAnthropicThinkingBudget
-			}
-			ensureAnthropicMaxTokensForThinking(payload)
-		}
-	}
+	applyAnthropicReasoningMode(payload, request.ReasoningMode)
 	baseURL := g.transport.cfg.BaseURL
 	path := "/v1/messages"
 	stats := ComputeRequestStats(request)
@@ -804,6 +784,54 @@ func ensureAnthropicMaxTokensForThinking(payload map[string]any) {
 	maxTokens := anyToInt(payload["max_tokens"])
 	if maxTokens <= budget {
 		payload["max_tokens"] = budget + maxTokens
+	}
+}
+
+func anthropicThinkingBudget(mode string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "enabled", "medium":
+		return defaultAnthropicThinkingBudget, true
+	case "minimal":
+		return anthropicMinThinkingBudget, true
+	case "low":
+		return anthropicLowThinkingBudget, true
+	case "high":
+		return anthropicHighThinkingBudget, true
+	case "max", "maximum", "xhigh", "extra_high", "extra-high", "extra high":
+		return anthropicMaxThinkingBudget, true
+	default:
+		return 0, false
+	}
+}
+
+func anthropicThinkingDisabled(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "disabled", "none", "off":
+		return true
+	default:
+		return false
+	}
+}
+
+func applyAnthropicReasoningMode(payload map[string]any, mode string) {
+	if budget, ok := anthropicThinkingBudget(mode); ok {
+		payload["thinking"] = map[string]any{
+			"type":          "enabled",
+			"budget_tokens": budget,
+		}
+		ensureAnthropicMaxTokensForThinking(payload)
+		return
+	}
+	if anthropicThinkingDisabled(mode) {
+		delete(payload, "thinking")
+		return
+	}
+	if tObj, ok := payload["thinking"].(map[string]any); ok {
+		tObj["type"] = "enabled"
+		if _, has := tObj["budget_tokens"]; !has {
+			tObj["budget_tokens"] = defaultAnthropicThinkingBudget
+		}
+		ensureAnthropicMaxTokensForThinking(payload)
 	}
 }
 

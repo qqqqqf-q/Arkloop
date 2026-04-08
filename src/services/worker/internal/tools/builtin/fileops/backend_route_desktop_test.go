@@ -10,18 +10,25 @@ import (
 )
 
 func TestResolveBackendUsesExecutionModeOnDesktop(t *testing.T) {
-	snapshot := &sharedtoolruntime.RuntimeSnapshot{
-		SandboxBaseURL:   "http://sandbox.internal",
-		SandboxAuthToken: "token",
-	}
+	previousMode := shareddesktop.GetExecutionMode()
+	t.Cleanup(func() {
+		shareddesktop.SetExecutionMode(previousMode)
+	})
 
-	shareddesktop.SetExecutionMode("local")
-	if _, ok := ResolveBackend(snapshot, "/workspace", "run-1", "", "", "").(*LocalBackend); !ok {
-		t.Fatal("expected local backend when desktop execution mode is local")
+	snapshot := &sharedtoolruntime.RuntimeSnapshot{
+		SandboxBaseURL:      "http://sandbox.internal",
+		SandboxAuthToken:    "token",
+		DesktopExecutionMode: "local",
 	}
 
 	shareddesktop.SetExecutionMode("vm")
+	if _, ok := ResolveBackend(snapshot, "/workspace", "run-1", "", "", "").(*LocalBackend); !ok {
+		t.Fatal("expected local backend when snapshot execution mode is local")
+	}
+
+	snapshot.DesktopExecutionMode = "vm"
+	shareddesktop.SetExecutionMode("local")
 	if _, ok := ResolveBackend(snapshot, "/workspace", "run-1", "", "", "").(*SandboxExecBackend); !ok {
-		t.Fatal("expected sandbox backend when desktop execution mode is vm")
+		t.Fatal("expected sandbox backend when snapshot execution mode is vm")
 	}
 }

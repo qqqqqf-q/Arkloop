@@ -506,9 +506,11 @@ func openAIReasoningEffort(mode string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "enabled":
 		return "medium", true
-	case "none", "minimal", "low", "medium", "high", "xhigh":
+	case "none", "off":
+		return "none", true
+	case "minimal", "low", "medium", "high", "xhigh":
 		return strings.ToLower(strings.TrimSpace(mode)), true
-	case "extra_high", "extra-high", "extra high":
+	case "max", "maximum", "extra_high", "extra-high", "extra high":
 		return "xhigh", true
 	default:
 		return "", false

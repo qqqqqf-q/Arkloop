@@ -740,6 +740,74 @@ func TestAnthropicGateway_Stream_AdvancedJSON_CannotInjectToolsWhenRequestHasNon
 	}
 }
 
+func TestAnthropicThinkingBudget(t *testing.T) {
+	cases := map[string]int{
+		"enabled":      defaultAnthropicThinkingBudget,
+		"minimal":      anthropicMinThinkingBudget,
+		"low":          anthropicLowThinkingBudget,
+		"medium":       defaultAnthropicThinkingBudget,
+		"high":         anthropicHighThinkingBudget,
+		"max":          anthropicMaxThinkingBudget,
+		"xhigh":        anthropicMaxThinkingBudget,
+		"extra-high":   anthropicMaxThinkingBudget,
+		" EXTRA HIGH ": anthropicMaxThinkingBudget,
+	}
+
+	for input, want := range cases {
+		got, ok := anthropicThinkingBudget(input)
+		if !ok || got != want {
+			t.Fatalf("mode %q => (%d, %v), want (%d, true)", input, got, ok, want)
+		}
+	}
+
+	if _, ok := anthropicThinkingBudget("auto"); ok {
+		t.Fatal("auto should not force a thinking budget")
+	}
+}
+
+func TestAnthropicThinkingDisabled(t *testing.T) {
+	for _, input := range []string{"disabled", "none", "off"} {
+		if !anthropicThinkingDisabled(input) {
+			t.Fatalf("%q should disable thinking", input)
+		}
+	}
+	if anthropicThinkingDisabled("enabled") {
+		t.Fatal("enabled should not disable thinking")
+	}
+}
+
+func TestApplyAnthropicReasoningModeUsesMappedBudget(t *testing.T) {
+	payload := map[string]any{"max_tokens": 2048}
+	applyAnthropicReasoningMode(payload, "high")
+
+	thinking, ok := payload["thinking"].(map[string]any)
+	if !ok {
+		t.Fatal("expected thinking payload")
+	}
+	if thinking["type"] != "enabled" {
+		t.Fatalf("thinking.type = %#v, want enabled", thinking["type"])
+	}
+	if thinking["budget_tokens"] != anthropicHighThinkingBudget {
+		t.Fatalf("thinking.budget_tokens = %#v, want %d", thinking["budget_tokens"], anthropicHighThinkingBudget)
+	}
+	if got := anyToInt(payload["max_tokens"]); got <= anthropicHighThinkingBudget {
+		t.Fatalf("max_tokens should be raised above budget, got %d", got)
+	}
+}
+
+func TestApplyAnthropicReasoningModeDisablesThinking(t *testing.T) {
+	payload := map[string]any{
+		"thinking": map[string]any{
+			"type":          "enabled",
+			"budget_tokens": defaultAnthropicThinkingBudget,
+		},
+	}
+	applyAnthropicReasoningMode(payload, "off")
+	if _, ok := payload["thinking"]; ok {
+		t.Fatalf("thinking should be removed, got %#v", payload["thinking"])
+	}
+}
+
 func TestAnthropicGateway_Stream_AdvancedJSON_DeniedKeyReturnsError(t *testing.T) {
 	// denylist keys (model/max_tokens/stream/tools/system etc.) should all fail immediately
 	deniedKeys := []string{"model", "max_tokens", "system"}

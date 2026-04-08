@@ -818,10 +818,12 @@ export type RunReasoningMode =
   | 'enabled'
   | 'disabled'
   | 'none'
+  | 'off'
   | 'minimal'
   | 'low'
   | 'medium'
   | 'high'
+  | 'max'
   | 'xhigh'
 
 export async function createRun(

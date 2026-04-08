@@ -1129,13 +1129,13 @@ func normalizePersonaReasoningMode(value string) string {
 		return "enabled"
 	case "disabled", "禁用":
 		return "disabled"
-	case "none", "无":
+	case "none", "off", "无", "关闭":
 		return "none"
 	case "auto", "自动":
 		return "auto"
 	case "minimal", "low", "medium", "high", "xhigh":
 		return s
-	case "extra high", "extra_high", "extra-high", "超高":
+	case "max", "maximum", "extra high", "extra_high", "extra-high", "超高":
 		return "xhigh"
 	default:
 		return "auto"

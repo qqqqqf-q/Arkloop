@@ -33,8 +33,12 @@ func TestGlobFilesDoesNotFallbackOutsideBackend(t *testing.T) {
 
 func TestGlobFilesLocalFallbackStillWorks(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("PATH", "")
 	backend := &fileops.LocalBackend{WorkDir: root}
-	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("a"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", "one.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "two.md"), []byte("b"), 0o644); err != nil {
@@ -45,7 +49,7 @@ func TestGlobFilesLocalFallbackStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(matches) != 1 || matches[0] != "./one.txt" {
+	if len(matches) != 1 || matches[0] != "nested/one.txt" {
 		t.Fatalf("unexpected matches: %#v", matches)
 	}
 }

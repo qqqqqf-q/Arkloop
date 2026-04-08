@@ -286,7 +286,7 @@ type Request struct {
 	ToolChoice       *ToolChoice
 	Metadata         map[string]any
 	ExperimentalJSON map[string]any
-	ReasoningMode    string // "auto" | "enabled" | "disabled" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
+	ReasoningMode    string // "auto" | "enabled" | "disabled" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" (accepts aliases like "off"/"max")
 }
 
 func (r Request) ToJSON() map[string]any {
