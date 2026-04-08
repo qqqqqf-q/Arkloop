@@ -23,27 +23,27 @@ import (
 )
 
 type discordChannelsTestEnv struct {
-	handler               nethttp.Handler
-	pool                  *pgxpool.Pool
-	accessToken           string
-	accountID             uuid.UUID
-	userID                uuid.UUID
-	personaID             uuid.UUID
-	projectID             uuid.UUID
-	channelsRepo          *data.ChannelsRepository
-	channelIdentitiesRepo *data.ChannelIdentitiesRepository
+	handler                  nethttp.Handler
+	pool                     *pgxpool.Pool
+	accessToken              string
+	accountID                uuid.UUID
+	userID                   uuid.UUID
+	personaID                uuid.UUID
+	projectID                uuid.UUID
+	channelsRepo             *data.ChannelsRepository
+	channelIdentitiesRepo    *data.ChannelIdentitiesRepository
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
-	channelBindCodesRepo  *data.ChannelBindCodesRepository
-	channelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	channelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	channelLedgerRepo     *data.ChannelMessageLedgerRepository
-	personasRepo          *data.PersonasRepository
-	threadRepo            *data.ThreadRepository
-	messageRepo           *data.MessageRepository
-	runEventRepo          *data.RunEventRepository
-	jobRepo               *data.JobRepository
-	creditsRepo           *data.CreditsRepository
-	secretsRepo           *data.SecretsRepository
+	channelBindCodesRepo     *data.ChannelBindCodesRepository
+	channelDMThreadsRepo     *data.ChannelDMThreadsRepository
+	channelReceiptsRepo      *data.ChannelMessageReceiptsRepository
+	channelLedgerRepo        *data.ChannelMessageLedgerRepository
+	personasRepo             *data.PersonasRepository
+	threadRepo               *data.ThreadRepository
+	messageRepo              *data.MessageRepository
+	runEventRepo             *data.RunEventRepository
+	jobRepo                  *data.JobRepository
+	creditsRepo              *data.CreditsRepository
+	secretsRepo              *data.SecretsRepository
 }
 
 func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) discordChannelsTestEnv {
@@ -217,72 +217,72 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 
 	mux := nethttp.NewServeMux()
 	RegisterRoutes(mux, Deps{
-		AuthService:             authService,
-		AccountMembershipRepo:   membershipRepo,
-		ThreadRepo:              threadRepo,
-		ProjectRepo:             projectRepo,
-		APIKeysRepo:             nil,
-		Pool:                    pool,
-		AccountRepo:             accountRepo,
-		SecretsRepo:             secretsRepo,
-		ChannelsRepo:            channelsRepo,
-		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		AuthService:              authService,
+		AccountMembershipRepo:    membershipRepo,
+		ThreadRepo:               threadRepo,
+		ProjectRepo:              projectRepo,
+		APIKeysRepo:              nil,
+		Pool:                     pool,
+		AccountRepo:              accountRepo,
+		SecretsRepo:              secretsRepo,
+		ChannelsRepo:             channelsRepo,
+		ChannelIdentitiesRepo:    channelIdentitiesRepo,
 		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
-		ChannelBindCodesRepo:    channelBindCodesRepo,
-		ChannelDMThreadsRepo:    channelDMThreadsRepo,
-		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
-		ChannelReceiptsRepo:     channelReceiptsRepo,
-		UsersRepo:               userRepo,
-		MessageRepo:             messageRepo,
-		RunEventRepo:            runEventRepo,
-		JobRepo:                 jobRepo,
-		CreditsRepo:             creditsRepo,
-		PersonasRepo:            personasRepo,
-		AppBaseURL:              "https://app.example",
-		DiscordBotClient:        botClient,
+		ChannelBindCodesRepo:     channelBindCodesRepo,
+		ChannelDMThreadsRepo:     channelDMThreadsRepo,
+		ChannelGroupThreadsRepo:  channelGroupThreadsRepo,
+		ChannelReceiptsRepo:      channelReceiptsRepo,
+		UsersRepo:                userRepo,
+		MessageRepo:              messageRepo,
+		RunEventRepo:             runEventRepo,
+		JobRepo:                  jobRepo,
+		CreditsRepo:              creditsRepo,
+		PersonasRepo:             personasRepo,
+		AppBaseURL:               "https://app.example",
+		DiscordBotClient:         botClient,
 	})
 
 	return discordChannelsTestEnv{
-		handler:               mux,
-		pool:                  pool,
-		accessToken:           accessToken,
-		accountID:             account.ID,
-		userID:                user.ID,
-		personaID:             persona.ID,
-		projectID:             project.ID,
-		channelsRepo:          channelsRepo,
-		channelIdentitiesRepo: channelIdentitiesRepo,
+		handler:                  mux,
+		pool:                     pool,
+		accessToken:              accessToken,
+		accountID:                account.ID,
+		userID:                   user.ID,
+		personaID:                persona.ID,
+		projectID:                project.ID,
+		channelsRepo:             channelsRepo,
+		channelIdentitiesRepo:    channelIdentitiesRepo,
 		channelIdentityLinksRepo: channelIdentityLinksRepo,
-		channelBindCodesRepo:  channelBindCodesRepo,
-		channelDMThreadsRepo:  channelDMThreadsRepo,
-		channelReceiptsRepo:   channelReceiptsRepo,
-		channelLedgerRepo:     channelLedgerRepo,
-		personasRepo:          personasRepo,
-		threadRepo:            threadRepo,
-		messageRepo:           messageRepo,
-		runEventRepo:          runEventRepo,
-		jobRepo:               jobRepo,
-		creditsRepo:           creditsRepo,
-		secretsRepo:           secretsRepo,
+		channelBindCodesRepo:     channelBindCodesRepo,
+		channelDMThreadsRepo:     channelDMThreadsRepo,
+		channelReceiptsRepo:      channelReceiptsRepo,
+		channelLedgerRepo:        channelLedgerRepo,
+		personasRepo:             personasRepo,
+		threadRepo:               threadRepo,
+		messageRepo:              messageRepo,
+		runEventRepo:             runEventRepo,
+		jobRepo:                  jobRepo,
+		creditsRepo:              creditsRepo,
+		secretsRepo:              secretsRepo,
 	}
 }
 
 func (e discordChannelsTestEnv) connector() discordConnector {
 	return discordConnector{
-		channelsRepo:          e.channelsRepo,
-		channelIdentitiesRepo: e.channelIdentitiesRepo,
+		channelsRepo:             e.channelsRepo,
+		channelIdentitiesRepo:    e.channelIdentitiesRepo,
 		channelIdentityLinksRepo: e.channelIdentityLinksRepo,
-		channelBindCodesRepo:  e.channelBindCodesRepo,
-		channelDMThreadsRepo:  e.channelDMThreadsRepo,
-		channelReceiptsRepo:   e.channelReceiptsRepo,
-		channelLedgerRepo:     e.channelLedgerRepo,
-		personasRepo:          e.personasRepo,
-		threadRepo:            e.threadRepo,
-		messageRepo:           e.messageRepo,
-		runEventRepo:          e.runEventRepo,
-		jobRepo:               e.jobRepo,
-		creditsRepo:           e.creditsRepo,
-		pool:                  e.pool,
+		channelBindCodesRepo:     e.channelBindCodesRepo,
+		channelDMThreadsRepo:     e.channelDMThreadsRepo,
+		channelReceiptsRepo:      e.channelReceiptsRepo,
+		channelLedgerRepo:        e.channelLedgerRepo,
+		personasRepo:             e.personasRepo,
+		threadRepo:               e.threadRepo,
+		messageRepo:              e.messageRepo,
+		runEventRepo:             e.runEventRepo,
+		jobRepo:                  e.jobRepo,
+		creditsRepo:              e.creditsRepo,
+		pool:                     e.pool,
 	}
 }
 
@@ -359,11 +359,25 @@ func newDiscordInteractionCommand(name, guildID, channelID, userID, username, co
 	}
 }
 
+func mustLinkDiscordIdentity(t *testing.T, env discordChannelsTestEnv, channelID uuid.UUID, userID, username string) data.ChannelIdentity {
+	t.Helper()
+
+	identity, err := upsertDiscordIdentity(context.Background(), env.channelIdentitiesRepo, &discordgo.User{ID: userID, Username: username})
+	if err != nil {
+		t.Fatalf("upsert identity: %v", err)
+	}
+	if _, err := env.channelIdentityLinksRepo.Upsert(context.Background(), channelID, identity.ID); err != nil {
+		t.Fatalf("link identity: %v", err)
+	}
+	return identity
+}
+
 func TestDiscordIngressDMFirstMessageCreatesRun(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{
 		"default_model": "openai^gpt-4.1-mini",
 	})
+	mustLinkDiscordIdentity(t, env, channel.ID, "u-1", "alice")
 
 	err := env.connector().HandleMessageCreate(
 		context.Background(),
@@ -388,10 +402,8 @@ func TestDiscordIngressActiveRunAppendsInput(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
 
-	identity, err := upsertDiscordIdentity(context.Background(), env.channelIdentitiesRepo, &discordgo.User{ID: "u-append", Username: "append-user"})
-	if err != nil {
-		t.Fatalf("upsert identity: %v", err)
-	}
+	identity := mustLinkDiscordIdentity(t, env, channel.ID, "u-append", "append-user")
+	var err error
 	thread, err := env.threadRepo.Create(context.Background(), env.accountID, identity.UserID, env.projectID, nil, false)
 	if err != nil {
 		t.Fatalf("create thread: %v", err)
@@ -423,6 +435,44 @@ func TestDiscordIngressActiveRunAppendsInput(t *testing.T) {
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+run.ID.String()+`' AND type = 'run.input_provided'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
+}
+
+func TestDiscordIngressDuplicateActiveRunMessageDoesNotAppendInputTwice(t *testing.T) {
+	env := setupDiscordChannelsTestEnv(t, nil)
+	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
+
+	identity := mustLinkDiscordIdentity(t, env, channel.ID, "u-repeat", "repeat-user")
+	thread, err := env.threadRepo.Create(context.Background(), env.accountID, identity.UserID, env.projectID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if _, err := env.channelDMThreadsRepo.Create(context.Background(), channel.ID, identity.ID, env.personaID, thread.ID); err != nil {
+		t.Fatalf("create dm thread binding: %v", err)
+	}
+	run, _, err := env.runEventRepo.CreateRunWithStartedEvent(
+		context.Background(),
+		env.accountID,
+		thread.ID,
+		identity.UserID,
+		"run.started",
+		map[string]any{"persona_id": "discord-persona@1"},
+	)
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+
+	event := newDiscordMessageCreate("m-repeat", "dm-repeat", "u-repeat", "repeat-user", "follow-up")
+	if err := env.connector().HandleMessageCreate(context.Background(), "trace-discord-repeat-1", channel.ID, "", event); err != nil {
+		t.Fatalf("first handle message create: %v", err)
+	}
+	if err := env.connector().HandleMessageCreate(context.Background(), "trace-discord-repeat-2", channel.ID, "", event); err != nil {
+		t.Fatalf("second handle message create: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts WHERE channel_id = '`+channel.ID.String()+`' AND platform_conversation_id = 'dm-repeat' AND platform_message_id = 'm-repeat'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+run.ID.String()+`' AND type = 'run.input_provided'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
 }
 

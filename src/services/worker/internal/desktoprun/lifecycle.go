@@ -229,6 +229,9 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
 			"source": "desktop_recovery",
 		}, nil); err != nil {
+			if errors.Is(err, queue.ErrRunExecuteAlreadyQueued) {
+				continue
+			}
 			return fmt.Errorf("recover desktop run %s: %w", snapshot.RunID, err)
 		}
 		if m.logger != nil {

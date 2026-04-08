@@ -78,16 +78,22 @@ func RunDesktop(ctx context.Context) error {
 	}
 
 	sqlitePath := filepath.Join(dataDir, "data.db")
+	writeExecutor := desktop.GetSharedSQLiteWriteExecutor()
+	if writeExecutor == nil {
+		writeExecutor = sqlitepgx.NewSerialWriteExecutor()
+		desktop.SetSharedSQLiteWriteExecutor(writeExecutor)
+	}
+	sqlitepgx.SetGlobalWriteExecutor(writeExecutor)
 	var db *sqlitepgx.Pool
 	ownsDB := false
 	if shared := desktop.GetSharedSQLitePool(); shared != nil {
-		db = shared
+		db = shared.WithWriteExecutor(writeExecutor)
 	} else {
 		opened, openErr := sqlitepgx.Open(sqlitePath)
 		if openErr != nil {
 			return fmt.Errorf("open sqlite: %w", openErr)
 		}
-		db = opened
+		db = opened.WithWriteExecutor(writeExecutor)
 		ownsDB = true
 	}
 	if ownsDB {
@@ -224,18 +230,24 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 		return nil
 	}
 
-	_, err = eventsRepo.AppendEvent(ctx, tx, runID,
-		"worker.job.received",
-		map[string]any{
-			"trace_id":   traceID,
-			"job_id":     lease.JobID.String(),
-			"job_type":   jobType,
-			"account_id": run.AccountID.String(),
-		},
-		nil, nil,
-	)
+	receivedLogged, err := eventsRepo.GetLatestEventType(ctx, tx, runID, []string{"worker.job.received"})
 	if err != nil {
-		return fmt.Errorf("append received event: %w", err)
+		return fmt.Errorf("check received: %w", err)
+	}
+	if receivedLogged == "" {
+		_, err = eventsRepo.AppendEvent(ctx, tx, runID,
+			"worker.job.received",
+			map[string]any{
+				"trace_id":   traceID,
+				"job_id":     lease.JobID.String(),
+				"job_type":   jobType,
+				"account_id": run.AccountID.String(),
+			},
+			nil, nil,
+		)
+		if err != nil {
+			return fmt.Errorf("append received event: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

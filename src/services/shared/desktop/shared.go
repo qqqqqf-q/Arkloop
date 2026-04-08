@@ -136,3 +136,14 @@ func ClearSharedSQLitePool() {
 	defer mu.Unlock()
 	sharedSQLitePool = nil
 }
+
+// SetSharedSQLiteWriteExecutor 设置 desktop 全局 SQLite 单写执行器。
+// 传入 nil 时恢复 sqlitepgx 默认串行执行器。
+func SetSharedSQLiteWriteExecutor(executor sqlitepgx.WriteExecutor) {
+	sqlitepgx.SetGlobalWriteExecutor(executor)
+}
+
+// GetSharedSQLiteWriteExecutor 返回当前 desktop 全局 SQLite 写执行器。
+func GetSharedSQLiteWriteExecutor() sqlitepgx.WriteExecutor {
+	return sqlitepgx.GetGlobalWriteExecutor()
+}

@@ -95,6 +95,19 @@ func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGa
 			)
 			return next(ctx, rc)
 		}
+		titleDone, err := hasThreadTitleUpdateEvent(ctx, db, rc.Run.ID)
+		if err != nil {
+			slog.WarnContext(ctx, "title_summarizer: dedupe check failed", "err", err.Error())
+			return next(ctx, rc)
+		}
+		if titleDone {
+			logTitleSummarizerDebug(ctx, "middleware_skip",
+				slog.String("reason", "title_already_emitted"),
+				slog.String("thread_id", threadID.String()),
+				slog.String("run_id", rc.Run.ID.String()),
+			)
+			return next(ctx, rc)
+		}
 
 		fallbackGateway := rc.Gateway
 		fallbackModel := ""
@@ -253,6 +266,18 @@ func isFirstRunOfThread(ctx context.Context, pool TitleSummarizerDB, threadID uu
 	return count <= 1, nil
 }
 
+func hasThreadTitleUpdateEvent(ctx context.Context, pool TitleSummarizerDB, runID uuid.UUID) (bool, error) {
+	var count int
+	err := pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM run_events WHERE run_id = $1 AND type = 'thread.title.updated'`,
+		runID,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func generateTitle(
 	ctx context.Context,
 	pool TitleSummarizerDB,
@@ -338,14 +363,18 @@ func generateTitle(
 	if len([]rune(title)) > 50 {
 		title = string([]rune(title)[:50])
 	}
-
-	_, err = pool.Exec(ctx,
-		`UPDATE threads SET title = $1 WHERE id = $2 AND deleted_at IS NULL AND title_locked = false`,
-		title, threadID,
-	)
+	seq, emitted, err := writeThreadTitleAndEventOnce(ctx, pool, runID, threadID, title)
 	if err != nil {
-		slog.Warn("title_summarizer: db update failed", "err", err.Error())
-		logTitleSummarizerDebug(ctx, "thread_update_err",
+		slog.Warn("title_summarizer: db write failed", "err", err.Error())
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
+			slog.String("run_id", runID.String()),
+			slog.String("thread_id", threadID.String()),
+		)
+		return
+	}
+	if !emitted {
+		logTitleSummarizerDebug(ctx, "generate_skip",
+			slog.String("reason", "title_already_emitted"),
 			slog.String("run_id", runID.String()),
 			slog.String("thread_id", threadID.String()),
 		)
@@ -357,62 +386,90 @@ func generateTitle(
 		slog.Int("title_runes", len([]rune(title))),
 	)
 
-	emitTitleEvent(ctx, pool, rdb, bus, runID, threadID, title)
+	notifyTitleEvent(ctx, pool, rdb, bus, runID, seq)
 }
 
-func emitTitleEvent(
+func writeThreadTitleAndEventOnce(
 	ctx context.Context,
 	pool TitleSummarizerDB,
-	rdb *redis.Client,
-	bus eventbus.EventBus,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	title string,
-) {
+) (int64, bool, error) {
 	dataJSON := map[string]any{
 		"thread_id": threadID.String(),
 		"title":     title,
 	}
 	encoded, err := json.Marshal(dataJSON)
 	if err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "marshal"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "begin_tx"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
 	defer tx.Rollback(ctx)
 
-	var seq int64
 	if _, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "lock_run"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
+
+	var alreadyEmitted bool
+	if err = tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM run_events WHERE run_id = $1 AND type = 'thread.title.updated')`,
+		runID,
+	).Scan(&alreadyEmitted); err != nil {
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
+			slog.String("phase", "dedupe"),
+			slog.String("run_id", runID.String()),
+			slog.String("err", err.Error()),
+		)
+		return 0, false, err
+	}
+	if alreadyEmitted {
+		return 0, false, nil
+	}
+
+	if _, err = tx.Exec(ctx,
+		`UPDATE threads SET title = $1 WHERE id = $2 AND deleted_at IS NULL AND title_locked = false`,
+		title, threadID,
+	); err != nil {
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
+			slog.String("phase", "update_title"),
+			slog.String("run_id", runID.String()),
+			slog.String("thread_id", threadID.String()),
+			slog.String("err", err.Error()),
+		)
+		return 0, false, err
+	}
+
+	var seq int64
 	if err = tx.QueryRow(ctx,
 		`SELECT COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1`,
 		runID,
 	).Scan(&seq); err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "next_seq"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
 
 	_, err = tx.Exec(ctx,
@@ -420,26 +477,41 @@ func emitTitleEvent(
 		runID, seq, "thread.title.updated", string(encoded),
 	)
 	if err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "insert"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
 
 	if err = tx.Commit(ctx); err != nil {
-		logTitleSummarizerDebug(ctx, "emit_title_event_err",
+		logTitleSummarizerDebug(ctx, "thread_title_write_err",
 			slog.String("phase", "commit"),
 			slog.String("run_id", runID.String()),
 			slog.String("err", err.Error()),
 		)
-		return
+		return 0, false, err
 	}
 
-	logTitleSummarizerDebug(ctx, "emit_title_event_ok",
+	logTitleSummarizerDebug(ctx, "thread_title_write_ok",
 		slog.String("run_id", runID.String()),
 		slog.String("thread_id", threadID.String()),
+		slog.Int64("seq", seq),
+	)
+	return seq, true, nil
+}
+
+func notifyTitleEvent(
+	ctx context.Context,
+	pool TitleSummarizerDB,
+	rdb *redis.Client,
+	bus eventbus.EventBus,
+	runID uuid.UUID,
+	seq int64,
+) {
+	logTitleSummarizerDebug(ctx, "notify_title_event",
+		slog.String("run_id", runID.String()),
 		slog.Int64("seq", seq),
 		slog.Bool("bus_nil", bus == nil),
 		slog.Bool("rdb_nil", rdb == nil),

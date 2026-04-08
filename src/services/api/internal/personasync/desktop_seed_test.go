@@ -9,26 +9,28 @@ import (
 	"testing"
 
 	"arkloop/services/shared/database/sqliteadapter"
+	"arkloop/services/shared/database/sqlitepgx"
 )
 
 func TestSeedDesktopPersonas(t *testing.T) {
 	personasRoot := findTestPersonasRoot(t)
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	pool, err := sqliteadapter.AutoMigrate(context.Background(), dbPath)
+	sqlitePool, err := sqliteadapter.AutoMigrate(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
-	defer pool.Close()
+	defer sqlitePool.Close()
+	db := sqlitepgx.New(sqlitePool.Unwrap())
 
 	ctx := context.Background()
 
 	// First seed should insert all personas.
-	if err := SeedDesktopPersonas(ctx, pool, personasRoot); err != nil {
+	if err := SeedDesktopPersonas(ctx, db, personasRoot); err != nil {
 		t.Fatalf("SeedDesktopPersonas (first): %v", err)
 	}
 
-	row := pool.QueryRow(ctx, `SELECT COUNT(*) FROM personas WHERE is_active = 1`)
+	row := db.QueryRow(ctx, `SELECT COUNT(*) FROM personas WHERE is_active = 1`)
 	var count int
 	if err := row.Scan(&count); err != nil {
 		t.Fatalf("count: %v", err)
@@ -39,11 +41,11 @@ func TestSeedDesktopPersonas(t *testing.T) {
 	t.Logf("seeded %d personas", count)
 
 	// Second seed should be idempotent (update, not duplicate).
-	if err := SeedDesktopPersonas(ctx, pool, personasRoot); err != nil {
+	if err := SeedDesktopPersonas(ctx, db, personasRoot); err != nil {
 		t.Fatalf("SeedDesktopPersonas (second): %v", err)
 	}
 
-	row = pool.QueryRow(ctx, `SELECT COUNT(*) FROM personas WHERE is_active = 1`)
+	row = db.QueryRow(ctx, `SELECT COUNT(*) FROM personas WHERE is_active = 1`)
 	var count2 int
 	if err := row.Scan(&count2); err != nil {
 		t.Fatalf("count2: %v", err)
@@ -53,7 +55,7 @@ func TestSeedDesktopPersonas(t *testing.T) {
 	}
 
 	// Verify key fields are populated.
-	row = pool.QueryRow(ctx,
+	row = db.QueryRow(ctx,
 		`SELECT persona_key, display_name, prompt_md, executor_type, sync_mode
 		 FROM personas WHERE is_active = 1 LIMIT 1`)
 	var key, name, prompt, execType, syncMode string
@@ -79,13 +81,14 @@ func TestSeedDesktopPersonas_NilDB(t *testing.T) {
 
 func TestSeedDesktopPersonas_EmptyRoot(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	pool, err := sqliteadapter.AutoMigrate(context.Background(), dbPath)
+	sqlitePool, err := sqliteadapter.AutoMigrate(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("AutoMigrate: %v", err)
 	}
-	defer pool.Close()
+	defer sqlitePool.Close()
+	db := sqlitepgx.New(sqlitePool.Unwrap())
 
-	if err := SeedDesktopPersonas(context.Background(), pool, ""); err == nil {
+	if err := SeedDesktopPersonas(context.Background(), db, ""); err == nil {
 		t.Fatal("expected error for empty root")
 	}
 }

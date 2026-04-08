@@ -148,22 +148,22 @@ type telegramVideo struct {
 }
 
 type telegramAnimation struct {
-	FileID    string              `json:"file_id"`
-	FileName  string              `json:"file_name"`
-	MimeType  string              `json:"mime_type"`
-	FileSize  int64               `json:"file_size"`
-	Duration  int                 `json:"duration"`
-	Width     int                 `json:"width"`
-	Height    int                 `json:"height"`
-	Thumbnail *telegramPhotoSize  `json:"thumbnail,omitempty"`
+	FileID    string             `json:"file_id"`
+	FileName  string             `json:"file_name"`
+	MimeType  string             `json:"mime_type"`
+	FileSize  int64              `json:"file_size"`
+	Duration  int                `json:"duration"`
+	Width     int                `json:"width"`
+	Height    int                `json:"height"`
+	Thumbnail *telegramPhotoSize `json:"thumbnail,omitempty"`
 }
 
 type telegramSticker struct {
-	FileID    string              `json:"file_id"`
-	FileSize  int64               `json:"file_size"`
-	Width     int                 `json:"width"`
-	Height    int                 `json:"height"`
-	Thumbnail *telegramPhotoSize  `json:"thumbnail,omitempty"`
+	FileID    string             `json:"file_id"`
+	FileSize  int64              `json:"file_size"`
+	Width     int                `json:"width"`
+	Height    int                `json:"height"`
+	Thumbnail *telegramPhotoSize `json:"thumbnail,omitempty"`
 }
 
 func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.RawMessage, *telegramChannelConfig, error) {
@@ -1577,6 +1577,32 @@ func (c telegramConnector) HandleUpdate(
 	return tx.Commit(ctx)
 }
 
+func (c telegramConnector) claimTelegramPollReceipt(
+	ctx context.Context,
+	channelID uuid.UUID,
+	incoming telegramIncomingMessage,
+) (bool, error) {
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
+		ctx,
+		channelID,
+		incoming.PlatformChatID,
+		incoming.PlatformMsgID,
+	)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return accepted, nil
+}
+
 func telegramWebhookEntry(
 	channelsRepo *data.ChannelsRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
@@ -1801,7 +1827,7 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 			}
 		}
 	}
-	if _, err := repo.ProvideInput(ctx, run.ID, content, traceID); err != nil {
+	if _, err := repo.ProvideInputWithKey(ctx, run.ID, content, traceID, telegramInboundInputKey(incoming)); err != nil {
 		var notActive data.RunNotActiveError
 		if errors.As(err, &notActive) {
 			return false, false, nil
@@ -1809,6 +1835,13 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+func telegramInboundInputKey(incoming telegramIncomingMessage) string {
+	if strings.TrimSpace(incoming.PlatformChatID) == "" || strings.TrimSpace(incoming.PlatformMsgID) == "" {
+		return ""
+	}
+	return "telegram:" + strings.TrimSpace(incoming.PlatformChatID) + ":" + strings.TrimSpace(incoming.PlatformMsgID)
 }
 
 func (c telegramConnector) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {
@@ -2305,6 +2338,14 @@ func (c telegramConnector) HandleUpdateForPoll(
 		return nil
 	}
 
+	accepted, err := c.claimTelegramPollReceipt(ctx, ch.ID, *incoming)
+	if err != nil {
+		return err
+	}
+	if !accepted {
+		return nil
+	}
+
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -2322,19 +2363,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 			logPhase("tx_success")
 		}
 	}()
-
-	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
-		ctx,
-		ch.ID,
-		incoming.PlatformChatID,
-		incoming.PlatformMsgID,
-	)
-	if err != nil {
-		return err
-	}
-	if !accepted {
-		return tx.Commit(ctx)
-	}
 
 	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
 

@@ -11,7 +11,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,25 +64,33 @@ func sqliteExecPragma(ctx context.Context, conn driver.Conn, pragma string) erro
 }
 
 func openSQLiteDB(dsn string) (*sql.DB, error) {
-	// _txlock=immediate: all transactions use BEGIN IMMEDIATE so that
-	// SELECT-then-UPDATE patterns hold the write lock from the start,
-	// compensating for FOR UPDATE being stripped by the SQL rewrite layer.
-	if strings.Contains(dsn, "?") {
-		dsn += "&_txlock=immediate"
-	} else {
-		dsn += "?_txlock=immediate"
-	}
 	return sql.OpenDB(&pragmaConnector{dsn: dsn, drv: &sqlite.Driver{}}), nil
 }
 
 // Pool wraps *sql.DB to satisfy the pgx-based data.Querier interface.
 type Pool struct {
-	db *sql.DB
+	db            *sql.DB
+	writeExecutor WriteExecutor
 }
 
 // New creates a Pool backed by an existing *sql.DB handle.
 func New(db *sql.DB) *Pool {
 	return &Pool{db: db}
+}
+
+// NewWithWriteExecutor creates a Pool with a custom write executor.
+// Pass nil to use the current global write executor.
+func NewWithWriteExecutor(db *sql.DB, executor WriteExecutor) *Pool {
+	return &Pool{db: db, writeExecutor: executor}
+}
+
+// WithWriteExecutor returns a lightweight wrapper that shares the same *sql.DB
+// but uses the provided write executor.
+func (p *Pool) WithWriteExecutor(executor WriteExecutor) *Pool {
+	if p == nil {
+		return nil
+	}
+	return &Pool{db: p.db, writeExecutor: executor}
 }
 
 // DesktopMaxOpenConns and DesktopMaxIdleConns match the limits used by Open
@@ -117,6 +124,12 @@ func Open(dsn string) (*Pool, error) {
 }
 
 func (p *Pool) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	guard, err := p.acquireWriteGuard(ctx)
+	if err != nil {
+		return pgconn.NewCommandTag(""), err
+	}
+	defer guard.Release()
+
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
@@ -184,18 +197,42 @@ func convertArg(v any) any {
 }
 
 func (p *Pool) Begin(ctx context.Context) (*Tx, error) {
+	guard, err := p.acquireWriteGuard(ctx)
+	if err != nil {
+		return nil, err
+	}
 	t, err := p.db.BeginTx(ctx, nil)
 	if err != nil {
+		guard.Release()
 		return nil, translateError(err)
 	}
-	return &Tx{tx: t}, nil
+	return &Tx{tx: t, writeGuard: guard, writeExecutor: p.resolveWriteExecutor()}, nil
 }
 
 // BeginTx satisfies the DesktopDB interface.
-// pgx.TxOptions are ignored; the underlying driver uses BEGIN IMMEDIATE
-// (configured via _txlock DSN param) for write safety.
-func (p *Pool) BeginTx(ctx context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
-	return p.Begin(ctx)
+// 对写事务（默认）加全局单写串行；读事务直通。
+func (p *Pool) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	txOpts := &sql.TxOptions{}
+	isReadOnly := opts.AccessMode == pgx.ReadOnly
+	if isReadOnly {
+		txOpts.ReadOnly = true
+	}
+
+	var guard WriteGuard = noopWriteGuard{}
+	var err error
+	if !isReadOnly {
+		guard, err = p.acquireWriteGuard(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	t, err := p.db.BeginTx(ctx, txOpts)
+	if err != nil {
+		guard.Release()
+		return nil, translateError(err)
+	}
+	return &Tx{tx: t, readOnly: isReadOnly, writeGuard: guard, writeExecutor: p.resolveWriteExecutor()}, nil
 }
 
 func (p *Pool) Close() error {
@@ -209,4 +246,26 @@ func (p *Pool) Ping(ctx context.Context) error {
 // Unwrap returns the underlying *sql.DB for code that needs direct access.
 func (p *Pool) Unwrap() *sql.DB {
 	return p.db
+}
+
+func (p *Pool) resolveWriteExecutor() WriteExecutor {
+	if p != nil && p.writeExecutor != nil {
+		return p.writeExecutor
+	}
+	return GetGlobalWriteExecutor()
+}
+
+func (p *Pool) acquireWriteGuard(ctx context.Context) (WriteGuard, error) {
+	executor := p.resolveWriteExecutor()
+	if executor == nil {
+		return noopWriteGuard{}, nil
+	}
+	guard, err := executor.AcquireWrite(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if guard == nil {
+		return noopWriteGuard{}, nil
+	}
+	return guard, nil
 }

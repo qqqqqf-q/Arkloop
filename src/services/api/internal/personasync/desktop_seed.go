@@ -10,12 +10,19 @@ import (
 
 	"arkloop/services/api/internal/data"
 	repopersonas "arkloop/services/api/internal/personas"
-	"arkloop/services/shared/database"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+type desktopPersonaSeedDB interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // SeedDesktopPersonas loads personas from the filesystem and inserts them
 // into SQLite if they don't already exist. Called once during desktop startup.
-func SeedDesktopPersonas(ctx context.Context, db database.DB, personasRoot string) error {
+func SeedDesktopPersonas(ctx context.Context, db desktopPersonaSeedDB, personasRoot string) error {
 	if db == nil {
 		return fmt.Errorf("db must not be nil")
 	}
@@ -37,7 +44,7 @@ func SeedDesktopPersonas(ctx context.Context, db database.DB, personasRoot strin
 	return nil
 }
 
-func seedOnePersona(ctx context.Context, db database.DB, p repopersonas.RepoPersona) error {
+func seedOnePersona(ctx context.Context, db desktopPersonaSeedDB, p repopersonas.RepoPersona) error {
 	row := db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM personas WHERE persona_key = ?`,
 		strings.TrimSpace(p.ID),
@@ -52,7 +59,7 @@ func seedOnePersona(ctx context.Context, db database.DB, p repopersonas.RepoPers
 	return insertPersona(ctx, db, p)
 }
 
-func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPersona) error {
+func insertPersona(ctx context.Context, db desktopPersonaSeedDB, p repopersonas.RepoPersona) error {
 	executorType := strings.TrimSpace(p.ExecutorType)
 	if executorType == "" {
 		executorType = "agent.simple"
@@ -106,7 +113,7 @@ func insertPersona(ctx context.Context, db database.DB, p repopersonas.RepoPerso
 	return err
 }
 
-func updatePersona(ctx context.Context, db database.DB, p repopersonas.RepoPersona) error {
+func updatePersona(ctx context.Context, db desktopPersonaSeedDB, p repopersonas.RepoPersona) error {
 	executorType := strings.TrimSpace(p.ExecutorType)
 	if executorType == "" {
 		executorType = "agent.simple"

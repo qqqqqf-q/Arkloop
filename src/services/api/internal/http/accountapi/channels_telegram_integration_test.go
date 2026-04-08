@@ -1647,7 +1647,16 @@ func TestTelegramPollPassiveMediaFailureDoesNotPersistReceipt(t *testing.T) {
 		t.Fatal("expected poll passive media failure")
 	}
 
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 0)
+
+	err = connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update)
+	if err != nil {
+		t.Fatalf("second poll should be deduped by receipt, got %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound'`, 0)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 0)
 }

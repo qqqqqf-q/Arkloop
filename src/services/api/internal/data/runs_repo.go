@@ -941,6 +941,17 @@ func (r *RunEventRepository) ProvideInput(
 	content string,
 	traceID string,
 ) (*RunEvent, error) {
+	return r.ProvideInputWithKey(ctx, runID, content, traceID, "")
+}
+
+// ProvideInputWithKey 向运行中的 run 注入用户输入，并使用 inputKey 做幂等保护。
+func (r *RunEventRepository) ProvideInputWithKey(
+	ctx context.Context,
+	runID uuid.UUID,
+	content string,
+	traceID string,
+	inputKey string,
+) (*RunEvent, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -975,12 +986,41 @@ func (r *RunEventRepository) ProvideInput(
 	if traceID != "" {
 		dataJSON["trace_id"] = traceID
 	}
+	if inputKey != "" {
+		existing, err := r.hasInputProvidedKey(ctx, runID, inputKey)
+		if err != nil {
+			return nil, err
+		}
+		if existing {
+			return nil, nil
+		}
+		dataJSON["input_key"] = inputKey
+	}
 
 	event, err := r.insertEvent(ctx, runID, "run.input_provided", dataJSON, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	return &event, nil
+}
+
+func (r *RunEventRepository) hasInputProvidedKey(ctx context.Context, runID uuid.UUID, inputKey string) (bool, error) {
+	if strings.TrimSpace(inputKey) == "" {
+		return false, nil
+	}
+	var count int
+	err := r.db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM run_events
+		  WHERE run_id = $1
+		    AND type = 'run.input_provided'
+		    AND data_json->>'input_key' = $2`,
+		runID,
+		inputKey,
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // RunNotActiveError 表示 run 已处于终态，无法接收输入。

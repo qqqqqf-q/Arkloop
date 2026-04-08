@@ -28,14 +28,20 @@ func (r titleSummarizerTestRow) Scan(dest ...any) error {
 	return r.scan(dest...)
 }
 
-type titleSummarizerTestDB struct{}
+type titleSummarizerTestDB struct {
+	titleEventCount int
+}
 
-func (titleSummarizerTestDB) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+func (db titleSummarizerTestDB) QueryRow(_ context.Context, query string, _ ...any) pgx.Row {
 	return titleSummarizerTestRow{
 		scan: func(dest ...any) error {
 			ptr, ok := dest[0].(*int)
 			if !ok {
 				return fmt.Errorf("unexpected scan target: %T", dest[0])
+			}
+			if strings.Contains(query, "thread.title.updated") {
+				*ptr = db.titleEventCount
+				return nil
 			}
 			*ptr = 1
 			return nil
@@ -230,6 +236,52 @@ func TestTitleSummarizerMiddleware_StartsAsyncBeforeNextReturns(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("middleware did not finish")
+	}
+}
+
+func TestTitleSummarizerMiddleware_SkipsWhenTitleAlreadyEmitted(t *testing.T) {
+	stubCfg, _ := llm.AuxGatewayConfigFromEnv()
+	stubCfg.Enabled = true
+	auxGateway := llm.NewAuxGateway(stubCfg)
+
+	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{titleEventCount: 1}, nil, auxGateway, false, nil)
+
+	rc := &RunContext{
+		Run: data.Run{
+			ID:       uuid.New(),
+			ThreadID: uuid.New(),
+		},
+		Gateway: auxGateway,
+		Emitter: events.NewEmitter("test"),
+		TitleSummarizer: &personas.TitleSummarizerConfig{
+			Prompt:    "Test prompt",
+			MaxTokens: 10,
+		},
+		Messages: []llm.Message{
+			{
+				Role:    "user",
+				Content: []llm.TextPart{{Text: "Hello"}},
+			},
+		},
+	}
+
+	started := make(chan struct{}, 1)
+	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
+		started <- struct{}{}
+	})
+	defer ResetTitleSummarizerGeneratorForTest()
+
+	h := Build([]RunMiddleware{mw}, func(_ context.Context, _ *RunContext) error {
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	select {
+	case <-started:
+		t.Fatal("expected title generator to be skipped when title event already exists")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

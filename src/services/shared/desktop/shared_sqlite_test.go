@@ -3,7 +3,9 @@
 package desktop
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"arkloop/services/shared/database/sqlitepgx"
 )
@@ -57,4 +59,29 @@ func TestSQLiteCloserRegisterClose(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("expected second close noop, calls=%d", calls)
 	}
+}
+
+func TestSharedSQLiteWriteExecutorSetGet(t *testing.T) {
+	origin := GetSharedSQLiteWriteExecutor()
+	t.Cleanup(func() {
+		SetSharedSQLiteWriteExecutor(origin)
+	})
+
+	executor := sqlitepgx.NewSerialWriteExecutor()
+	SetSharedSQLiteWriteExecutor(executor)
+	if GetSharedSQLiteWriteExecutor() != executor {
+		t.Fatal("GetSharedSQLiteWriteExecutor mismatch")
+	}
+
+	guard, err := GetSharedSQLiteWriteExecutor().AcquireWrite(context.Background())
+	if err != nil {
+		t.Fatalf("acquire write: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := GetSharedSQLiteWriteExecutor().AcquireWrite(ctx); err == nil {
+		t.Fatal("expected blocked acquire to timeout")
+	}
+	guard.Release()
 }

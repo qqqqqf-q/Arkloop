@@ -15,8 +15,11 @@ import (
 // Tx wraps *sql.Tx to satisfy the pgx.Tx interface.
 type Tx struct {
 	tx                 *sql.Tx
+	readOnly           bool
 	afterCommitHooks   []func()
 	afterRollbackHooks []func()
+	writeGuard         WriteGuard
+	writeExecutor      WriteExecutor
 }
 
 // AfterCommit registers fn to run after the transaction commits successfully.
@@ -30,6 +33,15 @@ func (t *Tx) AfterRollback(fn func()) {
 }
 
 func (t *Tx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	if t.readOnly {
+		return pgconn.NewCommandTag(""), fmt.Errorf("sqlitepgx: write exec in read-only transaction")
+	}
+	guard, err := t.acquireExecWriteGuard(ctx)
+	if err != nil {
+		return pgconn.NewCommandTag(""), err
+	}
+	defer guard.Release()
+
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
@@ -60,7 +72,11 @@ func (t *Tx) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 }
 
 func (t *Tx) Commit(_ context.Context) error {
-	if err := translateError(t.tx.Commit()); err != nil {
+	err := translateError(t.tx.Commit())
+	t.releaseWriteGuard()
+	if err != nil {
+		t.afterCommitHooks = nil
+		t.afterRollbackHooks = nil
 		return err
 	}
 	for _, fn := range t.afterCommitHooks {
@@ -73,6 +89,7 @@ func (t *Tx) Commit(_ context.Context) error {
 
 func (t *Tx) Rollback(_ context.Context) error {
 	err := translateError(t.tx.Rollback())
+	t.releaseWriteGuard()
 	// 事务已结束（正常回滚或已隐式回滚），都需要执行清理 hooks
 	if err == nil || errors.Is(err, sql.ErrTxDone) {
 		for _, fn := range t.afterRollbackHooks {
@@ -108,6 +125,35 @@ func (t *Tx) Prepare(_ context.Context, _, _ string) (*pgconn.StatementDescripti
 
 func (t *Tx) Conn() *pgx.Conn {
 	return nil
+}
+
+func (t *Tx) releaseWriteGuard() {
+	if t.writeGuard == nil {
+		return
+	}
+	t.writeGuard.Release()
+	t.writeGuard = nil
+}
+
+func (t *Tx) acquireExecWriteGuard(ctx context.Context) (WriteGuard, error) {
+	if t.writeGuard != nil {
+		return noopWriteGuard{}, nil
+	}
+	executor := t.writeExecutor
+	if executor == nil {
+		executor = GetGlobalWriteExecutor()
+	}
+	if executor == nil {
+		return noopWriteGuard{}, nil
+	}
+	guard, err := executor.AcquireWrite(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if guard == nil {
+		return noopWriteGuard{}, nil
+	}
+	return guard, nil
 }
 
 // errBatchResults satisfies pgx.BatchResults for unsupported SendBatch calls.

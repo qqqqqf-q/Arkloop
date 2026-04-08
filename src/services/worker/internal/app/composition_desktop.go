@@ -977,13 +977,19 @@ func fetchLatestDesktopInput(ctx context.Context, db data.DesktopDB, runID uuid.
 	if db == nil || runID == uuid.Nil {
 		return "", 0, false
 	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", 0, false
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
 	var rawJSON []byte
 	var seq int64
-	err := db.QueryRow(
+	err = tx.QueryRow(
 		ctx,
 		`SELECT data_json, seq
-		 FROM run_events
-		 WHERE run_id = $1
+			 FROM run_events
+			 WHERE run_id = $1
 		   AND type = $2
 		   AND seq > $3
 		 ORDER BY seq ASC
@@ -2972,7 +2978,7 @@ func startDesktopRunCancelWatcher(
 }
 
 func readDesktopCancelEvent(ctx context.Context, db data.DesktopDB, runID uuid.UUID) (string, error) {
-	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return "", err
 	}
@@ -3237,7 +3243,7 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("load encryption key: %w", err)
 	}
 
-	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("begin tx: %w", err)
 	}

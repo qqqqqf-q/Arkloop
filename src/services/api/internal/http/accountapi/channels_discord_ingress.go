@@ -23,25 +23,25 @@ import (
 )
 
 type DiscordIngressRunnerDeps struct {
-	ChannelsRepo          *data.ChannelsRepository
-	ChannelIdentitiesRepo *data.ChannelIdentitiesRepository
+	ChannelsRepo             *data.ChannelsRepository
+	ChannelIdentitiesRepo    *data.ChannelIdentitiesRepository
 	ChannelIdentityLinksRepo *data.ChannelIdentityLinksRepository
-	ChannelBindCodesRepo  *data.ChannelBindCodesRepository
-	ChannelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	ChannelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	ChannelLedgerRepo     *data.ChannelMessageLedgerRepository
-	SecretsRepo           *data.SecretsRepository
-	PersonasRepo          *data.PersonasRepository
-	ThreadRepo            *data.ThreadRepository
-	MessageRepo           *data.MessageRepository
-	RunEventRepo          *data.RunEventRepository
-	JobRepo               *data.JobRepository
-	CreditsRepo           *data.CreditsRepository
-	Pool                  data.DB
-	EntitlementService    *entitlement.Service
-	DiscordClient         *discordbot.Client
-	ScanInterval          time.Duration
-	Bus                   eventbus.EventBus
+	ChannelBindCodesRepo     *data.ChannelBindCodesRepository
+	ChannelDMThreadsRepo     *data.ChannelDMThreadsRepository
+	ChannelReceiptsRepo      *data.ChannelMessageReceiptsRepository
+	ChannelLedgerRepo        *data.ChannelMessageLedgerRepository
+	SecretsRepo              *data.SecretsRepository
+	PersonasRepo             *data.PersonasRepository
+	ThreadRepo               *data.ThreadRepository
+	MessageRepo              *data.MessageRepository
+	RunEventRepo             *data.RunEventRepository
+	JobRepo                  *data.JobRepository
+	CreditsRepo              *data.CreditsRepository
+	Pool                     data.DB
+	EntitlementService       *entitlement.Service
+	DiscordClient            *discordbot.Client
+	ScanInterval             time.Duration
+	Bus                      eventbus.EventBus
 }
 
 type discordSessionState struct {
@@ -57,22 +57,22 @@ type discordIngressManager struct {
 }
 
 type discordConnector struct {
-	channelsRepo          *data.ChannelsRepository
-	channelIdentitiesRepo *data.ChannelIdentitiesRepository
+	channelsRepo             *data.ChannelsRepository
+	channelIdentitiesRepo    *data.ChannelIdentitiesRepository
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
-	channelBindCodesRepo  *data.ChannelBindCodesRepository
-	channelDMThreadsRepo  *data.ChannelDMThreadsRepository
-	channelReceiptsRepo   *data.ChannelMessageReceiptsRepository
-	channelLedgerRepo     *data.ChannelMessageLedgerRepository
-	personasRepo          *data.PersonasRepository
-	threadRepo            *data.ThreadRepository
-	messageRepo           *data.MessageRepository
-	runEventRepo          *data.RunEventRepository
-	jobRepo               *data.JobRepository
-	creditsRepo           *data.CreditsRepository
-	pool                  data.DB
-	discordClient         *discordbot.Client
-	inputNotify           func(ctx context.Context, runID uuid.UUID)
+	channelBindCodesRepo     *data.ChannelBindCodesRepository
+	channelDMThreadsRepo     *data.ChannelDMThreadsRepository
+	channelReceiptsRepo      *data.ChannelMessageReceiptsRepository
+	channelLedgerRepo        *data.ChannelMessageLedgerRepository
+	personasRepo             *data.PersonasRepository
+	threadRepo               *data.ThreadRepository
+	messageRepo              *data.MessageRepository
+	runEventRepo             *data.RunEventRepository
+	jobRepo                  *data.JobRepository
+	creditsRepo              *data.CreditsRepository
+	pool                     data.DB
+	discordClient            *discordbot.Client
+	inputNotify              func(ctx context.Context, runID uuid.UUID)
 }
 
 type discordInteractionReply struct {
@@ -221,22 +221,22 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 
 	connector := discordConnector{
-		channelsRepo:          m.deps.ChannelsRepo,
-		channelIdentitiesRepo: m.deps.ChannelIdentitiesRepo,
+		channelsRepo:             m.deps.ChannelsRepo,
+		channelIdentitiesRepo:    m.deps.ChannelIdentitiesRepo,
 		channelIdentityLinksRepo: m.deps.ChannelIdentityLinksRepo,
-		channelBindCodesRepo:  m.deps.ChannelBindCodesRepo,
-		channelDMThreadsRepo:  m.deps.ChannelDMThreadsRepo,
-		channelReceiptsRepo:   m.deps.ChannelReceiptsRepo,
-		channelLedgerRepo:     m.deps.ChannelLedgerRepo,
-		personasRepo:          m.deps.PersonasRepo,
-		threadRepo:            m.deps.ThreadRepo,
-		messageRepo:           m.deps.MessageRepo,
-		runEventRepo:          m.deps.RunEventRepo,
-		jobRepo:               m.deps.JobRepo,
-		creditsRepo:           m.deps.CreditsRepo,
-		pool:                  m.deps.Pool,
-		discordClient:         m.deps.DiscordClient,
-		inputNotify:           buildDiscordInputNotifier(m.deps.Pool, m.deps.Bus),
+		channelBindCodesRepo:     m.deps.ChannelBindCodesRepo,
+		channelDMThreadsRepo:     m.deps.ChannelDMThreadsRepo,
+		channelReceiptsRepo:      m.deps.ChannelReceiptsRepo,
+		channelLedgerRepo:        m.deps.ChannelLedgerRepo,
+		personasRepo:             m.deps.PersonasRepo,
+		threadRepo:               m.deps.ThreadRepo,
+		messageRepo:              m.deps.MessageRepo,
+		runEventRepo:             m.deps.RunEventRepo,
+		jobRepo:                  m.deps.JobRepo,
+		creditsRepo:              m.deps.CreditsRepo,
+		pool:                     m.deps.Pool,
+		discordClient:            m.deps.DiscordClient,
+		inputNotify:              buildDiscordInputNotifier(m.deps.Pool, m.deps.Bus),
 	}
 
 	session.AddHandler(func(s *discordgo.Session, evt *discordgo.MessageCreate) {
@@ -364,19 +364,19 @@ func (c discordConnector) HandleMessageCreate(
 		return nil
 	}
 
+	accepted, err := c.claimDiscordReceipt(ctx, ch.ID, event)
+	if err != nil {
+		return err
+	}
+	if !accepted {
+		return nil
+	}
+
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-
-	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, event.ChannelID, event.ID)
-	if err != nil {
-		return err
-	}
-	if !accepted {
-		return tx.Commit(ctx)
-	}
 
 	identity, err := upsertDiscordIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), event.Author)
 	if err != nil {
@@ -442,7 +442,7 @@ func (c discordConnector) HandleMessageCreate(
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		delivered, deliverErr := c.deliverDiscordMessageToActiveRun(ctx, runRepoTx, activeRun, rendered, traceID)
+		delivered, deliverErr := c.deliverDiscordMessageToActiveRun(ctx, runRepoTx, activeRun, event, rendered, traceID)
 		if deliverErr != nil {
 			return deliverErr
 		}
@@ -553,17 +553,38 @@ func (c discordConnector) resolveDiscordDMThreadID(
 	return thread.ID, nil
 }
 
+func (c discordConnector) claimDiscordReceipt(ctx context.Context, channelID uuid.UUID, event *discordgo.MessageCreate) (bool, error) {
+	if event == nil {
+		return false, nil
+	}
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, channelID, event.ChannelID, event.ID)
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return accepted, nil
+}
+
 func (c discordConnector) deliverDiscordMessageToActiveRun(
 	ctx context.Context,
 	repo *data.RunEventRepository,
 	run *data.Run,
+	event *discordgo.MessageCreate,
 	content string,
 	traceID string,
 ) (bool, error) {
 	if run == nil || strings.TrimSpace(content) == "" {
 		return false, nil
 	}
-	if _, err := repo.ProvideInput(ctx, run.ID, content, traceID); err != nil {
+	if _, err := repo.ProvideInputWithKey(ctx, run.ID, content, traceID, discordInboundInputKey(event)); err != nil {
 		var notActive data.RunNotActiveError
 		if errors.As(err, &notActive) {
 			return false, nil
@@ -571,6 +592,13 @@ func (c discordConnector) deliverDiscordMessageToActiveRun(
 		return false, err
 	}
 	return true, nil
+}
+
+func discordInboundInputKey(event *discordgo.MessageCreate) string {
+	if event == nil || strings.TrimSpace(event.ChannelID) == "" || strings.TrimSpace(event.ID) == "" {
+		return ""
+	}
+	return "discord:" + strings.TrimSpace(event.ChannelID) + ":" + strings.TrimSpace(event.ID)
 }
 
 func (c discordConnector) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {

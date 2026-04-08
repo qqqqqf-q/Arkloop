@@ -26,6 +26,7 @@ import (
 
 type lifecycleQueueStub struct {
 	calls []lifecycleQueueCall
+	err   error
 }
 
 type lifecycleQueueCall struct {
@@ -52,6 +53,9 @@ func (s *lifecycleQueueStub) EnqueueRun(
 		jobType:   queueJobType,
 		payload:   payload,
 	})
+	if s.err != nil {
+		return uuid.Nil, s.err
+	}
 	return uuid.New(), nil
 }
 
@@ -111,6 +115,30 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	}
 	if got, _ := call.payload["source"].(string); got != "desktop_recovery" {
 		t.Fatalf("unexpected recovery payload: %#v", call.payload)
+	}
+}
+
+func TestLifecycleBootstrapIgnoresAlreadyQueuedRecoveryRun(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "llm.turn.completed",
+		OccurredAt: time.Now().UTC().Add(-10 * time.Second),
+		DataJSON: map[string]any{
+			"trace_id": "trace-recover",
+		},
+	})
+
+	q := &lifecycleQueueStub{err: queue.ErrRunExecuteAlreadyQueued}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrap should ignore already queued run: %v", err)
+	}
+	if len(q.calls) != 1 {
+		t.Fatalf("expected one recovery attempt, got %d", len(q.calls))
 	}
 }
 

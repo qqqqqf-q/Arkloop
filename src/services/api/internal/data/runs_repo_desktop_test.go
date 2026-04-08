@@ -76,6 +76,75 @@ func TestProvideInputRejectsCanceledRun(t *testing.T) {
 	}
 }
 
+func TestProvideInputWithKeyDedupesRepeatedInput(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openRunsRepoTestDB(t, ctx)
+	defer cleanup()
+
+	runID := uuid.New()
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "runs-input-key-" + accountID.String(), "Runs Input Key"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Runs Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed run data: %v", err)
+		}
+	}
+
+	repo, err := NewRunEventRepository(db)
+	if err != nil {
+		t.Fatalf("new run event repo: %v", err)
+	}
+
+	first, err := repo.ProvideInputWithKey(ctx, runID, "hello", "trace-1", "telegram:chat-1:msg-1")
+	if err != nil {
+		t.Fatalf("first ProvideInputWithKey: %v", err)
+	}
+	if first == nil {
+		t.Fatal("expected first input event")
+	}
+
+	second, err := repo.ProvideInputWithKey(ctx, runID, "hello", "trace-2", "telegram:chat-1:msg-1")
+	if err != nil {
+		t.Fatalf("second ProvideInputWithKey: %v", err)
+	}
+	if second != nil {
+		t.Fatalf("expected duplicate input to return nil event, got %#v", second)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx,
+		`SELECT COUNT(*) FROM run_events WHERE run_id = $1 AND type = 'run.input_provided'`,
+		runID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count run input events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 input event, got %d", count)
+	}
+}
+
 func TestRequestCancelRecordsVisibleSeqCutoff(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openRunsRepoTestDB(t, ctx)
