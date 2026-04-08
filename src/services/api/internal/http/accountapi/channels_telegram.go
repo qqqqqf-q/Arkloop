@@ -878,6 +878,7 @@ type telegramConnector struct {
 	usersRepo                *data.UserRepository
 	accountRepo              *data.AccountRepository
 	membershipRepo           *data.AccountMembershipRepository
+	accountMembershipRepo    *data.AccountMembershipRepository
 	projectRepo              *data.ProjectRepository
 	threadRepo               *data.ThreadRepository
 	messageRepo              *data.MessageRepository
@@ -1164,7 +1165,7 @@ func (c telegramConnector) HandleUpdate(
 	// Both mustValidateTelegramActivation and entitlementSvc.Resolve use non-tx
 	// connections. On SQLite (single-connection pool) calling them inside a
 	// transaction deadlocks. Resolve everything before BeginTx.
-	persona, personaRef, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
+	persona, _, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
 	if err != nil {
 		return err
 	}
@@ -1189,7 +1190,7 @@ func (c telegramConnector) HandleUpdate(
 			sendCancel()
 		}
 		switch stageA.finalState {
-		case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat:
+		case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat, inboundStatePendingDispatch:
 			return nil
 		}
 	}
@@ -1197,7 +1198,7 @@ func (c telegramConnector) HandleUpdate(
 		return nil
 	}
 	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
-	return c.continueTelegramInboundDispatch(ctx, traceID, ch, *incoming, personaRef, cfg.DefaultModel)
+	return nil
 }
 
 func telegramWebhookEntry(
@@ -1245,6 +1246,7 @@ func telegramWebhookEntry(
 		usersRepo:                usersRepo,
 		accountRepo:              accountRepo,
 		membershipRepo:           membershipRepo,
+		accountMembershipRepo:    membershipRepo,
 		projectRepo:              projectRepo,
 		threadRepo:               threadRepo,
 		messageRepo:              messageRepo,
@@ -1925,7 +1927,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 		return nil
 	}
 
-	persona, personaRef, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
+	persona, _, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
 	if err != nil {
 		return err
 	}
@@ -1956,7 +1958,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 	}
 	logPhase("stage_a_complete", "state", finalState)
 	switch finalState {
-	case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat:
+	case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat, inboundStatePendingDispatch:
 		return nil
 	}
 	if !incoming.HasContent() {
@@ -1964,10 +1966,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 	}
 	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
 	logPhase("stage_b_begin")
-	if err := c.continueTelegramInboundDispatch(ctx, traceID, ch, *incoming, personaRef, cfg.DefaultModel); err != nil {
-		logPhase("stage_b_error", "error", err.Error())
-		return err
-	}
 	logPhase("stage_b_complete")
 	return nil
 }

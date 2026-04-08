@@ -34,6 +34,7 @@ import (
 	"arkloop/services/shared/eventbus"
 	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/telegrambot"
 )
 
 func desktopJWTSecretValue() string {
@@ -438,6 +439,7 @@ func RunDesktop(ctx context.Context) error {
 	}
 	mcpDiscoveryService.StartWatcher(ctx, auth.DesktopAccountID, profileRef, 3*time.Second)
 
+	telegramClient := telegrambot.NewClient("", nil)
 	discordClient := discordbot.NewClient("", nil)
 	handler := apihttp.NewHandler(apihttp.HandlerConfig{
 		Logger:               logger,
@@ -570,6 +572,33 @@ func RunDesktop(ctx context.Context) error {
 		EntitlementService:       entitlementService,
 		MessageAttachmentStore:   messageAttachmentStore,
 		TelegramMode:             "polling",
+		Bus:                      desktopBus,
+	})
+	accountapi.StartChannelInboundBurstRunner(ctx, accountapi.ChannelInboundBurstRunnerDeps{
+		ChannelsRepo:             channelsRepo,
+		ChannelIdentitiesRepo:    channelIdentitiesRepo,
+		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
+		ChannelBindCodesRepo:     channelBindCodesRepo,
+		ChannelDMThreadsRepo:     channelDMThreadsRepo,
+		ChannelGroupThreadsRepo:  channelGroupThreadsRepo,
+		ChannelReceiptsRepo:      channelReceiptsRepo,
+		ChannelLedgerRepo:        channelLedgerRepo,
+		SecretsRepo:              secretsRepo,
+		PersonasRepo:             personasRepo,
+		UsersRepo:                userRepo,
+		AccountRepo:              accountRepo,
+		AccountMembershipRepo:    membershipRepo,
+		ProjectRepo:              projectRepo,
+		ThreadRepo:               threadRepo,
+		MessageRepo:              messageRepo,
+		RunEventRepo:             runEventRepo,
+		JobRepo:                  jobRepo,
+		CreditsRepo:              creditsRepo,
+		Pool:                     pgxPool,
+		EntitlementService:       entitlementService,
+		TelegramBotClient:        telegramClient,
+		DiscordBotClient:         discordClient,
+		MessageAttachmentStore:   messageAttachmentStore,
 		Bus:                      desktopBus,
 	})
 	accountapi.StartDiscordIngressRunner(ctx, accountapi.DiscordIngressRunnerDeps{

@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	nethttp "net/http"
 	"net/http/httptest"
@@ -1409,7 +1408,7 @@ func TestTelegramWebhookPassiveMediaFailureDoesNotPersistReceipt(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 0)
 }
 
-func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
+func TestTelegramWebhookActiveRunSecondMessageKeepsPendingAndNoInput(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "tg-token-active-run", nil, "")
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
@@ -1438,8 +1437,40 @@ func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
 	if resp.Code != nethttp.StatusOK {
 		t.Fatalf("first webhook status: %d %s", resp.Code, resp.Body.String())
 	}
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+
+	var threadID uuid.UUID
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT thread_id
+		   FROM channel_group_threads
+		  WHERE channel_id = $1
+		    AND platform_chat_id = $2
+		    AND persona_id = $3
+		  LIMIT 1`,
+		channel.ID,
+		"-20002",
+		env.personaID,
+	).Scan(&threadID); err != nil {
+		t.Fatalf("query group thread: %v", err)
+	}
+	runEventRepo, err := data.NewRunEventRepository(env.pool)
+	if err != nil {
+		t.Fatalf("run event repo: %v", err)
+	}
+	activeRun, _, err := runEventRepo.CreateRunWithStartedEvent(
+		context.Background(),
+		env.accountID,
+		threadID,
+		&env.userID,
+		"run.started",
+		map[string]any{"persona_id": env.personaID.String()},
+	)
+	if err != nil {
+		t.Fatalf("create active run: %v", err)
+	}
 
 	second := map[string]any{
 		"message": map[string]any{
@@ -1467,9 +1498,10 @@ func TestTelegramWebhookActiveRunSecondMessageUsesProvidedInput(t *testing.T) {
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+activeRun.ID.String()+`' AND type = 'run.input_provided'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 2)
 }
 
 func TestTelegramWebhookMentionDoesNotInjectIntoActiveHeartbeatRun(t *testing.T) {
@@ -1904,19 +1936,10 @@ func TestTelegramPollDuplicateStopCommandCancelsOnce(t *testing.T) {
 }
 
 func TestTelegramPollThrottleRetryCreatesRunAfterWindowOpens(t *testing.T) {
-	t.Setenv("ARKLOOP_CHANNEL_RATE_LIMIT_PER_MIN", "1")
+	setChannelInboundBurstWindowForTest(t, 25*time.Millisecond)
 
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "demo-cred^gpt-5-mini")
-
-	channelRunTriggerLog.Lock()
-	channelRunTriggerByChannel[channel.ID] = []time.Time{time.Now()}
-	channelRunTriggerLog.Unlock()
-	t.Cleanup(func() {
-		channelRunTriggerLog.Lock()
-		delete(channelRunTriggerByChannel, channel.ID)
-		channelRunTriggerLog.Unlock()
-	})
 
 	channelIdentitiesRepo, err := data.NewChannelIdentitiesRepository(env.pool)
 	if err != nil {
@@ -2005,29 +2028,51 @@ func TestTelegramPollThrottleRetryCreatesRunAfterWindowOpens(t *testing.T) {
 		},
 	}
 
-	err = connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update)
-	if !errors.Is(err, errInboundDispatchDeferred) {
-		t.Fatalf("expected inbound dispatch deferred error, got %v", err)
+	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update); err != nil {
+		t.Fatalf("handle poll update: %v", err)
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
 
-	channelRunTriggerLog.Lock()
-	delete(channelRunTriggerByChannel, channel.ID)
-	channelRunTriggerLog.Unlock()
+	var dispatchAfter int64
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT COALESCE((metadata_json->>'dispatch_after_unix_ms')::bigint, 0)
+		   FROM channel_message_ledger
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND platform_conversation_id = $2
+		    AND platform_message_id = $3`,
+		channel.ID,
+		"10001",
+		"61",
+	).Scan(&dispatchAfter); err != nil {
+		t.Fatalf("query dispatch_after_unix_ms: %v", err)
+	}
+	if dispatchAfter <= time.Now().UTC().UnixMilli() {
+		t.Fatalf("expected dispatch_after_unix_ms in future, got %d", dispatchAfter)
+	}
 
-	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update); err != nil {
-		t.Fatalf("retry after throttle: %v", err)
+	time.Sleep(40 * time.Millisecond)
+	if err := connector.recoverPendingTelegramInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending telegram dispatches: %v", err)
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND run_id IS NOT NULL`, 1)
+
+	if err := connector.recoverPendingTelegramInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending telegram dispatches second pass: %v", err)
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 }
 
 func TestTelegramPollConcurrentDuplicateMessageCreatesSingleRun(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 20*time.Millisecond)
+
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "demo-cred^gpt-5-mini")
 
@@ -2141,9 +2186,16 @@ func TestTelegramPollConcurrentDuplicateMessageCreatesSingleRun(t *testing.T) {
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 0)
+
+	time.Sleep(30 * time.Millisecond)
+	if err := connector.recoverPendingTelegramInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending telegram dispatches: %v", err)
+	}
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE type = 'run.input_provided'`, 0)
 }
 
 func TestTelegramWebhookGroupNewDeniedWithoutBind(t *testing.T) {

@@ -372,7 +372,7 @@ func mustLinkDiscordIdentity(t *testing.T, env discordChannelsTestEnv, channelID
 	return identity
 }
 
-func TestDiscordIngressDMFirstMessageCreatesRun(t *testing.T) {
+func TestDiscordIngressDMFirstMessageEntersPendingBatch(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{
 		"default_model": "openai^gpt-4.1-mini",
@@ -394,11 +394,29 @@ func TestDiscordIngressDMFirstMessageCreatesRun(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_dm_threads`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+
+	var dispatchAfter int64
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT COALESCE((metadata_json->>'dispatch_after_unix_ms')::bigint, 0)
+		   FROM channel_message_ledger
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND platform_conversation_id = 'dm-1'
+		    AND platform_message_id = 'm-1'`,
+		channel.ID,
+	).Scan(&dispatchAfter); err != nil {
+		t.Fatalf("query dispatch_after_unix_ms: %v", err)
+	}
+	if dispatchAfter <= time.Now().UTC().UnixMilli() {
+		t.Fatalf("expected dispatch_after_unix_ms in future, got %d", dispatchAfter)
+	}
 }
 
-func TestDiscordIngressActiveRunAppendsInput(t *testing.T) {
+func TestDiscordIngressActiveRunKeepsPendingAndDoesNotInject(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
 
@@ -434,7 +452,8 @@ func TestDiscordIngressActiveRunAppendsInput(t *testing.T) {
 		t.Fatalf("handle message create: %v", err)
 	}
 
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+run.ID.String()+`' AND type = 'run.input_provided'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+run.ID.String()+`' AND type = 'run.input_provided'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
 }
 
@@ -476,32 +495,34 @@ func TestDiscordIngressDuplicateActiveRunMessageDoesNotAppendInputTwice(t *testi
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
 }
 
-func TestDiscordIngressRecoversPendingDispatch(t *testing.T) {
+func TestDiscordIngressBurstRecoveryCreatesSingleRunForBatch(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 20*time.Millisecond)
+
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
-
-	event := newDiscordMessageCreate("m-recover", "dm-recover", "u-recover", "recover-user", "hello from recovery")
 	mustLinkDiscordIdentity(t, env, channel.ID, "u-recover", "recover-user")
 
-	persona, _, err := mustValidateDiscordActivation(context.Background(), channel.AccountID, env.personasRepo, channel.PersonaID)
-	if err != nil {
-		t.Fatalf("validate discord activation: %v", err)
+	first := newDiscordMessageCreate("m-recover-1", "dm-recover", "u-recover", "recover-user", "hello from recovery 1")
+	second := newDiscordMessageCreate("m-recover-2", "dm-recover", "u-recover", "recover-user", "hello from recovery 2")
+	if err := env.connector().HandleMessageCreate(context.Background(), "trace-discord-burst-1", channel.ID, "", first); err != nil {
+		t.Fatalf("handle first message: %v", err)
 	}
-	if _, err := env.connector().persistDiscordInboundStageA(context.Background(), channel, persona, event); err != nil {
-		t.Fatalf("persist stage A: %v", err)
+	if err := env.connector().HandleMessageCreate(context.Background(), "trace-discord-burst-2", channel.ID, "", second); err != nil {
+		t.Fatalf("handle second message: %v", err)
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 2)
 
+	time.Sleep(30 * time.Millisecond)
 	if err := env.connector().recoverPendingDiscordInboundDispatches(context.Background(), channel.ID); err != nil {
 		t.Fatalf("recover pending discord dispatches: %v", err)
 	}
 
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 1)
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND run_id IS NOT NULL`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND run_id IS NOT NULL`, 2)
 }
 
 func TestDiscordIngressDeferredDispatchRecoversAfterRateLimitClears(t *testing.T) {

@@ -33,6 +33,7 @@ import (
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/objectstore"
 	sharedredis "arkloop/services/shared/redis"
+	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -701,11 +702,38 @@ func (a *Application) Run(ctx context.Context) error {
 			go skillSeeder.Run(ctx)
 		}
 	}
+	telegramClient := telegrambot.NewClient("", nil)
 	discordClient := discordbot.NewClient("", nil)
 	if channelsRepo != nil && channelIdentitiesRepo != nil && channelIdentityLinksRepo != nil && channelBindCodesRepo != nil &&
 		channelDMThreadsRepo != nil && channelReceiptsRepo != nil && secretsRepo != nil &&
 		personasRepo != nil && threadRepo != nil && messageRepo != nil &&
 		runEventRepo != nil && jobRepo != nil && creditsRepo != nil && pool != nil {
+		accountapi.StartChannelInboundBurstRunner(ctx, accountapi.ChannelInboundBurstRunnerDeps{
+			ChannelsRepo:             channelsRepo,
+			ChannelIdentitiesRepo:    channelIdentitiesRepo,
+			ChannelIdentityLinksRepo: channelIdentityLinksRepo,
+			ChannelBindCodesRepo:     channelBindCodesRepo,
+			ChannelDMThreadsRepo:     channelDMThreadsRepo,
+			ChannelGroupThreadsRepo:  channelGroupThreadsRepo,
+			ChannelReceiptsRepo:      channelReceiptsRepo,
+			ChannelLedgerRepo:        channelLedgerRepo,
+			SecretsRepo:              secretsRepo,
+			PersonasRepo:             personasRepo,
+			UsersRepo:                userRepo,
+			AccountRepo:              accountRepo,
+			AccountMembershipRepo:    membershipRepo,
+			ProjectRepo:              projectRepo,
+			ThreadRepo:               threadRepo,
+			MessageRepo:              messageRepo,
+			RunEventRepo:             runEventRepo,
+			JobRepo:                  jobRepo,
+			CreditsRepo:              creditsRepo,
+			Pool:                     pool,
+			EntitlementService:       entitlementSvc,
+			TelegramBotClient:        telegramClient,
+			DiscordBotClient:         discordClient,
+			MessageAttachmentStore:   messageAttachmentStore,
+		})
 		accountapi.StartDiscordIngressRunner(ctx, accountapi.DiscordIngressRunnerDeps{
 			ChannelsRepo:             channelsRepo,
 			ChannelIdentitiesRepo:    channelIdentitiesRepo,

@@ -202,7 +202,7 @@ func mergeTelegramAlbumIncoming(
 
 func (c telegramConnector) processTelegramMediaGroupMerged(
 	ctx context.Context,
-	traceID string,
+	_ string,
 	ch data.Channel,
 	token string,
 	botUsername string,
@@ -210,8 +210,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	incoming telegramIncomingMessage,
 	persona *data.Persona,
 ) error {
-	personaRef := buildPersonaRef(*persona)
-
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -317,11 +315,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		return tx.Commit(ctx)
 	}
 
-	cfg, err := resolveTelegramConfig("telegram", ch.ConfigJSON)
-	if err != nil {
-		return err
-	}
-
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
 		baseMetadata := telegramInboundBaseMetadata(incoming)
 		baseMetadata["media_group"] = true
@@ -372,15 +365,22 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		return err
 	}
 	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
+		ledgerBaseMetadata := map[string]any{
 			"source":            "telegram",
 			"conversation_type": incoming.ChatType,
 			"mentions_bot":      incoming.MentionsBot,
 			"is_reply_to_bot":   incoming.IsReplyToBot,
 			"media_group":       true,
-		})
+		}
+		if preTailMessageID != "" {
+			ledgerBaseMetadata[inboundMetadataPreTailKey] = preTailMessageID
+		}
+		ledgerMetadata, metaErr := json.Marshal(ledgerBaseMetadata)
 		if metaErr != nil {
 			return metaErr
+		}
+		if incoming.ShouldCreateRun() {
+			ledgerMetadata = applyInboundBurstMetadata(inboundLedgerMetadata(ledgerBaseMetadata, inboundStatePendingDispatch), nextInboundBurstDispatchAfter(time.Now().UTC()))
 		}
 		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
 			ChannelID:               ch.ID,
@@ -402,62 +402,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if !incoming.ShouldCreateRun() {
 		return tx.Commit(ctx)
 	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
-		return err
-	} else if activeRun != nil {
-		delivered, absorbed, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, incoming, content, traceID, preTailMessageID)
-		if err != nil {
-			return err
-		}
-		if absorbed {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			return nil
-		}
-		if delivered {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			c.notifyActiveRunInput(ctx, activeRun.ID)
-			return nil
-		}
-	}
-
-	if !channelAgentTriggerConsume(ch.ID) {
-		return tx.Commit(ctx)
-	}
-
-	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
-	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
-		ctx,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		"run.started",
-		runStartedData,
-	)
-	if err != nil {
-		return err
-	}
-	jobPayload := map[string]any{
-		"source":           "telegram",
-		"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, identity.ID, incoming),
-	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
-		ctx,
-		ch.AccountID,
-		run.ID,
-		traceID,
-		data.RunExecuteJobType,
-		jobPayload,
-		nil,
-	); err != nil {
+	if err := extendPendingInboundBurstWindowTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, threadID, time.Now().UTC()); err != nil {
 		return err
 	}
 

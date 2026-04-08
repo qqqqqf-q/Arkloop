@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -284,23 +285,8 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 		return err
 	}
 	defer session.Close()
-
-	if err := connector.recoverPendingDiscordInboundDispatches(ctx, channelID); err != nil {
-		slog.Warn("discord_pending_dispatch_recovery_failed", "channel_id", channelID.String(), "err", err.Error())
-	}
-
-	recoveryTicker := time.NewTicker(5 * time.Second)
-	defer recoveryTicker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-recoveryTicker.C:
-			if err := connector.recoverPendingDiscordInboundDispatches(ctx, channelID); err != nil && !errors.Is(err, context.Canceled) {
-				slog.Warn("discord_pending_dispatch_recovery_failed", "channel_id", channelID.String(), "err", err.Error())
-			}
-		}
-	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (m *discordIngressManager) ensureCommands(ctx context.Context, channelID uuid.UUID, token string) error {
@@ -369,7 +355,7 @@ func (c discordConnector) HandleMessageCreate(
 	if strings.TrimSpace(event.GuildID) != "" {
 		return nil
 	}
-	persona, personaRef, err := mustValidateDiscordActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID)
+	persona, _, err := mustValidateDiscordActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID)
 	if err != nil {
 		return err
 	}
@@ -391,14 +377,6 @@ func (c discordConnector) HandleMessageCreate(
 			sendCancel()
 		}
 		return nil
-	}
-	messageCtx := discordContextFromEvent(event)
-	if err := c.continueDiscordInboundDispatch(ctx, traceID, *ch, personaRef, messageCtx); err != nil {
-		c.scheduleDiscordInboundDispatchRetry(*ch, personaRef, messageCtx)
-		if errors.Is(err, errInboundDispatchDeferred) {
-			return nil
-		}
-		return err
 	}
 	return nil
 }
@@ -475,41 +453,6 @@ func (c discordConnector) resolveDiscordDMThreadID(
 	return thread.ID, nil
 }
 
-func (c discordConnector) deliverDiscordMessageToActiveRun(
-	ctx context.Context,
-	repo *data.RunEventRepository,
-	run *data.Run,
-	event *discordgo.MessageCreate,
-	content string,
-	traceID string,
-) (bool, error) {
-	if run == nil || strings.TrimSpace(content) == "" {
-		return false, nil
-	}
-	if _, err := repo.ProvideInputWithKey(ctx, run.ID, content, traceID, discordInboundInputKey(event)); err != nil {
-		var notActive data.RunNotActiveError
-		if errors.As(err, &notActive) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-func discordInboundInputKey(event *discordgo.MessageCreate) string {
-	if event == nil || strings.TrimSpace(event.ChannelID) == "" || strings.TrimSpace(event.ID) == "" {
-		return ""
-	}
-	return "discord:" + strings.TrimSpace(event.ChannelID) + ":" + strings.TrimSpace(event.ID)
-}
-
-func discordInboundInputKeyFromIDs(channelID string, messageID string) string {
-	if strings.TrimSpace(channelID) == "" || strings.TrimSpace(messageID) == "" {
-		return ""
-	}
-	return "discord:" + strings.TrimSpace(channelID) + ":" + strings.TrimSpace(messageID)
-}
-
 type discordInboundStageAResult struct {
 	finalState     string
 	notifyUnlinked bool
@@ -530,6 +473,7 @@ func (c discordConnector) persistDiscordInboundStageA(
 		return nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	dispatchAfterUnixMs := nextInboundBurstDispatchAfter(time.Now().UTC())
 
 	identity, err := upsertDiscordIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), event.Author)
 	if err != nil {
@@ -585,7 +529,7 @@ func (c discordConnector) persistDiscordInboundStageA(
 		PlatformMessageID:       event.ID,
 		PlatformParentMessageID: optionalDiscordReplyMessageID(event),
 		SenderChannelIdentityID: &identity.ID,
-		MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch),
+		MetadataJSON:            applyInboundBurstMetadata(inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch), dispatchAfterUnixMs),
 	})
 	if err != nil {
 		return nil, err
@@ -624,8 +568,11 @@ func (c discordConnector) persistDiscordInboundStageA(
 		&threadID,
 		nil,
 		&msg.ID,
-		inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch),
+		applyInboundBurstMetadata(inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch), dispatchAfterUnixMs),
 	); err != nil {
+		return nil, err
+	}
+	if err := extendPendingInboundBurstWindowTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, threadID, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -639,9 +586,9 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	traceID string,
 	ch data.Channel,
 	personaRef string,
-	messageCtx discordMessageContext,
+	entry data.ChannelInboundLedgerEntry,
 ) error {
-	if c.channelLedgerRepo == nil || strings.TrimSpace(messageCtx.ChannelID) == "" || strings.TrimSpace(messageCtx.MessageID) == "" {
+	if c.channelLedgerRepo == nil || entry.ThreadID == nil {
 		return nil
 	}
 
@@ -651,26 +598,32 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	ledger, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, messageCtx.ChannelID, messageCtx.MessageID)
-	if err != nil || ledger == nil {
+	batch, err := listPendingInboundBatchTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, *entry.ThreadID)
+	if err != nil {
 		return err
 	}
-	state := inboundLedgerState(ledger.MetadataJSON)
-	if ledger.RunID != nil || state == inboundStateIgnoredUnlinked || state == inboundStatePassivePersisted || state == inboundStateCommandHandled || state == inboundStateDeliveredToRun || state == inboundStateEnqueuedNewRun {
+	if !pendingBatchReady(batch, time.Now().UTC()) {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		return errInboundDispatchDeferred
+	}
+	latestEntry, err := latestPendingBatchEntry(batch)
+	if err != nil {
 		return nil
 	}
-	if ledger.ThreadID == nil || ledger.MessageID == nil || ledger.SenderChannelIdentityID == nil {
+	if latestEntry.ThreadID == nil || latestEntry.MessageID == nil || latestEntry.SenderChannelIdentityID == nil {
 		return fmt.Errorf("discord inbound ledger incomplete for dispatch")
 	}
 
-	identity, err := c.channelIdentitiesRepo.GetByID(ctx, *ledger.SenderChannelIdentityID)
+	identity, err := c.channelIdentitiesRepo.GetByID(ctx, *latestEntry.SenderChannelIdentityID)
 	if err != nil {
 		return err
 	}
 	if identity == nil {
 		return fmt.Errorf("discord inbound identity missing")
 	}
-	msg, err := c.messageRepo.GetByID(ctx, ch.AccountID, *ledger.ThreadID, *ledger.MessageID)
+	msg, err := c.messageRepo.GetByID(ctx, ch.AccountID, *latestEntry.ThreadID, *latestEntry.MessageID)
 	if err != nil {
 		return err
 	}
@@ -679,38 +632,16 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	}
 
 	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, *ledger.ThreadID); err != nil {
+	if err := runRepoTx.LockThreadRow(ctx, *latestEntry.ThreadID); err != nil {
 		return err
 	}
-	baseMetadata := map[string]any{
-		"source":            "discord",
-		"conversation_type": "private",
-	}
-	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, *ledger.ThreadID); err != nil {
+	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, *latestEntry.ThreadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		if _, err := runRepoTx.ProvideInputWithKey(ctx, activeRun.ID, msg.Content, traceID, discordInboundInputKeyFromIDs(messageCtx.ChannelID, messageCtx.MessageID)); err != nil {
-			var notActive data.RunNotActiveError
-			if !errors.As(err, &notActive) {
-				return err
-			}
-		} else if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
-			ctx,
-			ch.ID,
-			messageCtx.ChannelID,
-			messageCtx.MessageID,
-			ledger.ThreadID,
-			&activeRun.ID,
-			ledger.MessageID,
-			inboundLedgerMetadata(baseMetadata, inboundStateDeliveredToRun),
-		); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			return err
-		} else if err := tx.Commit(ctx); err != nil {
-			return err
-		} else {
-			c.notifyActiveRunInput(ctx, activeRun.ID)
-			return nil
 		}
+		return errInboundDispatchDeferred
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {
@@ -724,7 +655,7 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
-		*ledger.ThreadID,
+		*latestEntry.ThreadID,
 		identity.UserID,
 		"run.started",
 		runStartedData,
@@ -734,31 +665,15 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	}
 	jobPayload := map[string]any{
 		"source":           "discord",
-		"channel_delivery": buildDiscordChannelDeliveryPayload(ch.ID, identity.ID, messageCtx),
+		"channel_delivery": buildDiscordChannelDeliveryPayload(ch.ID, identity.ID, discordContextFromLedger(latestEntry)),
 	}
 	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
 		return err
 	}
-	if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
-		ctx,
-		ch.ID,
-		messageCtx.ChannelID,
-		messageCtx.MessageID,
-		ledger.ThreadID,
-		&run.ID,
-		ledger.MessageID,
-		inboundLedgerMetadata(baseMetadata, inboundStateEnqueuedNewRun),
-	); err != nil {
+	if err := markPendingBatchEnqueuedTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, batch, run.ID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-func (c discordConnector) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {
-	if c.inputNotify == nil || runID == uuid.Nil {
-		return
-	}
-	c.inputNotify(ctx, runID)
 }
 
 func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Context, channelID uuid.UUID) error {
@@ -773,46 +688,77 @@ func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Con
 	if err != nil {
 		return err
 	}
-	items, err := c.channelLedgerRepo.ListInboundEntriesByState(ctx, ch.ID, inboundStatePendingDispatch, 16)
+	items, err := c.channelLedgerRepo.ListInboundEntriesByState(ctx, ch.ID, inboundStatePendingDispatch, 256)
 	if err != nil {
 		return err
 	}
+	threadSet := make(map[uuid.UUID]struct{}, len(items))
 	for _, item := range items {
-		if err := c.continueDiscordInboundDispatch(ctx, observability.NewTraceID(), *ch, personaRef, discordContextFromLedger(item)); err != nil && !errors.Is(err, errInboundDispatchDeferred) {
+		if item.ThreadID != nil && *item.ThreadID != uuid.Nil {
+			threadSet[*item.ThreadID] = struct{}{}
+		}
+	}
+	threadIDs := make([]uuid.UUID, 0, len(threadSet))
+	for threadID := range threadSet {
+		threadIDs = append(threadIDs, threadID)
+	}
+	sort.Slice(threadIDs, func(i, j int) bool {
+		return threadIDs[i].String() < threadIDs[j].String()
+	})
+
+	now := time.Now().UTC()
+	for _, threadID := range threadIDs {
+		tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return err
+		}
+
+		ledgerTx := c.channelLedgerRepo.WithTx(tx)
+		runTx := c.runEventRepo.WithTx(tx)
+		if err := runTx.LockThreadRow(ctx, threadID); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		activeRun, err := runTx.GetActiveRootRunForThread(ctx, threadID)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if activeRun != nil {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+
+		batch, err := listPendingInboundBatchTx(ctx, ledgerTx, ch.ID, threadID)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if !pendingBatchReady(batch, now) {
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+		latest, err := latestPendingBatchEntry(batch)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+
+		if err := c.continueDiscordInboundDispatch(ctx, observability.NewTraceID(), *ch, personaRef, latest); err != nil {
+			if errors.Is(err, errInboundDispatchDeferred) {
+				continue
+			}
 			return err
 		}
 	}
 	return nil
-}
-
-func (c discordConnector) scheduleDiscordInboundDispatchRetry(
-	ch data.Channel,
-	personaRef string,
-	messageCtx discordMessageContext,
-) {
-	go func() {
-		for _, delay := range []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second} {
-			timer := time.NewTimer(delay)
-			<-timer.C
-			timer.Stop()
-
-			retryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			err := c.continueDiscordInboundDispatch(retryCtx, observability.NewTraceID(), ch, personaRef, messageCtx)
-			cancel()
-			if err == nil {
-				return
-			}
-			if errors.Is(err, errInboundDispatchDeferred) {
-				continue
-			}
-			slog.Warn("discord_inbound_retry_failed",
-				"channel_id", ch.ID.String(),
-				"platform_chat_id", messageCtx.ChannelID,
-				"platform_message_id", messageCtx.MessageID,
-				"err", err.Error(),
-			)
-		}
-	}()
 }
 
 func buildDiscordRunStartedData(personaRef string, defaultModel string) map[string]any {
