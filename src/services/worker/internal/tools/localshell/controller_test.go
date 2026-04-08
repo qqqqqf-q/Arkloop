@@ -358,6 +358,53 @@ func TestProcessControllerReleasesDrainedProcess(t *testing.T) {
 	}
 }
 
+func TestProcessControllerReleasesTerminalProcessAfterRetention(t *testing.T) {
+	controller := NewProcessController()
+	originalRetention := processTerminalRetention
+	processTerminalRetention = 20 * time.Millisecond
+	defer func() {
+		processTerminalRetention = originalRetention
+	}()
+
+	start, err := controller.ExecCommand(ExecCommandRequest{
+		Command:   "sleep 0.05",
+		Mode:      ModeFollow,
+		TimeoutMs: 5000,
+		Cwd:       t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("follow exec failed: %v", err)
+	}
+	if start.ProcessRef == "" {
+		t.Fatalf("expected process_ref, got %#v", start)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := controller.getProcess(start.ProcessRef); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected terminal process %s to be released after retention", start.ProcessRef)
+}
+
+func TestBuildProcessEnvDoesNotInheritHostEnvironment(t *testing.T) {
+	t.Setenv("ARKLOOP_HOST_SECRET", "host-only")
+
+	env := buildProcessEnv(nil, false)
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "ARKLOOP_HOST_SECRET=host-only") {
+		t.Fatalf("expected host environment to be isolated, got %q", joined)
+	}
+	if !strings.Contains(joined, "PATH=") {
+		t.Fatalf("expected sanitized PATH in env, got %q", joined)
+	}
+	if !strings.Contains(joined, "LANG="+defaultProcessLang) {
+		t.Fatalf("expected sanitized LANG in env, got %q", joined)
+	}
+}
+
 func TestRTKRewriteTimesOutAndFallsBack(t *testing.T) {
 	originalBin := rtkBinCache
 	originalRunner := rtkRewriteRunner

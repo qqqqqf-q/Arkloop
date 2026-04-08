@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,7 +26,14 @@ const (
 	processKillGrace   = 2 * time.Second
 	processPollTick    = 100 * time.Millisecond
 	processRingBytes   = 1 << 20
+	defaultProcessHome = "/tmp"
+	defaultProcessTmp  = "/tmp"
+	defaultProcessPath = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	defaultProcessLang = "C.UTF-8"
+	processUserName    = "arkloop"
 )
+
+var processTerminalRetention = 30 * time.Second
 
 type ProcessController struct {
 	mu        sync.Mutex
@@ -102,6 +110,7 @@ func (c *ProcessController) ExecCommand(req ExecCommandRequest) (*Response, erro
 		return nil, err
 	}
 	resp.ProcessRef = proc.ref
+	c.releaseProcessIfDrained(proc, resp)
 	return resp, nil
 }
 
@@ -465,6 +474,7 @@ func (c *ProcessController) waitForExit(proc *managedProcess, timeoutMs int) {
 		proc.status = StatusExited
 	}
 	notifyLocked(proc)
+	c.scheduleProcessRelease(proc)
 }
 
 func (c *ProcessController) releaseProcessIfDrained(proc *managedProcess, resp *Response) {
@@ -479,6 +489,19 @@ func (c *ProcessController) releaseProcessIfDrained(proc *managedProcess, resp *
 	if current, ok := c.processes[proc.ref]; ok && current == proc {
 		delete(c.processes, proc.ref)
 	}
+}
+
+func (c *ProcessController) scheduleProcessRelease(proc *managedProcess) {
+	if proc == nil || processTerminalRetention <= 0 {
+		return
+	}
+	time.AfterFunc(processTerminalRetention, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if current, ok := c.processes[proc.ref]; ok && current == proc {
+			delete(c.processes, proc.ref)
+		}
+	})
 }
 
 func (c *ProcessController) getProcess(processRef string) (*managedProcess, error) {
@@ -605,22 +628,20 @@ func resolveProcessCwd(cwd string) string {
 }
 
 func buildProcessEnv(extra map[string]*string, includeTerm bool) []string {
-	env := map[string]string{}
-	for _, pair := range os.Environ() {
-		parts := strings.SplitN(pair, "=", 2)
-		if len(parts) == 2 {
-			env[parts[0]] = parts[1]
-		}
+	env := map[string]string{
+		"HOME":    processHomeDir(),
+		"PATH":    defaultProcessPath,
+		"LANG":    defaultProcessLang,
+		"TMPDIR":  processTempDir(),
+		"USER":    processUserName,
+		"LOGNAME": processUserName,
 	}
 	if includeTerm {
 		env["TERM"] = "xterm-256color"
 	}
-	if strings.TrimSpace(env["LANG"]) == "" {
-		env["LANG"] = "en_US.UTF-8"
-	}
 	for key, value := range extra {
 		key = strings.TrimSpace(key)
-		if key == "" {
+		if key == "" || strings.ContainsRune(key, '=') {
 			continue
 		}
 		if value == nil {
@@ -629,11 +650,30 @@ func buildProcessEnv(extra map[string]*string, includeTerm bool) []string {
 		}
 		env[key] = *value
 	}
-	result := make([]string, 0, len(env))
-	for key, value := range env {
-		result = append(result, key+"="+value)
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, key+"="+env[key])
 	}
 	return result
+}
+
+func processHomeDir() string {
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return strings.TrimSpace(home)
+	}
+	return defaultProcessHome
+}
+
+func processTempDir() string {
+	if temp := strings.TrimSpace(os.TempDir()); temp != "" {
+		return temp
+	}
+	return defaultProcessTmp
 }
 
 func (c *ProcessController) CleanupRun(runID string) {

@@ -376,6 +376,32 @@ func TestProcessControllerCancelMarksCancelled(t *testing.T) {
 	}
 }
 
+func TestProcessControllerTerminateAcceptsCancelledStatus(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	controller := NewProcessController()
+
+	start, code, msg := controller.Exec(processapi.AgentExecRequest{
+		Command:   "sleep 30",
+		Mode:      processapi.ModeFollow,
+		TimeoutMs: 5000,
+	})
+	if code != "" {
+		t.Fatalf("follow exec failed: %s %s", code, msg)
+	}
+
+	resp, code, msg := controller.Terminate(processapi.AgentRefRequest{
+		ProcessRef: start.ProcessRef,
+		Status:     processapi.StatusCancelled,
+	})
+	if code != "" {
+		t.Fatalf("terminate failed: %s %s", code, msg)
+	}
+	if resp.Status != processapi.StatusCancelled {
+		t.Fatalf("expected cancelled status, got %#v", resp)
+	}
+}
+
 func TestProcessControllerReleasesDrainedProcess(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)

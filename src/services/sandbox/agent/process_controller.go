@@ -120,6 +120,7 @@ func (c *ProcessController) Exec(req processapi.AgentExecRequest) (*processapi.R
 		return nil, code, message
 	}
 	resp.ProcessRef = proc.ref
+	c.releaseProcessIfDrained(proc, resp)
 	return resp, "", ""
 }
 
