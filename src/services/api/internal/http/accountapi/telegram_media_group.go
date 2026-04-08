@@ -323,7 +323,9 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	}
 
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona); err != nil {
+		baseMetadata := telegramInboundBaseMetadata(incoming)
+		baseMetadata["media_group"] = true
+		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)

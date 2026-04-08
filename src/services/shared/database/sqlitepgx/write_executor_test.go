@@ -112,3 +112,37 @@ func TestPoolReadQueryBypassesWriter(t *testing.T) {
 		t.Fatalf("query row should not acquire writer, got %d", got)
 	}
 }
+
+func TestTxCommitFailureKeepsRollbackHooks(t *testing.T) {
+	t.Parallel()
+	pool := openTestDB(t)
+	createTestTable(t, pool)
+
+	ctx := context.Background()
+	txIface, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	tx, ok := txIface.(*Tx)
+	if !ok {
+		t.Fatalf("expected *Tx, got %T", txIface)
+	}
+
+	var rollbackHookCalls atomic.Int64
+	tx.AfterRollback(func() {
+		rollbackHookCalls.Add(1)
+	})
+
+	if err := tx.tx.Rollback(); err != nil {
+		t.Fatalf("force rollback: %v", err)
+	}
+	if err := tx.Commit(ctx); err == nil {
+		t.Fatal("expected commit to fail after forced rollback")
+	}
+	if err := tx.Rollback(ctx); err == nil {
+		t.Fatal("expected rollback to report tx done")
+	}
+	if got := rollbackHookCalls.Load(); got != 1 {
+		t.Fatalf("rollback hook calls = %d, want 1", got)
+	}
+}

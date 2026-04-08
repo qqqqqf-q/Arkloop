@@ -470,7 +470,7 @@ func TestDiscordIngressDuplicateActiveRunMessageDoesNotAppendInputTwice(t *testi
 		t.Fatalf("second handle message create: %v", err)
 	}
 
-	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_receipts WHERE channel_id = '`+channel.ID.String()+`' AND platform_conversation_id = 'dm-repeat' AND platform_message_id = 'm-repeat'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND platform_conversation_id = 'dm-repeat' AND platform_message_id = 'm-repeat'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+run.ID.String()+`' AND type = 'run.input_provided'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)

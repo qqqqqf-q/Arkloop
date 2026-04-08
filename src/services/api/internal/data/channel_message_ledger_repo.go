@@ -36,6 +36,18 @@ type ChannelMessageLedgerEntry struct {
 	CreatedAt               time.Time
 }
 
+type ChannelInboundLedgerEntry struct {
+	ID                      uuid.UUID
+	ThreadID                *uuid.UUID
+	RunID                   *uuid.UUID
+	PlatformConversationID  string
+	PlatformMessageID       string
+	SenderChannelIdentityID *uuid.UUID
+	MessageID               *uuid.UUID
+	MetadataJSON            json.RawMessage
+	CreatedAt               time.Time
+}
+
 type ChannelMessageLedgerRecordInput struct {
 	ChannelID               uuid.UUID
 	ChannelType             string
@@ -178,4 +190,85 @@ func (r *ChannelMessageLedgerRepository) LookupInboundMessage(
 		return nil, nil, fmt.Errorf("channel_message_ledger.LookupInboundMessage: %w", err)
 	}
 	return messageID, threadID, nil
+}
+
+func (r *ChannelMessageLedgerRepository) GetInboundEntry(
+	ctx context.Context,
+	channelID uuid.UUID,
+	platformConversationID string,
+	platformMessageID string,
+) (*ChannelInboundLedgerEntry, error) {
+	var item ChannelInboundLedgerEntry
+	err := r.db.QueryRow(ctx,
+		`SELECT id, thread_id, run_id, platform_conversation_id, platform_message_id,
+		        sender_channel_identity_id, message_id, metadata_json, created_at
+		   FROM channel_message_ledger
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND platform_conversation_id = $2
+		    AND platform_message_id = $3`,
+		channelID,
+		strings.TrimSpace(platformConversationID),
+		strings.TrimSpace(platformMessageID),
+	).Scan(
+		&item.ID,
+		&item.ThreadID,
+		&item.RunID,
+		&item.PlatformConversationID,
+		&item.PlatformMessageID,
+		&item.SenderChannelIdentityID,
+		&item.MessageID,
+		&item.MetadataJSON,
+		&item.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("channel_message_ledger.GetInboundEntry: %w", err)
+	}
+	return &item, nil
+}
+
+func (r *ChannelMessageLedgerRepository) UpdateInboundEntry(
+	ctx context.Context,
+	channelID uuid.UUID,
+	platformConversationID string,
+	platformMessageID string,
+	threadID *uuid.UUID,
+	runID *uuid.UUID,
+	messageID *uuid.UUID,
+	metadataJSON json.RawMessage,
+) (bool, error) {
+	if channelID == uuid.Nil {
+		return false, fmt.Errorf("channel_message_ledger: channel_id must not be empty")
+	}
+	if strings.TrimSpace(platformConversationID) == "" || strings.TrimSpace(platformMessageID) == "" {
+		return false, fmt.Errorf("channel_message_ledger: platform ids must not be empty")
+	}
+	if len(metadataJSON) == 0 {
+		metadataJSON = json.RawMessage(`{}`)
+	}
+	tag, err := r.db.Exec(ctx,
+		`UPDATE channel_message_ledger
+		    SET thread_id = COALESCE($4, thread_id),
+		        run_id = COALESCE($5, run_id),
+		        message_id = COALESCE($6, message_id),
+		        metadata_json = $7::jsonb
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND platform_conversation_id = $2
+		    AND platform_message_id = $3`,
+		channelID,
+		strings.TrimSpace(platformConversationID),
+		strings.TrimSpace(platformMessageID),
+		threadID,
+		runID,
+		messageID,
+		metadataJSON,
+	)
+	if err != nil {
+		return false, fmt.Errorf("channel_message_ledger.UpdateInboundEntry: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }

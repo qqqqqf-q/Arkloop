@@ -1043,6 +1043,7 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 	incoming telegramIncomingMessage,
 	identity data.ChannelIdentity,
 	persona *data.Persona,
+	baseMetadata map[string]any,
 ) (uuid.UUID, error) {
 	if persona == nil {
 		return uuid.Nil, fmt.Errorf("telegram passive ingest: persona required")
@@ -1084,15 +1085,6 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 		return uuid.Nil, err
 	}
 	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if metaErr != nil {
-			return uuid.Nil, metaErr
-		}
 		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
 			ChannelID:               ch.ID,
 			ChannelType:             ch.ChannelType,
@@ -1104,7 +1096,7 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 			PlatformThreadID:        incoming.MessageThreadID,
 			SenderChannelIdentityID: &identity.ID,
 			MessageID:               &msg.ID,
-			MetadataJSON:            ledgerMetadata,
+			MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
 		}); ledgerErr != nil {
 			return uuid.Nil, ledgerErr
 		}
@@ -1165,442 +1157,32 @@ func (c telegramConnector) HandleUpdate(
 	if c.tryScheduleTelegramMediaGroup(ctx, traceID, ch, token, update, *incoming, persona) {
 		return nil
 	}
-
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	stageA, err := c.persistTelegramInboundStageA(ctx, traceID, ch, token, cfg, update, *incoming, persona)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
-		ctx,
-		ch.ID,
-		incoming.PlatformChatID,
-		incoming.PlatformMsgID,
-	)
-	if err != nil {
-		return err
-	}
-	if !accepted {
-		return tx.Commit(ctx)
-	}
-
-	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
-
-	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
-	if err != nil {
-		return err
-	}
-
-	var groupIdentity *data.ChannelIdentity
-	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) {
-		gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(
-			ctx,
-			incoming.ChannelType,
-			incoming.PlatformChatID,
-			nil,
-			nil,
-			nil,
-		)
-		if err != nil {
-			return err
+	if stageA != nil {
+		if stageA.cancelRunID != uuid.Nil {
+			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, stageA.cancelRunID.String())
 		}
-		groupIdentity = &gi
-	}
-
-	if incoming.IsPrivate() {
-		trimmedCommandText := strings.TrimSpace(incoming.CommandText)
-		allowedPrivateLink, linkErr := allowTelegramPrivateChannelLink(ctx, tx, ch.ID, identity, trimmedCommandText, c.channelIdentityLinksRepo)
-		if linkErr != nil {
-			return linkErr
+		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+				ChatID: incoming.PlatformChatID,
+				Text:   stageA.replyText,
+			})
+			sendCancel()
 		}
-		if !allowedPrivateLink {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   "当前账号未关联此接入。请使用 /bind 重新关联。",
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if handled, replyText, err := handleTelegramCommand(
-			ctx,
-			tx,
-			&ch,
-			identity,
-			trimmedCommandText,
-			c.channelBindCodesRepo,
-			c.channelIdentitiesRepo,
-			c.channelIdentityLinksRepo,
-			c.channelDMThreadsRepo,
-			c.threadRepo,
-			c.runEventRepo.WithTx(tx),
-			c.pool,
-		); err != nil {
-			return err
-		} else if handled {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
+		switch stageA.finalState {
+		case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat:
 			return nil
 		}
 	}
-
-	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) && c.channelGroupThreadsRepo != nil {
-		cmd, ok := telegramCommandBase(strings.TrimSpace(incoming.CommandText), cfg.BotUsername)
-		if ok && cmd == "/new" {
-			var replyText string
-			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-				replyText = "当前会话未配置 persona。"
-			} else if identity.UserID == nil {
-				replyText = "无权限。"
-			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
-				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
-					ChatID: incoming.PlatformChatID,
-					UserID: tgUserID,
-				})
-				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
-					replyText = "无权限。"
-				} else if err := c.channelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID); err != nil {
-					return err
-				} else {
-					replyText = "已开启新会话。"
-				}
-			} else {
-				replyText = "已开启新会话。"
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if ok && strings.HasPrefix(cmd, "/heartbeat") {
-			heartbeatIdentity := identity
-			if groupIdentity != nil {
-				heartbeatIdentity = *groupIdentity
-			}
-			replyText, err := handleTelegramHeartbeatCommand(
-				ctx,
-				tx,
-				ch.ID,
-				ch.AccountID,
-				ch.PersonaID,
-				cfg.DefaultModel,
-				heartbeatIdentity,
-				incoming.CommandText,
-				c.channelIdentitiesRepo,
-				c.personasRepo,
-				c.entitlementSvc,
-			)
-			if err != nil {
-				return err
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if ok && cmd == "/stop" {
-			var replyText string
-			var cancelRunID uuid.UUID
-			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-				replyText = "当前没有运行中的任务。"
-			} else if identity.UserID == nil {
-				replyText = "无权限。"
-			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
-				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
-					ChatID: incoming.PlatformChatID,
-					UserID: tgUserID,
-				})
-				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
-					replyText = "无权限。"
-				} else {
-					threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID)
-					if err != nil {
-						return err
-					}
-					if threadMap == nil {
-						replyText = "当前没有运行中的任务。"
-					} else {
-						activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
-						if err != nil {
-							return err
-						}
-						if activeRun == nil {
-							replyText = "当前没有运���中的任务。"
-						} else {
-							if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, traceID, 0, nil); err != nil {
-								return err
-							}
-							cancelRunID = activeRun.ID
-							replyText = "已请求停止当前任务。"
-						}
-					}
-				}
-			} else {
-				replyText = "当前没有运行中的任务。"
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if cancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-	}
-
 	if !incoming.HasContent() {
-		return tx.Commit(ctx)
+		return nil
 	}
-
-	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		slog.InfoContext(ctx, "telegram_inbound_processed",
-			"stage", "passive_persisted",
-			"channel_id", ch.ID.String(),
-			"account_id", ch.AccountID.String(),
-			"platform_chat_id", incoming.PlatformChatID,
-			"platform_message_id", incoming.PlatformMsgID,
-			"conversation_type", incoming.ChatType,
-			"mentions_bot", incoming.MentionsBot,
-			"is_reply_to_bot", incoming.IsReplyToBot,
-		)
-		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, *incoming, identity, persona); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-
-	threadProjectID := derefUUID(persona.ProjectID)
-	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, *incoming)
-	if err != nil {
-		return err
-	}
-	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
-		ctx,
-		c.telegramClient,
-		c.attachmentStore,
-		token,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		identity,
-		*incoming,
-	)
-	if err != nil {
-		return err
-	}
-	preTailMsg, err := c.messageRepo.WithTx(tx).GetLatestVisibleMessage(ctx, ch.AccountID, threadID)
-	if err != nil {
-		return err
-	}
-	preTailMessageID := ""
-	if preTailMsg != nil {
-		preTailMessageID = preTailMsg.ID.String()
-	}
-	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-		ctx,
-		ch.AccountID,
-		threadID,
-		"user",
-		content,
-		contentJSON,
-		metadataJSON,
-		identity.UserID,
-	)
-	if err != nil {
-		return err
-	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MessageID:               &msg.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
-		return err
-	} else if activeRun != nil {
-		delivered, absorbed, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, *incoming, content, traceID, preTailMessageID)
-		if err != nil {
-			return err
-		}
-		if absorbed {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "telegram_inbound_processed",
-				"stage", "absorbed_by_heartbeat",
-				"channel_id", ch.ID.String(),
-				"account_id", ch.AccountID.String(),
-				"run_id", activeRun.ID.String(),
-				"thread_id", threadID.String(),
-				"platform_chat_id", incoming.PlatformChatID,
-				"platform_message_id", incoming.PlatformMsgID,
-			)
-			return nil
-		}
-		if delivered {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "telegram_inbound_processed",
-				"stage", "delivered_to_existing_run",
-				"channel_id", ch.ID.String(),
-				"account_id", ch.AccountID.String(),
-				"run_id", activeRun.ID.String(),
-				"thread_id", threadID.String(),
-				"platform_chat_id", incoming.PlatformChatID,
-				"platform_message_id", incoming.PlatformMsgID,
-				"default_model", strings.TrimSpace(cfg.DefaultModel),
-			)
-			c.notifyActiveRunInput(ctx, activeRun.ID)
-			return nil
-		}
-	}
-
-	if !channelAgentTriggerConsume(ch.ID) {
-		slog.WarnContext(ctx, "telegram_inbound_processed",
-			"stage", "throttled_before_enqueue",
-			"channel_id", ch.ID.String(),
-			"account_id", ch.AccountID.String(),
-			"thread_id", threadID.String(),
-			"platform_chat_id", incoming.PlatformChatID,
-			"platform_message_id", incoming.PlatformMsgID,
-			"default_model", strings.TrimSpace(cfg.DefaultModel),
-		)
-		return tx.Commit(ctx)
-	}
-
-	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
-	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
-		ctx,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		"run.started",
-		runStartedData,
-	)
-	if err != nil {
-		return err
-	}
-	jobPayload := map[string]any{
-		"source":           "telegram",
-		"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, identity.ID, *incoming),
-	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
-		ctx,
-		ch.AccountID,
-		run.ID,
-		traceID,
-		data.RunExecuteJobType,
-		jobPayload,
-		nil,
-	); err != nil {
-		return err
-	}
-
-	slog.InfoContext(ctx, "telegram_inbound_processed",
-		"stage", "new_run_enqueued",
-		"channel_id", ch.ID.String(),
-		"account_id", ch.AccountID.String(),
-		"run_id", run.ID.String(),
-		"thread_id", threadID.String(),
-		"platform_chat_id", incoming.PlatformChatID,
-		"platform_message_id", incoming.PlatformMsgID,
-		"default_model", strings.TrimSpace(cfg.DefaultModel),
-	)
-
-	return tx.Commit(ctx)
-}
-
-func (c telegramConnector) claimTelegramPollReceipt(
-	ctx context.Context,
-	channelID uuid.UUID,
-	incoming telegramIncomingMessage,
-) (bool, error) {
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(
-		ctx,
-		channelID,
-		incoming.PlatformChatID,
-		incoming.PlatformMsgID,
-	)
-	if err != nil {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
-	return accepted, nil
+	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
+	return c.continueTelegramInboundDispatch(ctx, traceID, ch, *incoming, personaRef, cfg.DefaultModel)
 }
 
 func telegramWebhookEntry(
@@ -2277,7 +1859,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 	update telegramUpdate,
 ) (err error) {
 	handleStart := time.Now()
-	txStarted := false
 	logPhase := func(phase string, extra ...any) {
 		fields := []any{
 			"phase",
@@ -2337,429 +1918,41 @@ func (c telegramConnector) HandleUpdateForPoll(
 	if c.tryScheduleTelegramMediaGroup(ctx, traceID, ch, token, update, *incoming, persona) {
 		return nil
 	}
-
-	accepted, err := c.claimTelegramPollReceipt(ctx, ch.ID, *incoming)
+	logPhase("stage_a_begin")
+	stageA, err := c.persistTelegramInboundStageA(ctx, traceID, ch, token, cfg, update, *incoming, persona)
 	if err != nil {
+		logPhase("stage_a_error", "error", err.Error())
 		return err
 	}
-	if !accepted {
+	finalState := ""
+	if stageA != nil {
+		finalState = stageA.finalState
+		if stageA.cancelRunID != uuid.Nil {
+			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, stageA.cancelRunID.String())
+		}
+		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+				ChatID: incoming.PlatformChatID,
+				Text:   stageA.replyText,
+			})
+			sendCancel()
+		}
+	}
+	logPhase("stage_a_complete", "state", finalState)
+	switch finalState {
+	case inboundStateIgnoredUnlinked, inboundStatePassivePersisted, inboundStateCommandHandled, inboundStateThrottledNoRun, inboundStateAbsorbedHeartbeat:
 		return nil
 	}
-
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	txStarted = true
-	defer tx.Rollback(ctx) //nolint:errcheck
-	logPhase("tx_begin")
-	defer func() {
-		if !txStarted {
-			return
-		}
-		if err != nil {
-			logPhase("tx_rollback", "rollback_error", err.Error())
-		} else {
-			logPhase("tx_success")
-		}
-	}()
-
-	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
-
-	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
-	if err != nil {
-		return err
-	}
-
-	// 群消息额外 upsert 群自身的 identity（heartbeat 配置挂在群上）
-	var groupIdentity *data.ChannelIdentity
-	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) {
-		gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(
-			ctx,
-			incoming.ChannelType,
-			incoming.PlatformChatID,
-			nil,
-			nil,
-			nil,
-		)
-		if err != nil {
-			return err
-		}
-		groupIdentity = &gi
-	}
-
-	if incoming.IsPrivate() {
-		trimmedCommandText := strings.TrimSpace(incoming.CommandText)
-		allowedPrivateLink, linkErr := allowTelegramPrivateChannelLink(ctx, tx, ch.ID, identity, trimmedCommandText, c.channelIdentityLinksRepo)
-		if linkErr != nil {
-			return linkErr
-		}
-		if !allowedPrivateLink {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   "当前账号未关联此接入。请使用 /bind 重新关联。",
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if handled, replyText, err := handleTelegramCommand(
-			ctx,
-			tx,
-			&ch,
-			identity,
-			trimmedCommandText,
-			c.channelBindCodesRepo,
-			c.channelIdentitiesRepo,
-			c.channelIdentityLinksRepo,
-			c.channelDMThreadsRepo,
-			c.threadRepo,
-			c.runEventRepo.WithTx(tx),
-			c.pool,
-		); err != nil {
-			return err
-		} else if handled {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-	}
-
-	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) && c.channelGroupThreadsRepo != nil {
-		cmd, ok := telegramCommandBase(strings.TrimSpace(incoming.CommandText), cfg.BotUsername)
-		if ok && cmd == "/new" {
-			var replyText string
-			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-				replyText = "当前会话未配置 persona。"
-			} else if identity.UserID == nil {
-				replyText = "无权限。"
-			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
-				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
-					ChatID: incoming.PlatformChatID,
-					UserID: tgUserID,
-				})
-				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
-					replyText = "无权限。"
-				} else if err := c.channelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID); err != nil {
-					return err
-				} else {
-					replyText = "已开启新会话。"
-				}
-			} else {
-				replyText = "已开启新会话。"
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if ok && strings.HasPrefix(cmd, "/heartbeat") {
-			heartbeatIdentity := identity
-			if groupIdentity != nil {
-				heartbeatIdentity = *groupIdentity
-			}
-			slog.DebugContext(ctx, "heartbeat_cmd: dispatching",
-				"cmd", incoming.CommandText,
-				"group_identity_nil", groupIdentity == nil,
-				"heartbeat_identity_id", heartbeatIdentity.ID,
-				"chat_id", incoming.PlatformChatID,
-			)
-			replyText, err := handleTelegramHeartbeatCommand(
-				ctx,
-				tx,
-				ch.ID,
-				ch.AccountID,
-				ch.PersonaID,
-				cfg.DefaultModel,
-				heartbeatIdentity,
-				incoming.CommandText,
-				c.channelIdentitiesRepo,
-				c.personasRepo,
-				c.entitlementSvc,
-			)
-			if err != nil {
-				return err
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-		if ok && cmd == "/stop" {
-			var replyText string
-			var cancelRunID uuid.UUID
-			if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-				replyText = "当前没有运行中的任务。"
-			} else if identity.UserID == nil {
-				replyText = "无权限。"
-			} else if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				tgUserID, _ := strconv.ParseInt(incoming.PlatformUserID, 10, 64)
-				member, err := c.telegramClient.GetChatMember(ctx, token, telegrambot.GetChatMemberRequest{
-					ChatID: incoming.PlatformChatID,
-					UserID: tgUserID,
-				})
-				if err != nil || member == nil || (member.Status != "creator" && member.Status != "administrator") {
-					replyText = "无权限。"
-				} else {
-					threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, incoming.PlatformChatID, *ch.PersonaID)
-					if err != nil {
-						return err
-					}
-					if threadMap == nil {
-						replyText = "当前没有运行中的任务。"
-					} else {
-						activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
-						if err != nil {
-							return err
-						}
-						if activeRun == nil {
-							replyText = "当前没有运行中的任务。"
-						} else {
-							if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, traceID, 0, nil); err != nil {
-								return err
-							}
-							cancelRunID = activeRun.ID
-							replyText = "已请求停止当前任务。"
-						}
-					}
-				}
-			} else {
-				replyText = "当前没有运行中的任务。"
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			if cancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-			}
-			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
-				})
-				sendCancel()
-			}
-			return nil
-		}
-	}
-
 	if !incoming.HasContent() {
-		return tx.Commit(ctx)
+		return nil
 	}
-
-	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		slog.InfoContext(ctx, "telegram_inbound_processed",
-			"stage", "passive_persisted",
-			"channel_id", ch.ID.String(),
-			"account_id", ch.AccountID.String(),
-			"platform_chat_id", incoming.PlatformChatID,
-			"platform_message_id", incoming.PlatformMsgID,
-			"conversation_type", incoming.ChatType,
-			"mentions_bot", incoming.MentionsBot,
-			"is_reply_to_bot", incoming.IsReplyToBot,
-		)
-		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, *incoming, identity, persona); err != nil {
-			return err
-		}
-		return tx.Commit(ctx)
-	}
-
-	// active 路径：与 HandleUpdate 完全一致
-	threadProjectID := derefUUID(persona.ProjectID)
-	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, *incoming)
-	if err != nil {
+	maybeSendTelegramImmediateTyping(ctx, c.telegramClient, token, incoming.PlatformChatID, cfg, incoming)
+	logPhase("stage_b_begin")
+	if err := c.continueTelegramInboundDispatch(ctx, traceID, ch, *incoming, personaRef, cfg.DefaultModel); err != nil {
+		logPhase("stage_b_error", "error", err.Error())
 		return err
 	}
-	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
-		ctx,
-		c.telegramClient,
-		c.attachmentStore,
-		token,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		identity,
-		*incoming,
-	)
-	if err != nil {
-		return err
-	}
-	preTailMsg, err := c.messageRepo.WithTx(tx).GetLatestVisibleMessage(ctx, ch.AccountID, threadID)
-	if err != nil {
-		return err
-	}
-	preTailMessageID := ""
-	if preTailMsg != nil {
-		preTailMessageID = preTailMsg.ID.String()
-	}
-	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-		ctx,
-		ch.AccountID,
-		threadID,
-		"user",
-		content,
-		contentJSON,
-		metadataJSON,
-		identity.UserID,
-	)
-	if err != nil {
-		return err
-	}
-	if c.channelLedgerRepo != nil {
-		ledgerMetadata, metaErr := json.Marshal(map[string]any{
-			"source":            "telegram",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if metaErr != nil {
-			return metaErr
-		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MessageID:               &msg.ID,
-			MetadataJSON:            ledgerMetadata,
-		}); ledgerErr != nil {
-			return ledgerErr
-		}
-	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
-		return err
-	} else if activeRun != nil {
-		delivered, absorbed, err := c.deliverTelegramMessageToActiveRun(ctx, runRepoTx, activeRun, *incoming, content, traceID, preTailMessageID)
-		if err != nil {
-			return err
-		}
-		if absorbed {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "telegram_inbound_processed",
-				"stage", "absorbed_by_heartbeat",
-				"channel_id", ch.ID.String(),
-				"account_id", ch.AccountID.String(),
-				"run_id", activeRun.ID.String(),
-				"thread_id", threadID.String(),
-				"platform_chat_id", incoming.PlatformChatID,
-				"platform_message_id", incoming.PlatformMsgID,
-			)
-			return nil
-		}
-		if delivered {
-			if err := tx.Commit(ctx); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "telegram_inbound_processed",
-				"stage", "delivered_to_existing_run",
-				"channel_id", ch.ID.String(),
-				"account_id", ch.AccountID.String(),
-				"run_id", activeRun.ID.String(),
-				"thread_id", threadID.String(),
-				"platform_chat_id", incoming.PlatformChatID,
-				"platform_message_id", incoming.PlatformMsgID,
-				"default_model", strings.TrimSpace(cfg.DefaultModel),
-			)
-			c.notifyActiveRunInput(ctx, activeRun.ID)
-			return nil
-		}
-	}
-
-	if !channelAgentTriggerConsume(ch.ID) {
-		slog.WarnContext(ctx, "telegram_inbound_processed",
-			"stage", "throttled_before_enqueue",
-			"channel_id", ch.ID.String(),
-			"account_id", ch.AccountID.String(),
-			"thread_id", threadID.String(),
-			"platform_chat_id", incoming.PlatformChatID,
-			"platform_message_id", incoming.PlatformMsgID,
-			"default_model", strings.TrimSpace(cfg.DefaultModel),
-		)
-		return tx.Commit(ctx)
-	}
-
-	runStartedData := buildTelegramRunStartedData(personaRef, cfg.DefaultModel)
-	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
-		ctx,
-		ch.AccountID,
-		threadID,
-		identity.UserID,
-		"run.started",
-		runStartedData,
-	)
-	if err != nil {
-		return err
-	}
-	jobPayload := map[string]any{
-		"source":           "telegram",
-		"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, identity.ID, *incoming),
-	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(
-		ctx,
-		ch.AccountID,
-		run.ID,
-		traceID,
-		data.RunExecuteJobType,
-		jobPayload,
-		nil,
-	); err != nil {
-		return err
-	}
-
-	slog.InfoContext(ctx, "telegram_inbound_processed",
-		"stage", "new_run_enqueued",
-		"channel_id", ch.ID.String(),
-		"account_id", ch.AccountID.String(),
-		"run_id", run.ID.String(),
-		"thread_id", threadID.String(),
-		"platform_chat_id", incoming.PlatformChatID,
-		"platform_message_id", incoming.PlatformMsgID,
-		"default_model", strings.TrimSpace(cfg.DefaultModel),
-	)
-
-	return tx.Commit(ctx)
+	logPhase("stage_b_complete")
+	return nil
 }

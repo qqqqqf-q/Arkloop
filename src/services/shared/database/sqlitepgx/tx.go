@@ -76,7 +76,6 @@ func (t *Tx) Commit(_ context.Context) error {
 	t.releaseWriteGuard()
 	if err != nil {
 		t.afterCommitHooks = nil
-		t.afterRollbackHooks = nil
 		return err
 	}
 	for _, fn := range t.afterCommitHooks {
