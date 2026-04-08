@@ -376,6 +376,40 @@ func TestProcessControllerCancelMarksCancelled(t *testing.T) {
 	}
 }
 
+func TestProcessControllerReleasesDrainedProcess(t *testing.T) {
+	workspace := t.TempDir()
+	bindShellDirs(t, workspace)
+	controller := NewProcessController()
+
+	start, code, msg := controller.Exec(processapi.AgentExecRequest{
+		Command:   "printf 'done\\n'",
+		Mode:      processapi.ModeFollow,
+		TimeoutMs: 5000,
+	})
+	if code != "" {
+		t.Fatalf("follow exec failed: %s %s", code, msg)
+	}
+	if start.ProcessRef == "" {
+		t.Fatalf("expected process_ref, got %#v", start)
+	}
+	if start.Status == processapi.StatusRunning {
+		final, code, msg := controller.Continue(processapi.ContinueProcessRequest{
+			ProcessRef: start.ProcessRef,
+			Cursor:     start.NextCursor,
+			WaitMs:     1000,
+		})
+		if code != "" {
+			t.Fatalf("final continue failed: %s %s", code, msg)
+		}
+		if final.Status != processapi.StatusExited {
+			t.Fatalf("expected exited status, got %#v", final)
+		}
+	}
+	if _, err := controller.getProcess(start.ProcessRef); err == nil {
+		t.Fatalf("expected drained process %s to be released", start.ProcessRef)
+	}
+}
+
 func TestProcessControllerReturnsCursorExpiredAfterBufferOverflow(t *testing.T) {
 	workspace := t.TempDir()
 	bindShellDirs(t, workspace)
