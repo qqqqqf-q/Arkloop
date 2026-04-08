@@ -8,6 +8,7 @@ use (
 	./src/services/sandbox
 	./src/services/shared
 	./src/services/worker
+	./src/services/cli
 	./tests/bench
 	./tests/smoke
 )

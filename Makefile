@@ -2,7 +2,7 @@ SERVICES := api gateway worker sandbox
 SHARED   := src/services/shared
 
 # Default: cloud build (no extra tags required)
-.PHONY: build build-cloud build-desktop build-desktop-sidecar build-desktop-sidecar-all build-shared test test-cloud test-desktop lint
+.PHONY: build build-cloud build-desktop build-desktop-sidecar build-desktop-sidecar-all build-cli build-shared test test-cloud test-desktop lint
 
 build: build-cloud
 
@@ -70,3 +70,8 @@ lint:
 
 help:
 	@grep -E '^##' Makefile | sed 's/## /  /'
+
+## build-cli: Build CLI tool
+build-cli:
+	@echo "==> Building CLI..."
+	cd src/services/cli && go build -o ../../../bin/ark ./cmd/ark
