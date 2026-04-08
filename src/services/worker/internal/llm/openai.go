@@ -1578,7 +1578,7 @@ func toOpenAIResponsesInput(messages []Message) ([]map[string]any, error) {
 		}
 		items = append(items, map[string]any{
 			"type":    "message",
-			"role":    message.Role,
+			"role":    strings.TrimSpace(message.Role),
 			"content": contentBlocks,
 		})
 	}
