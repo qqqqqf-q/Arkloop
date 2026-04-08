@@ -90,7 +90,24 @@ class ArkloopCliAgent(BaseAgent):
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
-        await environment.upload_dir(workspace_dir, "/app")
+        await self._sync_workspace_to_environment(environment, workspace_dir, "/app")
+        remote_snapshot = await environment.exec(
+            "find /app -maxdepth 4 -type f | sort",
+            timeout_sec=30,
+            user="root",
+        )
+        (self.logs_dir / "remote.app.snapshot.txt").write_text(
+            json.dumps(
+                {
+                    "return_code": remote_snapshot.return_code,
+                    "stdout": remote_snapshot.stdout or "",
+                    "stderr": remote_snapshot.stderr or "",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
         (self.logs_dir / "arkloop.stdout.log").write_text(stdout, encoding="utf-8")
         (self.logs_dir / "arkloop.stderr.log").write_text(stderr, encoding="utf-8")
@@ -113,6 +130,7 @@ class ArkloopCliAgent(BaseAgent):
             "stdout_log": str(self.logs_dir / "arkloop.stdout.log"),
             "stderr_log": str(self.logs_dir / "arkloop.stderr.log"),
             "instruction_path": str(rewritten_instruction_path),
+            "remote_snapshot_path": str(self.logs_dir / "remote.app.snapshot.txt"),
         }
         parsed = self._parse_last_json(stdout)
         if parsed is not None:
@@ -154,6 +172,28 @@ class ArkloopCliAgent(BaseAgent):
         if "host.docker.internal" not in host:
             return host
         return host.replace("host.docker.internal", "127.0.0.1")
+
+    async def _sync_workspace_to_environment(
+        self,
+        environment: BaseEnvironment,
+        workspace_dir: Path,
+        remote_root: str,
+    ) -> None:
+        del workspace_dir
+        result = await environment.exec(
+            (
+                "set -euo pipefail; "
+                f"mkdir -p {remote_root}; "
+                f"cp -a /logs/agent/workspace/. {remote_root}/"
+            ),
+            timeout_sec=30,
+            user="root",
+        )
+        if result.return_code != 0:
+            raise RuntimeError(
+                "sync workspace to environment failed: "
+                f"rc={result.return_code} stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
 
     def _parse_last_json(self, stdout: str) -> dict[str, object] | None:
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
