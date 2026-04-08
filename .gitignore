@@ -16,6 +16,8 @@ arkilo-ui-example
 
 *.exe
 *.test
+__pycache__/
+*.pyc
 
 # root-level compiled Go binaries
 /api
