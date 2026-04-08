@@ -1,6 +1,6 @@
 import { redactDataUrlsInString } from './debugPayloadRedact'
 import { isACPDelegateEventData } from './runEventDelegate'
-import { pickLogicalToolName } from './tool-names'
+import { canonicalToolName, pickLogicalToolName } from './tool-names'
 
 export type RunEventRaw = {
   event_id: string
@@ -146,13 +146,28 @@ function refreshContextTokenEstimate(turn: LlmTurn) {
 }
 
 function extractToolName(tool: Record<string, unknown>): string {
-  if (typeof tool.name === 'string') return tool.name
+  if (typeof tool.name === 'string') return canonicalToolName(tool.name)
   const fn = tool.function
   if (fn && typeof fn === 'object') {
     const name = (fn as Record<string, unknown>).name
-    if (typeof name === 'string') return name
+    if (typeof name === 'string') return canonicalToolName(name)
   }
   return ''
+}
+
+function canonicalizeToolSchemaBytesMap(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const entries = Object.entries(raw as Record<string, unknown>)
+  if (entries.length === 0) return undefined
+
+  const out: Record<string, number> = {}
+  for (const [key, value] of entries) {
+    if (typeof value !== 'number') continue
+    const canonical = canonicalToolName(key)
+    if (!canonical) continue
+    out[canonical] = (out[canonical] ?? 0) + value
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 function readMessageText(msg: Record<string, unknown>): string {
@@ -466,7 +481,7 @@ function startTurn(
     toolsBytes: typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : undefined,
     messagesBytes: typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : undefined,
     roleBytes: requestData.role_bytes as Record<string, number> | undefined,
-    toolSchemaBytesMap: requestData.tool_schema_bytes_by_name as Record<string, number> | undefined,
+    toolSchemaBytesMap: canonicalizeToolSchemaBytesMap(requestData.tool_schema_bytes_by_name),
     stablePrefixHash:
       typeof requestData.stable_prefix_hash === 'string' ? requestData.stable_prefix_hash : undefined,
     requests: [
@@ -518,8 +533,9 @@ function mergeRequestMetadata(
   if (requestData.role_bytes && typeof requestData.role_bytes === 'object') {
     turn.roleBytes = requestData.role_bytes as Record<string, number>
   }
-  if (requestData.tool_schema_bytes_by_name && typeof requestData.tool_schema_bytes_by_name === 'object') {
-    turn.toolSchemaBytesMap = requestData.tool_schema_bytes_by_name as Record<string, number>
+  const canonicalToolSchemaBytesMap = canonicalizeToolSchemaBytesMap(requestData.tool_schema_bytes_by_name)
+  if (canonicalToolSchemaBytesMap) {
+    turn.toolSchemaBytesMap = canonicalToolSchemaBytesMap
   }
   if (typeof requestData.stable_prefix_hash === 'string') {
     turn.stablePrefixHash = requestData.stable_prefix_hash

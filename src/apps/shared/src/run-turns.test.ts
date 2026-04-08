@@ -716,7 +716,15 @@ time: "2026-04-04T06:21:00Z"
           llm_call_id: 'call_1',
           provider_kind: 'openai',
           api_mode: 'responses',
-          payload: { input: 'fetch this page' },
+          payload: {
+            input: 'fetch this page',
+            tools: [
+              { type: 'function', function: { name: 'web_fetch.jina' } },
+            ],
+          },
+          tool_schema_bytes_by_name: {
+            'web_fetch.jina': 1024,
+          },
         },
       }),
       makeEvent({
@@ -754,6 +762,8 @@ time: "2026-04-04T06:21:00Z"
       resultJSON: { title: 'Example' },
       errorClass: undefined,
     })
+    expect(turns[0]?.toolNames).toEqual(['web_fetch'])
+    expect(turns[0]?.toolSchemaBytesMap).toEqual({ web_fetch: 1024 })
   })
 
   it('ignores ACP delegate deltas/tools and inner run.completed; keeps host acp_agent tool result', () => {
