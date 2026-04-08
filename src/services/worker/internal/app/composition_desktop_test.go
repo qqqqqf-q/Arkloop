@@ -2394,6 +2394,7 @@ func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
 		)`,
 		`CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
 			encrypted_value TEXT NULL,
 			key_version INTEGER NULL
 		)`,
@@ -2495,6 +2496,7 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 		)`,
 		`CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
 			encrypted_value TEXT NULL,
 			key_version INTEGER NULL
 		)`,
@@ -2672,6 +2674,7 @@ func TestDesktopChannelDeliverySkipsReplyReferenceInPrivateTelegram(t *testing.T
 		)`,
 		`CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
 			encrypted_value TEXT NULL,
 			key_version INTEGER NULL
 		)`,
@@ -2823,6 +2826,7 @@ func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing
 		)`,
 		`CREATE TABLE IF NOT EXISTS secrets (
 			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
 			encrypted_value TEXT NULL,
 			key_version INTEGER NULL
 		)`,
@@ -2896,8 +2900,8 @@ func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing
 		args []any
 	}{
 		{
-			sql:  `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
-			args: []any{secretID, encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+			sql:  `INSERT INTO secrets (id, name, encrypted_value, key_version) VALUES ($1, $2, $3, 1)`,
+			args: []any{secretID, "telegram-token", encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
 		},
 		{
 			sql:  `INSERT INTO channels (id, channel_type, credentials_id, config_json, is_active) VALUES ($1, 'telegram', $2, '{}', 1)`,
@@ -2943,6 +2947,90 @@ func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing
 	}
 	if deliveryCount != 2 {
 		t.Fatalf("expected 2 delivery rows, got %d", deliveryCount)
+	}
+}
+
+func TestDesktopChannelDeliveryDisablesTelegramProgressTrackerInGroups(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 61)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO secrets (id, name, encrypted_value, key_version) VALUES ($1, $2, $3, 1)`,
+			args: []any{secretID, "telegram-token", encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, channel_type, credentials_id, config_json, is_active) VALUES ($1, 'telegram', $2, '{}', 1)`,
+			args: []any{channelID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	mw := desktopChannelDelivery(db)
+	if err := mw(ctx, &pipeline.RunContext{
+		Run: data.Run{ID: runID, ThreadID: threadID},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     pipeline.ChannelConversationRef{Target: "10001"},
+		},
+	}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush == nil {
+			t.Fatal("expected TelegramToolBoundaryFlush to be set for telegram channel")
+		}
+		if rc.TelegramProgressTracker != nil {
+			t.Fatal("expected TelegramProgressTracker to stay disabled in telegram groups")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
 	}
 }
 
