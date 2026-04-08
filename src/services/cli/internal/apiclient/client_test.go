@@ -2,8 +2,10 @@ package apiclient
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -86,6 +88,35 @@ func TestListThreads(t *testing.T) {
 	}
 }
 
+func TestListThreadsBefore(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if r.URL.Path != "/v1/threads" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if query.Get("limit") != "200" {
+			t.Fatalf("unexpected limit: %s", query.Get("limit"))
+		}
+		if query.Get("before_created_at") != "2026-01-02T00:00:00Z" {
+			t.Fatalf("unexpected before_created_at: %s", query.Get("before_created_at"))
+		}
+		if query.Get("before_id") != "t9" {
+			t.Fatalf("unexpected before_id: %s", query.Get("before_id"))
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	got, err := client.ListThreadsBefore(context.Background(), 200, "2026-01-02T00:00:00Z", "t9")
+	if err != nil {
+		t.Fatalf("ListThreadsBefore: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unexpected threads: %#v", got)
+	}
+}
+
 func TestGetMeReturnsHTTPError(t *testing.T) {
 	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, `{"code":"auth.invalid_token","message":"token invalid"}`, http.StatusUnauthorized)
@@ -93,5 +124,51 @@ func TestGetMeReturnsHTTPError(t *testing.T) {
 
 	if _, err := client.GetMe(context.Background()); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestListAllThreadsPaginates(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+
+		if query.Get("before_id") == "" {
+			payload := make([]string, 0, ThreadPageLimit)
+			for i := 0; i < ThreadPageLimit; i++ {
+				payload = append(payload, fmt.Sprintf(`{"id":"t%03d","mode":"chat","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","is_private":false}`, ThreadPageLimit-i))
+			}
+			_, _ = w.Write([]byte("[" + strings.Join(payload, ",") + "]"))
+			return
+		}
+		if query.Get("before_id") != "t001" || query.Get("before_created_at") != "2026-01-01T00:00:00Z" {
+			t.Fatalf("unexpected cursor query: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`[{"id":"t000","mode":"chat","created_at":"2025-12-31T00:00:00Z","updated_at":"2025-12-31T00:00:00Z","is_private":false}]`))
+	})
+
+	got, err := client.ListAllThreads(context.Background())
+	if err != nil {
+		t.Fatalf("ListAllThreads: %v", err)
+	}
+	if len(got) != ThreadPageLimit+1 {
+		t.Fatalf("unexpected thread count: %d", len(got))
+	}
+	if got[0].ID != "t200" || got[len(got)-1].ID != "t000" {
+		t.Fatalf("unexpected threads: %#v", got)
+	}
+}
+
+func TestListAllThreadsRejectsIncompleteCursor(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		payload := make([]string, 0, ThreadPageLimit)
+		for i := 0; i < ThreadPageLimit; i++ {
+			payload = append(payload, `{"id":"","mode":"chat","created_at":"","updated_at":"2026-01-01T00:00:00Z","is_private":false}`)
+		}
+		_, _ = w.Write([]byte("[" + strings.Join(payload, ",") + "]"))
+	})
+
+	if _, err := client.ListAllThreads(context.Background()); err == nil {
+		t.Fatal("expected pagination cursor error")
 	}
 }

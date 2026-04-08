@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,7 +28,7 @@ type exitError struct {
 
 func (e *exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
-const sessionListLimit = 200
+var errRunUsage = errors.New("run usage")
 
 type commandRoute string
 
@@ -147,6 +148,9 @@ func resolveToken(flagValue string) string {
 	if flagValue != "" {
 		return flagValue
 	}
+	if v := strings.TrimSpace(os.Getenv("ARKLOOP_TOKEN")); v != "" {
+		return v
+	}
 	if v := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN")); v != "" {
 		return v
 	}
@@ -172,6 +176,9 @@ type desktopConfig struct {
 func resolveHost(flagValue string, flagProvided bool) string {
 	if flagProvided && strings.TrimSpace(flagValue) != "" {
 		return strings.TrimSpace(flagValue)
+	}
+	if v := strings.TrimSpace(os.Getenv("ARKLOOP_HOST")); v != "" {
+		return v
 	}
 
 	home, err := os.UserHomeDir()
@@ -217,8 +224,151 @@ func ensureOutputFormat(outputFormat string) error {
 	}
 }
 
+func splitFlagAndPositionalArgs(args []string, valueFlags map[string]struct{}) ([]string, []string, error) {
+	flagArgs := make([]string, 0, len(args))
+	positionals := make([]string, 0, len(args))
+
+	for i := 0; i < len(args); i++ {
+		token := args[i]
+		if strings.HasPrefix(token, "-") && token != "-" {
+			flagArgs = append(flagArgs, token)
+			if !flagConsumesValue(token, valueFlags) {
+				continue
+			}
+			if i+1 >= len(args) {
+				return nil, nil, fmt.Errorf("missing value for %s", token)
+			}
+			i++
+			flagArgs = append(flagArgs, args[i])
+			continue
+		}
+		positionals = append(positionals, token)
+	}
+
+	return flagArgs, positionals, nil
+}
+
+func flagConsumesValue(token string, valueFlags map[string]struct{}) bool {
+	if strings.Contains(token, "=") {
+		return false
+	}
+	name := strings.TrimLeft(token, "-")
+	_, ok := valueFlags[name]
+	return ok
+}
+
+func stdinHasData(stdin *os.File) bool {
+	info, err := stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) == 0
+}
+
+func loadPrompt(prompt string, promptFile string, stdin io.Reader, allowImplicitStdin bool) (string, error) {
+	if strings.TrimSpace(promptFile) != "" && prompt != "" {
+		return "", errRunUsage
+	}
+	if strings.TrimSpace(promptFile) != "" {
+		if promptFile == "-" {
+			data, err := io.ReadAll(stdin)
+			if err != nil {
+				return "", fmt.Errorf("read prompt from stdin: %w", err)
+			}
+			return string(data), nil
+		}
+		data, err := os.ReadFile(promptFile)
+		if err != nil {
+			return "", fmt.Errorf("read prompt file: %w", err)
+		}
+		return string(data), nil
+	}
+	if prompt == "" {
+		if allowImplicitStdin {
+			data, err := io.ReadAll(stdin)
+			if err != nil {
+				return "", fmt.Errorf("read prompt from stdin: %w", err)
+			}
+			return string(data), nil
+		}
+		return "", errRunUsage
+	}
+	if prompt != "-" {
+		return prompt, nil
+	}
+
+	data, err := io.ReadAll(stdin)
+	if err != nil {
+		return "", fmt.Errorf("read prompt from stdin: %w", err)
+	}
+	return string(data), nil
+}
+
+func printRunUsage() {
+	fmt.Fprintln(os.Stderr, "usage: ark run [flags] <prompt>")
+}
+
+func requestedRunOutputFormat(args []string) string {
+	for i := 0; i < len(args); i++ {
+		token := args[i]
+		if token == "--" {
+			return formatter.OutputText
+		}
+		if token == "-output-format" || token == "--output-format" {
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return formatter.OutputText
+		}
+		if strings.HasPrefix(token, "-output-format=") {
+			return strings.TrimPrefix(token, "-output-format=")
+		}
+		if strings.HasPrefix(token, "--output-format=") {
+			return strings.TrimPrefix(token, "--output-format=")
+		}
+	}
+	return formatter.OutputText
+}
+
+func writeRunErrorResult(output io.Writer, err error) error {
+	return json.NewEncoder(output).Encode(runErrorLine(err))
+}
+
+func handleRunCommandError(outputFormat string, err error, exitCode int) error {
+	if outputFormat == formatter.OutputJSON || outputFormat == "stream-json" {
+		if encodeErr := writeRunErrorResult(os.Stdout, err); encodeErr != nil {
+			return fmt.Errorf("encode error result: %w", encodeErr)
+		}
+		return &exitError{exitCode}
+	}
+	if exitCode == 2 {
+		printRunUsage()
+		return &exitError{2}
+	}
+	return err
+}
+
 func cmdRun(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
+	valueFlags := map[string]struct{}{
+		"host":          {},
+		"token":         {},
+		"timeout":       {},
+		"persona":       {},
+		"model":         {},
+		"work-dir":      {},
+		"reasoning":     {},
+		"thread":        {},
+		"output-format": {},
+		"prompt-file":   {},
+	}
+	requestedFormat := requestedRunOutputFormat(args)
+	flagArgs, positionals, err := splitFlagAndPositionalArgs(args, valueFlags)
+	if err != nil {
+		return handleRunCommandError(requestedFormat, err, 2)
+	}
+
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
 	timeout := fs.Duration("timeout", 5*time.Minute, "run timeout")
@@ -228,13 +378,38 @@ func cmdRun(ctx context.Context, args []string) error {
 	reasoning := fs.String("reasoning", "", "reasoning_mode")
 	threadID := fs.String("thread", "", "reuse existing thread")
 	outputFormat := fs.String("output-format", "text", "output format: text, json, stream-json")
-	fs.Parse(args)
-
-	if fs.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: ark run [flags] <prompt>")
-		return &exitError{2}
+	promptFile := fs.String("prompt-file", "", "load prompt from file path, use - for stdin")
+	if err := fs.Parse(flagArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printRunUsage()
+			fs.SetOutput(os.Stderr)
+			fs.PrintDefaults()
+			return nil
+		}
+		return handleRunCommandError(requestedFormat, err, 2)
 	}
-	prompt := fs.Arg(0)
+	switch *outputFormat {
+	case formatter.OutputText, formatter.OutputJSON, "stream-json":
+	default:
+		return handleRunCommandError(*outputFormat, fmt.Errorf("unknown output format: %s", *outputFormat), 2)
+	}
+
+	prompt := ""
+	if len(positionals) > 1 {
+		return handleRunCommandError(*outputFormat, errRunUsage, 2)
+	}
+	if len(positionals) == 1 {
+		prompt = positionals[0]
+	}
+
+	prompt, err = loadPrompt(prompt, *promptFile, os.Stdin, stdinHasData(os.Stdin))
+	if err != nil {
+		exitCode := 1
+		if errors.Is(err, errRunUsage) {
+			exitCode = 2
+		}
+		return handleRunCommandError(*outputFormat, err, exitCode)
+	}
 
 	client := newClientFromFlags(*host, *token, fs)
 	params := apiclient.RunParams{
@@ -251,9 +426,9 @@ func cmdRun(ctx context.Context, args []string) error {
 	case "text":
 		return runText(runCtx, client, *threadID, prompt, params)
 	case "json":
-		return runJSON(runCtx, client, *threadID, prompt, params)
+		return runJSON(runCtx, os.Stdout, client, *threadID, prompt, params)
 	case "stream-json":
-		return runStreamJSON(runCtx, client, *threadID, prompt, params)
+		return runStreamJSON(runCtx, os.Stdout, client, *threadID, prompt, params)
 	default:
 		return fmt.Errorf("unknown output format: %s", *outputFormat)
 	}
@@ -272,12 +447,7 @@ func runText(ctx context.Context, client *apiclient.Client, threadID, prompt str
 	return nil
 }
 
-func runJSON(ctx context.Context, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
-	result, err := runner.Execute(ctx, client, threadID, prompt, params, nil)
-	if err != nil {
-		return err
-	}
-
+func runResultLine(result runner.RunResult) map[string]any {
 	out := map[string]any{
 		"type":        "result",
 		"thread_id":   result.ThreadID,
@@ -291,9 +461,34 @@ func runJSON(ctx context.Context, client *apiclient.Client, threadID, prompt str
 	if result.Error != "" {
 		out["error"] = result.Error
 	}
+	return out
+}
 
-	enc := json.NewEncoder(os.Stdout)
-	if err := enc.Encode(out); err != nil {
+func runErrorLine(err error) map[string]any {
+	return map[string]any{
+		"type":        "result",
+		"thread_id":   "",
+		"run_id":      "",
+		"status":      "error",
+		"result":      "",
+		"duration_ms": 0,
+		"tool_calls":  0,
+		"is_error":    true,
+		"error":       err.Error(),
+	}
+}
+
+func runJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
+	enc := json.NewEncoder(output)
+	result, err := runner.Execute(ctx, client, threadID, prompt, params, nil)
+	if err != nil {
+		if encodeErr := enc.Encode(runErrorLine(err)); encodeErr != nil {
+			return fmt.Errorf("encode error result: %w", encodeErr)
+		}
+		return &exitError{1}
+	}
+
+	if err := enc.Encode(runResultLine(result)); err != nil {
 		return fmt.Errorf("encode result: %w", err)
 	}
 	if result.IsError {
@@ -302,8 +497,8 @@ func runJSON(ctx context.Context, client *apiclient.Client, threadID, prompt str
 	return nil
 }
 
-func runStreamJSON(ctx context.Context, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
-	enc := json.NewEncoder(os.Stdout)
+func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
+	enc := json.NewEncoder(output)
 
 	onEvent := func(e sse.Event) {
 		line := map[string]any{
@@ -321,23 +516,15 @@ func runStreamJSON(ctx context.Context, client *apiclient.Client, threadID, prom
 
 	result, err := runner.Execute(ctx, client, threadID, prompt, params, onEvent)
 	if err != nil {
-		return err
+		if encodeErr := enc.Encode(runErrorLine(err)); encodeErr != nil {
+			return fmt.Errorf("encode error result: %w", encodeErr)
+		}
+		return &exitError{1}
 	}
 
-	final := map[string]any{
-		"type":        "result",
-		"thread_id":   result.ThreadID,
-		"run_id":      result.RunID,
-		"status":      result.Status,
-		"result":      result.Output,
-		"duration_ms": result.DurationMs,
-		"tool_calls":  result.ToolCalls,
-		"is_error":    result.IsError,
+	if err := enc.Encode(runResultLine(result)); err != nil {
+		return fmt.Errorf("encode result: %w", err)
 	}
-	if result.Error != "" {
-		final["error"] = result.Error
-	}
-	enc.Encode(final)
 
 	if result.IsError {
 		return &exitError{1}
@@ -440,7 +627,7 @@ func cmdSessionsList(ctx context.Context, args []string) error {
 	}
 
 	client := newClientFromFlags(*host, *token, fs)
-	threads, err := client.ListThreads(ctx, sessionListLimit)
+	threads, err := client.ListAllThreads(ctx)
 	if err != nil {
 		return err
 	}
@@ -449,6 +636,20 @@ func cmdSessionsList(ctx context.Context, args []string) error {
 }
 
 func cmdSessionsResume(ctx context.Context, args []string) error {
+	valueFlags := map[string]struct{}{
+		"host":     {},
+		"token":    {},
+		"timeout":  {},
+		"persona":  {},
+		"model":    {},
+		"work-dir": {},
+	}
+	flagArgs, positionals, err := splitFlagAndPositionalArgs(args, valueFlags)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "usage: ark sessions resume [flags] <session-id>")
+		return &exitError{2}
+	}
+
 	fs := flag.NewFlagSet("sessions resume", flag.ExitOnError)
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
@@ -456,9 +657,9 @@ func cmdSessionsResume(ctx context.Context, args []string) error {
 	persona := fs.String("persona", "", "persona_id")
 	model := fs.String("model", "", "model key")
 	workDir := fs.String("work-dir", "", "working directory")
-	fs.Parse(args)
+	fs.Parse(flagArgs)
 
-	if fs.NArg() != 1 {
+	if len(positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: ark sessions resume [flags] <session-id>")
 		return &exitError{2}
 	}
@@ -470,7 +671,7 @@ func cmdSessionsResume(ctx context.Context, args []string) error {
 		WorkDir:   *workDir,
 	}
 
-	r := repl.NewREPL(client, params, fs.Arg(0), *timeout)
+	r := repl.NewREPL(client, params, positionals[0], *timeout)
 	return r.Run(ctx)
 }
 

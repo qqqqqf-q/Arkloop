@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 )
 
 const (
-	DefaultBaseURL = "http://127.0.0.1:19001"
-	DefaultToken   = "arkloop-desktop-local-token"
+	DefaultBaseURL  = "http://127.0.0.1:19001"
+	DefaultToken    = "arkloop-desktop-local-token"
+	ThreadPageLimit = 200
 )
 
 // Client 连接 Desktop API 的 HTTP 客户端。
@@ -120,9 +122,24 @@ func (c *Client) ListLlmProviders(ctx context.Context) ([]LlmProvider, error) {
 }
 
 func (c *Client) ListThreads(ctx context.Context, limit int) ([]Thread, error) {
-	path := "/v1/threads"
+	return c.ListThreadsBefore(ctx, limit, "", "")
+}
+
+func (c *Client) ListThreadsBefore(ctx context.Context, limit int, beforeCreatedAt string, beforeID string) ([]Thread, error) {
+	values := url.Values{}
 	if limit > 0 {
-		path = fmt.Sprintf("%s?limit=%d", path, limit)
+		values.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	if beforeCreatedAt != "" {
+		values.Set("before_created_at", beforeCreatedAt)
+	}
+	if beforeID != "" {
+		values.Set("before_id", beforeID)
+	}
+
+	path := "/v1/threads"
+	if encoded := values.Encode(); encoded != "" {
+		path = fmt.Sprintf("%s?%s", path, encoded)
 	}
 
 	var resp []Thread
@@ -130,6 +147,34 @@ func (c *Client) ListThreads(ctx context.Context, limit int) ([]Thread, error) {
 		return nil, fmt.Errorf("list threads: %w", err)
 	}
 	return resp, nil
+}
+
+func (c *Client) ListAllThreads(ctx context.Context) ([]Thread, error) {
+	threads := make([]Thread, 0)
+	beforeCreatedAt := ""
+	beforeID := ""
+
+	for {
+		page, err := c.ListThreadsBefore(ctx, ThreadPageLimit, beforeCreatedAt, beforeID)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return threads, nil
+		}
+
+		threads = append(threads, page...)
+		if len(page) < ThreadPageLimit {
+			return threads, nil
+		}
+
+		last := page[len(page)-1]
+		if last.CreatedAt == "" || last.ID == "" {
+			return nil, fmt.Errorf("list threads: incomplete pagination cursor")
+		}
+		beforeCreatedAt = last.CreatedAt
+		beforeID = last.ID
+	}
 }
 
 // CreateThread 创建一个新 thread，返回 thread ID。
