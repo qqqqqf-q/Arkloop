@@ -2,6 +2,7 @@ package acptool
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,8 +14,8 @@ type acpHandleStatus string
 
 const (
 	acpStatusRunning     acpHandleStatus = "running"
-	acpStatusIdle        acpHandleStatus = "idle"        // session 存活，当前无 turn
-	acpStatusCompleted   acpHandleStatus = "completed"   // turn 完成（进程已关则为 terminal）
+	acpStatusIdle        acpHandleStatus = "idle"      // session 存活，当前无 turn
+	acpStatusCompleted   acpHandleStatus = "completed" // turn 完成（进程已关则为 terminal）
 	acpStatusFailed      acpHandleStatus = "failed"
 	acpStatusInterrupted acpHandleStatus = "interrupted"
 	acpStatusClosed      acpHandleStatus = "closed" // 进程已关，terminal
@@ -26,6 +27,7 @@ type acpHandleEntry struct {
 	mu sync.Mutex
 
 	handleID    string
+	runID       string
 	status      acpHandleStatus
 	output      string
 	errMsg      string
@@ -78,9 +80,10 @@ func newACPHandleStore() *acpHandleStore {
 	return s
 }
 
-func (s *acpHandleStore) create(handleID string, goroutineCtx context.Context, goroutineCancel context.CancelFunc) *acpHandleEntry {
+func (s *acpHandleStore) create(handleID string, runID string, goroutineCtx context.Context, goroutineCancel context.CancelFunc) *acpHandleEntry {
 	entry := &acpHandleEntry{
 		handleID:        handleID,
+		runID:           strings.TrimSpace(runID),
 		status:          acpStatusRunning,
 		goroutineCtx:    goroutineCtx,
 		goroutineCancel: goroutineCancel,
@@ -172,6 +175,47 @@ func (s *acpHandleStore) runCleanup() {
 	for range ticker.C {
 		s.sweepExpired()
 	}
+}
+
+func (s *acpHandleStore) cleanupRun(runID string) int {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return 0
+	}
+
+	entries := make([]*acpHandleEntry, 0)
+	s.mu.Lock()
+	for id, entry := range s.entries {
+		entry.mu.Lock()
+		sameRun := entry.runID == runID
+		entry.mu.Unlock()
+		if !sameRun {
+			continue
+		}
+		delete(s.entries, id)
+		entries = append(entries, entry)
+	}
+	s.mu.Unlock()
+
+	for _, entry := range entries {
+		entry.goroutineCancel()
+
+		entry.bridgeMu.Lock()
+		bridge := entry.bridge
+		entry.bridge = nil
+		entry.bridgeMu.Unlock()
+		if bridge != nil {
+			bridge.Close()
+		}
+
+		entry.mu.Lock()
+		entry.status = acpStatusClosed
+		now := time.Now()
+		entry.completedAt = &now
+		entry.mu.Unlock()
+		entry.closeDone()
+	}
+	return len(entries)
 }
 
 func (s *acpHandleStore) sweepExpired() {

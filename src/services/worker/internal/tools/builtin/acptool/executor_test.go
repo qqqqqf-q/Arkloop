@@ -2,6 +2,7 @@ package acptool
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -101,7 +102,7 @@ func TestExecutor_WaitACPStreamsCachedEvents(t *testing.T) {
 	te := ToolExecutor{}
 	ctx := context.Background()
 	handleID := "wait-event-test"
-	entry := globalACPHandleStore.create(handleID, ctx, func() {})
+	entry := globalACPHandleStore.create(handleID, "run-test", ctx, func() {})
 	entry.evMu.Lock()
 	entry.cachedEvents = []events.RunEvent{
 		{Type: "message.delta", DataJSON: map[string]any{"content_delta": "delta"}},
@@ -132,6 +133,104 @@ func TestExecutor_WaitACPStreamsCachedEvents(t *testing.T) {
 	status, _ := res.ResultJSON["status"].(string)
 	if status != "completed" {
 		t.Fatalf("expected completed status, got %v", res.ResultJSON)
+	}
+}
+
+func TestExecutor_WaitACPUsesDefaultTimeout(t *testing.T) {
+	te := ToolExecutor{}
+	ctx := context.Background()
+	handleID := "wait-default-timeout-test"
+	entry := globalACPHandleStore.create(handleID, "run-timeout", ctx, func() {})
+	t.Cleanup(func() {
+		globalACPHandleStore.mu.Lock()
+		delete(globalACPHandleStore.entries, handleID)
+		globalACPHandleStore.mu.Unlock()
+	})
+
+	previousDefault := defaultWaitACPTimeout
+	defaultWaitACPTimeout = 80 * time.Millisecond
+	t.Cleanup(func() {
+		defaultWaitACPTimeout = previousDefault
+	})
+
+	execCtx := tools.ExecutionContext{Emitter: events.NewEmitter("test")}
+	res := te.executeWaitACP(ctx, map[string]any{"handle_id": handleID}, execCtx, time.Now())
+	status, _ := res.ResultJSON["status"].(string)
+	if status != "running" {
+		t.Fatalf("expected running status after timeout, got %v", res.ResultJSON)
+	}
+	timedOut, _ := res.ResultJSON["timeout"].(bool)
+	if !timedOut {
+		t.Fatalf("expected timeout=true, got %v", res.ResultJSON)
+	}
+
+	// Keep the entry alive until cleanup to avoid masking the timeout assertion.
+	_ = entry
+}
+
+func TestExecutor_CleanupRunClosesSpawnHandles(t *testing.T) {
+	te := ToolExecutor{}
+	var cancelledA1 int32
+	var cancelledA2 int32
+	var cancelledB int32
+
+	entryA1 := globalACPHandleStore.create("cleanup-run-a1", "run-a", context.Background(), func() {
+		atomic.AddInt32(&cancelledA1, 1)
+	})
+	entryA2 := globalACPHandleStore.create("cleanup-run-a2", "run-a", context.Background(), func() {
+		atomic.AddInt32(&cancelledA2, 1)
+	})
+	_ = globalACPHandleStore.create("cleanup-run-b1", "run-b", context.Background(), func() {
+		atomic.AddInt32(&cancelledB, 1)
+	})
+	t.Cleanup(func() {
+		globalACPHandleStore.mu.Lock()
+		delete(globalACPHandleStore.entries, "cleanup-run-a1")
+		delete(globalACPHandleStore.entries, "cleanup-run-a2")
+		delete(globalACPHandleStore.entries, "cleanup-run-b1")
+		globalACPHandleStore.mu.Unlock()
+	})
+
+	if err := te.CleanupRun(context.Background(), "run-a", "cancelled"); err != nil {
+		t.Fatalf("cleanup run failed: %v", err)
+	}
+	if globalACPHandleStore.get("cleanup-run-a1") != nil || globalACPHandleStore.get("cleanup-run-a2") != nil {
+		t.Fatalf("expected run-a handles removed from store")
+	}
+	if globalACPHandleStore.get("cleanup-run-b1") == nil {
+		t.Fatalf("expected run-b handle to remain")
+	}
+	if got := atomic.LoadInt32(&cancelledA1); got != 1 {
+		t.Fatalf("run-a handle 1 cancel count = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&cancelledA2); got != 1 {
+		t.Fatalf("run-a handle 2 cancel count = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&cancelledB); got != 0 {
+		t.Fatalf("run-b handle cancel count = %d, want 0", got)
+	}
+
+	entryA1.mu.Lock()
+	statusA1 := entryA1.status
+	entryA1.mu.Unlock()
+	if statusA1 != acpStatusClosed {
+		t.Fatalf("run-a handle 1 status = %s, want closed", statusA1)
+	}
+	entryA2.mu.Lock()
+	statusA2 := entryA2.status
+	entryA2.mu.Unlock()
+	if statusA2 != acpStatusClosed {
+		t.Fatalf("run-a handle 2 status = %s, want closed", statusA2)
+	}
+	select {
+	case <-entryA1.doneCh:
+	default:
+		t.Fatalf("run-a handle 1 done channel should be closed")
+	}
+	select {
+	case <-entryA2.doneCh:
+	default:
+		t.Fatalf("run-a handle 2 done channel should be closed")
 	}
 }
 

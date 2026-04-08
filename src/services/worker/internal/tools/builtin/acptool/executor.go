@@ -23,6 +23,8 @@ const envSkipLLMProxy = "ARKLOOP_ACP_SKIP_LLM_PROXY"
 
 const envLLMProxyBaseURL = "ARKLOOP_ACP_LLM_PROXY_URL"
 
+var defaultWaitACPTimeout = 30 * time.Second
+
 // runtimeHandleRegistry caches reusable ACP runtime handles inside this worker process.
 // It is run-scoped and memory-only; it is not the source of truth for ACP sessions.
 var runtimeHandleRegistry = acp.NewRegistry()
@@ -71,6 +73,25 @@ func (e ToolExecutor) Execute(
 	default:
 		return errResult("tool.unknown", "unknown tool: "+toolName, started)
 	}
+}
+
+func (e ToolExecutor) CleanupRun(_ context.Context, runID string, _ string) error {
+	globalACPHandleStore.cleanupRun(runID)
+	return nil
+}
+
+func CleanupRunFromExecutors(ctx context.Context, executors map[string]tools.Executor, runID string, terminalStatus string) error {
+	_ = terminalStatus
+	if strings.TrimSpace(runID) == "" {
+		return nil
+	}
+	cleaner, ok := executors[SpawnACPAgentSpec.Name].(interface {
+		CleanupRun(context.Context, string, string) error
+	})
+	if !ok {
+		return nil
+	}
+	return cleaner.CleanupRun(ctx, runID, terminalStatus)
 }
 
 func (e ToolExecutor) executeACPAgent(
@@ -245,8 +266,8 @@ func (e ToolExecutor) executeSpawnACP(
 		return errResult("tool.acp_unavailable", err.Error(), started)
 	}
 
-	goroutineCtx, goroutineCancel := context.WithCancel(context.Background())
-	entry := globalACPHandleStore.create(handleID, goroutineCtx, goroutineCancel)
+	goroutineCtx, goroutineCancel := context.WithCancel(ctx)
+	entry := globalACPHandleStore.create(handleID, execCtx.RunID.String(), goroutineCtx, goroutineCancel)
 
 	go func() {
 		bridge := acp.NewBridge(host, cfg)
@@ -445,6 +466,7 @@ func (e ToolExecutor) executeWaitACP(
 	}
 
 	var timeoutDuration time.Duration
+	timeoutDuration = defaultWaitACPTimeout
 	switch v := args["timeout_seconds"].(type) {
 	case float64:
 		if v >= 1 {
@@ -461,10 +483,7 @@ func (e ToolExecutor) executeWaitACP(
 		return errResult("tool.acp_handle_not_found", "handle not found: "+handleID, started)
 	}
 
-	var deadlineCh <-chan time.Time
-	if timeoutDuration > 0 {
-		deadlineCh = time.After(timeoutDuration)
-	}
+	deadlineCh := time.After(timeoutDuration)
 
 	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()

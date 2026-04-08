@@ -2193,6 +2193,20 @@ func cleanupDesktopShellRun(rc *pipeline.RunContext, writer *desktopEventWriter)
 			}
 		}(rc.Run.ID.String(), writer.terminalStatus)
 	}
+	if cleaner, ok := rc.ToolExecutors[acptool.SpawnACPAgentSpec.Name].(interface {
+		CleanupRun(context.Context, string, string) error
+	}); ok {
+		go func(runID string, terminalStatus string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := cleaner.CleanupRun(ctx, runID, terminalStatus); err != nil {
+				slog.Warn("desktop acp cleanup failed", "run_id", runID, "error", err.Error())
+			}
+		}(rc.Run.ID.String(), writer.terminalStatus)
+	}
+	if cleaner, ok := rc.ToolExecutors[read.AgentSpec.Name].(interface{ CleanupRun(string) }); ok {
+		cleaner.CleanupRun(rc.Run.ID.String())
+	}
 	if rc.Runtime != nil && rc.Runtime.SandboxBaseURL != "" {
 		go sandboxbuiltin.CleanupSession(rc.Runtime.SandboxBaseURL, rc.Runtime.SandboxAuthToken, rc.Run.ID.String(), rc.Run.AccountID.String())
 	}

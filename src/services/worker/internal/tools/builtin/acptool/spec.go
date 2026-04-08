@@ -123,7 +123,7 @@ var WaitACPLlmSpec = llm.ToolSpec{
 			},
 			"timeout_seconds": map[string]any{
 				"type":        "integer",
-				"description": "Maximum seconds to wait. Returns timeout=true if exceeded. Omit to wait indefinitely.",
+				"description": "Maximum seconds to wait. Returns timeout=true if exceeded. Omit to use the default wait window.",
 				"minimum":     1,
 			},
 		},

@@ -388,6 +388,24 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 			}
 		}()
 	}
+	if cleaner, ok := rc.ToolExecutors["spawn_acp"].(interface {
+		CleanupRun(context.Context, string, string) error
+	}); ok {
+		go func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			terminalStatus := ""
+			if ctx.Err() != nil {
+				terminalStatus = "cancelled"
+			}
+			if cleanupErr := cleaner.CleanupRun(cleanupCtx, run.ID.String(), terminalStatus); cleanupErr != nil {
+				slog.Warn("acp cleanup failed", "run_id", run.ID.String(), "error", cleanupErr.Error())
+			}
+		}()
+	}
+	if cleaner, ok := rc.ToolExecutors["read"].(interface{ CleanupRun(string) }); ok {
+		cleaner.CleanupRun(run.ID.String())
+	}
 	if runtimeSnapshot.SandboxBaseURL != "" {
 		accountID := run.AccountID.String()
 		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), accountID)
