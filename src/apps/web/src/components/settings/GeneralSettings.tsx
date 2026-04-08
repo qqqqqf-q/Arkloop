@@ -68,11 +68,11 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
     }
   }, [accessToken])
 
-  const modelOptions = providers
+  const modelOptions = useMemo(() => providers
     .flatMap((p) => p.models.filter((m) => m.show_in_picker).map((m) => ({
       value: `${p.name}^${m.model}`,
       label: `${p.name} / ${m.model}`,
-    })))
+    }))), [providers])
 
   const toolModelValue = toolProfile?.has_override ? toolProfile.resolved_model : ''
 

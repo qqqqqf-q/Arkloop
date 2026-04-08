@@ -85,6 +85,49 @@ func resolveToken(flagValue string) string {
 	return apiclient.DefaultToken
 }
 
+type desktopConfig struct {
+	Mode  string `json:"mode"`
+	Local struct {
+		Port int `json:"port"`
+	} `json:"local"`
+}
+
+// resolveHost 按优先级解析 host：显式 flag > ~/.arkloop/config.json(local.port) > 默认值。
+func resolveHost(flagValue string, flagProvided bool) string {
+	if flagProvided && strings.TrimSpace(flagValue) != "" {
+		return strings.TrimSpace(flagValue)
+	}
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		raw, err := os.ReadFile(filepath.Join(home, ".arkloop", "config.json"))
+		if err == nil {
+			var cfg desktopConfig
+			if err := json.Unmarshal(raw, &cfg); err == nil &&
+				cfg.Mode == "local" &&
+				cfg.Local.Port > 0 &&
+				cfg.Local.Port <= 65535 {
+				return fmt.Sprintf("http://127.0.0.1:%d", cfg.Local.Port)
+			}
+		}
+	}
+
+	if strings.TrimSpace(flagValue) != "" {
+		return strings.TrimSpace(flagValue)
+	}
+	return apiclient.DefaultBaseURL
+}
+
+func flagWasProvided(fs *flag.FlagSet, name string) bool {
+	provided := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			provided = true
+		}
+	})
+	return provided
+}
+
 func cmdRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
@@ -104,7 +147,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	}
 	prompt := fs.Arg(0)
 
-	client := apiclient.NewClient(*host, resolveToken(*token))
+	client := apiclient.NewClient(resolveHost(*host, flagWasProvided(fs, "host")), resolveToken(*token))
 	params := apiclient.RunParams{
 		PersonaID:     *persona,
 		Model:         *model,
@@ -224,7 +267,7 @@ func cmdChat(ctx context.Context, args []string) error {
 	threadID := fs.String("thread", "", "continue from existing thread")
 	fs.Parse(args)
 
-	client := apiclient.NewClient(*host, resolveToken(*token))
+	client := apiclient.NewClient(resolveHost(*host, flagWasProvided(fs, "host")), resolveToken(*token))
 	params := apiclient.RunParams{
 		PersonaID: *persona,
 		Model:     *model,

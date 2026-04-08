@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -242,7 +242,6 @@ export function ProvidersSettings({ accessToken }: Props) {
       <div className="min-w-0 flex-1 overflow-y-auto p-4 max-[1230px]:p-3 sm:p-5">
         {selected ? (
           <ProviderDetail
-            key={selected.id}
             provider={selected}
             accessToken={accessToken}
           onUpdated={load}
@@ -424,6 +423,15 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  useEffect(() => {
+    setFormPreset(toVendorKey(provider.provider, provider.openai_api_mode))
+    setFormName(provider.name)
+    setFormApiKey('')
+    setFormBaseUrl(provider.base_url ?? '')
+    setErr('')
+    setConfirmDelete(false)
+  }, [provider.id])
+
   const handleSave = async () => {
     setSaving(true)
     setErr('')
@@ -538,6 +546,17 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   const [hasLoadedAvailable, setHasLoadedAvailable] = useState(false)
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false)
 
+  useEffect(() => {
+    setAvailable(null)
+    setHasLoadedAvailable(false)
+    setSearch('')
+    setEditingModel(null)
+    setCreatingModel(false)
+    setErr('')
+    setAvailableError('')
+    setShowDeleteAllConfirm(false)
+  }, [provider.id])
+
   const loadAvailable = useCallback(async () => {
     setLoadingAvailable(true)
     setAvailableError('')
@@ -602,8 +621,10 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
       }
       const toEnable = created.filter((pm) => pm.model.toLowerCase().includes('gpt-4o-mini') && !embeddingIds.has(pm.model.toLowerCase()))
       if (toEnable.length > 0) {
-        await patchProviderModel(accessToken, provider.id, toEnable[0].id, { show_in_picker: true, is_default: true })
-        await Promise.all(toEnable.slice(1).map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
+        try {
+          await patchProviderModel(accessToken, provider.id, toEnable[0].id, { show_in_picker: true, is_default: true })
+          await Promise.all(toEnable.slice(1).map((pm) => patchProviderModel(accessToken, provider.id, pm.id, { show_in_picker: true })))
+        } catch { /* default-setting is best-effort */ }
       }
       onChanged()
       await loadAvailable()
@@ -614,35 +635,37 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
     }
   }
 
-  const handleDeleteModel = async (modelId: string) => {
+  const handleDeleteModel = useCallback(async (modelId: string) => {
     try {
       await deleteProviderModel(accessToken, provider.id, modelId)
       onChanged()
     } catch (e) {
       setErr(isApiError(e) ? e.message : p.saveFailed)
     }
-  }
+  }, [accessToken, provider.id, onChanged, p.saveFailed])
 
   const handleDeleteAll = async () => {
     setDeletingAll(true)
     setErr('')
+    let failed = 0
     for (const pm of provider.models) {
-      try { await deleteProviderModel(accessToken, provider.id, pm.id) } catch { /* skip */ }
+      try { await deleteProviderModel(accessToken, provider.id, pm.id) } catch { failed++ }
     }
     setDeletingAll(false)
+    if (failed > 0) setErr(`${failed} model(s) failed to delete`)
     onChanged()
     setAvailable(null)
     setHasLoadedAvailable(false)
   }
 
-  const handleTogglePicker = async (modelId: string, current: boolean) => {
+  const handleTogglePicker = useCallback(async (modelId: string, current: boolean) => {
     try {
       await patchProviderModel(accessToken, provider.id, modelId, { show_in_picker: !current })
       onChanged()
     } catch (e) {
       setErr(isApiError(e) ? e.message : p.saveFailed)
     }
-  }
+  }, [accessToken, provider.id, onChanged, p.saveFailed])
 
   const handleSaveModelOptions = useCallback(async (payload: {
     advancedJSON: Record<string, unknown> | null
@@ -667,6 +690,27 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
   const filteredModels = search.trim()
     ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
     : provider.models
+
+  const INITIAL_BATCH = 30
+  const BATCH_SIZE = 100
+
+  const [visibleCount, setVisibleCount] = useState(INITIAL_BATCH)
+
+  // filteredModels 变化时重置
+  useEffect(() => {
+    setVisibleCount(INITIAL_BATCH)
+  }, [filteredModels.length, search])
+
+  // 逐帧追加
+  useEffect(() => {
+    if (visibleCount >= filteredModels.length) return
+    const id = requestAnimationFrame(() => {
+      setVisibleCount((prev) => Math.min(prev + BATCH_SIZE, filteredModels.length))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [visibleCount, filteredModels.length])
+
+  const visibleModels = filteredModels.slice(0, visibleCount)
 
   return (
     <div>
@@ -723,38 +767,21 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
         ) : filteredModels.length === 0 ? (
           <p className="py-4 text-center text-sm text-[var(--c-text-muted)]">--</p>
         ) : (
-          filteredModels.map((pm) => (
-            <div key={pm.id} className="group flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5">
-              <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
-                {pm.tags.includes('embedding') && (
-                  <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
-                )}
-              </div>
-              <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto">
-                {/* show_in_picker toggle */}
-                <PillToggle checked={pm.show_in_picker} onChange={() => void handleTogglePicker(pm.id, pm.show_in_picker)} />
-                <button
-                  onClick={() => setEditingModel(pm)}
-                  className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
-                  title={p.modelOptionsTitle ?? 'Model Options'}
-                >
-                  <SlidersHorizontal size={14} />
-                </button>
-                <button
-                  onClick={() => void handleDeleteModel(pm.id)}
-                  className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
+          visibleModels.map((pm) => (
+            <ModelRow
+              key={pm.id}
+              pm={pm}
+              onToggle={handleTogglePicker}
+              onEdit={setEditingModel}
+              onDelete={handleDeleteModel}
+            />
           ))
         )}
       </div>
 
+      {editingModel !== null && (
       <ModelOptionsModal
-        open={editingModel !== null}
+        open
         model={editingModel}
         availableModels={available}
         labels={{
@@ -791,9 +818,11 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
         onClose={() => setEditingModel(null)}
         onSave={handleSaveModelOptions}
       />
+      )}
 
+      {creatingModel && (
       <ModelOptionsModal
-        open={creatingModel}
+        open
         mode="create"
         model={null}
         availableModels={available}
@@ -845,6 +874,7 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
           }
         }}
       />
+      )}
 
       <ConfirmDialog
         open={showDeleteAllConfirm}
@@ -861,6 +891,42 @@ function ModelsSection({ provider, accessToken, onChanged, p }: {
     </div>
   )
 }
+
+const ModelRow = memo(function ModelRow({ pm, onToggle, onEdit, onDelete }: {
+  pm: LlmProviderModel
+  onToggle: (id: string, current: boolean) => void
+  onEdit: (pm: LlmProviderModel) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <div
+      className="group flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5"
+      style={{ contentVisibility: 'auto', containIntrinsicBlockSize: '52px' }}
+    >
+      <div className="min-w-0 flex-1 flex items-center gap-1.5">
+        <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{pm.model}</p>
+        {pm.tags.includes('embedding') && (
+          <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
+        )}
+      </div>
+      <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto">
+        <PillToggle checked={pm.show_in_picker} onChange={() => onToggle(pm.id, pm.show_in_picker)} />
+        <button
+          onClick={() => onEdit(pm)}
+          className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+        >
+          <SlidersHorizontal size={14} />
+        </button>
+        <button
+          onClick={() => onDelete(pm.id)}
+          className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </div>
+  )
+})
 
 function LabelField({ label, children }: { label: string; children: React.ReactNode }) {
   return (

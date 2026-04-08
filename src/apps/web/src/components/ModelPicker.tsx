@@ -113,7 +113,6 @@ export function ModelPicker({ accessToken, value, onChange, onAddApiKey, variant
 
   const handleSelect = (model: string | null) => {
     onChange(model)
-    setOpen(false)
   }
 
   const q = search.trim().toLowerCase()
