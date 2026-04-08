@@ -213,6 +213,8 @@ var lateralRe = regexp.MustCompile(`(?is)LEFT\s+JOIN\s+LATERAL|JOIN\s+LATERAL`)
 // greatestRe matches PostgreSQL GREATEST() which is MAX() in SQLite.
 var greatestRe = regexp.MustCompile(`(?i)GREATEST\(([^)]+)\)`)
 
+var writeKeywordRe = regexp.MustCompile(`(?i)\b(INSERT|UPDATE|DELETE|REPLACE)\b`)
+
 // rewriteLateral converts LEFT JOIN LATERAL (subquery) alias ON true
 // to correlated subqueries in the SELECT clause.
 // Only handles single-column LATERAL subqueries with ON true.
@@ -242,4 +244,47 @@ func rewriteLateral(sql string) string {
 		sql = colRef.ReplaceAllString(sql, "("+subquery+") /* $1 */")
 	}
 	return sql
+}
+
+func queryRequiresWriteGuard(sql string) bool {
+	trimmed := trimLeadingSQLComments(sql)
+	if trimmed == "" {
+		return false
+	}
+	fields := strings.Fields(strings.ToUpper(trimmed))
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "INSERT", "UPDATE", "DELETE", "REPLACE":
+		return true
+	case "WITH":
+		upper := strings.ToUpper(trimmed)
+		return writeKeywordRe.MatchString(upper)
+	default:
+		return false
+	}
+}
+
+func trimLeadingSQLComments(sql string) string {
+	trimmed := strings.TrimSpace(sql)
+	for trimmed != "" {
+		switch {
+		case strings.HasPrefix(trimmed, "--"):
+			idx := strings.Index(trimmed, "\n")
+			if idx < 0 {
+				return ""
+			}
+			trimmed = strings.TrimSpace(trimmed[idx+1:])
+		case strings.HasPrefix(trimmed, "/*"):
+			idx := strings.Index(trimmed, "*/")
+			if idx < 0 {
+				return ""
+			}
+			trimmed = strings.TrimSpace(trimmed[idx+2:])
+		default:
+			return trimmed
+		}
+	}
+	return ""
 }

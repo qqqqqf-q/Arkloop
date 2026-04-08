@@ -57,18 +57,33 @@ func (t *Tx) Query(ctx context.Context, query string, args ...any) (pgx.Rows, er
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
+	if t.readOnly && queryRequiresWriteGuard(query) {
+		return &shimRows{err: fmt.Errorf("sqlitepgx: write query in read-only transaction")}, nil
+	}
+	guard, err := t.acquireQueryWriteGuard(ctx, query)
+	if err != nil {
+		return &shimRows{err: err}, nil
+	}
 	r, err := t.tx.QueryContext(ctx, query, args...)
 	if err != nil {
+		guard.Release()
 		return &shimRows{err: translateError(err)}, nil
 	}
-	return &shimRows{rows: r}, nil
+	return &shimRows{rows: r, release: guard.Release}, nil
 }
 
 func (t *Tx) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
-	return &shimRow{row: t.tx.QueryRowContext(ctx, query, args...)}
+	if t.readOnly && queryRequiresWriteGuard(query) {
+		return &shimRow{err: fmt.Errorf("sqlitepgx: write query in read-only transaction")}
+	}
+	guard, err := t.acquireQueryWriteGuard(ctx, query)
+	if err != nil {
+		return &shimRow{err: err}
+	}
+	return &shimRow{row: t.tx.QueryRowContext(ctx, query, args...), release: guard.Release}
 }
 
 func (t *Tx) Commit(_ context.Context) error {
@@ -153,6 +168,13 @@ func (t *Tx) acquireExecWriteGuard(ctx context.Context) (WriteGuard, error) {
 		return noopWriteGuard{}, nil
 	}
 	return guard, nil
+}
+
+func (t *Tx) acquireQueryWriteGuard(ctx context.Context, query string) (WriteGuard, error) {
+	if !queryRequiresWriteGuard(query) {
+		return noopWriteGuard{}, nil
+	}
+	return t.acquireExecWriteGuard(ctx)
 }
 
 // errBatchResults satisfies pgx.BatchResults for unsupported SendBatch calls.

@@ -476,6 +476,67 @@ func TestDiscordIngressDuplicateActiveRunMessageDoesNotAppendInputTwice(t *testi
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
 }
 
+func TestDiscordIngressRecoversPendingDispatch(t *testing.T) {
+	env := setupDiscordChannelsTestEnv(t, nil)
+	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
+
+	event := newDiscordMessageCreate("m-recover", "dm-recover", "u-recover", "recover-user", "hello from recovery")
+	mustLinkDiscordIdentity(t, env, channel.ID, "u-recover", "recover-user")
+
+	persona, _, err := mustValidateDiscordActivation(context.Background(), channel.AccountID, env.personasRepo, channel.PersonaID)
+	if err != nil {
+		t.Fatalf("validate discord activation: %v", err)
+	}
+	if _, err := env.connector().persistDiscordInboundStageA(context.Background(), channel, persona, event); err != nil {
+		t.Fatalf("persist stage A: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+
+	if err := env.connector().recoverPendingDiscordInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending discord dispatches: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND run_id IS NOT NULL`, 1)
+}
+
+func TestDiscordIngressDeferredDispatchRecoversAfterRateLimitClears(t *testing.T) {
+	t.Setenv("ARKLOOP_CHANNEL_RATE_LIMIT_PER_MIN", "1")
+
+	env := setupDiscordChannelsTestEnv(t, nil)
+	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
+	mustLinkDiscordIdentity(t, env, channel.ID, "u-throttle", "throttle-user")
+
+	channelRunTriggerLog.Lock()
+	channelRunTriggerByChannel[channel.ID] = []time.Time{time.Now()}
+	channelRunTriggerLog.Unlock()
+
+	event := newDiscordMessageCreate("m-throttle", "dm-throttle", "u-throttle", "throttle-user", "hello later")
+	if err := env.connector().HandleMessageCreate(context.Background(), "trace-discord-throttle", channel.ID, "", event); err != nil {
+		t.Fatalf("handle throttled discord message: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+
+	channelRunTriggerLog.Lock()
+	delete(channelRunTriggerByChannel, channel.ID)
+	channelRunTriggerLog.Unlock()
+
+	if err := env.connector().recoverPendingDiscordInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover deferred discord dispatch: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND run_id IS NOT NULL`, 1)
+}
+
 func TestDiscordInteractionBindConsumesCode(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})

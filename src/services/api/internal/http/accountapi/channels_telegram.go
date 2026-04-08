@@ -1085,20 +1085,35 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 		return uuid.Nil, err
 	}
 	if c.channelLedgerRepo != nil {
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			ThreadID:                &threadID,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			PlatformThreadID:        incoming.MessageThreadID,
-			SenderChannelIdentityID: &identity.ID,
-			MessageID:               &msg.ID,
-			MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
-		}); ledgerErr != nil {
+		updated, ledgerErr := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
+			ctx,
+			ch.ID,
+			incoming.PlatformChatID,
+			incoming.PlatformMsgID,
+			&threadID,
+			nil,
+			&msg.ID,
+			inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
+		)
+		if ledgerErr != nil {
 			return uuid.Nil, ledgerErr
+		}
+		if !updated {
+			if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+				ChannelID:               ch.ID,
+				ChannelType:             ch.ChannelType,
+				Direction:               data.ChannelMessageDirectionInbound,
+				ThreadID:                &threadID,
+				PlatformConversationID:  incoming.PlatformChatID,
+				PlatformMessageID:       incoming.PlatformMsgID,
+				PlatformParentMessageID: incoming.ReplyToMsgID,
+				PlatformThreadID:        incoming.MessageThreadID,
+				SenderChannelIdentityID: &identity.ID,
+				MessageID:               &msg.ID,
+				MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
+			}); ledgerErr != nil {
+				return uuid.Nil, ledgerErr
+			}
 		}
 	}
 	return threadID, nil

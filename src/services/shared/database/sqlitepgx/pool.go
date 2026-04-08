@@ -145,18 +145,27 @@ func (p *Pool) Query(ctx context.Context, query string, args ...any) (pgx.Rows, 
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
+	guard, err := p.acquireQueryWriteGuard(ctx, query)
+	if err != nil {
+		return &shimRows{err: err}, nil
+	}
 	r, err := p.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		guard.Release()
 		return &shimRows{err: translateError(err)}, nil
 	}
-	return &shimRows{rows: r}, nil
+	return &shimRows{rows: r, release: guard.Release}, nil
 }
 
 func (p *Pool) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
 	query = rewriteSQL(query)
 	query, args = expandAnyArgs(query, args)
 	args = convertArgs(args)
-	return &shimRow{row: p.db.QueryRowContext(ctx, query, args...)}
+	guard, err := p.acquireQueryWriteGuard(ctx, query)
+	if err != nil {
+		return &shimRow{err: err}
+	}
+	return &shimRow{row: p.db.QueryRowContext(ctx, query, args...), release: guard.Release}
 }
 
 // convertArgs converts Go types that database/sql / SQLite do not natively
@@ -268,4 +277,11 @@ func (p *Pool) acquireWriteGuard(ctx context.Context) (WriteGuard, error) {
 		return noopWriteGuard{}, nil
 	}
 	return guard, nil
+}
+
+func (p *Pool) acquireQueryWriteGuard(ctx context.Context, query string) (WriteGuard, error) {
+	if !queryRequiresWriteGuard(query) {
+		return noopWriteGuard{}, nil
+	}
+	return p.acquireWriteGuard(ctx)
 }

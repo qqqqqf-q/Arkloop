@@ -4,6 +4,7 @@ package sqlitepgx
 
 import (
 	"database/sql"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -11,23 +12,32 @@ import (
 
 // shimRows wraps *sql.Rows to implement pgx.Rows.
 type shimRows struct {
-	rows *sql.Rows
-	err  error // capture query error for deferred check
+	rows        *sql.Rows
+	err         error // capture query error for deferred check
+	releaseOnce sync.Once
+	release     func()
 }
 
 func (r *shimRows) Close() {
 	if r.rows != nil {
 		r.rows.Close()
 	}
+	r.releaseGuard()
 }
 
 func (r *shimRows) Err() error {
 	if r.err != nil {
+		r.releaseGuard()
 		return r.err
 	}
 	if r.rows != nil {
-		return r.rows.Err()
+		err := r.rows.Err()
+		if err != nil {
+			r.releaseGuard()
+		}
+		return err
 	}
+	r.releaseGuard()
 	return nil
 }
 
@@ -41,9 +51,14 @@ func (r *shimRows) FieldDescriptions() []pgconn.FieldDescription {
 
 func (r *shimRows) Next() bool {
 	if r.err != nil || r.rows == nil {
+		r.releaseGuard()
 		return false
 	}
-	return r.rows.Next()
+	ok := r.rows.Next()
+	if !ok {
+		r.releaseGuard()
+	}
+	return ok
 }
 
 func (r *shimRows) Scan(dest ...any) error {
@@ -63,4 +78,15 @@ func (r *shimRows) RawValues() [][]byte {
 
 func (r *shimRows) Conn() *pgx.Conn {
 	return nil
+}
+
+func (r *shimRows) releaseGuard() {
+	if r == nil {
+		return
+	}
+	r.releaseOnce.Do(func() {
+		if r.release != nil {
+			r.release()
+		}
+	})
 }

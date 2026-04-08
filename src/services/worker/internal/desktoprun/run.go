@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -69,36 +68,17 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("job queue not initialized, call InitDesktopInfra first")
 	}
 
-	dataDir, err := desktop.ResolveDataDir("")
-	if err != nil {
-		return fmt.Errorf("resolve data dir: %w", err)
-	}
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return fmt.Errorf("ensure data dir: %w", err)
-	}
-
-	sqlitePath := filepath.Join(dataDir, "data.db")
 	writeExecutor := desktop.GetSharedSQLiteWriteExecutor()
 	if writeExecutor == nil {
 		writeExecutor = sqlitepgx.NewSerialWriteExecutor()
 		desktop.SetSharedSQLiteWriteExecutor(writeExecutor)
 	}
 	sqlitepgx.SetGlobalWriteExecutor(writeExecutor)
-	var db *sqlitepgx.Pool
-	ownsDB := false
-	if shared := desktop.GetSharedSQLitePool(); shared != nil {
-		db = shared.WithWriteExecutor(writeExecutor)
-	} else {
-		opened, openErr := sqlitepgx.Open(sqlitePath)
-		if openErr != nil {
-			return fmt.Errorf("open sqlite: %w", openErr)
-		}
-		db = opened.WithWriteExecutor(writeExecutor)
-		ownsDB = true
+	shared := desktop.GetSharedSQLitePool()
+	if shared == nil {
+		return fmt.Errorf("desktop worker requires shared sqlite pool; start it from the desktop sidecar")
 	}
-	if ownsDB {
-		defer db.Close()
-	}
+	db := shared.WithWriteExecutor(writeExecutor)
 
 	concurrency := desktopWorkerConcurrency()
 
@@ -150,9 +130,8 @@ func RunDesktop(ctx context.Context) error {
 
 	logger.Info("desktop worker entering consume mode",
 		"concurrency", concurrency,
-		"shared_sqlite", !ownsDB,
+		"shared_sqlite", true,
 		"job_types", cfg.QueueJobTypes,
-		"sqlite_path", sqlitePath,
 	)
 	return loop.Run(ctx)
 }

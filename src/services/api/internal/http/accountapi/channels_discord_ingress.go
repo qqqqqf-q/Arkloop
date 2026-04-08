@@ -285,8 +285,22 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 	}
 	defer session.Close()
 
-	<-ctx.Done()
-	return ctx.Err()
+	if err := connector.recoverPendingDiscordInboundDispatches(ctx, channelID); err != nil {
+		slog.Warn("discord_pending_dispatch_recovery_failed", "channel_id", channelID.String(), "err", err.Error())
+	}
+
+	recoveryTicker := time.NewTicker(5 * time.Second)
+	defer recoveryTicker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-recoveryTicker.C:
+			if err := connector.recoverPendingDiscordInboundDispatches(ctx, channelID); err != nil && !errors.Is(err, context.Canceled) {
+				slog.Warn("discord_pending_dispatch_recovery_failed", "channel_id", channelID.String(), "err", err.Error())
+			}
+		}
+	}
 }
 
 func (m *discordIngressManager) ensureCommands(ctx context.Context, channelID uuid.UUID, token string) error {
@@ -368,7 +382,7 @@ func (c discordConnector) HandleMessageCreate(
 	if err != nil {
 		return err
 	}
-	if fresh != nil && fresh.finalState == inboundStateIgnoredUnlinked {
+	if fresh != nil && fresh.finalState == inboundStateIgnoredUnlinked && fresh.notifyUnlinked {
 		if c.discordClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, 5*time.Second)
 			_, _ = c.discordClient.SendMessage(sendCtx, token, event.ChannelID, discordbot.CreateMessageRequest{
@@ -378,7 +392,15 @@ func (c discordConnector) HandleMessageCreate(
 		}
 		return nil
 	}
-	return c.continueDiscordInboundDispatch(ctx, traceID, *ch, personaRef, event)
+	messageCtx := discordContextFromEvent(event)
+	if err := c.continueDiscordInboundDispatch(ctx, traceID, *ch, personaRef, messageCtx); err != nil {
+		c.scheduleDiscordInboundDispatchRetry(*ch, personaRef, messageCtx)
+		if errors.Is(err, errInboundDispatchDeferred) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (c discordConnector) HandleInteraction(
@@ -489,7 +511,8 @@ func discordInboundInputKeyFromIDs(channelID string, messageID string) string {
 }
 
 type discordInboundStageAResult struct {
-	finalState string
+	finalState     string
+	notifyUnlinked bool
 }
 
 func (c discordConnector) persistDiscordInboundStageA(
@@ -536,12 +559,22 @@ func (c discordConnector) persistDiscordInboundStageA(
 			return nil, err
 		}
 		if !accepted {
-			return nil, tx.Commit(ctx)
+			existing, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, event.ChannelID, event.ID)
+			if err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			if existing == nil {
+				return &discordInboundStageAResult{finalState: inboundStateIgnoredUnlinked}, nil
+			}
+			return &discordInboundStageAResult{finalState: inboundLedgerState(existing.MetadataJSON)}, nil
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
-		return &discordInboundStageAResult{finalState: inboundStateIgnoredUnlinked}, nil
+		return &discordInboundStageAResult{finalState: inboundStateIgnoredUnlinked, notifyUnlinked: true}, nil
 	}
 
 	accepted, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
@@ -558,7 +591,17 @@ func (c discordConnector) persistDiscordInboundStageA(
 		return nil, err
 	}
 	if !accepted {
-		return nil, tx.Commit(ctx)
+		existing, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, event.ChannelID, event.ID)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		if existing == nil {
+			return &discordInboundStageAResult{finalState: inboundStatePendingDispatch}, nil
+		}
+		return &discordInboundStageAResult{finalState: inboundLedgerState(existing.MetadataJSON)}, nil
 	}
 
 	threadID, err := c.resolveDiscordDMThreadID(ctx, tx, ch, persona.ID, derefUUID(persona.ProjectID), identity)
@@ -596,17 +639,24 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	traceID string,
 	ch data.Channel,
 	personaRef string,
-	event *discordgo.MessageCreate,
+	messageCtx discordMessageContext,
 ) error {
-	if c.channelLedgerRepo == nil || event == nil {
+	if c.channelLedgerRepo == nil || strings.TrimSpace(messageCtx.ChannelID) == "" || strings.TrimSpace(messageCtx.MessageID) == "" {
 		return nil
 	}
-	ledger, err := c.channelLedgerRepo.GetInboundEntry(ctx, ch.ID, event.ChannelID, event.ID)
+
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	ledger, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, messageCtx.ChannelID, messageCtx.MessageID)
 	if err != nil || ledger == nil {
 		return err
 	}
 	state := inboundLedgerState(ledger.MetadataJSON)
-	if ledger.RunID != nil || state == inboundStateIgnoredUnlinked || state == inboundStatePassivePersisted || state == inboundStateCommandHandled || state == inboundStateThrottledNoRun {
+	if ledger.RunID != nil || state == inboundStateIgnoredUnlinked || state == inboundStatePassivePersisted || state == inboundStateCommandHandled || state == inboundStateDeliveredToRun || state == inboundStateEnqueuedNewRun {
 		return nil
 	}
 	if ledger.ThreadID == nil || ledger.MessageID == nil || ledger.SenderChannelIdentityID == nil {
@@ -628,12 +678,6 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		return fmt.Errorf("discord inbound message missing")
 	}
 
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
 	runRepoTx := c.runEventRepo.WithTx(tx)
 	if err := runRepoTx.LockThreadRow(ctx, *ledger.ThreadID); err != nil {
 		return err
@@ -645,7 +689,7 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, *ledger.ThreadID); err != nil {
 		return err
 	} else if activeRun != nil {
-		if _, err := runRepoTx.ProvideInputWithKey(ctx, activeRun.ID, msg.Content, traceID, discordInboundInputKeyFromIDs(event.ChannelID, event.ID)); err != nil {
+		if _, err := runRepoTx.ProvideInputWithKey(ctx, activeRun.ID, msg.Content, traceID, discordInboundInputKeyFromIDs(messageCtx.ChannelID, messageCtx.MessageID)); err != nil {
 			var notActive data.RunNotActiveError
 			if !errors.As(err, &notActive) {
 				return err
@@ -653,8 +697,8 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		} else if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
 			ctx,
 			ch.ID,
-			event.ChannelID,
-			event.ID,
+			messageCtx.ChannelID,
+			messageCtx.MessageID,
 			ledger.ThreadID,
 			&activeRun.ID,
 			ledger.MessageID,
@@ -670,19 +714,10 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {
-		if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
-			ctx,
-			ch.ID,
-			event.ChannelID,
-			event.ID,
-			ledger.ThreadID,
-			nil,
-			ledger.MessageID,
-			inboundLedgerMetadata(baseMetadata, inboundStateThrottledNoRun),
-		); err != nil {
+		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
-		return tx.Commit(ctx)
+		return errInboundDispatchDeferred
 	}
 
 	runStartedData := buildDiscordRunStartedData(personaRef, resolveDiscordDefaultModel(ch.ConfigJSON))
@@ -699,7 +734,7 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	}
 	jobPayload := map[string]any{
 		"source":           "discord",
-		"channel_delivery": buildDiscordChannelDeliveryPayload(ch.ID, identity.ID, event),
+		"channel_delivery": buildDiscordChannelDeliveryPayload(ch.ID, identity.ID, messageCtx),
 	}
 	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
 		return err
@@ -707,8 +742,8 @@ func (c discordConnector) continueDiscordInboundDispatch(
 	if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
 		ctx,
 		ch.ID,
-		event.ChannelID,
-		event.ID,
+		messageCtx.ChannelID,
+		messageCtx.MessageID,
 		ledger.ThreadID,
 		&run.ID,
 		ledger.MessageID,
@@ -724,6 +759,60 @@ func (c discordConnector) notifyActiveRunInput(ctx context.Context, runID uuid.U
 		return
 	}
 	c.inputNotify(ctx, runID)
+}
+
+func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Context, channelID uuid.UUID) error {
+	if c.channelLedgerRepo == nil || channelID == uuid.Nil {
+		return nil
+	}
+	ch, err := c.channelsRepo.GetByID(ctx, channelID)
+	if err != nil || ch == nil || !ch.IsActive || ch.ChannelType != "discord" {
+		return err
+	}
+	_, personaRef, err := mustValidateDiscordActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID)
+	if err != nil {
+		return err
+	}
+	items, err := c.channelLedgerRepo.ListInboundEntriesByState(ctx, ch.ID, inboundStatePendingDispatch, 16)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := c.continueDiscordInboundDispatch(ctx, observability.NewTraceID(), *ch, personaRef, discordContextFromLedger(item)); err != nil && !errors.Is(err, errInboundDispatchDeferred) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c discordConnector) scheduleDiscordInboundDispatchRetry(
+	ch data.Channel,
+	personaRef string,
+	messageCtx discordMessageContext,
+) {
+	go func() {
+		for _, delay := range []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second} {
+			timer := time.NewTimer(delay)
+			<-timer.C
+			timer.Stop()
+
+			retryCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			err := c.continueDiscordInboundDispatch(retryCtx, observability.NewTraceID(), ch, personaRef, messageCtx)
+			cancel()
+			if err == nil {
+				return
+			}
+			if errors.Is(err, errInboundDispatchDeferred) {
+				continue
+			}
+			slog.Warn("discord_inbound_retry_failed",
+				"channel_id", ch.ID.String(),
+				"platform_chat_id", messageCtx.ChannelID,
+				"platform_message_id", messageCtx.MessageID,
+				"err", err.Error(),
+			)
+		}
+	}()
 }
 
 func buildDiscordRunStartedData(personaRef string, defaultModel string) map[string]any {
@@ -742,29 +831,58 @@ func resolveDiscordDefaultModel(raw json.RawMessage) string {
 	return strings.TrimSpace(cfg.DefaultModel)
 }
 
-func buildDiscordChannelDeliveryPayload(channelID uuid.UUID, channelIdentityID uuid.UUID, event *discordgo.MessageCreate) map[string]any {
+func buildDiscordChannelDeliveryPayload(channelID uuid.UUID, channelIdentityID uuid.UUID, messageCtx discordMessageContext) map[string]any {
 	payload := map[string]any{
 		"channel_id":   channelID.String(),
 		"channel_type": "discord",
 		"conversation_ref": map[string]any{
-			"target": event.ChannelID,
+			"target": messageCtx.ChannelID,
 		},
 		"inbound_message_ref": map[string]any{
-			"message_id": event.ID,
+			"message_id": messageCtx.MessageID,
 		},
 		"trigger_message_ref": map[string]any{
-			"message_id": event.ID,
+			"message_id": messageCtx.MessageID,
 		},
-		"platform_chat_id":           event.ChannelID,
-		"platform_message_id":        event.ID,
-		"reply_to_message_id":        event.ID,
+		"platform_chat_id":           messageCtx.ChannelID,
+		"platform_message_id":        messageCtx.MessageID,
+		"reply_to_message_id":        messageCtx.MessageID,
 		"sender_channel_identity_id": channelIdentityID.String(),
 		"conversation_type":          "private",
 	}
-	if replyTo := optionalDiscordReplyMessageID(event); replyTo != nil {
-		payload["inbound_reply_to_message_id"] = *replyTo
+	if messageCtx.ReplyToID != nil && strings.TrimSpace(*messageCtx.ReplyToID) != "" {
+		payload["inbound_reply_to_message_id"] = strings.TrimSpace(*messageCtx.ReplyToID)
 	}
 	return payload
+}
+
+func discordContextFromEvent(event *discordgo.MessageCreate) discordMessageContext {
+	if event == nil {
+		return discordMessageContext{}
+	}
+	userID := ""
+	userName := ""
+	if event.Author != nil {
+		userID = strings.TrimSpace(event.Author.ID)
+		userName = strings.TrimSpace(event.Author.Username)
+	}
+	return discordMessageContext{
+		ChannelID:  strings.TrimSpace(event.ChannelID),
+		MessageID:  strings.TrimSpace(event.ID),
+		AuthorID:   userID,
+		AuthorName: userName,
+		Content:    strings.TrimSpace(event.Content),
+		ReplyToID:  optionalDiscordReplyMessageID(event),
+		Timestamp:  event.Timestamp,
+	}
+}
+
+func discordContextFromLedger(entry data.ChannelInboundLedgerEntry) discordMessageContext {
+	return discordMessageContext{
+		ChannelID: strings.TrimSpace(entry.PlatformConversationID),
+		MessageID: strings.TrimSpace(entry.PlatformMessageID),
+		ReplyToID: entry.PlatformParentMessageID,
+	}
 }
 
 func optionalDiscordReplyMessageID(event *discordgo.MessageCreate) *string {

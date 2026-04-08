@@ -42,6 +42,8 @@ type ChannelInboundLedgerEntry struct {
 	RunID                   *uuid.UUID
 	PlatformConversationID  string
 	PlatformMessageID       string
+	PlatformParentMessageID *string
+	PlatformThreadID        *string
 	SenderChannelIdentityID *uuid.UUID
 	MessageID               *uuid.UUID
 	MetadataJSON            json.RawMessage
@@ -198,15 +200,39 @@ func (r *ChannelMessageLedgerRepository) GetInboundEntry(
 	platformConversationID string,
 	platformMessageID string,
 ) (*ChannelInboundLedgerEntry, error) {
+	return r.getInboundEntry(ctx, channelID, platformConversationID, platformMessageID, false)
+}
+
+func (r *ChannelMessageLedgerRepository) GetInboundEntryForUpdate(
+	ctx context.Context,
+	channelID uuid.UUID,
+	platformConversationID string,
+	platformMessageID string,
+) (*ChannelInboundLedgerEntry, error) {
+	return r.getInboundEntry(ctx, channelID, platformConversationID, platformMessageID, true)
+}
+
+func (r *ChannelMessageLedgerRepository) getInboundEntry(
+	ctx context.Context,
+	channelID uuid.UUID,
+	platformConversationID string,
+	platformMessageID string,
+	forUpdate bool,
+) (*ChannelInboundLedgerEntry, error) {
 	var item ChannelInboundLedgerEntry
+	query := `SELECT id, thread_id, run_id, platform_conversation_id, platform_message_id,
+	        platform_parent_message_id, platform_thread_id, sender_channel_identity_id,
+	        message_id, metadata_json, created_at
+	   FROM channel_message_ledger
+	  WHERE channel_id = $1
+	    AND direction = 'inbound'
+	    AND platform_conversation_id = $2
+	    AND platform_message_id = $3`
+	if forUpdate {
+		query += ` FOR UPDATE`
+	}
 	err := r.db.QueryRow(ctx,
-		`SELECT id, thread_id, run_id, platform_conversation_id, platform_message_id,
-		        sender_channel_identity_id, message_id, metadata_json, created_at
-		   FROM channel_message_ledger
-		  WHERE channel_id = $1
-		    AND direction = 'inbound'
-		    AND platform_conversation_id = $2
-		    AND platform_message_id = $3`,
+		query,
 		channelID,
 		strings.TrimSpace(platformConversationID),
 		strings.TrimSpace(platformMessageID),
@@ -216,6 +242,8 @@ func (r *ChannelMessageLedgerRepository) GetInboundEntry(
 		&item.RunID,
 		&item.PlatformConversationID,
 		&item.PlatformMessageID,
+		&item.PlatformParentMessageID,
+		&item.PlatformThreadID,
 		&item.SenderChannelIdentityID,
 		&item.MessageID,
 		&item.MetadataJSON,
@@ -228,6 +256,66 @@ func (r *ChannelMessageLedgerRepository) GetInboundEntry(
 		return nil, fmt.Errorf("channel_message_ledger.GetInboundEntry: %w", err)
 	}
 	return &item, nil
+}
+
+func (r *ChannelMessageLedgerRepository) ListInboundEntriesByState(
+	ctx context.Context,
+	channelID uuid.UUID,
+	state string,
+	limit int,
+) ([]ChannelInboundLedgerEntry, error) {
+	if channelID == uuid.Nil {
+		return nil, fmt.Errorf("channel_message_ledger: channel_id must not be empty")
+	}
+	if strings.TrimSpace(state) == "" {
+		return nil, fmt.Errorf("channel_message_ledger: state must not be empty")
+	}
+	if limit <= 0 {
+		limit = 16
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT id, thread_id, run_id, platform_conversation_id, platform_message_id,
+		        platform_parent_message_id, platform_thread_id, sender_channel_identity_id,
+		        message_id, metadata_json, created_at
+		   FROM channel_message_ledger
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND metadata_json->>'ingress_state' = $2
+		  ORDER BY created_at ASC
+		  LIMIT $3`,
+		channelID,
+		strings.TrimSpace(state),
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("channel_message_ledger.ListInboundEntriesByState: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]ChannelInboundLedgerEntry, 0, limit)
+	for rows.Next() {
+		var item ChannelInboundLedgerEntry
+		if err := rows.Scan(
+			&item.ID,
+			&item.ThreadID,
+			&item.RunID,
+			&item.PlatformConversationID,
+			&item.PlatformMessageID,
+			&item.PlatformParentMessageID,
+			&item.PlatformThreadID,
+			&item.SenderChannelIdentityID,
+			&item.MessageID,
+			&item.MetadataJSON,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("channel_message_ledger.ListInboundEntriesByState scan: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("channel_message_ledger.ListInboundEntriesByState rows: %w", err)
+	}
+	return items, nil
 }
 
 func (r *ChannelMessageLedgerRepository) UpdateInboundEntry(

@@ -113,6 +113,171 @@ func TestPoolReadQueryBypassesWriter(t *testing.T) {
 	}
 }
 
+func TestPoolExecAcquiresWriter(t *testing.T) {
+	t.Parallel()
+	base := openTestDB(t)
+	pool := base.WithWriteExecutor(&spyWriteExecutor{})
+	createTestTable(t, pool)
+
+	spy := pool.writeExecutor.(*spyWriteExecutor)
+	baseline := spy.Count()
+	if _, err := pool.Exec(context.Background(), `INSERT INTO items (name) VALUES ('alpha')`); err != nil {
+		t.Fatalf("exec write: %v", err)
+	}
+	if got := spy.Count() - baseline; got != 1 {
+		t.Fatalf("exec write should acquire writer once, got %d", got)
+	}
+}
+
+func TestPoolQueryRowWriteAcquiresAndReleasesWriter(t *testing.T) {
+	t.Parallel()
+	pool := openTestDB(t).WithWriteExecutor(NewSerialWriteExecutor())
+	createTestTable(t, pool)
+
+	ctx := context.Background()
+	var id int
+	row := pool.QueryRow(ctx, `INSERT INTO items (name) VALUES ('alpha') RETURNING id`)
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 40*time.Millisecond)
+	defer cancel()
+	if _, err := pool.Exec(timeoutCtx, `INSERT INTO items (name) VALUES ('beta')`); err == nil {
+		t.Fatal("expected exec to block until QueryRow scan releases writer")
+	}
+
+	if err := row.Scan(&id); err != nil {
+		t.Fatalf("scan returning row: %v", err)
+	}
+	if id <= 0 {
+		t.Fatalf("expected positive id, got %d", id)
+	}
+
+	if _, err := pool.Exec(ctx, `INSERT INTO items (name) VALUES ('beta')`); err != nil {
+		t.Fatalf("exec after QueryRow scan: %v", err)
+	}
+}
+
+func TestPoolQueryWithWriteCTEAcquiresWriter(t *testing.T) {
+	t.Parallel()
+	base := openTestDB(t)
+	pool := base.WithWriteExecutor(&spyWriteExecutor{})
+	createTestTable(t, pool)
+
+	spy := pool.writeExecutor.(*spyWriteExecutor)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `INSERT INTO items (name) VALUES ('alpha')`); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+	baseline := spy.Count()
+	rows, err := pool.Query(ctx, `
+		UPDATE items
+		   SET name = 'beta'
+		 WHERE name = 'alpha'
+		RETURNING id, name`)
+	if err != nil {
+		t.Fatalf("query returning write: %v", err)
+	}
+	defer rows.Close()
+	if got := spy.Count() - baseline; got != 1 {
+		t.Fatalf("returning query should acquire writer once, got %d", got)
+	}
+
+	var (
+		id   int
+		name string
+	)
+	if !rows.Next() {
+		t.Fatal("expected one row from write cte")
+	}
+	if err := rows.Scan(&id, &name); err != nil {
+		t.Fatalf("scan write cte row: %v", err)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
+	}
+	if id <= 0 || name != "beta" {
+		t.Fatalf("unexpected row: id=%d name=%q", id, name)
+	}
+}
+
+func TestTxQueryRowWriteReusesTxWriter(t *testing.T) {
+	t.Parallel()
+	base := openTestDB(t)
+	pool := base.WithWriteExecutor(&spyWriteExecutor{})
+	createTestTable(t, pool)
+
+	spy := pool.writeExecutor.(*spyWriteExecutor)
+	baseline := spy.Count()
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	var id int
+	if err := tx.QueryRow(context.Background(), `INSERT INTO items (name) VALUES ('alpha') RETURNING id`).Scan(&id); err != nil {
+		t.Fatalf("tx query row write: %v", err)
+	}
+	if got := spy.Count() - baseline; got != 1 {
+		t.Fatalf("write tx QueryRow should reuse existing writer, got %d acquisitions", got)
+	}
+	if err := tx.Commit(context.Background()); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+}
+
+func TestReadOnlyTxQueryRowRejectsWrite(t *testing.T) {
+	t.Parallel()
+	base := openTestDB(t)
+	pool := base.WithWriteExecutor(&spyWriteExecutor{})
+	createTestTable(t, pool)
+
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatalf("begin readonly tx: %v", err)
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+
+	var id int
+	err = tx.QueryRow(context.Background(), `INSERT INTO items (name) VALUES ('alpha') RETURNING id`).Scan(&id)
+	if err == nil || err.Error() != "sqlitepgx: write query in read-only transaction" {
+		t.Fatalf("expected read-only QueryRow write rejection, got %v", err)
+	}
+}
+
+func TestReadOnlyTxQueryRejectsWrite(t *testing.T) {
+	t.Parallel()
+	base := openTestDB(t)
+	pool := base.WithWriteExecutor(&spyWriteExecutor{})
+	createTestTable(t, pool)
+
+	tx, err := pool.BeginTx(context.Background(), pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatalf("begin readonly tx: %v", err)
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+
+	rows, err := tx.Query(context.Background(), `WITH updated AS (
+		UPDATE items SET name = 'beta' WHERE 1 = 0 RETURNING id
+	) SELECT id FROM updated`)
+	if err != nil {
+		t.Fatalf("readonly Query should return shim rows, got err %v", err)
+	}
+	defer rows.Close()
+	if err := rows.Err(); err == nil || err.Error() != "sqlitepgx: write query in read-only transaction" {
+		t.Fatalf("expected read-only Query write rejection, got %v", err)
+	}
+}
+
+func TestQueryRequiresWriteGuard_WithWriteCTE(t *testing.T) {
+	t.Parallel()
+	if !queryRequiresWriteGuard(`
+		WITH updated AS (
+			UPDATE items SET name = 'beta' RETURNING id
+		)
+		SELECT id FROM updated`) {
+		t.Fatal("expected write CTE to require writer")
+	}
+}
+
 func TestTxCommitFailureKeepsRollbackHooks(t *testing.T) {
 	t.Parallel()
 	pool := openTestDB(t)

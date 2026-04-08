@@ -2,6 +2,7 @@ package accountapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -13,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+var errInboundDispatchDeferred = errors.New("channel inbound dispatch deferred")
 
 type telegramInboundStageAResult struct {
 	finalState  string
@@ -65,6 +68,24 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return nil, err
 		}
 		groupIdentity = &gi
+	}
+
+	if !incoming.HasContent() {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	claimed, stageResult, err := c.claimTelegramInboundStageA(ctx, tx, ch, incoming, &identity.ID, baseMetadata)
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return stageResult, nil
 	}
 
 	if incoming.IsPrivate() {
@@ -227,13 +248,6 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		}
 	}
 
-	if !incoming.HasContent() {
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
 		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata); err != nil {
 			return nil, err
@@ -252,34 +266,6 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return nil, err
 		}
 		return &telegramInboundStageAResult{finalState: inboundStatePassivePersisted}, nil
-	}
-
-	accepted, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-		ChannelID:               ch.ID,
-		ChannelType:             ch.ChannelType,
-		Direction:               data.ChannelMessageDirectionInbound,
-		PlatformConversationID:  incoming.PlatformChatID,
-		PlatformMessageID:       incoming.PlatformMsgID,
-		PlatformParentMessageID: incoming.ReplyToMsgID,
-		PlatformThreadID:        incoming.MessageThreadID,
-		SenderChannelIdentityID: &identity.ID,
-		MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !accepted {
-		existing, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntry(ctx, ch.ID, incoming.PlatformChatID, incoming.PlatformMsgID)
-		if err != nil {
-			return nil, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return nil, err
-		}
-		if existing == nil {
-			return &telegramInboundStageAResult{finalState: inboundStatePendingDispatch}, nil
-		}
-		return &telegramInboundStageAResult{finalState: inboundLedgerState(existing.MetadataJSON)}, nil
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)
@@ -350,15 +336,22 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 	if c.channelLedgerRepo == nil {
 		return nil
 	}
-	ledger, err := c.channelLedgerRepo.GetInboundEntry(ctx, ch.ID, incoming.PlatformChatID, incoming.PlatformMsgID)
+
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	ledger, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, incoming.PlatformChatID, incoming.PlatformMsgID)
 	if err != nil || ledger == nil {
 		return err
 	}
 	state := inboundLedgerState(ledger.MetadataJSON)
-	if ledger.RunID != nil || state == inboundStateIgnoredUnlinked || state == inboundStatePassivePersisted || state == inboundStateCommandHandled || state == inboundStateThrottledNoRun || state == inboundStateAbsorbedHeartbeat {
+	if ledger.RunID != nil || state == inboundStateIgnoredUnlinked || state == inboundStatePassivePersisted || state == inboundStateCommandHandled || state == inboundStateAbsorbedHeartbeat || state == inboundStateDeliveredToRun || state == inboundStateEnqueuedNewRun {
 		return nil
 	}
-	if ledger.ThreadID == nil || ledger.MessageID == nil {
+	if ledger.ThreadID == nil || ledger.MessageID == nil || ledger.SenderChannelIdentityID == nil {
 		return fmt.Errorf("telegram inbound ledger incomplete for dispatch")
 	}
 
@@ -369,12 +362,6 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 	if msg == nil {
 		return fmt.Errorf("telegram inbound message missing")
 	}
-
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
 
 	runRepoTx := c.runEventRepo.WithTx(tx)
 	if err := runRepoTx.LockThreadRow(ctx, *ledger.ThreadID); err != nil {
@@ -452,18 +439,6 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {
-		if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
-			ctx,
-			ch.ID,
-			incoming.PlatformChatID,
-			incoming.PlatformMsgID,
-			ledger.ThreadID,
-			nil,
-			ledger.MessageID,
-			inboundLedgerMetadata(baseMetadata, inboundStateThrottledNoRun),
-		); err != nil {
-			return err
-		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
@@ -476,7 +451,7 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 			"platform_message_id", incoming.PlatformMsgID,
 			"default_model", strings.TrimSpace(defaultModel),
 		)
-		return nil
+		return errInboundDispatchDeferred
 	}
 
 	runStartedData := buildTelegramRunStartedData(personaRef, defaultModel)
@@ -531,6 +506,41 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		"default_model", strings.TrimSpace(defaultModel),
 	)
 	return nil
+}
+
+func (c telegramConnector) claimTelegramInboundStageA(
+	ctx context.Context,
+	tx pgx.Tx,
+	ch data.Channel,
+	incoming telegramIncomingMessage,
+	identityID *uuid.UUID,
+	baseMetadata map[string]any,
+) (bool, *telegramInboundStageAResult, error) {
+	accepted, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+		ChannelID:               ch.ID,
+		ChannelType:             ch.ChannelType,
+		Direction:               data.ChannelMessageDirectionInbound,
+		PlatformConversationID:  incoming.PlatformChatID,
+		PlatformMessageID:       incoming.PlatformMsgID,
+		PlatformParentMessageID: incoming.ReplyToMsgID,
+		PlatformThreadID:        incoming.MessageThreadID,
+		SenderChannelIdentityID: identityID,
+		MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePendingDispatch),
+	})
+	if err != nil {
+		return false, nil, err
+	}
+	if accepted {
+		return true, nil, nil
+	}
+	existing, err := c.channelLedgerRepo.WithTx(tx).GetInboundEntryForUpdate(ctx, ch.ID, incoming.PlatformChatID, incoming.PlatformMsgID)
+	if err != nil {
+		return false, nil, err
+	}
+	if existing == nil {
+		return false, &telegramInboundStageAResult{finalState: inboundStatePendingDispatch}, nil
+	}
+	return false, &telegramInboundStageAResult{finalState: inboundLedgerState(existing.MetadataJSON)}, nil
 }
 
 func (c telegramConnector) recordTelegramInboundFinalState(
