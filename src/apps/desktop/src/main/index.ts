@@ -410,8 +410,26 @@ app.whenReady().then(async () => {
   }
 
   mainWindow = createWindow()
+
+  // ensureLocalSidecar 在窗口创建之前完成，当时 sync*ToRenderer 因 mainWindow 为 null 丢弃。
+  // 渲染层 preload 里 sidecarRuntimeSnapshot 仍为初始值，getApiBaseUrl 可能与真实端口/bridge 不一致，
+  // 导致 /v1/me 等请求挂起或失败且界面长期 Loading。dom-ready / did-finish-load 后补发一次。
+  const pushEmbeddedStateToRendererOnce = (() => {
+    let sent = false
+    return (): void => {
+      if (sent) return
+      const win = mainWindow
+      if (!win || win.isDestroyed()) return
+      sent = true
+      syncRuntimeToRenderer(getSidecarRuntime())
+      syncConfigToRenderer(loadConfig())
+      syncBridgeBaseUrlToRenderer(getBridgeBaseUrl())
+    }
+  })()
+  mainWindow.webContents.once('dom-ready', pushEmbeddedStateToRendererOnce)
+  mainWindow.webContents.once('did-finish-load', pushEmbeddedStateToRendererOnce)
+
   loadContent(mainWindow)
-  syncBridgeBaseUrlToRenderer(getBridgeBaseUrl())
 
   createTray(getWindow)
   registerGlobalShortcut(getWindow)

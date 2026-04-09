@@ -132,7 +132,10 @@ function App() {
     window.location.reload()
   }, [])
 
-  if (onboardingDone === null) return null
+  if (onboardingDone === null) {
+    if (isDesktop()) return <LoadingPage label={t.loading} />
+    return null
+  }
   if (onboardingDone === false) return <OnboardingWizard onComplete={handleOnboardingComplete} />
 
   return (
