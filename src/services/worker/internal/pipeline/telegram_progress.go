@@ -534,6 +534,8 @@ func displayToolName(toolName string) string {
 		return "Edit Memory"
 	case "memory_forget":
 		return "Forget Memory"
+	case "arkloop_help":
+		return "Arkloop Help"
 	case "notebook_read":
 		return "Read Notebook"
 	case "notebook_write":
@@ -581,6 +583,8 @@ func toolBrief(toolName, argsJSON string) string {
 		return ""
 	}
 	switch canonicalToolName(toolName) {
+	case "arkloop_help":
+		return truncateBrief(extractStringField(args, "query"))
 	case "memory_search":
 		return truncateBrief(extractStringField(args, "query"))
 	case "web_search":

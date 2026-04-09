@@ -14,6 +14,9 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["artifact_guidelines"]; !ok {
 		t.Fatal("artifact_guidelines should be present without artifact store")
 	}
+	if _, ok := resolved.ToolNameSet()["arkloop_help"]; !ok {
+		t.Fatal("arkloop_help should be present without artifact store")
+	}
 	if _, ok := resolved.ToolNameSet()["show_widget"]; !ok {
 		t.Fatal("show_widget should be present without artifact store")
 	}
@@ -98,6 +101,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	got := resolved.ToolNames()
 	want := []string{
 		"acp_agent",
+		"arkloop_help",
 		"artifact_guidelines",
 		"ask_user",
 		"browser",

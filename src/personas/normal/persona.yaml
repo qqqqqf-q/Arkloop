@@ -10,6 +10,7 @@ core_tools:
     - load_skill
     - timeline_title
     - ask_user
+    - arkloop_help
     - read
     - todo_write
     - web_search
