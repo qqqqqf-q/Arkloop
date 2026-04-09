@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { Search } from 'lucide-react'
 import { useTypewriter } from '../../hooks/useTypewriter'
 
@@ -21,10 +22,11 @@ export function TypewriterText({ text, className, live }: { text: string; classN
 }
 
 export function QueryPill({ text, live }: { text: string; live?: boolean }) {
-  const displayed = useTypewriter(text, !live)
-  const shown = live ? displayed : text
   return (
-    <span
+    <motion.span
+      initial={live ? { opacity: 0, x: -6, scale: 0.98 } : false}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -46,9 +48,9 @@ export function QueryPill({ text, live }: { text: string; live?: boolean }) {
         }}
       >
         <Search size={11} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} />
-        {shown}
+        {text}
       </span>
-    </span>
+    </motion.span>
   )
 }
 

@@ -5,6 +5,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,11 +29,27 @@ func newTestTelegramProgressTracker(t *testing.T) (*TelegramProgressTracker, *fa
 }
 
 type fakeTelegramServer struct {
-	mu           sync.Mutex
-	sendCount    int
-	editCount    int
-	lastSendText string
-	lastEditText string
+	mu             sync.Mutex
+	sendCount      int
+	editCount      int
+	lastSendText   string
+	lastEditText   string
+	sendTexts      []string
+	editTexts      []string
+	sendMessageIDs []int64
+	editMessageIDs []int64
+	onEvent        func(string)
+}
+
+type fakeTelegramSnapshot struct {
+	sendCount      int
+	editCount      int
+	lastSendText   string
+	lastEditText   string
+	sendTexts      []string
+	editTexts      []string
+	sendMessageIDs []int64
+	editMessageIDs []int64
 }
 
 func (f *fakeTelegramServer) handler(w http.ResponseWriter, r *http.Request) {
@@ -45,13 +62,29 @@ func (f *fakeTelegramServer) handler(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/sendMessage") {
 		f.sendCount++
 		f.lastSendText, _ = body["text"].(string)
+		f.sendTexts = append(f.sendTexts, f.lastSendText)
+		messageID := int64(40 + f.sendCount)
+		f.sendMessageIDs = append(f.sendMessageIDs, messageID)
+		if f.onEvent != nil {
+			f.onEvent(fmt.Sprintf("send:%s", f.lastSendText))
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d}}`, messageID)))
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/editMessageText") {
 		f.editCount++
 		f.lastEditText, _ = body["text"].(string)
+		f.editTexts = append(f.editTexts, f.lastEditText)
+		if rawID, ok := body["message_id"].(float64); ok {
+			messageID := int64(rawID)
+			f.editMessageIDs = append(f.editMessageIDs, messageID)
+			if f.onEvent != nil {
+				f.onEvent(fmt.Sprintf("edit:%d:%s", messageID, f.lastEditText))
+			}
+		} else if f.onEvent != nil {
+			f.onEvent(fmt.Sprintf("edit:%s", f.lastEditText))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 		return
@@ -61,9 +94,23 @@ func (f *fakeTelegramServer) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeTelegramServer) stats() (sends, edits int) {
+	snapshot := f.snapshot()
+	return snapshot.sendCount, snapshot.editCount
+}
+
+func (f *fakeTelegramServer) snapshot() fakeTelegramSnapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.sendCount, f.editCount
+	return fakeTelegramSnapshot{
+		sendCount:      f.sendCount,
+		editCount:      f.editCount,
+		lastSendText:   f.lastSendText,
+		lastEditText:   f.lastEditText,
+		sendTexts:      append([]string(nil), f.sendTexts...),
+		editTexts:      append([]string(nil), f.editTexts...),
+		sendMessageIDs: append([]int64(nil), f.sendMessageIDs...),
+		editMessageIDs: append([]int64(nil), f.editMessageIDs...),
+	}
 }
 
 func resetTelegramTrackerThrottle(tracker *TelegramProgressTracker) {
@@ -199,8 +246,8 @@ func TestProgressTracker_MessageDeltaClosesCurrentSegment(t *testing.T) {
 	tracker.OnToolCall(ctx, "call-2", "read_file", `{"path":"/tmp/result.md"}`)
 
 	sends, edits := fake.stats()
-	if sends != 1 || edits < 2 {
-		t.Fatalf("expected one send and at least two edits, got sends=%d edits=%d", sends, edits)
+	if sends != 2 || edits < 1 {
+		t.Fatalf("expected two sends and at least one edit, got sends=%d edits=%d", sends, edits)
 	}
 
 	tracker.mu.Lock()
@@ -208,8 +255,17 @@ func TestProgressTracker_MessageDeltaClosesCurrentSegment(t *testing.T) {
 	if len(tracker.segments) != 1 {
 		t.Fatalf("expected one closed segment, got %d", len(tracker.segments))
 	}
+	if tracker.segments[0].MessageID == 0 {
+		t.Fatal("expected closed segment to keep its message id")
+	}
 	if tracker.current == nil || len(tracker.current.Entries) != 1 {
 		t.Fatalf("expected one new current segment, got %#v", tracker.current)
+	}
+	if tracker.current.MessageID == 0 {
+		t.Fatal("expected new current segment to create a new message")
+	}
+	if tracker.current.MessageID == tracker.segments[0].MessageID {
+		t.Fatalf("expected second segment to use a new telegram message, got same id %d", tracker.current.MessageID)
 	}
 }
 

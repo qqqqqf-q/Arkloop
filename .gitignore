@@ -19,6 +19,9 @@ arkilo-ui-example
 __pycache__/
 *.pyc
 
+# Harbor 本地试炼输出（result.json 等）
+tests/bench/experiments/harbor/trials/
+
 # root-level compiled Go binaries
 /api
 /worker

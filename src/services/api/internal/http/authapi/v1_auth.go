@@ -300,6 +300,8 @@ type meResponse struct {
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
 	WorkEnabled               bool     `json:"work_enabled"`
+	Timezone                  *string  `json:"timezone,omitempty"`
+	AccountTimezone           *string  `json:"account_timezone,omitempty"`
 	CreatedAt                 string   `json:"created_at"`
 	AccountID                 string   `json:"account_id,omitempty"`
 	AccountName               string   `json:"account_name,omitempty"`
@@ -308,11 +310,29 @@ type meResponse struct {
 }
 
 type updateMeRequest struct {
-	Username string `json:"username"`
+	Username *string `json:"username,omitempty"`
+	Timezone *string `json:"timezone,omitempty"`
 }
 
 type updateMeResponse struct {
-	Username string `json:"username"`
+	Username string  `json:"username"`
+	Timezone *string `json:"timezone,omitempty"`
+}
+
+func normalizeResponseTimeZone(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cleaned := strings.TrimSpace(*value)
+	if cleaned == "" {
+		return nil
+	}
+	loc, err := time.LoadLocation(cleaned)
+	if err != nil {
+		return nil
+	}
+	normalized := loc.String()
+	return &normalized
 }
 
 func login(authService *auth.Service, auditWriter *audit.Writer, resolver sharedconfig.Resolver) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -681,42 +701,39 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 
 		switch r.Method {
 		case nethttp.MethodGet:
+			actor, ok := httpkit.AuthenticateActor(w, r, traceID, authService)
+			if !ok {
+				return
+			}
+
 			user, ok := authenticateUser(w, r, traceID, authService)
 			if !ok {
 				return
 			}
 
-			if membershipRepo == nil {
-				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
-				return
-			}
-
-			membership, err := membershipRepo.GetDefaultForUser(r.Context(), user.ID)
-			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if membership == nil {
-				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.no_account_membership", "user has no account membership", traceID, nil)
-				return
-			}
-
 			emailVerifyRequired := false
-		workEnabled := false
-		if flagService != nil {
-			emailVerifyRequired, _ = flagService.IsGloballyEnabled(r.Context(), "auth.require_email_verification")
-			workEnabled = featureflag.IsWorkEnabled(r.Context(), flagService)
-		}
-		resp := meResponse{
-			ID:                        user.ID.String(),
-			Email:                     user.Email,
-			EmailVerified:             user.EmailVerifiedAt != nil,
-			EmailVerificationRequired: emailVerifyRequired,
-			WorkEnabled:               workEnabled,
+			workEnabled := false
+			if flagService != nil {
+				emailVerifyRequired, _ = flagService.IsGloballyEnabled(r.Context(), "auth.require_email_verification")
+				workEnabled = featureflag.IsWorkEnabled(r.Context(), flagService)
+			}
+			resp := meResponse{
+				ID:                        user.ID.String(),
+				Username:                  user.Username,
+				Email:                     user.Email,
+				EmailVerified:             user.EmailVerifiedAt != nil,
+				EmailVerificationRequired: emailVerifyRequired,
+				WorkEnabled:               workEnabled,
 				CreatedAt:                 user.CreatedAt.UTC().Format(time.RFC3339Nano),
-				AccountID:                 membership.AccountID.String(),
-				Role:                      membership.Role,
-				Permissions:               auth.PermissionsForRole(membership.Role),
+				AccountID:                 actor.AccountID.String(),
+				Role:                      actor.AccountRole,
+				Permissions:               actor.Permissions,
+			}
+
+			if usersRepo != nil {
+				if current, err := usersRepo.GetByID(r.Context(), user.ID); err == nil && current != nil {
+					resp.Timezone = normalizeResponseTimeZone(current.Timezone)
+				}
 			}
 
 			if credentialRepo != nil {
@@ -726,8 +743,9 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 			}
 
 			if accountRepo != nil {
-				if account, err := accountRepo.GetByID(r.Context(), membership.AccountID); err == nil && account != nil {
+				if account, err := accountRepo.GetByID(r.Context(), actor.AccountID); err == nil && account != nil {
 					resp.AccountName = account.Name
+					resp.AccountTimezone = normalizeResponseTimeZone(account.Timezone)
 				}
 			}
 
@@ -749,21 +767,67 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
-			body.Username = strings.TrimSpace(body.Username)
-			if !isValidPublicUsername(body.Username) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "username is invalid", traceID, nil)
+			if body.Username == nil && body.Timezone == nil {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 				return
 			}
 
-			updated, err := usersRepo.UpdateProfile(r.Context(), user.ID, data.UpdateProfileParams{
-				Username: body.Username,
-			})
-			if err != nil || updated == nil {
+			current, err := usersRepo.GetByID(r.Context(), user.ID)
+			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
+			if current == nil {
+				httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.user_not_found", "user not found", traceID, nil)
+				return
+			}
 
-			httpkit.WriteJSON(w, traceID, nethttp.StatusOK, updateMeResponse{Username: updated.Username})
+			nextUsername := current.Username
+			if body.Username != nil {
+				trimmed := strings.TrimSpace(*body.Username)
+				if !isValidPublicUsername(trimmed) {
+					httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "username is invalid", traceID, nil)
+					return
+				}
+				nextUsername = trimmed
+			}
+
+			nextTimezone := current.Timezone
+			if body.Timezone != nil {
+				cleaned := strings.TrimSpace(*body.Timezone)
+				if cleaned == "" {
+					nextTimezone = nil
+				} else {
+					loc, loadErr := time.LoadLocation(cleaned)
+					if loadErr != nil {
+						httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "timezone is invalid", traceID, nil)
+						return
+					}
+					normalized := loc.String()
+					nextTimezone = &normalized
+				}
+			}
+
+			updated, err := usersRepo.UpdateProfile(r.Context(), user.ID, data.UpdateProfileParams{
+				Username:        nextUsername,
+				Email:           current.Email,
+				EmailVerifiedAt: current.EmailVerifiedAt,
+				Locale:          current.Locale,
+				Timezone:        nextTimezone,
+			})
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
+			if updated == nil {
+				httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.user_not_found", "user not found", traceID, nil)
+				return
+			}
+
+			httpkit.WriteJSON(w, traceID, nethttp.StatusOK, updateMeResponse{
+				Username: updated.Username,
+				Timezone: normalizeResponseTimeZone(updated.Timezone),
+			})
 
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)

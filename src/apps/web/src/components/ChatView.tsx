@@ -12,6 +12,7 @@ import {
 } from './CopTimeline'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { recordPerfCount, recordPerfValue } from '../perfDebug'
+import { noteShowWidgetStatus } from '../streamDebug'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactStreamBlock, type StreamingArtifactEntry } from './ArtifactStreamBlock'
 import { WidgetBlock } from './WidgetBlock'
@@ -240,6 +241,7 @@ type LiveRunPaneProps = {
   onOpenDocument: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onOpenCodeExecution: (ce: CodeExecution) => void
   onArtifactAction: ComponentProps<typeof WidgetBlock>['onAction']
+  renderLiveCopItems: (seg: CopSegment, si: number) => React.ReactNode[]
   renderLiveCopSegment: (seg: CopSegment, si: number, key?: string) => React.ReactNode
   bottomRef: React.RefObject<HTMLDivElement | null>
   messages: MessageResponse[]
@@ -289,31 +291,32 @@ const LiveRunPane = memo(function LiveRunPane({
   onOpenDocument,
   onOpenCodeExecution,
   onArtifactAction,
+  renderLiveCopItems,
   renderLiveCopSegment,
   bottomRef,
   messages,
 }: LiveRunPaneProps) {
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {(showPendingThinkingShell || liveSegments.length > 0) && (
         <div data-testid={preserveLiveRunUi ? 'current-run-handoff' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
           {(showPendingThinkingShell || leadingLiveCop) && (
-            <Fragment>
+            <Fragment key="cop-leading">
               {leadingLiveCop
-                ? renderLiveCopSegment(leadingLiveCop, 0, 'cop-leading')
-                : (
-                  <CopTimeline
-                    key="cop-leading-inner"
-                    steps={[]}
-                    sources={[]}
-                    isComplete={false}
-                    live
-                    shimmer
-                    thinkingHint={thinkingHint}
-                    accessToken={accessToken}
-                    baseUrl={baseUrl}
-                  />
-                )}
+                ? renderLiveCopItems(leadingLiveCop, 0)
+                : [
+                    <CopTimeline
+                      key="cop-leading-inner"
+                      steps={[]}
+                      sources={[]}
+                      isComplete={false}
+                      live
+                      shimmer
+                      thinkingHint={thinkingHint}
+                      accessToken={accessToken}
+                      baseUrl={baseUrl}
+                    />,
+                  ]}
             </Fragment>
           )}
           {trailingLiveSegments.map((seg, idx) => {
@@ -375,6 +378,7 @@ const LiveRunPane = memo(function LiveRunPane({
           title={entry.title ?? 'Widget'}
           complete={entry.complete}
           loadingMessages={entry.loadingMessages}
+          compact
           onAction={onArtifactAction}
         />
       ))}
@@ -384,6 +388,7 @@ const LiveRunPane = memo(function LiveRunPane({
           key={`streaming-artifact-${entry.toolCallIndex}`}
           entry={entry}
           accessToken={accessToken}
+          compact
           onAction={onArtifactAction}
         />
       ))}
@@ -455,7 +460,7 @@ const LiveRunPane = memo(function LiveRunPane({
         />
       )}
       <div ref={bottomRef} />
-    </>
+    </div>
   )
 })
 
@@ -725,7 +730,12 @@ export function ChatView() {
   const liveRunUiVisible = isStreaming || preserveLiveRunUi
   const liveRunUiActive =
     isStreaming ||
-    (preserveLiveRunUi && terminalRunHandoffStatus !== 'cancelled' && terminalRunHandoffStatus !== 'failed')
+    (
+      preserveLiveRunUi &&
+      terminalRunHandoffStatus !== 'completed' &&
+      terminalRunHandoffStatus !== 'cancelled' &&
+      terminalRunHandoffStatus !== 'failed'
+    )
   const showPendingThinkingShell =
     pendingThinking &&
     !liveTurnHasThinkingSegment(liveAssistantTurn) &&
@@ -739,7 +749,6 @@ export function ChatView() {
     inputAreaRef,
     forceInstantBottomScrollRef,
     isAtBottomRef,
-    programmaticScrollDepthRef,
     handleScrollContainerScroll,
     stabilizeDocumentPanelScroll,
     scrollToBottom,
@@ -753,14 +762,11 @@ export function ChatView() {
     topLevelCodeExecutionsLength: topLevelCodeExecutions.length,
   })
 
-  const { resetAssistantTurnLive } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef })
+  const { resetAssistantTurnLive } = useRunTransition()
 
   useThreadSseEffect({
     restoreQueuedDraftToInput,
     clearQueuedDraft,
-    forceInstantBottomScrollRef,
-    lastUserMsgRef,
-    programmaticScrollDepthRef,
   })
 
   const prevActiveRunIdRef = useRef<string | null>(null)
@@ -1372,19 +1378,20 @@ export function ChatView() {
             i === idx ? { ...m, content: text, content_json: replacedContentJson ?? m.content_json } : m,
           )
         })
+        activateAnchor()
         const run = await editMessage(accessToken, threadId, replaceMessageId, text, replacedContentJson)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
         noResponseMsgIdRef.current = replaceMessageId
         resetSearchSteps()
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
-        activateAnchor()
       } else {
         const uploaded = await uploadAttachments()
         const message = await createMessage(accessToken, threadId, buildMessageRequest(text, uploaded))
         invalidateMessageSync()
         setUserEnterMessageId(message.id)
         setMessages((prev) => [...prev, message])
+        activateAnchor()
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         chatInputRef.current?.clear()
         setAttachments([])
@@ -1396,7 +1403,6 @@ export function ChatView() {
         resetSearchSteps()
         setActiveRunId(run.run_id)
         onRunStarted(threadId)
-        activateAnchor()
       }
     } catch (err) {
       setPendingThinking(false)
@@ -1616,6 +1622,47 @@ export function ChatView() {
     () => streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))),
     [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
+  const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
+    streamingArtifacts
+      .filter((entry) => entry.toolName === 'show_widget')
+      .map((entry) => ({
+        toolCallId: entry.toolCallId ?? null,
+        toolCallIndex: entry.toolCallIndex,
+        contentLength: entry.content?.length ?? 0,
+        loadingMessagesCount: entry.loadingMessages?.length ?? 0,
+        complete: entry.complete,
+        hiddenByCop: !!(entry.toolCallId && livePlacedShowWidgetCallIds.has(entry.toolCallId)),
+        visible: visibleStreamingWidgets.some((visible) => visible.toolCallIndex === entry.toolCallIndex),
+      })),
+  ), [livePlacedShowWidgetCallIds, streamingArtifacts, visibleStreamingWidgets])
+  const lastVisibleStreamingWidgetsSignatureRef = useRef('')
+  useEffect(() => {
+    if (visibleStreamingWidgetsSignature === lastVisibleStreamingWidgetsSignatureRef.current) return
+    lastVisibleStreamingWidgetsSignatureRef.current = visibleStreamingWidgetsSignature
+    let entries: Array<{
+      toolCallId: string | null
+      toolCallIndex: number
+      contentLength: number
+      complete: boolean
+      visible: boolean
+    }> = []
+    try {
+      entries = JSON.parse(visibleStreamingWidgetsSignature)
+    } catch {
+      entries = []
+    }
+    if (!activeRunId) return
+    for (const entry of entries) {
+      noteShowWidgetStatus({
+        runId: activeRunId,
+        toolCallId: entry.toolCallId ?? '',
+        toolCallIndex: entry.toolCallIndex,
+        contentLength: entry.contentLength,
+        visible: entry.visible,
+        complete: entry.complete,
+      })
+    }
+  }, [activeRunId, visibleStreamingWidgetsSignature])
 
   const copTimelineStreamHiddenIds = useMemo(() => {
     if (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) return new Set<string>()
@@ -1721,13 +1768,15 @@ export function ChatView() {
     />
   ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, appMode, isSearchThread, hasMessages, threadId, accessToken, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings])
 
-  const renderLiveCopSegment = (
+  const renderLiveCopItems = (
     seg: Extract<AssistantTurnSegment, { type: 'cop' }>,
     si: number,
-    key?: string,
-  ) => {
+  ): React.ReactNode[] => {
     const lastSegIdx = liveSegments.length - 1
-    const preservingHandoffSegments = preserveLiveRunUi && !isStreaming
+    const preservingHandoffSegments =
+      preserveLiveRunUi &&
+      !isStreaming &&
+      terminalRunHandoffStatus !== 'completed'
     const copClosedByFollowingSeg = si < lastSegIdx
     const copTimelineLive = liveRunUiActive && !copClosedByFollowingSeg
     const copTimelineComplete = !copTimelineLive
@@ -1762,7 +1811,7 @@ export function ChatView() {
       liveWidgets.length === 0 &&
       liveArts.length === 0
     ) {
-      return null
+      return []
     }
     const timelineTitleOverride =
       preservingHandoffSegments
@@ -1781,49 +1830,68 @@ export function ChatView() {
     const trailSeg = si + 1 <= lastSegIdx ? liveSegments[si + 1] : undefined
     const trailingAssistantTextPresent =
       trailSeg?.type === 'text' && trailSeg.content.length > 0
+    return [
+      <CopTimeline
+        key={si === 0 ? 'cop-leading-inner' : `live-cop-inner-${si}`}
+        steps={payload.steps}
+        sources={payload.sources}
+        isComplete={copTimelineComplete}
+        codeExecutions={payload.codeExecutions}
+        onOpenCodeExecution={openCodePanel}
+        activeCodeExecutionId={codePanelExecution?.id}
+        subAgents={payload.subAgents}
+        fileOps={payload.fileOps}
+        webFetches={payload.webFetches}
+        genericTools={payload.genericTools}
+        headerOverride={timelineTitleOverride}
+        thinkingRows={thinkingRowsLive.length > 0 ? thinkingRowsLive : undefined}
+        copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}
+        shimmer={copTimelineLive}
+        live={copTimelineLive}
+        preserveExpanded={preservingHandoffSegments}
+        trailingAssistantTextPresent={trailingAssistantTextPresent}
+        thinkingHint={thinkingHint}
+        accessToken={accessToken}
+        baseUrl={baseUrl}
+      />,
+      ...liveWidgets.map((entry) => (
+        <WidgetBlock
+          key={`live-w-${entry.toolCallId ?? entry.toolCallIndex}`}
+          html={entry.content ?? ''}
+          title={entry.title ?? 'Widget'}
+          complete={entry.complete}
+          loadingMessages={entry.loadingMessages}
+          compact
+          debugMeta={activeRunId ? {
+            runId: activeRunId,
+            toolCallId: entry.toolCallId,
+            toolCallIndex: entry.toolCallIndex,
+          } : undefined}
+          onAction={handleArtifactAction}
+        />
+      )),
+      ...liveArts.map((entry) => (
+        <ArtifactStreamBlock
+          key={`live-art-${entry.toolCallId ?? entry.toolCallIndex}`}
+          entry={entry}
+          accessToken={accessToken}
+          compact
+          onAction={handleArtifactAction}
+        />
+      )),
+    ]
+  }
+
+  const renderLiveCopSegment = (
+    seg: Extract<AssistantTurnSegment, { type: 'cop' }>,
+    si: number,
+    key?: string,
+  ) => {
+    const items = renderLiveCopItems(seg, si)
+    if (items.length === 0) return null
     return (
       <Fragment key={key ?? `live-cop-${si}`}>
-        <CopTimeline
-          key={si === 0 ? 'cop-leading-inner' : undefined}
-          steps={payload.steps}
-          sources={payload.sources}
-          isComplete={copTimelineComplete}
-          codeExecutions={payload.codeExecutions}
-          onOpenCodeExecution={openCodePanel}
-          activeCodeExecutionId={codePanelExecution?.id}
-          subAgents={payload.subAgents}
-          fileOps={payload.fileOps}
-          webFetches={payload.webFetches}
-          genericTools={payload.genericTools}
-          headerOverride={timelineTitleOverride}
-          thinkingRows={thinkingRowsLive.length > 0 ? thinkingRowsLive : undefined}
-          copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}
-          shimmer={copTimelineLive}
-          live={copTimelineLive}
-          preserveExpanded={preservingHandoffSegments}
-          trailingAssistantTextPresent={trailingAssistantTextPresent}
-          thinkingHint={thinkingHint}
-          accessToken={accessToken}
-          baseUrl={baseUrl}
-        />
-        {liveWidgets.map((entry) => (
-          <WidgetBlock
-            key={`live-w-${entry.toolCallId ?? entry.toolCallIndex}`}
-            html={entry.content ?? ''}
-            title={entry.title ?? 'Widget'}
-            complete={entry.complete}
-            loadingMessages={entry.loadingMessages}
-            onAction={handleArtifactAction}
-          />
-        ))}
-        {liveArts.map((entry) => (
-          <ArtifactStreamBlock
-            key={`live-art-${entry.toolCallId ?? entry.toolCallIndex}`}
-            entry={entry}
-            accessToken={accessToken}
-            onAction={handleArtifactAction}
-          />
-        ))}
+        {items}
       </Fragment>
     )
   }
@@ -1911,6 +1979,7 @@ export function ChatView() {
                     onOpenDocument={openDocumentPanel}
                     onOpenCodeExecution={openCodePanel}
                     onArtifactAction={handleArtifactAction}
+                    renderLiveCopItems={renderLiveCopItems}
                     renderLiveCopSegment={renderLiveCopSegment}
                     bottomRef={bottomRef}
                     messages={messages}

@@ -22,7 +22,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { getDesktopApi } from '@arkloop/shared/desktop'
-import { Modal, PillToggle, TabBar, useToast } from '@arkloop/shared'
+import { Modal, PillToggle, TabBar, formatDateTime, useTimeZone, useToast } from '@arkloop/shared'
 import type {
   DesktopAdvancedOverview,
   DesktopExportSection,
@@ -95,6 +95,28 @@ function primaryBtnCls(disabled?: boolean) {
     'transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]',
     disabled ? 'cursor-not-allowed opacity-50' : '',
   ].join(' ')
+}
+
+function getDateStringInTimeZone(value: string | Date, timeZone: string): string {
+  return formatDateTime(value, { timeZone, includeZone: false }).slice(0, 10)
+}
+
+function shiftDateString(date: string, deltaDays: number): string {
+  const current = new Date(`${date}T00:00:00Z`)
+  current.setUTCDate(current.getUTCDate() + deltaDays)
+  return current.toISOString().slice(0, 10)
+}
+
+function shiftDateStringYears(date: string, deltaYears: number): string {
+  const current = new Date(`${date}T00:00:00Z`)
+  current.setUTCFullYear(current.getUTCFullYear() + deltaYears)
+  return current.toISOString().slice(0, 10)
+}
+
+function getWeekdayInTimeZone(value: string | Date, timeZone: string): number {
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(new Date(value))
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  return map[weekday] ?? 0
 }
 
 // -- Shared small components --
@@ -402,6 +424,7 @@ function UsagePane({
   defaultMonth: number
 }) {
   const { t } = useLocale()
+  const { timeZone } = useTimeZone()
   const ds = t.desktopSettings
   const [usage, setUsage] = useState<UsageState>({ summary: null, daily: [], hourly: [], byModel: [] })
   const [loading, setLoading] = useState(false)
@@ -422,8 +445,9 @@ function UsagePane({
     setError('')
     try {
       const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
-      const nextMonth = new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1))
-      const monthEnd = nextMonth.toISOString().slice(0, 10)
+      const nextMonthYear = month === 12 ? year + 1 : year
+      const nextMonthValue = month === 12 ? 1 : month + 1
+      const monthEnd = `${nextMonthYear}-${String(nextMonthValue).padStart(2, '0')}-01`
       const [summary, daily, hourly, byModel] = await Promise.all([
         getMyUsage(accessToken, year, month),
         getMyDailyUsage(accessToken, monthStart, monthEnd),
@@ -442,16 +466,12 @@ function UsagePane({
 
   // heatmap: past 365 days, independent of year/month selection
   useEffect(() => {
-    const today = new Date()
-    const todayStr = today.toISOString().slice(0, 10)
-    const oneYearAgo = new Date(today)
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-    oneYearAgo.setDate(oneYearAgo.getDate() + 1)
-    const startStr = oneYearAgo.toISOString().slice(0, 10)
+    const todayStr = getDateStringInTimeZone(new Date(), timeZone)
+    const startStr = shiftDateString(shiftDateStringYears(todayStr, -1), 1)
     void getMyDailyUsage(accessToken, startStr, todayStr)
       .then(setHeatmapData)
       .catch(() => {})
-  }, [accessToken])
+  }, [accessToken, timeZone])
 
   // build heatmap grid: 53 columns x 7 rows
   const heatmap = useMemo(() => {
@@ -462,27 +482,24 @@ function UsagePane({
       tokenMap.set(d.date, tokens)
       totalTokens += tokens
     }
-    const today = new Date()
+    const today = getDateStringInTimeZone(new Date(), timeZone)
     // end of current week (Saturday)
-    const endDay = new Date(today)
-    const dayOfWeek = endDay.getDay() // 0=Sun
-    endDay.setDate(endDay.getDate() + (6 - dayOfWeek))
+    const dayOfWeek = getWeekdayInTimeZone(new Date(), timeZone)
+    const endDay = shiftDateString(today, 6 - dayOfWeek)
     // start: 52 weeks before the start of the week containing today
-    const startDay = new Date(endDay)
-    startDay.setDate(startDay.getDate() - 52 * 7 - 6)
+    const startDay = shiftDateString(endDay, -52 * 7 - 6)
 
     const weeks: Array<Array<{ date: string; value: number; inRange: boolean }>> = []
     let maxVal = 0
-    const cursor = new Date(startDay)
+    let cursor = startDay
     while (cursor <= endDay) {
       const week: Array<{ date: string; value: number; inRange: boolean }> = []
       for (let d = 0; d < 7; d++) {
-        const ds = cursor.toISOString().slice(0, 10)
-        const val = tokenMap.get(ds) ?? 0
+        const val = tokenMap.get(cursor) ?? 0
         const inRange = cursor <= today
-        week.push({ date: ds, value: val, inRange })
+        week.push({ date: cursor, value: val, inRange })
         if (val > maxVal) maxVal = val
-        cursor.setDate(cursor.getDate() + 1)
+        cursor = shiftDateString(cursor, 1)
       }
       weeks.push(week)
     }
@@ -494,7 +511,7 @@ function UsagePane({
     for (let w = 0; w < weeks.length; w++) {
       for (const cell of weeks[w]) {
         if (cell.date.endsWith('-01')) {
-          const m = new Date(cell.date).getMonth()
+          const m = Number(cell.date.slice(5, 7)) - 1
           firstOfMonthCols.push({ m, col: w })
         }
       }
@@ -514,7 +531,7 @@ function UsagePane({
     }
 
     return { weeks, maxVal, monthLabels, totalTokens }
-  }, [heatmapData])
+  }, [heatmapData, timeZone])
 
   function heatColor(value: number, max: number): string {
     if (value === 0 || max === 0) return 'var(--c-bg-deep)'
@@ -875,8 +892,7 @@ function UsagePane({
           {(chartTab === 'spend' || chartTab === 'trend') && (() => {
             const items = trendGranularity === 'hourly'
               ? usage.hourly.map((h) => {
-                  const d = new Date(h.hour)
-                  const label = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:00`
+                  const label = formatDateTime(h.hour, { timeZone, includeZone: false }).slice(5, 16)
                   return { label, input_tokens: h.input_tokens, output_tokens: h.output_tokens }
                 })
               : usage.daily.map((d) => ({ label: d.date, input_tokens: d.input_tokens, output_tokens: d.output_tokens }))
@@ -1294,11 +1310,12 @@ function LogsPane() {
 
 export function AdvancedSettings({ accessToken }: Props) {
   const { t } = useLocale()
+  const { timeZone } = useTimeZone()
   const ds = t.desktopSettings
   const api = getDesktopApi()
-  const now = useMemo(() => new Date(), [])
-  const defaultYear = now.getUTCFullYear()
-  const defaultMonth = now.getUTCMonth() + 1
+  const now = useMemo(() => getDateStringInTimeZone(new Date(), timeZone), [timeZone])
+  const defaultYear = Number(now.slice(0, 4))
+  const defaultMonth = Number(now.slice(5, 7))
 
   const [activeKey, setActiveKey] = useState<AdvancedKey>('about')
   const [overview, setOverview] = useState<DesktopAdvancedOverview | null>(null)

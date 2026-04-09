@@ -131,7 +131,7 @@ func TestCompressResult_NestedMap(t *testing.T) {
 }
 
 func TestShouldBypassResultCompression_GenerativeUIBootstrapTools(t *testing.T) {
-	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines"} {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "arkloop_help"} {
 		if !ShouldBypassResultCompression(toolName) {
 			t.Fatalf("expected compression bypass for %s", toolName)
 		}

@@ -255,7 +255,7 @@ func (e *Executor) executeMessageAttachment(
 				"bytes":          len(image.Bytes),
 			},
 			ContentParts: []tools.ContentAttachment{
-				{MimeType: image.MimeType, Data: image.Bytes},
+				{MimeType: image.MimeType, Data: image.Bytes, AttachmentKey: parsed.Source.AttachmentKey},
 			},
 			DurationMs: durationMs(started),
 		}
@@ -283,6 +283,9 @@ func (e *Executor) executeMessageAttachment(
 			"attachment_key": parsed.Source.AttachmentKey,
 			"mime_type":      image.MimeType,
 			"bytes":          len(image.Bytes),
+		},
+		ContentParts: []tools.ContentAttachment{
+			{MimeType: image.MimeType, Data: image.Bytes, AttachmentKey: parsed.Source.AttachmentKey},
 		},
 		DurationMs: durationMs(started),
 	}

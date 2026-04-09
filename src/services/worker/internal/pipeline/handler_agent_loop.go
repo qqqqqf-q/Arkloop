@@ -266,6 +266,12 @@ type intermediateMessage struct {
 	ToolCallID  string // tool result only
 }
 
+type pendingTelegramProgressToolCall struct {
+	CallID   string
+	ToolName string
+	ArgsJSON string
+}
+
 func newEventWriter(
 	pool *pgxpool.Pool,
 	run data.Run,
@@ -359,6 +365,23 @@ func (w *eventWriter) telegramUnsentOutputs() []string {
 		}
 	}
 	return out
+}
+
+func (w *eventWriter) flushTelegramBoundaryAndProgress(
+	ctx context.Context,
+	flushChunk string,
+	progressCall *pendingTelegramProgressToolCall,
+) error {
+	if flushChunk != "" && w.telegramToolBoundaryFlush != nil {
+		if err := w.telegramToolBoundaryFlush(ctx, flushChunk); err != nil {
+			return err
+		}
+		w.telegramSentOutputCount = len(w.assistantOutputs)
+	}
+	if progressCall != nil && w.telegramProgressTracker != nil {
+		w.telegramProgressTracker.OnToolCall(ctx, progressCall.CallID, progressCall.ToolName, progressCall.ArgsJSON)
+	}
+	return nil
 }
 
 func (w *eventWriter) insertStreamRemainder(
@@ -486,6 +509,7 @@ func (w *eventWriter) Append(
 		w.assistantMessageFresh = true
 	}
 	flushChunk := ""
+	var pendingProgressCall *pendingTelegramProgressToolCall
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
 		flushChunk = w.pendingTelegramFlushChunk()
@@ -515,7 +539,11 @@ func (w *eventWriter) Append(
 			toolName, _ := ev.DataJSON["tool_name"].(string)
 			toolName = llm.CanonicalToolName(toolName)
 			argsRaw, _ := json.Marshal(ev.DataJSON["arguments"])
-			w.telegramProgressTracker.OnToolCall(ctx, callID, toolName, string(argsRaw))
+			pendingProgressCall = &pendingTelegramProgressToolCall{
+				CallID:   callID,
+				ToolName: toolName,
+				ArgsJSON: string(argsRaw),
+			}
 		}
 	}
 	if ev.Type == "llm.request" {
@@ -602,11 +630,8 @@ func (w *eventWriter) Append(
 		if err := w.commit(ctx); err != nil {
 			return err
 		}
-		if flushChunk != "" && w.telegramToolBoundaryFlush != nil {
-			if err := w.telegramToolBoundaryFlush(ctx, flushChunk); err != nil {
-				return err
-			}
-			w.telegramSentOutputCount = len(w.assistantOutputs)
+		if err := w.flushTelegramBoundaryAndProgress(ctx, flushChunk, pendingProgressCall); err != nil {
+			return err
 		}
 		return nil
 	}

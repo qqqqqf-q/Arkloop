@@ -33,11 +33,8 @@ class ArkloopCliAgent(BaseAgent):
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
         cli_binary = self._required_env("ARKLOOP_CLI_BINARY", must_be_file=True)
-        host = self._required_env("ARKLOOP_HOST")
-        token = self._required_env("ARKLOOP_TOKEN")
         model = self._resolve_model()
         persona = self._required_env("ARKLOOP_PERSONA")
-        host = self._normalize_host_for_local_cli(host)
 
         workspace_dir = self.logs_dir / "workspace"
         if workspace_dir.exists():
@@ -68,15 +65,10 @@ class ArkloopCliAgent(BaseAgent):
             model,
         ]
 
+        # Host/token 由 CLI 自行从 ~/.arkloop（及 Desktop 写入的 desktop.token 等）解析，不在此注入。
         env = os.environ.copy()
-        env.update(
-            {
-                "ARKLOOP_HOST": host,
-                "ARKLOOP_TOKEN": token,
-                "ARKLOOP_MODEL": model,
-                "ARKLOOP_PERSONA": persona,
-            }
-        )
+        for key in ("ARKLOOP_HOST", "ARKLOOP_TOKEN"):
+            env.pop(key, None)
 
         process = await asyncio.create_subprocess_exec(
             *args,
@@ -167,11 +159,6 @@ class ArkloopCliAgent(BaseAgent):
             f"- Any files you create there will be synchronized back to container `/app` after the run.\n\n"
         )
         return bridge_note + instruction.replace("/app", workspace)
-
-    def _normalize_host_for_local_cli(self, host: str) -> str:
-        if "host.docker.internal" not in host:
-            return host
-        return host.replace("host.docker.internal", "127.0.0.1")
 
     async def _sync_workspace_to_environment(
         self,

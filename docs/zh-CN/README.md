@@ -85,6 +85,9 @@ bin/ci-local full          # 完整检查
 
 报告安全漏洞请发送邮件至 qingf622@outlook.com，而非公开 Issue。详情见 [SECURITY.md](../../SECURITY.md)。
 
+## 碎碎念
+> 咦?你问我为什么用.cn域名?其实我也不想,很早以为我会用.io 域名的,没想到经费不足,暂时搁浅
+
 ## 许可证
 
 基于 [Arkloop License](../../LICENSE)（修改版 Apache License 2.0），附加条件：

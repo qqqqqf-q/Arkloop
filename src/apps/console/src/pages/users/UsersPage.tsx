@@ -10,6 +10,7 @@ import {
   Pencil,
   Trash2,
 } from 'lucide-react'
+import { formatDateTime } from '@arkloop/shared'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { EmptyState } from '../../components/EmptyState'
@@ -675,12 +676,12 @@ function UserRow({
         </td>
         <td className={tdCls}>
           <span className="tabular-nums text-xs">
-            {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : '--'}
+            {user.last_login_at ? formatDateTime(user.last_login_at, { includeZone: false }) : '--'}
           </span>
         </td>
         <td className={tdCls}>
           <span className="tabular-nums text-xs">
-            {new Date(user.created_at).toLocaleString()}
+            {formatDateTime(user.created_at, { includeZone: false })}
           </span>
         </td>
         <td className={tdCls}>
@@ -727,7 +728,7 @@ function UserRow({
                         label={tc.detailEmailVerified}
                         value={
                           renderDetail.email_verified_at
-                            ? new Date(renderDetail.email_verified_at).toLocaleString()
+                            ? formatDateTime(renderDetail.email_verified_at, { includeZone: false })
                             : tc.detailEmailNotVerified
                         }
                       />

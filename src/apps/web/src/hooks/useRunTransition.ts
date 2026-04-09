@@ -4,7 +4,7 @@ import { useRunLifecycle } from '../contexts/run-lifecycle'
 import { useMessageMeta } from '../contexts/message-meta'
 import { useStream } from '../contexts/stream'
 import { createEmptyAssistantTurnFoldState, snapshotAssistantTurn, type AssistantTurnUi } from '../assistantTurnSegments'
-import { collectCompletedWidgets, mergeVisibleSegmentsIntoAssistantTurn } from '../lib/chat-helpers'
+import { collectCompletedWidgets } from '../lib/chat-helpers'
 import { clearThreadRunHandoff, type ArtifactRef, type BrowserActionRef, type CodeExecutionRef, type FileOpRef, type MessageSearchStepRef, type MessageTerminalStatusRef, type MsgRunEvent, type SubAgentRef, type WebFetchRef, type WebSource, type WidgetRef } from '../storage'
 
 export type TerminalRunCache = {
@@ -28,13 +28,7 @@ type PersistRunDataOptions = {
   cacheAssistantTurn?: boolean
 }
 
-type UseRunTransitionDeps = {
-  forceInstantBottomScrollRef: React.RefObject<boolean>
-  lastUserMsgRef: React.RefObject<HTMLDivElement | null>
-  programmaticScrollDepthRef: React.MutableRefObject<number>
-}
-
-export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef }: UseRunTransitionDeps) {
+export function useRunTransition() {
   const { threadId } = useChatSession()
   const {
     setTerminalRunDisplayId,
@@ -70,7 +64,6 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, 
     setTopLevelWebFetches,
     streamingArtifactsRef,
     setStreamingArtifacts,
-    segmentsRef,
     resetSearchSteps,
   } = useStream()
 
@@ -123,12 +116,6 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, 
   ])
 
   const releaseCompletedHandoffToHistory = useCallback(() => {
-    forceInstantBottomScrollRef.current = true
-    programmaticScrollDepthRef.current++
-    lastUserMsgRef.current?.scrollIntoView({ behavior: 'instant', block: 'start' })
-    requestAnimationFrame(() => {
-      programmaticScrollDepthRef.current--
-    })
     assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
     setPreserveLiveRunUi(false)
     setLiveAssistantTurn(null)
@@ -146,9 +133,6 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, 
     activeSegmentIdRef,
     assistantTurnFoldStateRef,
     clearLiveRunTransientState,
-    forceInstantBottomScrollRef,
-    lastUserMsgRef,
-    programmaticScrollDepthRef,
     setLiveAssistantTurn,
     setPendingThinking,
     setPreserveLiveRunUi,
@@ -162,10 +146,7 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, 
   ])
 
   const captureTerminalRunCache = useCallback((terminalStatus?: MessageTerminalStatusRef | null): TerminalRunCache => {
-    const handoffAssistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
-      snapshotAssistantTurn(assistantTurnFoldStateRef.current),
-      segmentsRef.current,
-    )
+    const handoffAssistantTurn = snapshotAssistantTurn(assistantTurnFoldStateRef.current)
     return {
       runSources: [...currentRunSourcesRef.current],
       runArtifacts: [...currentRunArtifactsRef.current],
@@ -190,7 +171,6 @@ export function useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, 
     currentRunSubAgentsRef,
     currentRunWebFetchesRef,
     pendingSearchStepsRef,
-    segmentsRef,
     streamingArtifactsRef,
     terminalRunHandoffStatus,
   ])

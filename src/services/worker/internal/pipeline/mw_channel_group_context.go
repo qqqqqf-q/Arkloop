@@ -612,12 +612,8 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 
 	budget := maxTokens - snapshotTokens
 	if budget <= 0 {
-		// snapshot 本身就超预算，只保留 snapshot
-		if hasSnapshot {
-			rc.Messages = msgs[:1]
-			if alignedIDs {
-				rc.ThreadMessageIDs = ids[:1]
-			}
+		if hasSnapshot && keepLatestRealMessageWithoutSnapshot(rc, msgs, ids, alignedIDs, maxTokens) {
+			return
 		}
 		return
 	}
@@ -635,13 +631,24 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 	}
 
 	start = ensureToolPairIntegrity(realMsgs, start)
+	if len(realMsgs) > 0 && start >= len(realMsgs) {
+		start = len(realMsgs) - 1
+	}
 
 	if start <= 0 && !hasSnapshot {
 		return
 	}
 
 	if hasSnapshot {
+		if len(realMsgs) > 0 && start >= len(realMsgs) {
+			if keepLatestRealMessageWithoutSnapshot(rc, msgs, ids, alignedIDs, maxTokens) {
+				return
+			}
+		}
 		kept := realMsgs[start:]
+		if len(kept) == 0 && keepLatestRealMessageWithoutSnapshot(rc, msgs, ids, alignedIDs, maxTokens) {
+			return
+		}
 		rc.Messages = make([]llm.Message, 0, 1+len(kept))
 		rc.Messages = append(rc.Messages, msgs[0])
 		rc.Messages = append(rc.Messages, kept...)
@@ -660,6 +667,44 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 			rc.ThreadMessageIDs = ids[start:]
 		}
 	}
+}
+
+func keepLatestRealMessageWithoutSnapshot(rc *RunContext, msgs []llm.Message, ids []uuid.UUID, alignedIDs bool, maxTokens int) bool {
+	if len(msgs) == 0 {
+		return false
+	}
+	realMsgs := msgs
+	realIDs := ids
+	if rc.HasActiveCompactSnapshot && alignedIDs && len(ids) == len(msgs) && ids[0] == uuid.Nil {
+		if len(msgs) <= 1 {
+			return false
+		}
+		realMsgs = msgs[1:]
+		realIDs = ids[1:]
+	}
+	if len(realMsgs) == 0 {
+		return false
+	}
+
+	total := 0
+	start := len(realMsgs)
+	for i := len(realMsgs) - 1; i >= 0; i-- {
+		t := messageTokens(&realMsgs[i])
+		if total+t > maxTokens && i < len(realMsgs)-1 {
+			break
+		}
+		total += t
+		start = i
+	}
+	start = ensureToolPairIntegrity(realMsgs, start)
+	if start >= len(realMsgs) {
+		start = len(realMsgs) - 1
+	}
+	rc.Messages = append([]llm.Message(nil), realMsgs[start:]...)
+	if alignedIDs {
+		rc.ThreadMessageIDs = append([]uuid.UUID(nil), realIDs[start:]...)
+	}
+	return true
 }
 
 // messageTokens 估算单条在历史截断里的权重，顺序：

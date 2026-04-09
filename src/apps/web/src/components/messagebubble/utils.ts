@@ -1,44 +1,21 @@
 import type { ArtifactRef } from '../../storage'
+import { formatDateTime, formatMonthDay, getActiveTimeZone, isSameCalendarDay } from '@arkloop/shared'
 
 export function isDocumentArtifact(artifact: ArtifactRef): boolean {
   if (artifact.display === 'panel') return true
   return !artifact.mime_type.startsWith('image/') && artifact.mime_type !== 'text/html'
 }
 
-function parseDate(dateStr: string): Date {
-  if (dateStr.includes('T') || dateStr.includes('Z') || dateStr.includes('+'))
-    return new Date(dateStr)
-  return new Date(dateStr.replace(' ', 'T') + 'Z')
-}
-
 export function formatShortDate(dateStr: string): string {
-  const d = parseDate(dateStr)
-  const now = new Date()
-  const isSameDay =
-    d.getFullYear() === now.getFullYear()
-    && d.getMonth() === now.getMonth()
-    && d.getDate() === now.getDate()
-  if (isSameDay) {
-    return d.toLocaleString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    }).replace(/\s/g, '')
+  const timeZone = getActiveTimeZone()
+  if (isSameCalendarDay(dateStr, new Date(), timeZone)) {
+    return formatDateTime(dateStr, { timeZone, includeDate: false, includeZone: false })
   }
-  const month = d.toLocaleString('en-US', { month: 'short' })
-  return `${month}. ${d.getDate()}`
+  return formatMonthDay(dateStr, timeZone)
 }
 
 export function formatFullDate(dateStr: string): string {
-  const d = parseDate(dateStr)
-  return d.toLocaleString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+  return formatDateTime(dateStr, { includeSeconds: true, includeZone: false })
 }
 
 export function isArtifactReferenced(content: string, key: string): boolean {

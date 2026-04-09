@@ -86,8 +86,9 @@ func (e ExecutionError) ToJSON() map[string]any {
 
 // ContentAttachment 承载工具返回的多模态附件（如图片），由 agent loop 注入 tool result message。
 type ContentAttachment struct {
-	MimeType string
-	Data     []byte
+	MimeType      string
+	Data          []byte
+	AttachmentKey string
 }
 
 type ExecutionResult struct {

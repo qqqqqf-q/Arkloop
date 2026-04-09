@@ -226,9 +226,25 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.paused" || snapshot.LastEventType == "run.cancel_requested" {
 			continue
 		}
-		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
-			"source": "desktop_recovery",
-		}, nil); err != nil {
+		resumed, err := autoResumeRecoveredDesktopRun(ctx, m.db, m.queue, snapshot)
+		if err != nil {
+			return fmt.Errorf("auto resume recovered desktop run %s: %w", snapshot.RunID, err)
+		}
+		if resumed {
+			if m.logger != nil {
+				runID := snapshot.RunID.String()
+				accountID := snapshot.AccountID.String()
+				m.logger.Info("desktop run resumed", "run_id", runID, "account_id", accountID,
+					"last_event_type", snapshot.LastEventType,
+				)
+			}
+			continue
+		}
+		payload, err := buildDesktopRecoveryPayload(ctx, m.db, snapshot.RunID)
+		if err != nil {
+			return fmt.Errorf("build desktop recovery payload %s: %w", snapshot.RunID, err)
+		}
+		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, payload, nil); err != nil {
 			if errors.Is(err, queue.ErrRunExecuteAlreadyQueued) {
 				continue
 			}
@@ -243,6 +259,122 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func autoResumeRecoveredDesktopRun(
+	ctx context.Context,
+	db data.DesktopDB,
+	jobQueue queue.JobQueue,
+	snapshot desktopRunSnapshot,
+) (bool, error) {
+	if db == nil || jobQueue == nil {
+		return false, nil
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	runsRepo := data.DesktopRunsRepository{}
+	currentRun, err := runsRepo.GetRun(ctx, tx, snapshot.RunID)
+	if err != nil {
+		return false, err
+	}
+	if currentRun == nil {
+		return true, nil
+	}
+
+	hasRecoverableOutput, err := data.DesktopRunHasRecoverableOutput(ctx, tx, snapshot.RunID)
+	if err != nil {
+		return false, err
+	}
+	if !hasRecoverableOutput {
+		return false, nil
+	}
+
+	resumedRun, err := data.DesktopCreateAutoContinueRunInTx(ctx, tx, *currentRun)
+	if err != nil {
+		if _, markErr := interruptDesktopRunInTx(ctx, tx, snapshot.RunID, autoLoopRecoveryErrorClass, autoLoopRecoveryMessage, map[string]any{
+			"recovery_mode":  autoLoopResumeMode,
+			"recovery_error": err.Error(),
+			"reason":         "desktop_recovery",
+		}); markErr != nil {
+			return false, markErr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, err
+	}
+
+	interruptedSeq, err := interruptDesktopRunInTx(ctx, tx, snapshot.RunID, autoLoopRecoveryErrorClass, autoLoopRecoveryMessage, map[string]any{
+		"recovery_mode":  autoLoopResumeMode,
+		"resumed_run_id": resumedRun.ID.String(),
+		"reason":         "desktop_recovery",
+	})
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+
+	if _, err := jobQueue.EnqueueRun(ctx, resumedRun.AccountID, resumedRun.ID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
+		"source": autoLoopResumeSource,
+	}, nil); err != nil {
+		markErr := markAutoResumeEnqueueFailure(ctx, db, snapshot.RunID, interruptedSeq, resumedRun.ID, err)
+		if markErr != nil {
+			return true, fmt.Errorf("%v; enqueue follow-up: %w", markErr, err)
+		}
+		return true, err
+	}
+	return true, nil
+}
+
+func buildDesktopRecoveryPayload(ctx context.Context, db data.DesktopDB, runID uuid.UUID) (map[string]any, error) {
+	payload := map[string]any{
+		"source": "desktop_recovery",
+	}
+	if db == nil || runID == uuid.Nil {
+		return payload, nil
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	_, startedData, err := (data.DesktopRunEventsRepository{}).FirstEventData(ctx, tx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if len(startedData) == 0 {
+		return payload, nil
+	}
+	if rawDelivery, ok := startedData["channel_delivery"].(map[string]any); ok && len(rawDelivery) > 0 {
+		payload["channel_delivery"] = cloneLifecycleMap(rawDelivery)
+	}
+	if rawTail, ok := startedData["thread_tail_message_id"].(string); ok && strings.TrimSpace(rawTail) != "" {
+		payload["thread_tail_message_id"] = strings.TrimSpace(rawTail)
+	}
+	return payload, nil
+}
+
+func cloneLifecycleMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		nested, ok := value.(map[string]any)
+		if ok {
+			out[key] = cloneLifecycleMap(nested)
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapshot, error) {

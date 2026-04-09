@@ -64,6 +64,24 @@ func TestLoadRegistryLoadsClawPersona(t *testing.T) {
 	}
 }
 
+func TestLoadRegistryLoadsImpressionBuilderMaxOutputTokens(t *testing.T) {
+	root, err := BuiltinPersonasRoot()
+	if err != nil {
+		t.Fatalf("BuiltinPersonasRoot failed: %v", err)
+	}
+	registry, err := LoadRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadRegistry failed: %v", err)
+	}
+	def, ok := registry.Get("impression-builder")
+	if !ok {
+		t.Fatalf("expected impression-builder persona loaded")
+	}
+	if def.Budgets.MaxOutputTokens == nil || *def.Budgets.MaxOutputTokens != 20480 {
+		t.Fatalf("expected impression-builder max_output_tokens 20480, got %#v", def.Budgets.MaxOutputTokens)
+	}
+}
+
 func TestResolvePersonaVersionMismatch(t *testing.T) {
 	registry := NewRegistry()
 	if err := registry.Register(Definition{ID: "demo", Version: "1", Title: "t"}); err != nil {

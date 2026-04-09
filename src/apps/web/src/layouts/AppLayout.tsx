@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { LoadingPage } from '@arkloop/shared'
+import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
 import { SettingsModal } from '../components/SettingsModal'
@@ -214,40 +214,42 @@ export function AppLayout() {
     (currentThreadId != null && privateThreadIds.has(currentThreadId))
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[var(--c-bg-page)]">
-      {desktop && (
-        <DesktopTitleBar
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={() => toggleSidebar('titlebar')}
-          appMode={appMode}
-          onSetAppMode={setAppMode}
-          availableModes={availableAppModes}
-          showIncognitoToggle={appMode !== 'work'}
-          isPrivateMode={titleBarIncognitoActive}
-          onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
-        />
-      )}
-
-      <div className="flex min-h-0 flex-1">
-        {!sidebarHiddenByWidth && (
-          <Sidebar
-            threads={filteredThreads}
-            onNewThread={handleNewThread}
-            onThreadDeleted={handleThreadDeleted}
-            beforeNavigateToThread={handleBeforeNavigateToThread}
+    <TimeZoneProvider userTimeZone={me?.timezone ?? null} accountTimeZone={me?.account_timezone ?? null}>
+      <div className="flex h-screen flex-col overflow-hidden bg-[var(--c-bg-page)]">
+        {desktop && (
+          <DesktopTitleBar
+            sidebarCollapsed={sidebarCollapsed}
+            onToggleSidebar={() => toggleSidebar('titlebar')}
+            appMode={appMode}
+            onSetAppMode={setAppMode}
+            availableModes={availableAppModes}
+            showIncognitoToggle={appMode !== 'work'}
+            isPrivateMode={titleBarIncognitoActive}
+            onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
           />
         )}
 
-        <LayoutMain
-          desktop={desktop}
-          isSearchOpen={isSearchOpen}
-          filteredThreads={filteredThreads}
-          pathname={location.pathname}
-          onSearchClose={handleCloseSearch}
-          onMeUpdated={updateMe}
-          onTrySkill={handleTrySkill}
-        />
+        <div className="flex min-h-0 flex-1">
+          {!sidebarHiddenByWidth && (
+            <Sidebar
+              threads={filteredThreads}
+              onNewThread={handleNewThread}
+              onThreadDeleted={handleThreadDeleted}
+              beforeNavigateToThread={handleBeforeNavigateToThread}
+            />
+          )}
+
+          <LayoutMain
+            desktop={desktop}
+            isSearchOpen={isSearchOpen}
+            filteredThreads={filteredThreads}
+            pathname={location.pathname}
+            onSearchClose={handleCloseSearch}
+            onMeUpdated={updateMe}
+            onTrySkill={handleTrySkill}
+          />
+        </div>
       </div>
-    </div>
+    </TimeZoneProvider>
   )
 }

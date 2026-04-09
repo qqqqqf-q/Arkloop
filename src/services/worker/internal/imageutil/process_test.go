@@ -12,7 +12,7 @@ func makeJPEG(w, h, quality int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	// 用伪随机填充以生成不可压缩的图片
 	for i := range img.Pix {
-		img.Pix[i] = byte((i * 7 + 13) % 256)
+		img.Pix[i] = byte((i*7 + 13) % 256)
 	}
 	var buf bytes.Buffer
 	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
@@ -102,6 +102,20 @@ func TestProcessImage_LargePNGCompressed(t *testing.T) {
 	}
 	if len(out) >= len(data) {
 		t.Errorf("output should be smaller than input")
+	}
+}
+
+func TestProcessModelInputImage_UsesTighterBudget(t *testing.T) {
+	data := makePNG(4000, 3000)
+	if len(data) <= modelInputMaxBytes {
+		t.Skip("test PNG not large enough")
+	}
+	out, mime := ProcessModelInputImage(data, "image/png")
+	if mime != "image/jpeg" {
+		t.Errorf("output should be JPEG, got %s", mime)
+	}
+	if len(out) > modelInputMaxBytes {
+		t.Errorf("output should be <= %d bytes, got %d", modelInputMaxBytes, len(out))
 	}
 }
 

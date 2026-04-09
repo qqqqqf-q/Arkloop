@@ -133,6 +133,22 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('<strong')
   })
 
+  it('应修复被压成单段的 GFM 表格行', () => {
+    const html = renderMarkdown('| 产品 | 定位 | 核心优势 | 局限 ||------|-----------|--------| || ChatGPT | 消费级旗舰 | 生态完整 | 定制受限 |')
+
+    expect(html).toContain('<table')
+    expect(html).toContain('<td>ChatGPT</td>')
+    expect(html).not.toContain('||------')
+  })
+
+  it('应补全缺失的表头分隔列', () => {
+    const html = renderMarkdown('| 产品 | 定位 | 核心优势 | 局限 |\n|------|-----------|--------| |\n| ChatGPT | 消费级旗舰 | 生态完整 | 定制受限 |')
+
+    expect(html).toContain('<table')
+    expect(html).toContain('<th>局限</th>')
+    expect(html).toContain('<td>定制受限</td>')
+  })
+
   it('流式数学公式时应继续渲染 KaTeX', () => {
     const html = renderMarkdown('行内公式 $a^2+b^2$', { streaming: true })
 
@@ -173,5 +189,17 @@ describe('MarkdownRenderer', () => {
     act(() => root.unmount())
     container.remove()
     vi.useRealTimers()
+  })
+
+  it('应修复被压成单行的 pipe 表格', () => {
+    const html = renderMarkdown([
+      '竞品对比',
+      '',
+      '| 产品 | 定位 | 核心优势 | 局限 ||------|-----------|------------|------|| ChatGPT | 消费级旗舰 | GPT Store | 定制化受限 || Claude | 高信任 AI | 长上下文 | 价格偏高 |',
+    ].join('\n'))
+
+    expect(html).toContain('<table')
+    expect(html).toContain('<td>ChatGPT</td>')
+    expect(html).toContain('<td>Claude</td>')
   })
 })

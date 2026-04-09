@@ -8,6 +8,7 @@ import { TurnView } from './TurnView'
 import {
   buildRequestThreadTurns,
   buildTurns,
+  formatDateTime,
   jsonStringifyForDebugDisplay,
   pickLogicalToolName,
   type LlmTurn,
@@ -51,11 +52,9 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
   )
 }
 
-function formatAbsoluteTime(value: string | undefined, locale: 'zh' | 'en', fallback: string): string {
+function formatAbsoluteTime(value: string | undefined, fallback: string): string {
   if (!value) return fallback
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en')
+  return formatDateTime(value, { includeSeconds: true })
 }
 
 function formatEventJSON(event: RunEventRaw): string {
@@ -252,9 +251,9 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
       tokens: formatTokenPair(detail?.total_input_tokens ?? run.total_input_tokens, detail?.total_output_tokens ?? run.total_output_tokens, fallback),
       cacheHit: formatPercent(detail?.cache_hit_rate ?? run.cache_hit_rate, fallback),
       credits: formatCount(detail?.credits_used ?? run.credits_used, fallback),
-      created: formatAbsoluteTime(detail?.created_at ?? run.created_at, locale, fallback),
-      completed: formatAbsoluteTime(detail?.completed_at ?? run.completed_at, locale, fallback),
-      failedAt: formatAbsoluteTime(detail?.failed_at ?? run.failed_at, locale, fallback),
+      created: formatAbsoluteTime(detail?.created_at ?? run.created_at, fallback),
+      completed: formatAbsoluteTime(detail?.completed_at ?? run.completed_at, fallback),
+      failedAt: formatAbsoluteTime(detail?.failed_at ?? run.failed_at, fallback),
       threadId: detail?.thread_id ?? run.thread_id,
     }
   }, [agentName, detail, fallback, locale, run])
@@ -387,7 +386,7 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
             </h4>
             {!loading && events && events.length > 0 && (
               <p className="mb-2 text-[11px] text-[var(--c-text-muted)]">
-                Events are shown in sequence order. Recorded time may differ from when the model started emitting output.
+                Events are listed in sequence. Timestamps are when events were stored.
               </p>
             )}
             {loading ? (
@@ -421,8 +420,8 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
                             {event.error_class}
                           </span>
                         )}
-                        <span className="ml-auto text-[10px] text-[var(--c-text-muted)]">
-                          recorded {formatAbsoluteTime(event.ts, locale, fallback)}
+                        <span className="ml-auto text-[10px] tabular-nums text-[var(--c-text-muted)]">
+                          {formatAbsoluteTime(event.ts, fallback)}
                         </span>
                       </div>
                     </summary>

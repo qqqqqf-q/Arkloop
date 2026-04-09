@@ -16,7 +16,7 @@ import { Badge, type BadgeVariant } from '../../components/Badge'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -455,7 +455,7 @@ function InviteCodeRow({
         </td>
         <td className={tdCls}>
           <span className="tabular-nums text-xs">
-            {new Date(code.created_at).toLocaleString()}
+            {formatDateTime(code.created_at, { includeZone: false })}
           </span>
         </td>
         <td className={tdCls}>
@@ -524,7 +524,7 @@ function InviteCodeRow({
                           {ref.credited ? tc.refCreditedYes : tc.refCreditedNo}
                         </td>
                         <td className="py-1.5 tabular-nums text-[var(--c-text-secondary)]">
-                          {new Date(ref.created_at).toLocaleString()}
+                          {formatDateTime(ref.created_at, { includeZone: false })}
                         </td>
                       </tr>
                     ))}

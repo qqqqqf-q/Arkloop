@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { Pencil, Plus, RefreshCw, Server, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { AutoResizeTextarea } from '@arkloop/shared'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
@@ -386,7 +386,7 @@ export function MCPConfigsPage() {
     {
       key: 'updated_at',
       header: tc.colCreatedAt,
-      render: (row) => <span className="tabular-nums text-xs">{new Date(row.updated_at).toLocaleString()}</span>,
+      render: (row) => <span className="tabular-nums text-xs">{formatDateTime(row.updated_at, { includeZone: false })}</span>,
     },
     {
       key: 'actions',

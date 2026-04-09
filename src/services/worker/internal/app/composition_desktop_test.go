@@ -223,6 +223,30 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 	}
 }
 
+func TestComposeDesktopEngineRegistersArkloopHelp(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+
+	if _, ok := engine.toolRegistry.Get("arkloop_help"); !ok {
+		t.Fatal("expected arkloop_help to be registered")
+	}
+	if _, ok := engine.baseAllowlist["arkloop_help"]; !ok {
+		t.Fatal("expected arkloop_help in desktop allowlist")
+	}
+}
+
 func TestDesktopPromptInjectionResolverReadsPlatformSettings(t *testing.T) {
 	ctx := context.Background()
 	db := openDesktopPromptInjectionTestDB(t)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/messagecontent"
@@ -74,6 +75,7 @@ func TestBuildTelegramStructuredMessageWithMedia_Photo(t *testing.T) {
 		&userID,
 		identity,
 		incoming,
+		buildInboundTimeContext(time.Unix(1710000300, 0).UTC(), "Asia/Shanghai"),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -123,6 +125,7 @@ func TestBuildTelegramStructuredMessageWithMedia_NilStoreFallback(t *testing.T) 
 		nilUser,
 		identity,
 		incoming,
+		buildInboundTimeContext(time.Unix(1710000300, 0).UTC(), "Asia/Shanghai"),
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -96,9 +96,7 @@ describe('ProvidersSettings', () => {
     expect(listLlmProviders).toHaveBeenCalledTimes(1)
     expect(listAvailableModels).not.toHaveBeenCalled()
 
-    const importButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('导入模型'),
-    )
+    const importButton = container.querySelector('button.button-secondary')
     expect(importButton).toBeTruthy()
 
     await act(async () => {

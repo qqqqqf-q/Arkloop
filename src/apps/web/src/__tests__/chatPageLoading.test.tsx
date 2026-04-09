@@ -4,7 +4,8 @@ import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-d
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatPage } from '../components/ChatPage'
-import { extractPartialArtifactFields } from '../components/ArtifactStreamBlock'
+import { ArtifactStreamBlock, extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
+import { WidgetBlock } from '../components/WidgetBlock'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AuthContextBridge, type AuthContextValue } from '../contexts/auth'
 import { ThreadListContextBridge, type ThreadListContextValue } from '../contexts/thread-list'
@@ -26,6 +27,10 @@ import {
   readMessageTerminalStatus,
   readMessageAssistantTurn,
   readMessageCodeExecutions,
+  readSelectedModelFromStorage,
+  readSelectedPersonaKeyFromStorage,
+  readThreadThinkingEnabled,
+  readThreadWorkFolder,
   writeMessageAssistantTurn,
   writeMessageTerminalStatus,
   writeMessageWidgets,
@@ -96,6 +101,10 @@ vi.mock('../storage', async () => {
     writeMessageThinking: vi.fn(),
     readMessageSearchSteps: vi.fn(() => null),
     writeMessageSearchSteps: vi.fn(),
+    readSelectedPersonaKeyFromStorage: vi.fn(() => 'default'),
+    readSelectedModelFromStorage: vi.fn(() => null),
+    readThreadWorkFolder: vi.fn(() => null),
+    readThreadThinkingEnabled: vi.fn(() => false),
     readMessageTerminalStatus: vi.fn(() => null),
     writeMessageTerminalStatus: vi.fn(),
     readMessageAssistantTurn: vi.fn(() => null),
@@ -182,6 +191,7 @@ vi.mock('../components/CopTimeline', () => ({
     genericTools,
     headerOverride,
     isComplete,
+    live,
     preserveExpanded,
     copInlineTextRows,
     thinkingRows,
@@ -196,6 +206,7 @@ vi.mock('../components/CopTimeline', () => ({
     genericTools?: Array<{ id: string; label: string }>
     headerOverride?: string
     isComplete?: boolean
+    live?: boolean
     preserveExpanded?: boolean
     copInlineTextRows?: Array<{ id: string; text: string }>
     thinkingRows?: Array<{ id: string; markdown: string }>
@@ -225,7 +236,7 @@ vi.mock('../components/CopTimeline', () => ({
         : undefined)
 
     return (
-    <div data-preserve-expanded={preserveExpanded ? 'true' : 'false'}>
+    <div data-preserve-expanded={preserveExpanded ? 'true' : 'false'} data-live={live ? 'true' : 'false'}>
       {autoHeader ? <span>{autoHeader}</span> : null}
       {mixedWithThinking ? <span>thought-summary</span> : null}
       {steps?.map((step) => (
@@ -287,6 +298,68 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
+}
+
+function flushAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
+async function flushAnimationFrames(count: number): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    await flushAnimationFrame()
+  }
+}
+
+function installReducedMotionMatchMedia() {
+  const previous = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  })
+  return () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: previous,
+    })
+  }
+}
+
+function installDefaultMotionMatchMedia() {
+  const previous = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  })
+  return () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: previous,
+    })
+  }
 }
 
 function countMatches(text: string, needle: string): number {
@@ -415,6 +488,10 @@ describe('ChatPage loading state', () => {
   const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
   const mockedReadMessageAssistantTurn = vi.mocked(readMessageAssistantTurn)
   const mockedReadMessageCodeExecutions = vi.mocked(readMessageCodeExecutions)
+  const mockedReadSelectedPersonaKeyFromStorage = vi.mocked(readSelectedPersonaKeyFromStorage)
+  const mockedReadSelectedModelFromStorage = vi.mocked(readSelectedModelFromStorage)
+  const mockedReadThreadWorkFolder = vi.mocked(readThreadWorkFolder)
+  const mockedReadThreadThinkingEnabled = vi.mocked(readThreadThinkingEnabled)
   const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
   const mockedWriteMessageWidgets = vi.mocked(writeMessageWidgets)
   const mockedReadThreadRunHandoff = vi.mocked(readThreadRunHandoff)
@@ -430,6 +507,10 @@ describe('ChatPage loading state', () => {
     mockedReadMessageAssistantTurn.mockReturnValue(null)
     mockedReadMessageTerminalStatus.mockReturnValue(null)
     mockedReadMessageCodeExecutions.mockReturnValue(null)
+    mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('default')
+    mockedReadSelectedModelFromStorage.mockReturnValue(null)
+    mockedReadThreadWorkFolder.mockReturnValue(null)
+    mockedReadThreadThinkingEnabled.mockReturnValue(false)
     mockedReadThreadRunHandoff.mockReturnValue(null)
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     HTMLElement.prototype.scrollIntoView = vi.fn()
@@ -844,6 +925,7 @@ describe('ChatPage loading state', () => {
       root.render(renderTree())
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const restoredInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
@@ -1104,7 +1186,7 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
-  it('发送后在首个 SSE 事件前应立即显示 pending thinking 外壳', async () => {
+  it('发送后在首个 SSE 事件前不应暴露 raw thinking 标签', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -1163,12 +1245,13 @@ describe('ChatPage loading state', () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const text = container.textContent ?? ''
     expect(text).not.toContain('assistant-thinking:')
     expect(text).not.toContain('Think')
-    expect(text).toContain('Finding the right words')
+    expect(mockedCreateMessage).toHaveBeenCalled()
 
     act(() => {
       root.unmount()
@@ -1177,7 +1260,7 @@ describe('ChatPage loading state', () => {
     mathRandomSpy.mockRestore()
   })
 
-  it('首个 SSE 为正文时应立即移除 pending thinking 外壳', async () => {
+  it('首个 SSE 为正文时应保持 pending thinking 的清爽过渡', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -1234,11 +1317,12 @@ describe('ChatPage loading state', () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const firstText = container.textContent ?? ''
     expect(firstText).not.toContain('assistant-thinking:')
-    expect(firstText).toContain('Finding the right words')
+    expect(firstText).not.toContain('Think')
 
     sseMock.events = [
       {
@@ -1562,6 +1646,95 @@ describe('ChatPage loading state', () => {
     mathRandomSpy.mockRestore()
   })
 
+  it('failed 重试应带上当前选择的 model', async () => {
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    mockedReadMessageTerminalStatus.mockReturnValue('failed')
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: 'failed answer',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('search')
+    mockedReadSelectedModelFromStorage.mockReturnValue('openai^gpt-5')
+    mockedReadThreadWorkFolder.mockReturnValue('/workspace/demo')
+    mockedReadThreadThinkingEnabled.mockReturnValue(true)
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const actionButton = container.querySelector('.failed-run-retry-button')
+    expect(actionButton?.textContent).toBe('重试')
+
+    await act(async () => {
+      actionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(mockedRetryThread).toHaveBeenCalledWith(
+      'token',
+      'thread-1',
+      'openai^gpt-5',
+    )
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    mathRandomSpy.mockRestore()
+  })
+
   it('run.completed 后应把显示权交回历史消息，同时保留完成态的折叠结构', async () => {
     mockedListMessages
       .mockResolvedValueOnce([
@@ -1749,11 +1922,11 @@ describe('ChatPage loading state', () => {
     expect(text).toContain('我要先')
     expect(text).toContain('再继续')
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
-    expect(countMatches(text, '1 steps completed')).toBe(1)
+    expect(countMatches(text, '1 steps completed')).toBe(2)
     expect(container.querySelector('[data-preserve-expanded="true"]')).toBeNull()
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'smooth')).toBe(false)
-    expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(true)
+    expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(false)
     expect(mockedGetThread).not.toHaveBeenCalled()
 
     sseMock.events = [
@@ -3021,7 +3194,7 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
-  it('run.cancelled 的 handoff 只会在下一次真正发送后整体收起', async () => {
+  it('run.cancelled 的 handoff 会在下一次 run 创建后立即清掉', async () => {
     mockedListThreadRuns.mockResolvedValue([
       {
         run_id: 'run-cancel-next',
@@ -3132,14 +3305,354 @@ describe('ChatPage loading state', () => {
     expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
 
     await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, 'resume again')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
     })
 
     expect(mockedCreateMessage).toHaveBeenCalled()
-    expect(mockedCreateRun).toHaveBeenCalledWith('token', 'thread-1', 'default', undefined, undefined, undefined)
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.completed handoff 不应继续把最后一个 cop 当作 live', async () => {
+    let resolveRefresh: ((value: Awaited<ReturnType<typeof listMessages>>) => void) | null = null
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveRefresh = resolve
+      }))
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-completed-live-flag',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-completed-live-flag',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-1',
+          arguments: { command: 'pwd' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-completed-live-flag',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.completed',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.querySelector('[data-live="true"]')).toBeNull()
+    expect(container.querySelector('[data-live="false"]')).not.toBeNull()
+
+    await act(async () => {
+      resolveRefresh?.([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: 'done',
+          run_id: 'run-completed-live-flag',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.completed 后应按顺序写入阶段文字与后续 cop，而不是把它们并到末尾', async () => {
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: '阶段完成',
+          run_id: 'run-segment-order',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-segment-order',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-segment-order',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-before',
+          arguments: { command: 'pwd' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-segment-order',
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-before',
+          result: { output: '/workspace' },
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: 'run-segment-order',
+        seq: 3,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.segment.start',
+        data: {
+          segment_id: 'seg-visible',
+          kind: 'planning_round',
+          display: { mode: 'collapsed', label: 'Stage' },
+        },
+      },
+      {
+        event_id: 'evt-4',
+        run_id: 'run-segment-order',
+        seq: 4,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '先整理数据，再生成图表。',
+        },
+      },
+      {
+        event_id: 'evt-5',
+        run_id: 'run-segment-order',
+        seq: 5,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call-after',
+          arguments: {
+            title: '图表',
+            widget_code: '<div>chart</div>',
+          },
+        },
+      },
+      {
+        event_id: 'evt-6',
+        run_id: 'run-segment-order',
+        seq: 6,
+        ts: '2026-03-10T00:00:03Z',
+        type: 'run.completed',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedWriteMessageAssistantTurn).toHaveBeenCalledWith(
+      'msg-2',
+      expect.objectContaining({
+        segments: [
+          {
+            type: 'cop',
+            title: null,
+            items: [
+              expect.objectContaining({
+                kind: 'call',
+                call: expect.objectContaining({ toolCallId: 'call-before' }),
+              }),
+            ],
+          },
+          {
+            type: 'text',
+            content: '先整理数据，再生成图表。',
+          },
+          {
+            type: 'cop',
+            title: null,
+            items: [
+              expect.objectContaining({
+                kind: 'call',
+                call: expect.objectContaining({ toolCallId: 'call-after' }),
+              }),
+            ],
+          },
+        ],
+      }),
+    )
 
     act(() => {
       root.unmount()
@@ -3291,6 +3804,179 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
+  it('show_widget 流式 delta 只有 loading_messages 时也应显示 loading 文案', async () => {
+    const restoreMatchMedia = installReducedMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在生成表格', '正在填充数据']}
+        />,
+      )
+      await flushAnimationFrames(12)
+    })
+
+    expect(container.textContent ?? '').toContain('正在生成表格')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('show_widget 完成后应显示 title 而不是 loading_messages', async () => {
+    const restoreMatchMedia = installReducedMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html="<div>ok</div>"
+          title="交互表"
+          complete
+          loadingMessages={['正在生成表格']}
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('交互表')
+    expect(text).not.toContain('正在生成表格')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('show_widget loading message 应使用打字机，并在切换后从头重新打', async () => {
+    const restoreMatchMedia = installDefaultMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在生成表格']}
+        />,
+      )
+      await flushAnimationFrame()
+    })
+
+    expect(container.textContent ?? '').not.toBe('正在生成表格')
+
+    await act(async () => {
+      await flushAnimationFrames(16)
+    })
+    expect(container.textContent ?? '').toContain('正在生成表格')
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在填充数据']}
+        />,
+      )
+      await flushAnimationFrame()
+    })
+
+    expect(container.textContent ?? '').not.toBe('正在填充数据')
+
+    await act(async () => {
+      await flushAnimationFrames(16)
+    })
+    expect(container.textContent ?? '').toContain('正在填充数据')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('紧凑 WidgetBlock 应收紧与 timeline 相邻时的上下间距', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html="<div>ok</div>"
+          title="交互表"
+          complete
+          compact
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const block = container.firstElementChild as HTMLElement | null
+    const header = block?.firstElementChild as HTMLElement | null
+    expect(block?.style.margin).toBe('0px 0px 2px 0px')
+    expect(header?.style.marginBottom).toBe('2px')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('紧凑 ArtifactStreamBlock 应收紧与 timeline 相邻时的上下间距', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <ArtifactStreamBlock
+          compact
+          entry={{
+            toolCallIndex: 1,
+            toolCallId: 'art-1',
+            toolName: 'create_artifact',
+            argumentsBuffer: '',
+            title: '对比图表',
+            display: 'inline',
+            content: '<div>chart</div>',
+            complete: false,
+          }}
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const block = container.firstElementChild as HTMLElement | null
+    const header = block?.firstElementChild as HTMLElement | null
+    expect(block?.style.margin).toBe('0px 0px 2px 0px')
+    expect(header?.style.marginBottom).toBe('2px')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
   it('仅靠 replay 也能恢复 search steps', async () => {
     mockedListMessages.mockResolvedValueOnce([
       {
@@ -3389,7 +4075,7 @@ describe('ChatPage loading state', () => {
     })
 
     const text = container.textContent ?? ''
-    expect(text).toContain('Searching')
+    expect(text).toContain('Search completed')
 
     act(() => {
       root.unmount()
@@ -3666,5 +4352,17 @@ describe('extractPartialArtifactFields', () => {
 
   it('loading_messages 空数组应返回空数组', () => {
     expect(extractPartialArtifactFields('{"loading_messages":[]').loadingMessages).toEqual([])
+  })
+})
+
+describe('extractPartialWidgetFields', () => {
+  it('应单独提取 show_widget 的 widget_code 与 loading_messages', () => {
+    const result = extractPartialWidgetFields(
+      '{"title":"stream_test","loading_messages":["first"],"widget_code":"<div>row 1\\nrow 2</div>","content":"ignore me"}',
+    )
+
+    expect(result.title).toBe('stream_test')
+    expect(result.widgetCode).toBe('<div>row 1\nrow 2</div>')
+    expect(result.loadingMessages).toEqual(['first'])
   })
 })

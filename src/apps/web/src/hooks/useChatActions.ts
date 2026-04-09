@@ -246,6 +246,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
 
   const handleRetry = useCallback(async () => {
     if (isStreaming || sending || !threadId) return
+    const modelOverride = readSelectedModelFromStorage() ?? undefined
     setSending(true)
     setPendingThinking(true)
     setThinkingHint(t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)])
@@ -254,7 +255,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     injectionBlockedRunIdRef.current = null
     clearThreadRunHandoff(threadId)
     try {
-      const run = await retryThread(accessToken, threadId)
+      const run = await retryThread(accessToken, threadId, modelOverride)
       invalidateMessageSync()
       setMessages((prev) => {
         const lastAssistantIndex = prev.map((message) => message.role).lastIndexOf('assistant')

@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import { listRuns, type Run } from '../../api'
 import { RunDetailPanel } from '../RunDetailPanel'
 import { useLocale } from '../../contexts/LocaleContext'
+import { formatDateTime } from '@arkloop/shared'
 
 type Props = {
   accessToken: string
@@ -41,9 +42,7 @@ function formatRelativeTime(value: string): string {
 }
 
 function formatAbsoluteTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return formatDateTime(value, { includeZone: false })
 }
 
 export function RunsSettings({ accessToken }: Props) {

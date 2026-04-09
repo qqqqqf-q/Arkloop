@@ -10,10 +10,15 @@ import (
 	"arkloop/services/api/internal/data"
 )
 
-func interceptDesktopUser(_ context.Context, _ *data.UserRepository) (*data.User, bool) {
+func interceptDesktopUser(ctx context.Context, repo *data.UserRepository) (*data.User, bool) {
+	if repo != nil {
+		if user, err := repo.GetByID(ctx, DesktopUserID); err == nil && user != nil {
+			return user, true
+		}
+	}
 	return &data.User{
 		ID:        DesktopUserID,
-		Username:  "desktop",
+		Username:  DesktopPreferredUsername(),
 		Status:    "active",
 		CreatedAt: time.Now(),
 	}, true

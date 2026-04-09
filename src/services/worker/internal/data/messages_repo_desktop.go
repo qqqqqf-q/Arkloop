@@ -71,13 +71,14 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("marshal metadata_json: %w", err)
 	}
+	createdAt := currentTimestampText()
 	var messageID uuid.UUID
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden
+			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
 		) VALUES (
-			$1, $2, NULL, $3, $4, $5, $6::jsonb, $7
+			$1, $2, NULL, $3, $4, $5, $6::jsonb, $7, $8
 		)
 		 RETURNING id`,
 		accountID,
@@ -87,6 +88,7 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 		contentJSON,
 		string(metadataRaw),
 		hidden,
+		createdAt,
 	).Scan(&messageID)
 	if err != nil {
 		return uuid.Nil, err
@@ -209,6 +211,83 @@ func (MessagesRepository) ListByThread(
 	}
 	if rows.Err() != nil {
 		return nil, rows.Err()
+	}
+	return out, nil
+}
+
+func (MessagesRepository) ListByThreadUpToID(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	upToMessageID uuid.UUID,
+	limit int,
+) ([]ThreadMessage, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if upToMessageID == uuid.Nil {
+		return nil, fmt.Errorf("up_to_message_id must not be empty")
+	}
+	rows, err := tx.Query(
+		ctx,
+		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
+		        COALESCE(u.output_tokens, 0) AS output_tokens
+		 FROM (
+			SELECT id, role, content, content_json, created_at, metadata_json
+			  FROM messages
+			 WHERE account_id = $1
+			   AND thread_id = $2
+			   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
+			   AND deleted_at IS NULL
+			   AND COALESCE(compacted, 0) = 0
+			   AND (created_at, id) <= (
+			     SELECT created_at, id
+			       FROM messages
+			      WHERE account_id = $1
+			        AND thread_id = $2
+			        AND id = $3
+			        AND deleted_at IS NULL
+			   )
+			 ORDER BY created_at DESC, id DESC
+			 LIMIT $4
+		 ) recent
+		 LEFT JOIN LATERAL (
+			SELECT output_tokens
+			  FROM usage_records
+			 WHERE run_id = (recent.metadata_json->>'run_id')
+			   AND usage_type = 'llm'
+			 LIMIT 1
+		 ) u ON true
+		 ORDER BY recent.created_at ASC, recent.id ASC`,
+		accountID,
+		threadID,
+		upToMessageID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []ThreadMessage{}
+	for rows.Next() {
+		var item ThreadMessage
+		var outTok int64
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
+			return nil, err
+		}
+		applyDesktopThreadMessageOutput(&item, outTok)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("thread history upper bound message not found")
 	}
 	return out, nil
 }
@@ -366,13 +445,14 @@ func (MessagesRepository) InsertThreadMessage(
 	if trimmedContent == "" {
 		return uuid.Nil, fmt.Errorf("content must not be empty")
 	}
+	createdAt := currentTimestampText()
 	var messageID uuid.UUID
 	err := tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json
+			account_id, thread_id, created_by_user_id, role, content, content_json, created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6
+			$1, $2, $3, $4, $5, $6, $7
 		)
 		 RETURNING id`,
 		accountID,
@@ -381,11 +461,16 @@ func (MessagesRepository) InsertThreadMessage(
 		trimmedRole,
 		trimmedContent,
 		contentJSON,
+		createdAt,
 	).Scan(&messageID)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return messageID, nil
+}
+
+func currentTimestampText() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05.000000000 -0700")
 }
 
 func (MessagesRepository) MarkThreadMessagesCompacted(

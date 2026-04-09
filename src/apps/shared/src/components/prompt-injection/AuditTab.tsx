@@ -3,6 +3,7 @@ import { Loader2, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { useToast } from '../useToast'
 import type { AuditLog, PromptInjectionTexts } from './types'
 import { AUDIT_ACTION, AUDIT_PAGE_SIZE } from './types'
+import { formatDateTime } from '../../timezone'
 
 function truncateId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
@@ -121,7 +122,7 @@ export function AuditTab({ accessToken, texts, listAuditLogs }: AuditTabProps) {
                     {hasDetail && (expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-xs tabular-nums text-[var(--c-text-secondary)]">
-                    {new Date(log.created_at).toLocaleString()}
+                    {formatDateTime(log.created_at, { includeSeconds: true })}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                     <span className="font-mono text-xs" title={log.target_id ?? ''}>

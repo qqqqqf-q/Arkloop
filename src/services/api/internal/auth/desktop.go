@@ -18,6 +18,13 @@ var (
 
 const desktopTokenDefault = "arkloop-desktop-local-token"
 
+func DesktopPreferredUsername() string {
+	if v := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_OS_USERNAME")); v != "" {
+		return v
+	}
+	return "desktop"
+}
+
 // DesktopToken 返回桌面模式使用的固定 Bearer token。
 // 优先读取 ARKLOOP_DESKTOP_TOKEN 环境变量，未设置时使用默认值。
 func DesktopToken() string {

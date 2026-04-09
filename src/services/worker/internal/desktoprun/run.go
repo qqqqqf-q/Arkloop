@@ -101,6 +101,7 @@ func RunDesktop(ctx context.Context) error {
 		db:     db,
 		bus:    bus,
 		engine: engine,
+		queue:  cq,
 		logger: logger,
 	}
 
@@ -158,6 +159,7 @@ type desktopHandler struct {
 	db     data.DesktopDB
 	bus    eventbus.EventBus
 	engine *app.DesktopEngine
+	queue  queue.JobQueue
 	logger *slog.Logger
 }
 
@@ -234,6 +236,12 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 	}
 
 	if err := h.engine.Execute(ctx, *run, traceID, jobPayload); err != nil {
+		if handled, resumeErr := tryAutoLoopResumeDesktopRun(ctx, h.db, h.queue, *run, traceID, err); handled {
+			if resumeErr != nil {
+				slog.ErrorContext(ctx, "desktop auto loop resume failed", "run_id", runIDStr, "err", resumeErr)
+			}
+			return nil
+		}
 		slog.ErrorContext(ctx, "desktop engine execute failed", "run_id", runIDStr, "err", err)
 		return err
 	}
@@ -269,4 +277,235 @@ func leasePayloadMap(payloadJSON map[string]any) map[string]any {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+const (
+	autoLoopResumeMode            = "loop_resume"
+	autoLoopResumeSource          = "auto_continue"
+	autoLoopResumeErrorClass      = "provider.retryable"
+	autoLoopRecoveryErrorClass    = "worker.recovery_resumed"
+	autoLoopRecoveryMessage       = "run resumed in a new attempt after desktop recovery"
+	autoLoopEnqueueFailureClass   = "worker.recovery_enqueue_failed"
+	autoLoopEnqueueFailureMessage = "auto-continue enqueue failed"
+)
+
+func tryAutoLoopResumeDesktopRun(
+	ctx context.Context,
+	db data.DesktopDB,
+	jobQueue queue.JobQueue,
+	run data.Run,
+	traceID string,
+	runErr error,
+) (bool, error) {
+	if db == nil || jobQueue == nil || runErr == nil || !isAutoLoopResumeError(runErr) {
+		return false, nil
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	runsRepo := data.DesktopRunsRepository{}
+	eventsRepo := data.DesktopRunEventsRepository{}
+
+	currentRun, err := runsRepo.GetRun(ctx, tx, run.ID)
+	if err != nil {
+		return false, err
+	}
+	if currentRun == nil {
+		return true, nil
+	}
+
+	terminalType, err := eventsRepo.GetLatestEventType(ctx, tx, run.ID, []string{
+		"run.completed", "run.failed", "run.interrupted", "run.cancelled",
+	})
+	if err != nil {
+		return false, err
+	}
+	if terminalType != "" {
+		return true, nil
+	}
+
+	hasRecoverableOutput, err := data.DesktopRunHasRecoverableOutput(ctx, tx, run.ID)
+	if err != nil {
+		return false, err
+	}
+	if !hasRecoverableOutput {
+		return false, nil
+	}
+
+	resumedRun, err := data.DesktopCreateAutoContinueRunInTx(ctx, tx, *currentRun)
+	if err != nil {
+		if _, markErr := interruptDesktopRunInTx(ctx, tx, run.ID, autoLoopResumeErrorClass, runErr.Error(), map[string]any{
+			"recovery_mode":  autoLoopResumeMode,
+			"recovery_error": err.Error(),
+		}); markErr != nil {
+			return false, markErr
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return true, err
+	}
+
+	interruptedSeq, err := interruptDesktopRunInTx(ctx, tx, run.ID, autoLoopResumeErrorClass, runErr.Error(), map[string]any{
+		"recovery_mode":  autoLoopResumeMode,
+		"resumed_run_id": resumedRun.ID.String(),
+	})
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, err
+	}
+
+	if _, err := jobQueue.EnqueueRun(ctx, resumedRun.AccountID, resumedRun.ID, strings.TrimSpace(traceID), queue.RunExecuteJobType, map[string]any{
+		"source": autoLoopResumeSource,
+	}, nil); err != nil {
+		markErr := markAutoResumeEnqueueFailure(ctx, db, run.ID, interruptedSeq, resumedRun.ID, err)
+		if markErr != nil {
+			return true, fmt.Errorf("%v; enqueue follow-up: %w", markErr, err)
+		}
+		return true, err
+	}
+	return true, nil
+}
+
+func interruptDesktopRunInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	errorClass string,
+	message string,
+	details map[string]any,
+) (int64, error) {
+	payload := map[string]any{
+		"error_class": strings.TrimSpace(errorClass),
+		"message":     strings.TrimSpace(message),
+	}
+	if len(details) > 0 {
+		payload["details"] = details
+	}
+	seq, err := (data.DesktopRunEventsRepository{}).AppendEvent(ctx, tx, runID, "run.interrupted", payload, nil, stringPtr(errorClass))
+	if err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'interrupted',
+		        failed_at = datetime('now'),
+		        status_updated_at = datetime('now')
+		  WHERE id = $1
+		    AND status IN ('running', 'cancelling')`,
+		runID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if tag.RowsAffected() == 0 {
+		return 0, fmt.Errorf("run not in resumable status: %s", runID)
+	}
+	return seq, nil
+}
+
+func markAutoResumeEnqueueFailure(
+	ctx context.Context,
+	db data.DesktopDB,
+	runID uuid.UUID,
+	interruptedSeq int64,
+	resumedRunID uuid.UUID,
+	enqueueErr error,
+) error {
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := updateInterruptedEventDetails(ctx, tx, runID, interruptedSeq, map[string]any{
+		"recovery_mode":  autoLoopResumeMode,
+		"resumed_run_id": resumedRunID.String(),
+		"recovery_error": enqueueErr.Error(),
+	}); err != nil {
+		return err
+	}
+	if _, err := (data.DesktopRunEventsRepository{}).AppendEvent(ctx, tx, resumedRunID, "run.failed", map[string]any{
+		"error_class": autoLoopEnqueueFailureClass,
+		"message":     autoLoopEnqueueFailureMessage,
+		"details": map[string]any{
+			"reason": enqueueErr.Error(),
+		},
+	}, nil, stringPtr(autoLoopEnqueueFailureClass)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'failed',
+		        failed_at = datetime('now'),
+		        status_updated_at = datetime('now')
+		  WHERE id = $1
+		    AND status = 'running'`,
+		resumedRunID,
+	); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func updateInterruptedEventDetails(
+	ctx context.Context,
+	tx pgx.Tx,
+	runID uuid.UUID,
+	seq int64,
+	details map[string]any,
+) error {
+	var raw string
+	if err := tx.QueryRow(ctx,
+		`SELECT data_json
+		   FROM run_events
+		  WHERE run_id = $1
+		    AND seq = $2
+		  LIMIT 1`,
+		runID,
+		seq,
+	).Scan(&raw); err != nil {
+		return err
+	}
+	payload := map[string]any{}
+	if strings.TrimSpace(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return err
+		}
+	}
+	payload["details"] = details
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE run_events
+		    SET data_json = $3
+		  WHERE run_id = $1
+		    AND seq = $2`,
+		runID,
+		seq,
+		string(encoded),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func isAutoLoopResumeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch strings.TrimSpace(err.Error()) {
+	case "llm stream idle timeout", "upstream stream ended prematurely without completion":
+		return true
+	default:
+		return false
+	}
 }

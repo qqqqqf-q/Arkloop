@@ -15,7 +15,7 @@ import { getMe, logout, isApiError, type MeResponse } from '../api'
 import { LiteSettingsModal } from '../components/SettingsModal'
 import { OperationHistoryModal } from '../components/OperationHistoryModal'
 import { useLocale } from '../contexts/LocaleContext'
-import { useOperations } from '@arkloop/shared'
+import { TimeZoneProvider, useOperations } from '@arkloop/shared'
 import type { LocaleStrings } from '../locales'
 import { NavButton, AccessDeniedPage, FullScreenLoading } from '@arkloop/shared'
 
@@ -111,100 +111,104 @@ export function LiteLayout({ accessToken, onLoggedOut }: Props) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
-      <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[var(--c-border-console)] bg-[var(--c-bg-sidebar)]">
-        <div className="flex min-h-[46px] items-center px-4 py-3">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold tracking-wide text-[var(--c-text-primary)]">Arkloop</h1>
-            <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
-              Lite
-            </span>
-          </div>
+    <TimeZoneProvider userTimeZone={me?.timezone ?? null} accountTimeZone={me?.account_timezone ?? null}>
+      <>
+        <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
+          <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-[var(--c-border-console)] bg-[var(--c-bg-sidebar)]">
+            <div className="flex min-h-[46px] items-center px-4 py-3">
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-semibold tracking-wide text-[var(--c-text-primary)]">Arkloop</h1>
+                <span className="rounded bg-[var(--c-bg-tag)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--c-text-muted)]">
+                  Lite
+                </span>
+              </div>
+            </div>
+
+            <nav className="flex-1 overflow-y-auto p-2">
+              <div className="flex flex-col gap-[3px]">
+                {navItems.map((item) => {
+                  const basePath = item.path.split('?')[0]
+                  const active = location.pathname === basePath || location.pathname.startsWith(basePath + '/')
+                  return (
+                    <NavButton
+                      key={item.path}
+                      icon={item.icon}
+                      label={item.label}
+                      active={active}
+                      onClick={() => navigate(item.path)}
+                    />
+                  )
+                })}
+              </div>
+            </nav>
+
+            {operations.length > 0 && (
+              <div className="border-t border-[var(--c-border-console)] px-2 py-2">
+                <button
+                  onClick={() => setHistoryOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-sub)]"
+                  style={{ border: '0.5px solid var(--c-border-console)' }}
+                >
+                  <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-tag)]">
+                    {activeCount > 0
+                      ? <Loader2 size={15} className="animate-spin text-amber-500" />
+                      : <Blocks size={15} className="text-[var(--c-text-muted)]" />
+                    }
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
+                    <div className="truncate text-xs font-medium text-[var(--c-text-secondary)]">
+                      {t.nav.installTasks}
+                    </div>
+                    <div className="text-[10px] font-normal text-[var(--c-text-tertiary)]">
+                      {activeCount > 0
+                        ? `${activeCount} running · ${operations.length} total`
+                        : `${operations.length} completed`
+                      }
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+
+            <div className="mt-auto border-t border-[var(--c-border-console)] px-3 py-3">
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[var(--c-text-secondary)]"
+                  style={{ background: 'var(--c-avatar-console-bg)' }}
+                >
+                  {userInitial}
+                </div>
+                <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-secondary)]">
+                  {me?.username ?? '...'}
+                </div>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+                  title={t.settings}
+                >
+                  <Settings size={14} />
+                </button>
+              </div>
+            </div>
+          </aside>
+
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <Outlet context={context} />
+          </main>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-2">
-          <div className="flex flex-col gap-[3px]">
-            {navItems.map((item) => {
-              const basePath = item.path.split('?')[0]
-              const active = location.pathname === basePath || location.pathname.startsWith(basePath + '/')
-              return (
-                <NavButton
-                  key={item.path}
-                  icon={item.icon}
-                  label={item.label}
-                  active={active}
-                  onClick={() => navigate(item.path)}
-                />
-              )
-            })}
-          </div>
-        </nav>
-
-        {operations.length > 0 && (
-          <div className="border-t border-[var(--c-border-console)] px-2 py-2">
-            <button
-              onClick={() => setHistoryOpen(true)}
-              className="flex w-full items-center gap-3 rounded-xl px-3 py-[10px] transition-colors hover:bg-[var(--c-bg-sub)]"
-              style={{ border: '0.5px solid var(--c-border-console)' }}
-            >
-              <div className="flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full bg-[var(--c-bg-tag)]">
-                {activeCount > 0
-                  ? <Loader2 size={15} className="animate-spin text-amber-500" />
-                  : <Blocks size={15} className="text-[var(--c-text-muted)]" />
-                }
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
-                <div className="truncate text-xs font-medium text-[var(--c-text-secondary)]">
-                  {t.nav.installTasks}
-                </div>
-                <div className="text-[10px] font-normal text-[var(--c-text-tertiary)]">
-                  {activeCount > 0
-                    ? `${activeCount} running · ${operations.length} total`
-                    : `${operations.length} completed`
-                  }
-                </div>
-              </div>
-            </button>
-          </div>
+        {settingsOpen && (
+          <LiteSettingsModal
+            me={me}
+            onClose={() => setSettingsOpen(false)}
+            onLogout={handleLogout}
+          />
         )}
 
-        <div className="mt-auto border-t border-[var(--c-border-console)] px-3 py-3">
-          <div className="flex items-center gap-2">
-            <div
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium text-[var(--c-text-secondary)]"
-              style={{ background: 'var(--c-avatar-console-bg)' }}
-            >
-              {userInitial}
-            </div>
-            <div className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--c-text-secondary)]">
-              {me?.username ?? '...'}
-            </div>
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
-              title={t.settings}
-            >
-              <Settings size={14} />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Outlet context={context} />
-      </main>
-
-      {settingsOpen && (
-        <LiteSettingsModal
-          me={me}
-          onClose={() => setSettingsOpen(false)}
-          onLogout={handleLogout}
-        />
-      )}
-
-      {historyOpen && (
-        <OperationHistoryModal onClose={() => setHistoryOpen(false)} />
-      )}
-    </div>
+        {historyOpen && (
+          <OperationHistoryModal onClose={() => setHistoryOpen(false)} />
+        )}
+      </>
+    </TimeZoneProvider>
   )
 }

@@ -18,8 +18,7 @@ import { bridgeClient, checkBridgeAvailable } from '../../api-bridge'
 import { SettingsModelDropdown } from './SettingsModelDropdown'
 import { AnimatedCheck } from '../AnimatedCheck'
 import { secondaryButtonBorderStyle } from '../buttonStyles'
-
-const SETTINGS_ENTER_SETTLE_DELAY_MS = 240
+import { TimeZoneSettings } from './TimeZoneSettings'
 
 type Props = {
   me: MeResponse | null
@@ -28,7 +27,14 @@ type Props = {
   onMeUpdated?: (me: MeResponse) => void
 }
 
-export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeUpdated }: Props) {
+type GeneralSettingsCacheEntry = {
+  providers: LlmProvider[]
+  toolProfile: SpawnProfile | null
+}
+
+const generalSettingsCache = new Map<string, GeneralSettingsCacheEntry>()
+
+export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated }: Props) {
   const { t, locale, setLocale } = useLocale()
   const ds = t.desktopSettings
   const docsUrl = locale === 'en' ? 'https://arkloop.cn/en/docs/guide' : 'https://arkloop.cn/zh/docs/guide'
@@ -38,9 +44,17 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
     getDesktopMode() !== null || isDesktop() || localMode
 
   const [osUsername, setOsUsername] = useState<string | null>(null)
-  const [providers, setProviders] = useState<LlmProvider[]>([])
-  const [toolProfile, setToolProfileState] = useState<SpawnProfile | null>(null)
+  const [generalData, setGeneralData] = useState(() => {
+    const cached = generalSettingsCache.get(accessToken)
+    return {
+      providers: cached?.providers ?? [],
+      toolProfile: cached?.toolProfile ?? null,
+      loading: cached == null,
+    }
+  })
   const [savingTool, setSavingTool] = useState(false)
+  const providers = generalData.providers
+  const toolProfile = generalData.toolProfile
 
   useEffect(() => {
     if (!localMode) return
@@ -49,22 +63,45 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
 
   useEffect(() => {
     let cancelled = false
-    const timer = window.setTimeout(() => {
-      listLlmProviders(accessToken)
-        .then((nextProviders) => {
-          if (!cancelled) setProviders(nextProviders)
-        })
-        .catch(() => {})
-      listSpawnProfiles(accessToken)
-        .then((ps) => {
-          if (!cancelled) setToolProfileState(ps.find((p) => p.profile === 'tool') ?? null)
-        })
-        .catch(() => {})
-    }, SETTINGS_ENTER_SETTLE_DELAY_MS)
+    const cached = generalSettingsCache.get(accessToken)
+
+    if (cached) {
+      setGeneralData((current) => {
+        if (
+          current.providers === cached.providers
+          && current.toolProfile === cached.toolProfile
+          && !current.loading
+        ) {
+          return current
+        }
+        return { providers: cached.providers, toolProfile: cached.toolProfile, loading: false }
+      })
+    } else {
+      setGeneralData((current) => (current.loading ? current : { ...current, loading: true }))
+    }
+
+    const loadGeneralData = async () => {
+      try {
+        const [nextProviders, profiles] = await Promise.all([
+          listLlmProviders(accessToken),
+          listSpawnProfiles(accessToken),
+        ])
+        if (cancelled) return
+        const nextToolProfile = profiles.find((p) => p.profile === 'tool') ?? null
+        const nextData = { providers: nextProviders, toolProfile: nextToolProfile }
+        generalSettingsCache.set(accessToken, nextData)
+        setGeneralData({ ...nextData, loading: false })
+      } catch {
+        if (!cancelled) {
+          setGeneralData((current) => (current.loading ? { ...current, loading: false } : current))
+        }
+      }
+    }
+
+    void loadGeneralData()
 
     return () => {
       cancelled = true
-      window.clearTimeout(timer)
     }
   }, [accessToken])
 
@@ -77,6 +114,9 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
   const toolModelValue = toolProfile?.has_override ? toolProfile.resolved_model : ''
 
   const toolModelPlaceholder = (() => {
+    if (generalData.loading && toolProfile == null) {
+      return t.loading
+    }
     const autoModel = toolProfile?.auto_model
     if (autoModel) {
       const parts = autoModel.split('^')
@@ -132,7 +172,9 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
         await setSpawnProfile(accessToken, 'tool', value)
       }
       const ps = await listSpawnProfiles(accessToken)
-      setToolProfileState(ps.find((p) => p.profile === 'tool') ?? null)
+      const nextToolProfile = ps.find((p) => p.profile === 'tool') ?? null
+      generalSettingsCache.set(accessToken, { providers, toolProfile: nextToolProfile })
+      setGeneralData((current) => ({ ...current, toolProfile: nextToolProfile, loading: false }))
       void syncToolModelToOpenViking(value)
     } finally {
       setSavingTool(false)
@@ -276,6 +318,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
       {/* Language & Theme — image-card picker */}
       <div className="flex flex-col gap-4">
         <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
+        <TimeZoneSettings me={me} accessToken={accessToken} onMeUpdated={onMeUpdated} />
         <ThemeModePicker />
       </div>
 
@@ -292,7 +335,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated: _onMeU
                 value={toolModelValue}
                 options={modelOptions}
                 placeholder={toolModelPlaceholder}
-                disabled={savingTool}
+                disabled={savingTool || generalData.loading}
                 onChange={handleToolModelChange}
               />
             </div>

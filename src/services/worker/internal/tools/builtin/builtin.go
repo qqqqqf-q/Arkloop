@@ -7,6 +7,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/acptool"
 	artifactguidelines "arkloop/services/worker/internal/tools/builtin/artifact_guidelines"
+	arkloophelp "arkloop/services/worker/internal/tools/builtin/arkloop_help"
 	"arkloop/services/worker/internal/tools/builtin/askuser"
 	"arkloop/services/worker/internal/tools/builtin/edit"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
@@ -35,6 +36,7 @@ func AgentSpecs() []tools.AgentToolSpec {
 		TimelineTitleAgentSpec,
 		visualizereadme.AgentSpec,
 		artifactguidelines.AgentSpec,
+		arkloophelp.AgentSpec,
 		websearch.AgentSpec,
 		websearch.AgentSpecDuckduckgo,
 		websearch.AgentSpecTavily,
@@ -74,6 +76,7 @@ func LlmSpecs() []llm.ToolSpec {
 		TimelineTitleLlmSpec,
 		visualizereadme.LlmSpec,
 		artifactguidelines.LlmSpec,
+		arkloophelp.LlmSpec,
 		websearch.LlmSpec,
 		webfetch.LlmSpec,
 		read.LlmSpec,
@@ -103,6 +106,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		loadskill.AgentSpec.Name:           loadskill.NewToolExecutor(skillStore),
 		visualizereadme.AgentSpec.Name:     visualizereadme.NewToolExecutor(),
 		artifactguidelines.AgentSpec.Name:  artifactguidelines.ToolExecutor{},
+		arkloophelp.AgentSpec.Name:         arkloophelp.Executor{},
 		websearch.AgentSpec.Name:           websearch.NewToolExecutor(resolver),
 		websearch.AgentSpecDuckduckgo.Name: websearch.NewToolExecutorWithProvider(websearch.NewDuckduckgoProvider()),
 		websearch.AgentSpecTavily.Name:     websearch.NewTavilyExecutor(resolver),

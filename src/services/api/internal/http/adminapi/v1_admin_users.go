@@ -35,7 +35,7 @@ type adminUserDetailResponse struct {
 
 type adminUserAccountResponse struct {
 	AccountID string `json:"account_id"`
-	Role  string `json:"role"`
+	Role      string `json:"role"`
 }
 
 func toAdminUserResponse(u data.User) adminUserResponse {
@@ -224,7 +224,7 @@ func getAdminUser(
 
 		detail := adminUserDetailResponse{
 			adminUserResponse: toAdminUserResponse(*user),
-			Accounts:              []adminUserAccountResponse{},
+			Accounts:          []adminUserAccountResponse{},
 		}
 
 		if credentialRepo != nil {
@@ -238,7 +238,7 @@ func getAdminUser(
 			if err == nil && membership != nil {
 				detail.Accounts = append(detail.Accounts, adminUserAccountResponse{
 					AccountID: membership.AccountID.String(),
-					Role:  membership.Role,
+					Role:      membership.Role,
 				})
 			}
 		}
@@ -450,7 +450,13 @@ func patchAdminUser(
 			if tz == "" {
 				params.Timezone = nil
 			} else {
-				params.Timezone = &tz
+				loc, loadErr := time.LoadLocation(tz)
+				if loadErr != nil {
+					httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "timezone is invalid", traceID, nil)
+					return
+				}
+				normalized := loc.String()
+				params.Timezone = &normalized
 			}
 		}
 

@@ -84,6 +84,7 @@ func (r *MessageRepository) Create(
 		return Message{}, fmt.Errorf("content must not be empty")
 	}
 
+	createdAt := currentTimestampText()
 	var message Message
 	err := r.db.QueryRow(
 		ctx,
@@ -94,8 +95,8 @@ func (r *MessageRepository) Create(
 		     AND account_id = $1
 		   LIMIT 1
 		 )
-		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content)
-		 SELECT $1, $2, $3, $4, $5
+		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, created_at)
+		 SELECT $1, $2, $3, $4, $5, $6
 		 FROM thread
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
@@ -104,6 +105,7 @@ func (r *MessageRepository) Create(
 		createdByUserID,
 		role,
 		content,
+		createdAt,
 	).Scan(
 		&message.ID,
 		&message.AccountID,
@@ -182,6 +184,7 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		normalizedMetadataJSON = json.RawMessage("{}")
 	}
 
+	createdAt := currentTimestampText()
 	var message Message
 	err := r.db.QueryRow(
 		ctx,
@@ -192,8 +195,8 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		     AND account_id = $1
 		   LIMIT 1
 		 )
-		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json)
-		 SELECT $1, $2, $3, $4, $5, $6, $7
+		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
+		 SELECT $1, $2, $3, $4, $5, $6, $7, $8
 		 FROM thread
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
 		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
@@ -204,6 +207,7 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		content,
 		normalizedContentJSON,
 		normalizedMetadataJSON,
+		createdAt,
 	).Scan(
 		&message.ID,
 		&message.AccountID,
@@ -228,6 +232,10 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 	slog.Debug("CreateStructuredWithMetadata success", "messageID", message.ID)
 
 	return message, nil
+}
+
+func currentTimestampText() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05.000000000 -0700")
 }
 
 func (r *MessageRepository) ListByThread(

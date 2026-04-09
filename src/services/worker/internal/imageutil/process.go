@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	maxBytes = 500 * 1024
-	minDim   = 512
+	maxBytes           = 500 * 1024
+	modelInputMaxBytes = 128 * 1024
+	minDim             = 512
 )
 
 // 每轮尝试的 (长边上限, JPEG质量)
@@ -29,7 +30,17 @@ var compressSteps = []struct {
 // ProcessImage 对超过阈值的图片执行缩放+JPEG 压缩。
 // GIF 和解码失败的图片原样返回。
 func ProcessImage(data []byte, mimeType string) ([]byte, string) {
-	if len(data) <= maxBytes {
+	return processImageWithLimit(data, mimeType, maxBytes)
+}
+
+// ProcessModelInputImage keeps images under a tighter budget before they are
+// embedded into model requests, where base64 inflation is expensive.
+func ProcessModelInputImage(data []byte, mimeType string) ([]byte, string) {
+	return processImageWithLimit(data, mimeType, modelInputMaxBytes)
+}
+
+func processImageWithLimit(data []byte, mimeType string, limit int) ([]byte, string) {
+	if len(data) <= limit {
 		return data, mimeType
 	}
 	if mimeType == "image/gif" {
@@ -45,7 +56,7 @@ func ProcessImage(data []byte, mimeType string) ([]byte, string) {
 	for _, step := range compressSteps {
 		scaled := scaleToFit(img, step.dim)
 		out = encodeJPEG(scaled, step.quality)
-		if len(out) <= maxBytes {
+		if len(out) <= limit {
 			return out, "image/jpeg"
 		}
 	}

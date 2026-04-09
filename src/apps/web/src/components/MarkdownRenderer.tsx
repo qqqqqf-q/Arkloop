@@ -56,6 +56,64 @@ function containsLikelyMath(content: string): boolean {
   return /\$\$[\s\S]*?\$\$|\$[^$\n]+\$|\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(content)
 }
 
+const COLLAPSED_PIPE_TABLE_SEPARATOR_RE = /\|\|\s*:?-{3,}/
+const COLLAPSED_PIPE_TABLE_ROW_BREAK_RE = /\|\|\s*(?=\|?\s*:?-{3,}\s*\||[^\s|])/g
+
+function normalizeTableDelimiterCell(cell: string): string {
+  const trimmed = cell.trim()
+  if (trimmed === '') return ' --- '
+  if (!/^[:\-\s]+$/.test(trimmed) || !trimmed.includes('-')) return cell
+
+  const leftAligned = trimmed.startsWith(':')
+  const rightAligned = trimmed.endsWith(':')
+  return ` ${leftAligned ? ':' : ''}---${rightAligned ? ':' : ''} `
+}
+
+function normalizeTableDelimiterRow(line: string): string {
+  const trimmed = line.trim()
+  if (!/^\|?[\s:|-]+\|?\s*$/.test(trimmed) || !trimmed.includes('|') || !trimmed.includes('-')) return line
+
+  const startsWithPipe = trimmed.startsWith('|')
+  const endsWithPipe = trimmed.endsWith('|')
+  const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|')
+  if (cells.length < 2) return line
+
+  return `${startsWithPipe ? '|' : ''}${cells.map(normalizeTableDelimiterCell).join('|')}${endsWithPipe ? '|' : ''}`
+}
+
+function repairCollapsedTableBlock(block: string): string {
+  const pipeCount = (block.match(/\|/g) ?? []).length
+  if (pipeCount < 6) return block
+
+  let repaired = block
+  if (repaired.includes('||') && COLLAPSED_PIPE_TABLE_SEPARATOR_RE.test(repaired)) {
+    repaired = repaired.replace(COLLAPSED_PIPE_TABLE_ROW_BREAK_RE, '|\n| ')
+  }
+
+  const lines = repaired.split('\n')
+  let changed = repaired !== block
+  const normalizedLines = lines.map((line) => {
+    const nextLine = normalizeTableDelimiterRow(line)
+    if (nextLine !== line) changed = true
+    return nextLine
+  })
+
+  return changed ? normalizedLines.join('\n') : block
+}
+
+function normalizeCollapsedPipeTables(content: string): string {
+  const parts = content.split(/(```[\s\S]*?```)/g)
+
+  return parts.map((part, index) => {
+    if (index % 2 === 1) return part
+
+    return part
+      .split(/(\n{2,})/g)
+      .map((block, blockIndex) => (blockIndex % 2 === 1 ? block : repairCollapsedTableBlock(block)))
+      .join('')
+  }).join('')
+}
+
 function useStreamingRenderContent(content: string, throttle: boolean): string {
   const [renderContent, setRenderContent] = useState(content)
   const timerRef = useRef<number | null>(null)
@@ -650,10 +708,10 @@ export function MarkdownRenderer({ content, disableMath, streaming = false, webS
     onOpenDocument,
   }), [accessToken, artifacts, onOpenDocument, runId])
 
-  const normalizedContent = useMemo(
-    () => (effectiveDisableMath ? renderContent : normalizeLatexDelimiters(renderContent)),
-    [effectiveDisableMath, renderContent],
-  )
+  const normalizedContent = useMemo(() => {
+    const structuredContent = normalizeCollapsedPipeTables(renderContent)
+    return effectiveDisableMath ? structuredContent : normalizeLatexDelimiters(structuredContent)
+  }, [effectiveDisableMath, renderContent])
   const mdComponents = useMemo(() => buildMarkdownComponents(compact), [compact])
 
   useEffect(() => {

@@ -231,6 +231,10 @@ export const MessageList = memo(function MessageList({
     const msgWidgetsRaw = msg.role === 'assistant'
       ? (msgMeta?.widgets ?? readMessageWidgets(msg.id) ?? undefined)
       : undefined
+    const currentRunMessageLive =
+      isCurrentTerminalRunMessage &&
+      !hasCurrentRunHandoffUi &&
+      (isStreaming || effectiveTerminalStatus == null)
     const bubbleWidgets =
       msg.role === 'assistant' && historicalTurn && historicalTurn.segments.length > 0
         ? msgWidgetsRaw?.filter((w) => !widgetToolCallIdsPlacedInTurn(historicalTurn, msgWidgetsRaw).has(w.id))
@@ -291,14 +295,14 @@ export const MessageList = memo(function MessageList({
                   const histWidgets = historicWidgetsForCop(seg, msgWidgetsRaw)
                   const thinkingRowsHist = !isSearchThread
                     ? thinkingRowsForCop(seg, {
-                        live: false,
+                        live: currentRunMessageLive,
                         segmentIndex: si,
                         lastSegmentIndex: historicalTurn!.segments.length - 1,
                       })
                     : []
                   const copInlineHist = !isSearchThread
                     ? copInlineTextRowsForCop(seg, {
-                        live: false,
+                        live: currentRunMessageLive,
                         segmentIndex: si,
                         lastSegmentIndex: historicalSegments.length - 1,
                       })
@@ -338,7 +342,8 @@ export const MessageList = memo(function MessageList({
                       <CopTimeline
                         steps={payload.steps}
                         sources={payload.sources}
-                        isComplete
+                        isComplete={!currentRunMessageLive}
+                        live={currentRunMessageLive}
                         codeExecutions={payload.codeExecutions}
                         onOpenCodeExecution={openCodePanel}
                         activeCodeExecutionId={codePanelExecutionId ?? undefined}
@@ -360,6 +365,7 @@ export const MessageList = memo(function MessageList({
                           html={w.html}
                           title={w.title}
                           complete
+                          compact
                           onAction={handleArtifactAction}
                         />
                       ))}

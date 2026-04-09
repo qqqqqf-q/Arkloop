@@ -6,7 +6,7 @@ import { PageHeader } from '../components/PageHeader'
 import { DataTable, type Column } from '../components/DataTable'
 import { Badge, type BadgeVariant } from '../components/Badge'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, parseDateTimeLocalToUTC, useTimeZone, useToast } from '@arkloop/shared'
 import { isApiError } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { RunDetailPanel } from '../components/RunDetailPanel'
@@ -108,11 +108,9 @@ function isVisibleAssistantDelta(event: RunEventRaw): boolean {
   return typeof event.seq === 'number'
 }
 
-function toRFC3339(value: string): string | undefined {
+function toRFC3339(value: string, timeZone: string): string | undefined {
   if (!value.trim()) return undefined
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return undefined
-  return parsed.toISOString()
+  return parseDateTimeLocalToUTC(value, timeZone)
 }
 
 function countActiveFilters(filters: RunFilters): number {
@@ -135,6 +133,7 @@ export function RunsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
   const { t } = useLocale()
+  const { timeZone } = useTimeZone()
   const rt = t.pages.runs
   const [searchParams] = useSearchParams()
 
@@ -180,8 +179,8 @@ export function RunsPage() {
             status: filters.status || undefined,
             model: filters.model || undefined,
             persona_id: filters.personaId || undefined,
-            since: toRFC3339(filters.since),
-            until: toRFC3339(filters.until),
+            since: toRFC3339(filters.since, timeZone),
+            until: toRFC3339(filters.until, timeZone),
             limit: PAGE_SIZE,
             offset: currentOffset,
           },
@@ -195,7 +194,7 @@ export function RunsPage() {
         setLoading(false)
       }
     },
-    [accessToken, addToast, rt.toastLoadFailed],
+    [accessToken, addToast, rt.toastLoadFailed, timeZone],
   )
 
   useEffect(() => {
@@ -371,7 +370,7 @@ export function RunsPage() {
       header: rt.colCreatedAt,
       render: (row) => (
         <span className="text-xs tabular-nums">
-          {new Date(row.created_at).toLocaleString()}
+          {formatDateTime(row.created_at, { includeZone: false })}
         </span>
       ),
     },

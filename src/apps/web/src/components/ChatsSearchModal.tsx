@@ -5,10 +5,29 @@ import type { ThreadResponse } from '../api'
 import { searchThreads } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { isPerfDebugEnabled, recordPerfDuration, recordPerfValue } from '../perfDebug'
+import { useTimeZone } from '@arkloop/shared'
 
 type DateGroup = {
   label: string
   threads: ThreadResponse[]
+}
+
+const MS_PER_DAY = 86_400_000
+
+function getZonedMidnight(value: string | Date, timeZone: string): number | null {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date)
+  const year = Number(parts.find((part) => part.type === 'year')?.value ?? '')
+  const month = Number(parts.find((part) => part.type === 'month')?.value ?? '')
+  const day = Number(parts.find((part) => part.type === 'day')?.value ?? '')
+  if ([year, month, day].some((n) => Number.isNaN(n))) return null
+  return Date.UTC(year, month - 1, day)
 }
 
 function groupByDate(threads: ThreadResponse[], labels: {
@@ -16,11 +35,11 @@ function groupByDate(threads: ThreadResponse[], labels: {
   yesterday: string
   lastWeek: string
   earlier: string
-}): DateGroup[] {
+}, timeZone: string): DateGroup[] {
   const now = new Date()
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const yesterdayStart = new Date(todayStart.getTime() - 86_400_000)
-  const weekStart = new Date(todayStart.getTime() - 6 * 86_400_000)
+  const todayStart = getZonedMidnight(now, timeZone)
+  const yesterdayStart = todayStart === null ? null : todayStart - MS_PER_DAY
+  const weekStart = todayStart === null ? null : todayStart - 6 * MS_PER_DAY
 
   const buckets: [string, ThreadResponse[]][] = [
     [labels.today, []],
@@ -30,12 +49,16 @@ function groupByDate(threads: ThreadResponse[], labels: {
   ]
 
   for (const thread of threads) {
-    const d = new Date(thread.created_at)
-    if (d >= todayStart) {
+    const threadStart = getZonedMidnight(thread.created_at, timeZone)
+    if (threadStart === null) {
+      buckets[3][1].push(thread)
+      continue
+    }
+    if (todayStart !== null && threadStart >= todayStart) {
       buckets[0][1].push(thread)
-    } else if (d >= yesterdayStart) {
+    } else if (yesterdayStart !== null && threadStart >= yesterdayStart) {
       buckets[1][1].push(thread)
-    } else if (d >= weekStart) {
+    } else if (weekStart !== null && threadStart >= weekStart) {
       buckets[2][1].push(thread)
     } else {
       buckets[3][1].push(thread)
@@ -58,6 +81,7 @@ const INITIAL_VISIBLE_THREAD_COUNT = 18
 export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
   const navigate = useNavigate()
   const { t } = useLocale()
+  const { timeZone } = useTimeZone()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ThreadResponse[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -201,7 +225,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
 
   const groups = useMemo(() => {
     const startedAt = typeof performance !== 'undefined' ? performance.now() : 0
-    const next = groupByDate(visibleThreads, dateLabels)
+    const next = groupByDate(visibleThreads, dateLabels, timeZone)
     if (isPerfDebugEnabled() && typeof performance !== 'undefined') {
       recordPerfDuration('desktop_search_modal_grouping', performance.now() - startedAt, {
         threadCount: visibleThreads.length,
@@ -212,7 +236,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
       })
     }
     return next
-  }, [dateLabels, displayThreads.length, query.length, searching, visibleThreads])
+  }, [dateLabels, displayThreads.length, query.length, searching, timeZone, visibleThreads])
 
   const handleThreadClick = useCallback(
     (threadId: string) => {

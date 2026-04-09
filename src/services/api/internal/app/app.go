@@ -744,6 +744,8 @@ func (a *Application) Run(ctx context.Context) error {
 			ChannelLedgerRepo:        channelLedgerRepo,
 			SecretsRepo:              secretsRepo,
 			PersonasRepo:             personasRepo,
+			UsersRepo:                userRepo,
+			AccountRepo:              accountRepo,
 			ThreadRepo:               threadRepo,
 			MessageRepo:              messageRepo,
 			RunEventRepo:             runEventRepo,

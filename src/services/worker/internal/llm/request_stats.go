@@ -44,6 +44,14 @@ func ComputeRequestStats(req Request) RequestStats {
 	return stats
 }
 
+func EstimateRequestJSONBytes(req Request) int {
+	raw, err := json.Marshal(req.ToJSON())
+	if err != nil {
+		return 0
+	}
+	return len(raw)
+}
+
 func computePrefixHash(req Request) string {
 	var systemText string
 	for _, msg := range req.Messages {

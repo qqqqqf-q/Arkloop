@@ -581,6 +581,13 @@ func InternalStreamEndedError() GatewayError {
 	}
 }
 
+func RetryableStreamEndedError() GatewayError {
+	return GatewayError{
+		ErrorClass: ErrorClassProviderRetryable,
+		Message:    "upstream stream ended prematurely without completion",
+	}
+}
+
 func mapOrEmpty(value map[string]any) map[string]any {
 	if value == nil {
 		return map[string]any{}

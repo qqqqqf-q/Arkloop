@@ -9,6 +9,7 @@ import {
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
 import type { WebSearchPhaseStep } from '../components/CopTimeline'
+import { timelineStepDisplayLabel } from '../components/cop-timeline/types'
 import type { StreamingArtifactEntry } from '../components/ArtifactStreamBlock'
 import type { MessageSearchStepRef, WidgetRef, MsgRunEvent, ThreadRunHandoffRef } from '../storage'
 
@@ -370,7 +371,7 @@ export function resolveCopHeaderOverride(params: {
         ? params.labels.failed
         : undefined
   if (params.steps.length > 0) {
-    return statusLabel ?? params.steps[params.steps.length - 1]?.label ?? params.labels.liveProgress
+    return statusLabel ?? timelineStepDisplayLabel(params.steps[params.steps.length - 1]!) ?? params.labels.liveProgress
   }
   if (params.hasCodeExecutions || params.hasSubAgents || params.hasFileOps || params.hasWebFetches || params.hasGenericTools) {
     return statusLabel ?? params.labels.liveProgress

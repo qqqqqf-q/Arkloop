@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { ACP_DELEGATE_LAYER } from '@arkloop/shared'
 import {
   applyRunEventToWebSearchSteps,
+  COMPLETED_SEARCHING_LABEL,
+  DEFAULT_SEARCHING_LABEL,
   isWebSearchToolName,
   webSearchQueriesFromArguments,
   webSearchSourcesFromResult,
@@ -68,9 +70,11 @@ describe('applyRunEventToWebSearchSteps', () => {
     let steps = applyRunEventToWebSearchSteps([], call)
     expect(steps).toHaveLength(1)
     expect(steps[0]?.kind).toBe('searching')
+    expect(steps[0]?.label).toBe(DEFAULT_SEARCHING_LABEL)
     expect(steps[0]?.queries).toEqual(['q1'])
     steps = applyRunEventToWebSearchSteps(steps, result)
     expect(steps).toHaveLength(1)
+    expect(steps[0]?.label).toBe(COMPLETED_SEARCHING_LABEL)
     expect(steps[0]?.sources).toEqual([{ title: 't', url: 'https://x.test', snippet: undefined }])
     expect(steps[0]?.seq).toBe(1)
     expect(steps[0]?.resultSeq).toBe(2)

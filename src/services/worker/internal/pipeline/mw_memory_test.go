@@ -110,7 +110,7 @@ func userIDPtr() *uuid.UUID {
 	return &uid
 }
 
-// memSnapStub 供测试仅注入已持久化块（不触发 Find）。
+// memSnapStub 供测试提供 memory 快照读取结果。
 type memSnapStub struct {
 	block string
 	found bool
@@ -128,6 +128,34 @@ func (s *memSnapStub) Get(_ context.Context, _, _ uuid.UUID, _ string) (string, 
 }
 
 func (s *memSnapStub) UpsertWithHits(_ context.Context, _, _ uuid.UUID, _, _ string, _ []data.MemoryHitCache) error {
+	return nil
+}
+
+type impressionStoreStub struct {
+	impression string
+	found      bool
+	err        error
+}
+
+func (s *impressionStoreStub) Get(_ context.Context, _, _ uuid.UUID, _ string) (string, bool, error) {
+	if s.err != nil {
+		return "", false, s.err
+	}
+	if s.found {
+		return s.impression, true, nil
+	}
+	return "", false, nil
+}
+
+func (s *impressionStoreStub) Upsert(_ context.Context, _, _ uuid.UUID, _, _ string) error {
+	return nil
+}
+
+func (s *impressionStoreStub) AddScore(_ context.Context, _, _ uuid.UUID, _ string, _ int) (int, error) {
+	return 0, nil
+}
+
+func (s *impressionStoreStub) ResetScore(_ context.Context, _, _ uuid.UUID, _ string) error {
 	return nil
 }
 
@@ -186,13 +214,17 @@ func TestMemoryMiddleware_NilUserID_NoOp(t *testing.T) {
 	}
 }
 
-func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
+func TestMemoryMiddleware_InjectsImpressionWithoutMemoryBlock(t *testing.T) {
 	mp := newMemMock()
 	snap := &memSnapStub{
 		found: true,
 		block: "\n\n<memory>\n- user prefers Go\n</memory>",
 	}
-	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, nil, nil)
+	impStore := &impressionStoreStub{
+		found:      true,
+		impression: "owner prefers Go for backend work",
+	}
+	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, impStore, nil)
 
 	rc := buildMemRC(userIDPtr(), "what language do you prefer?", "")
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
@@ -202,21 +234,28 @@ func TestMemoryMiddleware_InjectsMemoryBlock(t *testing.T) {
 	if mp.findCalled {
 		t.Fatal("Find must not run in request path when snapshot is populated")
 	}
-	if !strings.Contains(rc.SystemPrompt, "<memory>") {
-		t.Fatalf("expected <memory> block in SystemPrompt, got: %q", rc.SystemPrompt)
+	if !strings.Contains(rc.SystemPrompt, "<impression>") {
+		t.Fatalf("expected <impression> block in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
-	if !strings.Contains(rc.SystemPrompt, "user prefers Go") {
-		t.Fatalf("expected abstract in SystemPrompt, got: %q", rc.SystemPrompt)
+	if !strings.Contains(rc.SystemPrompt, "owner prefers Go for backend work") {
+		t.Fatalf("expected impression text in SystemPrompt, got: %q", rc.SystemPrompt)
+	}
+	if strings.Contains(rc.SystemPrompt, "<memory>") {
+		t.Fatalf("expected no <memory> block in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
 }
 
-func TestMemoryMiddleware_NotebookAndMemoryBlocksCanCoexist(t *testing.T) {
+func TestMemoryMiddleware_NotebookAndImpressionBlocksCanCoexist(t *testing.T) {
 	mp := newMemMock()
 	snap := &memSnapStub{
 		found: true,
 		block: "\n\n<memory>\n- recalled fact\n</memory>",
 	}
-	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, nil, nil)
+	impStore := &impressionStoreStub{
+		found:      true,
+		impression: "owner values concise answers",
+	}
+	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, impStore, nil)
 
 	rc := buildMemRC(userIDPtr(), "hello", "")
 	rc.SystemPrompt = "<notebook>\n- stable note\n</notebook>"
@@ -224,8 +263,11 @@ func TestMemoryMiddleware_NotebookAndMemoryBlocksCanCoexist(t *testing.T) {
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(rc.SystemPrompt, "<notebook>") || !strings.Contains(rc.SystemPrompt, "<memory>") {
-		t.Fatalf("expected notebook and memory blocks, got: %q", rc.SystemPrompt)
+	if !strings.Contains(rc.SystemPrompt, "<notebook>") || !strings.Contains(rc.SystemPrompt, "<impression>") {
+		t.Fatalf("expected notebook and impression blocks, got: %q", rc.SystemPrompt)
+	}
+	if strings.Contains(rc.SystemPrompt, "<memory>") {
+		t.Fatalf("expected no <memory> block in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
 }
 
@@ -247,7 +289,11 @@ func TestMemoryMiddleware_NoHits_NoInjection(t *testing.T) {
 func TestMemoryMiddleware_SnapshotReadError_Continues(t *testing.T) {
 	mp := newMemMock()
 	snap := &memSnapStub{err: context.DeadlineExceeded}
-	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, nil, nil)
+	impStore := &impressionStoreStub{
+		found:      true,
+		impression: "owner likes practical examples",
+	}
+	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, impStore, nil)
 
 	nextCalled := false
 	rc := buildMemRC(userIDPtr(), "query", "")
@@ -260,6 +306,9 @@ func TestMemoryMiddleware_SnapshotReadError_Continues(t *testing.T) {
 	}
 	if !nextCalled {
 		t.Fatal("expected next to be called even when snapshot read errors")
+	}
+	if strings.Contains(rc.SystemPrompt, "<memory_unavailable>") {
+		t.Fatalf("expected no memory_unavailable tag, got: %q", rc.SystemPrompt)
 	}
 }
 
@@ -346,7 +395,7 @@ func TestMemoryMiddleware_NoFlushWhenNoPendingWrites(t *testing.T) {
 	}
 }
 
-func TestMemoryMiddleware_SnapshotMayIncludeMultilineAbstract(t *testing.T) {
+func TestMemoryMiddleware_DoesNotInjectSnapshotBlock(t *testing.T) {
 	mp := newMemMock()
 	snap := &memSnapStub{
 		found: true,
@@ -363,26 +412,60 @@ func TestMemoryMiddleware_SnapshotMayIncludeMultilineAbstract(t *testing.T) {
 	if mp.findCalled || mp.contentCalled {
 		t.Fatal("inject path must not call provider Find/Content")
 	}
-	if !strings.Contains(rc.SystemPrompt, "user prefers Go with modules") {
-		t.Fatalf("expected snapshot text in SystemPrompt, got: %q", rc.SystemPrompt)
+	if strings.Contains(rc.SystemPrompt, "user prefers Go with modules") {
+		t.Fatalf("expected snapshot text not injected into SystemPrompt, got: %q", rc.SystemPrompt)
+	}
+	if strings.Contains(rc.SystemPrompt, "<memory>") {
+		t.Fatalf("expected no <memory> block in SystemPrompt, got: %q", rc.SystemPrompt)
 	}
 }
 
 func TestMemoryMiddleware_UsesRunContextMemoryProviderWhenStaticProviderNil(t *testing.T) {
 	mp := newMemMock()
-	mp.findHits = []memory.MemoryHit{{URI: "u1", Abstract: "remembered"}}
 	snap := &memSnapStub{found: true, block: "\n\n<memory>\n- remembered\n</memory>"}
-	mw := pipeline.NewMemoryMiddleware(nil, snap, nil, nil, nil, nil)
+	impStore := &impressionStoreStub{
+		found:      true,
+		impression: "owner keeps strict review standards",
+	}
+	mw := pipeline.NewMemoryMiddleware(nil, snap, nil, nil, impStore, nil)
 	rc := buildMemRC(userIDPtr(), "hello", "")
 	rc.MemoryProvider = mp
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		if !strings.Contains(rc.SystemPrompt, "remembered") {
-			t.Fatalf("expected injected memory block, got %q", rc.SystemPrompt)
+		if !strings.Contains(rc.SystemPrompt, "owner keeps strict review standards") {
+			t.Fatalf("expected injected impression block, got %q", rc.SystemPrompt)
+		}
+		if strings.Contains(rc.SystemPrompt, "<memory>") {
+			t.Fatalf("expected no memory block, got %q", rc.SystemPrompt)
 		}
 		return nil
 	})
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMemoryMiddleware_SkipsInjectionForImpressionRun(t *testing.T) {
+	mp := newMemMock()
+	snap := &memSnapStub{
+		found: true,
+		block: "\n\n<memory>\n- snapshot content\n</memory>",
+	}
+	impStore := &impressionStoreStub{
+		found:      true,
+		impression: "owner profile should not be injected during impression run",
+	}
+	mw := pipeline.NewMemoryMiddleware(mp, snap, nil, nil, impStore, nil)
+
+	rc := buildMemRC(userIDPtr(), "rebuild impression", "")
+	rc.SystemPrompt = "base prompt"
+	rc.InputJSON = map[string]any{"run_kind": "impression"}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rc.SystemPrompt != "base prompt" {
+		t.Fatalf("expected system prompt unchanged for impression run, got: %q", rc.SystemPrompt)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	nethttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/migrate"
+	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/testutil"
 	"arkloop/services/shared/discordbot"
 
@@ -38,6 +40,8 @@ type discordChannelsTestEnv struct {
 	channelReceiptsRepo      *data.ChannelMessageReceiptsRepository
 	channelLedgerRepo        *data.ChannelMessageLedgerRepository
 	personasRepo             *data.PersonasRepository
+	usersRepo                *data.UserRepository
+	accountRepo              *data.AccountRepository
 	threadRepo               *data.ThreadRepository
 	messageRepo              *data.MessageRepository
 	runEventRepo             *data.RunEventRepository
@@ -258,6 +262,8 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 		channelReceiptsRepo:      channelReceiptsRepo,
 		channelLedgerRepo:        channelLedgerRepo,
 		personasRepo:             personasRepo,
+		usersRepo:                userRepo,
+		accountRepo:              accountRepo,
 		threadRepo:               threadRepo,
 		messageRepo:              messageRepo,
 		runEventRepo:             runEventRepo,
@@ -277,6 +283,8 @@ func (e discordChannelsTestEnv) connector() discordConnector {
 		channelReceiptsRepo:      e.channelReceiptsRepo,
 		channelLedgerRepo:        e.channelLedgerRepo,
 		personasRepo:             e.personasRepo,
+		usersRepo:                e.usersRepo,
+		accountRepo:              e.accountRepo,
 		threadRepo:               e.threadRepo,
 		messageRepo:              e.messageRepo,
 		runEventRepo:             e.runEventRepo,
@@ -416,6 +424,112 @@ func TestDiscordIngressDMFirstMessageEntersPendingBatch(t *testing.T) {
 	}
 }
 
+func TestDiscordIngressLocalizesInboundTimeForAgent(t *testing.T) {
+	env := setupDiscordChannelsTestEnv(t, nil)
+	if _, err := env.pool.Exec(context.Background(), `UPDATE users SET timezone = 'Asia/Shanghai' WHERE id = $1`, env.userID); err != nil {
+		t.Fatalf("seed user timezone: %v", err)
+	}
+	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
+	mustLinkDiscordIdentity(t, env, channel.ID, "u-time", "alice")
+
+	event := newDiscordMessageCreate("m-time", "dm-time", "u-time", "alice", "hello")
+	event.Timestamp = time.Date(2024, time.March, 8, 16, 0, 0, 0, time.UTC)
+	if err := env.connector().HandleMessageCreate(context.Background(), observability.NewTraceID(), channel.ID, "", event); err != nil {
+		t.Fatalf("handle message create: %v", err)
+	}
+
+	var contentJSON []byte
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT content_json::text::jsonb, metadata_json::text::jsonb
+		  FROM messages
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+	).Scan(&contentJSON, &metadataJSON); err != nil {
+		t.Fatalf("query latest message: %v", err)
+	}
+
+	var content struct {
+		Parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(contentJSON, &content); err != nil {
+		t.Fatalf("decode content_json: %v", err)
+	}
+	if len(content.Parts) != 1 || !strings.Contains(content.Parts[0].Text, `time: "2024-03-09 00:00:00 [UTC+8]"`) {
+		t.Fatalf("unexpected localized content: %s", string(contentJSON))
+	}
+	if !strings.Contains(content.Parts[0].Text, `time_utc: "2024-03-08T16:00:00Z"`) {
+		t.Fatalf("expected utc field in content, got %s", content.Parts[0].Text)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata_json: %v", err)
+	}
+	if got := asString(metadata["time_local"]); got != "2024-03-09 00:00:00 [UTC+8]" {
+		t.Fatalf("unexpected time_local: %q", got)
+	}
+	if got := asString(metadata["time_utc"]); got != "2024-03-08T16:00:00Z" {
+		t.Fatalf("unexpected time_utc: %q", got)
+	}
+}
+
+func TestDiscordIngressLocalizesInboundTimeWithOwnerTimezoneDST(t *testing.T) {
+	env := setupDiscordChannelsTestEnv(t, nil)
+	if _, err := env.pool.Exec(context.Background(), `UPDATE users SET timezone = 'America/Los_Angeles' WHERE id = $1`, env.userID); err != nil {
+		t.Fatalf("seed user timezone: %v", err)
+	}
+	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
+	_ = mustLinkDiscordIdentity(t, env, channel.ID, "u-owner", "owner-user")
+
+	event := newDiscordMessageCreate("m-dst", "dm-dst", "u-owner", "owner-user", "hello")
+	event.Timestamp = time.Date(2024, time.July, 4, 12, 0, 0, 0, time.UTC)
+	if err := env.connector().HandleMessageCreate(context.Background(), observability.NewTraceID(), channel.ID, "", event); err != nil {
+		t.Fatalf("handle message create: %v", err)
+	}
+
+	var contentJSON []byte
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT content_json::text::jsonb, metadata_json::text::jsonb
+		  FROM messages
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+	).Scan(&contentJSON, &metadataJSON); err != nil {
+		t.Fatalf("query latest message: %v", err)
+	}
+
+	var content struct {
+		Parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"parts"`
+	}
+	if err := json.Unmarshal(contentJSON, &content); err != nil {
+		t.Fatalf("decode content_json: %v", err)
+	}
+	if len(content.Parts) != 1 || !strings.Contains(content.Parts[0].Text, `time: "2024-07-04 05:00:00 [UTC-7]"`) {
+		t.Fatalf("unexpected localized content: %s", string(contentJSON))
+	}
+	if !strings.Contains(content.Parts[0].Text, `time_utc: "2024-07-04T12:00:00Z"`) {
+		t.Fatalf("expected utc field in content, got %s", content.Parts[0].Text)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata_json: %v", err)
+	}
+	if got := asString(metadata["time_local"]); got != "2024-07-04 05:00:00 [UTC-7]" {
+		t.Fatalf("unexpected time_local: %q", got)
+	}
+	if got := asString(metadata["time_utc"]); got != "2024-07-04T12:00:00Z" {
+		t.Fatalf("unexpected time_utc: %q", got)
+	}
+}
+
 func TestDiscordIngressActiveRunKeepsPendingAndDoesNotInject(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, nil)
 	channel := createActiveDiscordChannelWithConfig(t, env, "bot-token", map[string]any{})
@@ -523,6 +637,32 @@ func TestDiscordIngressBurstRecoveryCreatesSingleRunForBatch(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = '`+data.RunExecuteJobType+`'`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE channel_id = '`+channel.ID.String()+`' AND direction = 'inbound' AND run_id IS NOT NULL`, 2)
+
+	var startedJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `SELECT data_json::text::jsonb FROM run_events WHERE type = 'run.started' LIMIT 1`).Scan(&startedJSON); err != nil {
+		t.Fatalf("query run.started: %v", err)
+	}
+	var started map[string]any
+	if err := json.Unmarshal(startedJSON, &started); err != nil {
+		t.Fatalf("decode run.started: %v", err)
+	}
+	if got := strings.TrimSpace(asString(started["continuation_source"])); got != "none" {
+		t.Fatalf("unexpected continuation_source: %q", got)
+	}
+	if got, ok := started["continuation_loop"].(bool); !ok || got {
+		t.Fatalf("unexpected continuation_loop: %#v", started["continuation_loop"])
+	}
+	if got := strings.TrimSpace(asString(started["thread_tail_message_id"])); got == "" {
+		t.Fatalf("expected thread_tail_message_id in run.started: %#v", started)
+	}
+	delivery, ok := started["channel_delivery"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected channel_delivery in run.started: %#v", started)
+	}
+	conversationRef, _ := delivery["conversation_ref"].(map[string]any)
+	if got := asString(conversationRef["target"]); got != "dm-recover" {
+		t.Fatalf("unexpected run.started conversation_ref: %#v", delivery)
+	}
 }
 
 func TestDiscordIngressDeferredDispatchRecoversAfterRateLimitClears(t *testing.T) {

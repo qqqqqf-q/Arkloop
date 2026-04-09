@@ -101,7 +101,7 @@ func formatImpressionInput(skeletonLines, leafLines []string) string {
 		}
 	}
 	if len(leafLines) > 0 {
-		sb.WriteString("## 记忆条目摘要\n\n")
+		sb.WriteString("## 记忆条目原文\n\n")
 		for _, line := range leafLines {
 			cleaned := strings.TrimSpace(line)
 			if cleaned != "" {

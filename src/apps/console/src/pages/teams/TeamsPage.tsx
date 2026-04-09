@@ -7,7 +7,7 @@ import { DataTable, type Column } from '../../components/DataTable'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -247,7 +247,7 @@ export function TeamsPage() {
       key: 'created_at',
       header: tc.colCreatedAt,
       render: (row) => (
-        <span className="tabular-nums text-xs">{new Date(row.created_at).toLocaleString()}</span>
+        <span className="tabular-nums text-xs">{formatDateTime(row.created_at, { includeZone: false })}</span>
       ),
     },
     {
@@ -341,7 +341,7 @@ export function TeamsPage() {
                       </td>
                       <td className="py-1.5 text-[var(--c-text-secondary)]">{m.role}</td>
                       <td className="tabular-nums py-1.5 text-[var(--c-text-secondary)]">
-                        {new Date(m.created_at).toLocaleString()}
+                        {formatDateTime(m.created_at, { includeZone: false })}
                       </td>
                       <td className="py-1.5 text-right">
                         <button

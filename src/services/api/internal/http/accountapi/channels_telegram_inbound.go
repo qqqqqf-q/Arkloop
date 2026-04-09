@@ -282,11 +282,14 @@ func telegramInboundDisplayName(identity data.ChannelIdentity, incoming telegram
 	return displayName
 }
 
-func telegramInboundMetadataJSON(identity data.ChannelIdentity, incoming telegramIncomingMessage, displayName string) (json.RawMessage, error) {
+func telegramInboundMetadataJSON(identity data.ChannelIdentity, incoming telegramIncomingMessage, displayName string, timeCtx inboundTimeContext) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{
 		"source":              "telegram",
 		"channel_identity_id": identity.ID.String(),
 		"display_name":        displayName,
+		"timezone":            timeCtx.TimeZone,
+		"time_local":          timeCtx.Local,
+		"time_utc":            timeCtx.UTC,
 		"platform_chat_id":    incoming.PlatformChatID,
 		"platform_message_id": incoming.PlatformMsgID,
 		"platform_user_id":    incoming.PlatformUserID,
@@ -305,6 +308,7 @@ func telegramInboundMetadataJSON(identity data.ChannelIdentity, incoming telegra
 func buildTelegramStructuredMessage(
 	identity data.ChannelIdentity,
 	incoming telegramIncomingMessage,
+	timeCtx inboundTimeContext,
 ) (string, json.RawMessage, json.RawMessage, error) {
 	prefix := "[Telegram]"
 	if !incoming.IsPrivate() && strings.TrimSpace(incoming.ConversationTitle) != "" {
@@ -324,7 +328,7 @@ func buildTelegramStructuredMessage(
 		return "", nil, nil, fmt.Errorf("telegram inbound message content is empty")
 	}
 	displayName := telegramInboundDisplayName(identity, incoming)
-	projection := buildTelegramEnvelopeText(identity.ID, incoming, displayName, body)
+	projection := buildTelegramEnvelopeText(identity.ID, incoming, displayName, body, timeCtx)
 	content, err := messagecontent.Normalize(messagecontent.FromText(projection).Parts)
 	if err != nil {
 		return "", nil, nil, err
@@ -333,14 +337,14 @@ func buildTelegramStructuredMessage(
 	if err != nil {
 		return "", nil, nil, err
 	}
-	metadataJSON, err := telegramInboundMetadataJSON(identity, incoming, displayName)
+	metadataJSON, err := telegramInboundMetadataJSON(identity, incoming, displayName, timeCtx)
 	if err != nil {
 		return "", nil, nil, err
 	}
 	return projection, contentJSON, metadataJSON, nil
 }
 
-func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMessage, displayName, body string) string {
+func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMessage, displayName, body string, timeCtx inboundTimeContext) string {
 	lines := []string{
 		fmt.Sprintf(`display-name: "%s"`, escapeTelegramEnvelopeValue(displayName)),
 		`channel: "telegram"`,
@@ -370,7 +374,9 @@ func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMe
 	if strings.TrimSpace(incoming.PlatformMsgID) != "" {
 		lines = append(lines, fmt.Sprintf(`message-id: "%s"`, escapeTelegramEnvelopeValue(incoming.PlatformMsgID)))
 	}
-	lines = append(lines, fmt.Sprintf(`time: "%s"`, escapeTelegramEnvelopeValue(formatTelegramTimestamp(incoming.DateUnix))))
+	lines = append(lines, fmt.Sprintf(`time: "%s"`, escapeTelegramEnvelopeValue(timeCtx.Local)))
+	lines = append(lines, fmt.Sprintf(`time_utc: "%s"`, escapeTelegramEnvelopeValue(timeCtx.UTC)))
+	lines = append(lines, fmt.Sprintf(`timezone: "%s"`, escapeTelegramEnvelopeValue(timeCtx.TimeZone)))
 	return "---\n" + strings.Join(lines, "\n") + "\n---\n" + body
 }
 

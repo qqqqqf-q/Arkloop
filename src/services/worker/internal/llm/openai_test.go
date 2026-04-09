@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"arkloop/services/shared/messagecontent"
 )
 
 func TestOpenAIToolMessage_IncludesErrorWhenResultAlsoPresent(t *testing.T) {
@@ -34,6 +36,202 @@ func TestOpenAIToolMessage_IncludesErrorWhenResultAlsoPresent(t *testing.T) {
 	content, _ := msg["content"].(string)
 	if !strings.Contains(content, "tool.memory_provider_error") {
 		t.Fatalf("expected error info in tool content, got %q", content)
+	}
+}
+
+func TestToOpenAIChatContentBlocks_PrependsAttachmentKeyForImages(t *testing.T) {
+	blocks, hasStructured, err := toOpenAIChatContentBlocks([]ContentPart{
+		{
+			Type: messagecontent.PartTypeImage,
+			Data: []byte("img"),
+			Attachment: &messagecontent.AttachmentRef{
+				Key:      "attachments/test/image.png",
+				MimeType: "image/png",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toOpenAIChatContentBlocks failed: %v", err)
+	}
+	if !hasStructured {
+		t.Fatalf("expected structured content")
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d: %#v", len(blocks), blocks)
+	}
+	if blocks[0]["type"] != "text" {
+		t.Fatalf("expected text block first, got %#v", blocks[0])
+	}
+	if blocks[0]["text"] != "[attachment_key:attachments/test/image.png]" {
+		t.Fatalf("unexpected attachment key text: %#v", blocks[0]["text"])
+	}
+	if blocks[1]["type"] != "image_url" {
+		t.Fatalf("expected image block second, got %#v", blocks[1])
+	}
+}
+
+func TestToOpenAIResponsesContentBlocks_PrependsAttachmentKeyForImages(t *testing.T) {
+	blocks, err := toOpenAIResponsesContentBlocks([]ContentPart{
+		{
+			Type: messagecontent.PartTypeImage,
+			Data: []byte("img"),
+			Attachment: &messagecontent.AttachmentRef{
+				Key:      "attachments/test/image.png",
+				MimeType: "image/png",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toOpenAIResponsesContentBlocks failed: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d: %#v", len(blocks), blocks)
+	}
+	if blocks[0]["type"] != "input_text" {
+		t.Fatalf("expected input_text block first, got %#v", blocks[0])
+	}
+	if blocks[0]["text"] != "[attachment_key:attachments/test/image.png]" {
+		t.Fatalf("unexpected attachment key text: %#v", blocks[0]["text"])
+	}
+	if blocks[1]["type"] != "input_image" {
+		t.Fatalf("expected input_image block second, got %#v", blocks[1])
+	}
+}
+
+func TestToOpenAIResponsesInput_ToolImageReplayUsesResponsesBlocks(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "read",
+		"result": map[string]any{
+			"attachment_key": "attachments/test/image.png",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	items, err := toOpenAIResponsesInput([]Message{
+		{
+			Role: "tool",
+			Content: []ContentPart{
+				{Type: messagecontent.PartTypeText, Text: string(raw)},
+				{
+					Type: messagecontent.PartTypeImage,
+					Data: []byte("img"),
+					Attachment: &messagecontent.AttachmentRef{
+						Key:      "attachments/test/image.png",
+						MimeType: "image/png",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toOpenAIResponsesInput failed: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d: %#v", len(items), items)
+	}
+	msg := items[1]
+	if msg["type"] != "message" || msg["role"] != "user" {
+		t.Fatalf("unexpected replay message: %#v", msg)
+	}
+	content, ok := msg["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected content blocks, got %#v", msg["content"])
+	}
+	if len(content) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d: %#v", len(content), content)
+	}
+	if content[0]["type"] != "input_text" {
+		t.Fatalf("expected input_text first, got %#v", content[0])
+	}
+	if content[1]["type"] != "input_image" {
+		t.Fatalf("expected input_image second, got %#v", content[1])
+	}
+}
+
+func TestOpenAIGateway_Stream_PreflightOversizeSkipsHTTP(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGateway(OpenAIGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		APIMode: "chat_completions",
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "gpt-test",
+		Messages: []Message{{
+			Role:    "user",
+			Content: []TextPart{{Text: strings.Repeat("x", RequestPayloadLimitBytes+1024)}},
+		}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no HTTP request, got %d", calls)
+	}
+	failed, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed, got %T", events[len(events)-1])
+	}
+	if failed.Error.Details["status_code"] != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected status_code: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["oversize_phase"] != OversizePhasePreflight {
+		t.Fatalf("unexpected oversize phase: %#v", failed.Error.Details)
+	}
+}
+
+func TestOpenAIGateway_Stream_Provider413AddsOversizeDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"message":"too large","type":"invalid_request_error"}}`, http.StatusRequestEntityTooLarge)
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGateway(OpenAIGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		APIMode: "chat_completions",
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "gpt-test",
+		Messages: []Message{{
+			Role:    "user",
+			Content: []TextPart{{Text: "hello"}},
+		}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	failed, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed, got %T", events[len(events)-1])
+	}
+	if failed.Error.Details["status_code"] != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected status_code: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["oversize_phase"] != OversizePhaseProvider {
+		t.Fatalf("unexpected oversize phase: %#v", failed.Error.Details)
+	}
+	if _, ok := failed.Error.Details["payload_bytes"]; !ok {
+		t.Fatalf("expected payload_bytes in details: %#v", failed.Error.Details)
 	}
 }
 
@@ -450,20 +648,23 @@ func TestOpenAIGateway_Stream_Responses_RequestBody_MultiTurnWithToolHistory(t *
 	if gotBody["model"] != "gpt-test" {
 		t.Fatalf("unexpected model: %#v", gotBody)
 	}
+	if gotBody["instructions"] != "be helpful" {
+		t.Fatalf("expected instructions to carry system prompt, got %#v", gotBody["instructions"])
+	}
 	input, ok := gotBody["input"].([]any)
 	if !ok {
 		t.Fatalf("missing input: %#v", gotBody)
 	}
-	if len(input) != 7 {
+	if len(input) != 6 {
 		t.Fatalf("unexpected input len: %d %#v", len(input), input)
 	}
 
-	systemMsg, _ := input[0].(map[string]any)
-	if systemMsg["type"] != "message" || systemMsg["role"] != "system" {
-		t.Fatalf("unexpected system item: %#v", systemMsg)
+	firstUser, _ := input[0].(map[string]any)
+	if firstUser["type"] != "message" || firstUser["role"] != "user" {
+		t.Fatalf("unexpected first user item: %#v", firstUser)
 	}
 
-	assistantMsg, _ := input[2].(map[string]any)
+	assistantMsg, _ := input[1].(map[string]any)
 	if assistantMsg["type"] != "message" || assistantMsg["role"] != "assistant" || assistantMsg["status"] != "completed" {
 		t.Fatalf("unexpected assistant history item: %#v", assistantMsg)
 	}
@@ -473,12 +674,12 @@ func TestOpenAIGateway_Stream_Responses_RequestBody_MultiTurnWithToolHistory(t *
 		t.Fatalf("unexpected assistant content block: %#v", assistantContent)
 	}
 
-	functionCall, _ := input[3].(map[string]any)
+	functionCall, _ := input[2].(map[string]any)
 	if functionCall["type"] != "function_call" || functionCall["call_id"] != "call_1" || functionCall["name"] != "web_search" {
 		t.Fatalf("unexpected function_call item: %#v", functionCall)
 	}
 
-	functionOutput, _ := input[4].(map[string]any)
+	functionOutput, _ := input[3].(map[string]any)
 	if functionOutput["type"] != "function_call_output" || functionOutput["call_id"] != "call_1" {
 		t.Fatalf("unexpected function_call_output item: %#v", functionOutput)
 	}
@@ -486,14 +687,33 @@ func TestOpenAIGateway_Stream_Responses_RequestBody_MultiTurnWithToolHistory(t *
 		t.Fatalf("unexpected function_call_output payload: %#v", functionOutput["output"])
 	}
 
-	secondAssistant, _ := input[5].(map[string]any)
+	secondAssistant, _ := input[4].(map[string]any)
 	if secondAssistant["type"] != "message" || secondAssistant["role"] != "assistant" || secondAssistant["status"] != "completed" {
 		t.Fatalf("unexpected second assistant item: %#v", secondAssistant)
 	}
 
-	lastUser, _ := input[6].(map[string]any)
+	lastUser, _ := input[5].(map[string]any)
 	if lastUser["type"] != "message" || lastUser["role"] != "user" {
 		t.Fatalf("unexpected last user item: %#v", lastUser)
+	}
+}
+
+func TestSplitOpenAIResponsesInstructions_RemovesSystemMessages(t *testing.T) {
+	instructions, filtered := splitOpenAIResponsesInstructions([]Message{
+		{Role: "system", Content: []TextPart{{Text: "base rules"}}},
+		{Role: "user", Content: []TextPart{{Text: "hi"}}},
+		{Role: "system", Content: []TextPart{{Text: "more rules"}}},
+		{Role: "assistant", Content: []TextPart{{Text: "hello"}}},
+	})
+
+	if instructions != "base rules\n\nmore rules" {
+		t.Fatalf("unexpected instructions: %q", instructions)
+	}
+	if len(filtered) != 2 {
+		t.Fatalf("unexpected filtered messages: %#v", filtered)
+	}
+	if filtered[0].Role != "user" || filtered[1].Role != "assistant" {
+		t.Fatalf("unexpected filtered roles: %#v", filtered)
 	}
 }
 
@@ -871,6 +1091,82 @@ func TestToOpenAIChatMessages_ToolEnvelope(t *testing.T) {
 	}
 	if _, ok := parsedContent["items"]; !ok {
 		t.Fatalf("expected items in tool content, got %#v", parsedContent)
+	}
+}
+
+func TestToOpenAIChatMessages_UserImageIncludesAttachmentKeyText(t *testing.T) {
+	out, err := toOpenAIChatMessages([]Message{{
+		Role: "user",
+		Content: []ContentPart{
+			{Type: "text", Text: "看这张图"},
+			{
+				Type: "image",
+				Attachment: &messagecontent.AttachmentRef{
+					Key:      "attachments/acc/thread/image.png",
+					Filename: "image.png",
+					MimeType: "image/png",
+				},
+				Data: makeVisionTestPNG(t, 64, 64),
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("toOpenAIChatMessages failed: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("unexpected messages len: %d", len(out))
+	}
+
+	content, ok := out[0]["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("unexpected content payload: %#v", out[0]["content"])
+	}
+	if len(content) != 3 {
+		t.Fatalf("unexpected content blocks: %#v", content)
+	}
+	if content[1]["type"] != "text" || content[1]["text"] != "[attachment_key:attachments/acc/thread/image.png]" {
+		t.Fatalf("missing attachment key text block: %#v", content)
+	}
+	if content[2]["type"] != "image_url" {
+		t.Fatalf("missing image block: %#v", content)
+	}
+}
+
+func TestToOpenAIResponsesInput_UserImageIncludesAttachmentKeyText(t *testing.T) {
+	items, err := toOpenAIResponsesInput([]Message{{
+		Role: "user",
+		Content: []ContentPart{
+			{Type: "text", Text: "看这张图"},
+			{
+				Type: "image",
+				Attachment: &messagecontent.AttachmentRef{
+					Key:      "attachments/acc/thread/image.png",
+					Filename: "image.png",
+					MimeType: "image/png",
+				},
+				Data: makeVisionTestPNG(t, 64, 64),
+			},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("toOpenAIResponsesInput failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("unexpected items len: %d", len(items))
+	}
+
+	content, ok := items[0]["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("unexpected content payload: %#v", items[0]["content"])
+	}
+	if len(content) != 3 {
+		t.Fatalf("unexpected content blocks: %#v", content)
+	}
+	if content[1]["type"] != "input_text" || content[1]["text"] != "[attachment_key:attachments/acc/thread/image.png]" {
+		t.Fatalf("missing attachment key text block: %#v", content)
+	}
+	if content[2]["type"] != "input_image" {
+		t.Fatalf("missing input_image block: %#v", content)
 	}
 }
 
@@ -2430,6 +2726,31 @@ func TestOpenAIGateway_StreamChatCompletionsSSE_CtxCanceled_YieldsRunFailed(t *t
 	}
 }
 
+func TestOpenAIGateway_StreamChatCompletionsSSE_EarlyEOFIsRetryable(t *testing.T) {
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamChatCompletionsSSE(context.Background(), strings.NewReader(""), "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	failed, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %s", failed.Error.ErrorClass)
+	}
+	if failed.Error.Message != "upstream stream ended prematurely without completion" {
+		t.Fatalf("unexpected error message: %q", failed.Error.Message)
+	}
+}
+
 func TestOpenAIGateway_StreamResponsesSSE_ReadError_YieldsRunFailed(t *testing.T) {
 	partial := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
 	reader := &sseErrorReader{data: []byte(partial), err: fmt.Errorf("connection reset by peer")}
@@ -2452,6 +2773,31 @@ func TestOpenAIGateway_StreamResponsesSSE_ReadError_YieldsRunFailed(t *testing.T
 	failed := events[len(events)-1].(StreamRunFailed)
 	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
 		t.Fatalf("unexpected error class: %s", failed.Error.ErrorClass)
+	}
+}
+
+func TestOpenAIGateway_StreamResponsesSSE_EarlyEOFIsRetryable(t *testing.T) {
+	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
+	var events []StreamEvent
+	err := gateway.streamResponsesSSE(context.Background(), strings.NewReader(""), "test", 200, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error from gateway, got: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	failed, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed as last event, got %T", events[len(events)-1])
+	}
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %s", failed.Error.ErrorClass)
+	}
+	if failed.Error.Message != "upstream stream ended prematurely without completion" {
+		t.Fatalf("unexpected error message: %q", failed.Error.Message)
 	}
 }
 

@@ -10,7 +10,7 @@ import { Badge, type BadgeVariant } from '../components/Badge'
 import { DataTable, type Column } from '../components/DataTable'
 import { PageHeader } from '../components/PageHeader'
 import { RunDetailPanel } from '../components/RunDetailPanel'
-import { useToast } from '@arkloop/shared'
+import { useToast, useTimeZone } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 
 const PAGE_SIZE = 50
@@ -42,10 +42,10 @@ function statusVariant(status: string): BadgeVariant {
   }
 }
 
-function formatAbsoluteTime(value: string, locale: 'zh' | 'en'): string {
+function formatAbsoluteTime(value: string, locale: 'zh' | 'en', timeZone: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en')
+  return date.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en', { timeZone })
 }
 
 function formatRelativeTime(value: string, locale: 'zh' | 'en', fallback: string): string {
@@ -110,6 +110,7 @@ export function RunsPage() {
   const { accessToken } = useOutletContext<LiteOutletContext>()
   const { addToast } = useToast()
   const { locale, t } = useLocale()
+  const { timeZone } = useTimeZone()
   const tr = t.runs
 
   const [runs, setRuns] = useState<GlobalRun[]>([])
@@ -229,7 +230,7 @@ export function RunsPage() {
       header: tr.colTime,
       cellClassName: 'whitespace-nowrap',
       render: (row) => (
-        <span title={formatAbsoluteTime(row.created_at, locale)}>
+        <span title={formatAbsoluteTime(row.created_at, locale, timeZone)}>
           {formatRelativeTime(row.created_at, locale, tr.emptyValue)}
         </span>
       ),
@@ -250,7 +251,7 @@ export function RunsPage() {
         </button>
       ),
     },
-  ], [agentNames, locale, tr])
+  ], [agentNames, locale, timeZone, tr])
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1

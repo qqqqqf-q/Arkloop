@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
@@ -145,6 +146,43 @@ func TestAgentLoopExecutesToolCalls(t *testing.T) {
 	}
 	if !seenCompleted {
 		t.Fatalf("expected run.completed")
+	}
+}
+
+func TestToolResultFromExecutionPreservesAttachmentKey(t *testing.T) {
+	toolCallID := "call_123"
+	toolName := "read"
+	expectedKey := "attachments/a/b/image.jpg"
+	result := tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true},
+		ContentParts: []tools.ContentAttachment{
+			{
+				MimeType:      "image/jpeg",
+				Data:          []byte{0x1, 0x2, 0x3},
+				AttachmentKey: expectedKey,
+			},
+		},
+	}
+
+	got := toolResultFromExecution(toolCallID, toolName, result)
+	if got.ToolCallID != toolCallID {
+		t.Fatalf("unexpected tool call id: %q", got.ToolCallID)
+	}
+	if got.ToolName != toolName {
+		t.Fatalf("unexpected tool name: %q", got.ToolName)
+	}
+	if len(got.ContentParts) != 1 {
+		t.Fatalf("expected one content part, got %d", len(got.ContentParts))
+	}
+	part := got.ContentParts[0]
+	if part.Attachment == nil {
+		t.Fatal("expected attachment to be present")
+	}
+	if part.Attachment.Key != expectedKey {
+		t.Fatalf("unexpected attachment key: %q", part.Attachment.Key)
+	}
+	if len(part.Data) != 3 {
+		t.Fatalf("unexpected content part bytes length: %d", len(part.Data))
 	}
 }
 
@@ -1105,6 +1143,238 @@ func TestAgentLoopRetryableFailureEndsAsInterrupted(t *testing.T) {
 	}
 }
 
+func TestAgentLoopStreamEndedAfterToolProgressRetries(t *testing.T) {
+	loop := NewLoop(&partialOutputThenEOFGateway{}, nil)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			LlmRetryMaxAttempts: 2,
+			LlmRetryBaseDelayMs: 1,
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{Model: "stub"},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	retryCount := 0
+	interruptedCount := 0
+	for _, ev := range got {
+		if ev.Type == "run.llm.retry" {
+			retryCount++
+		}
+		if ev.Type == "run.interrupted" {
+			interruptedCount++
+			if ev.ErrorClass == nil || *ev.ErrorClass != llm.ErrorClassProviderRetryable {
+				t.Fatalf("unexpected interrupted error class: %#v", ev.ErrorClass)
+			}
+		}
+	}
+	if retryCount != 1 {
+		t.Fatalf("expected 1 run.llm.retry, got %d", retryCount)
+	}
+	if interruptedCount != 1 {
+		t.Fatalf("expected 1 run.interrupted, got %d", interruptedCount)
+	}
+}
+
+func TestAgentLoopPreflightOversizeRewritesBeforeFirstProviderRequest(t *testing.T) {
+	primary := &oversizeSuccessGateway{phase: llm.OversizePhasePreflight}
+	loop := NewLoop(primary, nil)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	_, err := loop.runTurnWithRetry(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 1,
+			CancelSignal:        func() bool { return false },
+			PipelineRC: &pipeline.RunContext{
+				ContextCompact: pipeline.ContextCompactSettings{
+					PersistEnabled:              false,
+					MicrocompactKeepRecentTools: 1,
+				},
+			},
+		},
+		llm.Request{
+			Model: "stub",
+			Messages: []llm.Message{
+				{Role: "tool", Content: []llm.TextPart{{Text: `{"tool_call_id":"call_old","tool_name":"read","result":"` + strings.Repeat("x", llm.RequestPayloadLimitBytes+2048) + `"}`}}},
+				{Role: "tool", Content: []llm.TextPart{{Text: `{"tool_call_id":"call_new","tool_name":"read","result":{"ok":true}}`}}},
+				{Role: "user", Content: []llm.TextPart{{Text: "tail"}}},
+			},
+		},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+		1,
+	)
+	if err != nil {
+		t.Fatalf("runTurnWithRetry failed: %v", err)
+	}
+	if primary.calls != 1 {
+		t.Fatalf("expected 1 provider call after preflight rewrite, got %d", primary.calls)
+	}
+	if !hasEventType(got, "run.context_compact") {
+		t.Fatalf("expected rewrite event, got %#v", got)
+	}
+	if primary.requests[0].Messages[0].Role != "tool" || !strings.Contains(joinTestMessageText(primary.requests[0].Messages[0]), `"cleared":true`) {
+		t.Fatalf("expected first tool message microcompacted, got %#v", primary.requests[0].Messages[0])
+	}
+}
+
+func TestAgentLoopProvider413RecoversOnceAndRewritesHistory(t *testing.T) {
+	primary := &oversizeThenSuccessGateway{phase: llm.OversizePhaseProvider}
+	compact := &compactSummaryGateway{}
+	loop := NewLoop(primary, nil)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 1,
+			CancelSignal:        func() bool { return false },
+			PipelineRC:          newCompactPipelineRC(compact, 1, 1),
+		},
+		llm.Request{
+			Model: "stub",
+			Messages: []llm.Message{
+				{
+					Role: "user",
+					Content: []llm.ContentPart{{
+						Type: messagecontent.PartTypeImage,
+						Data: []byte("old-image"),
+						Attachment: &messagecontent.AttachmentRef{
+							Key:      "attachments/old.png",
+							MimeType: "image/png",
+						},
+					}},
+				},
+				{Role: "tool", Content: []llm.TextPart{{Text: `{"tool_call_id":"call_old","tool_name":"read","result":{"old":true}}`}}},
+				{Role: "tool", Content: []llm.TextPart{{Text: `{"tool_call_id":"call_new","tool_name":"read","result":{"new":true}}`}}},
+				{
+					Role: "user",
+					Content: []llm.ContentPart{{
+						Type: messagecontent.PartTypeImage,
+						Data: []byte("latest-image"),
+						Attachment: &messagecontent.AttachmentRef{
+							Key:      "attachments/latest.png",
+							MimeType: "image/png",
+						},
+					}},
+				},
+			},
+		},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if primary.calls != 2 {
+		t.Fatalf("expected 2 provider calls, got %d", primary.calls)
+	}
+	if compact.calls != 1 {
+		t.Fatalf("expected compact to run once, got %d", compact.calls)
+	}
+	if !strings.Contains(compact.lastConversation(), `[image attachment_key="attachments/old.png"]`) {
+		t.Fatalf("expected old image placeholder in compact request, got %q", compact.lastConversation())
+	}
+	if !strings.Contains(compact.lastConversation(), `"cleared":true`) {
+		t.Fatalf("expected microcompacted tool result in compact request, got %q", compact.lastConversation())
+	}
+	lastRequest := primary.requests[len(primary.requests)-1]
+	lastMessage := lastRequest.Messages[len(lastRequest.Messages)-1]
+	if lastMessage.Content[0].Kind() != messagecontent.PartTypeImage {
+		t.Fatalf("expected latest user image to survive rewrite, got %#v", lastMessage.Content[0])
+	}
+	if countEventType(got, "run.context_compact") != 1 {
+		t.Fatalf("expected exactly one rewrite event, got %#v", got)
+	}
+	if got[len(got)-1].Type != "run.completed" {
+		t.Fatalf("expected final run.completed, got %s", got[len(got)-1].Type)
+	}
+}
+
+func TestAgentLoopProvider413StopsAfterSingleRecovery(t *testing.T) {
+	primary := &alwaysOversizeGateway{phase: llm.OversizePhaseProvider}
+	compact := &compactSummaryGateway{}
+	loop := NewLoop(primary, nil)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 1,
+			CancelSignal:        func() bool { return false },
+			PipelineRC:          newCompactPipelineRC(compact, 1, 1),
+		},
+		llm.Request{
+			Model: "stub",
+			Messages: []llm.Message{
+				{
+					Role: "user",
+					Content: []llm.ContentPart{{
+						Type: messagecontent.PartTypeImage,
+						Data: []byte("old-image"),
+						Attachment: &messagecontent.AttachmentRef{
+							Key:      "attachments/old.png",
+							MimeType: "image/png",
+						},
+					}},
+				},
+				{Role: "user", Content: []llm.TextPart{{Text: "tail"}}},
+			},
+		},
+		emitter,
+		func(ev events.RunEvent) error {
+			got = append(got, ev)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if primary.calls != 2 {
+		t.Fatalf("expected exactly 2 provider calls, got %d", primary.calls)
+	}
+	if countEventType(got, "run.context_compact") != 1 {
+		t.Fatalf("expected one rewrite event, got %#v", got)
+	}
+	if got[len(got)-1].Type != "run.failed" {
+		t.Fatalf("expected final run.failed, got %s", got[len(got)-1].Type)
+	}
+}
+
 func TestRetryBackoffMsCapsAt60Seconds(t *testing.T) {
 	got := []int{
 		retryBackoffMs(1000, 1),
@@ -1947,7 +2217,34 @@ type usageScriptedGateway struct {
 	calls int
 }
 
+type oversizeSuccessGateway struct {
+	calls    int
+	phase    string
+	requests []llm.Request
+}
+
+type oversizeThenSuccessGateway struct {
+	calls    int
+	phase    string
+	requests []llm.Request
+}
+
+type alwaysOversizeGateway struct {
+	calls    int
+	phase    string
+	requests []llm.Request
+}
+
+type compactSummaryGateway struct {
+	calls    int
+	requests []llm.Request
+}
+
 type retryableFailureGateway struct {
+	calls int
+}
+
+type partialOutputThenEOFGateway struct {
 	calls int
 }
 
@@ -1961,6 +2258,75 @@ func (g *retryableFailureGateway) Stream(ctx context.Context, request llm.Reques
 			Message:    "provider overloaded",
 		},
 	})
+}
+
+func (g *oversizeSuccessGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.calls++
+	g.requests = append(g.requests, request)
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+func (g *oversizeThenSuccessGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.calls++
+	g.requests = append(g.requests, request)
+	if g.calls == 1 {
+		return yield(llm.StreamRunFailed{
+			Error: llm.GatewayError{
+				ErrorClass: llm.ErrorClassProviderNonRetryable,
+				Message:    "payload too large",
+				Details:    llm.OversizeFailureDetails(llm.RequestPayloadLimitBytes+1, g.phase, nil),
+			},
+		})
+	}
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+func (g *alwaysOversizeGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.calls++
+	g.requests = append(g.requests, request)
+	return yield(llm.StreamRunFailed{
+		Error: llm.GatewayError{
+			ErrorClass: llm.ErrorClassProviderNonRetryable,
+			Message:    "payload too large",
+			Details:    llm.OversizeFailureDetails(llm.RequestPayloadLimitBytes+1, g.phase, nil),
+		},
+	})
+}
+
+func (g *compactSummaryGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.calls++
+	g.requests = append(g.requests, request)
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "summary", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+func (g *compactSummaryGateway) lastConversation() string {
+	if len(g.requests) == 0 || len(g.requests[len(g.requests)-1].Messages) < 2 || len(g.requests[len(g.requests)-1].Messages[1].Content) == 0 {
+		return ""
+	}
+	return g.requests[len(g.requests)-1].Messages[1].Content[0].Text
+}
+
+func (g *partialOutputThenEOFGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	_ = request
+	g.calls++
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "partial", Role: "assistant"}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (g *usageScriptedGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
@@ -3234,4 +3600,43 @@ func TestScanToolOutputPassesDecodedTextToScanner(t *testing.T) {
 	if !strings.Contains(scanned, "<string>:81: warning kaleido>=1.0.0") {
 		t.Fatalf("expected decoded stderr, got %q", scanned)
 	}
+}
+
+func newCompactPipelineRC(gateway llm.Gateway, keepLast int, keepTools int) *pipeline.RunContext {
+	return &pipeline.RunContext{
+		ContextCompact: pipeline.ContextCompactSettings{
+			PersistEnabled:              true,
+			PersistTriggerApproxTokens:  1,
+			PersistKeepLastMessages:     keepLast,
+			MicrocompactKeepRecentTools: keepTools,
+		},
+		Gateway: gateway,
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{
+				Model: "compact-model",
+			},
+		},
+	}
+}
+
+func hasEventType(events []events.RunEvent, typ string) bool {
+	return countEventType(events, typ) > 0
+}
+
+func countEventType(events []events.RunEvent, typ string) int {
+	count := 0
+	for _, ev := range events {
+		if ev.Type == typ {
+			count++
+		}
+	}
+	return count
+}
+
+func joinTestMessageText(message llm.Message) string {
+	var b strings.Builder
+	for _, part := range message.Content {
+		b.WriteString(part.Text)
+	}
+	return b.String()
 }

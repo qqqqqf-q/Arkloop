@@ -4,7 +4,7 @@ import { RefreshCw, AlertTriangle } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { EmptyState } from '../../components/EmptyState'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, parseDateTimeLocalToUTC, useTimeZone, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { listReports, type Report } from '../../api/reports'
@@ -78,11 +78,9 @@ function normalizeFilters(filters: ReportFilters): ReportFilters {
   }
 }
 
-function toRFC3339(value: string): string | undefined {
+function toRFC3339(value: string, timeZone: string): string | undefined {
   if (!value.trim()) return undefined
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return undefined
-  return parsed.toISOString()
+  return parseDateTimeLocalToUTC(value, timeZone)
 }
 
 function countActiveFilters(filters: ReportFilters): number {
@@ -103,6 +101,7 @@ export function ReportsPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
   const { t } = useLocale()
+  const { timeZone } = useTimeZone()
   const p = t.pages.reports
   const [searchParams] = useSearchParams()
 
@@ -125,8 +124,8 @@ export function ReportsPage() {
             reporter_email: filters.reporterEmail || undefined,
             category: filters.category || undefined,
             feedback: filters.feedback || undefined,
-            since: toRFC3339(filters.since),
-            until: toRFC3339(filters.until),
+            since: toRFC3339(filters.since, timeZone),
+            until: toRFC3339(filters.until, timeZone),
             limit: PAGE_SIZE,
             offset: currentOffset,
           },
@@ -140,7 +139,7 @@ export function ReportsPage() {
         setLoading(false)
       }
     },
-    [accessToken, addToast, p.toastLoadFailed],
+    [accessToken, addToast, p.toastLoadFailed, timeZone],
   )
 
   useEffect(() => {
@@ -309,7 +308,7 @@ export function ReportsPage() {
                 >
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                     <span className="text-xs tabular-nums">
-                      {new Date(r.created_at).toLocaleString()}
+                      {formatDateTime(r.created_at, { includeZone: false })}
                     </span>
                   </td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">

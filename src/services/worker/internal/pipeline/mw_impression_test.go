@@ -3,10 +3,12 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/routing"
 
 	"github.com/google/uuid"
@@ -65,6 +67,48 @@ func (db impressionTestDB) Exec(_ context.Context, _ string, _ ...any) (pgconn.C
 
 func (db impressionTestDB) BeginTx(_ context.Context, _ pgx.TxOptions) (pgx.Tx, error) {
 	return nil, fmt.Errorf("BeginTx should not be called in this test")
+}
+
+type impressionMemoryProviderStub struct {
+	contents map[string]string
+	children map[string][]string
+}
+
+func (p impressionMemoryProviderStub) Find(_ context.Context, _ memory.MemoryIdentity, _ string, _ string, _ int) ([]memory.MemoryHit, error) {
+	return nil, nil
+}
+
+func (p impressionMemoryProviderStub) Content(_ context.Context, _ memory.MemoryIdentity, uri string, layer memory.MemoryLayer) (string, error) {
+	key := string(layer) + ":" + uri
+	value, ok := p.contents[key]
+	if !ok {
+		return "", fmt.Errorf("unexpected content request %s", key)
+	}
+	return value, nil
+}
+
+func (p impressionMemoryProviderStub) ListDir(_ context.Context, _ memory.MemoryIdentity, uri string) ([]string, error) {
+	children, ok := p.children[uri]
+	if !ok {
+		return nil, nil
+	}
+	return append([]string(nil), children...), nil
+}
+
+func (p impressionMemoryProviderStub) AppendSessionMessages(_ context.Context, _ memory.MemoryIdentity, _ string, _ []memory.MemoryMessage) error {
+	return nil
+}
+
+func (p impressionMemoryProviderStub) CommitSession(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+	return nil
+}
+
+func (p impressionMemoryProviderStub) Write(_ context.Context, _ memory.MemoryIdentity, _ memory.MemoryScope, _ memory.MemoryEntry) error {
+	return nil
+}
+
+func (p impressionMemoryProviderStub) Delete(_ context.Context, _ memory.MemoryIdentity, _ string) error {
+	return nil
 }
 
 func TestImpressionPrepareMiddlewareUsesAccountToolRoute(t *testing.T) {
@@ -131,6 +175,61 @@ func TestImpressionPrepareMiddlewareUsesAccountToolRoute(t *testing.T) {
 		}
 		if inner.SelectedRoute.Route.Model != "tool-model" {
 			t.Fatalf("got model %q, want %q", inner.SelectedRoute.Route.Model, "tool-model")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestImpressionPrepareMiddlewareInjectsOverviewAndLeafReadContent(t *testing.T) {
+	uid := uuid.New()
+	rootURI := memory.SelfURI(uid.String())
+	projectDirURI := rootURI + "projects/"
+	leafURI := projectDirURI + "arkloop"
+
+	provider := impressionMemoryProviderStub{
+		contents: map[string]string{
+			"overview:" + rootURI:       "owner 总览：关注 Arkloop 与长期记忆质量",
+			"overview:" + projectDirURI: "projects 总览：Arkloop 是当前重点项目",
+			"read:" + leafURI:           "Vic 和 owner 正在讨论 impression 应该更长，只注入画像，不要整块 memory。",
+		},
+		children: map[string][]string{
+			rootURI:       {projectDirURI},
+			projectDirURI: {leafURI},
+		},
+	}
+
+	mw := NewImpressionPrepareMiddleware(nil, nil, nil, false, nil)
+	rc := &RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+		},
+		InputJSON: map[string]any{
+			"run_kind": "impression",
+		},
+		UserID:         &uid,
+		MemoryProvider: provider,
+	}
+
+	err := mw(context.Background(), rc, func(_ context.Context, inner *RunContext) error {
+		if len(inner.Messages) != 1 {
+			t.Fatalf("expected one injected message, got %d", len(inner.Messages))
+		}
+		if inner.Messages[0].Role != "user" {
+			t.Fatalf("expected injected user message, got %q", inner.Messages[0].Role)
+		}
+		text := llm.VisibleMessageText(inner.Messages[0])
+		if !strings.Contains(text, "## 记忆目录概览") {
+			t.Fatalf("expected overview section, got %q", text)
+		}
+		if !strings.Contains(text, "## 记忆条目原文") {
+			t.Fatalf("expected leaf read section, got %q", text)
+		}
+		if !strings.Contains(text, "Vic 和 owner 正在讨论 impression 应该更长") {
+			t.Fatalf("expected L2 leaf content in injected message, got %q", text)
 		}
 		return nil
 	})

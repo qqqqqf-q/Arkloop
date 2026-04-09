@@ -10,6 +10,7 @@ export type ArtifactAction =
   | { type: 'resize'; height: number }
   | { type: 'error'; message: string }
   | { type: 'open_link'; url: string }
+  | { type: 'debug'; phase: 'shell-ready' | 'first-dom' | 'scripts-done' }
 
 export type ArtifactIframeHandle = {
   setStreamingContent: (html: string) => void
@@ -22,6 +23,7 @@ type Props = {
   accessToken?: string
   content?: string
   contentType?: string
+  compactSpacing?: boolean
   onAction?: (action: ArtifactAction) => void
   frameTitle?: string
   className?: string
@@ -107,8 +109,10 @@ function collectThemeSnapshot(): ThemeSnapshot {
   }
 }
 
-function buildShellHTML(snapshot: ThemeSnapshot): string {
+function buildShellHTML(snapshot: ThemeSnapshot, compactSpacing: boolean): string {
   const themeAttr = snapshot.theme ? ` data-theme="${snapshot.theme}"` : ''
+  const bodyPadding = compactSpacing ? 4 : 10
+  const heightPadding = compactSpacing ? 8 : 20
 
   return `<!DOCTYPE html>
 <html${themeAttr}>
@@ -129,7 +133,7 @@ ${buildThemeCSS(snapshot.cssVars)}
   }
   body {
     margin: 0;
-    padding: 10px 0;
+    padding: ${bodyPadding}px 0;
     background: transparent;
     color: var(--color-text-primary, #111111);
     font: 400 14px/1.7 var(--font-sans);
@@ -286,6 +290,8 @@ ${ARTIFACT_SVG_STYLES}
 (function() {
   var morphReady = false;
   var pending = null;
+  var firstDomSent = false;
+  var scriptsDoneSent = false;
 
   window.arkloop = {
     sendPrompt: function(text) {
@@ -327,6 +333,19 @@ ${ARTIFACT_SVG_STYLES}
 
   function reportError(message) {
     window.parent.postMessage({ type: 'arkloop:artifact:action', action: 'error', message: String(message || 'render error').slice(0, 4000) }, '*');
+  }
+
+  function reportDebug(phase) {
+    window.parent.postMessage({ type: 'arkloop:artifact:action', action: 'debug', phase: phase }, '*');
+  }
+
+  function maybeReportFirstDom(root) {
+    if (firstDomSent || !root) return;
+    var hasElement = !!root.querySelector('*');
+    var hasText = !!(root.textContent && root.textContent.trim().length > 0);
+    if (!hasElement && !hasText) return;
+    firstDomSent = true;
+    reportDebug('first-dom');
   }
 
   function buildThemeCSS(cssVars) {
@@ -495,6 +514,7 @@ ${ARTIFACT_SVG_STYLES}
     });
 
     decorateRangeInputs(root);
+    maybeReportFirstDom(root);
     window._notifyHeight();
     if (finalize === true) {
       window._runScripts();
@@ -504,6 +524,12 @@ ${ARTIFACT_SVG_STYLES}
   window._runScripts = function() {
     var scripts = Array.prototype.slice.call(document.querySelectorAll('#root script'));
     var pendingExternal = 0;
+
+    function maybeReportScriptsDone() {
+      if (scriptsDoneSent || pendingExternal !== 0) return;
+      scriptsDoneSent = true;
+      reportDebug('scripts-done');
+    }
 
     for (var index = 0; index < scripts.length; index++) {
       var old = scripts[index];
@@ -517,11 +543,13 @@ ${ARTIFACT_SVG_STYLES}
         script.src = externalSrc;
         script.addEventListener('load', function() {
           pendingExternal -= 1;
+          maybeReportScriptsDone();
           window._notifyHeight();
         });
         script.addEventListener('error', function() {
           pendingExternal -= 1;
           reportError('failed to load script: ' + externalSrc);
+          maybeReportScriptsDone();
           window._notifyHeight();
         });
       } else {
@@ -534,6 +562,7 @@ ${ARTIFACT_SVG_STYLES}
       old.parentNode.replaceChild(script, old);
     }
     decorateRangeInputs(document.getElementById('root'));
+    maybeReportScriptsDone();
     if (pendingExternal === 0) window._notifyHeight();
   };
 
@@ -541,7 +570,7 @@ ${ARTIFACT_SVG_STYLES}
     var root = document.getElementById('root');
     if (!root) return;
     var rect = root.getBoundingClientRect();
-    var height = Math.max(root.scrollHeight, Math.ceil(rect.height), document.body.scrollHeight) + 20;
+    var height = Math.max(root.scrollHeight, Math.ceil(rect.height), document.body.scrollHeight) + ${heightPadding};
     window.parent.postMessage({ type: 'arkloop:artifact:action', action: 'resize', height: height }, '*');
   };
 
@@ -588,6 +617,7 @@ ${ARTIFACT_SVG_STYLES}
   }
 
   window.addEventListener('load', function() {
+    reportDebug('shell-ready');
     window._notifyHeight();
   });
 })();
@@ -597,7 +627,7 @@ ${ARTIFACT_SVG_STYLES}
 }
 
 export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
-  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, onAction, frameTitle, className, style }, ref) {
+  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, compactSpacing = false, onAction, frameTitle, className, style }, ref) {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const [shellUrl, setShellUrl] = useState<string | null>(null)
     const [error, setError] = useState(false)
@@ -613,7 +643,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
 
     useEffect(() => {
       isReadyRef.current = false
-      const html = buildShellHTML(collectThemeSnapshot())
+      const html = buildShellHTML(collectThemeSnapshot(), compactSpacing)
       const blob = new Blob([html], { type: 'text/html' })
       const url = URL.createObjectURL(blob)
       shellBlobRef.current = url
@@ -625,7 +655,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         }
         URL.revokeObjectURL(url)
       }
-    }, [])
+    }, [compactSpacing])
 
     const postThemeSnapshot = useCallback(() => {
       const iframe = iframeRef.current
@@ -799,6 +829,13 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         }
         if (action === 'error' && typeof event.data.message === 'string') {
           onAction?.({ type: 'error', message: event.data.message.slice(0, 4000) })
+          return
+        }
+        if (
+          action === 'debug' &&
+          (event.data.phase === 'shell-ready' || event.data.phase === 'first-dom' || event.data.phase === 'scripts-done')
+        ) {
+          onAction?.({ type: 'debug', phase: event.data.phase })
         }
       }
       window.addEventListener('message', handler)

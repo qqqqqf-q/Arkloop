@@ -47,6 +47,10 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 			CredentialID: "cred-openai",
 			AdvancedJSON: map[string]any{
 				"metadata": map[string]any{"source": "route"},
+				"available_catalog": map[string]any{
+					"id":             "gpt-5.4",
+					"context_length": float64(200000),
+				},
 			},
 		},
 		Credential: routing.ProviderCredential{
@@ -55,7 +59,8 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 			APIKeyValue:  routingAdvancedJSONStringPtr("sk-test"),
 			OpenAIMode:   &apiMode,
 			AdvancedJSON: map[string]any{
-				"top_p": 0.9,
+				"top_p":              0.9,
+				"openviking_backend": "openai",
 			},
 		},
 	}
@@ -78,6 +83,37 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 	}
 	if resolved.OpenAI.AdvancedPayloadJSON["top_p"] != 0.9 {
 		t.Fatalf("expected provider advanced_json merged, got %#v", resolved.OpenAI.AdvancedPayloadJSON)
+	}
+	if _, exists := resolved.OpenAI.AdvancedPayloadJSON["available_catalog"]; exists {
+		t.Fatalf("available_catalog must stay internal, got %#v", resolved.OpenAI.AdvancedPayloadJSON)
+	}
+	if _, exists := resolved.OpenAI.AdvancedPayloadJSON["openviking_backend"]; exists {
+		t.Fatalf("openviking_backend must stay internal, got %#v", resolved.OpenAI.AdvancedPayloadJSON)
+	}
+	if routing.RouteContextWindowTokens(selected.Route) != 200000 {
+		t.Fatalf("expected route metadata to remain available locally")
+	}
+}
+
+func TestProviderPayloadAdvancedJSON_StripsInternalRouteMetadata(t *testing.T) {
+	filtered := providerPayloadAdvancedJSON(map[string]any{
+		"available_catalog":        map[string]any{"id": "gpt-5.4"},
+		"openviking_backend":       "openai",
+		"openviking_extra_headers": map[string]any{"x-test": "1"},
+		"top_p":                    0.9,
+	})
+
+	if _, exists := filtered["available_catalog"]; exists {
+		t.Fatalf("unexpected available_catalog in provider payload: %#v", filtered)
+	}
+	if _, exists := filtered["openviking_backend"]; exists {
+		t.Fatalf("unexpected openviking_backend in provider payload: %#v", filtered)
+	}
+	if _, exists := filtered["openviking_extra_headers"]; exists {
+		t.Fatalf("unexpected openviking_extra_headers in provider payload: %#v", filtered)
+	}
+	if filtered["top_p"] != 0.9 {
+		t.Fatalf("expected top_p preserved, got %#v", filtered)
 	}
 }
 

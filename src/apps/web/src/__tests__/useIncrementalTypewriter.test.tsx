@@ -191,6 +191,12 @@ describe('useIncrementalTypewriter', () => {
     })
 
     expect(values).not.toContain('Finding the right words for s')
+    expect(values.at(-1)).toBe('Finding the right words for 1s')
+
+    await act(async () => {
+      flushFrame(1240)
+    })
+
     expect(values.at(-1)).toBe('Finding the right words for 2s')
 
     act(() => root.unmount())

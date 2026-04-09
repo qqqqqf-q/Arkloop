@@ -105,6 +105,48 @@ func TestToAnthropicMessages_ToolEnvelope(t *testing.T) {
 	}
 }
 
+func TestAnthropicGateway_Stream_PreflightOversizeSkipsHTTP(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	})
+
+	var got []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "claude-test",
+		Messages: []Message{{
+			Role:    "user",
+			Content: []TextPart{{Text: strings.Repeat("x", RequestPayloadLimitBytes+1024)}},
+		}},
+	}, func(ev StreamEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	if calls != 0 {
+		t.Fatalf("expected no HTTP request, got %d", calls)
+	}
+	failed, ok := got[len(got)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed, got %T", got[len(got)-1])
+	}
+	if failed.Error.Details["status_code"] != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected details: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["oversize_phase"] != OversizePhasePreflight {
+		t.Fatalf("unexpected phase: %#v", failed.Error.Details)
+	}
+}
+
 func TestToAnthropicMessages_PartialToolResultsStripUnmatchedToolUse(t *testing.T) {
 	_, messages, err := toAnthropicMessages([]Message{
 		{
@@ -957,6 +999,46 @@ func TestAnthropicGateway_Stream_ErrorEventStopsTerminal(t *testing.T) {
 	}
 	if failed.Error.Details["anthropic_error_type"] != "overloaded_error" {
 		t.Fatalf("unexpected error details: %#v", failed.Error.Details)
+	}
+}
+
+func TestAnthropicGateway_Stream_MissingMessageStopAfterTextIsRetryable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSSEBody([]string{
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"partial"}}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gateway := NewAnthropicGateway(AnthropicGatewayConfig{
+		APIKey:  "test",
+		BaseURL: server.URL,
+	})
+
+	var events []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model:    "claude-test",
+		Messages: []Message{{Role: "user", Content: []TextPart{{Text: "hi"}}}},
+	}, func(ev StreamEvent) error {
+		events = append(events, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+	failed, ok := events[len(events)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected terminal StreamRunFailed, got %T", events[len(events)-1])
+	}
+	if failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected error class: %q", failed.Error.ErrorClass)
+	}
+	if failed.Error.Message != "upstream stream ended prematurely without completion" {
+		t.Fatalf("unexpected error message: %q", failed.Error.Message)
 	}
 }
 

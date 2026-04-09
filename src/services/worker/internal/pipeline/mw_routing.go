@@ -312,7 +312,7 @@ func GatewayFromSelectedRoute(selected routing.SelectedProviderRoute, auxGateway
 
 func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRoute, emitDebugEvents bool, llmMaxResponseBytes int) (llm.ResolvedGatewayConfig, error) {
 	credential := selected.Credential
-	advancedJSON := mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON)
+	advancedJSON := providerPayloadAdvancedJSON(mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON))
 	apiKey, err := resolveAPIKey(credential)
 	if err != nil {
 		return llm.ResolvedGatewayConfig{}, err
@@ -385,6 +385,29 @@ func mergeAdvancedJSON(providerAdvancedJSON map[string]any, modelAdvancedJSON ma
 		merged[key] = value
 	}
 	return merged
+}
+
+func providerPayloadAdvancedJSON(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return map[string]any{}
+	}
+	filtered := make(map[string]any, len(raw))
+	for key, value := range raw {
+		if isInternalAdvancedJSONKey(key) {
+			continue
+		}
+		filtered[key] = value
+	}
+	return filtered
+}
+
+func isInternalAdvancedJSONKey(key string) bool {
+	switch key {
+	case "available_catalog", "openviking_backend", "openviking_extra_headers":
+		return true
+	default:
+		return false
+	}
 }
 
 func resolveAPIKey(credential routing.ProviderCredential) (string, error) {

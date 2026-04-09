@@ -126,6 +126,136 @@ func TestThreadRetryWithoutAssistantMessageReplaysLatestUserTurn(t *testing.T) {
 	}
 }
 
+func TestThreadRetryWithModelOverrideUsesRequestedModel(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_retry_model")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	messageRepo, _ := data.NewMessageRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		MessageRepo:           messageRepo,
+		RunEventRepo:          runRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_retry_model", "password": "pwd12345", "email": "alice_retry_model@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "retry model"}, headers)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`,
+		accountID,
+		threadID,
+		userID,
+		"hello retry model",
+	); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	model := "provider^gpt-5"
+	retryResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/threads/"+threadPayload.ID+":retry",
+		map[string]any{"model": model},
+		headers,
+	)
+	if retryResp.Code != nethttp.StatusCreated {
+		t.Fatalf("retry run: %d body=%s", retryResp.Code, retryResp.Body.String())
+	}
+	retryPayload := decodeJSONBody[createRunResponse](t, retryResp.Body.Bytes())
+
+	var startedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		retryPayload.RunID,
+	).Scan(&startedJSON); err != nil {
+		t.Fatalf("load retry started event: %v", err)
+	}
+	var startedData map[string]any
+	if err := json.Unmarshal(startedJSON, &startedData); err != nil {
+		t.Fatalf("decode retry started event: %v", err)
+	}
+	if got, _ := startedData["model"].(string); got != model {
+		t.Fatalf("unexpected retry model in started event: %#v", startedData["model"])
+	}
+
+	var jobPayload []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT payload_json FROM jobs WHERE payload_json->>'run_id' = $1 LIMIT 1`,
+		retryPayload.RunID,
+	).Scan(&jobPayload); err != nil {
+		t.Fatalf("load retry job payload: %v", err)
+	}
+	var jobJSON map[string]any
+	if err := json.Unmarshal(jobPayload, &jobJSON); err != nil {
+		t.Fatalf("decode retry job payload: %v raw=%s", err, string(jobPayload))
+	}
+	payloadObj, ok := jobJSON["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected retry job payload shape: %#v", jobJSON["payload"])
+	}
+	if got, _ := payloadObj["model"].(string); got != model {
+		t.Fatalf("unexpected retry model in job payload: %#v", payloadObj["model"])
+	}
+}
+
 func TestThreadContinueCreatesResumedRun(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_threads_continue")
 

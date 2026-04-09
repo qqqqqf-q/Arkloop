@@ -751,6 +751,14 @@ function desktopTitleDebugFlag(): string {
   return !app.isPackaged ? '1' : '0'
 }
 
+function desktopOsUsername(): string {
+  try {
+    return os.userInfo().username.trim()
+  } catch {
+    return os.hostname().trim()
+  }
+}
+
 type BridgeModuleRow = { id: string; status: string }
 
 async function waitForBridgeReady(): Promise<boolean> {
@@ -1173,6 +1181,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...process.env,
       ARKLOOP_API_GO_ADDR: `127.0.0.1:${port}`,
       ARKLOOP_DESKTOP_TOKEN: desktopAccessToken,
+      ARKLOOP_DESKTOP_OS_USERNAME: desktopOsUsername(),
       ARKLOOP_OUTBOUND_TRUST_FAKE_IP: process.env.ARKLOOP_OUTBOUND_TRUST_FAKE_IP ?? 'true',
       ...buildRuntimeResourceEnv(projectDir),
       ...buildWorkspaceEnv(projectDir),

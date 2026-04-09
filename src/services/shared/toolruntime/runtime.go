@@ -158,6 +158,7 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	available := map[string]struct{}{
 		"visualize_read_me":   {},
 		"artifact_guidelines": {},
+		"arkloop_help":        {},
 		"edit":                {},
 		"close_agent":         {},
 		"glob":                {},

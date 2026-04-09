@@ -106,8 +106,8 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Details:    map[string]any{"reason": g.transport.baseURLErr.Error()},
 		}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
-	defer cancel()
+	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
 	payload, err := toGeminiPayload(request, g.protocol.AdvancedPayloadJSON)
@@ -148,6 +148,9 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Message:    "Gemini request serialization failed",
 		}})
 	}
+	if RequestPayloadTooLarge(len(encoded)) {
+		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
+	}
 
 	resourcePath := geminiVersionedPath(g.transport.cfg.BaseURL, g.protocol.APIVersion, fmt.Sprintf("/models/%s:streamGenerateContent?alt=sse", request.Model))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint(resourcePath), bytes.NewReader(encoded))
@@ -187,6 +190,9 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			})
 		}
 		message, details := geminiErrorMessageAndDetails(body, status)
+		if status == http.StatusRequestEntityTooLarge {
+			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
+		}
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: errorClassFromStatus(status),
 			Message:    message,
@@ -203,7 +209,7 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 	toolCalls := map[int]*geminiStreamingToolCall{}
 
 	var parseErr error
-	sseErr := forEachSSEData(ctx, body, func(data string) error {
+	sseErr := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" {
 			return nil
@@ -530,14 +536,15 @@ func toGeminiContents(messages []Message) (systemInstruction map[string]any, con
 				if cp.Kind() != "image" || cp.Attachment == nil || len(cp.Data) == 0 {
 					continue
 				}
-				mimeType := strings.TrimSpace(cp.Attachment.MimeType)
-				if mimeType == "" {
-					mimeType = "application/octet-stream"
+				mimeType, data, imageErr := modelInputImage(cp)
+				if imageErr != nil {
+					err = imageErr
+					return
 				}
 				pendingToolParts = append(pendingToolParts, map[string]any{
 					"inlineData": map[string]any{
 						"mimeType": mimeType,
-						"data":     base64.StdEncoding.EncodeToString(cp.Data),
+						"data":     base64.StdEncoding.EncodeToString(data),
 					},
 				})
 			}
@@ -599,17 +606,14 @@ func geminiUserParts(content []ContentPart) ([]map[string]any, error) {
 				parts = append(parts, map[string]any{"text": t})
 			}
 		case "image":
-			if p.Attachment == nil || len(p.Data) == 0 {
+			mimeType, data, err := modelInputImage(p)
+			if err != nil {
 				return nil, fmt.Errorf("image part missing data")
-			}
-			mimeType := strings.TrimSpace(p.Attachment.MimeType)
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
 			}
 			parts = append(parts, map[string]any{
 				"inlineData": map[string]any{
 					"mimeType": mimeType,
-					"data":     base64.StdEncoding.EncodeToString(p.Data),
+					"data":     base64.StdEncoding.EncodeToString(data),
 				},
 			})
 		}

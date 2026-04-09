@@ -68,6 +68,15 @@ var registry = []ToolMeta{
 			"Call this before relying on a skill's instructions or specialized workflow. " +
 			"This tool only loads skills visible to the current run; it does not search the web or arbitrary filesystem paths.",
 	},
+	{
+		Name:      "arkloop_help",
+		Group:     GroupDiscovery,
+		Label:     "Arkloop help",
+		ShortDesc: "search official Arkloop product, architecture, and Desktop help text bundled with the runtime",
+		LLMDescription: "Search authoritative, version-bundled documentation about Arkloop: what the product is, service architecture, Desktop vs server, Electron (not Tauri), settings navigation, Telegram channel setup, and memory/channel identity rules. " +
+			"Call before answering questions about Arkloop itself, stack facts, or how to configure Desktop—do not invent from model weights. " +
+			"Pass the user's question or keywords in query; optional limit (1–12) caps how many text chunks are returned.",
+	},
 	// ── web ──
 	{
 		Name:      "web_search",

@@ -18,15 +18,27 @@ func SeedDesktopUser(ctx context.Context, q data.Querier) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	username := DesktopPreferredUsername()
 
 	_, err := q.Exec(ctx, `
 		INSERT INTO users (id, username, email, status)
-		VALUES ($1, 'desktop', 'desktop@localhost', 'active')
+		VALUES ($1, $2, 'desktop@localhost', 'active')
 		ON CONFLICT (id) DO NOTHING`,
-		DesktopUserID,
+		DesktopUserID, username,
 	)
 	if err != nil {
 		return fmt.Errorf("seed desktop user: %w", err)
+	}
+
+	_, err = q.Exec(ctx, `
+		UPDATE users
+		   SET username = $2
+		 WHERE id = $1
+		   AND (TRIM(COALESCE(username, '')) = '' OR username = 'desktop')`,
+		DesktopUserID, username,
+	)
+	if err != nil {
+		return fmt.Errorf("refresh desktop username: %w", err)
 	}
 
 	_, err = q.Exec(ctx, `

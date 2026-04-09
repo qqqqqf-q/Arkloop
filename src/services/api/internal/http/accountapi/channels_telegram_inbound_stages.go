@@ -278,6 +278,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	if err != nil {
 		return nil, err
 	}
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -288,6 +289,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		identity.UserID,
 		identity,
 		incoming,
+		timeCtx,
 	)
 	if err != nil {
 		return nil, err
@@ -414,7 +416,14 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
-	runStartedData := buildTelegramRunStartedData(personaRef, defaultModel)
+	runStartedData := buildTelegramRunStartedData(
+		personaRef,
+		defaultModel,
+		ch.ID,
+		*latestEntry.SenderChannelIdentityID,
+		buildTelegramIncomingFromLedger(latestEntry),
+	)
+	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,

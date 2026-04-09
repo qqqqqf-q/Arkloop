@@ -7,7 +7,7 @@ import { ExecutionCard } from '../ExecutionCard'
 import { SubAgentBlock } from '../SubAgentBlock'
 import { recordPerfCount, recordPerfValue } from '../../perfDebug'
 import type { Props, UEntry } from './types'
-import { dotColor, autoLabel, ENTRY_SORT_PRIORITY } from './types'
+import { dotColor, autoLabel, ENTRY_SORT_PRIORITY, timelineStepDisplayLabel } from './types'
 import {
   COP_TIMELINE_DOT_TOP,
   COP_TIMELINE_DOT_SIZE,
@@ -313,13 +313,21 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   })
 
   const headerLabel = headerOverride ?? resolvedAutoLabel
+  const previousHeaderLabelRef = useRef<string | null>(null)
   const previousStatusHeaderRef = useRef<string | null>(null)
-  const headerUsesIncrementalTypewriter =
-    !headerOverride && (
-      headerPhaseKey === 'thinking-pending'
-      || headerPhaseKey === 'thinking-live'
-      || (headerPhaseKey === 'thought' && previousStatusHeaderRef.current != null)
+  const seededStatusAnimation =
+    !!live || !!shimmer || (
+      !headerOverride && (
+        headerPhaseKey === 'thinking-pending'
+        || headerPhaseKey === 'thinking-live'
+        || (headerPhaseKey === 'thought' && previousStatusHeaderRef.current != null)
+      )
     )
+  const carriesForwardHeaderAnimation =
+    previousHeaderLabelRef.current != null &&
+    previousHeaderLabelRef.current !== headerLabel
+  const headerUsesIncrementalTypewriter =
+    seededStatusAnimation || carriesForwardHeaderAnimation
 
   useEffect(() => {
     if (!headerOverride && (
@@ -332,6 +340,10 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     }
     previousStatusHeaderRef.current = null
   }, [headerLabel, headerOverride, headerPhaseKey])
+
+  useEffect(() => {
+    previousHeaderLabelRef.current = headerLabel
+  }, [headerLabel])
 
   useEffect(() => {
     recordPerfCount('cop_timeline_render', 1, timelinePerfSample)
@@ -398,7 +410,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
         )}
       </button>
 
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={!isComplete || !!live || !!shimmer}>
         {!collapsed && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
@@ -410,7 +422,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
             <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
 
               <div style={{ display: 'flex', flexDirection: 'column', paddingTop: unifiedEntries.length > 0 ? '0' : undefined }}>
-                <AnimatePresence initial={false}>
+                <AnimatePresence initial={!isComplete || !!live}>
                 {unifiedEntries.map((entry, idx) => {
                   const isFirst = idx === 0
                   const isLast = idx === unifiedEntries.length - 1
@@ -441,7 +453,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                             }}
                           >
                             <TypewriterText
-                              text={entry.item.kind === 'reviewing' ? 'Reviewing sources' : entry.item.label}
+                              text={timelineStepDisplayLabel(entry.item)}
                               className={entry.item.status === 'active' ? 'thinking-shimmer-dim' : undefined}
                               live={!!live}
                             />

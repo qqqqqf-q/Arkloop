@@ -193,19 +193,38 @@ func loadRunInputs(
 		if rawRunKind, ok := dataJSON["run_kind"].(string); ok && strings.TrimSpace(rawRunKind) != "" {
 			inputJSON["run_kind"] = strings.TrimSpace(rawRunKind)
 		}
+		if rawThreadTailID, ok := dataJSON[runStartedThreadTailMessageIDKey].(string); ok && strings.TrimSpace(rawThreadTailID) != "" {
+			inputJSON[runStartedThreadTailMessageIDKey] = strings.TrimSpace(rawThreadTailID)
+		}
 		if rawChannelDelivery, ok := dataJSON["channel_delivery"].(map[string]any); ok && len(rawChannelDelivery) > 0 {
 			inputJSON["channel_delivery"] = rawChannelDelivery
 		}
 	}
 	currentHeartbeatRun := isHeartbeatRun(inputJSON, jobPayload)
 
-	messages, err := messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
+	historyUpperBoundID, hasHistoryUpperBound, err := boundedThreadHistoryUpperBound(ctx, tx, inputJSON, jobPayload)
 	if err != nil {
 		return nil, err
 	}
-	activeSnapshot, err := (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
+	if hasHistoryUpperBound {
+		inputJSON[runStartedThreadTailMessageIDKey] = historyUpperBoundID.String()
+	}
+
+	var messages []data.ThreadMessage
+	if hasHistoryUpperBound {
+		messages, err = messagesRepo.ListByThreadUpToID(ctx, tx, run.AccountID, run.ThreadID, historyUpperBoundID, messageLimit)
+	} else {
+		messages, err = messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
+	}
 	if err != nil {
 		return nil, err
+	}
+	var activeSnapshot *data.ThreadCompactionSnapshotRecord
+	if !shouldSkipActiveSnapshotForBoundedHistory(inputJSON, run, jobPayload, hasHistoryUpperBound) {
+		activeSnapshot, err = (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	hasActiveSnapshot := activeSnapshot != nil && strings.TrimSpace(activeSnapshot.SummaryText) != ""
 
@@ -335,6 +354,136 @@ func clearContinuationMetadata(inputJSON map[string]any) {
 	inputJSON[runStartedContinuationSourceKey] = "none"
 	inputJSON[runStartedContinuationLoopKey] = false
 	delete(inputJSON, runStartedContinuationResponseKey)
+}
+
+func boundedThreadHistoryUpperBound(ctx context.Context, tx pgx.Tx, inputJSON map[string]any, jobPayload map[string]any) (uuid.UUID, bool, error) {
+	if !isBoundedChannelHistoryRun(inputJSON, jobPayload) {
+		return uuid.Nil, false, nil
+	}
+	if id, ok, err := threadHistoryUpperBoundFromValues(inputJSON, jobPayload); err != nil {
+		return uuid.Nil, false, err
+	} else if ok {
+		return id, true, nil
+	}
+	if tx == nil {
+		return uuid.Nil, false, nil
+	}
+	return lookupChannelHistoryUpperBoundFromLedger(ctx, tx, inputJSON, jobPayload)
+}
+
+func isBoundedChannelHistoryRun(inputJSON map[string]any, jobPayload map[string]any) bool {
+	if IsRuntimeRecoveryJob(jobPayload) {
+		return false
+	}
+	if continuationSource, _ := inputJSON[runStartedContinuationSourceKey].(string); strings.TrimSpace(continuationSource) != "" && strings.TrimSpace(continuationSource) != "none" {
+		return false
+	}
+	if isHeartbeatRun(inputJSON, jobPayload) {
+		return false
+	}
+	return hasChannelDeliveryPayload(inputJSON) || hasChannelDeliveryPayload(jobPayload)
+}
+
+func hasChannelDeliveryPayload(values map[string]any) bool {
+	if len(values) == 0 {
+		return false
+	}
+	raw, ok := values["channel_delivery"].(map[string]any)
+	return ok && len(raw) > 0
+}
+
+func shouldSkipActiveSnapshotForBoundedHistory(inputJSON map[string]any, run data.Run, jobPayload map[string]any, hasHistoryUpperBound bool) bool {
+	if run.ResumeFromRunID != nil {
+		return false
+	}
+	if IsRuntimeRecoveryJob(jobPayload) {
+		return false
+	}
+	if hasHistoryUpperBound {
+		return true
+	}
+	return isBoundedChannelHistoryRun(inputJSON, jobPayload)
+}
+
+func threadHistoryUpperBoundFromValues(values ...map[string]any) (uuid.UUID, bool, error) {
+	for _, value := range values {
+		raw, _ := value[runStartedThreadTailMessageIDKey].(string)
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return uuid.Nil, false, fmt.Errorf("invalid thread history upper bound message id: %w", err)
+		}
+		return id, true, nil
+	}
+	return uuid.Nil, false, nil
+}
+
+func lookupChannelHistoryUpperBoundFromLedger(ctx context.Context, tx pgx.Tx, inputJSON map[string]any, jobPayload map[string]any) (uuid.UUID, bool, error) {
+	channelDelivery := channelDeliveryPayload(inputJSON, jobPayload)
+	if len(channelDelivery) == 0 {
+		return uuid.Nil, false, nil
+	}
+	channelID, err := requiredUUIDValue(channelDelivery, "channel_id")
+	if err != nil {
+		return uuid.Nil, false, nil
+	}
+	conversationRef, err := parseConversationRef(channelDelivery)
+	if err != nil || strings.TrimSpace(conversationRef.Target) == "" {
+		return uuid.Nil, false, nil
+	}
+	candidates := []string{}
+	if triggerRef, err := parseOptionalMessageRef(channelDelivery, "trigger_message_ref", "reply_to_message_id"); err == nil && triggerRef != nil && strings.TrimSpace(triggerRef.MessageID) != "" {
+		candidates = append(candidates, strings.TrimSpace(triggerRef.MessageID))
+	}
+	if inboundRef, err := parseOptionalInboundMessageRef(channelDelivery); err == nil && strings.TrimSpace(inboundRef.MessageID) != "" {
+		candidates = append(candidates, strings.TrimSpace(inboundRef.MessageID))
+	}
+	seen := map[string]struct{}{}
+	for _, platformMessageID := range candidates {
+		if _, ok := seen[platformMessageID]; ok {
+			continue
+		}
+		seen[platformMessageID] = struct{}{}
+		var messageID *uuid.UUID
+		err := tx.QueryRow(
+			ctx,
+			`SELECT message_id
+			   FROM channel_message_ledger
+			  WHERE channel_id = $1
+			    AND direction = 'inbound'
+			    AND platform_conversation_id = $2
+			    AND platform_message_id = $3
+			    AND message_id IS NOT NULL
+			  ORDER BY created_at DESC
+			  LIMIT 1`,
+			channelID,
+			strings.TrimSpace(conversationRef.Target),
+			platformMessageID,
+		).Scan(&messageID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return uuid.Nil, false, fmt.Errorf("lookup bounded channel history upper bound: %w", err)
+		}
+		if messageID != nil && *messageID != uuid.Nil {
+			return *messageID, true, nil
+		}
+	}
+	return uuid.Nil, false, nil
+}
+
+func channelDeliveryPayload(values ...map[string]any) map[string]any {
+	for _, value := range values {
+		raw, ok := value["channel_delivery"].(map[string]any)
+		if ok && len(raw) > 0 {
+			return raw
+		}
+	}
+	return nil
 }
 
 func loadResumedReplay(

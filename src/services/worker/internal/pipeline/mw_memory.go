@@ -104,7 +104,7 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh)
 }
 
-// injectFromSnapshotOnly 先注入 impression，再追加已持久化的 memory_block，不在请求路径调用 OpenViking Find。
+// injectFromSnapshotOnly 仅注入 impression；memory_block 不再进入普通对话 system prompt。
 func injectFromSnapshotOnly(ctx context.Context, rc *RunContext, snap MemorySnapshotStore, impStore ImpressionStore, ident memory.MemoryIdentity) {
 	if impStore != nil {
 		impression, found, err := impStore.Get(ctx, ident.AccountID, ident.UserID, ident.AgentID)
@@ -114,21 +114,7 @@ func injectFromSnapshotOnly(ctx context.Context, rc *RunContext, snap MemorySnap
 			rc.SystemPrompt += "\n\n<impression>\n" + impression + "\n</impression>"
 		}
 	}
-	if snap == nil {
-		return
-	}
-	block, found, err := snap.Get(ctx, ident.AccountID, ident.UserID, ident.AgentID)
-	if err != nil {
-		slog.ErrorContext(ctx, "memory: snapshot read failed", "err", err.Error())
-		appendAsyncRunEvent(ctx, rc.MemoryServiceDB, rc.Run.ID, rc.Emitter.Emit("memory.snapshot.read_failed", map[string]any{
-			"message": err.Error(),
-		}, nil, nil))
-		rc.SystemPrompt += "\n\n<memory_unavailable>Memory system temporarily unavailable. Proceed without memory context.</memory_unavailable>"
-		return
-	}
-	if found && strings.TrimSpace(block) != "" {
-		rc.SystemPrompt += block
-	}
+	_ = snap
 }
 
 func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc) {

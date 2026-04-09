@@ -12,18 +12,20 @@ import {
 } from 'recharts'
 import type { LiteOutletContext } from '../layouts/LiteLayout'
 import { PageHeader } from '../components/PageHeader'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useTimeZone, useToast } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { isApiError } from '../api'
 import { getDashboard, getDailyUsage, type DashboardData, type DailyUsage } from '../api/dashboard'
 
-function formatDate30d(): { start: string; end: string } {
-  const end = new Date()
-  const start = new Date()
-  start.setDate(start.getDate() - 29)
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  return { start: fmt(start), end: fmt(end) }
+function shiftDate(date: string, deltaDays: number): string {
+  const current = new Date(`${date}T00:00:00Z`)
+  current.setUTCDate(current.getUTCDate() + deltaDays)
+  return current.toISOString().slice(0, 10)
+}
+
+function formatDate30d(timeZone: string): { start: string; end: string } {
+  const end = formatDateTime(new Date(), { timeZone, includeZone: false }).slice(0, 10)
+  return { start: shiftDate(end, -29), end }
 }
 
 function formatShortDate(dateStr: string): string {
@@ -53,6 +55,7 @@ const OUTPUT_COLOR = '#14b8a6'
 export function DashboardPage() {
   const { accessToken } = useOutletContext<LiteOutletContext>()
   const { addToast } = useToast()
+  const { timeZone } = useTimeZone()
   const { t } = useLocale()
   const td = t.dashboard
 
@@ -62,7 +65,7 @@ export function DashboardPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { start, end } = formatDate30d()
+    const { start, end } = formatDate30d(timeZone)
     try {
       const [dashboardData, dailyData] = await Promise.all([
         getDashboard(accessToken),
@@ -75,7 +78,7 @@ export function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [accessToken, addToast, t.requestFailed])
+  }, [accessToken, addToast, t.requestFailed, timeZone])
 
   useEffect(() => {
     void load()

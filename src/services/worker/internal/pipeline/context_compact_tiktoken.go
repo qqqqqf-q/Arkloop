@@ -4,11 +4,14 @@ import (
 	"errors"
 	"strings"
 
+	"arkloop/services/shared/messagecontent"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
 	"github.com/pkoukk/tiktoken-go"
 )
+
+const contextCompactVisionTokensPerImage = 2048
 
 // ResolveTiktokenForRoute 按供应商/模型选择 tiktoken 编码；未知 OpenAI 兼容模型回退 o200k_base。
 func ResolveTiktokenForRoute(sel *routing.SelectedProviderRoute) (*tiktoken.Tiktoken, error) {
@@ -50,6 +53,7 @@ func HistoryThreadPromptTokens(enc *tiktoken.Tiktoken, msgs []llm.Message) int {
 		n += tokensPerMessage
 		n += len(enc.Encode(m.Role, nil, nil))
 		n += len(enc.Encode(messageText(m), nil, nil))
+		n += contextCompactImageTokens(m)
 	}
 	n += 3
 	return n
@@ -102,4 +106,14 @@ func SuffixRoleAndContentTokens(enc *tiktoken.Tiktoken, msgs []llm.Message, star
 		n += len(enc.Encode(messageText(msgs[i]), nil, nil))
 	}
 	return n
+}
+
+func contextCompactImageTokens(m llm.Message) int {
+	total := 0
+	for _, part := range m.Content {
+		if part.Kind() == messagecontent.PartTypeImage {
+			total += contextCompactVisionTokensPerImage
+		}
+	}
+	return total
 }

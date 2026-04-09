@@ -183,6 +183,45 @@ func TestEventWriterTelegramUnsentOutputsMixedScenario(t *testing.T) {
 	}
 }
 
+func TestEventWriterFlushTelegramBoundaryBeforeProgressMessage(t *testing.T) {
+	tracker, fake := newTestTelegramProgressTracker(t)
+	var order []string
+	fake.onEvent = func(event string) {
+		order = append(order, event)
+	}
+
+	w := &eventWriter{
+		assistantOutputs: []string{"中间正文"},
+		telegramToolBoundaryFlush: func(_ context.Context, text string) error {
+			order = append(order, "flush:"+text)
+			return nil
+		},
+		telegramProgressTracker: tracker,
+	}
+
+	err := w.flushTelegramBoundaryAndProgress(context.Background(), "中间正文", &pendingTelegramProgressToolCall{
+		CallID:   "call-1",
+		ToolName: "read_file",
+		ArgsJSON: `{"path":"/tmp/result.md"}`,
+	})
+	if err != nil {
+		t.Fatalf("flushTelegramBoundaryAndProgress returned error: %v", err)
+	}
+
+	if len(order) < 2 {
+		t.Fatalf("expected flush and send events, got %v", order)
+	}
+	if order[0] != "flush:中间正文" {
+		t.Fatalf("expected assistant flush first, got %v", order)
+	}
+	if !strings.HasPrefix(order[1], "send:") {
+		t.Fatalf("expected progress message send after flush, got %v", order)
+	}
+	if w.telegramSentOutputCount != 1 {
+		t.Fatalf("expected telegramSentOutputCount=1, got %d", w.telegramSentOutputCount)
+	}
+}
+
 func TestShouldSuppressHeartbeatOutput(t *testing.T) {
 	tests := []struct {
 		name   string

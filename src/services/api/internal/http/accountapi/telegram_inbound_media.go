@@ -220,10 +220,11 @@ func buildTelegramStructuredMessageWithMedia(
 	userID *uuid.UUID,
 	identity data.ChannelIdentity,
 	incoming telegramIncomingMessage,
+	timeCtx inboundTimeContext,
 ) (string, json.RawMessage, json.RawMessage, error) {
 	displayName := telegramInboundDisplayName(identity, incoming)
 	if store == nil || client == nil || strings.TrimSpace(token) == "" {
-		return buildTelegramStructuredMessage(identity, incoming)
+		return buildTelegramStructuredMessage(identity, incoming, timeCtx)
 	}
 
 	mediaParts, remaining, err := ingestTelegramMediaAttachments(ctx, client, store, token, accountID, threadID, userID, incoming.MediaAttachments)
@@ -249,7 +250,7 @@ func buildTelegramStructuredMessageWithMedia(
 		return "", nil, nil, fmt.Errorf("telegram inbound message content is empty")
 	}
 
-	envelope := buildTelegramEnvelopeText(identity.ID, incoming, displayName, userBody)
+	envelope := buildTelegramEnvelopeText(identity.ID, incoming, displayName, userBody, timeCtx)
 	parts := []messagecontent.Part{{Type: messagecontent.PartTypeText, Text: envelope}}
 	parts = append(parts, mediaParts...)
 
@@ -262,7 +263,7 @@ func buildTelegramStructuredMessageWithMedia(
 	if err != nil {
 		return "", nil, nil, err
 	}
-	metadataJSON, err := telegramInboundMetadataJSON(identity, incoming, displayName)
+	metadataJSON, err := telegramInboundMetadataJSON(identity, incoming, displayName, timeCtx)
 	if err != nil {
 		return "", nil, nil, err
 	}

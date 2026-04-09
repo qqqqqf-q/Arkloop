@@ -501,6 +501,9 @@ func TestBuildEffectiveToolCatalogOmitsStoredArtifactsWithoutArtifactStore(t *te
 	if _, ok := findCatalogTool(catalog, "document", "artifact_guidelines"); !ok {
 		t.Fatal("artifact_guidelines should remain available without artifact store")
 	}
+	if _, ok := findCatalogTool(catalog, "discovery", "arkloop_help"); !ok {
+		t.Fatal("arkloop_help should remain available without artifact store")
+	}
 	if _, ok := findCatalogTool(catalog, "document", "show_widget"); !ok {
 		t.Fatal("show_widget should remain available without artifact store")
 	}

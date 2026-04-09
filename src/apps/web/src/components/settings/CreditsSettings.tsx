@@ -5,9 +5,26 @@ import {
   redeemCode,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { formatDateTime, getActiveTimeZone } from '@arkloop/shared'
+
+function getCurrentYearMonth(timeZone: string): { year: number; month: number } {
+  const parts = formatDateTime(new Date(), { timeZone, includeZone: false }).slice(0, 7).split('-')
+  return { year: Number(parts[0]), month: Number(parts[1]) }
+}
+
+function getMonthLabel(month: number, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+    month: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(2000, month - 1, 1)))
+}
+
+function formatTransactionDate(value: string): string {
+  return formatDateTime(value, { includeZone: false }).slice(0, 10)
+}
 
 export function CreditsContent({ accessToken, onCreditsChanged }: { accessToken: string; onCreditsChanged?: (balance: number) => void }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const [balance, setBalance] = useState<number | null>(null)
   const [balanceLoading, setBalanceLoading] = useState(true)
   const [redeemInput, setRedeemInput] = useState('')
@@ -17,9 +34,10 @@ export function CreditsContent({ accessToken, onCreditsChanged }: { accessToken:
   const [monthlyTransactions, setMonthlyTransactions] = useState<CreditTransaction[] | null>(null)
   const [txLoading, setTxLoading] = useState(false)
   const [txError, setTxError] = useState('')
-  const now = new Date()
-  const [filterYear, setFilterYear] = useState(now.getFullYear())
-  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1)
+  const timeZone = getActiveTimeZone()
+  const currentYearMonth = getCurrentYearMonth(timeZone)
+  const [filterYear, setFilterYear] = useState(currentYearMonth.year)
+  const [filterMonth, setFilterMonth] = useState(currentYearMonth.month)
 
   useEffect(() => {
     void (async () => {
@@ -148,7 +166,7 @@ export function CreditsContent({ accessToken, onCreditsChanged }: { accessToken:
               className="h-8 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
               style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
             >
-              {Array.from({ length: 3 }, (_, i) => now.getFullYear() - i).map(y => (
+              {Array.from({ length: 3 }, (_, i) => currentYearMonth.year - i).map(y => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
@@ -159,7 +177,7 @@ export function CreditsContent({ accessToken, onCreditsChanged }: { accessToken:
               style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>{new Date(2000, m - 1).toLocaleString(undefined, { month: 'long' })}</option>
+                <option key={m} value={m}>{getMonthLabel(m, locale)}</option>
               ))}
             </select>
             <button
@@ -229,11 +247,7 @@ function CreditTransactionTable({
         <tbody>
           {transactions.map((tx) => {
             const detail = tx.thread_title ?? tx.note ?? t.creditsTxTypeLabel(tx.type)
-            const dateStr = new Date(tx.created_at).toLocaleDateString(undefined, {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            })
+            const dateStr = formatTransactionDate(tx.created_at)
             const isPositive = tx.amount >= 0
             return (
               <tr

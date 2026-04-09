@@ -45,10 +45,12 @@ type TelegramProgressSegment struct {
 	RunSegment telegramProgressRunSegment
 	Entries    []ProgressEntry
 	Closed     bool
+	MessageID  int64
+	LastText   string
 }
 
 // TelegramProgressTracker keeps Telegram progress in the same segment-based order
-// as the web COP view, but renders it as compact plain text.
+// as the web COP view, while each Telegram segment owns its own message.
 type TelegramProgressTracker struct {
 	client  *telegrambot.Client
 	token   string
@@ -56,7 +58,6 @@ type TelegramProgressTracker struct {
 	replyTo *ChannelMessageRef
 
 	mu              sync.Mutex
-	messageID       int64
 	segments        []TelegramProgressSegment
 	current         *TelegramProgressSegment
 	activeRun       telegramProgressRunSegment
@@ -82,14 +83,20 @@ func NewTelegramProgressTracker(
 func (t *TelegramProgressTracker) MessageID() int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.messageID
+	if t.current != nil {
+		return t.current.MessageID
+	}
+	if len(t.segments) == 0 {
+		return 0
+	}
+	return t.segments[len(t.segments)-1].MessageID
 }
 
 func (t *TelegramProgressTracker) OnRunSegmentStart(ctx context.Context, segmentID, kind, mode, label string) {
 	t.mu.Lock()
-	changed := false
+	var closed *TelegramProgressSegment
 	if t.activeRun.ID != "" && t.activeRun.ID != segmentID {
-		changed = t.flushCurrentLocked() || changed
+		closed = t.closeCurrentLocked()
 	}
 	t.activeRun = telegramProgressRunSegment{
 		ID:    strings.TrimSpace(segmentID),
@@ -97,6 +104,7 @@ func (t *TelegramProgressTracker) OnRunSegmentStart(ctx context.Context, segment
 		Mode:  strings.TrimSpace(mode),
 		Label: strings.TrimSpace(label),
 	}
+	changed := false
 	if t.current != nil && t.current.RunSegment.ID == "" {
 		t.current.RunSegment = t.activeRun
 		changed = true
@@ -105,27 +113,27 @@ func (t *TelegramProgressTracker) OnRunSegmentStart(ctx context.Context, segment
 		t.dirty = true
 	}
 	t.mu.Unlock()
+	if closed != nil {
+		t.syncSegment(ctx, *closed, true)
+	}
 	if changed {
-		t.tryEdit(ctx, false)
+		t.tryEditCurrent(ctx, false)
 	}
 }
 
 func (t *TelegramProgressTracker) OnRunSegmentEnd(ctx context.Context, segmentID string) {
 	segmentID = strings.TrimSpace(segmentID)
 	t.mu.Lock()
-	changed := false
+	var closed *TelegramProgressSegment
 	if segmentID != "" && t.current != nil && t.current.RunSegment.ID == segmentID {
-		changed = t.flushCurrentLocked() || changed
+		closed = t.closeCurrentLocked()
 	}
 	if segmentID != "" && t.activeRun.ID == segmentID {
 		t.activeRun = telegramProgressRunSegment{}
 	}
-	if changed {
-		t.dirty = true
-	}
 	t.mu.Unlock()
-	if changed {
-		t.tryEdit(ctx, false)
+	if closed != nil {
+		t.syncSegment(ctx, *closed, true)
 	}
 }
 
@@ -140,13 +148,10 @@ func (t *TelegramProgressTracker) OnMessageDelta(ctx context.Context, role, chan
 		return
 	}
 	t.mu.Lock()
-	changed := t.flushCurrentLocked()
-	if changed {
-		t.dirty = true
-	}
+	closed := t.closeCurrentLocked()
 	t.mu.Unlock()
-	if changed {
-		t.tryEdit(ctx, false)
+	if closed != nil {
+		t.syncSegment(ctx, *closed, true)
 	}
 }
 
@@ -169,7 +174,7 @@ func (t *TelegramProgressTracker) OnToolCall(ctx context.Context, toolCallID, to
 	})
 	t.dirty = true
 	t.mu.Unlock()
-	t.tryEdit(ctx, false)
+	t.tryEditCurrent(ctx, false)
 }
 
 func (t *TelegramProgressTracker) OnToolResult(ctx context.Context, toolCallID, toolName, errorClass string) {
@@ -182,33 +187,45 @@ func (t *TelegramProgressTracker) OnToolResult(ctx context.Context, toolCallID, 
 	errClass := strings.TrimSpace(errorClass)
 
 	t.mu.Lock()
-	if !t.markResultLocked(strings.TrimSpace(toolCallID), canonical, displayName, errClass) {
-		seg := t.ensureCurrentLocked()
-		seg.Entries = append(seg.Entries, ProgressEntry{
-			ToolCallID:  strings.TrimSpace(toolCallID),
-			ToolName:    canonical,
-			DisplayName: displayName,
-			Done:        true,
-			ErrorClass:  errClass,
-		})
+	if t.current != nil && markResultInEntries(t.current.Entries, strings.TrimSpace(toolCallID), canonical, displayName, errClass) {
+		t.dirty = true
+		t.mu.Unlock()
+		t.tryEditCurrent(ctx, false)
+		return
 	}
+	for i := len(t.segments) - 1; i >= 0; i-- {
+		if !markResultInEntries(t.segments[i].Entries, strings.TrimSpace(toolCallID), canonical, displayName, errClass) {
+			continue
+		}
+		snapshot := cloneTelegramProgressSegment(t.segments[i])
+		t.mu.Unlock()
+		t.syncSegment(ctx, snapshot, true)
+		return
+	}
+	seg := t.ensureCurrentLocked()
+	seg.Entries = append(seg.Entries, ProgressEntry{
+		ToolCallID:  strings.TrimSpace(toolCallID),
+		ToolName:    canonical,
+		DisplayName: displayName,
+		Done:        true,
+		ErrorClass:  errClass,
+	})
 	t.dirty = true
 	t.mu.Unlock()
-	t.tryEdit(ctx, false)
+	t.tryEditCurrent(ctx, false)
 }
 
 func (t *TelegramProgressTracker) Finalize(ctx context.Context) {
 	t.mu.Lock()
-	changed := t.flushCurrentLocked()
-	hasVisible := len(t.segments) > 0
-	if changed {
-		t.dirty = true
-	}
+	closed := t.closeCurrentLocked()
+	hasVisible := closed != nil || len(t.segments) > 0
 	t.mu.Unlock()
+	if closed != nil {
+		t.syncSegment(ctx, *closed, true)
+	}
 	if !hasVisible {
 		return
 	}
-	t.tryEdit(ctx, true)
 }
 
 func (t *TelegramProgressTracker) ensureCurrentLocked() *TelegramProgressSegment {
@@ -220,35 +237,27 @@ func (t *TelegramProgressTracker) ensureCurrentLocked() *TelegramProgressSegment
 		ID:         fmt.Sprintf("tg-progress-%d", t.nextSyntheticID),
 		RunSegment: t.activeRun,
 	}
+	t.lastEdit = time.Time{}
 	return t.current
 }
 
-func (t *TelegramProgressTracker) flushCurrentLocked() bool {
+func (t *TelegramProgressTracker) closeCurrentLocked() *TelegramProgressSegment {
 	if t.current == nil {
-		return false
+		return nil
 	}
 	if len(t.current.Entries) == 0 {
 		t.current = nil
-		return false
+		t.lastEdit = time.Time{}
+		t.dirty = false
+		return nil
 	}
-	closed := *t.current
+	closed := cloneTelegramProgressSegment(*t.current)
 	closed.Closed = true
-	closed.Entries = append([]ProgressEntry(nil), t.current.Entries...)
 	t.segments = append(t.segments, closed)
 	t.current = nil
-	return true
-}
-
-func (t *TelegramProgressTracker) markResultLocked(toolCallID, toolName, displayName, errorClass string) bool {
-	if t.current != nil && markResultInEntries(t.current.Entries, toolCallID, toolName, displayName, errorClass) {
-		return true
-	}
-	for i := len(t.segments) - 1; i >= 0; i-- {
-		if markResultInEntries(t.segments[i].Entries, toolCallID, toolName, displayName, errorClass) {
-			return true
-		}
-	}
-	return false
+	t.lastEdit = time.Time{}
+	t.dirty = false
+	return &closed
 }
 
 func markResultInEntries(entries []ProgressEntry, toolCallID, toolName, displayName, errorClass string) bool {
@@ -268,8 +277,40 @@ func markResultInEntries(entries []ProgressEntry, toolCallID, toolName, displayN
 	return false
 }
 
-func (t *TelegramProgressTracker) tryEdit(ctx context.Context, force bool) {
+func cloneTelegramProgressSegment(seg TelegramProgressSegment) TelegramProgressSegment {
+	out := seg
+	out.Entries = append([]ProgressEntry(nil), seg.Entries...)
+	return out
+}
+
+func (t *TelegramProgressTracker) updateSegmentDelivery(segmentID string, messageID int64, text string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.current != nil && t.current.ID == segmentID {
+		if messageID != 0 {
+			t.current.MessageID = messageID
+		}
+		t.current.LastText = text
+		return
+	}
+	for i := range t.segments {
+		if t.segments[i].ID != segmentID {
+			continue
+		}
+		if messageID != 0 {
+			t.segments[i].MessageID = messageID
+		}
+		t.segments[i].LastText = text
+		return
+	}
+}
+
+func (t *TelegramProgressTracker) tryEditCurrent(ctx context.Context, force bool) {
+	t.mu.Lock()
+	if t.current == nil || len(t.current.Entries) == 0 {
+		t.mu.Unlock()
+		return
+	}
 	if !t.dirty && !force {
 		t.mu.Unlock()
 		return
@@ -279,25 +320,34 @@ func (t *TelegramProgressTracker) tryEdit(ctx context.Context, force bool) {
 		return
 	}
 
-	text := t.formatProgressLocked(force)
-	if strings.TrimSpace(text) == "" {
-		t.mu.Unlock()
-		return
-	}
-
-	messageID := t.messageID
+	snapshot := cloneTelegramProgressSegment(*t.current)
 	t.lastEdit = time.Now()
 	t.dirty = false
 	t.mu.Unlock()
-
-	if messageID == 0 {
-		t.sendInitial(ctx, text)
-		return
-	}
-	t.editExisting(ctx, messageID, text)
+	t.syncSegment(ctx, snapshot, false)
 }
 
-func (t *TelegramProgressTracker) sendInitial(ctx context.Context, text string) {
+func (t *TelegramProgressTracker) syncSegment(ctx context.Context, seg TelegramProgressSegment, completed bool) {
+	text := formatProgressSegment(seg, completed)
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	if seg.MessageID == 0 {
+		messageID := t.sendInitial(ctx, text)
+		if messageID != 0 {
+			t.updateSegmentDelivery(seg.ID, messageID, text)
+		}
+		return
+	}
+	if seg.LastText == text {
+		return
+	}
+	if t.editExisting(ctx, seg.MessageID, text) {
+		t.updateSegmentDelivery(seg.ID, seg.MessageID, text)
+	}
+}
+
+func (t *TelegramProgressTracker) sendInitial(ctx context.Context, text string) int64 {
 	req := telegrambot.SendMessageRequest{
 		ChatID: t.target.Conversation.Target,
 		Text:   text,
@@ -311,17 +361,15 @@ func (t *TelegramProgressTracker) sendInitial(ctx context.Context, text string) 
 	sent, err := t.client.SendMessage(ctx, t.token, req)
 	if err != nil {
 		slog.WarnContext(ctx, "telegram progress: send failed", "err", err.Error())
-		return
+		return 0
 	}
 	if sent == nil || sent.MessageID == 0 {
-		return
+		return 0
 	}
-	t.mu.Lock()
-	t.messageID = sent.MessageID
-	t.mu.Unlock()
+	return sent.MessageID
 }
 
-func (t *TelegramProgressTracker) editExisting(ctx context.Context, messageID int64, text string) {
+func (t *TelegramProgressTracker) editExisting(ctx context.Context, messageID int64, text string) bool {
 	req := telegrambot.EditMessageTextRequest{
 		ChatID:    t.target.Conversation.Target,
 		MessageID: messageID,
@@ -332,7 +380,9 @@ func (t *TelegramProgressTracker) editExisting(ctx context.Context, messageID in
 	}
 	if err := t.client.EditMessageText(ctx, t.token, req); err != nil {
 		slog.WarnContext(ctx, "telegram progress: edit failed", "err", err.Error())
+		return false
 	}
+	return true
 }
 
 func (t *TelegramProgressTracker) formatProgressLocked(finalize bool) string {
@@ -372,6 +422,32 @@ func (t *TelegramProgressTracker) formatProgressLocked(finalize bool) string {
 			b.WriteString("\n")
 			b.WriteString(line)
 		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatProgressSegment(seg TelegramProgressSegment, completed bool) string {
+	title := resolveSegmentTitle(seg, completed)
+	if strings.TrimSpace(title) == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	if completed {
+		b.WriteString("✓ ")
+		b.WriteString(title)
+		if summary := summarizeEntries(seg.Entries, progressMaxSummaryItems); summary != "" {
+			b.WriteString("\n  ")
+			b.WriteString(summary)
+		}
+		return strings.TrimSpace(b.String())
+	}
+
+	b.WriteString("… ")
+	b.WriteString(title)
+	for _, line := range renderActiveEntries(seg.Entries) {
+		b.WriteString("\n")
+		b.WriteString(line)
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -534,6 +610,8 @@ func displayToolName(toolName string) string {
 		return "Edit Memory"
 	case "memory_forget":
 		return "Forget Memory"
+	case "arkloop_help":
+		return "Arkloop Help"
 	case "notebook_read":
 		return "Read Notebook"
 	case "notebook_write":
@@ -581,6 +659,8 @@ func toolBrief(toolName, argsJSON string) string {
 		return ""
 	}
 	switch canonicalToolName(toolName) {
+	case "arkloop_help":
+		return truncateBrief(extractStringField(args, "query"))
 	case "memory_search":
 		return truncateBrief(extractStringField(args, "query"))
 	case "web_search":

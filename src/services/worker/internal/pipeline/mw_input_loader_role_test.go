@@ -56,6 +56,82 @@ func TestLoadRunInputsIncludesRoleFromFirstEvent(t *testing.T) {
 	}
 }
 
+func TestLoadRunInputsBoundsFreshChannelHistoryAtThreadTail(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_bounded_channel_history")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	msg1ID := uuid.New()
+	msg2ID := uuid.New()
+	msg3ID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, accountID); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, accountID, threadID); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2::jsonb)`,
+		runID,
+		fmt.Sprintf(`{"thread_tail_message_id":"%s","channel_delivery":{"channel_id":"%s"}}`, msg2ID, uuid.New()),
+	); err != nil {
+		t.Fatalf("insert run event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', 'one', '{}'::jsonb, false)`, msg1ID, accountID, threadID); err != nil {
+		t.Fatalf("insert message one: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', 'two', '{}'::jsonb, false)`, msg2ID, accountID, threadID); err != nil {
+		t.Fatalf("insert message two: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'assistant', 'future assistant', '{}'::jsonb, false)`, msg3ID, accountID, threadID); err != nil {
+		t.Fatalf("insert future assistant: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, 'future summary', '{}'::jsonb, true)`, accountID, threadID); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{
+		ID:        runID,
+		AccountID: accountID,
+		ThreadID:  threadID,
+	}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("expected 2 bounded messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != "one" {
+		t.Fatalf("unexpected first bounded message: %#v", loaded.Messages[0])
+	}
+	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "two" {
+		t.Fatalf("unexpected second bounded message: %#v", loaded.Messages[1])
+	}
+	if len(loaded.ThreadMessageIDs) != 2 || loaded.ThreadMessageIDs[0] != msg1ID || loaded.ThreadMessageIDs[1] != msg2ID {
+		t.Fatalf("unexpected bounded thread ids: %#v", loaded.ThreadMessageIDs)
+	}
+	if loaded.HasActiveCompactSnapshot {
+		t.Fatal("expected bounded channel run to skip active compact snapshot")
+	}
+	if loaded.ActiveCompactSnapshotText != "" {
+		t.Fatalf("expected empty snapshot text, got %q", loaded.ActiveCompactSnapshotText)
+	}
+}
+
 func TestLoadRunInputsReplaysInterruptedRunBeforeTrailingUserInput(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_resume")

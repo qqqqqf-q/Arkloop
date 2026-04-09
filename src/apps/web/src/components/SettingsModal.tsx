@@ -30,6 +30,7 @@ import { HelpContent, ReportFeedbackContent } from './settings/HelpSettings'
 import { CreditsContent } from './settings/CreditsSettings'
 import { UpdateSettingsContent } from './settings/UpdateSettings'
 import { ToolsSettings } from './settings/ToolsSettings'
+import { TimeZoneSettings } from './settings/TimeZoneSettings'
 import { isDesktop, isLocalMode } from '@arkloop/shared/desktop'
 
 export type SettingsTab = 'account' | 'appearance' | 'settings' | 'tools' | 'skills' | 'credits' | 'models' | 'agents' | 'channels' | 'connection' | 'updates'
@@ -173,6 +174,7 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
             {activeKey === 'settings' && (
               <div className="flex flex-col gap-6">
                 <LanguageContent locale={locale} setLocale={setLocale} label={t.language} />
+                <TimeZoneSettings me={me} accessToken={accessToken} onMeUpdated={onMeUpdated} />
                 <ThemeContent theme={theme} setTheme={setTheme} label={t.appearance} t={t} />
                 <InviteCodeContent accessToken={accessToken} />
                 <div className="flex flex-col gap-2">

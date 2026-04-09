@@ -4,6 +4,7 @@ import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
 	"errors"
+	"io"
 	"strings"
 
 	nethttp "net/http"
@@ -243,6 +244,16 @@ func retryThread(
 			return
 		}
 
+		var body *createRunRequest
+		if err := httpkit.DecodeJSON(r, &body); err != nil {
+			if errors.Is(err, io.EOF) {
+				body = nil
+			} else {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+		}
+
 		thread, err := threadRepo.GetByID(r.Context(), threadID)
 		if err != nil {
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -305,6 +316,16 @@ func retryThread(
 			return
 		}
 
+		startedData := map[string]any{"source": "retry"}
+		jobData := map[string]any{"source": "retry"}
+		if body != nil && body.Model != nil {
+			model := strings.TrimSpace(*body.Model)
+			if model != "" {
+				startedData["model"] = model
+				jobData["model"] = model
+			}
+		}
+
 		run, err := createThreadRunForSource(
 			r.Context(),
 			runRepo,
@@ -313,8 +334,8 @@ func retryThread(
 			thread.ID,
 			&actor.UserID,
 			traceID,
-			map[string]any{"source": "retry"},
-			map[string]any{"source": "retry"},
+			startedData,
+			jobData,
 		)
 		if err != nil {
 			writeThreadRunBusyOrInternal(w, traceID, err)

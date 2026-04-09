@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"reflect"
 	"regexp"
@@ -37,6 +38,25 @@ var (
 	personaIDRegex  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:@[A-Za-z0-9][A-Za-z0-9._:-]{0,63})?$`)
 	uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
 )
+
+// sseTraceEnabled 时记录 run 事件 SSE 连接生命周期（用于排查 unexpected EOF 等断流）。
+func sseTraceEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("ARKLOOP_DEBUG_SSE")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// renewSSEWriteDeadline 在每次成功写出后顺延写截止，避免 http.Server WriteTimeout 在长 SSE 上误杀连接。
+func renewSSEWriteDeadline(w nethttp.ResponseWriter, heartbeat time.Duration) {
+	if w == nil {
+		return
+	}
+	d := 6 * heartbeat
+	if d < 90*time.Second {
+		d = 90 * time.Second
+	}
+	rc := nethttp.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(d))
+}
 
 const (
 	searchOutputModelKeyGPT5    = "gpt5"
@@ -973,11 +993,43 @@ func streamRunEvents(
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(nethttp.StatusOK)
 
+		closeLog := func(reason string, cursor int64, err error) {
+			if !sseTraceEnabled() {
+				return
+			}
+			args := []any{
+				"trace_id", traceID,
+				"run_id", runID.String(),
+				"after_seq", afterSeq,
+				"cursor", cursor,
+				"follow", follow,
+				"reason", reason,
+			}
+			if err != nil {
+				args = append(args, "err", err.Error())
+			}
+			// Info：默认 handler 为 Info 级别，便于 ARKLOOP_DEBUG_SSE=1 时直接可见
+			slog.InfoContext(r.Context(), "sse_stream_close", args...)
+		}
+
+		if sseTraceEnabled() {
+			slog.InfoContext(r.Context(), "sse_stream_open",
+				"trace_id", traceID,
+				"run_id", runID.String(),
+				"after_seq", afterSeq,
+				"follow", follow,
+			)
+		}
+
 		if follow {
-			_, _ = fmt.Fprint(w, ": ping\n\n")
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				closeLog("write_initial_ping", afterSeq, err)
+				return
+			}
 			if canFlush {
 				flusher.Flush()
 			}
+			renewSSEWriteDeadline(w, heartbeatDuration)
 		}
 
 		// LISTEN for pg_notify from worker commits
@@ -1109,12 +1161,14 @@ func streamRunEvents(
 		for {
 			select {
 			case <-r.Context().Done():
+				closeLog("request_context_done", cursor, context.Cause(r.Context()))
 				return
 			default:
 			}
 
 			events, err := runRepo.ListEvents(r.Context(), runID, cursor, batchLimit)
 			if err != nil {
+				closeLog("list_events_error", cursor, err)
 				return
 			}
 
@@ -1122,33 +1176,41 @@ func streamRunEvents(
 				for _, item := range events {
 					cursor = item.Seq
 					if err := writeSseEvent(w, item); err != nil {
+						closeLog("write_event_error", cursor, err)
 						return
 					}
 					// 每个事件单独 flush，确保客户端实时收到，避免整批积压
 					if canFlush {
 						flusher.Flush()
 					}
+					renewSSEWriteDeadline(w, heartbeatDuration)
 				}
 				lastSend = time.Now()
 				continue
 			}
 
 			if !follow {
+				closeLog("follow_false_done", cursor, nil)
 				return
 			}
 
 			now := time.Now()
 			if heartbeatDuration > 0 && now.Sub(lastSend) >= heartbeatDuration {
-				_, _ = fmt.Fprint(w, ": ping\n\n")
+				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+					closeLog("write_heartbeat_ping", cursor, err)
+					return
+				}
 				if canFlush {
 					flusher.Flush()
 				}
+				renewSSEWriteDeadline(w, heartbeatDuration)
 				lastSend = now
 			}
 
 			if sigCh != nil {
 				select {
 				case <-r.Context().Done():
+					closeLog("request_context_done_select", cursor, context.Cause(r.Context()))
 					return
 				case <-sigCh:
 				case <-time.After(heartbeatDuration):
@@ -1157,6 +1219,7 @@ func streamRunEvents(
 				// fallback: poll at heartbeat interval
 				select {
 				case <-r.Context().Done():
+					closeLog("request_context_done_select", cursor, context.Cause(r.Context()))
 					return
 				case <-time.After(heartbeatDuration):
 				}

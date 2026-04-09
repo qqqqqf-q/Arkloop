@@ -2294,6 +2294,12 @@ type desktopIntermediateMessage struct {
 	ToolCallID  string
 }
 
+type pendingDesktopTelegramProgressCall struct {
+	CallID   string
+	ToolName string
+	ArgsJSON string
+}
+
 func (w *desktopEventWriter) telegramStreamRemainder() string {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -2330,6 +2336,23 @@ func (w *desktopEventWriter) telegramUnsentOutputs() []string {
 		}
 	}
 	return out
+}
+
+func (w *desktopEventWriter) flushTelegramBoundaryAndProgress(
+	ctx context.Context,
+	flushChunk string,
+	progressCall *pendingDesktopTelegramProgressCall,
+) error {
+	if flushChunk != "" && w.telegramBoundaryFlush != nil {
+		if err := w.telegramBoundaryFlush(ctx, flushChunk); err != nil {
+			return err
+		}
+		w.telegramSentOutputCount = len(w.visibleAssistantTexts)
+	}
+	if progressCall != nil && w.telegramProgressTracker != nil {
+		w.telegramProgressTracker.OnToolCall(ctx, progressCall.CallID, progressCall.ToolName, progressCall.ArgsJSON)
+	}
+	return nil
 }
 
 func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev events.RunEvent, personaID string) error {
@@ -2398,6 +2421,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		w.assistantMessageFresh = true
 	}
 	flushChunk := ""
+	var pendingProgressCall *pendingDesktopTelegramProgressCall
 	if ev.Type == "llm.turn.completed" {
 		w.captureAssistantTurnOutput()
 		flushChunk = w.pendingTelegramFlushChunk()
@@ -2430,7 +2454,11 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 			toolName, _ := ev.DataJSON["tool_name"].(string)
 			toolName = llm.CanonicalToolName(toolName)
 			argsRaw, _ := json.Marshal(ev.DataJSON["arguments"])
-			w.telegramProgressTracker.OnToolCall(ctx, callID, toolName, string(argsRaw))
+			pendingProgressCall = &pendingDesktopTelegramProgressCall{
+				CallID:   callID,
+				ToolName: toolName,
+				ArgsJSON: string(argsRaw),
+			}
 		}
 	}
 	if ev.Type == "llm.request" {
@@ -2513,11 +2541,8 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		return err
 	}
 	w.publishRunEvents(ctx)
-	if flushChunk != "" && w.telegramBoundaryFlush != nil {
-		if err := w.telegramBoundaryFlush(ctx, flushChunk); err != nil {
-			return err
-		}
-		w.telegramSentOutputCount = len(w.visibleAssistantTexts)
+	if err := w.flushTelegramBoundaryAndProgress(ctx, flushChunk, pendingProgressCall); err != nil {
+		return err
 	}
 	w.enqueueProjectedRuns(ctx, nextRunIDs)
 	return nil

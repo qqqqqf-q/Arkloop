@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { X } from 'lucide-react'
+import { getActiveTimeZone } from '@arkloop/shared'
 import { listNotifications, markAllNotificationsRead, type NotificationItem } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -11,13 +12,13 @@ type Props = {
 
 function formatDate(iso: string, locale: string): string {
   const d = new Date(iso)
-  if (locale === 'zh') {
-    const y = d.getFullYear()
-    const m = d.getMonth() + 1
-    const day = d.getDate()
-    return `${y}年${m}月${day}日`
-  }
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  if (Number.isNaN(d.getTime())) return iso
+  return new Intl.DateTimeFormat(locale === 'zh' ? 'zh-CN' : 'en-US', {
+    year: 'numeric',
+    month: locale === 'zh' ? 'numeric' : 'short',
+    day: 'numeric',
+    timeZone: getActiveTimeZone(),
+  }).format(d)
 }
 
 function resolveI18nField(

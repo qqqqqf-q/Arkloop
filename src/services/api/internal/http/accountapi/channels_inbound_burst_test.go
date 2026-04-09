@@ -4,6 +4,8 @@ package accountapi
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +95,32 @@ func TestChannelInboundBurstRunnerScanEnqueuesSingleRunForDueBatch(t *testing.T)
 		inboundStateEnqueuedNewRun,
 	); got != 2 {
 		t.Fatalf("enqueued inbound ledger rows = %d, want 2", got)
+	}
+
+	var startedJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `SELECT data_json::text::jsonb FROM run_events WHERE type = 'run.started' LIMIT 1`).Scan(&startedJSON); err != nil {
+		t.Fatalf("query run.started: %v", err)
+	}
+	var started map[string]any
+	if err := json.Unmarshal(startedJSON, &started); err != nil {
+		t.Fatalf("decode run.started: %v", err)
+	}
+	if got := strings.TrimSpace(asString(started["continuation_source"])); got != "none" {
+		t.Fatalf("unexpected continuation_source: %q", got)
+	}
+	if got, ok := started["continuation_loop"].(bool); !ok || got {
+		t.Fatalf("unexpected continuation_loop: %#v", started["continuation_loop"])
+	}
+	if got := strings.TrimSpace(asString(started["thread_tail_message_id"])); got != msg2.ID.String() {
+		t.Fatalf("unexpected thread_tail_message_id: %q", got)
+	}
+	delivery, ok := started["channel_delivery"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected channel_delivery in run.started: %#v", started)
+	}
+	conversationRef, _ := delivery["conversation_ref"].(map[string]any)
+	if got := asString(conversationRef["target"]); got != "dm-burst" {
+		t.Fatalf("unexpected run.started conversation_ref: %#v", delivery)
 	}
 }
 

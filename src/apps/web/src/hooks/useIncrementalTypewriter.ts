@@ -7,9 +7,11 @@ type IncrementalSpec = {
   suffix: string
   nextSegment: string
   animate: boolean
+  revealIntervalMs: number
 }
 
 const CHAR_REVEAL_MS = 28
+const MIN_REVEAL_WINDOW_MS = 140
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
@@ -47,6 +49,7 @@ function buildSpec(from: string, to: string, animate: boolean): IncrementalSpec 
       suffix: '',
       nextSegment: to,
       animate: false,
+      revealIntervalMs: CHAR_REVEAL_MS,
     }
   }
 
@@ -62,6 +65,7 @@ function buildSpec(from: string, to: string, animate: boolean): IncrementalSpec 
       suffix: '',
       nextSegment: to,
       animate: false,
+      revealIntervalMs: CHAR_REVEAL_MS,
     }
   }
 
@@ -72,6 +76,10 @@ function buildSpec(from: string, to: string, animate: boolean): IncrementalSpec 
     suffix: suffixLen > 0 ? to.slice(to.length - suffixLen) : '',
     nextSegment,
     animate: true,
+    revealIntervalMs: Math.max(
+      CHAR_REVEAL_MS,
+      Math.ceil(MIN_REVEAL_WINDOW_MS / nextSegment.length),
+    ),
   }
 }
 
@@ -105,9 +113,12 @@ export function useIncrementalTypewriter(text: string, enabled = true): string {
 
     const tick = (now: number) => {
       if (startAt < 0) startAt = now
+      const elapsed = now - startAt
       const nextLen = Math.min(
         spec.nextSegment.length,
-        Math.max(1, Math.floor((now - startAt) / CHAR_REVEAL_MS) + 1),
+        spec.nextSegment.length === 1
+          ? Math.max(0, Math.floor(elapsed / spec.revealIntervalMs))
+          : Math.max(1, Math.floor(elapsed / spec.revealIntervalMs) + 1),
       )
       setRevealedLen((current) => (current === nextLen ? current : nextLen))
       if (nextLen < spec.nextSegment.length) {

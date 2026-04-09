@@ -172,6 +172,10 @@ export function DesktopSettings({
       platformSettingsError: "",
       executionModeError: "",
     });
+  const activePaneNeedsHydration =
+    activeKey === "chat" ||
+    activeKey === "connection" ||
+    activeKey === "voice";
 
   useEffect(() => {
     const handler = (e: Event) => setDevMode((e as CustomEvent<boolean>).detail);
@@ -181,6 +185,13 @@ export function DesktopSettings({
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!activePaneNeedsHydration) {
+      setHydrationLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const loadSnapshot = async () => {
       hydrationTraceRef.current = beginPerfTrace("desktop_settings_snapshot_hydration", {
@@ -238,7 +249,7 @@ export function DesktopSettings({
     return () => {
       cancelled = true;
     };
-  }, [accessToken, desktopApi, t.requestFailed]);
+  }, [accessToken, activePaneNeedsHydration, desktopApi, initialSection, t.requestFailed]);
 
   useLayoutEffect(() => {
     endPerfTrace(mountTraceRef.current, {
@@ -268,11 +279,6 @@ export function DesktopSettings({
     if (devMode) entries.push({ key: "developer" as DesktopSettingsKey, icon: Code2 });
     return entries;
   }, [devMode]);
-
-  const activePaneNeedsHydration =
-    activeKey === "chat" ||
-    activeKey === "connection" ||
-    activeKey === "voice";
 
   const settingsMotionStyle = {
     willChange: "transform, opacity",

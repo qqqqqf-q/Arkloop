@@ -142,8 +142,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
-	defer cancel()
+	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
 	system, messages, err := toAnthropicMessages(request.Messages)
@@ -220,6 +220,9 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
+	if RequestPayloadTooLarge(len(encoded)) {
+		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint("/v1/messages"), bytes.NewReader(encoded))
 	if err != nil {
@@ -270,6 +273,9 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			_ = yield(chunk)
 		}
 		message, details := anthropicErrorMessageAndDetails(body, status)
+		if status == http.StatusRequestEntityTooLarge {
+			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
+		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
@@ -582,15 +588,9 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 			}
 			blocks = append(blocks, map[string]any{"type": "text", "text": text})
 		case "image":
-			if part.Attachment == nil {
-				return nil, fmt.Errorf("image attachment is required")
-			}
-			if len(part.Data) == 0 {
-				return nil, fmt.Errorf("image attachment data is required")
-			}
-			mimeType := strings.TrimSpace(part.Attachment.MimeType)
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
+			mimeType, data, err := modelInputImage(part)
+			if err != nil {
+				return nil, err
 			}
 			if strings.TrimSpace(part.Attachment.Key) != "" {
 				blocks = append(blocks, map[string]any{
@@ -603,7 +603,7 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 				"source": map[string]any{
 					"type":       "base64",
 					"media_type": mimeType,
-					"data":       base64.StdEncoding.EncodeToString(part.Data),
+					"data":       base64.StdEncoding.EncodeToString(data),
 				},
 			})
 		}
@@ -659,16 +659,16 @@ func anthropicToolResultBlock(text string, imageParts []ContentPart) (map[string
 		{"type": "text", "text": contentText},
 	}
 	for _, part := range imageParts {
-		mimeType := strings.TrimSpace(part.Attachment.MimeType)
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
+		mimeType, data, err := modelInputImage(part)
+		if err != nil {
+			return nil, err
 		}
 		contentBlocks = append(contentBlocks, map[string]any{
 			"type": "image",
 			"source": map[string]any{
 				"type":       "base64",
 				"media_type": mimeType,
-				"data":       base64.StdEncoding.EncodeToString(part.Data),
+				"data":       base64.StdEncoding.EncodeToString(data),
 			},
 		})
 	}
@@ -1007,7 +1007,7 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 		return errAnthropicStreamTerminated
 	}
 
-	err := forEachSSEData(ctx, body, func(data string) error {
+	err := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" {
 			return nil
@@ -1189,7 +1189,11 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 		return err
 	}
 	if !completed {
-		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: InternalStreamEndedError()})
+		streamErr := InternalStreamEndedError()
+		if usage != nil || len(assistantBlocks) > 0 || len(toolBuffers) > 0 {
+			streamErr = RetryableStreamEndedError()
+		}
+		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: streamErr})
 	}
 	assistantMessage := Message{Role: "assistant", Content: anthropicAssistantMessageParts(assistantBlocks)}
 	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage, AssistantMessage: &assistantMessage})

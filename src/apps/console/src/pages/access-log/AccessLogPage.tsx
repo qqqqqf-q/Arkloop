@@ -4,7 +4,7 @@ import { RefreshCw, Shield, Search, X } from 'lucide-react'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
 import { EmptyState } from '../../components/EmptyState'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { listAccessLog, type AccessLogEntry, type AccessLogParams } from '../../api/access-log'
 
@@ -276,7 +276,7 @@ export function AccessLogPage() {
                   >
                     <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                       <span className="text-xs tabular-nums">
-                        {new Date(entry.timestamp).toLocaleString()}
+                        {formatDateTime(entry.timestamp, { includeSeconds: true, includeZone: false })}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">

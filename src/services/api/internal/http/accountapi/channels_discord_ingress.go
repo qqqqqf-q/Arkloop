@@ -33,6 +33,8 @@ type DiscordIngressRunnerDeps struct {
 	ChannelLedgerRepo        *data.ChannelMessageLedgerRepository
 	SecretsRepo              *data.SecretsRepository
 	PersonasRepo             *data.PersonasRepository
+	UsersRepo                *data.UserRepository
+	AccountRepo              *data.AccountRepository
 	ThreadRepo               *data.ThreadRepository
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
@@ -66,6 +68,8 @@ type discordConnector struct {
 	channelReceiptsRepo      *data.ChannelMessageReceiptsRepository
 	channelLedgerRepo        *data.ChannelMessageLedgerRepository
 	personasRepo             *data.PersonasRepository
+	usersRepo                *data.UserRepository
+	accountRepo              *data.AccountRepository
 	threadRepo               *data.ThreadRepository
 	messageRepo              *data.MessageRepository
 	runEventRepo             *data.RunEventRepository
@@ -91,10 +95,50 @@ type discordMessageContext struct {
 	Timestamp  time.Time
 }
 
+func (c discordConnector) resolveInboundTimeContext(ctx context.Context, ch data.Channel, identity data.ChannelIdentity, ts time.Time) inboundTimeContext {
+	return buildInboundTimeContext(
+		ts.UTC(),
+		resolveInboundTimeZone(ctx, c.usersRepo, c.accountRepo, ch.AccountID, identity.UserID, ch.OwnerUserID),
+	)
+}
+
+func buildDiscordInboundMetadataJSON(identity data.ChannelIdentity, event *discordgo.MessageCreate, timeCtx inboundTimeContext) json.RawMessage {
+	replyToID := optionalDiscordReplyMessageID(event)
+	payload := map[string]any{
+		"source":              "discord",
+		"channel_identity_id": identity.ID.String(),
+		"display_name":        strings.TrimSpace(firstNonEmptyPtr(identity.DisplayName, identity.PlatformSubjectID)),
+		"timezone":            timeCtx.TimeZone,
+		"time_local":          timeCtx.Local,
+		"time_utc":            timeCtx.UTC,
+	}
+	if event != nil {
+		payload["platform_chat_id"] = strings.TrimSpace(event.ChannelID)
+		payload["platform_message_id"] = strings.TrimSpace(event.ID)
+		if event.Author != nil {
+			payload["platform_user_id"] = strings.TrimSpace(event.Author.ID)
+			payload["platform_username"] = strings.TrimSpace(event.Author.Username)
+		}
+	}
+	if replyToID != nil {
+		payload["reply_to_message_id"] = strings.TrimSpace(*replyToID)
+	}
+	raw, _ := json.Marshal(payload)
+	return raw
+}
+
+func firstNonEmptyPtr(value *string, fallback string) string {
+	if value != nil && strings.TrimSpace(*value) != "" {
+		return strings.TrimSpace(*value)
+	}
+	return strings.TrimSpace(fallback)
+}
+
 func StartDiscordIngressRunner(ctx context.Context, deps DiscordIngressRunnerDeps) {
 	if ctx == nil || deps.ChannelsRepo == nil || deps.ChannelIdentitiesRepo == nil || deps.ChannelIdentityLinksRepo == nil ||
 		deps.ChannelBindCodesRepo == nil || deps.ChannelDMThreadsRepo == nil ||
 		deps.ChannelReceiptsRepo == nil || deps.SecretsRepo == nil || deps.PersonasRepo == nil ||
+		deps.UsersRepo == nil || deps.AccountRepo == nil ||
 		deps.ThreadRepo == nil || deps.MessageRepo == nil || deps.RunEventRepo == nil ||
 		deps.JobRepo == nil || deps.CreditsRepo == nil || deps.Pool == nil {
 		slog.Warn("discord_ingress_runner_skip", "reason", "deps")
@@ -230,6 +274,8 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 		channelReceiptsRepo:      m.deps.ChannelReceiptsRepo,
 		channelLedgerRepo:        m.deps.ChannelLedgerRepo,
 		personasRepo:             m.deps.PersonasRepo,
+		usersRepo:                m.deps.UsersRepo,
+		accountRepo:              m.deps.AccountRepo,
 		threadRepo:               m.deps.ThreadRepo,
 		messageRepo:              m.deps.MessageRepo,
 		runEventRepo:             m.deps.RunEventRepo,
@@ -553,9 +599,10 @@ func (c discordConnector) persistDiscordInboundStageA(
 		return nil, err
 	}
 
-	rendered := renderDiscordInboundMessage(identity, strings.TrimSpace(event.Content), event.Timestamp)
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, event.Timestamp)
+	rendered := renderDiscordInboundMessage(identity, strings.TrimSpace(event.Content), timeCtx)
 	contentJSON := json.RawMessage(`{}`)
-	metadataJSON := json.RawMessage(`{"source":"discord"}`)
+	metadataJSON := buildDiscordInboundMetadataJSON(identity, event, timeCtx)
 	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(ctx, ch.AccountID, threadID, "user", rendered, contentJSON, metadataJSON, identity.UserID)
 	if err != nil {
 		return nil, err
@@ -651,7 +698,14 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
-	runStartedData := buildDiscordRunStartedData(personaRef, resolveDiscordDefaultModel(ch.ConfigJSON))
+	runStartedData := buildDiscordRunStartedData(
+		personaRef,
+		resolveDiscordDefaultModel(ch.ConfigJSON),
+		ch.ID,
+		identity.ID,
+		discordContextFromLedger(latestEntry),
+	)
+	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
@@ -761,12 +815,18 @@ func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Con
 	return nil
 }
 
-func buildDiscordRunStartedData(personaRef string, defaultModel string) map[string]any {
-	dataJSON := map[string]any{"persona_id": personaRef}
-	if model := strings.TrimSpace(defaultModel); model != "" {
-		dataJSON["model"] = model
-	}
-	return dataJSON
+func buildDiscordRunStartedData(
+	personaRef string,
+	defaultModel string,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	messageCtx discordMessageContext,
+) map[string]any {
+	return buildChannelRunStartedData(
+		personaRef,
+		defaultModel,
+		buildDiscordChannelDeliveryPayload(channelID, channelIdentityID, messageCtx),
+	)
 }
 
 func resolveDiscordDefaultModel(raw json.RawMessage) string {
@@ -1006,7 +1066,7 @@ func bindDiscordIdentity(
 	return "绑定成功。", nil
 }
 
-func renderDiscordInboundMessage(identity data.ChannelIdentity, text string, ts time.Time) string {
+func renderDiscordInboundMessage(identity data.ChannelIdentity, text string, timeCtx inboundTimeContext) string {
 	displayName := identity.PlatformSubjectID
 	if identity.DisplayName != nil && strings.TrimSpace(*identity.DisplayName) != "" {
 		displayName = strings.TrimSpace(*identity.DisplayName)
@@ -1017,11 +1077,15 @@ display-name: "%s"
 channel: "discord"
 conversation-type: "private"
 time: "%s"
+time_utc: "%s"
+timezone: "%s"
 ---
 %s`,
 		identity.ID.String(),
 		displayName,
-		ts.UTC().Format(time.RFC3339),
+		timeCtx.Local,
+		timeCtx.UTC,
+		timeCtx.TimeZone,
 		strings.TrimSpace(text),
 	)
 }
