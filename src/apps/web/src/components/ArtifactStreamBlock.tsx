@@ -19,6 +19,7 @@ export type StreamingArtifactEntry = {
 type Props = {
   entry: StreamingArtifactEntry
   accessToken?: string
+  compact?: boolean
   onAction?: (action: ArtifactAction) => void
 }
 
@@ -34,6 +35,18 @@ export function extractPartialArtifactFields(buffer: string): {
     filename: extractJSONStringField(buffer, 'filename'),
     display: extractJSONStringField(buffer, 'display'),
     content: extractJSONStringField(buffer, 'content') ?? extractJSONStringField(buffer, 'widget_code'),
+    loadingMessages: extractPartialStringArrayField(buffer, 'loading_messages'),
+  }
+}
+
+export function extractPartialWidgetFields(buffer: string): {
+  title?: string
+  widgetCode?: string
+  loadingMessages?: string[]
+} {
+  return {
+    title: extractJSONStringField(buffer, 'title'),
+    widgetCode: extractJSONStringField(buffer, 'widget_code'),
     loadingMessages: extractPartialStringArrayField(buffer, 'loading_messages'),
   }
 }
@@ -167,7 +180,7 @@ function decodeEscapedChar(char: string): string {
   }
 }
 
-export function ArtifactStreamBlock({ entry, accessToken, onAction }: Props) {
+export function ArtifactStreamBlock({ entry, accessToken, compact = false, onAction }: Props) {
   const iframeRef = useRef<ArtifactIframeHandle>(null)
   const lastContentRef = useRef<string>('')
 
@@ -197,12 +210,14 @@ export function ArtifactStreamBlock({ entry, accessToken, onAction }: Props) {
   // already have static artifact? render static iframe
   if (entry.artifactRef && isInline) {
     return (
-      <div style={{ margin: '8px 0', maxWidth: '720px' }}>
+      <div style={{ margin: compact ? '0 0 2px' : '8px 0', maxWidth: '720px' }}>
         <div style={{
-          fontSize: '12px',
-          fontWeight: 500,
+          fontSize: compact ? '13px' : '12px',
+          fontWeight: compact ? 400 : 500,
           color: 'var(--c-text-secondary)',
-          marginBottom: '6px',
+          marginBottom: compact ? '2px' : '6px',
+          lineHeight: compact ? '20px' : undefined,
+          padding: compact ? '4px 0 2px' : undefined,
         }}>
           {title}
         </div>
@@ -212,7 +227,8 @@ export function ArtifactStreamBlock({ entry, accessToken, onAction }: Props) {
           accessToken={accessToken}
           onAction={onAction}
           frameTitle={title}
-          style={{ minHeight: '300px' }}
+          compactSpacing={compact}
+          style={{ minHeight: compact ? '280px' : '300px' }}
         />
       </div>
     )
@@ -220,15 +236,17 @@ export function ArtifactStreamBlock({ entry, accessToken, onAction }: Props) {
 
   // streaming mode
   return (
-    <div style={{ margin: '8px 0', maxWidth: '720px' }}>
+    <div style={{ margin: compact ? '0 0 2px' : '8px 0', maxWidth: '720px' }}>
       <div style={{
-        fontSize: '12px',
-        fontWeight: 500,
+        fontSize: compact ? '13px' : '12px',
+        fontWeight: compact ? 400 : 500,
         color: 'var(--c-text-secondary)',
-        marginBottom: '6px',
+        marginBottom: compact ? '2px' : '6px',
         display: 'flex',
         alignItems: 'center',
         gap: '6px',
+        lineHeight: compact ? '20px' : undefined,
+        padding: compact ? '4px 0 2px' : undefined,
       }}>
         {title}
         {!entry.complete && (
@@ -247,7 +265,8 @@ export function ArtifactStreamBlock({ entry, accessToken, onAction }: Props) {
         mode="streaming"
         onAction={onAction}
         frameTitle={title}
-        style={{ minHeight: '200px' }}
+        compactSpacing={compact}
+        style={{ minHeight: compact ? '184px' : '200px' }}
       />
     </div>
   )

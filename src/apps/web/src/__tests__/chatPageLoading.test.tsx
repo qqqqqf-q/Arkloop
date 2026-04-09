@@ -4,7 +4,8 @@ import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-d
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatPage } from '../components/ChatPage'
-import { extractPartialArtifactFields } from '../components/ArtifactStreamBlock'
+import { ArtifactStreamBlock, extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
+import { WidgetBlock } from '../components/WidgetBlock'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AuthContextBridge, type AuthContextValue } from '../contexts/auth'
 import { ThreadListContextBridge, type ThreadListContextValue } from '../contexts/thread-list'
@@ -287,6 +288,68 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
+}
+
+function flushAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
+}
+
+async function flushAnimationFrames(count: number): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    await flushAnimationFrame()
+  }
+}
+
+function installReducedMotionMatchMedia() {
+  const previous = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  })
+  return () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: previous,
+    })
+  }
+}
+
+function installDefaultMotionMatchMedia() {
+  const previous = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  })
+  return () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: previous,
+    })
+  }
 }
 
 function countMatches(text: string, needle: string): number {
@@ -844,6 +907,7 @@ describe('ChatPage loading state', () => {
       root.render(renderTree())
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const restoredInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
@@ -1753,7 +1817,7 @@ describe('ChatPage loading state', () => {
     expect(container.querySelector('[data-preserve-expanded="true"]')).toBeNull()
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'smooth')).toBe(false)
-    expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(true)
+    expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(false)
     expect(mockedGetThread).not.toHaveBeenCalled()
 
     sseMock.events = [
@@ -3291,6 +3355,179 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
+  it('show_widget 流式 delta 只有 loading_messages 时也应显示 loading 文案', async () => {
+    const restoreMatchMedia = installReducedMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在生成表格', '正在填充数据']}
+        />,
+      )
+      await flushAnimationFrames(12)
+    })
+
+    expect(container.textContent ?? '').toContain('正在生成表格')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('show_widget 完成后应显示 title 而不是 loading_messages', async () => {
+    const restoreMatchMedia = installReducedMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html="<div>ok</div>"
+          title="交互表"
+          complete
+          loadingMessages={['正在生成表格']}
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('交互表')
+    expect(text).not.toContain('正在生成表格')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('show_widget loading message 应使用打字机，并在切换后从头重新打', async () => {
+    const restoreMatchMedia = installDefaultMotionMatchMedia()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在生成表格']}
+        />,
+      )
+      await flushAnimationFrame()
+    })
+
+    expect(container.textContent ?? '').not.toBe('正在生成表格')
+
+    await act(async () => {
+      await flushAnimationFrames(16)
+    })
+    expect(container.textContent ?? '').toContain('正在生成表格')
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html=""
+          title="交互表"
+          complete={false}
+          loadingMessages={['正在填充数据']}
+        />,
+      )
+      await flushAnimationFrame()
+    })
+
+    expect(container.textContent ?? '').not.toBe('正在填充数据')
+
+    await act(async () => {
+      await flushAnimationFrames(16)
+    })
+    expect(container.textContent ?? '').toContain('正在填充数据')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    restoreMatchMedia()
+  })
+
+  it('紧凑 WidgetBlock 应收紧与 timeline 相邻时的上下间距', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <WidgetBlock
+          html="<div>ok</div>"
+          title="交互表"
+          complete
+          compact
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const block = container.firstElementChild as HTMLElement | null
+    const header = block?.firstElementChild as HTMLElement | null
+    expect(block?.style.margin).toBe('0px 0px 2px 0px')
+    expect(header?.style.marginBottom).toBe('2px')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('紧凑 ArtifactStreamBlock 应收紧与 timeline 相邻时的上下间距', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <ArtifactStreamBlock
+          compact
+          entry={{
+            toolCallIndex: 1,
+            toolCallId: 'art-1',
+            toolName: 'create_artifact',
+            argumentsBuffer: '',
+            title: '对比图表',
+            display: 'inline',
+            content: '<div>chart</div>',
+            complete: false,
+          }}
+        />,
+      )
+      await flushAnimationFrame()
+      await flushAnimationFrame()
+    })
+
+    const block = container.firstElementChild as HTMLElement | null
+    const header = block?.firstElementChild as HTMLElement | null
+    expect(block?.style.margin).toBe('0px 0px 2px 0px')
+    expect(header?.style.marginBottom).toBe('2px')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
   it('仅靠 replay 也能恢复 search steps', async () => {
     mockedListMessages.mockResolvedValueOnce([
       {
@@ -3666,5 +3903,17 @@ describe('extractPartialArtifactFields', () => {
 
   it('loading_messages 空数组应返回空数组', () => {
     expect(extractPartialArtifactFields('{"loading_messages":[]').loadingMessages).toEqual([])
+  })
+})
+
+describe('extractPartialWidgetFields', () => {
+  it('应单独提取 show_widget 的 widget_code 与 loading_messages', () => {
+    const result = extractPartialWidgetFields(
+      '{"title":"stream_test","loading_messages":["first"],"widget_code":"<div>row 1\\nrow 2</div>","content":"ignore me"}',
+    )
+
+    expect(result.title).toBe('stream_test')
+    expect(result.widgetCode).toBe('<div>row 1\nrow 2</div>')
+    expect(result.loadingMessages).toEqual(['first'])
   })
 })

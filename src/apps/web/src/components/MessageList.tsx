@@ -360,6 +360,7 @@ export const MessageList = memo(function MessageList({
                           html={w.html}
                           title={w.title}
                           complete
+                          compact
                           onAction={handleArtifactAction}
                         />
                       ))}

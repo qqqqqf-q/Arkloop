@@ -3,6 +3,7 @@ import { refreshAccessToken, writeAccessToken } from '@arkloop/shared'
 import { isLocalMode } from '@arkloop/shared/desktop'
 import { createSSEClient, type RunEvent, type SSEClient, type SSEClientState } from '../sse'
 import { clearLastSeqInStorage, readLastSeqFromStorage, writeLastSeqToStorage } from '../storage'
+import { emitStreamDebug } from '../streamDebug'
 
 export type UseSSEOptions = {
   runId: string
@@ -59,15 +60,26 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
 
   const handleStateChange = useCallback((newState: SSEClientState) => {
     setState(newState)
+    emitStreamDebug('run-sse:state', {
+      runId,
+      state: newState,
+      lastSeq: cursorRef.current,
+    }, 'run-sse')
     // 重连成功后清除之前的网络错误，避免瞬时错误持续显示
     if (newState === 'connected') {
       setError(null)
     }
-  }, [])
+  }, [runId])
 
   const handleError = useCallback((err: Error) => {
     setError(err)
-  }, [])
+    emitStreamDebug('run-sse:error', {
+      runId,
+      name: err.name,
+      message: err.message,
+      lastSeq: cursorRef.current,
+    }, 'run-sse')
+  }, [runId])
 
   const handleTokenRefresh = useCallback(async (): Promise<string> => {
     if (isLocalMode()) return accessToken
@@ -97,6 +109,11 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     const nextCursor = Math.max(cursorRef.current, stored)
     cursorRef.current = nextCursor
     setLastSeq(nextCursor)
+    emitStreamDebug('run-sse:connect', {
+      runId,
+      afterSeq: nextCursor,
+      url: sseUrl,
+    }, 'run-sse')
 
     const client = createSSEClient({
       url: sseUrl,
@@ -117,12 +134,20 @@ export function useSSE(options: UseSSEOptions): UseSSEResult {
     clientRef.current?.close()
     clientRef.current = null
     setError(null)
-  }, [])
+    emitStreamDebug('run-sse:disconnect', {
+      runId,
+      lastSeq: cursorRef.current,
+    }, 'run-sse')
+  }, [runId])
 
   const reconnect = useCallback(() => {
     setError(null)
+    emitStreamDebug('run-sse:reconnect', {
+      runId,
+      lastSeq: cursorRef.current,
+    }, 'run-sse')
     void clientRef.current?.reconnect()
-  }, [])
+  }, [runId])
 
   const clearEvents = useCallback(() => {
     setEvents([])

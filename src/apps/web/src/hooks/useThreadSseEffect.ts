@@ -42,27 +42,22 @@ import {
   buildFrozenAssistantTurnFromRunEvents,
   finalizeSearchSteps,
 } from '../lib/chat-helpers'
-import { extractPartialArtifactFields } from '../components/ArtifactStreamBlock'
+import { extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
 import type { ArtifactRef } from '../storage'
 import type { MsgRunEvent } from '../storage'
 import { getInjectionBlockMessage, shouldSuppressLiveRunEventAfterInjectionBlock } from '../liveRunSecurity'
 import { isACPDelegateEventData } from '@arkloop/shared'
 import type { RequestedSchema } from '../userInputTypes'
+import { noteShowWidgetDelta } from '../streamDebug'
 
 type UseThreadSseEffectDeps = {
   restoreQueuedDraftToInput: () => void
   clearQueuedDraft: () => void
-  forceInstantBottomScrollRef: React.RefObject<boolean>
-  lastUserMsgRef: React.RefObject<HTMLDivElement | null>
-  programmaticScrollDepthRef: React.MutableRefObject<number>
 }
 
 export function useThreadSseEffect({
   restoreQueuedDraftToInput,
   clearQueuedDraft,
-  forceInstantBottomScrollRef,
-  lastUserMsgRef,
-  programmaticScrollDepthRef,
 }: UseThreadSseEffectDeps): void {
   const { logout: onLoggedOut } = useAuth()
   const { threadId } = useChatSession()
@@ -145,7 +140,7 @@ export function useThreadSseEffect({
     captureTerminalRunCache,
     persistRunDataToMessage,
     persistThreadRunHandoff,
-  } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef })
+  } = useRunTransition()
 
   const markTerminalRunHistory = useCallback((messageId: string | null, expanded = true) => {
     markTerminalRunHistoryState(messageId, expanded)
@@ -392,13 +387,31 @@ export function useThreadSseEffect({
           if (obj.tool_call_id) entry.toolCallId = obj.tool_call_id
           if (obj.tool_name) entry.toolName = canonicalToolName(obj.tool_name)
           entry.argumentsBuffer += obj.arguments_delta
+          const isShowWidgetDelta = entry.toolName === 'show_widget' || canonicalToolName(obj.tool_name ?? '') === 'show_widget'
 
-          if (entry.toolName === 'show_widget' || entry.toolName === 'create_artifact' || (!entry.toolName && (entry.argumentsBuffer.includes('"content"') || entry.argumentsBuffer.includes('"widget_code"')))) {
+          if (entry.toolName === 'show_widget' || (!entry.toolName && entry.argumentsBuffer.includes('"widget_code"'))) {
+            const parsed = extractPartialWidgetFields(entry.argumentsBuffer)
+            if (parsed.title !== undefined) entry.title = parsed.title
+            if (parsed.widgetCode !== undefined) entry.content = parsed.widgetCode
+            if (parsed.loadingMessages !== undefined) entry.loadingMessages = parsed.loadingMessages
+            setStreamingArtifacts([...streamingArtifactsRef.current])
+            if (isShowWidgetDelta) {
+              noteShowWidgetDelta({
+                runId: sseRunId,
+                toolCallId: entry.toolCallId,
+                toolCallIndex: entry.toolCallIndex,
+                title: entry.title ?? null,
+                contentLength: entry.content?.length ?? 0,
+                seq: event.seq,
+              })
+            }
+          } else if (entry.toolName === 'create_artifact' || (!entry.toolName && entry.argumentsBuffer.includes('"content"'))) {
             const parsed = extractPartialArtifactFields(entry.argumentsBuffer)
             if (parsed.title !== undefined) entry.title = parsed.title
             if (parsed.filename !== undefined) entry.filename = parsed.filename
             if (parsed.display !== undefined) entry.display = parsed.display as 'inline' | 'panel'
             if (parsed.content !== undefined) entry.content = parsed.content
+            if (parsed.loadingMessages !== undefined) entry.loadingMessages = parsed.loadingMessages
             setStreamingArtifacts([...streamingArtifactsRef.current])
           }
         }
@@ -466,6 +479,13 @@ export function useThreadSseEffect({
           entry.toolName = 'show_widget'
           if (typeof args?.widget_code === 'string') entry.content = args.widget_code
           if (typeof args?.title === 'string') entry.title = args.title
+          if (Array.isArray(args?.loading_messages)) {
+            const messages = (args?.loading_messages as unknown[])
+              .filter((x): x is string => typeof x === 'string')
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+            if (messages.length > 0) entry.loadingMessages = messages
+          }
           setStreamingArtifacts([...streamingArtifactsRef.current])
         }
         if (toolName === 'create_artifact') {
@@ -490,6 +510,13 @@ export function useThreadSseEffect({
           if (typeof args?.title === 'string') entry.title = args.title
           if (typeof args?.filename === 'string') entry.filename = args.filename
           if (typeof args?.display === 'string') entry.display = args.display as 'inline' | 'panel'
+          if (Array.isArray(args?.loading_messages)) {
+            const messages = (args?.loading_messages as unknown[])
+              .filter((x): x is string => typeof x === 'string')
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+            if (messages.length > 0) entry.loadingMessages = messages
+          }
           setStreamingArtifacts([...streamingArtifactsRef.current])
         }
         foldAssistantTurnEvent(assistantTurnFoldStateRef.current, event)

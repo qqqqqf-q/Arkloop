@@ -38,7 +38,7 @@ import {
   isTerminalRunEventType,
   mergeVisibleSegmentsIntoAssistantTurn,
 } from '../lib/chat-helpers'
-import { extractPartialArtifactFields } from '../components/ArtifactStreamBlock'
+import { extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
 import type { ArtifactRef } from '../storage'
 import { getInjectionBlockMessage, shouldSuppressLiveRunEventAfterInjectionBlock } from '../liveRunSecurity'
 import { isACPDelegateEventData } from '@arkloop/shared'
@@ -345,12 +345,19 @@ export function useSseDispatch(params: {
           if (obj.tool_name) entry.toolName = canonicalToolName(obj.tool_name)
           entry.argumentsBuffer += obj.arguments_delta
 
-          if (entry.toolName === 'show_widget' || entry.toolName === 'create_artifact' || (!entry.toolName && (entry.argumentsBuffer.includes('"content"') || entry.argumentsBuffer.includes('"widget_code"')))) {
+          if (entry.toolName === 'show_widget' || (!entry.toolName && entry.argumentsBuffer.includes('"widget_code"'))) {
+            const parsed = extractPartialWidgetFields(entry.argumentsBuffer)
+            if (parsed.title !== undefined) entry.title = parsed.title
+            if (parsed.widgetCode !== undefined) entry.content = parsed.widgetCode
+            if (parsed.loadingMessages !== undefined) entry.loadingMessages = parsed.loadingMessages
+            stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
+          } else if (entry.toolName === 'create_artifact' || (!entry.toolName && entry.argumentsBuffer.includes('"content"'))) {
             const parsed = extractPartialArtifactFields(entry.argumentsBuffer)
             if (parsed.title !== undefined) entry.title = parsed.title
             if (parsed.filename !== undefined) entry.filename = parsed.filename
             if (parsed.display !== undefined) entry.display = parsed.display as 'inline' | 'panel'
             if (parsed.content !== undefined) entry.content = parsed.content
+            if (parsed.loadingMessages !== undefined) entry.loadingMessages = parsed.loadingMessages
             stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
           }
         }
@@ -418,6 +425,13 @@ export function useSseDispatch(params: {
           entry.toolName = 'show_widget'
           if (typeof args?.widget_code === 'string') entry.content = args.widget_code
           if (typeof args?.title === 'string') entry.title = args.title
+          if (Array.isArray(args?.loading_messages)) {
+            const messages = (args?.loading_messages as unknown[])
+              .filter((x): x is string => typeof x === 'string')
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+            if (messages.length > 0) entry.loadingMessages = messages
+          }
           stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
         }
 
@@ -437,6 +451,13 @@ export function useSseDispatch(params: {
           if (typeof args?.title === 'string') entry.title = args.title
           if (typeof args?.filename === 'string') entry.filename = args.filename
           if (typeof args?.display === 'string') entry.display = args.display as 'inline' | 'panel'
+          if (Array.isArray(args?.loading_messages)) {
+            const messages = (args?.loading_messages as unknown[])
+              .filter((x): x is string => typeof x === 'string')
+              .map((x) => x.trim())
+              .filter((x) => x.length > 0)
+            if (messages.length > 0) entry.loadingMessages = messages
+          }
           stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
         }
 

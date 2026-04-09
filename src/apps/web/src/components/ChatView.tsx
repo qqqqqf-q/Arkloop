@@ -12,6 +12,7 @@ import {
 } from './CopTimeline'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { recordPerfCount, recordPerfValue } from '../perfDebug'
+import { noteShowWidgetStatus } from '../streamDebug'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactStreamBlock, type StreamingArtifactEntry } from './ArtifactStreamBlock'
 import { WidgetBlock } from './WidgetBlock'
@@ -294,7 +295,7 @@ const LiveRunPane = memo(function LiveRunPane({
   messages,
 }: LiveRunPaneProps) {
   return (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {(showPendingThinkingShell || liveSegments.length > 0) && (
         <div data-testid={preserveLiveRunUi ? 'current-run-handoff' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
           {(showPendingThinkingShell || leadingLiveCop) && (
@@ -375,6 +376,7 @@ const LiveRunPane = memo(function LiveRunPane({
           title={entry.title ?? 'Widget'}
           complete={entry.complete}
           loadingMessages={entry.loadingMessages}
+          compact
           onAction={onArtifactAction}
         />
       ))}
@@ -384,6 +386,7 @@ const LiveRunPane = memo(function LiveRunPane({
           key={`streaming-artifact-${entry.toolCallIndex}`}
           entry={entry}
           accessToken={accessToken}
+          compact
           onAction={onArtifactAction}
         />
       ))}
@@ -455,7 +458,7 @@ const LiveRunPane = memo(function LiveRunPane({
         />
       )}
       <div ref={bottomRef} />
-    </>
+    </div>
   )
 })
 
@@ -739,7 +742,6 @@ export function ChatView() {
     inputAreaRef,
     forceInstantBottomScrollRef,
     isAtBottomRef,
-    programmaticScrollDepthRef,
     handleScrollContainerScroll,
     stabilizeDocumentPanelScroll,
     scrollToBottom,
@@ -753,14 +755,11 @@ export function ChatView() {
     topLevelCodeExecutionsLength: topLevelCodeExecutions.length,
   })
 
-  const { resetAssistantTurnLive } = useRunTransition({ forceInstantBottomScrollRef, lastUserMsgRef, programmaticScrollDepthRef })
+  const { resetAssistantTurnLive } = useRunTransition()
 
   useThreadSseEffect({
     restoreQueuedDraftToInput,
     clearQueuedDraft,
-    forceInstantBottomScrollRef,
-    lastUserMsgRef,
-    programmaticScrollDepthRef,
   })
 
   const prevActiveRunIdRef = useRef<string | null>(null)
@@ -1616,6 +1615,47 @@ export function ChatView() {
     () => streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))),
     [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
+  const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
+    streamingArtifacts
+      .filter((entry) => entry.toolName === 'show_widget')
+      .map((entry) => ({
+        toolCallId: entry.toolCallId ?? null,
+        toolCallIndex: entry.toolCallIndex,
+        contentLength: entry.content?.length ?? 0,
+        loadingMessagesCount: entry.loadingMessages?.length ?? 0,
+        complete: entry.complete,
+        hiddenByCop: !!(entry.toolCallId && livePlacedShowWidgetCallIds.has(entry.toolCallId)),
+        visible: visibleStreamingWidgets.some((visible) => visible.toolCallIndex === entry.toolCallIndex),
+      })),
+  ), [livePlacedShowWidgetCallIds, streamingArtifacts, visibleStreamingWidgets])
+  const lastVisibleStreamingWidgetsSignatureRef = useRef('')
+  useEffect(() => {
+    if (visibleStreamingWidgetsSignature === lastVisibleStreamingWidgetsSignatureRef.current) return
+    lastVisibleStreamingWidgetsSignatureRef.current = visibleStreamingWidgetsSignature
+    let entries: Array<{
+      toolCallId: string | null
+      toolCallIndex: number
+      contentLength: number
+      complete: boolean
+      visible: boolean
+    }> = []
+    try {
+      entries = JSON.parse(visibleStreamingWidgetsSignature)
+    } catch {
+      entries = []
+    }
+    if (!activeRunId) return
+    for (const entry of entries) {
+      noteShowWidgetStatus({
+        runId: activeRunId,
+        toolCallId: entry.toolCallId ?? '',
+        toolCallIndex: entry.toolCallIndex,
+        contentLength: entry.contentLength,
+        visible: entry.visible,
+        complete: entry.complete,
+      })
+    }
+  }, [activeRunId, visibleStreamingWidgetsSignature])
 
   const copTimelineStreamHiddenIds = useMemo(() => {
     if (!liveAssistantTurn || liveAssistantTurn.segments.length === 0) return new Set<string>()
@@ -1727,7 +1767,10 @@ export function ChatView() {
     key?: string,
   ) => {
     const lastSegIdx = liveSegments.length - 1
-    const preservingHandoffSegments = preserveLiveRunUi && !isStreaming
+    const preservingHandoffSegments =
+      preserveLiveRunUi &&
+      !isStreaming &&
+      terminalRunHandoffStatus !== 'completed'
     const copClosedByFollowingSeg = si < lastSegIdx
     const copTimelineLive = liveRunUiActive && !copClosedByFollowingSeg
     const copTimelineComplete = !copTimelineLive
@@ -1813,6 +1856,12 @@ export function ChatView() {
             title={entry.title ?? 'Widget'}
             complete={entry.complete}
             loadingMessages={entry.loadingMessages}
+            compact
+            debugMeta={activeRunId ? {
+              runId: activeRunId,
+              toolCallId: entry.toolCallId,
+              toolCallIndex: entry.toolCallIndex,
+            } : undefined}
             onAction={handleArtifactAction}
           />
         ))}
@@ -1821,6 +1870,7 @@ export function ChatView() {
             key={`live-art-${entry.toolCallId ?? entry.toolCallIndex}`}
             entry={entry}
             accessToken={accessToken}
+            compact
             onAction={handleArtifactAction}
           />
         ))}
