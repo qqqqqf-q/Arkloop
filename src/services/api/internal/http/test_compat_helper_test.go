@@ -58,11 +58,18 @@ type meResponse struct {
 	Email                     *string  `json:"email,omitempty"`
 	EmailVerified             bool     `json:"email_verified"`
 	EmailVerificationRequired bool     `json:"email_verification_required"`
+	Timezone                  *string  `json:"timezone,omitempty"`
+	AccountTimezone           *string  `json:"account_timezone,omitempty"`
 	CreatedAt                 string   `json:"created_at"`
 	AccountID                 string   `json:"account_id,omitempty"`
 	AccountName               string   `json:"account_name,omitempty"`
 	Role                      string   `json:"role,omitempty"`
 	Permissions               []string `json:"permissions"`
+}
+
+type updateMeResponse struct {
+	Username string  `json:"username"`
+	Timezone *string `json:"timezone,omitempty"`
 }
 
 // --- admin ---

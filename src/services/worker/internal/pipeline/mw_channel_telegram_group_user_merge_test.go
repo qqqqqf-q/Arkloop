@@ -166,9 +166,9 @@ time: "2026-03-28T13:31:16Z"
 	}
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
-		`[13:31:00-13:31:05] A ck:`,
-		"13:31, xhelogo",
-		"13:31, 怎么那么像",
+		`A ck:`,
+		`[13:31:00] xhelogo`,
+		`[13:31:05] 怎么那么像`,
 		`[13:31:16] 清凤: 哈`,
 	} {
 		if !strings.Contains(text, want) {
@@ -216,9 +216,9 @@ time: "2026-03-28T13:31:16Z"
 	}
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
-		`[13:31:00-13:31:05] A ck:`,
-		"13:31, 第一条",
-		"13:31, 第二条",
+		`A ck:`,
+		`[13:31:00] 第一条`,
+		`[13:31:05] 第二条`,
 		"换行",
 		`[13:31:16] 清凤: 第三条`,
 	} {
@@ -339,6 +339,37 @@ func TestCompactTelegramGroupEnvelopeBurst_withImageParts(t *testing.T) {
 	}
 }
 
+func TestCompactTelegramGroupEnvelopeBurst_keepsImageOnlyEntryTimestamp(t *testing.T) {
+	t.Parallel()
+	tail := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"A ck\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"3e4496b5-9544-4669-b4a7-790b11224c3e\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:00Z\"\nmessage-id: \"4814\"\n---\n"},
+			{Type: "image", Attachment: &messagecontent.AttachmentRef{Key: "k1", Filename: "image.jpg", MimeType: "image/jpeg"}, Data: []byte("fake")},
+		}},
+		{Role: "user", Content: []llm.ContentPart{
+			{Type: "text", Text: "---\ndisplay-name: \"A ck\"\nchannel: \"telegram\"\nconversation-type: \"supergroup\"\nsender-ref: \"3e4496b5-9544-4669-b4a7-790b11224c3e\"\nconversation-title: \"Arkloop\"\ntime: \"2026-03-28T13:31:05Z\"\nmessage-id: \"4815\"\n---\n[Telegram in Arkloop] 第二条"},
+		}},
+	}
+
+	text, extras, ok := compactTelegramGroupEnvelopeBurst(tail)
+	if !ok {
+		t.Fatal("expected compact to succeed for image-only entry")
+	}
+	for _, want := range []string{
+		"Telegram supergroup \"Arkloop\"",
+		"A ck:",
+		"[13:31:00 #4814]",
+		"[13:31:05 #4815] 第二条",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
+		}
+	}
+	if len(extras) != 1 {
+		t.Fatalf("expected 1 extra image part, got %d", len(extras))
+	}
+}
+
 func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	t.Parallel()
 	tail := []llm.Message{
@@ -452,13 +483,13 @@ message-id: "4815"
 	if !ok {
 		t.Fatal("expected burst to compact")
 	}
-	if !strings.Contains(text, `[07:38:23-07:38:29] 清凤 [admin]:`) {
-		t.Fatalf("expected merged header without ids, got %q", text)
+	if !strings.Contains(text, `清凤 [admin]:`) {
+		t.Fatalf("expected merged header, got %q", text)
 	}
-	if !strings.Contains(text, `07:38 #4814, first`) {
+	if !strings.Contains(text, `[07:38:23 #4814] first`) {
 		t.Fatalf("expected first entry with id, got %q", text)
 	}
-	if !strings.Contains(text, `07:38 #4815, second`) {
+	if !strings.Contains(text, `[07:38:29 #4815] second`) {
 		t.Fatalf("expected second entry with id, got %q", text)
 	}
 }

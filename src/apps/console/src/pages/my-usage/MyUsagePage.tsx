@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import type { ConsoleOutletContext } from '../../layouts/ConsoleLayout'
 import { PageHeader } from '../../components/PageHeader'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   getMeUsage,
@@ -257,7 +257,7 @@ export function MyUsagePage() {
                       {result.credits.transactions.map((tx) => (
                         <tr key={tx.id} className="border-b border-[var(--c-border-subtle)]">
                           <td className="py-2 pr-4 text-[var(--c-text-tertiary)] tabular-nums">
-                            {tx.created_at.slice(0, 16).replace('T', ' ')}
+                            {formatDateTime(tx.created_at, { includeZone: false })}
                           </td>
                           <td className="py-2 pr-4 text-[var(--c-text-secondary)]">{tx.type}</td>
                           <td className={`py-2 pr-4 text-right tabular-nums font-medium ${tx.amount >= 0 ? 'text-[var(--c-status-success-text)]' : 'text-[var(--c-status-error-text)]'}`}>

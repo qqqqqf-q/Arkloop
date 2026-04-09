@@ -984,6 +984,9 @@ func TestTelegramWebhookNewCommandStartsFreshDMThread(t *testing.T) {
 
 func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	if _, err := env.pool.Exec(context.Background(), `UPDATE users SET timezone = 'Asia/Shanghai' WHERE id = $1`, env.userID); err != nil {
+		t.Fatalf("seed user timezone: %v", err)
+	}
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"allowed_user_ids": []string{"10001"},
 	})
@@ -1063,6 +1066,78 @@ func TestTelegramWebhookStoresStructuredInboundMessage(t *testing.T) {
 	}
 	if got := asString(metadata["platform_message_id"]); got != "7" {
 		t.Fatalf("unexpected platform_message_id: %q", got)
+	}
+	if got := asString(metadata["time_local"]); got != "2024-03-09 00:00:00 [UTC+8]" {
+		t.Fatalf("unexpected time_local: %q", got)
+	}
+	if got := asString(metadata["time_utc"]); got != "2024-03-08T16:00:00Z" {
+		t.Fatalf("unexpected time_utc: %q", got)
+	}
+	if !strings.Contains(content.Parts[0].Text, `time: "2024-03-09 00:00:00 [UTC+8]"`) {
+		t.Fatalf("expected localized time in envelope, got %s", content.Parts[0].Text)
+	}
+	if !strings.Contains(content.Parts[0].Text, `time_utc: "2024-03-08T16:00:00Z"`) {
+		t.Fatalf("expected utc time in envelope, got %s", content.Parts[0].Text)
+	}
+}
+
+func TestTelegramWebhookRespectsOwnerTimezoneWithDST(t *testing.T) {
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	if _, err := env.pool.Exec(context.Background(), `UPDATE users SET timezone = 'America/Los_Angeles' WHERE id = $1`, env.userID); err != nil {
+		t.Fatalf("seed user timezone: %v", err)
+	}
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids": []string{"10001"},
+	})
+
+	ts := time.Date(2024, time.July, 4, 12, 0, 0, 0, time.UTC)
+	resp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPost,
+		"/v1/channels/telegram/"+channel.ID.String()+"/webhook",
+		map[string]any{
+			"message": map[string]any{
+				"message_id": 123,
+				"date":       ts.Unix(),
+				"chat": map[string]any{
+					"id":   10001,
+					"type": "private",
+				},
+				"from": map[string]any{
+					"id":     10001,
+					"is_bot": false,
+				},
+				"text": "dst check",
+			},
+		},
+		nil,
+	)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	var metadataJSON []byte
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT metadata_json::text::jsonb
+		  FROM messages
+		 ORDER BY created_at DESC
+		 LIMIT 1
+	`).Scan(&metadataJSON); err != nil {
+		t.Fatalf("query metadata_json: %v", err)
+	}
+
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		t.Fatalf("decode metadata_json: %v", err)
+	}
+	if got := asString(metadata["timezone"]); got != "America/Los_Angeles" {
+		t.Fatalf("unexpected timezone: %q", got)
+	}
+	if got := asString(metadata["time_local"]); got != "2024-07-04 05:00:00 [UTC-7]" {
+		t.Fatalf("unexpected time_local: %q", got)
+	}
+	if got := asString(metadata["time_utc"]); got != "2024-07-04T12:00:00Z" {
+		t.Fatalf("unexpected time_utc: %q", got)
 	}
 }
 
@@ -1159,6 +1234,9 @@ func TestTelegramWebhookHeartbeatCommandDoesNotSendImmediateTyping(t *testing.T)
 
 func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	if _, err := env.pool.Exec(context.Background(), `UPDATE users SET timezone = 'Asia/Shanghai' WHERE id = $1`, env.userID); err != nil {
+		t.Fatalf("seed user timezone: %v", err)
+	}
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"allowed_user_ids": []string{"10001"},
 		"bot_username":     "arkloopbot",
@@ -1281,6 +1359,9 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	}
 	if !strings.Contains(content.Parts[0].Text, `message-id: "`) {
 		t.Fatalf("expected group prompt header to contain message-id field")
+	}
+	if !strings.Contains(content.Parts[0].Text, `time: "2024-03-09 00:00:01 [UTC+8]"`) {
+		t.Fatalf("expected group prompt header to localize time, got %s", content.Parts[0].Text)
 	}
 }
 

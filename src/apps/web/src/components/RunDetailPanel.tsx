@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
 import { TurnView, buildRequestThreadTurns, buildTurns, jsonStringifyForDebugDisplay, pickLogicalToolName } from '@arkloop/shared'
 import type { LlmTurn, RequestThreadTurn, RunEventRaw } from '@arkloop/shared'
+import { formatDateTime } from '@arkloop/shared'
 import type { RunDetail, RunEvent } from '../api'
 import { getRunDetail, listRunEvents } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
@@ -39,17 +40,7 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
 
 function formatTime(value: string | undefined): string {
   if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  }).format(date)
+  return formatDateTime(value, { includeSeconds: true, includeMilliseconds: true, includeZone: false })
 }
 
 function formatEventJSON(event: RunEvent): string {
@@ -373,7 +364,7 @@ export function RunDetailPanel({ runId, accessToken, onClose }: Props) {
             ) : (
               <>
                 <p className="mb-2 text-[11px] text-[var(--c-text-muted)]">
-                  Events are shown in sequence order. Recorded time may differ from when the model started emitting output.
+                  Events are listed in sequence. Timestamps are when events were stored.
                 </p>
                 <div className="space-y-1.5">
                   {events.map((event) => (
@@ -400,8 +391,8 @@ export function RunDetailPanel({ runId, accessToken, onClose }: Props) {
                               {event.error_class}
                             </span>
                           )}
-                          <span className="ml-auto text-[10px] text-[var(--c-text-muted)]">
-                            recorded {formatTime(event.ts)}
+                          <span className="ml-auto text-[10px] tabular-nums text-[var(--c-text-muted)]">
+                            {formatTime(event.ts)}
                           </span>
                         </div>
                       </summary>

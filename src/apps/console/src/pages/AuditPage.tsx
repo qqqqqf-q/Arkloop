@@ -4,7 +4,7 @@ import { RefreshCw, ClipboardList, ChevronDown, ChevronRight } from 'lucide-reac
 import type { ConsoleOutletContext } from '../layouts/ConsoleLayout'
 import { PageHeader } from '../components/PageHeader'
 import { EmptyState } from '../components/EmptyState'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, parseDateTimeLocalToUTC, useTimeZone, useToast } from '@arkloop/shared'
 import { listAuditLogs, type AuditLog } from '../api/audit'
 
 const PAGE_SIZE = 50
@@ -30,9 +30,9 @@ function truncateId(id: string): string {
 }
 
 // datetime-local input value → RFC3339
-function toRFC3339(localValue: string): string | undefined {
+function toRFC3339(localValue: string, timeZone: string): string | undefined {
   if (!localValue) return undefined
-  return new Date(localValue).toISOString()
+  return parseDateTimeLocalToUTC(localValue, timeZone)
 }
 
 type ExpandedRowProps = {
@@ -55,6 +55,7 @@ function ExpandedRow({ log }: ExpandedRowProps) {
 export function AuditPage() {
   const { accessToken } = useOutletContext<ConsoleOutletContext>()
   const { addToast } = useToast()
+  const { timeZone } = useTimeZone()
 
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [total, setTotal] = useState(0)
@@ -72,8 +73,8 @@ export function AuditPage() {
         const resp = await listAuditLogs(
           {
             action: action || undefined,
-            since: toRFC3339(since),
-            until: toRFC3339(until),
+            since: toRFC3339(since, timeZone),
+            until: toRFC3339(until, timeZone),
             limit: PAGE_SIZE,
             offset: currentOffset,
           },
@@ -87,7 +88,7 @@ export function AuditPage() {
         setLoading(false)
       }
     },
-    [accessToken, addToast],
+    [accessToken, addToast, timeZone],
   )
 
   useEffect(() => {
@@ -246,7 +247,7 @@ export function AuditPage() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-[var(--c-text-secondary)]">
                         <span className="text-xs tabular-nums">
-                          {new Date(log.created_at).toLocaleString()}
+                          {formatDateTime(log.created_at, { includeZone: false })}
                         </span>
                       </td>
                     </tr>

@@ -8,7 +8,7 @@ import { Badge } from '../../components/Badge'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -168,7 +168,7 @@ export function APIKeysPage() {
       header: tc.colLastUsedAt,
       render: (row) => (
         <span className="tabular-nums text-xs text-[var(--c-text-secondary)]">
-          {row.last_used_at ? new Date(row.last_used_at).toLocaleString() : '—'}
+          {row.last_used_at ? formatDateTime(row.last_used_at, { includeZone: false }) : '—'}
         </span>
       ),
     },
@@ -186,7 +186,7 @@ export function APIKeysPage() {
       key: 'created_at',
       header: tc.colCreatedAt,
       render: (row) => (
-        <span className="tabular-nums text-xs">{new Date(row.created_at).toLocaleString()}</span>
+        <span className="tabular-nums text-xs">{formatDateTime(row.created_at, { includeZone: false })}</span>
       ),
     },
     {

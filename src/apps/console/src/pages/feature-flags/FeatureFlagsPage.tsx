@@ -8,7 +8,7 @@ import { Badge } from '../../components/Badge'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -255,7 +255,7 @@ export function FeatureFlagsPage() {
       key: 'created_at',
       header: tc.colCreatedAt,
       render: (row) => (
-        <span className="tabular-nums text-xs">{new Date(row.created_at).toLocaleString()}</span>
+        <span className="tabular-nums text-xs">{formatDateTime(row.created_at, { includeZone: false })}</span>
       ),
     },
     {
@@ -338,7 +338,7 @@ export function FeatureFlagsPage() {
                           {o.enabled ? tc.enabled : tc.disabled}
                         </Badge>
                       </td>
-                      <td className="py-2 tabular-nums">{new Date(o.created_at).toLocaleString()}</td>
+                      <td className="py-2 tabular-nums">{formatDateTime(o.created_at, { includeZone: false })}</td>
                       <td className="py-2 text-right">
                         <button
                           onClick={() => setDeleteOverrideTarget(o)}

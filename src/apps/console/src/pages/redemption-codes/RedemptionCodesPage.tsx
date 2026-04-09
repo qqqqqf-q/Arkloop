@@ -8,7 +8,7 @@ import { Badge, type BadgeVariant } from '../../components/Badge'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -300,7 +300,7 @@ export function RedemptionCodesPage() {
                       </td>
                       <td className={tdCls}>
                         <span className="tabular-nums text-xs">
-                          {rc.expires_at ? new Date(rc.expires_at).toLocaleString() : '--'}
+                          {rc.expires_at ? formatDateTime(rc.expires_at, { includeZone: false }) : '--'}
                         </span>
                       </td>
                       <td className={tdCls}>
@@ -315,7 +315,7 @@ export function RedemptionCodesPage() {
                       </td>
                       <td className={tdCls}>
                         <span className="tabular-nums text-xs">
-                          {new Date(rc.created_at).toLocaleString()}
+                          {formatDateTime(rc.created_at, { includeZone: false })}
                         </span>
                       </td>
                       <td className={tdCls}>

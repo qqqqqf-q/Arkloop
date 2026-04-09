@@ -5,7 +5,7 @@ import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
-import { DebugTrigger } from '@arkloop/shared'
+import { DebugTrigger, useTimeZone } from '@arkloop/shared'
 import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError } from '../api'
 import {
   writeActiveThreadIdToStorage,
@@ -46,12 +46,46 @@ function deriveTitle(content: string, defaultTitle: string): string {
   return cleaned.length > 40 ? `${cleaned.slice(0, 40)}…` : cleaned
 }
 
-// 按时段、星期、节日生成问候语，全部基于浏览器本地时间。
-function buildGreeting(name: string | null, now: Date): string {
-  const hour = now.getHours()
-  const month = now.getMonth()   // 0-based
-  const day = now.getDate()
-  const weekday = now.getDay()   // 0=Sun
+type GreetingParts = {
+  hour: number
+  month: number
+  day: number
+  weekday: number
+  minute: number
+}
+
+function getGreetingParts(now: Date, timeZone: string): GreetingParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    month: 'numeric',
+    day: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  }).formatToParts(now)
+  const getPart = (type: string) => parts.find((part) => part.type === type)?.value ?? '0'
+  const weekdayLabel = getPart('weekday')
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  }
+  return {
+    hour: Number(getPart('hour')),
+    minute: Number(getPart('minute')),
+    month: Number(getPart('month')) - 1,
+    day: Number(getPart('day')),
+    weekday: weekdayMap[weekdayLabel] ?? 0,
+  }
+}
+
+function buildGreeting(name: string | null, now: GreetingParts): string {
+  const { hour, month, day, weekday, minute } = now
 
   const first = name ? name.split(/[\s_]+/)[0] : null
   const hi = first ? `，${first}` : ''
@@ -108,7 +142,7 @@ function buildGreeting(name: string | null, now: Date): string {
   else pool = pools.generic
 
   // 用分钟做伪随机 seed，同一分钟内刷新不跳
-  const seed = now.getMinutes() + now.getHours() * 60
+  const seed = minute + hour * 60
   return pool[seed % pool.length]
 }
 
@@ -116,6 +150,7 @@ function buildGreeting(name: string | null, now: Date): string {
 
 export function WelcomePage() {
   const { accessToken, logout: onLoggedOut, me } = useAuth()
+  const { timeZone } = useTimeZone()
   const { addThread: onThreadCreated, isPrivateMode, togglePrivateMode: onTogglePrivateMode } = useThreadList()
   const { isSearchMode, enterSearchMode: onEnterSearchMode, exitSearchMode: onExitSearchMode } = useSearchUI()
   const { openNotifications: onOpenNotifications, notificationVersion } = useNotificationsUI()
@@ -132,7 +167,10 @@ export function WelcomePage() {
   const navigate = useNavigate()
   const { t } = useLocale()
 
-  const greeting = useMemo(() => buildGreeting(me?.username ?? null, new Date()), [me?.username])
+  const greeting = useMemo(
+    () => buildGreeting(me?.username ?? null, getGreetingParts(new Date(), timeZone)),
+    [me?.username, timeZone],
+  )
 
   useEffect(() => {
     const handleChange = (e: Event) => {

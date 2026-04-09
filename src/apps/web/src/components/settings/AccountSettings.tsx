@@ -118,7 +118,7 @@ export function ProfileContent({
     if (!name || !isDirty) return
     setSaving(true)
     try {
-      const res = await updateMe(accessToken, name)
+      const res = await updateMe(accessToken, { username: name })
       if (me && onMeUpdated) {
         onMeUpdated({ ...me, username: res.username })
       }

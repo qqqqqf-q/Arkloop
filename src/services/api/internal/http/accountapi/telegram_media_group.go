@@ -329,6 +329,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if err != nil {
 		return err
 	}
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -339,6 +340,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		identity.UserID,
 		identity,
 		incoming,
+		timeCtx,
 	)
 	if err != nil {
 		return err

@@ -7,7 +7,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { Badge, type BadgeVariant } from '../../components/Badge'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
-import { AutoResizeTextarea, useToast } from '@arkloop/shared'
+import { AutoResizeTextarea, formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -215,7 +215,7 @@ export function BroadcastsPage() {
                     </td>
                     <td className={tdCls}>
                       <span className="tabular-nums text-xs">
-                        {new Date(b.created_at).toLocaleString()}
+                        {formatDateTime(b.created_at, { includeZone: false })}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right">

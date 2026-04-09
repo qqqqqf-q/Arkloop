@@ -4,12 +4,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { getMe, logout as apiLogout, isApiError, type MeResponse } from '../api'
+import { getMe, logout as apiLogout, isApiError, updateMe as patchMe, type MeResponse } from '../api'
 import { clearActiveThreadIdInStorage } from '../storage'
 import { isLocalMode, getDesktopApi } from '@arkloop/shared/desktop'
+import { detectDeviceTimeZone } from '@arkloop/shared'
 
 export interface AuthContextValue {
   me: MeResponse | null
@@ -30,6 +32,7 @@ interface AuthProviderProps {
 export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProviderProps) {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
+  const autoTimezoneAttemptedRef = useRef<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -60,6 +63,23 @@ export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProvide
     })()
     return () => controller.abort()
   }, [accessToken, onLoggedOut])
+
+  useEffect(() => {
+    if (!meLoaded || !me || me.timezone != null) return
+    const accountTimeZone = me.account_timezone?.trim()
+    if (accountTimeZone) return
+    const detectedTimeZone = detectDeviceTimeZone()
+    const attemptKey = `${accessToken}:${detectedTimeZone}`
+    if (autoTimezoneAttemptedRef.current === attemptKey) return
+    autoTimezoneAttemptedRef.current = attemptKey
+    void patchMe(accessToken, { timezone: detectedTimeZone })
+      .then((updated) => {
+        setMe((current) => current == null
+          ? current
+          : { ...current, timezone: updated.timezone ?? detectedTimeZone })
+      })
+      .catch(() => {})
+  }, [accessToken, me, meLoaded])
 
   const handleLogout = useCallback(async () => {
     try { await apiLogout(accessToken) } catch { /* best-effort */ }

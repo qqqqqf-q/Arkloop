@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -401,6 +402,9 @@ func compactTelegramBurstTime(raw string) string {
 	if cleaned == "" {
 		return "time?"
 	}
+	if match := regexp.MustCompile(`^\d{4}-\d{2}-\d{2} (\d{2}:\d{2}:\d{2}) \[(UTC[^\]]+)\]$`).FindStringSubmatch(cleaned); len(match) == 3 {
+		return match[1] + " [" + match[2] + "]"
+	}
 	layouts := []string{time.RFC3339Nano, time.RFC3339}
 	for _, layout := range layouts {
 		if parsed, err := time.Parse(layout, cleaned); err == nil {
@@ -457,14 +461,11 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 	entries := make([]telegramCompactBurstEntry, 0, len(block.entries))
 	for _, e := range block.entries {
-		trimmed := strings.TrimSpace(e.body)
-		if trimmed != "" || e.replyToID != "" || e.forwardFrom != "" {
-			entries = append(entries, telegramCompactBurstEntry{
-				body: trimmed, time: e.time, messageID: e.messageID,
-				replyToID: e.replyToID, replyPreview: e.replyPreview,
-				forwardFrom: e.forwardFrom,
-			})
-		}
+		entries = append(entries, telegramCompactBurstEntry{
+			body: strings.TrimSpace(e.body), time: e.time, messageID: e.messageID,
+			replyToID: e.replyToID, replyPreview: e.replyPreview,
+			forwardFrom: e.forwardFrom,
+		})
 	}
 	tsRange := compactTelegramBurstRange(block.startTime, block.endTime)
 	idSuffix := formatMessageIDSuffix(block.messageIDs)
@@ -475,54 +476,51 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 		return renderCompactTelegramBurstLine(tsRange, idSuffix, block.speaker, entries[0])
 	}
 	var sb strings.Builder
-	sb.WriteString("[")
-	sb.WriteString(tsRange)
-	sb.WriteString("] ")
-	sb.WriteString(strings.TrimSpace(block.speaker))
+	speaker := strings.TrimSpace(block.speaker)
+	sb.WriteString(speaker)
 	sb.WriteString(":")
 	for _, entry := range entries {
-		sb.WriteString("\n  ")
-		sb.WriteString(entryMinuteTime(entry.time))
-		if entry.messageID != "" {
-			sb.WriteString(" #")
-			sb.WriteString(entry.messageID)
-		}
-		sb.WriteString(", ")
-		if entry.replyToID != "" {
-			sb.WriteString("> Reply to #")
-			sb.WriteString(entry.replyToID)
-			if entry.replyPreview != "" {
-				sb.WriteString(` "`)
-				sb.WriteString(entry.replyPreview)
-				sb.WriteString(`"`)
-			}
+		for _, line := range renderCompactTelegramBurstEntryLines(entry) {
 			sb.WriteString("\n  ")
-		}
-		if entry.forwardFrom != "" {
-			sb.WriteString("[Fwd: ")
-			sb.WriteString(entry.forwardFrom)
-			sb.WriteString("]\n  ")
-		}
-		for i, line := range strings.Split(entry.body, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" {
-				continue
-			}
-			if i > 0 {
-				sb.WriteString("\n  ")
-			}
-			sb.WriteString(trimmed)
+			sb.WriteString(line)
 		}
 	}
 	return sb.String()
 }
 
-// entryMinuteTime 将 "15:04:05" 缩短为 "15:04"。
-func entryMinuteTime(ts string) string {
-	if len(ts) >= 5 {
-		return ts[:5]
+func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []string {
+	var details []string
+	if entry.replyToID != "" {
+		replyLine := "> Reply to #" + entry.replyToID
+		if entry.replyPreview != "" {
+			replyLine += ` "` + entry.replyPreview + `"`
+		}
+		details = append(details, replyLine)
 	}
-	return ts
+	if entry.forwardFrom != "" {
+		details = append(details, "[Fwd: "+entry.forwardFrom+"]")
+	}
+	for _, line := range strings.Split(entry.body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		details = append(details, trimmed)
+	}
+	header := "[" + entry.time
+	if entry.messageID != "" {
+		header += " #" + entry.messageID
+	}
+	header += "]"
+	if len(details) == 0 {
+		return []string{header}
+	}
+	lines := make([]string, 0, len(details)+1)
+	lines = append(lines, header+" "+details[0])
+	for _, detail := range details[1:] {
+		lines = append(lines, detail)
+	}
+	return lines
 }
 
 func formatMessageIDSuffix(ids []string) string {

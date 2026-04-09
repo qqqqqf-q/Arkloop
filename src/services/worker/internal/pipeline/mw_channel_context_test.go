@@ -146,3 +146,86 @@ func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T)
 		t.Fatalf("middleware returned error: %v", err)
 	}
 }
+
+func TestChannelContextMiddlewareFallsBackToChannelOwnerWhenIdentityMissingUserID(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_context_owner_fallback")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	if _, err := pool.Exec(context.Background(), `
+		CREATE TABLE channel_identities (
+			id UUID PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			external_user_id TEXT NOT NULL,
+			display_name TEXT NULL,
+			metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+			user_id UUID NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`); err != nil {
+		t.Fatalf("create channel_identities: %v", err)
+	}
+	if _, err := pool.Exec(context.Background(), `
+		CREATE TABLE channels (
+			id UUID PRIMARY KEY,
+			owner_user_id UUID NULL
+		)`); err != nil {
+		t.Fatalf("create channels: %v", err)
+	}
+
+	identityID := uuid.New()
+	channelID := uuid.New()
+	ownerUserID := uuid.New()
+	if _, err := pool.Exec(
+		context.Background(),
+		`INSERT INTO channel_identities (id, channel_type, external_user_id, metadata_json)
+		 VALUES ($1, 'telegram', '10001', '{}'::jsonb)`,
+		identityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+	if _, err := pool.Exec(
+		context.Background(),
+		`INSERT INTO channels (id, owner_user_id) VALUES ($1, $2)`,
+		channelID,
+		ownerUserID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	originalUserID := uuid.New()
+	rc := &RunContext{
+		UserID: &originalUserID,
+		JobPayload: map[string]any{
+			"channel_delivery": map[string]any{
+				"channel_id":                 channelID.String(),
+				"channel_type":               "telegram",
+				"conversation_ref":           map[string]any{"target": "10001"},
+				"sender_channel_identity_id": identityID.String(),
+			},
+		},
+	}
+
+	h := Build([]RunMiddleware{NewChannelContextMiddleware(pool)}, func(_ context.Context, rc *RunContext) error {
+		if rc.ChannelContext == nil {
+			t.Fatal("expected channel context to be populated")
+		}
+		if rc.ChannelContext.SenderUserID == nil || *rc.ChannelContext.SenderUserID != ownerUserID {
+			t.Fatalf("unexpected sender user id: %#v", rc.ChannelContext.SenderUserID)
+		}
+		if rc.UserID == nil || *rc.UserID != ownerUserID {
+			t.Fatalf("unexpected rc.UserID: %#v", rc.UserID)
+		}
+		if *rc.UserID == originalUserID {
+			t.Fatalf("expected rc.UserID to be overridden, got %#v", rc.UserID)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+}

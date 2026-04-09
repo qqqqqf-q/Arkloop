@@ -9,6 +9,7 @@ import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { AutoResizeTextarea, useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
+import { formatDateTime as formatDateTimeWithZone } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import {
   listPersonas,
@@ -80,9 +81,7 @@ function formatSyncMode(persona: Persona, tc: ReturnType<typeof useLocale>['t'][
 
 function formatDateTime(value?: string): string {
   if (!value) return '--'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '--'
-  return parsed.toLocaleString()
+  return formatDateTimeWithZone(value)
 }
 
 function personaToForm(persona: Persona): DetailForm {

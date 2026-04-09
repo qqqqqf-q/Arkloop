@@ -4,6 +4,7 @@ import { PillToggle, Modal } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopApi } from '@arkloop/shared/desktop'
+import { formatDateTime } from '@arkloop/shared'
 import type { MemoryConfig, SnapshotHit } from '@arkloop/shared/desktop'
 import { checkBridgeAvailable, bridgeClient, type ModuleStatus } from '../../api-bridge'
 import { secondaryButtonSmCls, secondaryButtonXsCls, secondaryButtonBorderStyle } from '../buttonStyles'
@@ -897,7 +898,7 @@ export function MemorySettings({ accessToken }: Props) {
                   {memoryErrorLabel(evt.type)}
                 </span>
                 <span className="text-xs tabular-nums text-[var(--c-text-muted)]">
-                  {new Date(evt.ts).toLocaleString()}
+                  {formatDateTime(evt.ts, { includeSeconds: true, includeZone: false })}
                 </span>
               </div>
               <p className="whitespace-pre-wrap break-all text-xs leading-relaxed text-[var(--c-text-secondary)]">

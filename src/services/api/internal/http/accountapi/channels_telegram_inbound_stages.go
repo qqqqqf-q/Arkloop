@@ -278,6 +278,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	if err != nil {
 		return nil, err
 	}
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -288,6 +289,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		identity.UserID,
 		identity,
 		incoming,
+		timeCtx,
 	)
 	if err != nil {
 		return nil, err

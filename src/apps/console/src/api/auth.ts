@@ -19,6 +19,8 @@ export type LoginResponse = {
 export type MeResponse = {
   id: string
   username: string
+  timezone?: string | null
+  account_timezone?: string | null
   created_at: string
   account_id: string
   account_name: string

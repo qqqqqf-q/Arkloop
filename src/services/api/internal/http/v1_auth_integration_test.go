@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"time"
 
 	"arkloop/services/api/internal/observability"
 	"regexp"
@@ -24,6 +25,7 @@ import (
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/testutil"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -402,6 +404,240 @@ func TestAuthRejectsAtSignForRegisterAndProfile(t *testing.T) {
 		"username": "alice@bad",
 	}, authHeader(registerPayload.AccessToken))
 	assertErrorEnvelope(t, badProfile, nethttp.StatusUnprocessableEntity, "validation.error")
+}
+
+func TestAuthMeSupportsTimezoneUpdate(t *testing.T) {
+	type mePayload struct {
+		Username        string  `json:"username"`
+		AccountID       string  `json:"account_id"`
+		Timezone        *string `json:"timezone"`
+		AccountTimezone *string `json:"account_timezone"`
+	}
+	type updatePayload struct {
+		Username string  `json:"username"`
+		Timezone *string `json:"timezone"`
+	}
+
+	env := newAuthResolveTestEnv(t, "api_go_auth_timezone_update")
+	ctx := context.Background()
+
+	if _, err := env.featureFlagsRepo.CreateFlag(ctx, "registration.open", nil, true); err != nil {
+		t.Fatalf("create registration.open flag: %v", err)
+	}
+
+	registerResp := doJSON(env.handler, nethttp.MethodPost, "/v1/auth/register", map[string]any{
+		"login":    "alice",
+		"password": "pwd12345",
+		"email":    "alice@test.com",
+	}, nil)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	registerPayload := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+
+	initialMeResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if initialMeResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me status: %d body=%s", initialMeResp.Code, initialMeResp.Body.String())
+	}
+	initialMe := decodeJSONBody[mePayload](t, initialMeResp.Body.Bytes())
+	accountID, err := uuid.Parse(initialMe.AccountID)
+	if err != nil {
+		t.Fatalf("parse account id: %v", err)
+	}
+
+	if _, err := env.pool.Exec(ctx, `UPDATE accounts SET timezone = 'America/Los_Angeles' WHERE id = $1`, accountID); err != nil {
+		t.Fatalf("seed account timezone: %v", err)
+	}
+
+	meResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if meResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me status: %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	me := decodeJSONBody[mePayload](t, meResp.Body.Bytes())
+	if me.Timezone != nil {
+		t.Fatalf("expected empty user timezone, got %#v", me.Timezone)
+	}
+	if me.AccountTimezone == nil || *me.AccountTimezone != "America/Los_Angeles" {
+		t.Fatalf("unexpected account timezone: %#v", me.AccountTimezone)
+	}
+
+	patchResp := doJSON(env.handler, nethttp.MethodPatch, "/v1/me", map[string]any{
+		"timezone": "Asia/Shanghai",
+	}, authHeader(registerPayload.AccessToken))
+	if patchResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected patch status: %d body=%s", patchResp.Code, patchResp.Body.String())
+	}
+	patchPayload := decodeJSONBody[updatePayload](t, patchResp.Body.Bytes())
+	if patchPayload.Username != "alice" {
+		t.Fatalf("expected username to be preserved, got %#v", patchPayload.Username)
+	}
+	if patchPayload.Timezone == nil || *patchPayload.Timezone != "Asia/Shanghai" {
+		t.Fatalf("unexpected patch timezone: %#v", patchPayload.Timezone)
+	}
+
+	meAfterResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if meAfterResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me after patch status: %d body=%s", meAfterResp.Code, meAfterResp.Body.String())
+	}
+	meAfter := decodeJSONBody[mePayload](t, meAfterResp.Body.Bytes())
+	if meAfter.Timezone == nil || *meAfter.Timezone != "Asia/Shanghai" {
+		t.Fatalf("unexpected me timezone: %#v", meAfter.Timezone)
+	}
+
+	clearResp := doJSON(env.handler, nethttp.MethodPatch, "/v1/me", map[string]any{
+		"timezone": "",
+	}, authHeader(registerPayload.AccessToken))
+	if clearResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected clear patch status: %d body=%s", clearResp.Code, clearResp.Body.String())
+	}
+	clearPayload := decodeJSONBody[updatePayload](t, clearResp.Body.Bytes())
+	if clearPayload.Timezone != nil {
+		t.Fatalf("expected cleared timezone, got %#v", clearPayload.Timezone)
+	}
+
+	badResp := doJSON(env.handler, nethttp.MethodPatch, "/v1/me", map[string]any{
+		"timezone": "Mars/Base",
+	}, authHeader(registerPayload.AccessToken))
+	assertErrorEnvelope(t, badResp, nethttp.StatusUnprocessableEntity, "validation.error")
+}
+
+func TestAuthMeUsesCurrentTokenAccountTimezone(t *testing.T) {
+	type mePayload struct {
+		AccountID       string  `json:"account_id"`
+		AccountTimezone *string `json:"account_timezone"`
+	}
+
+	env := newAuthResolveTestEnv(t, "api_go_auth_timezone_current_account")
+	ctx := context.Background()
+
+	if _, err := env.featureFlagsRepo.CreateFlag(ctx, "registration.open", nil, true); err != nil {
+		t.Fatalf("create registration.open flag: %v", err)
+	}
+
+	registerResp := doJSON(env.handler, nethttp.MethodPost, "/v1/auth/register", map[string]any{
+		"login":    "alice",
+		"password": "pwd12345",
+		"email":    "alice@test.com",
+	}, nil)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	registerPayload := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	userID, err := uuid.Parse(registerPayload.UserID)
+	if err != nil {
+		t.Fatalf("parse user id: %v", err)
+	}
+
+	initialMeResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if initialMeResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me status: %d body=%s", initialMeResp.Code, initialMeResp.Body.String())
+	}
+	initialMe := decodeJSONBody[mePayload](t, initialMeResp.Body.Bytes())
+	defaultAccountID, err := uuid.Parse(initialMe.AccountID)
+	if err != nil {
+		t.Fatalf("parse default account id: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `UPDATE accounts SET timezone = 'America/Los_Angeles' WHERE id = $1`, defaultAccountID); err != nil {
+		t.Fatalf("seed default account timezone: %v", err)
+	}
+
+	accountRepo, err := data.NewAccountRepository(env.pool)
+	if err != nil {
+		t.Fatalf("new account repo: %v", err)
+	}
+	membershipRepo, err := data.NewAccountMembershipRepository(env.pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	workspace, err := accountRepo.Create(ctx, "workspace-alice", "Workspace Alice", "workspace")
+	if err != nil {
+		t.Fatalf("create workspace account: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `UPDATE accounts SET timezone = 'Asia/Tokyo' WHERE id = $1`, workspace.ID); err != nil {
+		t.Fatalf("seed workspace account timezone: %v", err)
+	}
+	if _, err := membershipRepo.Create(ctx, workspace.ID, userID, "owner"); err != nil {
+		t.Fatalf("create workspace membership: %v", err)
+	}
+
+	tokenSvc, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+	workspaceToken, err := tokenSvc.Issue(userID, workspace.ID, "owner", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("issue workspace token: %v", err)
+	}
+
+	meResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(workspaceToken))
+	if meResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected workspace me status: %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	me := decodeJSONBody[mePayload](t, meResp.Body.Bytes())
+	if me.AccountID != workspace.ID.String() {
+		t.Fatalf("unexpected account id: %q", me.AccountID)
+	}
+	if me.AccountTimezone == nil || *me.AccountTimezone != "Asia/Tokyo" {
+		t.Fatalf("unexpected account timezone: %#v", me.AccountTimezone)
+	}
+}
+
+func TestAuthMeHidesInvalidStoredTimezones(t *testing.T) {
+	type mePayload struct {
+		AccountID       string  `json:"account_id"`
+		Timezone        *string `json:"timezone"`
+		AccountTimezone *string `json:"account_timezone"`
+	}
+
+	env := newAuthResolveTestEnv(t, "api_go_auth_timezone_invalid_hidden")
+	ctx := context.Background()
+
+	if _, err := env.featureFlagsRepo.CreateFlag(ctx, "registration.open", nil, true); err != nil {
+		t.Fatalf("create registration.open flag: %v", err)
+	}
+
+	registerResp := doJSON(env.handler, nethttp.MethodPost, "/v1/auth/register", map[string]any{
+		"login":    "alice",
+		"password": "pwd12345",
+		"email":    "alice@test.com",
+	}, nil)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("unexpected register status: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	registerPayload := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+
+	initialMeResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if initialMeResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me status: %d body=%s", initialMeResp.Code, initialMeResp.Body.String())
+	}
+	initialMe := decodeJSONBody[mePayload](t, initialMeResp.Body.Bytes())
+	accountID, err := uuid.Parse(initialMe.AccountID)
+	if err != nil {
+		t.Fatalf("parse account id: %v", err)
+	}
+
+	userID, err := uuid.Parse(registerPayload.UserID)
+	if err != nil {
+		t.Fatalf("parse user id: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `UPDATE users SET timezone = 'Mars/Base' WHERE id = $1`, userID); err != nil {
+		t.Fatalf("seed invalid user timezone: %v", err)
+	}
+	if _, err := env.pool.Exec(ctx, `UPDATE accounts SET timezone = 'Moon/Base' WHERE id = $1`, accountID); err != nil {
+		t.Fatalf("seed invalid account timezone: %v", err)
+	}
+
+	meResp := doJSON(env.handler, nethttp.MethodGet, "/v1/me", nil, authHeader(registerPayload.AccessToken))
+	if meResp.Code != nethttp.StatusOK {
+		t.Fatalf("unexpected me status: %d body=%s", meResp.Code, meResp.Body.String())
+	}
+	me := decodeJSONBody[mePayload](t, meResp.Body.Bytes())
+	if me.Timezone != nil {
+		t.Fatalf("expected hidden invalid user timezone, got %#v", me.Timezone)
+	}
+	if me.AccountTimezone != nil {
+		t.Fatalf("expected hidden invalid account timezone, got %#v", me.AccountTimezone)
+	}
 }
 
 func TestAuthRegisterRejectsWeakPasswords(t *testing.T) {

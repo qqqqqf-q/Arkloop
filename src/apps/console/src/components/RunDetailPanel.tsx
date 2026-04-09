@@ -8,6 +8,7 @@ import { TurnView } from './TurnView'
 import {
   buildRequestThreadTurns,
   buildTurns,
+  formatDateTime,
   jsonStringifyForDebugDisplay,
   redactDataUrlsInString,
   type RequestThreadTurn,
@@ -454,12 +455,12 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
                 )}
               </div>
               <div className="pt-2">
-                <MetaRow label={rt.labelCreated} value={new Date(r.created_at).toLocaleString()} />
+                <MetaRow label={rt.labelCreated} value={formatDateTime(r.created_at, { includeZone: false })} />
                 {(d?.completed_at ?? r.completed_at) && (
-                  <MetaRow label={rt.labelCompleted} value={new Date((d?.completed_at ?? r.completed_at)!).toLocaleString()} />
+                  <MetaRow label={rt.labelCompleted} value={formatDateTime((d?.completed_at ?? r.completed_at)!, { includeZone: false })} />
                 )}
                 {(d?.failed_at ?? r.failed_at) && (
-                  <MetaRow label={rt.labelFailedAt} value={new Date((d?.failed_at ?? r.failed_at)!).toLocaleString()} />
+                  <MetaRow label={rt.labelFailedAt} value={formatDateTime((d?.failed_at ?? r.failed_at)!, { includeZone: false })} />
                 )}
               </div>
             </div>
@@ -596,7 +597,7 @@ export function RunDetailPanel({ run, accessToken, onClose }: Props) {
             {events && events.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[11px] text-[var(--c-text-muted)]">
-                  Events are shown in sequence order. Recorded time may differ from when the model started emitting output.
+                  Events are listed in sequence. Timestamps are when events were stored.
                 </p>
                 <RawEventsSectionContent events={events} />
               </div>
@@ -767,14 +768,7 @@ function UsageBreakdownTable({ self, children, aggregate, onOpenRun }: UsageBrea
 type RawEventRowProps = { event: RunEventRaw }
 
 function formatEventTime(value: string): string {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  }).format(date)
+  return formatDateTime(value, { includeSeconds: true, includeMilliseconds: true, includeZone: false, includeDate: false })
 }
 
 function UserPromptBlock({ prompt, label }: { prompt: string; label: string }) {
@@ -827,8 +821,8 @@ function RawEventRow({ event }: RawEventRowProps) {
         {event.error_class && (
           <span className="ml-auto text-xs text-red-500">{event.error_class}</span>
         )}
-        <span className="ml-auto text-xs text-[var(--c-text-muted)]" title={`recorded ${event.ts}`}>
-          recorded {formatEventTime(event.ts)}
+        <span className="ml-auto text-xs tabular-nums text-[var(--c-text-muted)]" title={event.ts}>
+          {formatEventTime(event.ts)}
         </span>
       </button>
       {open && hasData && (
@@ -918,7 +912,7 @@ function MemoryDebugCard({ flow, locale }: { flow: MemoryDebugFlow; locale: stri
   const sessionID = typeof flow.latestEvent.data.session_id === 'string' ? flow.latestEvent.data.session_id : ''
   const detail = memoryDebugDetail(locale, flow.latestEvent)
   const countLabel = locale.startsWith('zh') ? `事件数 ${flow.total}` : `${flow.total} events`
-  const lastLabel = locale.startsWith('zh') ? '最近记录' : 'Last recorded'
+  const lastLabel = locale.startsWith('zh') ? '最近' : 'Latest'
   const sessionLabel = locale.startsWith('zh') ? 'Session' : 'Session'
 
   return (

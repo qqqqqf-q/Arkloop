@@ -1,4 +1,5 @@
 import type { InstalledSkill, MarketSkill, SkillPackageResponse, SkillReference } from '../../api'
+import { getActiveTimeZone } from '@arkloop/shared'
 
 export type ViewMode = 'installed' | 'marketplace' | 'builtin'
 
@@ -62,6 +63,7 @@ export function formatDate(value?: string, locale = 'zh'): string {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: getActiveTimeZone(),
   }).format(date)
 }
 

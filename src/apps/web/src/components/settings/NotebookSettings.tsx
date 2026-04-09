@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Brain, Trash2, RefreshCw, Search, Plus, Pencil } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ConfirmDialog, Modal } from '@arkloop/shared'
+import { ConfirmDialog, Modal, formatDateTime } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopApi } from '@arkloop/shared/desktop'
@@ -11,11 +11,7 @@ import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyle
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
-  } catch {
-    return iso
-  }
+  return formatDateTime(iso, { includeZone: false })
 }
 
 function categoryColor(category: string): string {

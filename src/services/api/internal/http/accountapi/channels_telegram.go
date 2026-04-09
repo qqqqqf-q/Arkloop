@@ -920,6 +920,13 @@ func (c telegramConnector) refreshTelegramBotProfile(ctx context.Context, token 
 	ch.ConfigJSON = upd.ConfigJSON
 }
 
+func (c telegramConnector) resolveInboundTimeContext(ctx context.Context, ch data.Channel, identity data.ChannelIdentity, incoming telegramIncomingMessage) inboundTimeContext {
+	return buildInboundTimeContext(
+		time.Unix(incoming.DateUnix, 0).UTC(),
+		resolveInboundTimeZone(ctx, c.usersRepo, c.accountRepo, ch.AccountID, identity.UserID, ch.OwnerUserID),
+	)
+}
+
 func isTelegramGroupLikeChatType(chatType string) bool {
 	switch strings.ToLower(strings.TrimSpace(chatType)) {
 	case "group", "supergroup", "channel":
@@ -1007,7 +1014,8 @@ func (c telegramConnector) handleTelegramEditedMessage(
 		return nil
 	}
 
-	content, contentJSON, _, err := buildTelegramStructuredMessage(*identity, incoming)
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, *identity, incoming)
+	content, contentJSON, _, err := buildTelegramStructuredMessage(*identity, incoming, timeCtx)
 	if err != nil {
 		slog.WarnContext(ctx, "telegram_edited_message_build_failed",
 			"channel_id", ch.ID.String(),
@@ -1058,6 +1066,7 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 	if err != nil {
 		return uuid.Nil, err
 	}
+	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,
 		c.telegramClient,
@@ -1068,6 +1077,7 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 		identity.UserID,
 		identity,
 		incoming,
+		timeCtx,
 	)
 	if err != nil {
 		return uuid.Nil, err
@@ -1833,7 +1843,7 @@ func telegramLinkBootstrapAllowed(commandText string) bool {
 	return command == "/start"
 }
 
-func renderTelegramInboundMessage(identity data.ChannelIdentity, text string, unixTS int64) string {
+func renderTelegramInboundMessage(identity data.ChannelIdentity, text string, timeCtx inboundTimeContext) string {
 	displayName := identity.PlatformSubjectID
 	if identity.DisplayName != nil && strings.TrimSpace(*identity.DisplayName) != "" {
 		displayName = strings.TrimSpace(*identity.DisplayName)
@@ -1844,11 +1854,15 @@ display-name: "%s"
 channel: "telegram"
 conversation-type: "private"
 time: "%s"
+time_utc: "%s"
+timezone: "%s"
 ---
 %s`,
 		identity.ID.String(),
 		displayName,
-		formatTelegramTimestamp(unixTS),
+		timeCtx.Local,
+		timeCtx.UTC,
+		timeCtx.TimeZone,
 		strings.TrimSpace(text),
 	)
 }

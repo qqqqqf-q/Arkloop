@@ -8,7 +8,7 @@ import { Badge } from '../../components/Badge'
 import { Modal } from '../../components/Modal'
 import { FormField } from '../../components/FormField'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { useToast } from '@arkloop/shared'
+import { formatDateTime, useToast } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
@@ -209,7 +209,7 @@ export function AsrCredentialsPage() {
       header: tc.colCreatedAt,
       render: (row) => (
         <span className="text-xs tabular-nums">
-          {new Date(row.created_at).toLocaleString()}
+          {formatDateTime(row.created_at, { includeZone: false })}
         </span>
       ),
     },

@@ -17,7 +17,7 @@ import { ConsoleSettingsModal } from '../components/SettingsModal'
 import { useLocale } from '../contexts/LocaleContext'
 import { useOperations } from '@arkloop/shared'
 import type { LocaleStrings } from '../locales'
-import { NavButton, AccessDeniedPage, FullScreenLoading } from '@arkloop/shared'
+import { NavButton, AccessDeniedPage, FullScreenLoading, TimeZoneProvider } from '@arkloop/shared'
 
 type Props = {
   accessToken: string
@@ -199,7 +199,8 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
+    <TimeZoneProvider userTimeZone={me?.timezone ?? null} accountTimeZone={me?.account_timezone ?? null}>
+      <div className="flex h-screen overflow-hidden bg-[var(--c-bg-page)]">
       {sidebarCollapsed && (
         <button
           onClick={() => setSidebarCollapsed(false)}
@@ -327,13 +328,14 @@ export function ConsoleLayout({ accessToken, onLoggedOut }: Props) {
         <Outlet context={context} />
       </main>
 
-      {settingsOpen && (
-        <ConsoleSettingsModal
-          me={me}
-          onClose={() => setSettingsOpen(false)}
-          onLogout={handleLogout}
-        />
-      )}
-    </div>
+        {settingsOpen && (
+          <ConsoleSettingsModal
+            me={me}
+            onClose={() => setSettingsOpen(false)}
+            onLogout={handleLogout}
+          />
+        )}
+      </div>
+    </TimeZoneProvider>
   )
 }
