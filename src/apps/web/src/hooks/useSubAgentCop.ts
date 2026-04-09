@@ -4,7 +4,12 @@ import { useSSE } from './useSSE'
 import type { WebSearchPhaseStep } from '../components/CopTimeline'
 import type { WebSource } from '../storage'
 import type { RunEvent } from '../sse'
-import { isWebSearchToolName, webSearchQueriesFromArguments } from '../webSearchTimelineFromRunEvent'
+import {
+  COMPLETED_SEARCHING_LABEL,
+  DEFAULT_SEARCHING_LABEL,
+  isWebSearchToolName,
+  webSearchQueriesFromArguments,
+} from '../webSearchTimelineFromRunEvent'
 
 type CopState = {
   steps: WebSearchPhaseStep[]
@@ -54,7 +59,7 @@ function reducer(state: CopState, action: CopAction): CopState {
       const step: WebSearchPhaseStep = {
         id: action.callId,
         kind: 'searching',
-        label: 'Searching',
+        label: DEFAULT_SEARCHING_LABEL,
         status: 'active',
         queries: action.queries,
       }
@@ -63,7 +68,13 @@ function reducer(state: CopState, action: CopAction): CopState {
 
     case 'web_search_result': {
       let steps = state.steps.map((s) =>
-        s.id === action.callId ? { ...s, status: 'done' as const } : s,
+        s.id === action.callId
+          ? {
+              ...s,
+              status: 'done' as const,
+              ...(s.label.trim() === DEFAULT_SEARCHING_LABEL ? { label: COMPLETED_SEARCHING_LABEL } : {}),
+            }
+          : s,
       )
       const allSearchDone = steps
         .filter((s) => s.kind === 'searching')

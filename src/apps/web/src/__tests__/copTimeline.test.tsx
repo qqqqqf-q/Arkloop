@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { CopTimeline } from '../components/CopTimeline'
+import { CopTimelineHeaderLabel } from '../components/cop-timeline/CopTimelineHeader'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { SubAgentRef, WebSource } from '../storage'
 import type { CodeExecution } from '../components/CodeExecutionCard'
@@ -176,6 +177,32 @@ async function flushTypingFrames(times: number[]) {
   })
 }
 
+async function renderHeaderLabelDom(params: { text: string; incremental?: boolean }) {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () => {
+    root.render(
+      <LocaleProvider>
+        <CopTimelineHeaderLabel
+          text={params.text}
+          phaseKey="test"
+          incremental={params.incremental}
+        />
+      </LocaleProvider>,
+    )
+  })
+  return {
+    container,
+    cleanup: () => {
+      act(() => {
+        root.unmount()
+      })
+      container.remove()
+    },
+  }
+}
+
 describe('CopTimeline', () => {
   it('isComplete=true 时应默认收起内容', () => {
     const html = renderTimeline({
@@ -302,11 +329,71 @@ describe('CopTimeline', () => {
 
     const fileOpIndex = html.indexOf('load_tools &quot;exec_command&quot;')
     const narrativeIndex = html.indexOf('先整理一下现有工具。')
-    const stepIndex = html.lastIndexOf('Searching')
+    const stepIndex = html.lastIndexOf('Search completed')
     expect(fileOpIndex).toBeGreaterThanOrEqual(0)
     expect(narrativeIndex).toBeGreaterThan(fileOpIndex)
     expect(stepIndex).toBeGreaterThan(narrativeIndex)
     expect(html).not.toContain('Finished')
+  })
+
+  it('搜索 fallback 步骤在完成后应显示完成态文案', () => {
+    const html = renderTimeline({
+      isComplete: true,
+      preserveExpanded: true,
+      steps: [
+        { id: 's1', kind: 'searching', label: 'Searching', status: 'done', seq: 30 },
+      ],
+      sources: [],
+    })
+
+    expect(html).toContain('Search completed')
+    expect(html).not.toContain('>Searching<')
+  })
+
+  it('历史标题应直接显示完整文本，不走打字机', async () => {
+    const { container, cleanup } = await renderHeaderLabelDom({
+      text: 'Reviewed 6 sources',
+      incremental: false,
+    })
+
+    expect(container.textContent).toBe('Reviewed 6 sources')
+    cleanup()
+  })
+
+  it('实时标题应使用打字机效果', async () => {
+    const { container, cleanup } = await renderHeaderLabelDom({
+      text: 'Reviewed 6 sources',
+      incremental: true,
+    })
+
+    expect(container.textContent).not.toBe('Reviewed 6 sources')
+    await flushTypingFrames([40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560])
+    expect(container.textContent).toBe('Reviewed 6 sources')
+    cleanup()
+  })
+
+  it('live 搜索步骤与 query 应整项进入，不逐字打字', async () => {
+    const { container, cleanup } = await renderTimelineDom({
+      isComplete: false,
+      preserveExpanded: true,
+      live: true,
+      steps: [
+        {
+          id: 's1',
+          kind: 'searching',
+          label: 'Searching',
+          status: 'active',
+          queries: ['AI chat product competitive landscape 2025 2026 open source vs closed source'],
+          seq: 1,
+        },
+      ],
+      sources: [],
+    })
+
+    expect(container.textContent ?? '').toContain('AI chat product competitive landscape 2025 2026 open source vs closed source')
+    await flushTypingFrames([40, 80, 120, 160, 200, 240, 280, 320])
+    expect(container.textContent ?? '').toContain('Searching')
+    cleanup()
   })
 
   it('交错 thinking 流式时默认仅显示标题，不直接暴露 think 正文', () => {
@@ -749,6 +836,7 @@ describe('CopTimeline', () => {
       container.querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    await flushTypingFrames([40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480])
     expect(container.textContent).toContain('Thought for 8s')
     expect(container.textContent).toContain('load_tools "abc"')
     expect(container.textContent).not.toContain('hidden think body')

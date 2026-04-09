@@ -68,6 +68,17 @@ export type UEntry =
   | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
   | { kind: 'generic'; id: string; seq: number; item: NonNullable<Props['genericTools']>[number] }
 
+const DEFAULT_SEARCHING_LABEL = 'Searching'
+const COMPLETED_SEARCHING_LABEL = 'Search completed'
+
+export function timelineStepDisplayLabel(step: Pick<WebSearchPhaseStep, 'kind' | 'label' | 'status'>): string {
+  if (step.kind === 'reviewing') return 'Reviewing sources'
+  if (step.kind === 'searching' && step.status === 'done' && step.label.trim() === DEFAULT_SEARCHING_LABEL) {
+    return COMPLETED_SEARCHING_LABEL
+  }
+  return step.label
+}
+
 const DOT_COLOR_MAP: Record<UEntry['kind'], (entry: UEntry) => string> = {
   thinking: (e) => {
     const item = (e as Extract<UEntry, { kind: 'thinking' }>).item
@@ -161,7 +172,9 @@ export function autoLabel(opts: {
           : 'Completed'
 
     case visibleSteps.length > 0:
-      return visibleSteps[visibleSteps.length - 1]?.label || 'Searching...'
+      return visibleSteps[visibleSteps.length - 1]
+        ? timelineStepDisplayLabel(visibleSteps[visibleSteps.length - 1]!)
+        : 'Searching...'
 
     case effectiveStepCount > 0:
       return t.copTimelineLiveProgress

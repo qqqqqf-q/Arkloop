@@ -3,6 +3,9 @@ import type { WebSearchPhaseStep } from './components/CopTimeline'
 import type { WebSource } from './storage'
 import type { RunEvent } from './sse'
 
+export const DEFAULT_SEARCHING_LABEL = 'Searching'
+export const COMPLETED_SEARCHING_LABEL = 'Search completed'
+
 /** 不同模型/供应商可能用 web_search、web_search.tavily、大小写或连字符变体 */
 export function isWebSearchToolName(toolName: string): boolean {
   const t = canonicalToolName(toolName)
@@ -98,7 +101,7 @@ export function applyRunEventToWebSearchSteps(
     const step: WebSearchPhaseStep = {
       id: callId,
       kind: 'searching',
-      label: 'Searching',
+      label: DEFAULT_SEARCHING_LABEL,
       status: 'active',
       queries,
       seq: event.seq,
@@ -118,6 +121,7 @@ export function applyRunEventToWebSearchSteps(
         ? {
             ...s,
             status: 'done' as const,
+            ...(s.label.trim() === DEFAULT_SEARCHING_LABEL ? { label: COMPLETED_SEARCHING_LABEL } : {}),
             ...(typeof event.seq === 'number' ? { resultSeq: event.seq } : {}),
             ...(sources ? { sources } : {}),
           }

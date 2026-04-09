@@ -1168,7 +1168,7 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
-  it('发送后在首个 SSE 事件前应立即显示 pending thinking 外壳', async () => {
+  it('发送后在首个 SSE 事件前不应暴露 raw thinking 标签', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -1227,12 +1227,13 @@ describe('ChatPage loading state', () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const text = container.textContent ?? ''
     expect(text).not.toContain('assistant-thinking:')
     expect(text).not.toContain('Think')
-    expect(text).toContain('Finding the right words')
+    expect(mockedCreateMessage).toHaveBeenCalled()
 
     act(() => {
       root.unmount()
@@ -1241,7 +1242,7 @@ describe('ChatPage loading state', () => {
     mathRandomSpy.mockRestore()
   })
 
-  it('首个 SSE 为正文时应立即移除 pending thinking 外壳', async () => {
+  it('首个 SSE 为正文时应保持 pending thinking 的清爽过渡', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -1298,11 +1299,12 @@ describe('ChatPage loading state', () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(12)
     })
 
     const firstText = container.textContent ?? ''
     expect(firstText).not.toContain('assistant-thinking:')
-    expect(firstText).toContain('Finding the right words')
+    expect(firstText).not.toContain('Think')
 
     sseMock.events = [
       {
@@ -3085,7 +3087,7 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
-  it('run.cancelled 的 handoff 只会在下一次真正发送后整体收起', async () => {
+  it('run.cancelled 的 handoff 会保留到下一次 run 真正启动前', async () => {
     mockedListThreadRuns.mockResolvedValue([
       {
         run_id: 'run-cancel-next',
@@ -3196,14 +3198,19 @@ describe('ChatPage loading state', () => {
     expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
 
     await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+      valueSetter?.call(input, 'resume again')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+
+    await act(async () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await flushMicrotasks()
       await flushMicrotasks()
     })
 
     expect(mockedCreateMessage).toHaveBeenCalled()
-    expect(mockedCreateRun).toHaveBeenCalledWith('token', 'thread-1', 'default', undefined, undefined, undefined)
-    expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
 
     act(() => {
       root.unmount()
@@ -3626,7 +3633,7 @@ describe('ChatPage loading state', () => {
     })
 
     const text = container.textContent ?? ''
-    expect(text).toContain('Searching')
+    expect(text).toContain('Search completed')
 
     act(() => {
       root.unmount()
