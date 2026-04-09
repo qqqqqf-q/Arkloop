@@ -111,6 +111,30 @@ func TestNewChannelGroupContextTrimMiddleware_trimsSupergroup(t *testing.T) {
 	}
 }
 
+func TestNewChannelGroupContextTrimMiddlewareDropsSnapshotBeforeLatestRealMessage(t *testing.T) {
+	t.Setenv("ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS", "40")
+	mw := NewChannelGroupContextTrimMiddleware()
+	snapshot := strings.Repeat("s", 400)
+	tail := strings.Repeat("t", 200)
+	rc := &RunContext{
+		ChannelContext:           &ChannelContext{ConversationType: "supergroup"},
+		HasActiveCompactSnapshot: true,
+		Messages: []llm.Message{
+			makeCompactSnapshotMessage(snapshot),
+			{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: strings.Repeat("w", 400)}}},
+			{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: tail}}},
+		},
+		ThreadMessageIDs: []uuid.UUID{uuid.Nil, uuid.New(), uuid.New()},
+	}
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+	if len(rc.Messages) != 1 {
+		t.Fatalf("expected snapshot to be dropped in favor of latest real message, got %d", len(rc.Messages))
+	}
+	if got := rc.Messages[0].Content[0].Text; got != tail {
+		t.Fatalf("unexpected kept latest message: %q", got)
+	}
+}
+
 func TestApproxLLMMessageTokens_imageDoesNotScaleWithBytes(t *testing.T) {
 	huge := make([]byte, 4*1024*1024)
 	m := llm.Message{

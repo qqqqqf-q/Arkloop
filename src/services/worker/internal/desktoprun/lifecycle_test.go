@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,6 +116,61 @@ func TestLifecycleBootstrapRecoversRecentRun(t *testing.T) {
 	}
 	if got, _ := call.payload["source"].(string); got != "desktop_recovery" {
 		t.Fatalf("unexpected recovery payload: %#v", call.payload)
+	}
+}
+
+func TestLifecycleBootstrapRecoversChannelContextPayload(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openLifecycleTestDB(t, ctx)
+	defer cleanup()
+
+	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	channelID := uuid.New()
+	identityID := uuid.New()
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type: "run.started",
+		DataJSON: map[string]any{
+			"persona_id":             "normal@1",
+			"thread_tail_message_id": uuid.NewString(),
+			"channel_delivery": map[string]any{
+				"channel_id":                 channelID.String(),
+				"channel_type":               "telegram",
+				"sender_channel_identity_id": identityID.String(),
+				"conversation_ref": map[string]any{
+					"target": "chat-1",
+				},
+				"trigger_message_ref": map[string]any{
+					"message_id": "m-1",
+				},
+			},
+		},
+	})
+	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
+		Type:       "llm.turn.completed",
+		OccurredAt: time.Now().UTC().Add(-10 * time.Second),
+		DataJSON: map[string]any{
+			"trace_id": "trace-recover",
+		},
+	})
+
+	q := &lifecycleQueueStub{}
+	manager := newLifecycleManager(db, q, nil, nil)
+	if err := manager.Bootstrap(ctx); err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+	if len(q.calls) != 1 {
+		t.Fatalf("expected 1 recovered run, got %d", len(q.calls))
+	}
+	call := q.calls[0]
+	if got, _ := call.payload["thread_tail_message_id"].(string); strings.TrimSpace(got) == "" {
+		t.Fatalf("expected recovery payload to keep thread tail: %#v", call.payload)
+	}
+	delivery, ok := call.payload["channel_delivery"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected recovery payload to keep channel_delivery: %#v", call.payload)
+	}
+	if got := asStringFromAny(delivery["channel_id"]); got != channelID.String() {
+		t.Fatalf("unexpected recovery channel_id: %#v", delivery)
 	}
 }
 
@@ -447,6 +503,13 @@ func appendLifecycleEvent(t *testing.T, ctx context.Context, db data.DesktopDB, 
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit lifecycle event: %v", err)
 	}
+}
+
+func asStringFromAny(value any) string {
+	if raw, ok := value.(string); ok {
+		return raw
+	}
+	return ""
 }
 
 func seedRolloutMaterial(t *testing.T, runID uuid.UUID) {

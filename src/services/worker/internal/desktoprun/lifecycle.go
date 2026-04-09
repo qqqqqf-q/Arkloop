@@ -226,9 +226,11 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		if snapshot.LastEventType == "run.input_requested" || snapshot.LastEventType == "run.paused" || snapshot.LastEventType == "run.cancel_requested" {
 			continue
 		}
-		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, map[string]any{
-			"source": "desktop_recovery",
-		}, nil); err != nil {
+		payload, err := buildDesktopRecoveryPayload(ctx, m.db, snapshot.RunID)
+		if err != nil {
+			return fmt.Errorf("build desktop recovery payload %s: %w", snapshot.RunID, err)
+		}
+		if _, err := m.queue.EnqueueRun(ctx, snapshot.AccountID, snapshot.RunID, snapshot.LastTraceID, queue.RunExecuteJobType, payload, nil); err != nil {
 			if errors.Is(err, queue.ErrRunExecuteAlreadyQueued) {
 				continue
 			}
@@ -243,6 +245,51 @@ func (m *lifecycleManager) recoverRuns(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func buildDesktopRecoveryPayload(ctx context.Context, db data.DesktopDB, runID uuid.UUID) (map[string]any, error) {
+	payload := map[string]any{
+		"source": "desktop_recovery",
+	}
+	if db == nil || runID == uuid.Nil {
+		return payload, nil
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	_, startedData, err := (data.DesktopRunEventsRepository{}).FirstEventData(ctx, tx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if len(startedData) == 0 {
+		return payload, nil
+	}
+	if rawDelivery, ok := startedData["channel_delivery"].(map[string]any); ok && len(rawDelivery) > 0 {
+		payload["channel_delivery"] = cloneLifecycleMap(rawDelivery)
+	}
+	if rawTail, ok := startedData["thread_tail_message_id"].(string); ok && strings.TrimSpace(rawTail) != "" {
+		payload["thread_tail_message_id"] = strings.TrimSpace(rawTail)
+	}
+	return payload, nil
+}
+
+func cloneLifecycleMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		nested, ok := value.(map[string]any)
+		if ok {
+			out[key] = cloneLifecycleMap(nested)
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func listRunningRuns(ctx context.Context, db data.DesktopDB) ([]desktopRunSnapshot, error) {
