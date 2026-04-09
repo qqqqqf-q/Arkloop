@@ -582,15 +582,9 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 			}
 			blocks = append(blocks, map[string]any{"type": "text", "text": text})
 		case "image":
-			if part.Attachment == nil {
-				return nil, fmt.Errorf("image attachment is required")
-			}
-			if len(part.Data) == 0 {
-				return nil, fmt.Errorf("image attachment data is required")
-			}
-			mimeType := strings.TrimSpace(part.Attachment.MimeType)
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
+			mimeType, data, err := modelInputImage(part)
+			if err != nil {
+				return nil, err
 			}
 			if strings.TrimSpace(part.Attachment.Key) != "" {
 				blocks = append(blocks, map[string]any{
@@ -603,7 +597,7 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 				"source": map[string]any{
 					"type":       "base64",
 					"media_type": mimeType,
-					"data":       base64.StdEncoding.EncodeToString(part.Data),
+					"data":       base64.StdEncoding.EncodeToString(data),
 				},
 			})
 		}
@@ -659,16 +653,16 @@ func anthropicToolResultBlock(text string, imageParts []ContentPart) (map[string
 		{"type": "text", "text": contentText},
 	}
 	for _, part := range imageParts {
-		mimeType := strings.TrimSpace(part.Attachment.MimeType)
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
+		mimeType, data, err := modelInputImage(part)
+		if err != nil {
+			return nil, err
 		}
 		contentBlocks = append(contentBlocks, map[string]any{
 			"type": "image",
 			"source": map[string]any{
 				"type":       "base64",
 				"media_type": mimeType,
-				"data":       base64.StdEncoding.EncodeToString(part.Data),
+				"data":       base64.StdEncoding.EncodeToString(data),
 			},
 		})
 	}

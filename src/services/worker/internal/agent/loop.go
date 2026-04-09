@@ -2249,12 +2249,16 @@ func toolResultFromExecution(toolCallID string, toolName string, result tools.Ex
 	}
 	var contentParts []llm.ContentPart
 	for _, att := range result.ContentParts {
+		attachment := &messagecontent.AttachmentRef{
+			MimeType: att.MimeType,
+		}
+		if key := strings.TrimSpace(att.AttachmentKey); key != "" {
+			attachment.Key = key
+		}
 		contentParts = append(contentParts, llm.ContentPart{
-			Type: messagecontent.PartTypeImage,
-			Data: att.Data,
-			Attachment: &messagecontent.AttachmentRef{
-				MimeType: att.MimeType,
-			},
+			Type:       messagecontent.PartTypeImage,
+			Data:       att.Data,
+			Attachment: attachment,
 		})
 	}
 	return llm.StreamToolResult{

@@ -383,8 +383,8 @@ func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	}
 
 	parts := mergeUserBurstContent(tail)
-	if len(parts) != 2 {
-		t.Fatalf("expected 2 parts (text + image), got %d", len(parts))
+	if len(parts) != 3 {
+		t.Fatalf("expected 3 parts (text + image + text), got %d", len(parts))
 	}
 	if parts[0].Type != "text" {
 		t.Fatalf("expected first part to be text, got %q", parts[0].Type)
@@ -392,8 +392,17 @@ func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	if !strings.Contains(parts[0].Text, "Telegram supergroup") {
 		t.Fatalf("expected compact timeline in text, got %q", parts[0].Text)
 	}
+	if !strings.Contains(parts[0].Text, "[13:31:00] A ck:") {
+		t.Fatalf("expected first entry in first text part, got %q", parts[0].Text)
+	}
 	if parts[1].Type != "image" || parts[1].Attachment.Key != "k2" {
 		t.Fatalf("expected image part preserved, got %+v", parts[1])
+	}
+	if parts[2].Type != "text" {
+		t.Fatalf("expected trailing text part, got %q", parts[2].Type)
+	}
+	if !strings.Contains(parts[2].Text, "[13:31:05] A ck: world") {
+		t.Fatalf("expected second entry after image, got %q", parts[2].Text)
 	}
 }
 
@@ -659,21 +668,24 @@ message-id: "4815"
 
 	// 第五条 user: 两条 merged
 	u3text := llm.PartPromptText(rc.Messages[4].Content[0])
-	if !strings.Contains(u3text, `[07:38:23-07:38:29 #4814,#4815] 清凤 [admin]:`) {
-		t.Fatalf("u3 missing merged header, got %q", u3text)
+	if !strings.Contains(u3text, `Telegram supergroup "Arkloop"`) {
+		t.Fatalf("u3 missing header, got %q", u3text)
 	}
 	if !strings.Contains(u3text, `六个 cursor 同时干`) {
 		t.Fatalf("u3 missing body, got %q", u3text)
 	}
-	// 图片 part 应保留
-	hasImage := false
-	for _, p := range rc.Messages[4].Content {
-		if p.Type == "image" {
-			hasImage = true
-		}
+	if len(rc.Messages[4].Content) != 3 {
+		t.Fatalf("expected ordered text-text-image parts, got %d", len(rc.Messages[4].Content))
 	}
-	if !hasImage {
-		t.Fatal("u3 missing image part")
+	if rc.Messages[4].Content[1].Type != "text" {
+		t.Fatalf("expected second entry text before image, got %+v", rc.Messages[4].Content[1])
+	}
+	u3tail := llm.PartPromptText(rc.Messages[4].Content[1])
+	if !strings.Contains(u3tail, `[07:38:29 #4815] 清凤 [admin]`) {
+		t.Fatalf("u3 tail missing second entry, got %q", u3tail)
+	}
+	if rc.Messages[4].Content[2].Type != "image" {
+		t.Fatalf("expected image part to stay attached after its own text, got %+v", rc.Messages[4].Content[2])
 	}
 }
 

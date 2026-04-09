@@ -530,14 +530,15 @@ func toGeminiContents(messages []Message) (systemInstruction map[string]any, con
 				if cp.Kind() != "image" || cp.Attachment == nil || len(cp.Data) == 0 {
 					continue
 				}
-				mimeType := strings.TrimSpace(cp.Attachment.MimeType)
-				if mimeType == "" {
-					mimeType = "application/octet-stream"
+				mimeType, data, imageErr := modelInputImage(cp)
+				if imageErr != nil {
+					err = imageErr
+					return
 				}
 				pendingToolParts = append(pendingToolParts, map[string]any{
 					"inlineData": map[string]any{
 						"mimeType": mimeType,
-						"data":     base64.StdEncoding.EncodeToString(cp.Data),
+						"data":     base64.StdEncoding.EncodeToString(data),
 					},
 				})
 			}
@@ -599,17 +600,14 @@ func geminiUserParts(content []ContentPart) ([]map[string]any, error) {
 				parts = append(parts, map[string]any{"text": t})
 			}
 		case "image":
-			if p.Attachment == nil || len(p.Data) == 0 {
+			mimeType, data, err := modelInputImage(p)
+			if err != nil {
 				return nil, fmt.Errorf("image part missing data")
-			}
-			mimeType := strings.TrimSpace(p.Attachment.MimeType)
-			if mimeType == "" {
-				mimeType = "application/octet-stream"
 			}
 			parts = append(parts, map[string]any{
 				"inlineData": map[string]any{
 					"mimeType": mimeType,
-					"data":     base64.StdEncoding.EncodeToString(p.Data),
+					"data":     base64.StdEncoding.EncodeToString(data),
 				},
 			})
 		}

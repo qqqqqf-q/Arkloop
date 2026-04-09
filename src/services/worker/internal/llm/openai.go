@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1733,17 +1732,7 @@ func collectImageBlocks(parts []ContentPart) []map[string]any {
 }
 
 func partDataURL(part ContentPart) (string, error) {
-	if part.Attachment == nil {
-		return "", fmt.Errorf("image attachment is required")
-	}
-	if len(part.Data) == 0 {
-		return "", fmt.Errorf("image attachment data is required")
-	}
-	mimeType := strings.TrimSpace(part.Attachment.MimeType)
-	if mimeType == "" {
-		mimeType = "application/octet-stream"
-	}
-	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(part.Data), nil
+	return modelInputImageDataURL(part)
 }
 
 func toOpenAIAssistantToolCalls(calls []ToolCall) []map[string]any {

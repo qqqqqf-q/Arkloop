@@ -148,6 +148,43 @@ func TestAgentLoopExecutesToolCalls(t *testing.T) {
 	}
 }
 
+func TestToolResultFromExecutionPreservesAttachmentKey(t *testing.T) {
+	toolCallID := "call_123"
+	toolName := "read"
+	expectedKey := "attachments/a/b/image.jpg"
+	result := tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true},
+		ContentParts: []tools.ContentAttachment{
+			{
+				MimeType:      "image/jpeg",
+				Data:          []byte{0x1, 0x2, 0x3},
+				AttachmentKey: expectedKey,
+			},
+		},
+	}
+
+	got := toolResultFromExecution(toolCallID, toolName, result)
+	if got.ToolCallID != toolCallID {
+		t.Fatalf("unexpected tool call id: %q", got.ToolCallID)
+	}
+	if got.ToolName != toolName {
+		t.Fatalf("unexpected tool name: %q", got.ToolName)
+	}
+	if len(got.ContentParts) != 1 {
+		t.Fatalf("expected one content part, got %d", len(got.ContentParts))
+	}
+	part := got.ContentParts[0]
+	if part.Attachment == nil {
+		t.Fatal("expected attachment to be present")
+	}
+	if part.Attachment.Key != expectedKey {
+		t.Fatalf("unexpected attachment key: %q", part.Attachment.Key)
+	}
+	if len(part.Data) != 3 {
+		t.Fatalf("unexpected content part bytes length: %d", len(part.Data))
+	}
+}
+
 func TestAgentLoopHeartbeatDecisionEndsRunWithoutSecondLlmTurn(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(heartbeattool.AgentSpec); err != nil {
