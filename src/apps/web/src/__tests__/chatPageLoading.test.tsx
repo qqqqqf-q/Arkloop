@@ -191,6 +191,7 @@ vi.mock('../components/CopTimeline', () => ({
     genericTools,
     headerOverride,
     isComplete,
+    live,
     preserveExpanded,
     copInlineTextRows,
     thinkingRows,
@@ -205,6 +206,7 @@ vi.mock('../components/CopTimeline', () => ({
     genericTools?: Array<{ id: string; label: string }>
     headerOverride?: string
     isComplete?: boolean
+    live?: boolean
     preserveExpanded?: boolean
     copInlineTextRows?: Array<{ id: string; text: string }>
     thinkingRows?: Array<{ id: string; markdown: string }>
@@ -234,7 +236,7 @@ vi.mock('../components/CopTimeline', () => ({
         : undefined)
 
     return (
-    <div data-preserve-expanded={preserveExpanded ? 'true' : 'false'}>
+    <div data-preserve-expanded={preserveExpanded ? 'true' : 'false'} data-live={live ? 'true' : 'false'}>
       {autoHeader ? <span>{autoHeader}</span> : null}
       {mixedWithThinking ? <span>thought-summary</span> : null}
       {steps?.map((step) => (
@@ -1920,7 +1922,7 @@ describe('ChatPage loading state', () => {
     expect(text).toContain('我要先')
     expect(text).toContain('再继续')
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
-    expect(countMatches(text, '1 steps completed')).toBe(1)
+    expect(countMatches(text, '1 steps completed')).toBe(2)
     expect(container.querySelector('[data-preserve-expanded="true"]')).toBeNull()
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'smooth')).toBe(false)
@@ -3316,6 +3318,341 @@ describe('ChatPage loading state', () => {
 
     expect(mockedCreateMessage).toHaveBeenCalled()
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.completed handoff 不应继续把最后一个 cop 当作 live', async () => {
+    let resolveRefresh: ((value: Awaited<ReturnType<typeof listMessages>>) => void) | null = null
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveRefresh = resolve
+      }))
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-completed-live-flag',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-completed-live-flag',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-1',
+          arguments: { command: 'pwd' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-completed-live-flag',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.completed',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.querySelector('[data-live="true"]')).toBeNull()
+    expect(container.querySelector('[data-live="false"]')).not.toBeNull()
+
+    await act(async () => {
+      resolveRefresh?.([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: 'done',
+          run_id: 'run-completed-live-flag',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('run.completed 后应按顺序写入阶段文字与后续 cop，而不是把它们并到末尾', async () => {
+    mockedListMessages
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'hello',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:00Z',
+        },
+        {
+          id: 'msg-2',
+          role: 'assistant',
+          content: '阶段完成',
+          run_id: 'run-segment-order',
+          account_id: 'acc-1',
+          thread_id: 'thread-1',
+          created_by_user_id: 'user-1',
+          created_at: '2026-03-10T00:00:01Z',
+        },
+      ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-segment-order',
+        status: 'running',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    sseMock.state = 'connected'
+    sseMock.events = [
+      {
+        event_id: 'evt-1',
+        run_id: 'run-segment-order',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-before',
+          arguments: { command: 'pwd' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-segment-order',
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-before',
+          result: { output: '/workspace' },
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: 'run-segment-order',
+        seq: 3,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.segment.start',
+        data: {
+          segment_id: 'seg-visible',
+          kind: 'planning_round',
+          display: { mode: 'collapsed', label: 'Stage' },
+        },
+      },
+      {
+        event_id: 'evt-4',
+        run_id: 'run-segment-order',
+        seq: 4,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '先整理数据，再生成图表。',
+        },
+      },
+      {
+        event_id: 'evt-5',
+        run_id: 'run-segment-order',
+        seq: 5,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call-after',
+          arguments: {
+            title: '图表',
+            widget_code: '<div>chart</div>',
+          },
+        },
+      },
+      {
+        event_id: 'evt-6',
+        run_id: 'run-segment-order',
+        seq: 6,
+        ts: '2026-03-10T00:00:03Z',
+        type: 'run.completed',
+        data: {},
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedWriteMessageAssistantTurn).toHaveBeenCalledWith(
+      'msg-2',
+      expect.objectContaining({
+        segments: [
+          {
+            type: 'cop',
+            title: null,
+            items: [
+              expect.objectContaining({
+                kind: 'call',
+                call: expect.objectContaining({ toolCallId: 'call-before' }),
+              }),
+            ],
+          },
+          {
+            type: 'text',
+            content: '先整理数据，再生成图表。',
+          },
+          {
+            type: 'cop',
+            title: null,
+            items: [
+              expect.objectContaining({
+                kind: 'call',
+                call: expect.objectContaining({ toolCallId: 'call-after' }),
+              }),
+            ],
+          },
+        ],
+      }),
+    )
 
     act(() => {
       root.unmount()

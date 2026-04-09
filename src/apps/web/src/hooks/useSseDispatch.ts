@@ -36,7 +36,6 @@ import {
   collectCompletedWidgets,
   finalizeSearchSteps,
   isTerminalRunEventType,
-  mergeVisibleSegmentsIntoAssistantTurn,
 } from '../lib/chat-helpers'
 import { extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
 import type { ArtifactRef } from '../storage'
@@ -81,10 +80,7 @@ export function useSseDispatch(params: {
   // ── helpers ─────────────────────────────────���──────────────────────────────
 
   const captureTerminalRunCache = (terminalStatus?: Parameters<typeof meta.persistRunDataToMessage>[1]['terminalStatus']) => {
-    const assistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
-      snapshotAssistantTurn(stream.assistantTurnFoldStateRef.current),
-      stream.segmentsRef.current,
-    )
+    const assistantTurn = snapshotAssistantTurn(stream.assistantTurnFoldStateRef.current)
     return {
       runSources: [...meta.currentRunSourcesRef.current],
       runArtifacts: [...meta.currentRunArtifactsRef.current],
@@ -316,6 +312,8 @@ export function useSseDispatch(params: {
         }
         stream.setPendingThinking(false)
         if (activeSeg) {
+          const activeSegment = stream.segmentsRef.current.find((segment) => segment.segmentId === activeSeg)
+          const activeSegmentVisible = !!activeSegment && activeSegment.mode !== 'hidden'
           stream.requestAssistantTurnThinkingBreak()
           stream.setSegments((prev) =>
             prev.map((s) =>
@@ -324,6 +322,10 @@ export function useSseDispatch(params: {
                 : s,
             ),
           )
+          if (activeSegmentVisible) {
+            stream.foldAssistantTurnEvent(event)
+            needsBumpSnapshot = true
+          }
           continue
         }
         stream.foldAssistantTurnEvent(event)
@@ -647,7 +649,6 @@ export function useSseDispatch(params: {
       // ── run.completed ─────────────────────────────────────────────────────
       if (event.type === 'run.completed') {
         if (isACPDelegateEventData(event.data)) continue
-        const visibleNonTerminalSeqCutoff = run.freezeCutoffRef.current ?? run.lastVisibleNonTerminalSeqRef.current
         run.freezeCutoffRef.current = null
         const completedRunId = event.run_id
         run.injectionBlockedRunIdRef.current = null
@@ -659,15 +660,11 @@ export function useSseDispatch(params: {
 
         const runEventsForMessage = (run.sse.events as MsgRunEvent[]).filter((e) => {
           if (e.run_id !== completedRunId || typeof e.seq !== 'number') return false
-          if (isTerminalRunEventType(e.type)) return e.seq <= event.seq
-          return e.seq <= visibleNonTerminalSeqCutoff
+          return e.seq <= event.seq
         })
         const runCache = captureTerminalRunCache('completed')
         if (runEventsForMessage.length > 0) {
-          const frozenTurn = mergeVisibleSegmentsIntoAssistantTurn(
-            buildFrozenAssistantTurnFromRunEvents(runEventsForMessage),
-            stream.segmentsRef.current,
-          )
+          const frozenTurn = buildFrozenAssistantTurnFromRunEvents(runEventsForMessage)
           if (frozenTurn.segments.length > 0) {
             runCache.handoffAssistantTurn = frozenTurn
             runCache.runAssistantTurn = frozenTurn
@@ -722,12 +719,10 @@ export function useSseDispatch(params: {
         const runId = event.run_id
         run.setTerminalRunDisplayId(runId)
         run.setTerminalRunHandoffStatus('cancelled')
-        const visibleNonTerminalSeqCutoff = run.freezeCutoffRef.current ?? run.lastVisibleNonTerminalSeqRef.current
         const runEventsForMessage = runId
           ? (run.sse.events as MsgRunEvent[]).filter((e) => {
             if (e.run_id !== runId || typeof e.seq !== 'number') return false
-            if (isTerminalRunEventType(e.type)) return e.seq <= event.seq
-            return e.seq <= visibleNonTerminalSeqCutoff
+            return e.seq <= event.seq
           })
           : []
         const runCache = captureTerminalRunCache('cancelled')
@@ -761,12 +756,10 @@ export function useSseDispatch(params: {
         const runId = event.run_id
         run.setTerminalRunDisplayId(runId)
         run.setTerminalRunHandoffStatus('failed')
-        const visibleNonTerminalSeqCutoff = run.freezeCutoffRef.current ?? run.lastVisibleNonTerminalSeqRef.current
         const runEventsForMessage = runId
           ? (run.sse.events as MsgRunEvent[]).filter((e) => {
             if (e.run_id !== runId || typeof e.seq !== 'number') return false
-            if (isTerminalRunEventType(e.type)) return e.seq <= event.seq
-            return e.seq <= visibleNonTerminalSeqCutoff
+            return e.seq <= event.seq
           })
           : []
         const runCache = captureTerminalRunCache('failed')
@@ -810,12 +803,10 @@ export function useSseDispatch(params: {
         const runId = event.run_id
         run.setTerminalRunDisplayId(runId)
         run.setTerminalRunHandoffStatus('interrupted')
-        const visibleNonTerminalSeqCutoff = run.freezeCutoffRef.current ?? run.lastVisibleNonTerminalSeqRef.current
         const runEventsForMessage = runId
           ? (run.sse.events as MsgRunEvent[]).filter((e) => {
             if (e.run_id !== runId || typeof e.seq !== 'number') return false
-            if (isTerminalRunEventType(e.type)) return e.seq <= event.seq
-            return e.seq <= visibleNonTerminalSeqCutoff
+            return e.seq <= event.seq
           })
           : []
         const runCache = captureTerminalRunCache('interrupted')
@@ -873,11 +864,13 @@ export function useSseDispatch(params: {
     run.sseTerminalFallbackArmedRef.current = false
     run.sseTerminalFallbackRunIdRef.current = null
 
-    const visibleNonTerminalSeqCutoff = run.freezeCutoffRef.current ?? run.lastVisibleNonTerminalSeqRef.current
+    const terminalRunMaxSeq = (run.sse.events as MsgRunEvent[])
+      .filter((e) => e.run_id === terminalRunId && typeof e.seq === 'number')
+      .reduce((max, e) => Math.max(max, e.seq), 0)
     const runEventsForMessage = (run.sse.events as MsgRunEvent[]).filter((e) =>
       e.run_id === terminalRunId &&
       typeof e.seq === 'number' &&
-      e.seq <= visibleNonTerminalSeqCutoff,
+      e.seq <= terminalRunMaxSeq,
     )
     const terminalCache = captureTerminalRunCache()
     if (terminalCache.handoffAssistantTurn.segments.length === 0 && runEventsForMessage.length > 0) {

@@ -4,7 +4,7 @@ import { useRunLifecycle } from '../contexts/run-lifecycle'
 import { useMessageMeta } from '../contexts/message-meta'
 import { useStream } from '../contexts/stream'
 import { createEmptyAssistantTurnFoldState, snapshotAssistantTurn, type AssistantTurnUi } from '../assistantTurnSegments'
-import { collectCompletedWidgets, mergeVisibleSegmentsIntoAssistantTurn } from '../lib/chat-helpers'
+import { collectCompletedWidgets } from '../lib/chat-helpers'
 import { clearThreadRunHandoff, type ArtifactRef, type BrowserActionRef, type CodeExecutionRef, type FileOpRef, type MessageSearchStepRef, type MessageTerminalStatusRef, type MsgRunEvent, type SubAgentRef, type WebFetchRef, type WebSource, type WidgetRef } from '../storage'
 
 export type TerminalRunCache = {
@@ -64,7 +64,6 @@ export function useRunTransition() {
     setTopLevelWebFetches,
     streamingArtifactsRef,
     setStreamingArtifacts,
-    segmentsRef,
     resetSearchSteps,
   } = useStream()
 
@@ -147,10 +146,7 @@ export function useRunTransition() {
   ])
 
   const captureTerminalRunCache = useCallback((terminalStatus?: MessageTerminalStatusRef | null): TerminalRunCache => {
-    const handoffAssistantTurn = mergeVisibleSegmentsIntoAssistantTurn(
-      snapshotAssistantTurn(assistantTurnFoldStateRef.current),
-      segmentsRef.current,
-    )
+    const handoffAssistantTurn = snapshotAssistantTurn(assistantTurnFoldStateRef.current)
     return {
       runSources: [...currentRunSourcesRef.current],
       runArtifacts: [...currentRunArtifactsRef.current],
@@ -175,7 +171,6 @@ export function useRunTransition() {
     currentRunSubAgentsRef,
     currentRunWebFetchesRef,
     pendingSearchStepsRef,
-    segmentsRef,
     streamingArtifactsRef,
     terminalRunHandoffStatus,
   ])
