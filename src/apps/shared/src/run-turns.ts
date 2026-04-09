@@ -678,19 +678,13 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
         const inputTokens = Number(usage.input_tokens ?? 0)
         const cacheReadTokens = Number(usage.cache_read_input_tokens ?? 0)
         const cacheCreationTokens = Number(usage.cache_creation_input_tokens ?? 0)
-        requestState.turn.inputTokens = (requestState.turn.inputTokens ?? 0) + inputTokens
+        const cachedRead = Number(usage.cached_tokens ?? usage.cache_read_input_tokens ?? 0)
+        // 单次请求的窗口上下文：取最后一次 completion（多轮工具往返共用同一 LlmTurn）
+        requestState.turn.inputTokens = inputTokens
+        requestState.turn.cachedTokens = cachedRead
+        requestState.turn.cacheCreationTokens = cacheCreationTokens
+        requestState.turn.contextTokens = inputTokens + cacheReadTokens + cacheCreationTokens
         requestState.turn.outputTokens = (requestState.turn.outputTokens ?? 0) + Number(usage.output_tokens ?? 0)
-        requestState.turn.cachedTokens =
-          (requestState.turn.cachedTokens ?? 0) +
-          Number(usage.cached_tokens ?? usage.cache_read_input_tokens ?? 0)
-        requestState.turn.cacheCreationTokens =
-          (requestState.turn.cacheCreationTokens ?? 0) +
-          cacheCreationTokens
-        requestState.turn.contextTokens =
-          (requestState.turn.contextTokens ?? 0) +
-          inputTokens +
-          cacheReadTokens +
-          cacheCreationTokens
       }
       if (typeof data.last_request_context_estimate_tokens === 'number' && data.last_request_context_estimate_tokens >= 0) {
         requestState.turn.estimatedInputTokens = data.last_request_context_estimate_tokens
