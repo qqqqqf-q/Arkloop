@@ -35,10 +35,10 @@ type ConversationSearchHit struct {
 }
 
 type GroupSearchHit struct {
-	Role           string
-	Content        string
-	ContentJSON    json.RawMessage
-	CreatedAt      time.Time
+	Role        string
+	Content     string
+	ContentJSON json.RawMessage
+	CreatedAt   time.Time
 }
 
 func (MessagesRepository) InsertAssistantMessage(
@@ -79,13 +79,14 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("marshal metadata_json: %w", err)
 	}
+	createdAt := currentTimestampText()
 	var messageID uuid.UUID
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden
+			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
 		) VALUES (
-			$1, $2, NULL, $3, $4, $5, $6::jsonb, $7
+			$1, $2, NULL, $3, $4, $5, $6::jsonb, $7, $8
 		)
 		 RETURNING id`,
 		accountID,
@@ -95,6 +96,7 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 		contentJSON,
 		string(metadataRaw),
 		hidden,
+		createdAt,
 	).Scan(&messageID)
 	if err != nil {
 		return uuid.Nil, err
@@ -374,13 +376,14 @@ func (MessagesRepository) InsertThreadMessage(
 	if trimmedContent == "" {
 		return uuid.Nil, fmt.Errorf("content must not be empty")
 	}
+	createdAt := currentTimestampText()
 	var messageID uuid.UUID
 	err := tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json
+			account_id, thread_id, created_by_user_id, role, content, content_json, created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6
+			$1, $2, $3, $4, $5, $6, $7
 		)
 		 RETURNING id`,
 		accountID,
@@ -389,11 +392,16 @@ func (MessagesRepository) InsertThreadMessage(
 		trimmedRole,
 		trimmedContent,
 		contentJSON,
+		createdAt,
 	).Scan(&messageID)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	return messageID, nil
+}
+
+func currentTimestampText() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05.000000000 -0700")
 }
 
 // MarkThreadMessagesCompacted 将消息标记为已压缩并从常规列表中隐藏。

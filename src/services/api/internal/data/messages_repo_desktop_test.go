@@ -5,6 +5,7 @@ package data_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"arkloop/services/api/internal/auth"
@@ -92,5 +93,62 @@ func TestListForkedThreadMessagesInDesktopMode(t *testing.T) {
 	}
 	if len(messages) != 2 {
 		t.Fatalf("expected 2 forked messages, got %d", len(messages))
+	}
+}
+
+func TestCreateMessageDesktopWritesHighPrecisionCreatedAt(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+
+	projectRepo, err := data.NewProjectRepository(pool)
+	if err != nil {
+		t.Fatalf("new project repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(pool)
+	if err != nil {
+		t.Fatalf("new thread repo: %v", err)
+	}
+	messageRepo, err := data.NewMessageRepository(pool)
+	if err != nil {
+		t.Fatalf("new message repo: %v", err)
+	}
+
+	project, err := projectRepo.GetOrCreateDefaultByOwner(ctx, auth.DesktopAccountID, auth.DesktopUserID)
+	if err != nil {
+		t.Fatalf("get or create default project: %v", err)
+	}
+
+	userID := auth.DesktopUserID
+	thread, err := threadRepo.Create(ctx, auth.DesktopAccountID, &userID, project.ID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	msg, err := messageRepo.Create(ctx, auth.DesktopAccountID, thread.ID, "user", "hello", &userID)
+	if err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin read tx: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var createdAt string
+	if err := tx.QueryRow(ctx, `SELECT created_at FROM messages WHERE id = $1`, msg.ID).Scan(&createdAt); err != nil {
+		t.Fatalf("query created_at: %v", err)
+	}
+	if !strings.Contains(createdAt, ".") || !strings.Contains(createdAt, "+0000") {
+		t.Fatalf("expected fixed-width high precision created_at, got %q", createdAt)
 	}
 }

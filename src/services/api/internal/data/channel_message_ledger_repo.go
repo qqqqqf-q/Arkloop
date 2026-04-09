@@ -134,6 +134,7 @@ func (r *ChannelMessageLedgerRepository) Record(ctx context.Context, input Chann
 	if len(metadataJSON) == 0 {
 		metadataJSON = json.RawMessage(`{}`)
 	}
+	createdAt := currentTimestampText()
 	tag, err := r.db.Exec(
 		ctx,
 		`INSERT INTO channel_message_ledger (
@@ -148,8 +149,9 @@ func (r *ChannelMessageLedgerRepository) Record(ctx context.Context, input Chann
 			platform_thread_id,
 			sender_channel_identity_id,
 			message_id,
-			metadata_json
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+			metadata_json,
+			created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
 		ON CONFLICT (channel_id, direction, platform_conversation_id, platform_message_id) DO NOTHING`,
 		input.ChannelID,
 		strings.TrimSpace(input.ChannelType),
@@ -163,6 +165,7 @@ func (r *ChannelMessageLedgerRepository) Record(ctx context.Context, input Chann
 		input.SenderChannelIdentityID,
 		input.MessageID,
 		metadataJSON,
+		createdAt,
 	)
 	if err != nil {
 		return false, fmt.Errorf("channel_message_ledger.Record: %w", err)
