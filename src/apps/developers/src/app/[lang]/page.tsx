@@ -18,6 +18,7 @@ const CONTENT: Record<Lang, {
   githubLabel: string;
   contribGuideLabel: string;
   contribGuideHref: string;
+  domainNoteQuote: string;
 }> = {
   zh: {
     heroTitle: ['干净、强大，属于你的', 'AI Agent 平台'],
@@ -36,6 +37,8 @@ const CONTENT: Record<Lang, {
     githubLabel: 'GitHub',
     contribGuideLabel: '贡献指南',
     contribGuideHref: '/zh/docs/guide',
+    domainNoteQuote:
+      '咦?你问我为什么用.cn域名?其实我也不想,很早以为我会用.io 域名的,没想到经费不足,暂时搁浅',
   },
   en: {
     heroTitle: ['Clean, powerful AI agents.', 'Yours to own.'],
@@ -54,6 +57,8 @@ const CONTENT: Record<Lang, {
     githubLabel: 'GitHub',
     contribGuideLabel: 'Contributing Guide',
     contribGuideHref: '/en/docs/guide',
+    domainNoteQuote:
+      "Huh? You're asking why we use a .cn domain? I don't really want to either -- I'd long assumed I'd use an .io domain, but the budget fell short, so that's on hold for now.",
   },
 };
 
@@ -183,6 +188,10 @@ export default function LandingPage({
           </Link>
         </div>
       </div>
+
+      <section className={styles.domainNoteCard} aria-label={lang === 'zh' ? '关于域名' : 'About the domain'}>
+        <blockquote className={styles.domainNoteQuote}>{c.domainNoteQuote}</blockquote>
+      </section>
     </main>
   );
 }

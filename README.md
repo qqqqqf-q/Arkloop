@@ -86,6 +86,8 @@ bin/ci-local full          # Full check
 
 To report vulnerabilities, please email qingf622@outlook.com instead of opening a public issue. See [SECURITY.md](SECURITY.md) for our disclosure policy.
 
+> Huh? You're asking why we use a .cn domain? I don't really want to either -- I'd long assumed I'd use an .io domain, but the budget fell short, so that's on hold for now.
+
 ## License
 
 Licensed under the [Arkloop License](LICENSE), a modified Apache License 2.0 with additional conditions:

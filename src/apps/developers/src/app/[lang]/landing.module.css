@@ -256,6 +256,23 @@
   opacity: 1;
 }
 
+.domainNoteCard {
+  width: 100%;
+  border: 1px solid hsl(var(--fd-border));
+  border-radius: 12px;
+  padding: 28px 32px;
+  margin-top: 24px;
+}
+
+.domainNoteQuote {
+  margin: 0;
+  padding: 0 0 0 18px;
+  border-left: 3px solid hsl(var(--fd-border));
+  font-size: 0.92rem;
+  line-height: 1.75;
+  color: hsl(var(--fd-muted-foreground));
+}
+
 @media (max-width: 767px) {
   .landingWrap {
     padding: 60px 16px 48px;
@@ -280,5 +297,9 @@
   .contribCard {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .domainNoteCard {
+    padding: 22px 20px;
   }
 }
