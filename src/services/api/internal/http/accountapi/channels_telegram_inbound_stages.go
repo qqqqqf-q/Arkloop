@@ -416,7 +416,14 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
-	runStartedData := buildTelegramRunStartedData(personaRef, defaultModel)
+	runStartedData := buildTelegramRunStartedData(
+		personaRef,
+		defaultModel,
+		ch.ID,
+		*latestEntry.SenderChannelIdentityID,
+		buildTelegramIncomingFromLedger(latestEntry),
+	)
+	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,

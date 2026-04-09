@@ -698,7 +698,14 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
-	runStartedData := buildDiscordRunStartedData(personaRef, resolveDiscordDefaultModel(ch.ConfigJSON))
+	runStartedData := buildDiscordRunStartedData(
+		personaRef,
+		resolveDiscordDefaultModel(ch.ConfigJSON),
+		ch.ID,
+		identity.ID,
+		discordContextFromLedger(latestEntry),
+	)
+	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
@@ -808,12 +815,18 @@ func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Con
 	return nil
 }
 
-func buildDiscordRunStartedData(personaRef string, defaultModel string) map[string]any {
-	dataJSON := map[string]any{"persona_id": personaRef}
-	if model := strings.TrimSpace(defaultModel); model != "" {
-		dataJSON["model"] = model
-	}
-	return dataJSON
+func buildDiscordRunStartedData(
+	personaRef string,
+	defaultModel string,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	messageCtx discordMessageContext,
+) map[string]any {
+	return buildChannelRunStartedData(
+		personaRef,
+		defaultModel,
+		buildDiscordChannelDeliveryPayload(channelID, channelIdentityID, messageCtx),
+	)
 }
 
 func resolveDiscordDefaultModel(raw json.RawMessage) string {

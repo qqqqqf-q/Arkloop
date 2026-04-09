@@ -193,19 +193,35 @@ func loadRunInputs(
 		if rawRunKind, ok := dataJSON["run_kind"].(string); ok && strings.TrimSpace(rawRunKind) != "" {
 			inputJSON["run_kind"] = strings.TrimSpace(rawRunKind)
 		}
+		if rawThreadTailID, ok := dataJSON[runStartedThreadTailMessageIDKey].(string); ok && strings.TrimSpace(rawThreadTailID) != "" {
+			inputJSON[runStartedThreadTailMessageIDKey] = strings.TrimSpace(rawThreadTailID)
+		}
 		if rawChannelDelivery, ok := dataJSON["channel_delivery"].(map[string]any); ok && len(rawChannelDelivery) > 0 {
 			inputJSON["channel_delivery"] = rawChannelDelivery
 		}
 	}
 	currentHeartbeatRun := isHeartbeatRun(inputJSON, jobPayload)
 
-	messages, err := messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
+	historyUpperBoundID, hasHistoryUpperBound, err := boundedThreadHistoryUpperBound(inputJSON, jobPayload)
 	if err != nil {
 		return nil, err
 	}
-	activeSnapshot, err := (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
+
+	var messages []data.ThreadMessage
+	if hasHistoryUpperBound {
+		messages, err = messagesRepo.ListByThreadUpToID(ctx, tx, run.AccountID, run.ThreadID, historyUpperBoundID, messageLimit)
+	} else {
+		messages, err = messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
+	}
 	if err != nil {
 		return nil, err
+	}
+	var activeSnapshot *data.ThreadCompactionSnapshotRecord
+	if !shouldSkipActiveSnapshotForBoundedHistory(run, jobPayload, hasHistoryUpperBound) {
+		activeSnapshot, err = (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	hasActiveSnapshot := activeSnapshot != nil && strings.TrimSpace(activeSnapshot.SummaryText) != ""
 
@@ -335,6 +351,56 @@ func clearContinuationMetadata(inputJSON map[string]any) {
 	inputJSON[runStartedContinuationSourceKey] = "none"
 	inputJSON[runStartedContinuationLoopKey] = false
 	delete(inputJSON, runStartedContinuationResponseKey)
+}
+
+func boundedThreadHistoryUpperBound(inputJSON map[string]any, jobPayload map[string]any) (uuid.UUID, bool, error) {
+	if !isBoundedChannelHistoryRun(inputJSON, jobPayload) {
+		return uuid.Nil, false, nil
+	}
+	raw, _ := inputJSON[runStartedThreadTailMessageIDKey].(string)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return uuid.Nil, false, nil
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("invalid thread history upper bound message id: %w", err)
+	}
+	return id, true, nil
+}
+
+func isBoundedChannelHistoryRun(inputJSON map[string]any, jobPayload map[string]any) bool {
+	if IsRuntimeRecoveryJob(jobPayload) {
+		return false
+	}
+	if continuationSource, _ := inputJSON[runStartedContinuationSourceKey].(string); strings.TrimSpace(continuationSource) != "" && strings.TrimSpace(continuationSource) != "none" {
+		return false
+	}
+	if isHeartbeatRun(inputJSON, jobPayload) {
+		return false
+	}
+	return hasChannelDeliveryPayload(inputJSON) || hasChannelDeliveryPayload(jobPayload)
+}
+
+func hasChannelDeliveryPayload(values map[string]any) bool {
+	if len(values) == 0 {
+		return false
+	}
+	raw, ok := values["channel_delivery"].(map[string]any)
+	return ok && len(raw) > 0
+}
+
+func shouldSkipActiveSnapshotForBoundedHistory(run data.Run, jobPayload map[string]any, hasHistoryUpperBound bool) bool {
+	if !hasHistoryUpperBound {
+		return false
+	}
+	if run.ResumeFromRunID != nil {
+		return false
+	}
+	if IsRuntimeRecoveryJob(jobPayload) {
+		return false
+	}
+	return true
 }
 
 func loadResumedReplay(

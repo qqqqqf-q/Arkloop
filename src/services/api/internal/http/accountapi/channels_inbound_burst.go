@@ -228,7 +228,16 @@ func (r channelInboundBurstRunner) recoverBatch(
 	if message == nil {
 		return fmt.Errorf("pending batch latest message not found")
 	}
-	runStartedData := buildChannelBurstRunStartedData(personaRef, resolveChannelBurstDefaultModel(ch.ConfigJSON))
+	jobPayload, err := buildChannelBurstJobPayload(ch, latestEntry)
+	if err != nil {
+		return err
+	}
+	runStartedData := buildChannelBurstRunStartedData(
+		personaRef,
+		resolveChannelBurstDefaultModel(ch.ConfigJSON),
+		jobPayload,
+	)
+	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := runRepoTx.CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
@@ -237,10 +246,6 @@ func (r channelInboundBurstRunner) recoverBatch(
 		"run.started",
 		runStartedData,
 	)
-	if err != nil {
-		return err
-	}
-	jobPayload, err := buildChannelBurstJobPayload(ch, latestEntry)
 	if err != nil {
 		return err
 	}
@@ -281,12 +286,9 @@ func resolveInboundBurstPersonaRef(ctx context.Context, personasRepo *data.Perso
 	return buildPersonaRef(*persona), nil
 }
 
-func buildChannelBurstRunStartedData(personaRef string, defaultModel string) map[string]any {
-	dataJSON := map[string]any{"persona_id": personaRef}
-	if model := strings.TrimSpace(defaultModel); model != "" {
-		dataJSON["model"] = model
-	}
-	return dataJSON
+func buildChannelBurstRunStartedData(personaRef string, defaultModel string, jobPayload map[string]any) map[string]any {
+	channelDelivery, _ := jobPayload["channel_delivery"].(map[string]any)
+	return buildChannelRunStartedData(personaRef, defaultModel, channelDelivery)
 }
 
 func resolveChannelBurstDefaultModel(raw json.RawMessage) string {
