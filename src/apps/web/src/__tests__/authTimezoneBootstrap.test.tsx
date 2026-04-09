@@ -2,8 +2,10 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockDetectDeviceTimeZone } = vi.hoisted(() => ({
+const { mockDetectDeviceTimeZone, mockIsLocalMode, mockGetOsUsername } = vi.hoisted(() => ({
   mockDetectDeviceTimeZone: vi.fn(() => 'Asia/Singapore'),
+  mockIsLocalMode: vi.fn(() => false),
+  mockGetOsUsername: vi.fn(async () => 'qqqqqf'),
 }))
 
 vi.mock('../api', async () => {
@@ -24,12 +26,26 @@ vi.mock('@arkloop/shared', async () => {
   }
 })
 
+vi.mock('@arkloop/shared/desktop', () => ({
+  isLocalMode: mockIsLocalMode,
+  getDesktopApi: () => ({
+    app: {
+      getOsUsername: mockGetOsUsername,
+    },
+  }),
+}))
+
 import { getMe, updateMe } from '../api'
 import { AuthProvider, useAuth } from '../contexts/auth'
 
 function AuthSnapshot() {
   const { me, meLoaded } = useAuth()
   return <div>{meLoaded ? (me?.timezone ?? 'empty') : 'loading'}</div>
+}
+
+function AuthUsernameSnapshot() {
+  const { me, meLoaded } = useAuth()
+  return <div>{meLoaded ? (me?.username ?? 'empty') : 'loading'}</div>
 }
 
 describe('AuthProvider timezone bootstrap', () => {
@@ -47,6 +63,10 @@ describe('AuthProvider timezone bootstrap', () => {
     vi.mocked(updateMe).mockReset()
     mockDetectDeviceTimeZone.mockReset()
     mockDetectDeviceTimeZone.mockReturnValue('Asia/Singapore')
+    mockIsLocalMode.mockReset()
+    mockIsLocalMode.mockReturnValue(false)
+    mockGetOsUsername.mockReset()
+    mockGetOsUsername.mockResolvedValue('qqqqqf')
   })
 
   afterEach(() => {
@@ -111,5 +131,32 @@ describe('AuthProvider timezone bootstrap', () => {
       await Promise.resolve()
     })
     expect(updateMe).not.toHaveBeenCalled()
+  })
+
+  it('本地模式下优先显示系统用户名', async () => {
+    mockIsLocalMode.mockReturnValue(true)
+    mockGetOsUsername.mockResolvedValue('qqqqqf')
+    vi.mocked(getMe).mockResolvedValue({
+      id: 'user-1',
+      username: 'desktop',
+      email_verified: true,
+      email_verification_required: false,
+      work_enabled: true,
+      timezone: 'Asia/Singapore',
+      account_timezone: null,
+    })
+
+    await act(async () => {
+      root.render(
+        <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
+          <AuthUsernameSnapshot />
+        </AuthProvider>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(container.textContent).toBe('qqqqqf')
   })
 })

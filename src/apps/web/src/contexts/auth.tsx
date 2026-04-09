@@ -32,7 +32,25 @@ interface AuthProviderProps {
 export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProviderProps) {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [meLoaded, setMeLoaded] = useState(false)
+  const [localUsername, setLocalUsername] = useState<string | null>(null)
   const autoTimezoneAttemptedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!isLocalMode()) return
+    let cancelled = false
+    void getDesktopApi()?.app.getOsUsername?.()
+      .then((value) => {
+        if (cancelled) return
+        const next = value.trim()
+        setLocalUsername(next || null)
+      })
+      .catch(() => {
+        if (!cancelled) setLocalUsername(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -40,17 +58,7 @@ export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProvide
       try {
         const meResp = await getMe(accessToken)
         if (controller.signal.aborted) return
-
-        let resolvedMe = meResp
-        if (isLocalMode() && !meResp.username) {
-          try {
-            const fn = getDesktopApi()?.app.getOsUsername
-            const osName = fn ? await fn() : ''
-            if (osName) resolvedMe = { ...meResp, username: osName }
-          } catch { /* local mode fallback */ }
-        }
-
-        setMe(resolvedMe)
+        setMe(meResp)
         setMeLoaded(true)
       } catch (err) {
         if (controller.signal.aborted) return
@@ -81,6 +89,14 @@ export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProvide
       .catch(() => {})
   }, [accessToken, me, meLoaded])
 
+  const presentedMe = useMemo(() => {
+    if (!me) return null
+    if (!isLocalMode()) return me
+    const nextUsername = localUsername?.trim()
+    if (!nextUsername || nextUsername === me.username) return me
+    return { ...me, username: nextUsername }
+  }, [localUsername, me])
+
   const handleLogout = useCallback(async () => {
     try { await apiLogout(accessToken) } catch { /* best-effort */ }
     clearActiveThreadIdInStorage()
@@ -88,8 +104,8 @@ export function AuthProvider({ accessToken, onLoggedOut, children }: AuthProvide
   }, [accessToken, onLoggedOut])
 
   const value = useMemo<AuthContextValue>(() => ({
-    me, meLoaded, accessToken, logout: handleLogout, updateMe: setMe,
-  }), [me, meLoaded, accessToken, handleLogout])
+    me: presentedMe, meLoaded, accessToken, logout: handleLogout, updateMe: setMe,
+  }), [presentedMe, meLoaded, accessToken, handleLogout])
 
   return (
     <AuthContext.Provider value={value}>
