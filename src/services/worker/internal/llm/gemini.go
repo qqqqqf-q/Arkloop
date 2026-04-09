@@ -106,8 +106,8 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Details:    map[string]any{"reason": g.transport.baseURLErr.Error()},
 		}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
-	defer cancel()
+	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
 	payload, err := toGeminiPayload(request, g.protocol.AdvancedPayloadJSON)
@@ -203,7 +203,7 @@ func (g *GeminiGateway) streamGeminiSSE(ctx context.Context, body interface{ Rea
 	toolCalls := map[int]*geminiStreamingToolCall{}
 
 	var parseErr error
-	sseErr := forEachSSEData(ctx, body, func(data string) error {
+	sseErr := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" {
 			return nil

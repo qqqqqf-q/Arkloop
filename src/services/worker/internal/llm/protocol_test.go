@@ -1,6 +1,12 @@
 package llm
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"io"
+	"testing"
+	"time"
+)
 
 func TestResolveOpenAIProtocolConfig_AutoAddsFallback(t *testing.T) {
 	cfg, err := ResolveOpenAIProtocolConfig("auto", map[string]any{
@@ -89,4 +95,89 @@ func TestGeminiAPIVersionFromBaseURL(t *testing.T) {
 	if got := geminiAPIVersionFromBaseURL("https://generativelanguage.googleapis.com"); got != "" {
 		t.Fatalf("unexpected version for unversioned base: %q", got)
 	}
+}
+
+func TestWithStreamIdleTimeoutResetsOnActivity(t *testing.T) {
+	ctx, stop, markActivity := withStreamIdleTimeout(context.Background(), 25*time.Millisecond)
+	defer stop()
+
+	time.Sleep(10 * time.Millisecond)
+	markActivity()
+	time.Sleep(10 * time.Millisecond)
+	markActivity()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("stream timer should stay alive after activity, got %v", context.Cause(ctx))
+	default:
+	}
+
+	time.Sleep(35 * time.Millisecond)
+	if !errors.Is(context.Cause(ctx), errStreamIdleTimeout) {
+		t.Fatalf("expected idle timeout cause, got %v", context.Cause(ctx))
+	}
+}
+
+func TestForEachSSEDataOnlyTimesOutWhenSilent(t *testing.T) {
+	ctx, stop, markActivity := withStreamIdleTimeout(context.Background(), 20*time.Millisecond)
+	defer stop()
+
+	reader := &timedChunkReader{
+		ctx: ctx,
+		steps: []timedChunkStep{
+			{delay: 5 * time.Millisecond, data: "data: first\n"},
+			{delay: 5 * time.Millisecond, data: "\n"},
+			{delay: 30 * time.Millisecond, data: "data: second\n"},
+		},
+	}
+
+	var got []string
+	err := forEachSSEData(ctx, reader, markActivity, func(data string) error {
+		got = append(got, data)
+		return nil
+	})
+	if !errors.Is(err, errStreamIdleTimeout) {
+		t.Fatalf("expected idle timeout, got %v", err)
+	}
+	if len(got) != 1 || got[0] != "first" {
+		t.Fatalf("unexpected streamed data before timeout: %#v", got)
+	}
+}
+
+type timedChunkStep struct {
+	delay time.Duration
+	data  string
+}
+
+type timedChunkReader struct {
+	ctx    context.Context
+	steps  []timedChunkStep
+	index  int
+	offset int
+}
+
+func (r *timedChunkReader) Read(p []byte) (int, error) {
+	for r.index < len(r.steps) {
+		step := r.steps[r.index]
+		if r.offset == 0 && step.delay > 0 {
+			timer := time.NewTimer(step.delay)
+			select {
+			case <-r.ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return 0, streamContextError(r.ctx, context.Cause(r.ctx))
+			case <-timer.C:
+			}
+		}
+
+		n := copy(p, step.data[r.offset:])
+		r.offset += n
+		if r.offset >= len(step.data) {
+			r.index++
+			r.offset = 0
+		}
+		return n, nil
+	}
+	return 0, io.EOF
 }

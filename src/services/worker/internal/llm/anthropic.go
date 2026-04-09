@@ -142,8 +142,8 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
-	defer cancel()
+	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
 	system, messages, err := toAnthropicMessages(request.Messages)
@@ -1007,7 +1007,7 @@ func (g *AnthropicGateway) streamAnthropicSSE(ctx context.Context, body io.Reade
 		return errAnthropicStreamTerminated
 	}
 
-	err := forEachSSEData(ctx, body, func(data string) error {
+	err := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) error {
 		data = strings.TrimSpace(data)
 		if data == "" {
 			return nil

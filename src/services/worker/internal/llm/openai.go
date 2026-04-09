@@ -113,8 +113,6 @@ func (g *OpenAIGateway) Stream(ctx context.Context, request Request, yield func(
 	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
-	ctx, cancel := context.WithTimeout(ctx, g.transport.cfg.TotalTimeout)
-	defer cancel()
 
 	if g.protocol.PrimaryKind == ProtocolKindOpenAIChatCompletions {
 		return g.chatCompletions(ctx, request, yield)
@@ -717,7 +715,7 @@ func (g *OpenAIGateway) streamChatCompletionsSSE(
 	reasoningDetailsChunkCount := 0
 	obfuscationChunkCount := 0
 
-	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
+	err := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) (retErr error) {
 		defer func() {
 			if retErr != nil {
 				handlerFailed = true
@@ -1145,7 +1143,7 @@ func (g *OpenAIGateway) streamResponsesSSE(
 	emittedTextOutput := false
 	emittedToolDelta := false
 
-	err := forEachSSEData(ctx, body, func(data string) (retErr error) {
+	err := forEachSSEData(ctx, body, streamActivityMarker(ctx), func(data string) (retErr error) {
 		defer func() {
 			if retErr != nil {
 				handlerFailed = true
@@ -2579,20 +2577,48 @@ func costFromFloat64(value *float64) *Cost {
 	}
 }
 
-func forEachSSEData(ctx context.Context, r io.Reader, handle func(string) error) error {
+func forEachSSEData(ctx context.Context, r io.Reader, markActivity func(), handle func(string) error) error {
 	reader := bufio.NewReader(r)
 	dataLines := []string{}
+	type readResult struct {
+		line string
+		err  error
+	}
+	var closer io.Closer
+	if c, ok := r.(io.Closer); ok {
+		closer = c
+	}
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := streamContextError(ctx, nil); err != nil {
+			if closer != nil {
+				_ = closer.Close()
+			}
 			return err
 		}
 
-		line, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
-			return err
+		resultCh := make(chan readResult, 1)
+		go func() {
+			line, err := reader.ReadString('\n')
+			resultCh <- readResult{line: line, err: err}
+		}()
+
+		var result readResult
+		select {
+		case <-ctx.Done():
+			if closer != nil {
+				_ = closer.Close()
+			}
+			return streamContextError(ctx, nil)
+		case result = <-resultCh:
+		}
+		if result.err != nil && result.err != io.EOF {
+			return streamContextError(ctx, result.err)
+		}
+		if len(result.line) > 0 && markActivity != nil {
+			markActivity()
 		}
 
-		cleaned := strings.TrimRight(line, "\r\n")
+		cleaned := strings.TrimRight(result.line, "\r\n")
 		if cleaned == "" {
 			if len(dataLines) > 0 {
 				data := strings.Join(dataLines, "\n")
@@ -2607,7 +2633,7 @@ func forEachSSEData(ctx context.Context, r io.Reader, handle func(string) error)
 			dataLines = append(dataLines, strings.TrimLeft(cleaned[len("data:"):], " "))
 		}
 
-		if err == io.EOF {
+		if result.err == io.EOF {
 			break
 		}
 	}
