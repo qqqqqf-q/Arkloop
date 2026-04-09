@@ -621,21 +621,19 @@ func TestSanitizeToolPairs_OrphanAssistantToolUseRemoved(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
 		assistantWithCalls("c1"),
-		// tool for c1 is missing -> assistant should also be removed
+		// tool for c1 is missing -> orphan tool call should be removed, but visible text should remain
 		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
 	}
 	out, _ := sanitizeToolPairs(msgs, nil)
-	if len(out) != 2 {
-		t.Fatalf("expected 2 (both users), got %d", len(out))
+	if len(out) != 3 {
+		t.Fatalf("expected 3, got %d", len(out))
 	}
-	for _, m := range out {
-		if m.Role != "user" {
-			t.Fatalf("expected only user messages, got %s", m.Role)
-		}
+	if out[1].Role != "assistant" || len(out[1].ToolCalls) != 0 {
+		t.Fatalf("expected visible assistant text without orphan tool calls, got %#v", out[1])
 	}
 }
 
-func TestSanitizeToolPairs_PartialToolCallsKeepsAssistant(t *testing.T) {
+func TestSanitizeToolPairs_PartialToolCallsPrunesAssistant(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
 		assistantWithCalls("c1", "c2"),
@@ -647,7 +645,29 @@ func TestSanitizeToolPairs_PartialToolCallsKeepsAssistant(t *testing.T) {
 	if len(out) != 4 {
 		t.Fatalf("expected 4, got %d", len(out))
 	}
-	if out[1].Role != "assistant" || len(out[1].ToolCalls) != 2 {
-		t.Fatal("assistant should be kept since c1 tool survives")
+	if out[1].Role != "assistant" || len(out[1].ToolCalls) != 1 {
+		t.Fatalf("assistant should keep only the surviving tool call, got %#v", out[1].ToolCalls)
+	}
+	if out[1].ToolCalls[0].ToolCallID != "c1" {
+		t.Fatalf("expected c1 to survive, got %#v", out[1].ToolCalls)
+	}
+}
+
+func TestSanitizeToolPairs_EmptyAssistantToolCallsKeepsVisibleText(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "hi"}}},
+		{
+			Role:      "assistant",
+			Content:   []llm.TextPart{{Text: "done"}},
+			ToolCalls: []llm.ToolCall{{ToolCallID: "c1", ToolName: "test"}},
+		},
+		{Role: "user", Content: []llm.TextPart{{Text: "next"}}},
+	}
+	out, _ := sanitizeToolPairs(msgs, nil)
+	if len(out) != 3 {
+		t.Fatalf("expected 3, got %d", len(out))
+	}
+	if out[1].Role != "assistant" || len(out[1].ToolCalls) != 0 {
+		t.Fatalf("expected visible assistant text without orphan tool calls, got %#v", out[1])
 	}
 }

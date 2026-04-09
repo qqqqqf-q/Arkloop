@@ -2025,6 +2025,7 @@ func TestDesktopEventWriterPersistsCanonicalToolNames(t *testing.T) {
 		"tool_name":    "web_fetch.jina",
 		"result":       map[string]any{"title": "Example"},
 	})
+	writer.flushPendingToolCalls()
 
 	if len(writer.intermediateMessages) != 2 {
 		t.Fatalf("expected assistant+tool intermediate messages, got %d", len(writer.intermediateMessages))
@@ -2044,6 +2045,43 @@ func TestDesktopEventWriterPersistsCanonicalToolNames(t *testing.T) {
 	}
 	if !strings.Contains(toolContent, `"tool_name":"web_fetch"`) {
 		t.Fatalf("expected tool intermediate message to keep canonical tool name, got %s", toolContent)
+	}
+}
+
+func TestDesktopEventWriterFlushPendingToolCallsDropsUnmatchedToolCalls(t *testing.T) {
+	writer := &desktopEventWriter{
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "doing tools"}},
+		},
+	}
+
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "telegram_react",
+		"arguments":    map[string]any{"emoji": "❤️"},
+	})
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_2",
+		"tool_name":    "telegram_reply",
+		"arguments":    map[string]any{"reply_to_message_id": "42"},
+	})
+	writer.collectToolResult(map[string]any{
+		"tool_call_id": "call_2",
+		"tool_name":    "telegram_reply",
+		"result":       map[string]any{"ok": true},
+	})
+	writer.flushPendingToolCalls()
+
+	if len(writer.intermediateMessages) != 2 {
+		t.Fatalf("expected assistant+tool intermediate messages, got %d", len(writer.intermediateMessages))
+	}
+	assistantJSON := string(writer.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, `"tool_call_id":"call_1"`) {
+		t.Fatalf("expected unmatched tool call to be dropped, got %s", assistantJSON)
+	}
+	if !strings.Contains(assistantJSON, `"tool_call_id":"call_2"`) {
+		t.Fatalf("expected matched tool call to survive, got %s", assistantJSON)
 	}
 }
 

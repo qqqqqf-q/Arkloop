@@ -134,6 +134,7 @@ func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uu
 	}
 
 	removeSet := make(map[int]struct{})
+	prunedToolCalls := make(map[int][]llm.ToolCall)
 
 	// pass 1: 标记孤立 tool 消息
 	var activeCallIDs map[string]struct{}
@@ -171,7 +172,8 @@ func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uu
 		}
 	}
 
-	// pass 3: 标记 assistant(tool_use) 中所有 ToolCalls 都没有存活 tool 的
+	// pass 3: 仅保留 assistant(tool_use) 中仍有对应 tool result 的 ToolCalls。
+	// 如果一条 assistant 最终没有可保留的 ToolCalls，且也没有可见文本，则整条移除。
 	for i, m := range msgs {
 		if _, removed := removeSet[i]; removed {
 			continue
@@ -179,19 +181,23 @@ func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uu
 		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
 			continue
 		}
-		anyAlive := false
+		kept := make([]llm.ToolCall, 0, len(m.ToolCalls))
 		for _, tc := range m.ToolCalls {
 			if _, ok := survivingToolCallIDs[tc.ToolCallID]; ok {
-				anyAlive = true
-				break
+				kept = append(kept, tc)
 			}
 		}
-		if !anyAlive {
-			removeSet[i] = struct{}{}
+		if len(kept) == len(m.ToolCalls) {
+			continue
 		}
+		if len(kept) == 0 && strings.TrimSpace(messageText(m)) == "" {
+			removeSet[i] = struct{}{}
+			continue
+		}
+		prunedToolCalls[i] = kept
 	}
 
-	if len(removeSet) == 0 {
+	if len(removeSet) == 0 && len(prunedToolCalls) == 0 {
 		return msgs, ids
 	}
 
@@ -204,6 +210,9 @@ func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uu
 	for i, m := range msgs {
 		if _, skip := removeSet[i]; skip {
 			continue
+		}
+		if kept, ok := prunedToolCalls[i]; ok {
+			m.ToolCalls = kept
 		}
 		outMsgs = append(outMsgs, m)
 		if alignedIDs {

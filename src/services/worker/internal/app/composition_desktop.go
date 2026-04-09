@@ -2281,6 +2281,7 @@ type desktopEventWriter struct {
 	draftVisibleContent      string
 	draftUseVisible          bool
 	pendingToolCalls         []llm.ToolCall
+	pendingToolResults       []desktopIntermediateMessage
 	intermediateMessages     []desktopIntermediateMessage
 }
 
@@ -2537,13 +2538,33 @@ func (w *desktopEventWriter) collectToolCall(dataJSON map[string]any) {
 
 func (w *desktopEventWriter) flushPendingToolCalls() {
 	if len(w.pendingToolCalls) == 0 {
+		w.pendingToolResults = w.pendingToolResults[:0]
 		return
 	}
+
+	resolved := make(map[string]struct{}, len(w.pendingToolResults))
+	for _, result := range w.pendingToolResults {
+		resolved[result.ToolCallID] = struct{}{}
+	}
+	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
+	for _, call := range w.pendingToolCalls {
+		if _, ok := resolved[call.ToolCallID]; ok {
+			filteredCalls = append(filteredCalls, call)
+		}
+	}
+
+	w.pendingToolCalls = w.pendingToolCalls[:0]
+	results := w.pendingToolResults
+	w.pendingToolResults = w.pendingToolResults[:0]
+	if len(filteredCalls) == 0 {
+		return
+	}
+
 	msg := w.assistantMessage
 	if msg == nil {
 		msg = &llm.Message{Role: "assistant"}
 	}
-	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, w.pendingToolCalls)
+	contentJSON, err := llm.BuildIntermediateAssistantContentJSON(*msg, filteredCalls)
 	if err != nil {
 		return
 	}
@@ -2552,11 +2573,10 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
 	})
-	w.pendingToolCalls = w.pendingToolCalls[:0]
+	w.intermediateMessages = append(w.intermediateMessages, results...)
 }
 
 func (w *desktopEventWriter) collectToolResult(dataJSON map[string]any) {
-	w.flushPendingToolCalls()
 	toolName, _ := dataJSON["tool_name"].(string)
 	toolName = llm.CanonicalToolName(toolName)
 	envelope := map[string]any{
@@ -2574,7 +2594,7 @@ func (w *desktopEventWriter) collectToolResult(dataJSON map[string]any) {
 		return
 	}
 	callID, _ := dataJSON["tool_call_id"].(string)
-	w.intermediateMessages = append(w.intermediateMessages, desktopIntermediateMessage{
+	w.pendingToolResults = append(w.pendingToolResults, desktopIntermediateMessage{
 		Role:       "tool",
 		Content:    string(raw),
 		ToolCallID: callID,

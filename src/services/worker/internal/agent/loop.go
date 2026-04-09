@@ -1902,7 +1902,7 @@ func shouldSuppressToolResultReplay(runCtx RunContext, toolName string, success 
 		}
 		return true
 	}
-	return isTerminalSideEffectTool(toolName)
+	return false
 }
 
 func isTerminalSideEffectTool(toolName string) bool {

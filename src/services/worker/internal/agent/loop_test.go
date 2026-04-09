@@ -362,7 +362,79 @@ func TestAgentLoopTelegramReplyFailureContinues(t *testing.T) {
 	assertHasEvent(t, got, "run.completed")
 }
 
-func TestAgentLoopTelegramSendFileSuccessStopsWithoutReplay(t *testing.T) {
+func TestAgentLoopTelegramReactAndReplyKeepBothToolResultsInHistory(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(channeltelegram.ReactAgentSpec); err != nil {
+		t.Fatalf("register telegram_react failed: %v", err)
+	}
+	if err := registry.Register(channeltelegram.ReplyAgentSpec); err != nil {
+		t.Fatalf("register telegram_reply failed: %v", err)
+	}
+
+	allowlist := tools.AllowlistFromNames([]string{channeltelegram.ToolReact, channeltelegram.ToolReply})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	executor := tools.NewDispatchingExecutor(registry, policy)
+	if err := executor.Bind(channeltelegram.ToolReact, stubToolExecutor{
+		result: tools.ExecutionResult{
+			ResultJSON: map[string]any{"ok": true, "message_id": "7625", "emoji": "❤️"},
+		},
+	}); err != nil {
+		t.Fatalf("bind telegram_react failed: %v", err)
+	}
+	if err := executor.Bind(channeltelegram.ToolReply, stubToolExecutor{
+		result: tools.ExecutionResult{
+			ResultJSON: map[string]any{"ok": true, "reply_to_set": true, "reply_to_message_id": "7625"},
+		},
+	}); err != nil {
+		t.Fatalf("bind telegram_reply failed: %v", err)
+	}
+
+	gateway := &telegramReactReplyCaptureGateway{}
+	loop := NewLoop(gateway, executor)
+	err := loop.Run(
+		context.Background(),
+		RunContext{
+			RunID:               uuid.New(),
+			TraceID:             "trace",
+			InputJSON:           map[string]any{},
+			ReasoningIterations: 3,
+			ToolExecutor:        executor,
+			CancelSignal:        func() bool { return false },
+		},
+		llm.Request{
+			Model:    "stub",
+			Messages: []llm.Message{{Role: "user", Content: []llm.TextPart{{Text: "hi"}}}},
+		},
+		events.NewEmitter("trace"),
+		func(events.RunEvent) error { return nil },
+	)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if len(gateway.requests) < 2 {
+		t.Fatalf("expected second llm request, got %d", len(gateway.requests))
+	}
+
+	second := gateway.requests[1]
+	if len(second.Messages) != 4 {
+		t.Fatalf("expected user + assistant + 2 tool results in second request, got %#v", second.Messages)
+	}
+	assistant := second.Messages[1]
+	if len(assistant.ToolCalls) != 2 {
+		t.Fatalf("expected both tool calls preserved, got %#v", assistant.ToolCalls)
+	}
+
+	reactResult := second.Messages[2]
+	if reactResult.Role != "tool" || !strings.Contains(reactResult.Content[0].Text, `"tool_call_id":"tg_react_1"`) {
+		t.Fatalf("expected telegram_react tool result in history, got %#v", reactResult)
+	}
+	replyResult := second.Messages[3]
+	if replyResult.Role != "tool" || !strings.Contains(replyResult.Content[0].Text, `"tool_call_id":"tg_reply_1"`) {
+		t.Fatalf("expected telegram_reply tool result in history, got %#v", replyResult)
+	}
+}
+
+func TestAgentLoopTelegramSendFileSuccessStopsAfterEmittingToolResult(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(channeltelegram.SendFileAgentSpec); err != nil {
 		t.Fatalf("register telegram_send_file failed: %v", err)
@@ -408,11 +480,7 @@ func TestAgentLoopTelegramSendFileSuccessStopsWithoutReplay(t *testing.T) {
 		t.Fatalf("expected telegram_send_file success to stop after first llm call, got %d calls", gateway.calls)
 	}
 	assertHasEvent(t, got, "run.completed")
-	for _, ev := range got {
-		if ev.Type == "tool.result" {
-			t.Fatalf("telegram_send_file success should not emit tool.result: %#v", got)
-		}
-	}
+	assertHasEvent(t, got, "tool.result")
 }
 
 func TestAgentLoopTelegramSendFileFailureKeepsToolResultReplay(t *testing.T) {
@@ -1677,6 +1745,11 @@ type singleTelegramSendFileGateway struct {
 	calls int
 }
 
+type telegramReactReplyCaptureGateway struct {
+	requests []llm.Request
+	calls    int
+}
+
 type stubToolExecutor struct {
 	result tools.ExecutionResult
 }
@@ -1809,6 +1882,33 @@ func (g *singleTelegramSendFileGateway) Stream(ctx context.Context, request llm.
 		return err
 	}
 	return errRetryGatewayCalled
+}
+
+func (g *telegramReactReplyCaptureGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
+	_ = ctx
+	g.requests = append(g.requests, request)
+	g.calls++
+	if g.calls == 1 {
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "tg_react_1",
+			ToolName:      channeltelegram.ToolReact,
+			ArgumentsJSON: map[string]any{"emoji": "❤️", "message_id": "7625"},
+		}); err != nil {
+			return err
+		}
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "tg_reply_1",
+			ToolName:      channeltelegram.ToolReply,
+			ArgumentsJSON: map[string]any{"reply_to_message_id": "7625"},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
 }
 
 type multiToolCallGateway struct {

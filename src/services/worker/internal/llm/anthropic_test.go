@@ -105,6 +105,62 @@ func TestToAnthropicMessages_ToolEnvelope(t *testing.T) {
 	}
 }
 
+func TestToAnthropicMessages_PartialToolResultsStripUnmatchedToolUse(t *testing.T) {
+	_, messages, err := toAnthropicMessages([]Message{
+		{
+			Role:    "assistant",
+			Content: []TextPart{{Text: "working"}},
+			ToolCalls: []ToolCall{
+				{
+					ToolCallID:    "call_1",
+					ToolName:      "telegram_react",
+					ArgumentsJSON: map[string]any{"emoji": "❤️"},
+				},
+				{
+					ToolCallID:    "call_2",
+					ToolName:      "telegram_reply",
+					ArgumentsJSON: map[string]any{"reply_to_message_id": "42"},
+				},
+			},
+		},
+		{
+			Role: "tool",
+			Content: []TextPart{{
+				Text: `{"tool_call_id":"call_2","tool_name":"telegram_reply","result":{"ok":true}}`,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessages failed: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("unexpected messages len: %d", len(messages))
+	}
+	assistant := messages[0]
+	blocks, ok := assistant["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("unexpected assistant content: %#v", assistant["content"])
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected text + surviving tool_use blocks, got %#v", blocks)
+	}
+	if blocks[0]["type"] != "text" || blocks[1]["type"] != "tool_use" {
+		t.Fatalf("unexpected assistant blocks: %#v", blocks)
+	}
+	if blocks[1]["id"] != "call_2" {
+		t.Fatalf("expected only matched tool_use to survive, got %#v", blocks[1])
+	}
+
+	toolResult := messages[1]
+	rawToolResults, ok := toolResult["content"].([]map[string]any)
+	if !ok || len(rawToolResults) != 1 {
+		t.Fatalf("unexpected tool_result wrapper content: %#v", toolResult["content"])
+	}
+	if rawToolResults[0]["tool_use_id"] != "call_2" {
+		t.Fatalf("expected matched tool result, got %#v", rawToolResults[0])
+	}
+}
+
 func TestToAnthropicMessages_AssistantThinkingBlocksPreserved(t *testing.T) {
 	system, messages, err := toAnthropicMessages([]Message{
 		{

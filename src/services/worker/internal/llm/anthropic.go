@@ -359,10 +359,12 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 			return
 		}
 		filtered := make([]map[string]any, 0, len(pendingToolResults))
+		matchedToolUseIDs := map[string]struct{}{}
 		for _, block := range pendingToolResults {
 			id, _ := block["tool_use_id"].(string)
 			if _, ok := lastAssistantToolUseIDs[id]; ok {
 				filtered = append(filtered, block)
+				matchedToolUseIDs[id] = struct{}{}
 			} else {
 				prevRole := ""
 				prevSummary := ""
@@ -394,6 +396,9 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 			lastAssistantToolUseIDs = map[string]struct{}{}
 			lastToolUseAssistantIdx = -1
 			return
+		}
+		if lastToolUseAssistantIdx >= 0 && len(matchedToolUseIDs) < len(lastAssistantToolUseIDs) {
+			stripToolUseBlocks(out, lastToolUseAssistantIdx, subtractToolUseIDs(lastAssistantToolUseIDs, matchedToolUseIDs))
 		}
 		out = append(out, map[string]any{
 			"role":    "user",
@@ -483,6 +488,20 @@ func toAnthropicMessages(messages []Message) ([]map[string]any, []map[string]any
 	}
 
 	return systemBlocks, compacted, nil
+}
+
+func subtractToolUseIDs(all map[string]struct{}, keep map[string]struct{}) map[string]struct{} {
+	if len(all) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(all))
+	for id := range all {
+		if _, ok := keep[id]; ok {
+			continue
+		}
+		out[id] = struct{}{}
+	}
+	return out
 }
 
 // stripToolUseBlocks 从 out[idx] 的 content 中移除所有 tool_use blocks。
