@@ -88,6 +88,7 @@ func NewAgentLoopHandler(
 			rc.ReleaseSlot,
 			rc.TelegramToolBoundaryFlush,
 			rc.TelegramProgressTracker,
+			IsHeartbeatRunContext(rc),
 		)
 		defer writer.Close(ctx)
 		defer func() {
@@ -246,6 +247,7 @@ type eventWriter struct {
 	telegramSentOutputCount   int
 	telegramProgressTracker   *TelegramProgressTracker
 	pendingReplyOverride      string
+	heartbeatRun              bool
 
 	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
 	terminalRunStatus    string
@@ -285,6 +287,7 @@ func newEventWriter(
 	releaseSlot func(),
 	telegramToolBoundaryFlush func(context.Context, string) error,
 	telegramProgressTracker *TelegramProgressTracker,
+	heartbeatRun bool,
 ) *eventWriter {
 	if creditsPerUSD <= 0 {
 		creditsPerUSD = 1000.0
@@ -315,6 +318,7 @@ func newEventWriter(
 		releaseSlot:               releaseSlot,
 		telegramToolBoundaryFlush: telegramToolBoundaryFlush,
 		telegramProgressTracker:   telegramProgressTracker,
+		heartbeatRun:              heartbeatRun,
 	}
 }
 
@@ -822,22 +826,34 @@ func (w *eventWriter) flushPendingToolCalls() {
 		resolved[r.ToolCallID] = struct{}{}
 	}
 	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
+	keptCallIDs := make(map[string]struct{}, len(w.pendingToolCalls))
 	for _, call := range w.pendingToolCalls {
 		if _, ok := resolved[call.ToolCallID]; ok {
+			if w.heartbeatRun && IsHeartbeatDecisionToolName(call.ToolName) {
+				continue
+			}
 			filteredCalls = append(filteredCalls, call)
+			keptCallIDs[call.ToolCallID] = struct{}{}
 		}
 	}
 
 	w.pendingToolCalls = w.pendingToolCalls[:0]
 	results := w.pendingToolResults
 	w.pendingToolResults = w.pendingToolResults[:0]
-
-	if len(filteredCalls) == 0 {
-		// 所有 call 均无结果（suppressed 或未执行），不写入孤立消息
-		return
+	filteredResults := make([]intermediateMessage, 0, len(results))
+	for _, result := range results {
+		if _, ok := keptCallIDs[result.ToolCallID]; ok {
+			filteredResults = append(filteredResults, result)
+		}
 	}
 
 	msg := w.assistantMessage
+	hasVisibleParts := msg != nil && len(llm.VisibleContentParts(msg.Content)) > 0
+	if len(filteredCalls) == 0 && !hasVisibleParts {
+		// 所有 call 均无结果（suppressed 或被黑名单移除），且无可见内容可保留
+		return
+	}
+
 	if msg == nil {
 		msg = &llm.Message{Role: "assistant"}
 	}
@@ -850,7 +866,7 @@ func (w *eventWriter) flushPendingToolCalls() {
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
 	})
-	w.intermediateMessages = append(w.intermediateMessages, results...)
+	w.intermediateMessages = append(w.intermediateMessages, filteredResults...)
 }
 
 func (w *eventWriter) collectToolResult(dataJSON map[string]any) {

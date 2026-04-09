@@ -380,3 +380,36 @@ func TestEventWriterFlushPendingToolCallsDoesNotPersistProviderToolNames(t *test
 		t.Fatalf("expected tool intermediate message to keep canonical tool name, got %s", toolContent)
 	}
 }
+
+func TestEventWriterFlushPendingToolCallsFiltersHeartbeatDecisionFromPersistentHistory(t *testing.T) {
+	w := &eventWriter{
+		heartbeatRun: true,
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "replying"}},
+		},
+	}
+
+	w.collectToolCall(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"arguments":    map[string]any{"reply": true},
+	})
+	w.collectToolResult(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"result":       map[string]any{"ok": true, "reply": true},
+	})
+	w.flushPendingToolCalls()
+
+	if len(w.intermediateMessages) != 1 {
+		t.Fatalf("expected assistant-only intermediate message, got %d", len(w.intermediateMessages))
+	}
+	if w.intermediateMessages[0].Role != "assistant" {
+		t.Fatalf("expected assistant intermediate message, got %#v", w.intermediateMessages[0])
+	}
+	assistantJSON := string(w.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, "heartbeat_decision") {
+		t.Fatalf("expected heartbeat_decision to be removed from persistent history, got %s", assistantJSON)
+	}
+}

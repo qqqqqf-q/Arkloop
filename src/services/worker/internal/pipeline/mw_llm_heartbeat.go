@@ -84,6 +84,10 @@ func IsHeartbeatRunContext(rc *RunContext) bool {
 	return rc.HeartbeatRun || isHeartbeatRun(rc.InputJSON, rc.JobPayload)
 }
 
+func IsHeartbeatDecisionToolName(toolName string) bool {
+	return llm.CanonicalToolName(toolName) == heartbeattool.ToolName
+}
+
 // NewHeartbeatPrepareMiddleware 为心跳 run 构建尾部 user message（包含完整 heartbeat 指令），
 // 注册 heartbeat_decision 工具并设置 tool_choice=specific，
 // 在 next 返回后将 memory_fragments 提交到 MemoryProvider。

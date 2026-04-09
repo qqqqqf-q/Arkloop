@@ -2132,6 +2132,7 @@ func desktopAgentLoop(
 			responseDraftStore:      rc.ResponseDraftStore,
 			telegramBoundaryFlush:   rc.TelegramToolBoundaryFlush,
 			telegramProgressTracker: rc.TelegramProgressTracker,
+			heartbeatRun:            pipeline.IsHeartbeatRunContext(rc),
 		}
 		personaID := ""
 		if rc.PersonaDefinition != nil {
@@ -2280,6 +2281,7 @@ type desktopEventWriter struct {
 	pendingReplyOverride     string
 	draftVisibleContent      string
 	draftUseVisible          bool
+	heartbeatRun             bool
 	pendingToolCalls         []llm.ToolCall
 	pendingToolResults       []desktopIntermediateMessage
 	intermediateMessages     []desktopIntermediateMessage
@@ -2547,20 +2549,32 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 		resolved[result.ToolCallID] = struct{}{}
 	}
 	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
+	keptCallIDs := make(map[string]struct{}, len(w.pendingToolCalls))
 	for _, call := range w.pendingToolCalls {
 		if _, ok := resolved[call.ToolCallID]; ok {
+			if w.heartbeatRun && pipeline.IsHeartbeatDecisionToolName(call.ToolName) {
+				continue
+			}
 			filteredCalls = append(filteredCalls, call)
+			keptCallIDs[call.ToolCallID] = struct{}{}
 		}
 	}
 
 	w.pendingToolCalls = w.pendingToolCalls[:0]
 	results := w.pendingToolResults
 	w.pendingToolResults = w.pendingToolResults[:0]
-	if len(filteredCalls) == 0 {
+	filteredResults := make([]desktopIntermediateMessage, 0, len(results))
+	for _, result := range results {
+		if _, ok := keptCallIDs[result.ToolCallID]; ok {
+			filteredResults = append(filteredResults, result)
+		}
+	}
+	msg := w.assistantMessage
+	hasVisibleParts := msg != nil && len(llm.VisibleContentParts(msg.Content)) > 0
+	if len(filteredCalls) == 0 && !hasVisibleParts {
 		return
 	}
 
-	msg := w.assistantMessage
 	if msg == nil {
 		msg = &llm.Message{Role: "assistant"}
 	}
@@ -2573,7 +2587,7 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
 	})
-	w.intermediateMessages = append(w.intermediateMessages, results...)
+	w.intermediateMessages = append(w.intermediateMessages, filteredResults...)
 }
 
 func (w *desktopEventWriter) collectToolResult(dataJSON map[string]any) {

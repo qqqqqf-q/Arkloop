@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/testutil"
@@ -276,6 +277,167 @@ func TestLoadRunInputsReplayCanonicalizesProviderToolNames(t *testing.T) {
 	}
 	if !strings.Contains(toolText, `"tool_name":"web_fetch"`) {
 		t.Fatalf("expected replayed tool message to keep canonical tool name, got %s", toolText)
+	}
+}
+
+func TestLoadRunInputsFiltersHeartbeatDecisionFromPersistentHistory(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_filter_heartbeat_history")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	userMessageID := uuid.New()
+	assistantMessageID := uuid.New()
+	heartbeatResultID := uuid.New()
+	searchResultID := uuid.New()
+
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, runID, accountID, threadID); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`, runID); err != nil {
+		t.Fatalf("insert run started event: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`, userMessageID, accountID, threadID, "hi"); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	assistantContentJSON, err := json.Marshal(map[string]any{
+		"parts": []map[string]any{{"type": "text", "text": "checking"}},
+		"tool_calls": []map[string]any{
+			{"tool_call_id": "hb_1", "tool_name": "heartbeat_decision", "arguments": map[string]any{"reply": true}},
+			{"tool_call_id": "web_1", "tool_name": "web_search", "arguments": map[string]any{"query": "test"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal assistant content json: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, content_json, metadata_json, hidden) VALUES ($1, $2, $3, 'assistant', $4, $5::jsonb, '{}'::jsonb, true)`, assistantMessageID, accountID, threadID, "checking", string(assistantContentJSON)); err != nil {
+		t.Fatalf("insert assistant message: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'tool', $4, '{}'::jsonb, true)`, heartbeatResultID, accountID, threadID, `{"tool_call_id":"hb_1","tool_name":"heartbeat_decision","result":{"ok":true,"reply":true}}`); err != nil {
+		t.Fatalf("insert heartbeat result: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, 'tool', $4, '{}'::jsonb, true)`, searchResultID, accountID, threadID, `{"tool_call_id":"web_1","tool_name":"web_search","result":{"ok":true}}`); err != nil {
+		t.Fatalf("insert search result: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected user + assistant + tool, got %d", len(loaded.Messages))
+	}
+	if len(loaded.Messages[1].ToolCalls) != 1 || loaded.Messages[1].ToolCalls[0].ToolName != "web_search" {
+		t.Fatalf("expected heartbeat_decision tool call to be removed, got %#v", loaded.Messages[1].ToolCalls)
+	}
+	if loaded.Messages[2].Role != "tool" || strings.Contains(loaded.Messages[2].Content[0].Text, "heartbeat_decision") {
+		t.Fatalf("expected only non-heartbeat tool result to remain, got %#v", loaded.Messages[2])
+	}
+}
+
+func TestBuildReplayMessagesFiltersHeartbeatDecisionForNonHeartbeatRun(t *testing.T) {
+	toolCallsJSON, err := json.Marshal([]llm.ToolCall{
+		{ToolCallID: "hb_1", ToolName: "heartbeat_decision", ArgumentsJSON: map[string]any{"reply": true}},
+		{ToolCallID: "web_1", ToolName: "web_search", ArgumentsJSON: map[string]any{"query": "test"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal tool calls: %v", err)
+	}
+	state := &rollout.ReconstructedState{
+		ReplayMessages: []rollout.ReplayMessage{
+			{
+				Role: "assistant",
+				Assistant: &rollout.AssistantMessage{
+					Content:   "checking",
+					ToolCalls: toolCallsJSON,
+				},
+			},
+			{
+				Role: "tool",
+				Tool: &rollout.ReplayToolResult{
+					CallID: "hb_1",
+					Name:   "heartbeat_decision",
+					Output: json.RawMessage(`{"ok":true,"reply":true}`),
+				},
+			},
+			{
+				Role: "tool",
+				Tool: &rollout.ReplayToolResult{
+					CallID: "web_1",
+					Name:   "web_search",
+					Output: json.RawMessage(`{"ok":true}`),
+				},
+			},
+		},
+	}
+
+	messages, err := buildReplayMessages(state, false)
+	if err != nil {
+		t.Fatalf("buildReplayMessages failed: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected assistant + remaining tool result, got %d", len(messages))
+	}
+	if len(messages[0].ToolCalls) != 1 || messages[0].ToolCalls[0].ToolName != "web_search" {
+		t.Fatalf("expected replayed assistant to keep only web_search, got %#v", messages[0].ToolCalls)
+	}
+	if messages[1].Role != "tool" || strings.Contains(messages[1].Content[0].Text, "heartbeat_decision") {
+		t.Fatalf("expected heartbeat_decision replay tool result to be removed, got %#v", messages[1])
+	}
+}
+
+func TestBuildReplayMessagesKeepsHeartbeatDecisionForHeartbeatRun(t *testing.T) {
+	toolCallsJSON, err := json.Marshal([]llm.ToolCall{{
+		ToolCallID:    "hb_1",
+		ToolName:      "heartbeat_decision",
+		ArgumentsJSON: map[string]any{"reply": true},
+	}})
+	if err != nil {
+		t.Fatalf("marshal tool calls: %v", err)
+	}
+	state := &rollout.ReconstructedState{
+		ReplayMessages: []rollout.ReplayMessage{
+			{
+				Role: "assistant",
+				Assistant: &rollout.AssistantMessage{
+					Content:   "checking",
+					ToolCalls: toolCallsJSON,
+				},
+			},
+			{
+				Role: "tool",
+				Tool: &rollout.ReplayToolResult{
+					CallID: "hb_1",
+					Name:   "heartbeat_decision",
+					Output: json.RawMessage(`{"ok":true,"reply":true}`),
+				},
+			},
+		},
+	}
+
+	messages, err := buildReplayMessages(state, true)
+	if err != nil {
+		t.Fatalf("buildReplayMessages failed: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected assistant + heartbeat tool result, got %d", len(messages))
+	}
+	if len(messages[0].ToolCalls) != 1 || messages[0].ToolCalls[0].ToolName != "heartbeat_decision" {
+		t.Fatalf("expected heartbeat_decision to remain in heartbeat replay, got %#v", messages[0].ToolCalls)
+	}
+	if !strings.Contains(messages[1].Content[0].Text, "heartbeat_decision") {
+		t.Fatalf("expected heartbeat tool result to remain in heartbeat replay, got %#v", messages[1])
 	}
 }
 

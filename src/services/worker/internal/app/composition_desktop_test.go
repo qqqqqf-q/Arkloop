@@ -2085,6 +2085,39 @@ func TestDesktopEventWriterFlushPendingToolCallsDropsUnmatchedToolCalls(t *testi
 	}
 }
 
+func TestDesktopEventWriterFiltersHeartbeatDecisionFromPersistentHistory(t *testing.T) {
+	writer := &desktopEventWriter{
+		heartbeatRun: true,
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "replying"}},
+		},
+	}
+
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"arguments":    map[string]any{"reply": true},
+	})
+	writer.collectToolResult(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"result":       map[string]any{"ok": true, "reply": true},
+	})
+	writer.flushPendingToolCalls()
+
+	if len(writer.intermediateMessages) != 1 {
+		t.Fatalf("expected assistant-only intermediate message, got %d", len(writer.intermediateMessages))
+	}
+	if writer.intermediateMessages[0].Role != "assistant" {
+		t.Fatalf("expected assistant intermediate message, got %#v", writer.intermediateMessages[0])
+	}
+	assistantJSON := string(writer.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, "heartbeat_decision") {
+		t.Fatalf("expected heartbeat_decision to be removed from persistent history, got %s", assistantJSON)
+	}
+}
+
 func TestDesktopEventWriterPendingTelegramFlushChunk(t *testing.T) {
 	writer := &desktopEventWriter{
 		visibleAssistantTexts:   []string{"第一段", "第二段"},
