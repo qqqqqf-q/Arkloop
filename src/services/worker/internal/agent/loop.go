@@ -392,8 +392,6 @@ func (l *Loop) Run(
 
 		// 执行非 ask_user 的常规工具
 		continuationRejected := false
-		terminalSideEffectOnly := len(regularPending) > 0
-		terminalSideEffectSucceeded := len(regularPending) > 0
 		if len(regularPending) > 0 {
 			if runCtx.ToolExecutor == nil {
 				return fmt.Errorf("tool executor not initialized")
@@ -411,12 +409,6 @@ func (l *Loop) Run(
 				governor.Touch()
 				call := executed.Call
 				result := executed.Result
-				if !isTerminalSideEffectTool(call.ToolName) {
-					terminalSideEffectOnly = false
-				}
-				if result.Error != nil {
-					terminalSideEffectSucceeded = false
-				}
 				if isContinuationBudgetError(result.Error) {
 					continuationRejected = true
 				}
@@ -510,8 +502,6 @@ func (l *Loop) Run(
 
 		// ask_user 拦截：不走 dispatcher，直接 yield 事件并阻塞等待用户输入
 		if askUserCall != nil {
-			terminalSideEffectOnly = false
-			terminalSideEffectSucceeded = false
 			preparedAskUserCall, startEvent := prepareToolCallStart(emitter, nil, *askUserCall)
 			if err := yield(startEvent); err != nil {
 				return err
@@ -647,13 +637,6 @@ func (l *Loop) Run(
 				request.Tools = heartbeatFullTools
 				heartbeatFullTools = nil
 			}
-		}
-		if terminalSideEffectOnly && terminalSideEffectSucceeded {
-			reasoningTurnsUsed++
-			if runCtx.RolloutRecorder != nil {
-				appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("completed"))
-			}
-			return yield(emitter.Emit("run.completed", completionTotals.Apply(turn.CompletedDataJSON), nil, nil))
 		}
 
 		// load_tools dynamic activation: inject newly activated tool specs
@@ -2042,15 +2025,6 @@ func shouldSuppressToolResultReplay(runCtx RunContext, toolName string, success 
 		return true
 	}
 	return false
-}
-
-func isTerminalSideEffectTool(toolName string) bool {
-	switch toolName {
-	case "telegram_react", "telegram_send_file":
-		return true
-	default:
-		return false
-	}
 }
 
 func assistantMessageOrFallback(message *llm.Message, assistantChunks []string) llm.Message {
