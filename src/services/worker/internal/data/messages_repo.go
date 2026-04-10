@@ -79,18 +79,23 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("marshal metadata_json: %w", err)
 	}
+	threadSeq, err := AllocateThreadSeqRange(ctx, tx, accountID, threadID, 1)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	createdAt := currentTimestampText()
 	var messageID uuid.UUID
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
+			account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
 		) VALUES (
-			$1, $2, NULL, $3, $4, $5, $6::jsonb, $7, $8
+			$1, $2, $3, NULL, $4, $5, $6, $7::jsonb, $8, $9
 		)
 		 RETURNING id`,
 		accountID,
 		threadID,
+		threadSeq,
 		"assistant",
 		content,
 		contentJSON,
@@ -108,6 +113,7 @@ func (MessagesRepository) InsertIntermediateMessage(
 	ctx context.Context,
 	tx pgx.Tx,
 	accountID, threadID uuid.UUID,
+	threadSeq int64,
 	role, content string,
 	contentJSON json.RawMessage,
 	metadataJSON json.RawMessage,
@@ -116,9 +122,9 @@ func (MessagesRepository) InsertIntermediateMessage(
 	id := uuid.New()
 	_, err := tx.Exec(
 		ctx,
-		`INSERT INTO messages (id, account_id, thread_id, role, content, content_json, metadata_json, hidden, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, TRUE, $8)`,
-		id, accountID, threadID, role, content, contentJSON, metadataJSON, createdAt,
+		`INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, content_json, metadata_json, hidden, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, TRUE, $9)`,
+		id, accountID, threadID, threadSeq, role, content, contentJSON, metadataJSON, createdAt,
 	)
 	if err != nil {
 		return uuid.Nil, err
@@ -149,7 +155,7 @@ func (MessagesRepository) FindAssistantMessageByRunID(
 		  WHERE role = 'assistant'
 		    AND metadata_json->>'run_id' = $1
 		    AND deleted_at IS NULL
-		  ORDER BY created_at DESC, id DESC
+		  ORDER BY thread_seq DESC
 		  LIMIT 1`,
 		runID.String(),
 	).Scan(&messageID, &content)
@@ -177,16 +183,31 @@ func (MessagesRepository) ListByThread(
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
 		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
-			SELECT id, role, content, content_json, created_at, metadata_json
-			  FROM messages
-			 WHERE account_id = $1
-			   AND thread_id = $2
-			   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
-			   AND deleted_at IS NULL
-			   AND COALESCE(compacted, false) = false
-			 ORDER BY created_at DESC, id DESC
-			 LIMIT $3
-		 ) recent
+				SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+				  FROM messages m
+				 WHERE m.account_id = $1
+				   AND m.thread_id = $2
+				   AND m.deleted_at IS NULL
+				   AND COALESCE(m.compacted, false) = false
+				   AND (
+				     m.hidden = FALSE
+				     OR (
+				       m.metadata_json->>'intermediate' = 'true'
+				       AND EXISTS (
+				         SELECT 1
+				           FROM messages final
+				          WHERE final.account_id = m.account_id
+				            AND final.thread_id = m.thread_id
+				            AND final.deleted_at IS NULL
+				            AND final.hidden = FALSE
+				            AND final.role = 'assistant'
+				            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
+				       )
+				     )
+				   )
+				 ORDER BY thread_seq DESC
+				 LIMIT $3
+			 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
@@ -194,7 +215,7 @@ func (MessagesRepository) ListByThread(
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-		 ORDER BY recent.created_at ASC, recent.id ASC`,
+			 ORDER BY recent.thread_seq ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -240,26 +261,41 @@ func (MessagesRepository) ListByThreadUpToID(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
-		        COALESCE(u.output_tokens, 0) as output_tokens
-		 FROM (
-			SELECT id, role, content, content_json, created_at, metadata_json
-			  FROM messages
-			 WHERE account_id = $1
-			   AND thread_id = $2
-			   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
-			   AND deleted_at IS NULL
-			   AND COALESCE(compacted, false) = false
-			   AND (created_at, id) <= (
-			     SELECT created_at, id
-			       FROM messages
-			      WHERE account_id = $1
-			        AND thread_id = $2
-			        AND id = $3
-			        AND deleted_at IS NULL
-			   )
-			 ORDER BY created_at DESC, id DESC
-			 LIMIT $4
-		 ) recent
+			        COALESCE(u.output_tokens, 0) as output_tokens
+			 FROM (
+				SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+				  FROM messages m
+				 WHERE m.account_id = $1
+				   AND m.thread_id = $2
+				   AND m.deleted_at IS NULL
+				   AND COALESCE(m.compacted, false) = false
+				   AND (
+				     m.hidden = FALSE
+				     OR (
+				       m.metadata_json->>'intermediate' = 'true'
+				       AND EXISTS (
+				         SELECT 1
+				           FROM messages final
+				          WHERE final.account_id = m.account_id
+				            AND final.thread_id = m.thread_id
+				            AND final.deleted_at IS NULL
+				            AND final.hidden = FALSE
+				            AND final.role = 'assistant'
+				            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
+				       )
+				     )
+				   )
+				   AND thread_seq <= (
+				     SELECT thread_seq
+				       FROM messages
+				      WHERE account_id = $1
+				        AND thread_id = $2
+				        AND id = $3
+				        AND deleted_at IS NULL
+				   )
+				 ORDER BY thread_seq DESC
+				 LIMIT $4
+			 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
@@ -267,7 +303,7 @@ func (MessagesRepository) ListByThreadUpToID(
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-		 ORDER BY recent.created_at ASC, recent.id ASC`,
+			 ORDER BY recent.thread_seq ASC`,
 		accountID,
 		threadID,
 		upToMessageID,
@@ -319,8 +355,8 @@ func (MessagesRepository) ListByIDs(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
-		        COALESCE(u.output_tokens, 0) as output_tokens
-		 FROM messages m
+			        COALESCE(u.output_tokens, 0) as output_tokens
+			 FROM messages m
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
@@ -333,7 +369,7 @@ func (MessagesRepository) ListByIDs(
 		   AND m.id = ANY($3)
 		   AND (m.hidden = FALSE OR m.metadata_json->>'intermediate' = 'true')
 		   AND m.deleted_at IS NULL
-		 ORDER BY m.created_at ASC, m.id ASC`,
+			 ORDER BY m.thread_seq ASC`,
 		accountID,
 		threadID,
 		messageIDs,
@@ -383,16 +419,16 @@ func (MessagesRepository) ListRecentByThread(
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.created_at,
 		        COALESCE(u.output_tokens, 0) as output_tokens
 		 FROM (
-		 	SELECT id, role, content, content_json, created_at, metadata_json
-		 	  FROM messages
-		 	 WHERE account_id = $1
-		 	   AND thread_id = $2
-		 	   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
-		 	   AND deleted_at IS NULL
-		 	   AND COALESCE(compacted, false) = false
-		 	 ORDER BY created_at DESC, id DESC
-		 	 LIMIT $3
-		 ) recent
+			 	SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+			 	  FROM messages
+			 	 WHERE account_id = $1
+			 	   AND thread_id = $2
+			 	   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
+			 	   AND deleted_at IS NULL
+			 	   AND COALESCE(compacted, false) = false
+			 	 ORDER BY thread_seq DESC
+			 	 LIMIT $3
+			 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
@@ -400,7 +436,7 @@ func (MessagesRepository) ListRecentByThread(
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-		 ORDER BY recent.created_at ASC, recent.id ASC`,
+			 ORDER BY recent.thread_seq ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -453,18 +489,23 @@ func (MessagesRepository) InsertThreadMessage(
 	if trimmedContent == "" {
 		return uuid.Nil, fmt.Errorf("content must not be empty")
 	}
+	threadSeq, err := AllocateThreadSeqRange(ctx, tx, accountID, threadID, 1)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	createdAt := currentTimestampText()
 	var messageID uuid.UUID
-	err := tx.QueryRow(
+	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, created_by_user_id, role, content, content_json, created_at
+			account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7
+			$1, $2, $3, $4, $5, $6, $7, $8
 		)
 		 RETURNING id`,
 		accountID,
 		threadID,
+		threadSeq,
 		createdByUserID,
 		trimmedRole,
 		trimmedContent,

@@ -2437,6 +2437,7 @@ type desktopIntermediateMessage struct {
 	Content     string
 	ContentJSON json.RawMessage
 	ToolCallID  string
+	Ordinal     int64
 }
 
 type pendingDesktopTelegramProgressCall struct {
@@ -2752,11 +2753,16 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 	if err != nil {
 		return
 	}
+	baseOrdinal := int64(len(w.intermediateMessages)) + 1
 	w.intermediateMessages = append(w.intermediateMessages, desktopIntermediateMessage{
 		Role:        "assistant",
 		Content:     llm.VisibleMessageText(*msg),
 		ContentJSON: contentJSON,
+		Ordinal:     baseOrdinal,
 	})
+	for i := range filteredResults {
+		filteredResults[i].Ordinal = baseOrdinal + 1 + int64(i)
+	}
 	w.intermediateMessages = append(w.intermediateMessages, filteredResults...)
 }
 
@@ -3175,12 +3181,17 @@ func (w *desktopEventWriter) batchInsertIntermediateMessages(
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
-	baseTime := w.run.CreatedAt.UTC().Add(time.Millisecond).Round(0)
+	if len(w.intermediateMessages) == 0 {
+		return nil
+	}
+	startSeq, err := data.AllocateThreadSeqRange(ctx, tx, accountID, threadID, int64(len(w.intermediateMessages)))
+	if err != nil {
+		return err
+	}
 	repo := data.MessagesRepository{}
 	for i, msg := range w.intermediateMessages {
-		createdAt := baseTime.Add(time.Duration(i) * time.Microsecond)
 		meta := map[string]any{
-			"intermediate": "true",
+			"intermediate": true,
 			"run_id":       runID.String(),
 		}
 		if msg.ToolCallID != "" {
@@ -3191,7 +3202,11 @@ func (w *desktopEventWriter) batchInsertIntermediateMessages(
 		if msg.Role != "tool" {
 			contentJSON = msg.ContentJSON
 		}
-		if _, err := repo.InsertIntermediateMessage(ctx, tx, accountID, threadID, msg.Role, msg.Content, contentJSON, metadataJSON, createdAt); err != nil {
+		threadSeq := startSeq + int64(i)
+		if msg.Ordinal > 0 {
+			threadSeq = startSeq + msg.Ordinal - 1
+		}
+		if _, err := repo.InsertIntermediateMessage(ctx, tx, accountID, threadID, threadSeq, msg.Role, msg.Content, contentJSON, metadataJSON, time.Now().UTC()); err != nil {
 			return err
 		}
 	}

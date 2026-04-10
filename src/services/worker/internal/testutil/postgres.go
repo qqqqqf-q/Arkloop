@@ -257,6 +257,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			is_private         BOOLEAN     NOT NULL DEFAULT FALSE,
 			expires_at         TIMESTAMPTZ NULL,
 			deleted_at         TIMESTAMPTZ NULL,
+			next_message_seq   BIGINT      NOT NULL DEFAULT 1,
 			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE TABLE account_memberships (
@@ -535,6 +536,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 			account_id             UUID        NOT NULL,
 			thread_id          UUID        NOT NULL,
+			thread_seq         BIGINT      NOT NULL,
 			created_by_user_id UUID        NULL,
 			role               TEXT        NOT NULL,
 			content            TEXT        NOT NULL,
@@ -545,6 +547,25 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			deleted_at         TIMESTAMPTZ NULL,
 			created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
+		`CREATE OR REPLACE FUNCTION assign_message_thread_seq_test() RETURNS trigger AS $$
+		BEGIN
+			IF NEW.thread_seq IS NULL THEN
+				UPDATE threads
+				   SET next_message_seq = next_message_seq + 1
+				 WHERE id = NEW.thread_id
+				   AND account_id = NEW.account_id
+				RETURNING next_message_seq - 1 INTO NEW.thread_seq;
+				IF NEW.thread_seq IS NULL THEN
+					RAISE EXCEPTION 'thread % for account % does not exist', NEW.thread_id, NEW.account_id;
+				END IF;
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql`,
+		`CREATE TRIGGER trg_messages_assign_thread_seq_test
+		    BEFORE INSERT ON messages
+		    FOR EACH ROW
+		    EXECUTE FUNCTION assign_message_thread_seq_test()`,
 		`CREATE TABLE user_memory_snapshots (
 			account_id       UUID        NOT NULL,
 			user_id      UUID        NOT NULL,

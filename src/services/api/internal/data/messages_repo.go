@@ -19,6 +19,7 @@ type Message struct {
 	ID              uuid.UUID
 	AccountID       uuid.UUID
 	ThreadID        uuid.UUID
+	ThreadSeq       int64
 	CreatedByUserID *uuid.UUID
 	Role            string
 	Content         string
@@ -60,6 +61,51 @@ func NewMessageRepository(db Querier) (*MessageRepository, error) {
 	return &MessageRepository{db: db}, nil
 }
 
+func (r *MessageRepository) withWriteTx(ctx context.Context, fn func(q Querier) error) error {
+	if tx, ok := r.db.(pgx.Tx); ok {
+		return fn(tx)
+	}
+	starter, ok := r.db.(TxStarter)
+	if !ok {
+		return fmt.Errorf("db does not support transactions")
+	}
+	tx, err := starter.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func allocateThreadSeqRange(ctx context.Context, q Querier, accountID, threadID uuid.UUID, count int64) (int64, error) {
+	if count <= 0 {
+		return 0, fmt.Errorf("count must be positive")
+	}
+	var startSeq int64
+	err := q.QueryRow(
+		ctx,
+		`UPDATE threads
+		    SET next_message_seq = next_message_seq + $3
+		  WHERE id = $2
+		    AND account_id = $1
+		RETURNING next_message_seq - $3`,
+		accountID,
+		threadID,
+		count,
+	).Scan(&startSeq)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ThreadNotFoundError{ThreadID: threadID}
+		}
+		return 0, err
+	}
+	return startSeq, nil
+}
+
 func (r *MessageRepository) Create(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -84,49 +130,44 @@ func (r *MessageRepository) Create(
 		return Message{}, fmt.Errorf("content must not be empty")
 	}
 
-	createdAt := currentTimestampText()
 	var message Message
-	err := r.db.QueryRow(
-		ctx,
-		`WITH thread AS (
-		   SELECT 1
-		   FROM threads
-		   WHERE id = $2
-		     AND account_id = $1
-		   LIMIT 1
-		 )
-		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, created_at)
-		 SELECT $1, $2, $3, $4, $5, $6
-		 FROM thread
-		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
-		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		accountID,
-		threadID,
-		createdByUserID,
-		role,
-		content,
-		createdAt,
-	).Scan(
-		&message.ID,
-		&message.AccountID,
-		&message.ThreadID,
-		&message.CreatedByUserID,
-		&message.Role,
-		&message.Content,
-		&message.ContentJSON,
-		&message.MetadataJSON,
-		&message.TokenCount,
-		&message.DeletedAt,
-		&message.CreatedAt,
-		&message.Hidden,
-	)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Message{}, ThreadNotFoundError{ThreadID: threadID}
+	err := r.withWriteTx(ctx, func(q Querier) error {
+		threadSeq, err := allocateThreadSeqRange(ctx, q, accountID, threadID, 1)
+		if err != nil {
+			return err
 		}
+		return q.QueryRow(
+			ctx,
+			`INSERT INTO messages (account_id, thread_id, thread_seq, created_by_user_id, role, content, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
+			           content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq`,
+			accountID,
+			threadID,
+			threadSeq,
+			createdByUserID,
+			role,
+			content,
+			currentTimestampText(),
+		).Scan(
+			&message.ID,
+			&message.AccountID,
+			&message.ThreadID,
+			&message.CreatedByUserID,
+			&message.Role,
+			&message.Content,
+			&message.ContentJSON,
+			&message.MetadataJSON,
+			&message.TokenCount,
+			&message.DeletedAt,
+			&message.CreatedAt,
+			&message.Hidden,
+			&message.ThreadSeq,
+		)
+	})
+	if err != nil {
 		return Message{}, err
 	}
-
 	return message, nil
 }
 
@@ -184,49 +225,45 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		normalizedMetadataJSON = json.RawMessage("{}")
 	}
 
-	createdAt := currentTimestampText()
 	var message Message
-	err := r.db.QueryRow(
-		ctx,
-		`WITH thread AS (
-		   SELECT 1
-		   FROM threads
-		   WHERE id = $2
-		     AND account_id = $1
-		   LIMIT 1
-		 )
-		 INSERT INTO messages (account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
-		 SELECT $1, $2, $3, $4, $5, $6, $7, $8
-		 FROM thread
-		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
-		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
-		accountID,
-		threadID,
-		createdByUserID,
-		role,
-		content,
-		normalizedContentJSON,
-		normalizedMetadataJSON,
-		createdAt,
-	).Scan(
-		&message.ID,
-		&message.AccountID,
-		&message.ThreadID,
-		&message.CreatedByUserID,
-		&message.Role,
-		&message.Content,
-		&message.ContentJSON,
-		&message.MetadataJSON,
-		&message.TokenCount,
-		&message.DeletedAt,
-		&message.CreatedAt,
-		&message.Hidden,
-	)
+	err := r.withWriteTx(ctx, func(q Querier) error {
+		threadSeq, err := allocateThreadSeqRange(ctx, q, accountID, threadID, 1)
+		if err != nil {
+			return err
+		}
+		return q.QueryRow(
+			ctx,
+			`INSERT INTO messages (account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, metadata_json, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
+			           content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq`,
+			accountID,
+			threadID,
+			threadSeq,
+			createdByUserID,
+			role,
+			content,
+			normalizedContentJSON,
+			normalizedMetadataJSON,
+			currentTimestampText(),
+		).Scan(
+			&message.ID,
+			&message.AccountID,
+			&message.ThreadID,
+			&message.CreatedByUserID,
+			&message.Role,
+			&message.Content,
+			&message.ContentJSON,
+			&message.MetadataJSON,
+			&message.TokenCount,
+			&message.DeletedAt,
+			&message.CreatedAt,
+			&message.Hidden,
+			&message.ThreadSeq,
+		)
+	})
 	if err != nil {
 		slog.Debug("CreateStructuredWithMetadata query error", "error", err, "errorType", fmt.Sprintf("%T", err))
-		if errors.Is(err, pgx.ErrNoRows) {
-			return Message{}, ThreadNotFoundError{ThreadID: threadID}
-		}
 		return Message{}, err
 	}
 	slog.Debug("CreateStructuredWithMetadata success", "messageID", message.ID)
@@ -260,20 +297,20 @@ func (r *MessageRepository) ListByThread(
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
-		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
 		 FROM (
 			SELECT id, account_id, thread_id, created_by_user_id, role, content,
-			       content_json, metadata_json, token_count, deleted_at, created_at, hidden
+			       content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
 			  FROM messages
 			 WHERE account_id = $1
 			   AND thread_id = $2
 			   AND hidden = FALSE
 			   AND deleted_at IS NULL
 			   AND COALESCE(compacted, false) = false
-			 ORDER BY created_at DESC, id DESC
+			 ORDER BY thread_seq DESC
 			 LIMIT $3
 		 ) recent
-		 ORDER BY created_at ASC, id ASC`,
+		 ORDER BY thread_seq ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -299,6 +336,7 @@ func (r *MessageRepository) ListByThread(
 			&message.DeletedAt,
 			&message.CreatedAt,
 			&message.Hidden,
+			&message.ThreadSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -328,7 +366,7 @@ func (r *MessageRepository) GetByID(
 	err := r.db.QueryRow(
 		ctx,
 		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
-		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
 		 FROM messages
 		 WHERE account_id = $1
 		   AND thread_id = $2
@@ -350,6 +388,7 @@ func (r *MessageRepository) GetByID(
 		&message.DeletedAt,
 		&message.CreatedAt,
 		&message.Hidden,
+		&message.ThreadSeq,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -376,14 +415,14 @@ func (r *MessageRepository) GetLatestVisibleMessage(
 	err := r.db.QueryRow(
 		ctx,
 		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
-		        content_json, metadata_json, token_count, deleted_at, created_at, hidden
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
 		   FROM messages
 		  WHERE account_id = $1
 		    AND thread_id = $2
 		    AND hidden = FALSE
 		    AND deleted_at IS NULL
 		    AND COALESCE(compacted, false) = false
-		  ORDER BY created_at DESC, id DESC
+		  ORDER BY thread_seq DESC
 		  LIMIT 1`,
 		accountID,
 		threadID,
@@ -400,6 +439,7 @@ func (r *MessageRepository) GetLatestVisibleMessage(
 		&message.DeletedAt,
 		&message.CreatedAt,
 		&message.Hidden,
+		&message.ThreadSeq,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -440,12 +480,12 @@ func (r *MessageRepository) UpdateContent(
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
-		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
+		           content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq`,
 		accountID, threadID, messageID, newContent,
 	).Scan(
 		&message.ID, &message.AccountID, &message.ThreadID, &message.CreatedByUserID,
 		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
-		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
+		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden, &message.ThreadSeq,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -492,12 +532,12 @@ func (r *MessageRepository) UpdateStructuredContent(
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
-		           content_json, metadata_json, token_count, deleted_at, created_at, hidden`,
+		           content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq`,
 		accountID, threadID, messageID, newContent, normalizedContentJSON,
 	).Scan(
 		&message.ID, &message.AccountID, &message.ThreadID, &message.CreatedByUserID,
 		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
-		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden,
+		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden, &message.ThreadSeq,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -508,8 +548,8 @@ func (r *MessageRepository) UpdateStructuredContent(
 	return message, nil
 }
 
-// HideMessagesAfter 隐藏该 thread 中在指定消息之后的所有可见消息。
-// "之后"按 (created_at, id) 排序判断，确保与 ListByThread 顺序一致。
+// HideMessagesAfter 隐藏该 thread 中在指定消息之后的所有消息。
+// “之后”按 thread_seq 排序判断，确保与 ListByThread 顺序一致。
 func (r *MessageRepository) HideMessagesAfter(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -526,20 +566,21 @@ func (r *MessageRepository) HideMessagesAfter(
 	_, err := r.db.Exec(
 		ctx,
 		`UPDATE messages
-		 SET hidden = TRUE
+		 SET hidden = TRUE,
+		     deleted_at = $4
 		 WHERE account_id = $1
 		   AND thread_id = $2
-		   AND hidden = FALSE
 		   AND deleted_at IS NULL
-		   AND (created_at, id) > (
-		     SELECT created_at, id FROM messages WHERE id = $3 AND account_id = $1
+		   AND thread_seq > (
+		     SELECT thread_seq FROM messages WHERE id = $3 AND account_id = $1
 		   )`,
-		accountID, threadID, afterMessageID,
+		accountID, threadID, afterMessageID, currentTimestampText(),
 	)
 	return err
 }
 
-// HideLastAssistantMessage 将该 thread 最后一条可见的 assistant 消息标记为 hidden。
+// HideLastAssistantMessage 将该 thread 最后一条可见的 assistant 消息以及同 run 的
+// intermediate 历史标记为 hidden。
 // 若不存在这样的消息，返回 NoAssistantMessageError。
 func (r *MessageRepository) HideLastAssistantMessage(
 	ctx context.Context,
@@ -557,28 +598,103 @@ func (r *MessageRepository) HideLastAssistantMessage(
 	}
 
 	var hiddenID uuid.UUID
-	err := r.db.QueryRow(
-		ctx,
-		`UPDATE messages
-		 SET hidden = TRUE
-		 WHERE id = (
-		   SELECT id FROM messages
-		   WHERE account_id = $1
-		     AND thread_id = $2
-		     AND role = 'assistant'
-		     AND hidden = FALSE
-		     AND deleted_at IS NULL
-		   ORDER BY created_at DESC, id DESC
-		   LIMIT 1
-		 )
-		 AND account_id = $1
-		 RETURNING id`,
-		accountID,
-		threadID,
-	).Scan(&hiddenID)
+	err := r.withWriteTx(ctx, func(q Querier) error {
+		var (
+			targetID    uuid.UUID
+			targetMeta  json.RawMessage
+			targetRunID string
+		)
+		if err := q.QueryRow(
+			ctx,
+			`SELECT id, metadata_json
+			   FROM messages
+			  WHERE account_id = $1
+			    AND thread_id = $2
+			    AND role = 'assistant'
+			    AND hidden = FALSE
+			    AND deleted_at IS NULL
+			  ORDER BY thread_seq DESC
+			  LIMIT 1`,
+			accountID,
+			threadID,
+		).Scan(&targetID, &targetMeta); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return NoAssistantMessageError{}
+			}
+			return err
+		}
+
+		var metadata map[string]any
+		if len(targetMeta) > 0 && json.Unmarshal(targetMeta, &metadata) == nil {
+			if value, _ := metadata["run_id"].(string); strings.TrimSpace(value) != "" {
+				targetRunID = strings.TrimSpace(value)
+			}
+		}
+
+		idsToHide := []uuid.UUID{targetID}
+		if targetRunID != "" {
+			rows, err := q.Query(
+				ctx,
+				`SELECT id, metadata_json
+				   FROM messages
+				  WHERE account_id = $1
+				    AND thread_id = $2
+				    AND deleted_at IS NULL`,
+				accountID,
+				threadID,
+			)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var (
+					messageID   uuid.UUID
+					metadataRaw json.RawMessage
+				)
+				if err := rows.Scan(&messageID, &metadataRaw); err != nil {
+					return err
+				}
+				if messageID == targetID {
+					continue
+				}
+				var candidate map[string]any
+				if len(metadataRaw) == 0 || json.Unmarshal(metadataRaw, &candidate) != nil {
+					continue
+				}
+				if value, _ := candidate["run_id"].(string); strings.TrimSpace(value) == targetRunID {
+					idsToHide = append(idsToHide, messageID)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+		}
+
+		if _, err := q.Exec(
+			ctx,
+			`UPDATE messages
+			    SET hidden = TRUE,
+			        deleted_at = $4
+			  WHERE account_id = $1
+			    AND thread_id = $2
+			    AND deleted_at IS NULL
+			    AND id = ANY($3::uuid[])`,
+			accountID,
+			threadID,
+			idsToHide,
+			currentTimestampText(),
+		); err != nil {
+			return err
+		}
+
+		hiddenID = targetID
+		return nil
+	})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return uuid.Nil, NoAssistantMessageError{}
+		var noAssistant NoAssistantMessageError
+		if errors.As(err, &noAssistant) {
+			return uuid.Nil, noAssistant
 		}
 		return uuid.Nil, err
 	}
@@ -592,7 +708,7 @@ type MessageIDPair struct {
 	NewID uuid.UUID
 }
 
-// CopyUpTo 将 sourceThreadID 中截止到 upToMessageID（含）的所有可见消息复制到 targetThreadID。
+// CopyUpTo 将 sourceThreadID 中截止到 upToMessageID（含）的 canonical 历史复制到 targetThreadID。
 // 返回每条消息的 old→new ID 映射，调用方可据此迁移客户端侧缓存。
 func (r *MessageRepository) CopyUpTo(
 	ctx context.Context,
@@ -615,26 +731,43 @@ func (r *MessageRepository) CopyUpTo(
 		Content         string
 		ContentJSON     json.RawMessage
 		MetadataJSON    json.RawMessage
+		Hidden          bool
 		CreatedAt       time.Time
+		ThreadSeq       int64
 	}
 
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT id, created_by_user_id, role, content, content_json, metadata_json, created_at
-		 FROM messages
-		 WHERE account_id = $1
-		   AND thread_id = $2
-		   AND hidden = FALSE
-		   AND deleted_at IS NULL
-		   AND COALESCE(compacted, false) = false
-		   AND (created_at, id) <= (
-		     SELECT created_at, id
+		`SELECT id, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at, thread_seq
+		 FROM messages m
+		 WHERE m.account_id = $1
+		   AND m.thread_id = $2
+		   AND m.deleted_at IS NULL
+		   AND COALESCE(m.compacted, false) = false
+		   AND (
+		     m.hidden = FALSE
+		     OR (
+		       m.metadata_json->>'intermediate' = 'true'
+		       AND EXISTS (
+		         SELECT 1
+		           FROM messages final
+		          WHERE final.account_id = m.account_id
+		            AND final.thread_id = m.thread_id
+		            AND final.deleted_at IS NULL
+		            AND final.hidden = FALSE
+		            AND final.role = 'assistant'
+		            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
+		       )
+		     )
+		   )
+		   AND thread_seq <= (
+		     SELECT thread_seq
 		     FROM messages
 		     WHERE id = $3
 		       AND account_id = $1
 		       AND thread_id = $2
 		   )
-		 ORDER BY created_at ASC, id ASC`,
+		 ORDER BY thread_seq ASC`,
 		accountID, sourceThreadID, upToMessageID,
 	)
 	if err != nil {
@@ -652,7 +785,9 @@ func (r *MessageRepository) CopyUpTo(
 			&message.Content,
 			&message.ContentJSON,
 			&message.MetadataJSON,
+			&message.Hidden,
 			&message.CreatedAt,
+			&message.ThreadSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -663,25 +798,40 @@ func (r *MessageRepository) CopyUpTo(
 	}
 
 	pairs := make([]MessageIDPair, 0, len(sourceMessages))
-	for _, message := range sourceMessages {
-		newID := uuid.New()
-		if _, err := r.db.Exec(
-			ctx,
-			`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, content_json, metadata_json, created_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			newID,
-			accountID,
-			targetThreadID,
-			message.CreatedByUserID,
-			message.Role,
-			message.Content,
-			message.ContentJSON,
-			message.MetadataJSON,
-			message.CreatedAt,
-		); err != nil {
-			return nil, err
+	if len(sourceMessages) == 0 {
+		return pairs, nil
+	}
+	if err := r.withWriteTx(ctx, func(q Querier) error {
+		startSeq, err := allocateThreadSeqRange(ctx, q, accountID, targetThreadID, int64(len(sourceMessages)))
+		if err != nil {
+			return err
 		}
-		pairs = append(pairs, MessageIDPair{OldID: message.OldID, NewID: newID})
+		for index, message := range sourceMessages {
+			newID := uuid.New()
+			threadSeq := startSeq + int64(index)
+			if _, err := q.Exec(
+				ctx,
+				`INSERT INTO messages (id, account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+				newID,
+				accountID,
+				targetThreadID,
+				threadSeq,
+				message.CreatedByUserID,
+				message.Role,
+				message.Content,
+				message.ContentJSON,
+				message.MetadataJSON,
+				message.Hidden,
+				message.CreatedAt,
+			); err != nil {
+				return err
+			}
+			pairs = append(pairs, MessageIDPair{OldID: message.OldID, NewID: newID})
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return pairs, nil
 }

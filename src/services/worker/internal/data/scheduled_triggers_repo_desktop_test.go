@@ -699,14 +699,17 @@ func TestScheduledTriggersRepositoryInsertHeartbeatRunInTxWritesRecoveryMetadata
 	seedDesktopThread(t, db, accountID, projectID, threadID)
 
 	if _, err := db.Exec(ctx,
-		`INSERT INTO messages (id, account_id, thread_id, role, content, hidden, deleted_at, created_at)
-		 VALUES ($1, $2, $3, 'user', $4, FALSE, NULL, datetime('now'))`,
+		`INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, hidden, deleted_at, created_at)
+		 VALUES ($1, $2, $3, 1, 'user', $4, FALSE, NULL, datetime('now'))`,
 		tailMessageID,
 		accountID,
 		threadID,
 		"heartbeat tail",
 	); err != nil {
 		t.Fatalf("insert message: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE threads SET next_message_seq = 2 WHERE id = $1`, threadID); err != nil {
+		t.Fatalf("bump next_message_seq: %v", err)
 	}
 
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})

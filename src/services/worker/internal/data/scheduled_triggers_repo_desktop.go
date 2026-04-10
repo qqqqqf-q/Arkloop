@@ -678,7 +678,7 @@ func getLatestDesktopThreadMessage(ctx context.Context, tx pgx.Tx, threadID uuid
 		  WHERE thread_id = $1
 		    AND hidden = FALSE
 		    AND deleted_at IS NULL
-		  ORDER BY created_at DESC, id DESC
+		  ORDER BY thread_seq DESC
 		  LIMIT 1`,
 		threadID,
 	).Scan(&msg.ID, &msg.Role)

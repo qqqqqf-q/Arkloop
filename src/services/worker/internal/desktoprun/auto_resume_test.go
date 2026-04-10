@@ -281,14 +281,17 @@ func seedLifecycleUserMessage(t *testing.T, ctx context.Context, db data.Desktop
 
 	messageID := uuid.New()
 	if _, err := db.Exec(ctx,
-		`INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden)
-		 VALUES ($1, $2, $3, 'user', $4, '{}'::jsonb, false)`,
+		`INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, 1, 'user', $4, '{}'::jsonb, false)`,
 		messageID,
 		accountID,
 		threadID,
 		"hello",
 	); err != nil {
 		t.Fatalf("insert lifecycle user message: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE threads SET next_message_seq = 2 WHERE id = $1`, threadID); err != nil {
+		t.Fatalf("bump lifecycle next_message_seq: %v", err)
 	}
 	return messageID
 }

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
@@ -121,7 +120,7 @@ func TestMessagesRepository_DesktopWritesHighPrecisionCreatedAt(t *testing.T) {
 		SELECT id, created_at
 		  FROM messages
 		 WHERE thread_id = $1
-		 ORDER BY created_at ASC, id ASC
+		 ORDER BY thread_seq ASC
 	`, threadID)
 	if err != nil {
 		t.Fatalf("query raw created_at: %v", err)
@@ -181,13 +180,14 @@ func TestMessagesRepository_DesktopSortsMixedOldAndNewTimestampFormats(t *testin
 
 	legacyID := uuid.New()
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO messages (id, account_id, thread_id, role, content, hidden, deleted_at, created_at)
-		VALUES ($1, $2, $3, 'user', 'legacy', false, NULL, $4)
+		INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, hidden, deleted_at, created_at)
+		VALUES ($1, $2, $3, 1, 'user', 'legacy', false, NULL, $4)
 	`, legacyID, accountID, threadID, "2026-04-08 14:39:19"); err != nil {
 		t.Fatalf("insert legacy message: %v", err)
 	}
-
-	time.Sleep(5 * time.Millisecond)
+	if _, err := pool.Exec(ctx, `UPDATE threads SET next_message_seq = 2 WHERE id = $1`, threadID); err != nil {
+		t.Fatalf("bump next_message_seq: %v", err)
+	}
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -218,4 +218,97 @@ func TestMessagesRepository_DesktopSortsMixedOldAndNewTimestampFormats(t *testin
 	if msgs[0].ID != legacyID || msgs[1].ID != newID {
 		t.Fatalf("unexpected mixed-format order: got %s then %s", msgs[0].ID, msgs[1].ID)
 	}
+}
+
+func TestMessagesRepository_ListByThreadDesktopSkipsRolledBackIntermediateHistory(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "rolled-back.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.NewString()
+
+	seedDesktopAccount(t, pool, accountID)
+	seedDesktopProject(t, pool, accountID, projectID)
+	seedDesktopThread(t, pool, accountID, projectID, threadID)
+
+	if err := insertDesktopRepoMessage(ctx, pool, accountID, threadID, uuid.New(), 1, "user", "before", `{}`, false, ""); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if err := insertDesktopRepoMessage(ctx, pool, accountID, threadID, uuid.New(), 2, "assistant", "tool call", `{"run_id":"`+runID+`","intermediate":"true"}`, true, ""); err != nil {
+		t.Fatalf("insert intermediate: %v", err)
+	}
+	if err := insertDesktopRepoMessage(ctx, pool, accountID, threadID, uuid.New(), 3, "assistant", "rolled back final", `{"run_id":"`+runID+`"}`, true, "2026-04-10 05:35:00.000000000 +0000"); err != nil {
+		t.Fatalf("insert rolled back final: %v", err)
+	}
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin read: %v", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	msgs, err := (MessagesRepository{}).ListByThread(ctx, tx, accountID, threadID, 50)
+	if err != nil {
+		t.Fatalf("list by thread: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "before" {
+		t.Fatalf("expected only stable visible history, got %#v", msgs)
+	}
+}
+
+func insertDesktopRepoMessage(
+	ctx context.Context,
+	pool *sqlitepgx.Pool,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+	threadSeq int64,
+	role string,
+	content string,
+	metadataJSON string,
+	hidden bool,
+	deletedAt string,
+) error {
+	var deletedAtArg any
+	if strings.TrimSpace(deletedAt) != "" {
+		deletedAtArg = deletedAt
+	}
+	if _, err := pool.Exec(
+		ctx,
+		`INSERT INTO messages (
+			id, account_id, thread_id, thread_seq, role, content, metadata_json, hidden, deleted_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
+		)`,
+		messageID,
+		accountID,
+		threadID,
+		threadSeq,
+		role,
+		content,
+		metadataJSON,
+		hidden,
+		deletedAtArg,
+	); err != nil {
+		return err
+	}
+	_, err := pool.Exec(
+		ctx,
+		`UPDATE threads
+		    SET next_message_seq = CASE
+		        WHEN next_message_seq <= $2 THEN $2 + 1
+		        ELSE next_message_seq
+		    END
+		  WHERE id = $1`,
+		threadID,
+		threadSeq,
+	)
+	return err
 }
