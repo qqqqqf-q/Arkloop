@@ -1053,18 +1053,18 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 	identity data.ChannelIdentity,
 	persona *data.Persona,
 	baseMetadata map[string]any,
-) (uuid.UUID, error) {
+) (uuid.UUID, string, error) {
 	if persona == nil {
-		return uuid.Nil, fmt.Errorf("telegram passive ingest: persona required")
+		return uuid.Nil, "", fmt.Errorf("telegram passive ingest: persona required")
 	}
 	if tx == nil {
-		return uuid.Nil, fmt.Errorf("telegram passive ingest: tx required")
+		return uuid.Nil, "", fmt.Errorf("telegram passive ingest: tx required")
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)
 	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, "", err
 	}
 	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
@@ -1080,7 +1080,7 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 		timeCtx,
 	)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, "", err
 	}
 	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx,
@@ -1093,9 +1093,21 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 		identity.UserID,
 	)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, "", err
 	}
 	if c.channelLedgerRepo != nil {
+		ledgerRepoTx := c.channelLedgerRepo.WithTx(tx)
+		now := time.Now().UTC()
+		finalState := inboundStatePassivePersisted
+		ledgerMetadata := inboundLedgerMetadata(baseMetadata, finalState)
+		shouldMergePending, mergeErr := shouldMergePassiveInboundIntoPendingBatchTx(ctx, ledgerRepoTx, ch.ID, threadID, now)
+		if mergeErr != nil {
+			return uuid.Nil, "", mergeErr
+		}
+		if shouldMergePending {
+			finalState = inboundStatePendingDispatch
+			ledgerMetadata = applyInboundBurstMetadata(inboundLedgerMetadata(baseMetadata, finalState), nextInboundBurstDispatchAfter(now))
+		}
 		updated, ledgerErr := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
 			ctx,
 			ch.ID,
@@ -1104,10 +1116,10 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 			&threadID,
 			nil,
 			&msg.ID,
-			inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
+			ledgerMetadata,
 		)
 		if ledgerErr != nil {
-			return uuid.Nil, ledgerErr
+			return uuid.Nil, "", ledgerErr
 		}
 		if !updated {
 			if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
@@ -1121,13 +1133,19 @@ func (c telegramConnector) persistTelegramGroupPassiveMessageTx(
 				PlatformThreadID:        incoming.MessageThreadID,
 				SenderChannelIdentityID: &identity.ID,
 				MessageID:               &msg.ID,
-				MetadataJSON:            inboundLedgerMetadata(baseMetadata, inboundStatePassivePersisted),
+				MetadataJSON:            ledgerMetadata,
 			}); ledgerErr != nil {
-				return uuid.Nil, ledgerErr
+				return uuid.Nil, "", ledgerErr
 			}
 		}
+		if finalState == inboundStatePendingDispatch {
+			if err := extendPendingInboundBurstWindowTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
+				return uuid.Nil, "", err
+			}
+		}
+		return threadID, finalState, nil
 	}
-	return threadID, nil
+	return threadID, inboundStatePassivePersisted, nil
 }
 
 func (c telegramConnector) HandleUpdate(

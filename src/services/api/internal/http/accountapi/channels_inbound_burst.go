@@ -3,6 +3,7 @@ package accountapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -61,6 +63,7 @@ type channelInboundBurstRunner struct {
 	jobRepo      *data.JobRepository
 	messageRepo  *data.MessageRepository
 	pool         data.DB
+	inputNotify  func(ctx context.Context, runID uuid.UUID)
 }
 
 func StartChannelInboundBurstRunner(ctx context.Context, deps ChannelInboundBurstRunnerDeps) {
@@ -68,6 +71,27 @@ func StartChannelInboundBurstRunner(ctx context.Context, deps ChannelInboundBurs
 		deps.RunEventRepo == nil || deps.JobRepo == nil || deps.MessageRepo == nil || deps.Pool == nil {
 		slog.Warn("channel_inbound_burst_runner_skip", "reason", "deps")
 		return
+	}
+
+	var inputNotify func(ctx context.Context, runID uuid.UUID)
+	if deps.Bus != nil {
+		bus := deps.Bus
+		inputNotify = func(ctx context.Context, runID uuid.UUID) {
+			if runID == uuid.Nil {
+				return
+			}
+			_ = bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
+		}
+	} else if deps.Pool != nil {
+		pool := deps.Pool
+		inputNotify = func(ctx context.Context, runID uuid.UUID) {
+			if runID == uuid.Nil {
+				return
+			}
+			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
+				slog.Warn("channel_active_run_notify_failed", "run_id", runID.String(), "error", err.Error())
+			}
+		}
 	}
 
 	runner := channelInboundBurstRunner{
@@ -78,6 +102,7 @@ func StartChannelInboundBurstRunner(ctx context.Context, deps ChannelInboundBurs
 		jobRepo:      deps.JobRepo,
 		messageRepo:  deps.MessageRepo,
 		pool:         deps.Pool,
+		inputNotify:  inputNotify,
 	}
 	go runner.run(ctx)
 }
@@ -195,17 +220,29 @@ func (r channelInboundBurstRunner) recoverBatch(
 		return err
 	}
 	if activeRun != nil {
-		if ch.ChannelType == "telegram" {
-			latestEntry, latestErr := latestPendingBatchEntry(entries)
-			if latestErr != nil {
-				return latestErr
-			}
-			if err := (telegramConnector{channelLedgerRepo: ledgerRepoTx}).maybeCancelTelegramHeartbeatRun(ctx, runRepoTx, activeRun.ID, latestEntry.MetadataJSON); err != nil {
+		state, delivered, err := deliverPendingBatchToActiveRunTx(
+			ctx,
+			ch,
+			runRepoTx,
+			r.messageRepo,
+			ledgerRepoTx,
+			activeRun,
+			entries,
+			observability.NewTraceID(),
+		)
+		if err != nil {
+			return err
+		}
+		if state != "" {
+			if err := markPendingBatchStateTx(ctx, ledgerRepoTx, ch.ID, entries, &activeRun.ID, state); err != nil {
 				return err
 			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
+		}
+		if delivered {
+			r.notifyActiveRunInput(ctx, activeRun.ID)
 		}
 		return nil
 	}
@@ -264,6 +301,102 @@ func (r channelInboundBurstRunner) recoverBatch(
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r channelInboundBurstRunner) notifyActiveRunInput(ctx context.Context, runID uuid.UUID) {
+	if r.inputNotify == nil || runID == uuid.Nil {
+		return
+	}
+	r.inputNotify(ctx, runID)
+}
+
+func deliverPendingBatchToActiveRunTx(
+	ctx context.Context,
+	ch data.Channel,
+	runRepo *data.RunEventRepository,
+	messageRepo *data.MessageRepository,
+	ledgerRepo *data.ChannelMessageLedgerRepository,
+	activeRun *data.Run,
+	entries []data.ChannelInboundLedgerEntry,
+	traceID string,
+) (string, bool, error) {
+	if runRepo == nil || messageRepo == nil || activeRun == nil || len(entries) == 0 {
+		return "", false, nil
+	}
+
+	switch ch.ChannelType {
+	case "telegram":
+		connector := telegramConnector{channelLedgerRepo: ledgerRepo}
+		for _, entry := range entries {
+			if entry.ThreadID == nil || entry.MessageID == nil {
+				return "", false, fmt.Errorf("telegram inbound ledger missing thread_id or message_id")
+			}
+			msg, err := messageRepo.GetByID(ctx, ch.AccountID, *entry.ThreadID, *entry.MessageID)
+			if err != nil {
+				return "", false, err
+			}
+			if msg == nil {
+				return "", false, fmt.Errorf("telegram inbound message missing")
+			}
+			preTail, _ := inboundLedgerString(entry.MetadataJSON, inboundMetadataPreTailKey)
+			delivered, heartbeatAbsorbed, err := connector.deliverTelegramMessageToActiveRun(
+				ctx,
+				runRepo,
+				activeRun,
+				buildTelegramIncomingFromLedger(entry),
+				msg.Content,
+				traceID,
+				preTail,
+			)
+			if err != nil {
+				return "", false, err
+			}
+			if heartbeatAbsorbed {
+				return inboundStateAbsorbedHeartbeat, false, nil
+			}
+			if !delivered {
+				return "", false, nil
+			}
+		}
+		return inboundStateDeliveredToRun, true, nil
+	default:
+		for _, entry := range entries {
+			if entry.ThreadID == nil || entry.MessageID == nil {
+				return "", false, fmt.Errorf("channel inbound ledger missing thread_id or message_id")
+			}
+			msg, err := messageRepo.GetByID(ctx, ch.AccountID, *entry.ThreadID, *entry.MessageID)
+			if err != nil {
+				return "", false, err
+			}
+			if msg == nil {
+				return "", false, fmt.Errorf("channel inbound message missing")
+			}
+			if _, err := runRepo.ProvideInputWithKey(
+				ctx,
+				activeRun.ID,
+				msg.Content,
+				traceID,
+				channelInboundInputKey(ch.ChannelType, entry.PlatformConversationID, entry.PlatformMessageID),
+			); err != nil {
+				var notActive data.RunNotActiveError
+				if errors.As(err, &notActive) {
+					return "", false, nil
+				}
+				return "", false, err
+			}
+		}
+		return inboundStateDeliveredToRun, true, nil
+	}
+}
+
+func channelInboundInputKey(channelType, platformConversationID, platformMessageID string) string {
+	channelType = strings.TrimSpace(channelType)
+	platformConversationID = strings.TrimSpace(platformConversationID)
+	platformMessageID = strings.TrimSpace(platformMessageID)
+	if channelType == "" || platformConversationID == "" || platformMessageID == "" {
+		return ""
+	}
+	return channelType + ":" + platformConversationID + ":" + platformMessageID
 }
 
 func resolveInboundBurstPersonaRef(ctx context.Context, personasRepo *data.PersonasRepository, ch data.Channel) (string, error) {
@@ -375,6 +508,65 @@ func extendPendingInboundBurstWindowTx(
 	dispatchAfterUnixMs := nextInboundBurstDispatchAfter(now)
 	for _, entry := range entries {
 		metadata := applyInboundBurstMetadata(entry.MetadataJSON, dispatchAfterUnixMs)
+		if _, err := repo.UpdateInboundEntry(
+			ctx,
+			channelID,
+			entry.PlatformConversationID,
+			entry.PlatformMessageID,
+			entry.ThreadID,
+			nil,
+			entry.MessageID,
+			metadata,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func shouldMergePassiveInboundIntoPendingBatchTx(
+	ctx context.Context,
+	repo *data.ChannelMessageLedgerRepository,
+	channelID uuid.UUID,
+	threadID uuid.UUID,
+	now time.Time,
+) (bool, error) {
+	if repo == nil || channelID == uuid.Nil || threadID == uuid.Nil {
+		return false, nil
+	}
+	pendingEntries, err := listPendingInboundBatchTx(ctx, repo, channelID, threadID)
+	if err != nil {
+		return false, err
+	}
+	if len(pendingEntries) == 0 {
+		return false, nil
+	}
+	return !pendingBatchReady(pendingEntries, now.UTC()), nil
+}
+
+func promoteRecentPassiveInboundToPendingTx(
+	ctx context.Context,
+	repo *data.ChannelMessageLedgerRepository,
+	channelID uuid.UUID,
+	threadID uuid.UUID,
+	now time.Time,
+) error {
+	if repo == nil || channelID == uuid.Nil || threadID == uuid.Nil {
+		return nil
+	}
+	now = now.UTC()
+	cutoff := now.Add(-channelInboundBurstWindow)
+	dispatchAfterUnixMs := nextInboundBurstDispatchAfter(now)
+
+	passiveEntries, err := repo.ListInboundEntriesByThreadState(ctx, channelID, threadID, inboundStatePassivePersisted, true)
+	if err != nil {
+		return err
+	}
+	for _, entry := range passiveEntries {
+		if entry.CreatedAt.UTC().Before(cutoff) {
+			continue
+		}
+		metadata := applyInboundBurstMetadata(applyInboundLedgerState(entry.MetadataJSON, inboundStatePendingDispatch), dispatchAfterUnixMs)
 		if _, err := repo.UpdateInboundEntry(
 			ctx,
 			channelID,

@@ -46,6 +46,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	incoming telegramIncomingMessage,
 	persona *data.Persona,
 ) (*telegramInboundStageAResult, error) {
+	now := time.Now().UTC()
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return nil, err
@@ -57,7 +58,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		return nil, err
 	}
 	baseMetadata := telegramInboundBaseMetadata(incoming)
-	dispatchAfterUnixMs := nextInboundBurstDispatchAfter(time.Now().UTC())
+	dispatchAfterUnixMs := nextInboundBurstDispatchAfter(now)
 
 	var groupIdentity *data.ChannelIdentity
 	if !incoming.IsPrivate() && isTelegramGroupLikeChatType(incoming.ChatType) {
@@ -254,11 +255,18 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	}
 
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
-		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata); err != nil {
+		_, finalState, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata)
+		if err != nil {
 			return nil, err
 		}
+		if finalState == inboundStatePendingDispatch {
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			return &telegramInboundStageAResult{finalState: inboundStatePendingDispatch}, nil
+		}
 		slog.InfoContext(ctx, "telegram_inbound_processed",
-			"stage", inboundStatePassivePersisted,
+			"stage", finalState,
 			"channel_id", ch.ID.String(),
 			"account_id", ch.AccountID.String(),
 			"platform_chat_id", incoming.PlatformChatID,
@@ -270,7 +278,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
-		return &telegramInboundStageAResult{finalState: inboundStatePassivePersisted}, nil
+		return &telegramInboundStageAResult{finalState: finalState}, nil
 	}
 
 	threadProjectID := derefUUID(persona.ProjectID)
@@ -326,7 +334,11 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	); err != nil {
 		return nil, err
 	}
-	if err := extendPendingInboundBurstWindowTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, threadID, time.Now().UTC()); err != nil {
+	ledgerRepoTx := c.channelLedgerRepo.WithTx(tx)
+	if err := promoteRecentPassiveInboundToPendingTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
+		return nil, err
+	}
+	if err := extendPendingInboundBurstWindowTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -391,11 +403,30 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		return err
 	}
 	if activeRun != nil {
-		if err := c.maybeCancelTelegramHeartbeatRun(ctx, runRepoTx, activeRun.ID, latestEntry.MetadataJSON); err != nil {
+		state, delivered, err := deliverPendingBatchToActiveRunTx(
+			ctx,
+			ch,
+			runRepoTx,
+			c.messageRepo,
+			c.channelLedgerRepo.WithTx(tx),
+			activeRun,
+			entries,
+			traceID,
+		)
+		if err != nil {
 			return err
+		}
+		if state != "" {
+			if err := markPendingBatchStateTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, entries, &activeRun.ID, state); err != nil {
+				return err
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return err
+		}
+		if delivered {
+			c.notifyActiveRunInput(ctx, activeRun.ID)
+			return nil
 		}
 		return errInboundDispatchDeferred
 	}
@@ -667,15 +698,31 @@ func (c telegramConnector) recoverPendingTelegramInboundDispatches(ctx context.C
 				_ = tx.Rollback(ctx)
 				return batchErr
 			}
-			latest, latestErr := latestPendingBatchEntry(threadBatch)
-			if latestErr == nil {
-				if err := c.maybeCancelTelegramHeartbeatRun(ctx, runTx, activeRun.ID, latest.MetadataJSON); err != nil {
+			state, delivered, deliverErr := deliverPendingBatchToActiveRunTx(
+				ctx,
+				*ch,
+				runTx,
+				c.messageRepo,
+				ledgerTx,
+				activeRun,
+				threadBatch,
+				observability.NewTraceID(),
+			)
+			if deliverErr != nil {
+				_ = tx.Rollback(ctx)
+				return deliverErr
+			}
+			if state != "" {
+				if err := markPendingBatchStateTx(ctx, ledgerTx, ch.ID, threadBatch, &activeRun.ID, state); err != nil {
 					_ = tx.Rollback(ctx)
 					return err
 				}
 			}
 			if err := tx.Commit(ctx); err != nil {
 				return err
+			}
+			if delivered {
+				c.notifyActiveRunInput(ctx, activeRun.ID)
 			}
 			continue
 		}

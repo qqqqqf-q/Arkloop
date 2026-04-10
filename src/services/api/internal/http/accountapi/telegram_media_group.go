@@ -210,6 +210,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	incoming telegramIncomingMessage,
 	persona *data.Persona,
 ) error {
+	now := time.Now().UTC()
 	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -318,8 +319,12 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
 		baseMetadata := telegramInboundBaseMetadata(incoming)
 		baseMetadata["media_group"] = true
-		if _, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata); err != nil {
+		_, finalState, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata)
+		if err != nil {
 			return err
+		}
+		if finalState == inboundStatePendingDispatch {
+			return tx.Commit(ctx)
 		}
 		return tx.Commit(ctx)
 	}
@@ -366,7 +371,9 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if err != nil {
 		return err
 	}
+	var ledgerRepoTx *data.ChannelMessageLedgerRepository
 	if c.channelLedgerRepo != nil {
+		ledgerRepoTx = c.channelLedgerRepo.WithTx(tx)
 		ledgerBaseMetadata := map[string]any{
 			"source":            "telegram",
 			"conversation_type": incoming.ChatType,
@@ -382,9 +389,9 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			return metaErr
 		}
 		if incoming.ShouldCreateRun() {
-			ledgerMetadata = applyInboundBurstMetadata(inboundLedgerMetadata(ledgerBaseMetadata, inboundStatePendingDispatch), nextInboundBurstDispatchAfter(time.Now().UTC()))
+			ledgerMetadata = applyInboundBurstMetadata(inboundLedgerMetadata(ledgerBaseMetadata, inboundStatePendingDispatch), nextInboundBurstDispatchAfter(now))
 		}
-		if _, ledgerErr := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+		if _, ledgerErr := ledgerRepoTx.Record(ctx, data.ChannelMessageLedgerRecordInput{
 			ChannelID:               ch.ID,
 			ChannelType:             ch.ChannelType,
 			Direction:               data.ChannelMessageDirectionInbound,
@@ -400,13 +407,16 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			return ledgerErr
 		}
 	}
-
 	if !incoming.ShouldCreateRun() {
 		return tx.Commit(ctx)
 	}
-	if err := extendPendingInboundBurstWindowTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, threadID, time.Now().UTC()); err != nil {
-		return err
+	if ledgerRepoTx != nil {
+		if err := promoteRecentPassiveInboundToPendingTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
+			return err
+		}
+		if err := extendPendingInboundBurstWindowTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
+			return err
+		}
 	}
-
 	return tx.Commit(ctx)
 }

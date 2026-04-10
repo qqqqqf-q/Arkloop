@@ -1385,6 +1385,197 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	}
 }
 
+func TestTelegramWebhookGroupBurstPromotesPassiveAndMergesFollowup(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 1200*time.Millisecond)
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids": []string{"10001"},
+		"bot_username":     "arkloopbot",
+	})
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	passive := map[string]any{
+		"message": map[string]any{
+			"message_id": 201,
+			"date":       1710001000,
+			"text":       "群里闲聊一条",
+			"chat": map[string]any{
+				"id":    -21001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", passive, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("passive webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 0)
+
+	active := map[string]any{
+		"message": map[string]any{
+			"message_id": 202,
+			"date":       1710001001,
+			"text":       "@arkloopbot 看一下",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -21001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", active, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("active webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 0)
+
+	firstDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-21001", "201")
+	if firstDispatchAfter <= time.Now().UTC().UnixMilli() {
+		t.Fatalf("expected promoted passive message dispatch_after in future, got %d", firstDispatchAfter)
+	}
+
+	followup := map[string]any{
+		"message": map[string]any{
+			"message_id": 203,
+			"date":       1710001002,
+			"text":       "补充一句",
+			"chat": map[string]any{
+				"id":    -21001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", followup, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("followup webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 3)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
+
+	extendedDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-21001", "201")
+	followupDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-21001", "203")
+	if extendedDispatchAfter <= firstDispatchAfter {
+		t.Fatalf("expected pending batch window extension, got before=%d after=%d", firstDispatchAfter, extendedDispatchAfter)
+	}
+	if followupDispatchAfter < extendedDispatchAfter {
+		t.Fatalf("expected followup message in same pending window, got followup=%d base=%d", followupDispatchAfter, extendedDispatchAfter)
+	}
+}
+
+func TestTelegramWebhookMediaGroupPassiveMergesIntoPendingBatch(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 2*time.Second)
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"allowed_user_ids": []string{"10001"},
+		"bot_username":     "arkloopbot",
+	})
+	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
+
+	active := map[string]any{
+		"message": map[string]any{
+			"message_id": 301,
+			"date":       1710001100,
+			"text":       "@arkloopbot 先看这条",
+			"entities": []map[string]any{
+				{"type": "mention", "offset": 0, "length": 11},
+			},
+			"chat": map[string]any{
+				"id":    -22001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp := doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", active, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("active webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 1)
+	beforeDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-22001", "301")
+
+	mediaGroupPassive := map[string]any{
+		"message": map[string]any{
+			"message_id":     302,
+			"date":           1710001101,
+			"caption":        "图片补充",
+			"media_group_id": "mg-302",
+			"photo": []map[string]any{
+				{"file_id": "photo-302-a", "file_size": 64, "width": 32, "height": 32},
+			},
+			"chat": map[string]any{
+				"id":    -22001,
+				"type":  "supergroup",
+				"title": "Arkloop Group",
+			},
+			"from": map[string]any{
+				"id":         10001,
+				"is_bot":     false,
+				"first_name": "Alice",
+			},
+		},
+	}
+	resp = doJSONAccount(env.handler, nethttp.MethodPost, "/v1/channels/telegram/"+channel.ID.String()+"/webhook", mediaGroupPassive, headers)
+	if resp.Code != nethttp.StatusOK {
+		t.Fatalf("media group webhook status: %d %s", resp.Code, resp.Body.String())
+	}
+
+	time.Sleep(900 * time.Millisecond)
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 2)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
+	assertCountAccount(t, env.pool, `
+		SELECT COUNT(*) FROM channel_message_ledger
+		 WHERE channel_id = '`+channel.ID.String()+`'
+		   AND direction = 'inbound'
+		   AND platform_conversation_id = '-22001'
+		   AND platform_message_id = '302'
+		   AND metadata_json->>'media_group' = 'true'`, 1)
+
+	afterDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-22001", "301")
+	mediaDispatchAfter := queryInboundDispatchAfterUnixMs(t, env.pool, channel.ID, "-22001", "302")
+	if afterDispatchAfter <= beforeDispatchAfter {
+		t.Fatalf("expected pending batch window extension after media group merge, got before=%d after=%d", beforeDispatchAfter, afterDispatchAfter)
+	}
+	if mediaDispatchAfter < afterDispatchAfter {
+		t.Fatalf("expected media-group message merged into active pending window, got media=%d base=%d", mediaDispatchAfter, afterDispatchAfter)
+	}
+}
+
 func TestTelegramWebhookReplyUsesParentAsTriggerMessage(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
@@ -2171,6 +2362,139 @@ func TestTelegramPollThrottleRetryCreatesRunAfterWindowOpens(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 }
 
+func TestTelegramPollPendingDispatchInjectsIntoActiveRun(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 25*time.Millisecond)
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "demo-cred^gpt-5-mini")
+
+	channelIdentitiesRepo, err := data.NewChannelIdentitiesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identities repo: %v", err)
+	}
+	channelIdentityLinksRepo, err := data.NewChannelIdentityLinksRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identity links repo: %v", err)
+	}
+	channelBindCodesRepo, err := data.NewChannelBindCodesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel bind repo: %v", err)
+	}
+	channelDMThreadsRepo, err := data.NewChannelDMThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel dm threads repo: %v", err)
+	}
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel group threads repo: %v", err)
+	}
+	channelReceiptsRepo, err := data.NewChannelMessageReceiptsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel receipts repo: %v", err)
+	}
+	channelLedgerRepo, err := data.NewChannelMessageLedgerRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel ledger repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(env.pool)
+	if err != nil {
+		t.Fatalf("thread repo: %v", err)
+	}
+	messageRepo, err := data.NewMessageRepository(env.pool)
+	if err != nil {
+		t.Fatalf("message repo: %v", err)
+	}
+	runEventRepo, err := data.NewRunEventRepository(env.pool)
+	if err != nil {
+		t.Fatalf("run event repo: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(env.pool)
+	if err != nil {
+		t.Fatalf("job repo: %v", err)
+	}
+	personasRepo, err := data.NewPersonasRepository(env.pool)
+	if err != nil {
+		t.Fatalf("personas repo: %v", err)
+	}
+
+	connector := telegramConnector{
+		channelsRepo:             env.channelsRepo,
+		channelIdentitiesRepo:    channelIdentitiesRepo,
+		channelIdentityLinksRepo: channelIdentityLinksRepo,
+		channelBindCodesRepo:     channelBindCodesRepo,
+		channelDMThreadsRepo:     channelDMThreadsRepo,
+		channelGroupThreadsRepo:  channelGroupThreadsRepo,
+		channelReceiptsRepo:      channelReceiptsRepo,
+		channelLedgerRepo:        channelLedgerRepo,
+		personasRepo:             personasRepo,
+		threadRepo:               threadRepo,
+		messageRepo:              messageRepo,
+		runEventRepo:             runEventRepo,
+		jobRepo:                  jobRepo,
+		pool:                     env.pool,
+		telegramClient:           telegrambot.NewClient("https://api.telegram.org", nil),
+	}
+
+	update := telegramUpdate{
+		UpdateID: 11,
+		Message: &telegramMessage{
+			MessageID: 71,
+			Date:      1710000700,
+			Text:      "hello active run",
+			Chat: telegramChat{
+				ID:   10001,
+				Type: "private",
+			},
+			From: &telegramUser{
+				ID:        10001,
+				IsBot:     false,
+				FirstName: func() *string { value := "Alice"; return &value }(),
+				Username:  func() *string { value := "alice"; return &value }(),
+			},
+		},
+	}
+
+	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", update); err != nil {
+		t.Fatalf("handle poll update: %v", err)
+	}
+
+	identity, err := channelIdentitiesRepo.GetByChannelAndSubject(context.Background(), "telegram", "10001")
+	if err != nil {
+		t.Fatalf("get telegram identity: %v", err)
+	}
+	if identity == nil {
+		t.Fatal("expected telegram identity")
+	}
+	threadMap, err := channelDMThreadsRepo.GetByBinding(context.Background(), channel.ID, identity.ID, env.personaID)
+	if err != nil {
+		t.Fatalf("get dm thread binding: %v", err)
+	}
+	if threadMap == nil {
+		t.Fatal("expected dm thread binding")
+	}
+	activeRun, _, err := runEventRepo.CreateRunWithStartedEvent(
+		context.Background(),
+		env.accountID,
+		threadMap.ThreadID,
+		identity.UserID,
+		"run.started",
+		map[string]any{"persona_id": env.personaID.String()},
+	)
+	if err != nil {
+		t.Fatalf("create active run: %v", err)
+	}
+
+	time.Sleep(40 * time.Millisecond)
+	if err := connector.recoverPendingTelegramInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending telegram dispatches: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM run_events WHERE run_id = '`+activeRun.ID.String()+`' AND type = 'run.input_provided'`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND run_id = '`+activeRun.ID.String()+`' AND metadata_json->>'ingress_state' = '`+inboundStateDeliveredToRun+`'`, 1)
+}
+
 func TestTelegramPollConcurrentDuplicateMessageCreatesSingleRun(t *testing.T) {
 	setChannelInboundBurstWindowForTest(t, 20*time.Millisecond)
 
@@ -2562,6 +2886,98 @@ func TestTelegramWebhookGroupKeywordTriggerCreatesRun(t *testing.T) {
 	}
 }
 
+func TestTelegramGroupBurstIncludesPassiveAroundTrigger(t *testing.T) {
+	setChannelInboundBurstWindowForTest(t, 25*time.Millisecond)
+
+	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
+	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
+		"bot_username":     "arkloopbot",
+		"bot_first_name":   "Arkloop",
+		"trigger_keywords": []string{"草洛"},
+	})
+	connector := newTelegramConnectorForTest(t, env, telegrambot.NewClient("https://api.telegram.org", nil))
+
+	passiveBefore := telegramUpdate{
+		UpdateID: 201,
+		Message: &telegramMessage{
+			MessageID: 401,
+			Date:      1710001000,
+			Text:      "上传到0x0,st",
+			Chat: telegramChat{
+				ID:    -40001,
+				Type:  "supergroup",
+				Title: func() *string { value := "Arkloop Group"; return &value }(),
+			},
+			From: &telegramUser{
+				ID:        10001,
+				IsBot:     false,
+				FirstName: func() *string { value := "Alice"; return &value }(),
+			},
+		},
+	}
+	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", passiveBefore); err != nil {
+		t.Fatalf("handle passive before: %v", err)
+	}
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 1)
+
+	trigger := telegramUpdate{
+		UpdateID: 202,
+		Message: &telegramMessage{
+			MessageID: 402,
+			Date:      1710001001,
+			Text:      "草洛 做一个更炫幻的",
+			Chat: telegramChat{
+				ID:    -40001,
+				Type:  "supergroup",
+				Title: func() *string { value := "Arkloop Group"; return &value }(),
+			},
+			From: &telegramUser{
+				ID:        10001,
+				IsBot:     false,
+				FirstName: func() *string { value := "Alice"; return &value }(),
+			},
+		},
+	}
+	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", trigger); err != nil {
+		t.Fatalf("handle trigger: %v", err)
+	}
+
+	passiveAfter := telegramUpdate{
+		UpdateID: 203,
+		Message: &telegramMessage{
+			MessageID: 403,
+			Date:      1710001002,
+			Text:      "我转发给你看看",
+			Chat: telegramChat{
+				ID:    -40001,
+				Type:  "supergroup",
+				Title: func() *string { value := "Arkloop Group"; return &value }(),
+			},
+			From: &telegramUser{
+				ID:        10001,
+				IsBot:     false,
+				FirstName: func() *string { value := "Alice"; return &value }(),
+			},
+		},
+	}
+	if err := connector.HandleUpdateForPoll(context.Background(), uuid.NewString(), channel, "bot-token", passiveAfter); err != nil {
+		t.Fatalf("handle passive after: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 0)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePendingDispatch+`'`, 3)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND metadata_json->>'ingress_state' = '`+inboundStatePassivePersisted+`'`, 0)
+
+	time.Sleep(40 * time.Millisecond)
+	if err := connector.recoverPendingTelegramInboundDispatches(context.Background(), channel.ID); err != nil {
+		t.Fatalf("recover pending telegram dispatches: %v", err)
+	}
+
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM channel_message_ledger WHERE direction = 'inbound' AND run_id IS NOT NULL AND metadata_json->>'ingress_state' = '`+inboundStateEnqueuedNewRun+`'`, 3)
+}
+
 func doJSONAccount(handler nethttp.Handler, method string, path string, payload any, headers map[string]string) *httptest.ResponseRecorder {
 	var body io.Reader
 	if payload != nil {
@@ -2596,6 +3012,80 @@ func createActiveTelegramChannel(t *testing.T, env telegramChannelsTestEnv, botT
 		config["default_model"] = strings.TrimSpace(defaultModel)
 	}
 	return createActiveTelegramChannelWithConfig(t, env, botToken, config)
+}
+
+func newTelegramConnectorForTest(t *testing.T, env telegramChannelsTestEnv, botClient *telegrambot.Client) telegramConnector {
+	t.Helper()
+
+	channelIdentitiesRepo, err := data.NewChannelIdentitiesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identities repo: %v", err)
+	}
+	channelIdentityLinksRepo, err := data.NewChannelIdentityLinksRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identity links repo: %v", err)
+	}
+	channelBindCodesRepo, err := data.NewChannelBindCodesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel bind repo: %v", err)
+	}
+	channelDMThreadsRepo, err := data.NewChannelDMThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel dm threads repo: %v", err)
+	}
+	channelGroupThreadsRepo, err := data.NewChannelGroupThreadsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel group threads repo: %v", err)
+	}
+	channelReceiptsRepo, err := data.NewChannelMessageReceiptsRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel receipts repo: %v", err)
+	}
+	channelLedgerRepo, err := data.NewChannelMessageLedgerRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel ledger repo: %v", err)
+	}
+	threadRepo, err := data.NewThreadRepository(env.pool)
+	if err != nil {
+		t.Fatalf("thread repo: %v", err)
+	}
+	messageRepo, err := data.NewMessageRepository(env.pool)
+	if err != nil {
+		t.Fatalf("message repo: %v", err)
+	}
+	runEventRepo, err := data.NewRunEventRepository(env.pool)
+	if err != nil {
+		t.Fatalf("run event repo: %v", err)
+	}
+	jobRepo, err := data.NewJobRepository(env.pool)
+	if err != nil {
+		t.Fatalf("job repo: %v", err)
+	}
+	personasRepo, err := data.NewPersonasRepository(env.pool)
+	if err != nil {
+		t.Fatalf("personas repo: %v", err)
+	}
+	if botClient == nil {
+		botClient = telegrambot.NewClient("https://api.telegram.org", nil)
+	}
+
+	return telegramConnector{
+		channelsRepo:             env.channelsRepo,
+		channelIdentitiesRepo:    channelIdentitiesRepo,
+		channelIdentityLinksRepo: channelIdentityLinksRepo,
+		channelBindCodesRepo:     channelBindCodesRepo,
+		channelDMThreadsRepo:     channelDMThreadsRepo,
+		channelGroupThreadsRepo:  channelGroupThreadsRepo,
+		channelReceiptsRepo:      channelReceiptsRepo,
+		channelLedgerRepo:        channelLedgerRepo,
+		personasRepo:             personasRepo,
+		threadRepo:               threadRepo,
+		messageRepo:              messageRepo,
+		runEventRepo:             runEventRepo,
+		jobRepo:                  jobRepo,
+		pool:                     env.pool,
+		telegramClient:           botClient,
+	}
 }
 
 func seedTelegramSelectorRoute(t *testing.T, env telegramChannelsTestEnv, credentialName string, model string) {
@@ -2679,6 +3169,32 @@ func createActiveTelegramChannelWithConfig(t *testing.T, env telegramChannelsTes
 		t.Fatal("channel activation returned nil")
 	}
 	return *updated
+}
+
+func queryInboundDispatchAfterUnixMs(
+	t *testing.T,
+	pool *pgxpool.Pool,
+	channelID uuid.UUID,
+	platformChatID string,
+	platformMessageID string,
+) int64 {
+	t.Helper()
+	var dispatchAfter int64
+	if err := pool.QueryRow(
+		context.Background(),
+		`SELECT COALESCE((metadata_json->>'dispatch_after_unix_ms')::bigint, 0)
+		   FROM channel_message_ledger
+		  WHERE channel_id = $1
+		    AND direction = 'inbound'
+		    AND platform_conversation_id = $2
+		    AND platform_message_id = $3`,
+		channelID,
+		platformChatID,
+		platformMessageID,
+	).Scan(&dispatchAfter); err != nil {
+		t.Fatalf("query dispatch_after_unix_ms: %v", err)
+	}
+	return dispatchAfter
 }
 
 func authHeader(token string) map[string]string {
