@@ -32,149 +32,72 @@ const (
 	fastCompactMaxPrefixMessages = 4
 )
 
-const contextCompactSystemPrompt = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
+const contextCompactSystemPrompt = `You are a dialogue compression assistant.
 
-Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
+Compress the conversation faithfully so another model can continue with minimal loss.
 
-const contextCompactInitialPrompt = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+Rules:
+- This is compression, not analysis.
+- Do NOT infer goals, plans, blockers, or "next steps" unless they were explicitly said.
+- Preserve concrete facts, chronology, unresolved questions, decisions actually stated, file paths, function names, commands, URLs, numbers, errors, IDs, and quoted wording when important.
+- Remove filler, repetition, greetings, and other low-information chatter.
+- Keep the output in the dominant language of the conversation.
+- Output only the compressed conversation text.`
 
-Use this EXACT format:
+const contextCompactInitialPrompt = `Rewrite the conversation above into a shorter faithful version.
 
-## Goal
-[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
+Output rules:
+- Keep chronological order.
+- Use short bullet points.
+- Mention the speaker only when it helps disambiguate.
+- Preserve concrete details exactly when they matter.
+- Do not turn the conversation into a project report or task analysis.
+- Do not add headings such as Goal, Progress, Next Steps, or Decisions unless those words were part of the original conversation.
+- Do not answer the conversation.`
 
-## Constraints & Preferences
-- [Any constraints, preferences, or requirements mentioned by user]
-- [Or "(none)" if none were mentioned]
+const contextCompactUpdatePrompt = `Update the existing compressed conversation in <previous-summary> using the new messages in <conversation>.
 
-## Progress
-### Done
-- [x] [Completed tasks/changes]
+Rules:
+- Preserve earlier compressed content unless the new messages clearly replace or resolve it.
+- Keep chronological order.
+- Continue to compress faithfully rather than analyze.
+- Keep concrete details exact when they matter.
+- Remove filler and repeated phrasing.
+- Output only the updated compressed conversation as short bullet points.`
 
-### In Progress
-- [ ] [Current work]
+const contextCompactGroupSystemPrompt = `You are a multi-participant dialogue compression assistant.
 
-### Blocked
-- [Issues preventing progress, if any]
+Compress the conversation faithfully so another model can continue with minimal loss.
 
-## Key Decisions
-- **[Decision]**: [Brief rationale]
+Rules:
+- This is compression, not analysis.
+- Preserve who said what when speaker identity matters.
+- Do NOT infer goals, plans, moods, or conclusions unless they were explicitly stated.
+- Preserve usernames, links, numbers, commands, IDs, errors, and notable quoted wording when important.
+- Remove filler, repetition, greetings, and other low-information chatter.
+- Keep the output in the dominant language of the conversation.
+- Output only the compressed conversation text.`
 
-## Next Steps
-1. [Ordered list of what should happen next]
+const contextCompactGroupInitialPrompt = `Rewrite the group conversation above into a shorter faithful version.
 
-## Critical Context
-- [Any data, examples, or references needed to continue]
-- [Or "(none)" if not applicable]
+Output rules:
+- Keep chronological order.
+- Use short bullet points.
+- Prefix each bullet with the participant name only when needed.
+- Preserve concrete facts and speaker attribution exactly when they matter.
+- Do not turn the conversation into topics / mood / participant analysis.
+- Do not answer the conversation.`
 
-Keep each section concise. Preserve exact file paths, function names, and error messages.`
+const contextCompactGroupUpdatePrompt = `Update the existing compressed group conversation in <previous-summary> using the new messages in <conversation>.
 
-const contextCompactUpdatePrompt = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
-
-Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
-- ADD new progress, decisions, and context from the new messages
-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
-- UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
-
-Use this EXACT format:
-
-## Goal
-[Preserve existing goals, add new ones if the task expanded]
-
-## Constraints & Preferences
-- [Preserve existing, add new ones discovered]
-
-## Progress
-### Done
-- [x] [Include previously done items AND newly completed items]
-
-### In Progress
-- [ ] [Current work - update based on progress]
-
-### Blocked
-- [Current blockers - remove if resolved]
-
-## Key Decisions
-- **[Decision]**: [Brief rationale] (preserve all previous, add new)
-
-## Next Steps
-1. [Update based on current state]
-
-## Critical Context
-- [Preserve important context, add new if needed]
-
-Keep each section concise. Preserve exact file paths, function names, and error messages.`
-
-const contextCompactGroupSystemPrompt = `You are a context summarization assistant for a group chat. Your task is to read a multi-participant group conversation and produce a structured summary following the exact format specified.
-
-Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
-
-const contextCompactGroupInitialPrompt = `The messages above are from a multi-participant group chat to summarize. Create a structured group chat summary that another LLM joining the conversation will use to understand context.
-
-CRITICAL: Write the summary in the SAME language the group chat primarily uses. If the conversation is in Chinese, write the summary in Chinese. If in English, write in English. Match the group's dominant language.
-
-Use this EXACT format:
-
-## Topics
-[What topics are being discussed? List each distinct topic or thread of discussion.]
-
-## Participants
-- [Name/handle]: [Their role, stance, or typical contributions in this conversation]
-
-## Key Points
-- [Important information, opinions, decisions, or events mentioned]
-- [Include any shared links, data, or references]
-
-## Mood & Context
-[Current atmosphere of the group — casual, heated, collaborative, etc. What direction is the conversation heading?]
-
-## Notable Details
-- [Specific facts, numbers, names, or quotes worth preserving]
-- [Or "(none)" if not applicable]
-
-## Assistant Voice
-[Quote the assistant's 2-3 most recent replies VERBATIM (the full message text). If the assistant has not spoken in this segment, write "(no assistant messages in this segment)".]
-
-Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
-
-const contextCompactGroupUpdatePrompt = `The messages above are NEW group chat messages to incorporate into the existing summary provided in <previous-summary> tags.
-
-Update the existing structured summary with new information. RULES:
-- PRESERVE key information from the previous summary
-- CONDENSE older information: merge related topics, remove concluded discussions, shorten participant descriptions for inactive participants
-- ADD new topics, participants, and key points from the new messages
-- UPDATE participant descriptions if their stance or activity changed
-- UPDATE "Mood & Context" to reflect the latest conversation direction
-- MERGE or remove topics that have concluded or are no longer relevant
-- PRESERVE usernames, links, and specific data exactly as stated
-- UPDATE "Assistant Voice" with the assistant's latest verbatim replies from the new messages; keep only the 2-3 most recent
-- Write the summary in the SAME language the group chat primarily uses
-- The summary MUST NOT exceed approximately 8000 tokens (~32000 characters). If approaching this limit, aggressively condense older sections to make room for new information
-
-Use this EXACT format:
-
-## Topics
-[Preserve ongoing topics, add new ones, mark concluded ones if needed]
-
-## Participants
-- [Preserve existing, add new participants, update descriptions]
-
-## Key Points
-- [Preserve existing important points, add new ones]
-
-## Mood & Context
-[Update to reflect the latest group atmosphere and conversation direction]
-
-## Notable Details
-- [Preserve important details, add new ones]
-
-## Assistant Voice
-[Quote the assistant's 2-3 most recent replies VERBATIM. Replace older quotes with newer ones from the new messages. If no new assistant messages, preserve the previous quotes.]
-
-Keep each section concise. Preserve usernames, links, and specific data exactly as stated.`
+Rules:
+- Preserve earlier compressed content unless the new messages clearly replace or resolve it.
+- Keep chronological order.
+- Preserve speaker attribution when it matters.
+- Continue to compress faithfully rather than analyze.
+- Keep concrete details exact when they matter.
+- Remove filler and repeated phrasing.
+- Output only the updated compressed conversation as short bullet points.`
 
 var errContextCompactStreamDone = errors.New("context_compact_stream_done")
 
@@ -326,7 +249,7 @@ func NewContextCompactMiddleware(
 
 							summaryInputMsgs, summaryInputDropped := prepareCompactSummaryInput(enc, compactBase[:split])
 							summaryInputIDs := compactBaseIDs[summaryInputDropped:split]
-							summary, sumErr := runContextCompactLLM(ctx, gw, model, summaryInputMsgs, enc, "")
+							summary, sumErr := runContextCompactLLM(ctx, gw, model, summaryInputMsgs, enc, persistWindowActiveSnapshotText)
 							if sumErr != nil {
 								slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
 								persistFailedEvent = map[string]any{
@@ -847,7 +770,7 @@ func MaybeInlineCompactMessages(
 		return msgs, stats, false, nil
 	}
 	summaryInputMsgs, summaryInputDropped := prepareCompactSummaryInput(enc, compactBase[:split])
-	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, summaryInputMsgs, enc, "")
+	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, summaryInputMsgs, enc, rc.ActiveCompactSnapshotText)
 	if err != nil {
 		return msgs, stats, false, err
 	}
@@ -871,7 +794,13 @@ func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string
 		return "", fmt.Errorf("gateway or model missing")
 	}
 	_ = enc
+	if strings.TrimSpace(previousSummary) != "" {
+		prefix = trimLeadingCompactSnapshotMessages(prefix)
+	}
 	conversationText := serializeMessagesForCompact(prefix)
+	if strings.TrimSpace(conversationText) == "" && strings.TrimSpace(previousSummary) != "" {
+		return strings.TrimSpace(previousSummary), nil
+	}
 	if strings.TrimSpace(conversationText) == "" {
 		return "", nil
 	}
@@ -927,6 +856,26 @@ func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string
 		return "", err
 	}
 	return strings.TrimSpace(strings.Join(chunks, "")), nil
+}
+
+func trimLeadingCompactSnapshotMessages(msgs []llm.Message) []llm.Message {
+	start := 0
+	for start < len(msgs) {
+		msg := msgs[start]
+		if strings.TrimSpace(msg.Role) != "user" || len(msg.Content) == 0 {
+			break
+		}
+		if !strings.HasPrefix(strings.TrimSpace(msg.Content[0].Text), compactSnapshotHeader) {
+			break
+		}
+		start++
+	}
+	if start == 0 {
+		return msgs
+	}
+	out := make([]llm.Message, len(msgs)-start)
+	copy(out, msgs[start:])
+	return out
 }
 
 func appendContextCompactRunEvent(
@@ -1046,7 +995,13 @@ func runGroupCompactLLM(ctx context.Context, gateway llm.Gateway, model string, 
 		return "", fmt.Errorf("gateway or model missing")
 	}
 	_ = enc
+	if strings.TrimSpace(previousSummary) != "" {
+		prefix = trimLeadingCompactSnapshotMessages(prefix)
+	}
 	conversationText := serializeMessagesForCompact(prefix)
+	if strings.TrimSpace(conversationText) == "" && strings.TrimSpace(previousSummary) != "" {
+		return strings.TrimSpace(previousSummary), nil
+	}
 	if strings.TrimSpace(conversationText) == "" {
 		return "", nil
 	}
