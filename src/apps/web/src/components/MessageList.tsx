@@ -75,6 +75,7 @@ function FailedRunRetryCard({
 
 export const MessageList = memo(function MessageList({
   lastTurnRef,
+  lastUserPromptRef,
   lastTurnChildren,
   lastTurnStartIdx,
   handleRetry,
@@ -92,6 +93,7 @@ export const MessageList = memo(function MessageList({
   clearUserEnterAnimation,
 }: {
   lastTurnRef: React.RefObject<HTMLDivElement | null>
+  lastUserPromptRef: React.RefObject<HTMLDivElement | null>
   lastTurnChildren?: React.ReactNode
   lastTurnStartIdx: number
   handleRetry: () => void
@@ -250,7 +252,11 @@ export const MessageList = memo(function MessageList({
     const msgThinking = msg.role === 'assistant' ? msgMeta?.thinking : undefined
 
     return (
-      <div key={msg.id} className="group/turn">
+      <div
+        key={msg.id}
+        ref={msg.role === 'user' && idx === lastTurnStartIdx ? lastUserPromptRef : undefined}
+        className="group/turn"
+      >
         {msg.role === 'assistant' && hasAssistantTurn && (
           <div style={{ marginBottom: '6px', display: 'flex', flexDirection: 'column', gap: 0, maxWidth: '663px' }}>
             {!isSearchThread &&

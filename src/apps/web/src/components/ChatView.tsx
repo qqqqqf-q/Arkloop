@@ -746,6 +746,7 @@ export function ChatView() {
     bottomRef,
     scrollContainerRef,
     lastUserMsgRef,
+    lastUserPromptRef,
     inputAreaRef,
     forceInstantBottomScrollRef,
     isAtBottomRef,
@@ -1930,6 +1931,7 @@ export function ChatView() {
               <MessageList
                 lastTurnStartIdx={lastTurnStartIdx}
                 lastTurnRef={lastUserMsgRef}
+                lastUserPromptRef={lastUserPromptRef}
                 lastTurnChildren={
                   <LiveRunPane
                     showPendingThinkingShell={showPendingThinkingShell}
