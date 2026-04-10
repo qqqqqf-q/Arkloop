@@ -4,6 +4,7 @@ package localshell
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -391,6 +392,8 @@ func TestProcessControllerReleasesTerminalProcessAfterRetention(t *testing.T) {
 
 func TestBuildProcessEnvDoesNotInheritHostEnvironment(t *testing.T) {
 	t.Setenv("ARKLOOP_HOST_SECRET", "host-only")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 
 	env := buildProcessEnv(nil, false)
 	joined := strings.Join(env, "\n")
@@ -399,6 +402,10 @@ func TestBuildProcessEnvDoesNotInheritHostEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(joined, "PATH=") {
 		t.Fatalf("expected sanitized PATH in env, got %q", joined)
+	}
+	expectedBin := filepath.Join(home, ".arkloop", "bin")
+	if !strings.Contains(joined, "PATH="+expectedBin+string(filepath.ListSeparator)) {
+		t.Fatalf("expected desktop bin in PATH, got %q", joined)
 	}
 	if !strings.Contains(joined, "LANG="+defaultProcessLang) {
 		t.Fatalf("expected sanitized LANG in env, got %q", joined)

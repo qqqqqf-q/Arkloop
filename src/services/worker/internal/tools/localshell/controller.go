@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -630,7 +631,7 @@ func resolveProcessCwd(cwd string) string {
 func buildProcessEnv(extra map[string]*string, includeTerm bool) []string {
 	env := map[string]string{
 		"HOME":    processHomeDir(),
-		"PATH":    defaultProcessPath,
+		"PATH":    processPath(),
 		"LANG":    defaultProcessLang,
 		"TMPDIR":  processTempDir(),
 		"USER":    processUserName,
@@ -667,6 +668,32 @@ func processHomeDir() string {
 		return strings.TrimSpace(home)
 	}
 	return defaultProcessHome
+}
+
+func processPath() string {
+	entries := []string{}
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		entries = append(entries, filepath.Join(strings.TrimSpace(home), ".arkloop", "bin"))
+	}
+	entries = append(entries, filepath.SplitList(defaultProcessPath)...)
+	return strings.Join(uniqueProcessPathEntries(entries), string(os.PathListSeparator))
+}
+
+func uniqueProcessPathEntries(entries []string) []string {
+	seen := make(map[string]struct{}, len(entries))
+	result := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		result = append(result, entry)
+	}
+	return result
 }
 
 func processTempDir() string {
