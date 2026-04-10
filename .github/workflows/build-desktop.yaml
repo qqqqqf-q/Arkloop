@@ -172,7 +172,7 @@ jobs:
         run: chmod +x src/apps/desktop/sidecar-bin/*
 
       - name: Build web app
-        run: pnpm --filter web build
+        run: pnpm --filter @arkloop/desktop build:web
 
       - name: Generate release meta
         run: |

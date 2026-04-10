@@ -285,10 +285,16 @@ func (h *Handler) moduleUpgrade(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		var opErr error
 		defer func() { op.Complete(opErr) }()
+		dockerBin, err := docker.ResolveBinary()
+		if err != nil {
+			op.AppendLog("ERROR: " + err.Error())
+			opErr = err
+			return
+		}
 
 		// 1. 拉取新镜像
 		op.AppendLog(fmt.Sprintf("Pulling image %s...", req.Image))
-		pullCmd := exec.CommandContext(opCtx, "docker", "pull", req.Image)
+		pullCmd := exec.CommandContext(opCtx, dockerBin, "pull", req.Image)
 		if out, err := pullCmd.CombinedOutput(); err != nil {
 			op.AppendLog(string(out))
 			op.AppendLog("ERROR: docker pull failed: " + err.Error())
@@ -332,7 +338,7 @@ func (h *Handler) moduleUpgrade(w http.ResponseWriter, r *http.Request) {
 			args = append(args, "--profile", def.ComposeProfile)
 		}
 		args = append(args, def.ComposeService)
-		upCmd := exec.CommandContext(opCtx, "docker", args...)
+		upCmd := exec.CommandContext(opCtx, dockerBin, args...)
 		upCmd.Dir = projectDir
 		if out, err := upCmd.CombinedOutput(); err != nil {
 			op.AppendLog(string(out))

@@ -225,19 +225,23 @@ func (d *Downloader) verifyFiles(op *docker.Operation, v Variant) error {
 }
 
 func (d *Downloader) tryDockerInstall(ctx context.Context, op *docker.Operation, v Variant) error {
-	if err := d.run(ctx, op, "docker", "pull", v.Image); err != nil {
+	dockerBin, err := docker.ResolveBinary()
+	if err != nil {
+		return err
+	}
+	if err := d.run(ctx, op, dockerBin, "pull", v.Image); err != nil {
 		return err
 	}
 	containerName := "arkloop-model-extract-" + v.ID
-	_ = d.run(ctx, op, "docker", "rm", "-f", containerName)
+	_ = d.run(ctx, op, dockerBin, "rm", "-f", containerName)
 
 	op.AppendLog("extracting model files...")
-	if err := d.run(ctx, op, "docker", "create", "--name", containerName, v.Image); err != nil {
+	if err := d.run(ctx, op, dockerBin, "create", "--name", containerName, v.Image); err != nil {
 		return err
 	}
 	src := containerName + ":/models/."
-	err := d.run(ctx, op, "docker", "cp", src, d.modelDir)
-	_ = d.run(ctx, op, "docker", "rm", "-f", containerName)
+	err = d.run(ctx, op, dockerBin, "cp", src, d.modelDir)
+	_ = d.run(ctx, op, dockerBin, "rm", "-f", containerName)
 	return err
 }
 

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"runtime"
 	"time"
+
+	"arkloop/services/bridge/internal/docker"
 )
 
 type PlatformInfo struct {
@@ -26,16 +28,14 @@ func detectDocker() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Try docker from PATH first, then common locations.
-	for _, bin := range []string{"docker", "/usr/local/bin/docker", "/usr/bin/docker"} {
-		cmd := exec.CommandContext(ctx, bin, "info")
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		if cmd.Run() == nil {
-			return true
-		}
+	bin, err := docker.ResolveBinary()
+	if err != nil {
+		return false
 	}
-	return false
+	cmd := exec.CommandContext(ctx, bin, "info")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Run() == nil
 }
 
 func detectKVM() bool {

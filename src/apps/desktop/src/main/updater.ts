@@ -189,6 +189,17 @@ function extractVersionToken(text: string): string | null {
   return match?.[1] ?? null
 }
 
+function normalizeComponentVersion(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const token = extractVersionToken(trimmed)
+  if (token && (token === trimmed || `v${token}` === trimmed || `V${token}` === trimmed)) {
+    return token
+  }
+  return trimmed
+}
+
 function hasComponentVersionShape(value: string | undefined): boolean {
   if (!value) return false
   return extractVersionToken(value) === value || extractVersionToken(value) === value.replace(/^v/, '')
@@ -281,9 +292,10 @@ export async function syncLocalVersions(includeBridge = false): Promise<LocalVer
     const { bridgeListModules } = await import('./sidecar')
     const modules = await bridgeListModules()
     const openviking = modules?.find((module) => module.id === 'openviking')
-    if (openviking?.version) {
+    const openvikingVersion = normalizeComponentVersion(openviking?.version)
+    if (openvikingVersion) {
       next.openviking = {
-        version: openviking.version,
+        version: openvikingVersion,
         updated_at: new Date().toISOString(),
       }
     }
@@ -297,21 +309,22 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
   const manifest = await fetchManifest()
   const local = loadLocalVersions()
 
-  const ovCurrent = local.openviking?.version ?? null
-  const kernelCurrent = local.sandbox?.kernel?.version ?? null
-  const rootfsCurrent = local.sandbox?.rootfs?.version ?? null
-  const kernelLatest = manifest.sandbox?.kernel?.version ?? null
-  const rootfsLatest = manifest.sandbox?.rootfs?.version ?? null
-  const rtkCurrent = local.rtk?.version ?? null
-  const rtkLatest = manifest.bins?.rtk?.version ?? null
-  const opencliCurrent = resolveLocalOpenCLIVersion(local)
-  const opencliLatest = manifest.bins?.opencli?.version ?? null
+  const ovCurrent = normalizeComponentVersion(local.openviking?.version ?? null)
+  const ovLatest = normalizeComponentVersion(manifest.openviking.version)
+  const kernelCurrent = normalizeComponentVersion(local.sandbox?.kernel?.version ?? null)
+  const rootfsCurrent = normalizeComponentVersion(local.sandbox?.rootfs?.version ?? null)
+  const kernelLatest = normalizeComponentVersion(manifest.sandbox?.kernel?.version ?? null)
+  const rootfsLatest = normalizeComponentVersion(manifest.sandbox?.rootfs?.version ?? null)
+  const rtkCurrent = normalizeComponentVersion(local.rtk?.version ?? null)
+  const rtkLatest = normalizeComponentVersion(manifest.bins?.rtk?.version ?? null)
+  const opencliCurrent = normalizeComponentVersion(resolveLocalOpenCLIVersion(local))
+  const opencliLatest = normalizeComponentVersion(manifest.bins?.opencli?.version ?? null)
 
   return {
     openviking: {
       current: ovCurrent,
-      latest: manifest.openviking.version,
-      available: !!(manifest.openviking.version && manifest.openviking.version !== ovCurrent),
+      latest: ovLatest,
+      available: !!(ovLatest && ovLatest !== ovCurrent),
     },
     sandbox: {
       kernel: {

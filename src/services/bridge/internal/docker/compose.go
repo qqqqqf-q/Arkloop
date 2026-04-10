@@ -74,6 +74,10 @@ func (c *Compose) ContainerStatus(ctx context.Context, serviceName string, profi
 	if err := c.validateProjectDir(); err != nil {
 		return "", err
 	}
+	dockerBin, err := ResolveBinary()
+	if err != nil {
+		return "", err
+	}
 
 	args := c.baseArgs()
 	if profile != "" {
@@ -81,7 +85,7 @@ func (c *Compose) ContainerStatus(ctx context.Context, serviceName string, profi
 	}
 	args = append(args, "ps", "--all", "--format", "json", serviceName)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = c.projectDir
 
 	out, err := cmd.Output()
@@ -105,6 +109,10 @@ func (c *Compose) ContainerStatuses(ctx context.Context, serviceNames []string, 
 	if err := c.validateProjectDir(); err != nil {
 		return nil, err
 	}
+	dockerBin, err := ResolveBinary()
+	if err != nil {
+		return nil, err
+	}
 
 	statuses := make(map[string]string, len(serviceNames))
 	if len(serviceNames) == 0 {
@@ -121,7 +129,7 @@ func (c *Compose) ContainerStatuses(ctx context.Context, serviceNames []string, 
 	args = append(args, "ps", "--all", "--format", "json")
 	args = append(args, serviceNames...)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = c.projectDir
 
 	out, err := cmd.Output()
@@ -145,6 +153,10 @@ func (c *Compose) ContainerImage(ctx context.Context, serviceName string, profil
 	if err := c.validateProjectDir(); err != nil {
 		return "", err
 	}
+	dockerBin, err := ResolveBinary()
+	if err != nil {
+		return "", err
+	}
 
 	args := c.baseArgs()
 	if profile != "" {
@@ -152,7 +164,7 @@ func (c *Compose) ContainerImage(ctx context.Context, serviceName string, profil
 	}
 	args = append(args, "ps", "--all", "--format", "json", serviceName)
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, dockerBin, args...)
 	cmd.Dir = c.projectDir
 
 	out, err := cmd.Output()
@@ -165,7 +177,7 @@ func (c *Compose) ContainerImage(ctx context.Context, serviceName string, profil
 		return "", nil
 	}
 
-	inspectCmd := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.Config.Image}}", entries[0].Name)
+	inspectCmd := exec.CommandContext(ctx, dockerBin, "inspect", "--format", "{{.Config.Image}}", entries[0].Name)
 	inspectCmd.Dir = c.projectDir
 
 	imageOut, err := inspectCmd.Output()
@@ -265,7 +277,14 @@ func (c *Compose) runAsync(ctx context.Context, serviceName, action string, args
 	cancelCtx, cancel := context.WithCancel(ctx)
 	op.cancelFunc = cancel
 
-	cmd := exec.CommandContext(cancelCtx, "docker", args...)
+	dockerBin, err := ResolveBinary()
+	if err != nil {
+		cancel()
+		c.moduleLocks.Delete(serviceName)
+		return nil, err
+	}
+
+	cmd := exec.CommandContext(cancelCtx, dockerBin, args...)
 	cmd.Dir = c.projectDir
 	configureCommand(cmd)
 
@@ -357,7 +376,14 @@ func (c *Compose) runSystemAsync(ctx context.Context, action string, args []stri
 	cancelCtx, cancel := context.WithCancel(ctx)
 	op.cancelFunc = cancel
 
-	cmd := exec.CommandContext(cancelCtx, "docker", args...)
+	dockerBin, err := ResolveBinary()
+	if err != nil {
+		cancel()
+		c.moduleLocks.Delete(systemLockKey)
+		return nil, err
+	}
+
+	cmd := exec.CommandContext(cancelCtx, dockerBin, args...)
 	cmd.Dir = c.projectDir
 	configureCommand(cmd)
 
