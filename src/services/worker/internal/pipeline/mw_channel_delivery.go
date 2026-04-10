@@ -89,7 +89,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 				if sendErr != nil {
 					return sendErr
 				}
-				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids); err != nil {
+				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids, nil); err != nil {
 					return err
 				}
 				if err := persistStreamChunkMessage(ctx2, pool, messagesRepo, rc, text); err != nil {
@@ -136,7 +136,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 				if sendErr != nil {
 					return sendErr
 				}
-				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids); err != nil {
+				if err := recordChannelDeliverySuccess(ctx2, pool, repo, ledgerRepo, rc, nil, ids, nil); err != nil {
 					return err
 				}
 				if err := persistStreamChunkMessage(ctx2, pool, messagesRepo, rc, text); err != nil {
@@ -202,6 +202,8 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			finalOutputs = normalizedAssistantOutputs(rc.FinalAssistantOutputs, "")
 		}
 
+		isTerminalNoticeOnly := strings.TrimSpace(finalOutput) == "" && notice != "" && strings.TrimSpace(output) != ""
+
 		channel := preloaded
 		var lookupErr error
 		if channel == nil {
@@ -219,25 +221,49 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		switch channelType {
 		case "telegram":
 			uxSend := ParseTelegramChannelUX(channel.ConfigJSON)
-			if finalRecordErr := deliverTelegramChannelOutputs(ctx, pool, repo, ledgerRepo, rc, tgClient, channel, output, finalOutputs); finalRecordErr != nil {
-				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-				slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-				return err
+			if isTerminalNoticeOnly {
+				if finalRecordErr := deliverTelegramTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, tgClient, channel, output); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
+			} else {
+				if finalRecordErr := deliverTelegramChannelOutputs(ctx, pool, repo, ledgerRepo, rc, tgClient, channel, output, finalOutputs, nil); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
 			}
 			if strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
 				MaybeTelegramInboundReaction(ctx, tgClient, channel.Token, rc, uxSend.ReactionEmoji)
 			}
 		case "discord":
-			if finalRecordErr := deliverDiscordChannelOutput(ctx, pool, repo, ledgerRepo, rc, discordClient, discordAPIBase, channel, output); finalRecordErr != nil {
-				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-				slog.WarnContext(ctx, "discord channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-				return err
+			if isTerminalNoticeOnly {
+				if finalRecordErr := deliverDiscordTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, discordClient, discordAPIBase, channel, output); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "discord channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
+			} else {
+				if finalRecordErr := deliverDiscordChannelOutput(ctx, pool, repo, ledgerRepo, rc, discordClient, discordAPIBase, channel, output, nil); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "discord channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
 			}
 		case "qq":
-			if finalRecordErr := deliverOneBotChannelOutput(ctx, pool, repo, ledgerRepo, rc, channel, output); finalRecordErr != nil {
-				recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-				slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-				return err
+			if isTerminalNoticeOnly {
+				if finalRecordErr := deliverOneBotTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, channel, output); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
+			} else {
+				if finalRecordErr := deliverOneBotChannelOutput(ctx, pool, repo, ledgerRepo, rc, channel, output); finalRecordErr != nil {
+					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
+					slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
+					return err
+				}
 			}
 			if strings.TrimSpace(obUX.ReactionEmojiID) != "" {
 				MaybeOneBotInboundReaction(ctx, channel, rc, obUX.ReactionEmojiID)
@@ -263,6 +289,7 @@ func deliverTelegramChannelOutput(
 	client *telegrambot.Client,
 	channel *data.DeliveryChannelRecord,
 	output string,
+	threadMessageID *uuid.UUID,
 ) error {
 	if strings.TrimSpace(output) == "" {
 		return nil
@@ -277,11 +304,39 @@ func deliverTelegramChannelOutput(
 	if err != nil {
 		return err
 	}
-	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs); err != nil {
+	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, threadMessageID); err != nil {
 		slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
 		return err
 	}
 	return nil
+}
+
+func deliverTelegramTerminalNotice(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	messagesRepo data.MessagesRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	rc *RunContext,
+	client *telegrambot.Client,
+	channel *data.DeliveryChannelRecord,
+	output string,
+) error {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
+	replyTo := telegramReplyReference(rc)
+	messageIDs, err := sender.SendText(ctx, ChannelDeliveryTarget{
+		ChannelType:  rc.ChannelContext.ChannelType,
+		Conversation: rc.ChannelContext.Conversation,
+		ReplyTo:      replyTo,
+	}, output)
+	if err != nil {
+		return err
+	}
+	_, err = recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, output)
+	return err
 }
 
 func deliverTelegramChannelOutputs(
@@ -294,12 +349,13 @@ func deliverTelegramChannelOutputs(
 	channel *data.DeliveryChannelRecord,
 	output string,
 	outputs []string,
+	threadMessageID *uuid.UUID,
 ) error {
 	if strings.TrimSpace(output) == "" {
 		return nil
 	}
 	if len(outputs) <= 1 {
-		return deliverTelegramChannelOutput(ctx, pool, deliveryRepo, ledgerRepo, rc, client, channel, output)
+		return deliverTelegramChannelOutput(ctx, pool, deliveryRepo, ledgerRepo, rc, client, channel, output, threadMessageID)
 	}
 	sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
 	replyTo := telegramReplyReference(rc)
@@ -320,7 +376,7 @@ func deliverTelegramChannelOutputs(
 		if err != nil {
 			return err
 		}
-		if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, ref, messageIDs); err != nil {
+		if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, ref, messageIDs, threadMessageID); err != nil {
 			slog.WarnContext(ctx, "telegram channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
 			return err
 		}
@@ -331,6 +387,39 @@ func deliverTelegramChannelOutputs(
 func deliverDiscordChannelOutput(
 	ctx context.Context,
 	pool *pgxpool.Pool,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	rc *RunContext,
+	client DiscordHTTPDoer,
+	baseURL string,
+	channel *data.DeliveryChannelRecord,
+	output string,
+	threadMessageID *uuid.UUID,
+) error {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	replyTo := discordReplyReference(rc)
+	sender := NewDiscordChannelSenderWithClient(client, baseURL, channel.Token, resolveSegmentDelay())
+	messageIDs, err := sender.SendText(ctx, ChannelDeliveryTarget{
+		ChannelType:  rc.ChannelContext.ChannelType,
+		Conversation: rc.ChannelContext.Conversation,
+		ReplyTo:      replyTo,
+	}, output)
+	if err != nil {
+		return err
+	}
+	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, threadMessageID); err != nil {
+		slog.WarnContext(ctx, "discord channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
+		return err
+	}
+	return nil
+}
+
+func deliverDiscordTerminalNotice(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	messagesRepo data.MessagesRepository,
 	deliveryRepo data.ChannelDeliveryRepository,
 	ledgerRepo data.ChannelMessageLedgerRepository,
 	rc *RunContext,
@@ -352,11 +441,8 @@ func deliverDiscordChannelOutput(
 	if err != nil {
 		return err
 	}
-	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs); err != nil {
-		slog.WarnContext(ctx, "discord channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
-		return err
-	}
-	return nil
+	_, err = recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, output)
+	return err
 }
 
 func deliverOneBotChannelOutput(
@@ -394,11 +480,51 @@ func deliverOneBotChannelOutput(
 	if err != nil {
 		return err
 	}
-	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs); err != nil {
+	if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, nil); err != nil {
 		slog.WarnContext(ctx, "qq channel delivery record failed", "run_id", rc.Run.ID, "err", err.Error())
 		return err
 	}
 	return nil
+}
+
+func deliverOneBotTerminalNotice(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	messagesRepo data.MessagesRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	rc *RunContext,
+	channel *data.DeliveryChannelRecord,
+	output string,
+) error {
+	if strings.TrimSpace(output) == "" {
+		return nil
+	}
+	obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
+	if obBaseURL == "" {
+		obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))
+	}
+	obToken := strings.TrimSpace(channel.Token)
+	client := onebotclient.NewClient(obBaseURL, obToken, nil)
+	sender := NewOneBotChannelSender(client, resolveSegmentDelay())
+
+	replyTo := onebotReplyReference(rc)
+	metadata := map[string]any{}
+	if rc.ChannelContext.ConversationType == "group" {
+		metadata["message_type"] = "group"
+	}
+
+	messageIDs, err := sender.SendText(ctx, ChannelDeliveryTarget{
+		ChannelType:  rc.ChannelContext.ChannelType,
+		Conversation: rc.ChannelContext.Conversation,
+		ReplyTo:      replyTo,
+		Metadata:     metadata,
+	}, output)
+	if err != nil {
+		return err
+	}
+	_, err = recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, replyTo, messageIDs, output)
+	return err
 }
 
 func normalizedAssistantOutputs(outputs []string, fallback string) []string {
@@ -415,6 +541,78 @@ func normalizedAssistantOutputs(outputs []string, fallback string) []string {
 		return []string{trimmed}
 	}
 	return nil
+}
+
+func recordChannelTerminalNoticeSuccess(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	messagesRepo data.MessagesRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	rc *RunContext,
+	ledgerParent *ChannelMessageRef,
+	platformMessageIDs []string,
+	text string,
+) (*uuid.UUID, error) {
+	if pool == nil || rc == nil || rc.ChannelContext == nil || len(platformMessageIDs) == 0 {
+		return nil, nil
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	messageID, err := messagesRepo.InsertAssistantMessageWithMetadata(
+		ctx, tx,
+		rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID,
+		text, nil, false,
+		map[string]any{
+			"delivery_notice":     true,
+			"terminal_notice":     true,
+			"exclude_from_prompt": true,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	threadMessageID := uuidPtr(messageID)
+
+	for _, platformMessageID := range platformMessageIDs {
+		if err := deliveryRepo.RecordDelivery(
+			ctx,
+			tx,
+			rc.Run.ID,
+			rc.Run.ThreadID,
+			rc.ChannelContext.ChannelID,
+			rc.ChannelContext.Conversation.Target,
+			platformMessageID,
+		); err != nil {
+			return nil, err
+		}
+		if err := ledgerRepo.Record(ctx, tx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               rc.ChannelContext.ChannelID,
+			ChannelType:             rc.ChannelContext.ChannelType,
+			Direction:               data.ChannelMessageDirectionOutbound,
+			ThreadID:                uuidPtr(rc.Run.ThreadID),
+			RunID:                   uuidPtr(rc.Run.ID),
+			PlatformConversationID:  rc.ChannelContext.Conversation.Target,
+			PlatformMessageID:       platformMessageID,
+			PlatformParentMessageID: channelMessageIDPtr(ledgerParent),
+			PlatformThreadID:        rc.ChannelContext.Conversation.ThreadID,
+			MessageID:               threadMessageID,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return threadMessageID, nil
 }
 
 // resolveOneBotAPIPort 从 channel 配置读取 OneBot HTTP 端口，默认 3000
@@ -692,6 +890,7 @@ func recordChannelDeliverySuccess(
 	rc *RunContext,
 	ledgerParent *ChannelMessageRef,
 	messageIDs []string,
+	threadMessageID *uuid.UUID,
 ) error {
 	if pool == nil || rc == nil || rc.ChannelContext == nil || len(messageIDs) == 0 {
 		return nil
@@ -724,6 +923,7 @@ func recordChannelDeliverySuccess(
 			PlatformMessageID:       messageID,
 			PlatformParentMessageID: channelMessageIDPtr(ledgerParent),
 			PlatformThreadID:        rc.ChannelContext.Conversation.ThreadID,
+			MessageID:               threadMessageID,
 		}); err != nil {
 			return err
 		}
@@ -731,8 +931,8 @@ func recordChannelDeliverySuccess(
 	return tx.Commit(ctx)
 }
 
-// TryDeliverTelegramInjectionBlockNotice 在 Pipeline 于注入拦截处提前返回、未执行 ChannelDelivery 时，仍向 Telegram 投递拦截说明。
-func TryDeliverTelegramInjectionBlockNotice(ctx context.Context, pool *pgxpool.Pool, rc *RunContext, notice string) {
+// TryDeliverChannelInjectionBlockNotice 在 Pipeline 于注入拦截处提前返回、未执行 ChannelDelivery 时，仍向渠道投递拦截说明。
+func TryDeliverChannelInjectionBlockNotice(ctx context.Context, pool *pgxpool.Pool, rc *RunContext, notice string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -740,35 +940,49 @@ func TryDeliverTelegramInjectionBlockNotice(ctx context.Context, pool *pgxpool.P
 	if pool == nil || rc == nil || rc.ChannelContext == nil || text == "" {
 		return
 	}
-	if rc.ChannelContext.ChannelType != "telegram" {
+	channelType := normalizedChannelTypeFromContext(rc)
+	if channelType != "telegram" && channelType != "discord" && channelType != "qq" {
 		return
 	}
 	repo := data.ChannelDeliveryRepository{}
 	ledgerRepo := data.ChannelMessageLedgerRepository{}
+	messagesRepo := data.MessagesRepository{}
 	channel, err := repo.GetChannel(ctx, pool, rc.ChannelContext.ChannelID)
-	if err != nil || channel == nil || strings.TrimSpace(channel.Token) == "" {
+	if err != nil || channel == nil {
 		return
 	}
-	tgClient := optsTelegramClientOrDefault()
-	sender := NewTelegramChannelSenderWithClient(tgClient, channel.Token, resolveSegmentDelay())
-	messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-		ChannelType:  rc.ChannelContext.ChannelType,
-		Conversation: rc.ChannelContext.Conversation,
-		ReplyTo:      nil,
-	}, text)
-	if sendErr != nil {
-		recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, sendErr)
-		slog.WarnContext(ctx, "telegram injection block notice failed", "run_id", rc.Run.ID, "err", sendErr.Error())
-		return
+	var deliverErr error
+	switch channelType {
+	case "telegram":
+		if strings.TrimSpace(channel.Token) == "" {
+			return
+		}
+		tgClient := optsTelegramClientOrDefault()
+		deliverErr = deliverTelegramTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, tgClient, channel, text)
+		uxSend := ParseTelegramChannelUX(channel.ConfigJSON)
+		if deliverErr == nil && strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
+			MaybeTelegramInboundReaction(ctx, tgClient, channel.Token, rc, uxSend.ReactionEmoji)
+		}
+	case "discord":
+		client := &http.Client{Timeout: 10 * time.Second}
+		baseURL := strings.TrimSpace(os.Getenv("ARKLOOP_DISCORD_API_BASE_URL"))
+		deliverErr = deliverDiscordTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, client, baseURL, channel, text)
+	case "qq":
+		deliverErr = deliverOneBotTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, channel, text)
+		uxSend := ParseOneBotChannelUX(channel.ConfigJSON)
+		if deliverErr == nil && strings.TrimSpace(uxSend.ReactionEmojiID) != "" {
+			MaybeOneBotInboundReaction(ctx, channel, rc, uxSend.ReactionEmojiID)
+		}
 	}
-	if err := recordChannelDeliverySuccess(ctx, pool, repo, ledgerRepo, rc, nil, messageIDs); err != nil {
-		recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, err)
-		slog.WarnContext(ctx, "telegram injection block notice record failed", "run_id", rc.Run.ID, "err", err.Error())
+	if deliverErr != nil {
+		recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, deliverErr)
+		slog.WarnContext(ctx, "channel injection block notice failed", "run_id", rc.Run.ID, "channel_type", channelType, "err", deliverErr.Error())
 	}
-	uxSend := ParseTelegramChannelUX(channel.ConfigJSON)
-	if strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
-		MaybeTelegramInboundReaction(ctx, tgClient, channel.Token, rc, uxSend.ReactionEmoji)
-	}
+}
+
+// TryDeliverTelegramInjectionBlockNotice 兼容旧调用点，现已支持所有渠道。
+func TryDeliverTelegramInjectionBlockNotice(ctx context.Context, pool *pgxpool.Pool, rc *RunContext, notice string) {
+	TryDeliverChannelInjectionBlockNotice(ctx, pool, rc, notice)
 }
 
 func optsTelegramClientOrDefault() *telegrambot.Client {
@@ -795,3 +1009,5 @@ func persistStreamChunkMessage(ctx context.Context, pool *pgxpool.Pool, repo dat
 	}
 	return tx.Commit(ctx)
 }
+
+// terminal notice messages are persisted only after successful outbound delivery, in recordChannelTerminalNoticeSuccess.

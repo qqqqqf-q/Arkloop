@@ -141,6 +141,49 @@ func TestGeminiGateway_Stream_PreflightOversizeSkipsHTTP(t *testing.T) {
 	if failed.Error.Details["oversize_phase"] != OversizePhasePreflight {
 		t.Fatalf("unexpected phase: %#v", failed.Error.Details)
 	}
+	if failed.Error.Details["network_attempted"] != false {
+		t.Fatalf("unexpected network_attempted: %#v", failed.Error.Details)
+	}
+}
+
+func TestGeminiGateway_Stream_Provider413AddsOversizeDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"code":413,"message":"too large","status":"REQUEST_TOO_LARGE"}}`, http.StatusRequestEntityTooLarge)
+	}))
+	defer server.Close()
+
+	gateway := NewGeminiGateway(GeminiGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	})
+
+	var got []StreamEvent
+	err := gateway.Stream(context.Background(), Request{
+		Model: "gemini-test",
+		Messages: []Message{{
+			Role:    "user",
+			Content: []TextPart{{Text: "hello"}},
+		}},
+	}, func(ev StreamEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	failed, ok := got[len(got)-1].(StreamRunFailed)
+	if !ok {
+		t.Fatalf("expected StreamRunFailed, got %T", got[len(got)-1])
+	}
+	if failed.Error.Details["status_code"] != http.StatusRequestEntityTooLarge {
+		t.Fatalf("unexpected details: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["oversize_phase"] != OversizePhaseProvider {
+		t.Fatalf("unexpected phase: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["network_attempted"] != true {
+		t.Fatalf("unexpected network_attempted: %#v", failed.Error.Details)
+	}
 }
 
 func TestToGeminiContents_ConsecutiveToolResponses(t *testing.T) {

@@ -102,17 +102,21 @@ func (g *AuxGateway) Stream(ctx context.Context, request Request, yield func(Str
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(request.ToJSON())
 	if err := yield(StreamLlmRequest{
-		LlmCallID:          llmCallID,
-		ProviderKind:       defaultStubProviderKind,
-		APIMode:            defaultStubAPIMode,
-		PayloadJSON:        debugPayload,
-		RedactedHints:      redactedHints,
-		SystemBytes:        stats.SystemBytes,
-		ToolsBytes:         stats.ToolsBytes,
-		MessagesBytes:      stats.MessagesBytes,
-		RoleBytes:          stats.RoleBytes,
-		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
-		StablePrefixHash:   stats.StablePrefixHash,
+		LlmCallID:            llmCallID,
+		ProviderKind:         defaultStubProviderKind,
+		APIMode:              defaultStubAPIMode,
+		PayloadJSON:          debugPayload,
+		RedactedHints:        redactedHints,
+		SystemBytes:          stats.SystemBytes,
+		ToolsBytes:           stats.ToolsBytes,
+		MessagesBytes:        stats.MessagesBytes,
+		AbstractRequestBytes: stats.AbstractRequestBytes,
+		ProviderPayloadBytes: stats.AbstractRequestBytes,
+		ImagePartCount:       stats.ImagePartCount,
+		Base64ImageBytes:     stats.Base64ImageBytes,
+		RoleBytes:            stats.RoleBytes,
+		ToolSchemaBytesMap:   stats.ToolSchemaBytesMap,
+		StablePrefixHash:     stats.StablePrefixHash,
 	}); err != nil {
 		return err
 	}

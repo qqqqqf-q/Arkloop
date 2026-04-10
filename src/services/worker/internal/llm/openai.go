@@ -184,24 +184,6 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 	path := "/chat/completions"
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
-	if err := yield(StreamLlmRequest{
-		LlmCallID:          llmCallID,
-		ProviderKind:       "openai",
-		APIMode:            "chat_completions",
-		BaseURL:            &baseURL,
-		Path:               &path,
-		PayloadJSON:        debugPayload,
-		RedactedHints:      redactedHints,
-		SystemBytes:        stats.SystemBytes,
-		ToolsBytes:         stats.ToolsBytes,
-		MessagesBytes:      stats.MessagesBytes,
-		RoleBytes:          stats.RoleBytes,
-		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
-		StablePrefixHash:   stats.StablePrefixHash,
-	}); err != nil {
-		return err
-	}
-
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		failed := StreamRunFailed{
@@ -213,12 +195,38 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		}
 		return yield(failed)
 	}
+	networkAttempted := false
+	requestEvent := StreamLlmRequest{
+		LlmCallID:            llmCallID,
+		ProviderKind:         "openai",
+		APIMode:              "chat_completions",
+		BaseURL:              &baseURL,
+		Path:                 &path,
+		PayloadJSON:          debugPayload,
+		RedactedHints:        redactedHints,
+		SystemBytes:          stats.SystemBytes,
+		ToolsBytes:           stats.ToolsBytes,
+		MessagesBytes:        stats.MessagesBytes,
+		AbstractRequestBytes: stats.AbstractRequestBytes,
+		ProviderPayloadBytes: len(encoded),
+		ImagePartCount:       stats.ImagePartCount,
+		Base64ImageBytes:     stats.Base64ImageBytes,
+		NetworkAttempted:     &networkAttempted,
+		RoleBytes:            stats.RoleBytes,
+		ToolSchemaBytesMap:   stats.ToolSchemaBytesMap,
+		StablePrefixHash:     stats.StablePrefixHash,
+	}
 	if RequestPayloadTooLarge(len(encoded)) {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
 	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint("/chat/completions"), bytes.NewReader(encoded))
 	if err != nil {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
@@ -227,6 +235,10 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 				Details:    map[string]any{"reason": err.Error()},
 			},
 		})
+	}
+	networkAttempted = true
+	if err := yield(requestEvent); err != nil {
+		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.transport.cfg.APIKey))
 	req.Header.Set("Content-Type", "application/json")
@@ -251,6 +263,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		body, bodyTruncated, _ := readAllWithLimit(resp.Body, openAIMaxErrorBodyBytes)
 		message, details := openAIErrorMessageAndDetails(body, status, "OpenAI request failed")
 		if status == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
 			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
 		}
 
@@ -371,24 +384,6 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	path := "/responses"
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
-	if err := yield(StreamLlmRequest{
-		LlmCallID:          llmCallID,
-		ProviderKind:       "openai",
-		APIMode:            "responses",
-		BaseURL:            &baseURL,
-		Path:               &path,
-		PayloadJSON:        debugPayload,
-		RedactedHints:      redactedHints,
-		SystemBytes:        stats.SystemBytes,
-		ToolsBytes:         stats.ToolsBytes,
-		MessagesBytes:      stats.MessagesBytes,
-		RoleBytes:          stats.RoleBytes,
-		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
-		StablePrefixHash:   stats.StablePrefixHash,
-	}); err != nil {
-		return err
-	}
-
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return yield(StreamRunFailed{
@@ -399,12 +394,38 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
+	networkAttempted := false
+	requestEvent := StreamLlmRequest{
+		LlmCallID:            llmCallID,
+		ProviderKind:         "openai",
+		APIMode:              "responses",
+		BaseURL:              &baseURL,
+		Path:                 &path,
+		PayloadJSON:          debugPayload,
+		RedactedHints:        redactedHints,
+		SystemBytes:          stats.SystemBytes,
+		ToolsBytes:           stats.ToolsBytes,
+		MessagesBytes:        stats.MessagesBytes,
+		AbstractRequestBytes: stats.AbstractRequestBytes,
+		ProviderPayloadBytes: len(encoded),
+		ImagePartCount:       stats.ImagePartCount,
+		Base64ImageBytes:     stats.Base64ImageBytes,
+		NetworkAttempted:     &networkAttempted,
+		RoleBytes:            stats.RoleBytes,
+		ToolSchemaBytesMap:   stats.ToolSchemaBytesMap,
+		StablePrefixHash:     stats.StablePrefixHash,
+	}
 	if RequestPayloadTooLarge(len(encoded)) {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
 	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint("/responses"), bytes.NewReader(encoded))
 	if err != nil {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
@@ -413,6 +434,10 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 				Details:    map[string]any{"reason": err.Error()},
 			},
 		})
+	}
+	networkAttempted = true
+	if err := yield(requestEvent); err != nil {
+		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(g.transport.cfg.APIKey))
 	req.Header.Set("Content-Type", "application/json")
@@ -454,6 +479,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 		errClass := errorClassFromStatus(status)
 		message, details := openAIErrorMessageAndDetails(body, status, "OpenAI request failed")
 		if status == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
 			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
 		}
 		return yield(StreamRunFailed{

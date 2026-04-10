@@ -123,24 +123,6 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 	path := geminiVersionedPath(g.transport.cfg.BaseURL, g.protocol.APIVersion, fmt.Sprintf("/models/%s:streamGenerateContent", request.Model))
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
-	if err := yield(StreamLlmRequest{
-		LlmCallID:          llmCallID,
-		ProviderKind:       "gemini",
-		APIMode:            "generate_content",
-		BaseURL:            &baseURL,
-		Path:               &path,
-		PayloadJSON:        debugPayload,
-		RedactedHints:      redactedHints,
-		SystemBytes:        stats.SystemBytes,
-		ToolsBytes:         stats.ToolsBytes,
-		MessagesBytes:      stats.MessagesBytes,
-		RoleBytes:          stats.RoleBytes,
-		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
-		StablePrefixHash:   stats.StablePrefixHash,
-	}); err != nil {
-		return err
-	}
-
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
@@ -148,18 +130,48 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Message:    "Gemini request serialization failed",
 		}})
 	}
+	networkAttempted := false
+	requestEvent := StreamLlmRequest{
+		LlmCallID:            llmCallID,
+		ProviderKind:         "gemini",
+		APIMode:              "generate_content",
+		BaseURL:              &baseURL,
+		Path:                 &path,
+		PayloadJSON:          debugPayload,
+		RedactedHints:        redactedHints,
+		SystemBytes:          stats.SystemBytes,
+		ToolsBytes:           stats.ToolsBytes,
+		MessagesBytes:        stats.MessagesBytes,
+		AbstractRequestBytes: stats.AbstractRequestBytes,
+		ProviderPayloadBytes: len(encoded),
+		ImagePartCount:       stats.ImagePartCount,
+		Base64ImageBytes:     stats.Base64ImageBytes,
+		NetworkAttempted:     &networkAttempted,
+		RoleBytes:            stats.RoleBytes,
+		ToolSchemaBytesMap:   stats.ToolSchemaBytesMap,
+		StablePrefixHash:     stats.StablePrefixHash,
+	}
 	if RequestPayloadTooLarge(len(encoded)) {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
 	}
-
 	resourcePath := geminiVersionedPath(g.transport.cfg.BaseURL, g.protocol.APIVersion, fmt.Sprintf("/models/%s:streamGenerateContent?alt=sse", request.Model))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint(resourcePath), bytes.NewReader(encoded))
 	if err != nil {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{
 			ErrorClass: ErrorClassInternalError,
 			Message:    "Gemini request construction failed",
 			Details:    map[string]any{"reason": err.Error()},
 		}})
+	}
+	networkAttempted = true
+	if err := yield(requestEvent); err != nil {
+		return err
 	}
 	req.Header.Set("x-goog-api-key", strings.TrimSpace(g.transport.cfg.APIKey))
 	req.Header.Set("Content-Type", "application/json")
@@ -191,6 +203,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 		}
 		message, details := geminiErrorMessageAndDetails(body, status)
 		if status == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
 			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
 		}
 		return yield(StreamRunFailed{LlmCallID: llmCallID, Error: GatewayError{

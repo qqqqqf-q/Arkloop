@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -202,8 +203,12 @@ func sanitizeToolPairs(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uu
 		if len(kept) == len(m.ToolCalls) {
 			continue
 		}
-		if len(kept) == 0 && strings.TrimSpace(messageText(m)) == "" {
-			removeSet[i] = struct{}{}
+		if len(kept) == 0 {
+			if i+1 < len(msgs) && msgs[i+1].Role == "tool" {
+				removeSet[i] = struct{}{}
+				continue
+			}
+			prunedToolCalls[i] = nil
 			continue
 		}
 		prunedToolCalls[i] = kept
@@ -397,13 +402,8 @@ func RewriteOversizeRequest(
 	}
 
 	rewritten := request
-	keepTail := rc.ContextCompact.PersistKeepLastMessages
-	if keepTail <= 0 {
-		keepTail = defaultPersistKeepLastMessages
-	}
-
 	var stripped int
-	rewritten.Messages, stripped = stripOlderImagesOutsideTail(rewritten.Messages, keepTail)
+	rewritten.Messages, stripped = stripOlderImagePartsKeepingTail(rewritten.Messages, resolveContextKeepImageTail())
 	if stripped > 0 {
 		stats.RewriteApplied = true
 		stats.ImagesStripped = stripped
@@ -499,26 +499,23 @@ func microcompactedStub(m llm.Message) llm.Message {
 	}
 }
 
-func stripOlderImagesOutsideTail(msgs []llm.Message, keepTail int) ([]llm.Message, int) {
-	if len(msgs) == 0 || keepTail < 0 {
+func stripOlderImagePartsKeepingTail(msgs []llm.Message, keepImages int) ([]llm.Message, int) {
+	if len(msgs) == 0 || keepImages < 0 {
 		return msgs, 0
 	}
-	boundary := len(msgs) - keepTail
-	if boundary <= 0 {
-		return msgs, 0
-	}
-	lastUserIdx := compactLastUserMessageIndex(msgs)
 	out := make([]llm.Message, len(msgs))
 	copy(out, msgs)
+	keepRemaining := keepImages
 	stripped := 0
-	for i := 0; i < boundary; i++ {
-		if i == lastUserIdx {
-			continue
-		}
-		parts := out[i].Content
+	for i := len(out) - 1; i >= 0; i-- {
+		parts := append([]llm.ContentPart(nil), out[i].Content...)
 		replaced := false
-		for j := range parts {
+		for j := len(parts) - 1; j >= 0; j-- {
 			if parts[j].Kind() != messagecontent.PartTypeImage {
+				continue
+			}
+			if keepRemaining > 0 {
+				keepRemaining--
 				continue
 			}
 			parts[j] = llm.ContentPart{
@@ -543,11 +540,16 @@ func contextCompactImagePlaceholder(part llm.ContentPart) string {
 	return tag
 }
 
-func compactLastUserMessageIndex(msgs []llm.Message) int {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "user" {
-			return i
+func resolveContextKeepImageTail() int {
+	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CONTEXT_KEEP_IMAGE_TAIL")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			return n
 		}
 	}
-	return -1
+	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_GROUP_KEEP_IMAGE_TAIL")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return defaultGroupKeepImageTail
 }

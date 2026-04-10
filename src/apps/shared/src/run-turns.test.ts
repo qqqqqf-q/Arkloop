@@ -911,4 +911,57 @@ time: "2026-04-04T06:21:00Z"
       },
     ])
   })
+
+  it('prefers the latest request size metrics over an earlier failed rewrite attempt', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          abstract_request_bytes: 7_200_000,
+          provider_payload_bytes: 7_100_000,
+          image_part_count: 65,
+          base64_image_bytes: 6_900_000,
+          network_attempted: false,
+          payload: {
+            messages: [{ role: 'user', content: 'same input' }],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_1',
+          provider_kind: 'openai',
+          api_mode: 'chat_completions',
+          abstract_request_bytes: 640_000,
+          provider_payload_bytes: 610_000,
+          image_part_count: 10,
+          base64_image_bytes: 580_000,
+          network_attempted: true,
+          payload: {
+            messages: [{ role: 'user', content: 'same input' }],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 3,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_1',
+        },
+      }),
+    ])
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.abstractRequestBytes).toBe(640_000)
+    expect(turns[0]?.providerPayloadBytes).toBe(610_000)
+    expect(turns[0]?.imagePartCount).toBe(10)
+    expect(turns[0]?.base64ImageBytes).toBe(580_000)
+    expect(turns[0]?.networkAttempted).toBe(true)
+  })
 })

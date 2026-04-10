@@ -2,10 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"arkloop/services/shared/messagecontent"
+	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 
 	"github.com/google/uuid"
@@ -95,6 +97,73 @@ func TestHistoryThreadPromptTokens_CountsImageCost(t *testing.T) {
 	got := HistoryThreadPromptTokens(enc, withImage)
 	if got-base != contextCompactVisionTokensPerImage {
 		t.Fatalf("expected image cost %d, got delta %d", contextCompactVisionTokensPerImage, got-base)
+	}
+}
+
+func TestTrimEntriesToMessageLimitPreservesAllLeadingReplacements(t *testing.T) {
+	entries := []canonicalThreadContextEntry{
+		{IsReplacement: true, StartThreadSeq: 1, EndThreadSeq: 10, ThreadMessageID: uuid.Nil},
+		{IsReplacement: true, StartThreadSeq: 11, EndThreadSeq: 20, ThreadMessageID: uuid.Nil},
+		{IsReplacement: false, StartThreadSeq: 21, EndThreadSeq: 21, ThreadMessageID: uuid.New()},
+		{IsReplacement: false, StartThreadSeq: 22, EndThreadSeq: 22, ThreadMessageID: uuid.New()},
+		{IsReplacement: false, StartThreadSeq: 23, EndThreadSeq: 23, ThreadMessageID: uuid.New()},
+	}
+
+	out := trimEntriesToMessageLimit(entries, 2)
+	if len(out) != 4 {
+		t.Fatalf("expected 4 entries after trim, got %d", len(out))
+	}
+	if !out[0].IsReplacement || out[0].StartThreadSeq != 1 || !out[1].IsReplacement || out[1].StartThreadSeq != 11 {
+		t.Fatalf("expected both leading replacements preserved, got %#v", out[:2])
+	}
+	if out[2].StartThreadSeq != 22 || out[3].StartThreadSeq != 23 {
+		t.Fatalf("expected tail real messages preserved, got %#v", out[2:])
+	}
+}
+
+func TestContextCompactMiddlewareStripsImagesEvenWhenDisabled(t *testing.T) {
+	messages := make([]llm.Message, 0, 12)
+	for i := 0; i < 12; i++ {
+		messages = append(messages, llm.Message{
+			Role: "user",
+			Content: []llm.ContentPart{{
+				Type: messagecontent.PartTypeImage,
+				Attachment: &messagecontent.AttachmentRef{
+					Key: fmt.Sprintf("attachments/%d.png", i),
+				},
+			}},
+		})
+	}
+	rc := &RunContext{
+		Messages: messages,
+		ContextCompact: ContextCompactSettings{
+			Enabled:        false,
+			PersistEnabled: false,
+		},
+	}
+
+	mw := NewContextCompactMiddleware(nil, data.MessagesRepository{}, nil, nil, false)
+	if err := mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	realImages := 0
+	placeholders := 0
+	for _, msg := range rc.Messages {
+		for _, part := range msg.Content {
+			switch {
+			case part.Kind() == messagecontent.PartTypeImage:
+				realImages++
+			case strings.HasPrefix(part.Text, "[image"):
+				placeholders++
+			}
+		}
+	}
+	if realImages != defaultGroupKeepImageTail {
+		t.Fatalf("expected %d real images kept, got %d", defaultGroupKeepImageTail, realImages)
+	}
+	if placeholders != 2 {
+		t.Fatalf("expected 2 placeholders, got %d", placeholders)
 	}
 }
 
@@ -323,47 +392,56 @@ func TestMicrocompactToolResults_NoTools(t *testing.T) {
 	}
 }
 
-func TestRewriteOversizeRequest_StripsOldImagesAndKeepsLatestUserImage(t *testing.T) {
+func TestRewriteOversizeRequest_StripsOlderImagePartsBeyondTailBudget(t *testing.T) {
 	rc := &RunContext{
 		ContextCompact: ContextCompactSettings{
 			PersistKeepLastMessages:     1,
 			MicrocompactKeepRecentTools: 1,
 		},
 	}
-	request := llm.Request{
-		Messages: []llm.Message{
-			{
-				Role: "user",
-				Content: []llm.ContentPart{
-					{
-						Type: messagecontent.PartTypeImage,
-						Attachment: &messagecontent.AttachmentRef{
-							Key: "attachments/old.png",
-						},
-					},
+	messages := make([]llm.Message, 0, 12)
+	messages = append(messages, llm.Message{
+		Role: "user",
+		Content: []llm.ContentPart{{
+			Type: messagecontent.PartTypeImage,
+			Attachment: &messagecontent.AttachmentRef{
+				Key: "attachments/old.png",
+			},
+		}},
+	})
+	for i := 0; i < 9; i++ {
+		messages = append(messages, llm.Message{
+			Role: "user",
+			Content: []llm.ContentPart{{
+				Type: messagecontent.PartTypeImage,
+				Data: []byte("img"),
+				Attachment: &messagecontent.AttachmentRef{
+					Key:      fmt.Sprintf("attachments/mid-%d.png", i),
+					MimeType: "image/png",
 				},
-			},
-			{
-				Role: "tool",
-				Content: []llm.TextPart{{
-					Text: `{"tool_call_id":"call_old","tool_name":"read","result":{"huge":true}}`,
-				}},
-			},
-			{
-				Role: "user",
-				Content: []llm.ContentPart{
-					{
-						Type: messagecontent.PartTypeImage,
-						Data: []byte("latest"),
-						Attachment: &messagecontent.AttachmentRef{
-							Key:      "attachments/latest.png",
-							MimeType: "image/png",
-						},
-					},
-				},
-			},
-		},
+			}},
+		})
 	}
+	messages = append(messages,
+		llm.Message{
+			Role: "tool",
+			Content: []llm.TextPart{{
+				Text: `{"tool_call_id":"call_old","tool_name":"read","result":{"huge":true}}`,
+			}},
+		},
+		llm.Message{
+			Role: "user",
+			Content: []llm.ContentPart{{
+				Type: messagecontent.PartTypeImage,
+				Data: []byte("latest"),
+				Attachment: &messagecontent.AttachmentRef{
+					Key:      "attachments/latest.png",
+					MimeType: "image/png",
+				},
+			}},
+		},
+	)
+	request := llm.Request{Messages: messages}
 
 	rewritten, stats, err := RewriteOversizeRequest(context.Background(), rc, request, nil, llm.EstimateRequestJSONBytes)
 	if err != nil {

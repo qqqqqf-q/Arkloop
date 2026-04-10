@@ -364,6 +364,24 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		 WHERE is_active = TRUE`,
 		`CREATE INDEX ix_thread_compaction_snapshots_thread_created_at
 		    ON thread_compaction_snapshots (thread_id, created_at DESC)`,
+		`CREATE TABLE thread_context_replacements (
+			id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			account_id       UUID        NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+			thread_id        UUID        NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+			start_thread_seq BIGINT      NOT NULL,
+			end_thread_seq   BIGINT      NOT NULL,
+			summary_text     TEXT        NOT NULL,
+			layer            INTEGER     NOT NULL DEFAULT 1,
+			metadata_json    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+			superseded_at    TIMESTAMPTZ NULL,
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			CONSTRAINT chk_thread_context_replacements_range CHECK (start_thread_seq <= end_thread_seq)
+		)`,
+		`CREATE INDEX idx_thread_context_replacements_thread_active
+		    ON thread_context_replacements (thread_id, start_thread_seq, end_thread_seq, layer DESC, created_at DESC)
+		 WHERE superseded_at IS NULL`,
+		`CREATE INDEX idx_thread_context_replacements_thread_created
+		    ON thread_context_replacements (thread_id, created_at DESC)`,
 		`CREATE TABLE default_workspace_bindings (
 			profile_ref       TEXT        NOT NULL,
 			owner_user_id     UUID        NULL,

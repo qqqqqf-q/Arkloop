@@ -48,8 +48,8 @@ type loadedRunInputs struct {
 type LoadedRunInputs = loadedRunInputs
 
 type resumeReplayInsertion struct {
-	AnchorMessageID uuid.UUID
-	Messages        []llm.Message
+	AnchorKey string
+	Messages  []llm.Message
 }
 
 type resumeUnavailableError struct {
@@ -200,7 +200,7 @@ func loadRunInputs(
 			inputJSON["channel_delivery"] = rawChannelDelivery
 		}
 	}
-	currentHeartbeatRun := isHeartbeatRun(inputJSON, jobPayload)
+	_ = isHeartbeatRun(inputJSON, jobPayload)
 
 	historyUpperBoundID, hasHistoryUpperBound, err := boundedThreadHistoryUpperBound(ctx, tx, inputJSON, jobPayload)
 	if err != nil {
@@ -210,32 +210,33 @@ func loadRunInputs(
 		inputJSON[runStartedThreadTailMessageIDKey] = historyUpperBoundID.String()
 	}
 
-	var messages []data.ThreadMessage
+	var upperBoundMessageID *uuid.UUID
 	if hasHistoryUpperBound {
-		messages, err = messagesRepo.ListByThreadUpToID(ctx, tx, run.AccountID, run.ThreadID, historyUpperBoundID, messageLimit)
-	} else {
-		messages, err = messagesRepo.ListByThread(ctx, tx, run.AccountID, run.ThreadID, messageLimit)
+		upperBoundMessageID = &historyUpperBoundID
 	}
+	canonicalContext, err := buildCanonicalThreadContext(
+		ctx,
+		tx,
+		run,
+		messagesRepo,
+		attachmentStore,
+		upperBoundMessageID,
+		messageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
-	var activeSnapshot *data.ThreadCompactionSnapshotRecord
-	if !shouldSkipActiveSnapshotForBoundedHistory(inputJSON, run, jobPayload, hasHistoryUpperBound) {
-		activeSnapshot, err = (data.ThreadCompactionSnapshotsRepository{}).GetActiveByThread(ctx, tx, run.AccountID, run.ThreadID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	hasActiveSnapshot := activeSnapshot != nil && strings.TrimSpace(activeSnapshot.SummaryText) != ""
+	messages := canonicalContext.VisibleMessages
+	hasActiveSnapshot := canonicalContext.HasLeadingCompactSummary
 
 	replayInsertions := []resumeReplayInsertion(nil)
 	if IsRuntimeRecoveryJob(jobPayload) {
-		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, messages, hasActiveSnapshot, currentHeartbeatRun)
+		replayInsertions, err = loadRuntimeRecoveryReplay(ctx, tx, run, eventsRepo, rolloutStore, canonicalContext, messages)
 		if err != nil {
 			return nil, err
 		}
 	} else if run.ResumeFromRunID != nil {
-		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, messages, hasActiveSnapshot, currentHeartbeatRun)
+		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, canonicalContext, messages)
 		if err != nil {
 			var resumeErr *resumeUnavailableError
 			if errors.As(err, &resumeErr) {
@@ -252,55 +253,19 @@ func loadRunInputs(
 	}
 
 	replayCount := 0
-	replayByAnchor := make(map[uuid.UUID][]resumeReplayInsertion, len(replayInsertions))
+	replayByAnchor := make(map[string][]resumeReplayInsertion, len(replayInsertions))
 	for _, insertion := range replayInsertions {
-		replayByAnchor[insertion.AnchorMessageID] = append(replayByAnchor[insertion.AnchorMessageID], insertion)
+		replayByAnchor[insertion.AnchorKey] = append(replayByAnchor[insertion.AnchorKey], insertion)
 		replayCount += len(insertion.Messages)
 	}
 
-	activeSnapshotText := ""
-	llmMessages := make([]llm.Message, 0, len(messages)+replayCount+1)
-	ids := make([]uuid.UUID, 0, len(messages)+replayCount+1)
-	if hasActiveSnapshot {
-		activeSnapshotText = strings.TrimSpace(activeSnapshot.SummaryText)
-		llmMessages = append(llmMessages, makeCompactSnapshotMessage(activeSnapshotText))
-		ids = append(ids, uuid.Nil)
-		for _, insertion := range replayByAnchor[uuid.Nil] {
-			llmMessages = append(llmMessages, insertion.Messages...)
-			for range insertion.Messages {
-				ids = append(ids, uuid.Nil)
-			}
-		}
-	}
-	for _, msg := range messages {
-		if strings.TrimSpace(msg.Role) == "" {
-			continue
-		}
-		parts, err := BuildMessageParts(ctx, attachmentStore, msg)
-		if err != nil {
-			return nil, err
-		}
-		if msg.Role == "tool" {
-			parts = canonicalizeToolMessageParts(parts)
-		}
-		lm := llm.Message{
-			Role:         msg.Role,
-			Content:      parts,
-			OutputTokens: msg.OutputTokens,
-		}
-		if msg.Role == "assistant" && len(msg.ContentJSON) > 0 {
-			lm.ToolCalls = parseToolCallsFromContentJSON(msg.ContentJSON)
-		}
-		if !currentHeartbeatRun {
-			var keep bool
-			lm, keep = filterLongTermHeartbeatDecision(lm)
-			if !keep {
-				continue
-			}
-		}
-		llmMessages = append(llmMessages, lm)
-		ids = append(ids, msg.ID)
-		for _, insertion := range replayByAnchor[msg.ID] {
+	activeSnapshotText := strings.TrimSpace(canonicalContext.LeadingCompactSummary)
+	llmMessages := make([]llm.Message, 0, len(canonicalContext.Messages)+replayCount)
+	ids := make([]uuid.UUID, 0, len(canonicalContext.ThreadMessageIDs)+replayCount)
+	for _, entry := range canonicalContext.Entries {
+		llmMessages = append(llmMessages, entry.Message)
+		ids = append(ids, entry.ThreadMessageID)
+		for _, insertion := range replayByAnchor[entry.AnchorKey] {
 			llmMessages = append(llmMessages, insertion.Messages...)
 			for range insertion.Messages {
 				ids = append(ids, uuid.Nil)
@@ -392,19 +357,6 @@ func hasChannelDeliveryPayload(values map[string]any) bool {
 	return ok && len(raw) > 0
 }
 
-func shouldSkipActiveSnapshotForBoundedHistory(inputJSON map[string]any, run data.Run, jobPayload map[string]any, hasHistoryUpperBound bool) bool {
-	if run.ResumeFromRunID != nil {
-		return false
-	}
-	if IsRuntimeRecoveryJob(jobPayload) {
-		return false
-	}
-	if hasHistoryUpperBound {
-		return true
-	}
-	return isBoundedChannelHistoryRun(inputJSON, jobPayload)
-}
-
 func threadHistoryUpperBoundFromValues(values ...map[string]any) (uuid.UUID, bool, error) {
 	for _, value := range values {
 		raw, _ := value[runStartedThreadTailMessageIDKey].(string)
@@ -493,9 +445,8 @@ func loadResumedReplay(
 	runsRepo runRecordLoader,
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
+	canonicalContext *canonicalThreadContext,
 	threadMessages []data.ThreadMessage,
-	hasActiveSnapshot bool,
-	currentHeartbeatRun bool,
 ) ([]resumeReplayInsertion, error) {
 	if run.ResumeFromRunID == nil {
 		return nil, nil
@@ -519,9 +470,8 @@ func loadResumedReplay(
 		runsRepo,
 		eventsRepo,
 		rolloutStore,
+		canonicalContext,
 		threadMessages,
-		hasActiveSnapshot,
-		currentHeartbeatRun,
 		map[uuid.UUID]struct{}{},
 	)
 	if err != nil {
@@ -586,28 +536,29 @@ func resumeInsertionAnchor(
 	tx pgx.Tx,
 	accountID uuid.UUID,
 	threadID uuid.UUID,
+	canonicalContext *canonicalThreadContext,
 	visibleMessages []data.ThreadMessage,
 	anchorMessageID uuid.UUID,
-	hasActiveSnapshot bool,
 	allowVisibleTail bool,
-) (uuid.UUID, bool, error) {
+) (string, bool, error) {
+	renderedAnchorKey := renderedMessageAnchorKey(canonicalContext.Entries, anchorMessageID)
 	if allowVisibleTail {
-		for idx, msg := range visibleMessages {
-			if msg.ID == anchorMessageID && idx == len(visibleMessages)-1 {
-				return anchorMessageID, true, nil
-			}
+		if renderedAnchorKey != "" && isLastRenderedMessage(canonicalContext.Entries, anchorMessageID) {
+			return renderedAnchorKey, true, nil
 		}
 	}
 	if _, ok := trailingResumeUserBlockAfterMessage(visibleMessages, anchorMessageID); ok {
-		return anchorMessageID, true, nil
+		if renderedAnchorKey != "" {
+			return renderedAnchorKey, true, nil
+		}
 	}
-	if !hasActiveSnapshot || tx == nil || accountID == uuid.Nil || threadID == uuid.Nil || anchorMessageID == uuid.Nil {
-		return uuid.Nil, false, nil
+	if tx == nil || accountID == uuid.Nil || threadID == uuid.Nil || anchorMessageID == uuid.Nil {
+		return "", false, nil
 	}
-	var hidden bool
+	var threadSeq int64
 	err := tx.QueryRow(
 		ctx,
-		`SELECT hidden
+		`SELECT thread_seq
 		   FROM messages
 		  WHERE account_id = $1
 		    AND thread_id = $2
@@ -617,17 +568,20 @@ func resumeInsertionAnchor(
 		accountID,
 		threadID,
 		anchorMessageID,
-	).Scan(&hidden)
+	).Scan(&threadSeq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return uuid.Nil, false, nil
+			return "", false, nil
 		}
-		return uuid.Nil, false, err
+		return "", false, err
 	}
-	if hidden {
-		return uuid.Nil, true, nil
+	if replacementAnchor := replacementAnchorKeyForThreadSeq(canonicalContext.Entries, threadSeq); replacementAnchor != "" {
+		return replacementAnchor, true, nil
 	}
-	return uuid.Nil, false, nil
+	if renderedAnchorKey != "" {
+		return renderedAnchorKey, true, nil
+	}
+	return "", false, nil
 }
 
 func collectResumeReplayInsertions(
@@ -639,9 +593,8 @@ func collectResumeReplayInsertions(
 	runsRepo runRecordLoader,
 	eventsRepo runFirstEventLoader,
 	rolloutStore objectstore.BlobStore,
+	canonicalContext *canonicalThreadContext,
 	threadMessages []data.ThreadMessage,
-	hasActiveSnapshot bool,
-	currentHeartbeatRun bool,
 	visited map[uuid.UUID]struct{},
 ) ([]resumeReplayInsertion, error) {
 	if _, ok := visited[runID]; ok {
@@ -674,9 +627,8 @@ func collectResumeReplayInsertions(
 			runsRepo,
 			eventsRepo,
 			rolloutStore,
+			canonicalContext,
 			threadMessages,
-			hasActiveSnapshot,
-			currentHeartbeatRun,
 			visited,
 		)
 		if err != nil {
@@ -692,7 +644,7 @@ func collectResumeReplayInsertions(
 	if err != nil {
 		return nil, err
 	}
-	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, accountID, threadID, threadMessages, anchorMessageID, hasActiveSnapshot, false)
+	insertionAnchorKey, ok, err := resumeInsertionAnchor(ctx, tx, accountID, threadID, canonicalContext, threadMessages, anchorMessageID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -705,18 +657,18 @@ func collectResumeReplayInsertions(
 		return nil, &resumeUnavailableError{reason: "resume rollout is unavailable"}
 	}
 	state := rollout.NewReader(rolloutStore).Reconstruct(items)
-	replayedMessages, err := buildReplayMessages(state, currentHeartbeatRun)
+	replayedMessages, err := buildReplayMessages(state)
 	if err != nil {
 		return nil, err
 	}
-	if !threadHasAssistantMessageForRun(threadMessages, parentRun.ID) {
+	if !canonicalThreadHasAssistantMessageForRun(canonicalContext, threadMessages, parentRun.ID) {
 		if err := appendVisibleRecoveryDraft(ctx, tx, parentRun.ID, rolloutStore, &replayedMessages); err != nil {
 			return nil, err
 		}
 	}
 	return append(insertions, resumeReplayInsertion{
-		AnchorMessageID: insertionAnchorID,
-		Messages:        replayedMessages,
+		AnchorKey: insertionAnchorKey,
+		Messages:  replayedMessages,
 	}), nil
 }
 
@@ -726,9 +678,8 @@ func loadRuntimeRecoveryReplay(
 	run data.Run,
 	eventsRepo runRecoveryEventLoader,
 	rolloutStore objectstore.BlobStore,
+	canonicalContext *canonicalThreadContext,
 	threadMessages []data.ThreadMessage,
-	hasActiveSnapshot bool,
-	currentHeartbeatRun bool,
 ) ([]resumeReplayInsertion, error) {
 	hasRecoverableOutput, err := runtimeRecoveryHasRecoverableOutput(ctx, tx, eventsRepo, run.ID)
 	if err != nil {
@@ -748,7 +699,7 @@ func loadRuntimeRecoveryReplay(
 	if err != nil {
 		return nil, err
 	}
-	insertionAnchorID, ok, err := resumeInsertionAnchor(ctx, tx, run.AccountID, run.ThreadID, threadMessages, anchorMessageID, hasActiveSnapshot, true)
+	insertionAnchorKey, ok, err := resumeInsertionAnchor(ctx, tx, run.AccountID, run.ThreadID, canonicalContext, threadMessages, anchorMessageID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -760,11 +711,11 @@ func loadRuntimeRecoveryReplay(
 		return nil, &resumeUnavailableError{reason: "runtime recovery rollout is unavailable"}
 	}
 	state := rollout.NewReader(rolloutStore).Reconstruct(items)
-	replayedMessages, err := buildReplayMessages(state, currentHeartbeatRun)
+	replayedMessages, err := buildReplayMessages(state)
 	if err != nil {
 		return nil, err
 	}
-	if !threadHasAssistantMessageForRun(threadMessages, run.ID) {
+	if !canonicalThreadHasAssistantMessageForRun(canonicalContext, threadMessages, run.ID) {
 		if err := appendVisibleRecoveryDraft(ctx, tx, run.ID, rolloutStore, &replayedMessages); err != nil {
 			return nil, err
 		}
@@ -773,8 +724,8 @@ func loadRuntimeRecoveryReplay(
 		return nil, &resumeUnavailableError{reason: "runtime recovery state is unavailable"}
 	}
 	return []resumeReplayInsertion{{
-		AnchorMessageID: insertionAnchorID,
-		Messages:        replayedMessages,
+		AnchorKey: insertionAnchorKey,
+		Messages:  replayedMessages,
 	}}, nil
 }
 
@@ -798,12 +749,26 @@ func runtimeRecoveryHasRecoverableOutput(
 	return strings.TrimSpace(eventType) != "", nil
 }
 
-func threadHasAssistantMessageForRun(messages []data.ThreadMessage, runID uuid.UUID) bool {
-	if runID == uuid.Nil {
+func canonicalThreadHasAssistantMessageForRun(
+	canonicalContext *canonicalThreadContext,
+	messages []data.ThreadMessage,
+	runID uuid.UUID,
+) bool {
+	if canonicalContext == nil || runID == uuid.Nil {
 		return false
+	}
+	rendered := make(map[uuid.UUID]struct{}, len(canonicalContext.ThreadMessageIDs))
+	for _, messageID := range canonicalContext.ThreadMessageIDs {
+		if messageID == uuid.Nil {
+			continue
+		}
+		rendered[messageID] = struct{}{}
 	}
 	want := runID.String()
 	for _, msg := range messages {
+		if _, ok := rendered[msg.ID]; !ok {
+			continue
+		}
 		if msg.Role != "assistant" || len(msg.MetadataJSON) == 0 {
 			continue
 		}
@@ -819,7 +784,7 @@ func threadHasAssistantMessageForRun(messages []data.ThreadMessage, runID uuid.U
 	return false
 }
 
-func buildReplayMessages(state *rollout.ReconstructedState, currentHeartbeatRun bool) ([]llm.Message, error) {
+func buildReplayMessages(state *rollout.ReconstructedState) ([]llm.Message, error) {
 	if state == nil {
 		return nil, nil
 	}
@@ -841,10 +806,6 @@ func buildReplayMessages(state *rollout.ReconstructedState, currentHeartbeatRun 
 		default:
 			continue
 		}
-		if currentHeartbeatRun {
-			replayed = append(replayed, rebuilt)
-			continue
-		}
 		rebuilt, keep = filterLongTermHeartbeatDecision(rebuilt)
 		if keep {
 			replayed = append(replayed, rebuilt)
@@ -857,10 +818,6 @@ func buildReplayMessages(state *rollout.ReconstructedState, currentHeartbeatRun 
 			Error:     interruptedToolErrorMessage,
 			Synthetic: true,
 		})
-		if currentHeartbeatRun {
-			replayed = append(replayed, rebuilt)
-			continue
-		}
 		rebuilt, keep := filterLongTermHeartbeatDecision(rebuilt)
 		if keep {
 			replayed = append(replayed, rebuilt)

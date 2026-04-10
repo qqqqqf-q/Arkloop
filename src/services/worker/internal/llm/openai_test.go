@@ -192,6 +192,9 @@ func TestOpenAIGateway_Stream_PreflightOversizeSkipsHTTP(t *testing.T) {
 	if failed.Error.Details["oversize_phase"] != OversizePhasePreflight {
 		t.Fatalf("unexpected oversize phase: %#v", failed.Error.Details)
 	}
+	if failed.Error.Details["network_attempted"] != false {
+		t.Fatalf("unexpected network_attempted: %#v", failed.Error.Details)
+	}
 }
 
 func TestOpenAIGateway_Stream_Provider413AddsOversizeDetails(t *testing.T) {
@@ -229,6 +232,9 @@ func TestOpenAIGateway_Stream_Provider413AddsOversizeDetails(t *testing.T) {
 	}
 	if failed.Error.Details["oversize_phase"] != OversizePhaseProvider {
 		t.Fatalf("unexpected oversize phase: %#v", failed.Error.Details)
+	}
+	if failed.Error.Details["network_attempted"] != true {
+		t.Fatalf("unexpected network_attempted: %#v", failed.Error.Details)
 	}
 	if _, ok := failed.Error.Details["payload_bytes"]; !ok {
 		t.Fatalf("expected payload_bytes in details: %#v", failed.Error.Details)

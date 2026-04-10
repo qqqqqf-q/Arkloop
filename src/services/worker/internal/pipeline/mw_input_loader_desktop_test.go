@@ -28,6 +28,7 @@ func TestLoadRunInputsDesktopBoundsFreshChannelHistoryAtThreadTail(t *testing.T)
 	projectID := uuid.New()
 	threadID := uuid.New()
 	runID := uuid.New()
+	hiddenID := uuid.New()
 	msg1ID := uuid.New()
 	msg2ID := uuid.New()
 	msg3ID := uuid.New()
@@ -50,13 +51,19 @@ func TestLoadRunInputsDesktopBoundsFreshChannelHistoryAtThreadTail(t *testing.T)
 	); err != nil {
 		t.Fatalf("insert run started: %v", err)
 	}
-	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg1ID, 1, "user", "one", "2026-04-09 05:18:30.100000000 +0000"); err != nil {
+	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, hiddenID, 1, "assistant", "hidden", "2026-04-09 05:18:28.100000000 +0000"); err != nil {
+		t.Fatalf("insert hidden message: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE messages SET hidden = TRUE, compacted = 1 WHERE id = $1`, hiddenID); err != nil {
+		t.Fatalf("mark hidden message compacted: %v", err)
+	}
+	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg1ID, 2, "user", "one", "2026-04-09 05:18:30.100000000 +0000"); err != nil {
 		t.Fatalf("insert message one: %v", err)
 	}
-	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg2ID, 2, "user", "two", "2026-04-09 05:18:31.100000000 +0000"); err != nil {
+	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg2ID, 3, "user", "two", "2026-04-09 05:18:31.100000000 +0000"); err != nil {
 		t.Fatalf("insert message two: %v", err)
 	}
-	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg3ID, 3, "assistant", "future assistant", "2026-04-09 05:18:29.100000000 +0000"); err != nil {
+	if err := insertDesktopThreadMessage(ctx, db, accountID, threadID, msg3ID, 4, "assistant", "future assistant", "2026-04-09 05:18:29.100000000 +0000"); err != nil {
 		t.Fatalf("insert future assistant: %v", err)
 	}
 	if _, err := db.Exec(ctx, `INSERT INTO thread_compaction_snapshots (account_id, thread_id, summary_text, metadata_json, is_active) VALUES ($1, $2, 'future summary', '{}', 1)`, accountID, threadID); err != nil {
@@ -71,20 +78,23 @@ func TestLoadRunInputsDesktopBoundsFreshChannelHistoryAtThreadTail(t *testing.T)
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}
-	if len(loaded.Messages) != 2 {
-		t.Fatalf("expected 2 bounded messages, got %d", len(loaded.Messages))
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected 3 prompt messages, got %d", len(loaded.Messages))
 	}
-	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != "one" {
-		t.Fatalf("unexpected first bounded message: %#v", loaded.Messages[0])
+	if !loaded.HasActiveCompactSnapshot || loaded.ActiveCompactSnapshotText != "future summary" {
+		t.Fatalf("expected snapshot prefix, got has=%v text=%q", loaded.HasActiveCompactSnapshot, loaded.ActiveCompactSnapshotText)
 	}
-	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "two" {
-		t.Fatalf("unexpected second bounded message: %#v", loaded.Messages[1])
+	if loaded.Messages[0].Role != "user" || loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("future summary") {
+		t.Fatalf("unexpected snapshot message: %#v", loaded.Messages[0])
 	}
-	if len(loaded.ThreadMessageIDs) != 2 || loaded.ThreadMessageIDs[0] != msg1ID || loaded.ThreadMessageIDs[1] != msg2ID {
+	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "one" {
+		t.Fatalf("unexpected bounded message: %#v", loaded.Messages[1])
+	}
+	if loaded.Messages[2].Role != "user" || loaded.Messages[2].Content[0].Text != "two" {
+		t.Fatalf("unexpected bounded message: %#v", loaded.Messages[2])
+	}
+	if len(loaded.ThreadMessageIDs) != 3 || loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != msg1ID || loaded.ThreadMessageIDs[2] != msg2ID {
 		t.Fatalf("unexpected bounded thread ids: %#v", loaded.ThreadMessageIDs)
-	}
-	if loaded.HasActiveCompactSnapshot {
-		t.Fatal("expected bounded channel run to skip active compact snapshot")
 	}
 }
 
@@ -163,14 +173,19 @@ func TestLoadRunInputsDesktopResolvesChannelHistoryUpperBoundFromLedger(t *testi
 	if got := loaded.InputJSON[runStartedThreadTailMessageIDKey]; got != msg2ID.String() {
 		t.Fatalf("unexpected resolved thread tail: %#v", got)
 	}
-	if len(loaded.Messages) != 2 {
-		t.Fatalf("expected 2 bounded messages, got %d", len(loaded.Messages))
+	if !loaded.HasActiveCompactSnapshot || loaded.ActiveCompactSnapshotText != "future summary" {
+		t.Fatalf("expected snapshot prefix, got has=%v text=%q", loaded.HasActiveCompactSnapshot, loaded.ActiveCompactSnapshotText)
 	}
-	if loaded.Messages[0].Content[0].Text != "one" || loaded.Messages[1].Content[0].Text != "two" {
+	if len(loaded.Messages) != 3 {
+		t.Fatalf("expected 3 bounded prompt messages, got %d", len(loaded.Messages))
+	}
+	if loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("future summary") ||
+		loaded.Messages[1].Content[0].Text != "one" ||
+		loaded.Messages[2].Content[0].Text != "two" {
 		t.Fatalf("unexpected bounded contents: %#v", loaded.Messages)
 	}
-	if loaded.HasActiveCompactSnapshot {
-		t.Fatal("expected resolved bounded channel run to skip active compact snapshot")
+	if len(loaded.ThreadMessageIDs) != 3 || loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != msg1ID || loaded.ThreadMessageIDs[2] != msg2ID {
+		t.Fatalf("unexpected bounded thread ids: %#v", loaded.ThreadMessageIDs)
 	}
 }
 
@@ -243,14 +258,19 @@ func TestLoadRunInputsDesktopSkipsSnapshotWhenChannelUpperBoundMissing(t *testin
 	if err != nil {
 		t.Fatalf("loadRunInputs failed: %v", err)
 	}
-	if loaded.HasActiveCompactSnapshot {
-		t.Fatal("expected channel downgrade path to skip active compact snapshot")
+	if !loaded.HasActiveCompactSnapshot || loaded.ActiveCompactSnapshotText != "future summary" {
+		t.Fatalf("expected channel downgrade path to keep snapshot prefix, got has=%v text=%q", loaded.HasActiveCompactSnapshot, loaded.ActiveCompactSnapshotText)
 	}
-	if len(loaded.Messages) != 3 {
-		t.Fatalf("expected full visible history without snapshot, got %d", len(loaded.Messages))
+	if len(loaded.Messages) != 4 {
+		t.Fatalf("expected full visible history with snapshot prefix, got %d", len(loaded.Messages))
 	}
-	if loaded.Messages[0].Content[0].Text != "one" || loaded.Messages[2].Content[0].Text != "future assistant" {
+	if loaded.Messages[0].Content[0].Text != formatCompactSnapshotText("future summary") ||
+		loaded.Messages[1].Content[0].Text != "one" ||
+		loaded.Messages[3].Content[0].Text != "future assistant" {
 		t.Fatalf("unexpected downgrade contents: %#v", loaded.Messages)
+	}
+	if len(loaded.ThreadMessageIDs) != 4 || loaded.ThreadMessageIDs[0] != uuid.Nil {
+		t.Fatalf("unexpected downgrade thread ids: %#v", loaded.ThreadMessageIDs)
 	}
 }
 

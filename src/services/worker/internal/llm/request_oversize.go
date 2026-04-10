@@ -31,7 +31,7 @@ func PreflightOversizeFailure(llmCallID string, payloadBytes int) StreamRunFaile
 		Error: GatewayError{
 			ErrorClass: ErrorClassProviderNonRetryable,
 			Message:    "request payload too large",
-			Details:    OversizeFailureDetails(payloadBytes, OversizePhasePreflight, nil),
+			Details:    OversizeFailureDetails(payloadBytes, OversizePhasePreflight, map[string]any{"network_attempted": false}),
 		},
 	}
 }

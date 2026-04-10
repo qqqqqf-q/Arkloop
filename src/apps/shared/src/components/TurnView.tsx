@@ -144,12 +144,22 @@ export function TurnView({ turn, index }: TurnViewProps) {
         </CollapseBlock>
       )}
 
-      {(turn.systemBytes != null || turn.toolsBytes != null || turn.messagesBytes != null) && (
+      {(turn.systemBytes != null ||
+        turn.toolsBytes != null ||
+        turn.messagesBytes != null ||
+        turn.providerPayloadBytes != null ||
+        turn.abstractRequestBytes != null) && (
         <CollapseBlock
-          label={`Context${turn.messagesBytes != null ? ` ${(turn.messagesBytes / 1024).toFixed(1)}KB` : ''}`}
+          label={`Context${
+            (turn.abstractRequestBytes ?? turn.messagesBytes) != null
+              ? ` ${(((turn.abstractRequestBytes ?? turn.messagesBytes) as number) / 1024).toFixed(1)}KB`
+              : ''
+          }`}
           preview={[
             turn.systemBytes != null ? `sys ${(turn.systemBytes / 1024).toFixed(1)}KB` : null,
             turn.toolsBytes != null ? `tools ${(turn.toolsBytes / 1024).toFixed(1)}KB` : null,
+            turn.providerPayloadBytes != null ? `wire ${(turn.providerPayloadBytes / 1024).toFixed(1)}KB` : null,
+            turn.networkAttempted != null ? `net ${turn.networkAttempted ? 'yes' : 'no'}` : null,
             turn.stablePrefixHash ? `prefix ${turn.stablePrefixHash.slice(0, 8)}` : null,
           ].filter(Boolean).join(' · ')}
         >
@@ -170,6 +180,36 @@ export function TurnView({ turn, index }: TurnViewProps) {
               <div className="flex justify-between">
                 <span>messages</span>
                 <span>{(turn.messagesBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.abstractRequestBytes != null && (
+              <div className="flex justify-between">
+                <span>abstract request</span>
+                <span>{(turn.abstractRequestBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.providerPayloadBytes != null && (
+              <div className="flex justify-between">
+                <span>provider payload</span>
+                <span>{(turn.providerPayloadBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.imagePartCount != null && (
+              <div className="flex justify-between">
+                <span>image parts</span>
+                <span>{turn.imagePartCount}</span>
+              </div>
+            )}
+            {turn.base64ImageBytes != null && (
+              <div className="flex justify-between">
+                <span>image base64</span>
+                <span>{(turn.base64ImageBytes / 1024).toFixed(2)} KB</span>
+              </div>
+            )}
+            {turn.networkAttempted != null && (
+              <div className="flex justify-between">
+                <span>network attempted</span>
+                <span>{turn.networkAttempted ? 'yes' : 'no'}</span>
               </div>
             )}
             {turn.roleBytes &&

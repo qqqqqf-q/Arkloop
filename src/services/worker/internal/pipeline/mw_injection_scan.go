@@ -280,7 +280,7 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventStore
 	notifyRunEventSubscribers(ctx, rc)
 
 	rc.ChannelTerminalNotice = userMsg
-	TryDeliverTelegramInjectionBlockNotice(ctx, rc.Pool, rc, userMsg)
+	TryDeliverChannelInjectionBlockNotice(ctx, rc.Pool, rc, userMsg)
 
 	slog.WarnContext(ctx, "run blocked: injection detected", "run_id", rc.Run.ID)
 	return nil

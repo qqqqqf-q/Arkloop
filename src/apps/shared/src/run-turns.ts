@@ -76,6 +76,11 @@ export type LlmTurn = {
   systemBytes?: number
   toolsBytes?: number
   messagesBytes?: number
+  abstractRequestBytes?: number
+  providerPayloadBytes?: number
+  imagePartCount?: number
+  base64ImageBytes?: number
+  networkAttempted?: boolean
   roleBytes?: Record<string, number>
   toolSchemaBytesMap?: Record<string, number>
   stablePrefixHash?: string
@@ -129,10 +134,18 @@ function stripTelegramEnvelopeBodyPrefix(text: string, meta: Record<string, stri
 
 // 与 worker context_compact.approxTokensFromText 同阶：按 UTF-8 字节粗算 token，仅用于调试对照账单 in。
 function approxContextTokensFromPayloadBytes(turn: LlmTurn): number | undefined {
-  if (turn.systemBytes == null && turn.toolsBytes == null && turn.messagesBytes == null) {
+  if (
+    turn.systemBytes == null &&
+    turn.toolsBytes == null &&
+    turn.messagesBytes == null &&
+    turn.providerPayloadBytes == null &&
+    turn.abstractRequestBytes == null
+  ) {
     return undefined
   }
-  const total = (turn.systemBytes ?? 0) + (turn.toolsBytes ?? 0) + (turn.messagesBytes ?? 0)
+  const total =
+    turn.abstractRequestBytes ??
+    ((turn.systemBytes ?? 0) + (turn.toolsBytes ?? 0) + (turn.messagesBytes ?? 0))
   if (total <= 0) return undefined
   return Math.floor((total + 3) / 4)
 }
@@ -480,6 +493,16 @@ function startTurn(
     systemBytes: typeof requestData.system_bytes === 'number' ? requestData.system_bytes : undefined,
     toolsBytes: typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : undefined,
     messagesBytes: typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : undefined,
+    abstractRequestBytes:
+      typeof requestData.abstract_request_bytes === 'number' ? requestData.abstract_request_bytes : undefined,
+    providerPayloadBytes:
+      typeof requestData.provider_payload_bytes === 'number' ? requestData.provider_payload_bytes : undefined,
+    imagePartCount:
+      typeof requestData.image_part_count === 'number' ? requestData.image_part_count : undefined,
+    base64ImageBytes:
+      typeof requestData.base64_image_bytes === 'number' ? requestData.base64_image_bytes : undefined,
+    networkAttempted:
+      typeof requestData.network_attempted === 'boolean' ? requestData.network_attempted : undefined,
     roleBytes: requestData.role_bytes as Record<string, number> | undefined,
     toolSchemaBytesMap: canonicalizeToolSchemaBytesMap(requestData.tool_schema_bytes_by_name),
     stablePrefixHash:
@@ -527,9 +550,24 @@ function mergeRequestMetadata(
       : typeof payload?.max_output_tokens === 'number'
         ? payload.max_output_tokens
         : turn.maxOutputTokens
-  turn.systemBytes = Math.max(turn.systemBytes ?? 0, typeof requestData.system_bytes === 'number' ? requestData.system_bytes : 0) || undefined
-  turn.toolsBytes = Math.max(turn.toolsBytes ?? 0, typeof requestData.tools_bytes === 'number' ? requestData.tools_bytes : 0) || undefined
-  turn.messagesBytes = Math.max(turn.messagesBytes ?? 0, typeof requestData.messages_bytes === 'number' ? requestData.messages_bytes : 0) || undefined
+  if (typeof requestData.system_bytes === 'number') turn.systemBytes = requestData.system_bytes || undefined
+  if (typeof requestData.tools_bytes === 'number') turn.toolsBytes = requestData.tools_bytes || undefined
+  if (typeof requestData.messages_bytes === 'number') turn.messagesBytes = requestData.messages_bytes || undefined
+  if (typeof requestData.abstract_request_bytes === 'number') {
+    turn.abstractRequestBytes = requestData.abstract_request_bytes || undefined
+  }
+  if (typeof requestData.provider_payload_bytes === 'number') {
+    turn.providerPayloadBytes = requestData.provider_payload_bytes || undefined
+  }
+  if (typeof requestData.image_part_count === 'number') {
+    turn.imagePartCount = requestData.image_part_count || undefined
+  }
+  if (typeof requestData.base64_image_bytes === 'number') {
+    turn.base64ImageBytes = requestData.base64_image_bytes || undefined
+  }
+  if (typeof requestData.network_attempted === 'boolean') {
+    turn.networkAttempted = requestData.network_attempted
+  }
   if (requestData.role_bytes && typeof requestData.role_bytes === 'object') {
     turn.roleBytes = requestData.role_bytes as Record<string, number>
   }

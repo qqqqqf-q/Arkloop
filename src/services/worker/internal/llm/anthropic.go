@@ -192,24 +192,6 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 	path := "/v1/messages"
 	stats := ComputeRequestStats(request)
 	debugPayload, redactedHints := sanitizeDebugPayloadJSON(payload)
-	if err := yield(StreamLlmRequest{
-		LlmCallID:          llmCallID,
-		ProviderKind:       "anthropic",
-		APIMode:            "messages",
-		BaseURL:            &baseURL,
-		Path:               &path,
-		PayloadJSON:        debugPayload,
-		RedactedHints:      redactedHints,
-		SystemBytes:        stats.SystemBytes,
-		ToolsBytes:         stats.ToolsBytes,
-		MessagesBytes:      stats.MessagesBytes,
-		RoleBytes:          stats.RoleBytes,
-		ToolSchemaBytesMap: stats.ToolSchemaBytesMap,
-		StablePrefixHash:   stats.StablePrefixHash,
-	}); err != nil {
-		return err
-	}
-
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return yield(StreamRunFailed{
@@ -220,12 +202,38 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
+	networkAttempted := false
+	requestEvent := StreamLlmRequest{
+		LlmCallID:            llmCallID,
+		ProviderKind:         "anthropic",
+		APIMode:              "messages",
+		BaseURL:              &baseURL,
+		Path:                 &path,
+		PayloadJSON:          debugPayload,
+		RedactedHints:        redactedHints,
+		SystemBytes:          stats.SystemBytes,
+		ToolsBytes:           stats.ToolsBytes,
+		MessagesBytes:        stats.MessagesBytes,
+		AbstractRequestBytes: stats.AbstractRequestBytes,
+		ProviderPayloadBytes: len(encoded),
+		ImagePartCount:       stats.ImagePartCount,
+		Base64ImageBytes:     stats.Base64ImageBytes,
+		NetworkAttempted:     &networkAttempted,
+		RoleBytes:            stats.RoleBytes,
+		ToolSchemaBytesMap:   stats.ToolSchemaBytesMap,
+		StablePrefixHash:     stats.StablePrefixHash,
+	}
 	if RequestPayloadTooLarge(len(encoded)) {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(PreflightOversizeFailure(llmCallID, len(encoded)))
 	}
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.transport.endpoint("/v1/messages"), bytes.NewReader(encoded))
 	if err != nil {
+		if err := yield(requestEvent); err != nil {
+			return err
+		}
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
@@ -234,6 +242,10 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 				Details:    map[string]any{"reason": err.Error()},
 			},
 		})
+	}
+	networkAttempted = true
+	if err := yield(requestEvent); err != nil {
+		return err
 	}
 	req.Header.Set("x-api-key", strings.TrimSpace(g.transport.cfg.APIKey))
 	req.Header.Set("anthropic-version", g.protocol.Version)
@@ -274,6 +286,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		}
 		message, details := anthropicErrorMessageAndDetails(body, status)
 		if status == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
 			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
 		}
 		return yield(StreamRunFailed{

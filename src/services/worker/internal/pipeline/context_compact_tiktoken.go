@@ -89,6 +89,18 @@ func TrimPrefixMessagesForCompactLLM(enc *tiktoken.Tiktoken, prefix []llm.Messag
 	return cur
 }
 
+func prepareCompactSummaryInput(enc *tiktoken.Tiktoken, prefix []llm.Message) ([]llm.Message, int) {
+	if len(prefix) == 0 {
+		return nil, 0
+	}
+	trimmed := TrimPrefixMessagesForCompactLLM(enc, prefix, contextCompactMaxLLMInputTokens)
+	dropped := len(prefix) - len(trimmed)
+	if dropped < 0 {
+		dropped = 0
+	}
+	return trimmed, dropped
+}
+
 // SuffixRoleAndContentTokens 从 start 起按 role+正文累加 tiktoken，不设消息帧；与裁切预算（max_total_text_tokens 等）语义一致。
 func SuffixRoleAndContentTokens(enc *tiktoken.Tiktoken, msgs []llm.Message, start int, userRoleOnly bool) int {
 	if enc == nil {

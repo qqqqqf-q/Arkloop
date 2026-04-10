@@ -1103,6 +1103,7 @@ func TestRecordChannelDeliverySuccessRollsBackOnLedgerFailure(t *testing.T) {
 		rc,
 		nil,
 		[]string{"701"},
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected ledger write to fail")
@@ -1257,6 +1258,326 @@ func TestChannelDeliveryMiddlewareSendsChannelTerminalNotice(t *testing.T) {
 	}
 	if sent.ReplyToMessageID != "55" || sent.MessageThreadID != threadRef {
 		t.Fatalf("unexpected telegram send payload: %#v", sent)
+	}
+
+	var (
+		storedContent string
+		metadataRaw   []byte
+	)
+	if err := pool.QueryRow(ctx, `SELECT content, metadata_json FROM messages WHERE thread_id = $1 ORDER BY thread_seq DESC LIMIT 1`, threadID).Scan(&storedContent, &metadataRaw); err != nil {
+		t.Fatalf("query terminal notice message: %v", err)
+	}
+	if storedContent != notice {
+		t.Fatalf("unexpected stored terminal notice: %q", storedContent)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if metadata["delivery_notice"] != true || metadata["terminal_notice"] != true || metadata["exclude_from_prompt"] != true {
+		t.Fatalf("unexpected terminal notice metadata: %#v", metadata)
+	}
+}
+
+func TestChannelDeliveryMiddlewareDoesNotPersistNoticeWhenSendFails(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_notice_send_fail")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		if r.URL.Path == "/botbot-token/sendMessage" {
+			nethttp.Error(w, "fail", nethttp.StatusInternalServerError)
+			return
+		}
+		t.Fatalf("unexpected path: %s", r.URL.Path)
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
+		secretID,
+		encryptChannelToken(t, keyBytes, "bot-token"),
+	); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`,
+		channelID,
+		secretID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run:                   data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput:  "",
+		ChannelTerminalNotice: "notice",
+		ChannelContext: &ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := NewChannelDeliveryMiddleware(pool)
+	_ = mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil })
+
+	var msgCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM messages WHERE thread_id = $1`, threadID).Scan(&msgCount); err != nil {
+		t.Fatalf("count messages: %v", err)
+	}
+	if msgCount != 0 {
+		t.Fatalf("expected no persisted notice message, got %d", msgCount)
+	}
+}
+
+func TestTryDeliverTelegramInjectionBlockNoticePersistsThreadNotice(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_injection_notice")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/botbot-token/sendMessage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":901,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
+		secretID,
+		encryptChannelToken(t, keyBytes, "bot-token"),
+	); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`,
+		channelID,
+		secretID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run: data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		ChannelContext: &ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	notice := "blocked by injection guard"
+	TryDeliverTelegramInjectionBlockNotice(ctx, pool, rc, notice)
+
+	var (
+		content     string
+		metadataRaw []byte
+		ledgerCount int
+	)
+	if err := pool.QueryRow(ctx, `SELECT content, metadata_json FROM messages WHERE thread_id = $1 ORDER BY thread_seq DESC LIMIT 1`, threadID).Scan(&content, &metadataRaw); err != nil {
+		t.Fatalf("query notice message: %v", err)
+	}
+	if content != notice {
+		t.Fatalf("unexpected notice content: %q", content)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if metadata["delivery_notice"] != true || metadata["terminal_notice"] != true || metadata["exclude_from_prompt"] != true {
+		t.Fatalf("unexpected notice metadata: %#v", metadata)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_ledger WHERE run_id = $1`, runID).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query ledger count: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("expected one outbound ledger row, got %d", ledgerCount)
+	}
+}
+
+func TestTryDeliverChannelInjectionBlockNoticePersistsDiscordThreadNotice(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_discord_injection_notice")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 21)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/channels/9001/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"901"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_DISCORD_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`,
+		secretID,
+		encryptChannelToken(t, keyBytes, "discord-token"),
+	); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'discord', $2, TRUE)`,
+		channelID,
+		secretID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run: data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		ChannelContext: &ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "discord",
+			Conversation: ChannelConversationRef{
+				Target: "9001",
+			},
+		},
+	}
+
+	notice := "blocked by injection guard"
+	TryDeliverChannelInjectionBlockNotice(ctx, pool, rc, notice)
+
+	var (
+		content     string
+		metadataRaw []byte
+		ledgerCount int
+	)
+	if err := pool.QueryRow(ctx, `SELECT content, metadata_json FROM messages WHERE thread_id = $1 ORDER BY thread_seq DESC LIMIT 1`, threadID).Scan(&content, &metadataRaw); err != nil {
+		t.Fatalf("query notice message: %v", err)
+	}
+	if content != notice {
+		t.Fatalf("unexpected notice content: %q", content)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(metadataRaw, &metadata); err != nil {
+		t.Fatalf("unmarshal metadata: %v", err)
+	}
+	if metadata["delivery_notice"] != true || metadata["terminal_notice"] != true || metadata["exclude_from_prompt"] != true {
+		t.Fatalf("unexpected notice metadata: %#v", metadata)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_ledger WHERE run_id = $1`, runID).Scan(&ledgerCount); err != nil {
+		t.Fatalf("query ledger count: %v", err)
+	}
+	if ledgerCount != 1 {
+		t.Fatalf("expected one outbound ledger row, got %d", ledgerCount)
 	}
 }
 

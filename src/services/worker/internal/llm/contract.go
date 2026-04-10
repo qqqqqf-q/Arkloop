@@ -343,12 +343,17 @@ type StreamLlmRequest struct {
 	PayloadJSON   map[string]any
 	RedactedHints map[string]any
 	// 上下文分解统计
-	SystemBytes        int
-	ToolsBytes         int
-	MessagesBytes      int
-	RoleBytes          map[string]int // "system"/"user"/"assistant"/"tool" -> bytes
-	ToolSchemaBytesMap map[string]int // tool name -> schema bytes
-	StablePrefixHash   string
+	SystemBytes          int
+	ToolsBytes           int
+	MessagesBytes        int
+	AbstractRequestBytes int
+	ProviderPayloadBytes int
+	ImagePartCount       int
+	Base64ImageBytes     int
+	NetworkAttempted     *bool
+	RoleBytes            map[string]int // "system"/"user"/"assistant"/"tool" -> bytes
+	ToolSchemaBytesMap   map[string]int // tool name -> schema bytes
+	StablePrefixHash     string
 }
 
 func (r StreamLlmRequest) ToDataJSON() map[string]any {
@@ -373,6 +378,21 @@ func (r StreamLlmRequest) ToDataJSON() map[string]any {
 	}
 	if r.MessagesBytes > 0 {
 		payload["messages_bytes"] = r.MessagesBytes
+	}
+	if r.AbstractRequestBytes > 0 {
+		payload["abstract_request_bytes"] = r.AbstractRequestBytes
+	}
+	if r.ProviderPayloadBytes > 0 {
+		payload["provider_payload_bytes"] = r.ProviderPayloadBytes
+	}
+	if r.ImagePartCount > 0 {
+		payload["image_part_count"] = r.ImagePartCount
+	}
+	if r.Base64ImageBytes > 0 {
+		payload["base64_image_bytes"] = r.Base64ImageBytes
+	}
+	if r.NetworkAttempted != nil {
+		payload["network_attempted"] = *r.NetworkAttempted
 	}
 	if len(r.RoleBytes) > 0 {
 		payload["role_bytes"] = r.RoleBytes

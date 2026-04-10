@@ -23,6 +23,7 @@ type ThreadMessage struct {
 	ContentJSON  json.RawMessage
 	MetadataJSON json.RawMessage
 	CreatedAt    time.Time
+	ThreadSeq    int64
 	OutputTokens *int64 // assistant：从 usage_records JOIN，与 Postgres 一致
 }
 
@@ -173,6 +174,7 @@ func (MessagesRepository) ListByThread(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
+		        recent.thread_seq,
 		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM (
 			SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
@@ -221,7 +223,7 @@ func (MessagesRepository) ListByThread(
 	for rows.Next() {
 		var item ThreadMessage
 		var outTok int64
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &outTok); err != nil {
 			return nil, err
 		}
 		applyDesktopThreadMessageOutput(&item, outTok)
@@ -253,6 +255,7 @@ func (MessagesRepository) ListByThreadUpToID(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
+		        recent.thread_seq,
 		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM (
 			SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
@@ -310,7 +313,7 @@ func (MessagesRepository) ListByThreadUpToID(
 	for rows.Next() {
 		var item ThreadMessage
 		var outTok int64
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &outTok); err != nil {
 			return nil, err
 		}
 		applyDesktopThreadMessageOutput(&item, outTok)
@@ -544,6 +547,78 @@ func (MessagesRepository) MarkThreadMessagesCompacted(
 		messageIDs,
 	)
 	return err
+}
+
+func (MessagesRepository) GetThreadSeqByMessageID(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("tx must not be nil")
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return 0, fmt.Errorf("account_id, thread_id and message_id must not be empty")
+	}
+	var threadSeq int64
+	err := tx.QueryRow(
+		ctx,
+		`SELECT thread_seq
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND id = $3
+		    AND deleted_at IS NULL
+		  LIMIT 1`,
+		accountID,
+		threadID,
+		messageID,
+	).Scan(&threadSeq)
+	if err != nil {
+		return 0, err
+	}
+	return threadSeq, nil
+}
+
+func (MessagesRepository) GetThreadSeqRangeForMessageIDs(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	messageIDs []uuid.UUID,
+) (int64, int64, error) {
+	if tx == nil {
+		return 0, 0, fmt.Errorf("tx must not be nil")
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil {
+		return 0, 0, fmt.Errorf("account_id and thread_id must not be empty")
+	}
+	if len(messageIDs) == 0 {
+		return 0, 0, fmt.Errorf("message_ids must not be empty")
+	}
+	var startThreadSeq int64
+	var endThreadSeq int64
+	err := tx.QueryRow(
+		ctx,
+		`SELECT MIN(thread_seq), MAX(thread_seq)
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND id = ANY($3::uuid[])
+		    AND deleted_at IS NULL`,
+		accountID,
+		threadID,
+		messageIDs,
+	).Scan(&startThreadSeq, &endThreadSeq)
+	if err != nil {
+		return 0, 0, err
+	}
+	if startThreadSeq <= 0 || endThreadSeq <= 0 {
+		return 0, 0, fmt.Errorf("thread seq range not found")
+	}
+	return startThreadSeq, endThreadSeq, nil
 }
 
 func (MessagesRepository) SearchVisibleByOwner(

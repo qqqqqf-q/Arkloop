@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -135,6 +136,35 @@ func TestNewChannelGroupContextTrimMiddlewareDropsSnapshotBeforeLatestRealMessag
 	}
 }
 
+func TestTrimRunContextMessagesToApproxTokensPreservesAllLeadingReplacements(t *testing.T) {
+	const budget = 120
+	long := strings.Repeat("w", 240)
+	rc := &RunContext{
+		HasActiveCompactSnapshot: true,
+		Messages: []llm.Message{
+			makeCompactSnapshotMessage("summary one"),
+			makeCompactSnapshotMessage("summary two"),
+			{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: long}}},
+			{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "tail"}}},
+		},
+		ThreadMessageIDs: []uuid.UUID{uuid.Nil, uuid.Nil, uuid.New(), uuid.New()},
+	}
+
+	trimRunContextMessagesToApproxTokens(rc, budget)
+
+	if len(rc.Messages) != 3 {
+		t.Fatalf("expected both replacements plus tail, got %d", len(rc.Messages))
+	}
+	if rc.Messages[0].Content[0].Text != formatCompactSnapshotText("summary one") ||
+		rc.Messages[1].Content[0].Text != formatCompactSnapshotText("summary two") ||
+		rc.Messages[2].Content[0].Text != "tail" {
+		t.Fatalf("unexpected trimmed messages: %#v", rc.Messages)
+	}
+	if len(rc.ThreadMessageIDs) != 3 || rc.ThreadMessageIDs[0] != uuid.Nil || rc.ThreadMessageIDs[1] != uuid.Nil {
+		t.Fatalf("unexpected trimmed thread ids: %#v", rc.ThreadMessageIDs)
+	}
+}
+
 func TestApproxLLMMessageTokens_imageDoesNotScaleWithBytes(t *testing.T) {
 	huge := make([]byte, 4*1024*1024)
 	m := llm.Message{
@@ -262,6 +292,39 @@ func TestBuildGroupTrimEventIncludesSnapshotFlag(t *testing.T) {
 	}
 	if ev["dropped_count"] != 1 {
 		t.Fatalf("expected dropped_count=1, got %#v", ev["dropped_count"])
+	}
+}
+
+type retryingGroupCompactGateway struct {
+	calls   int
+	summary string
+}
+
+func (g *retryingGroupCompactGateway) Stream(_ context.Context, _ llm.Request, yield func(llm.StreamEvent) error) error {
+	g.calls++
+	if g.calls == 1 {
+		return errors.New("context_length_exceeded")
+	}
+	if err := yield(llm.StreamMessageDelta{Role: "assistant", ContentDelta: g.summary}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+func TestRunGroupCompactWithRetryReturnsDroppedPrefixCount(t *testing.T) {
+	gateway := &retryingGroupCompactGateway{summary: "summary"}
+	prefix := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "one"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "two"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "three"}}},
+	}
+
+	summary, dropped := runGroupCompactWithRetry(context.Background(), gateway, "gpt-test", prefix, groupTrimEncoder())
+	if summary != "summary" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if dropped != 1 {
+		t.Fatalf("expected one dropped prefix message after retry shrink, got %d", dropped)
 	}
 }
 

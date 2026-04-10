@@ -132,48 +132,29 @@ func resolveGroupMaxTokens(rc *RunContext) int {
 	return defaultChannelGroupMaxContextTokens
 }
 
-// stripOlderImages 将尾部 keepTail 条之前的消息中的图片替换为带 attachment_key 的占位符。
-func stripOlderImages(rc *RunContext, keepTail int) {
-	if rc == nil || len(rc.Messages) == 0 || keepTail < 0 {
+// stripOlderImages 将更早的 image part 替换为带 attachment_key 的占位符，仅保留最近 keepImages 个真实图片。
+func stripOlderImages(rc *RunContext, keepImages int) {
+	if rc == nil || len(rc.Messages) == 0 || keepImages < 0 {
 		return
 	}
-	boundary := len(rc.Messages) - keepTail
-	if boundary <= 0 {
+	rewritten, _ := stripOlderImagePartsKeepingTail(rc.Messages, keepImages)
+	if len(rewritten) == 0 {
 		return
 	}
-	for i := 0; i < boundary; i++ {
-		replaced := false
-		parts := rc.Messages[i].Content
-		for j := range parts {
-			if parts[j].Kind() == messagecontent.PartTypeImage {
-				tag := "[image]"
-				if parts[j].Attachment != nil && parts[j].Attachment.Key != "" {
-					tag = "[image attachment_key=" + strconv.Quote(parts[j].Attachment.Key) + "]"
-				}
-				parts[j] = llm.ContentPart{
-					Type: messagecontent.PartTypeText,
-					Text: tag,
-				}
-				replaced = true
-			}
-		}
-		if replaced {
-			rc.Messages[i].Content = parts
-		}
-	}
+	rc.Messages = rewritten
 }
 
 // groupCompactParams 存储 compact 所需的参数，供异步 goroutine 使用。
 type groupCompactParams struct {
-	PrefixMsgs      []llm.Message
-	PrefixIDs       []uuid.UUID
-	PreviousSummary string
-	Gateway         llm.Gateway
-	Model           string
-	Split           int
-	TotalTokens     int
-	TriggerTokens   int
-	KeepCount       int
+	PrefixMsgs         []llm.Message
+	PrefixIDs          []uuid.UUID
+	ActiveSnapshotText string
+	Gateway            llm.Gateway
+	Model              string
+	Split              int
+	TotalTokens        int
+	TriggerTokens      int
+	KeepCount          int
 }
 
 // shouldGroupCompact 同步判断是否需要 compact，返回 compact 参数（不调用 LLM）。
@@ -196,25 +177,21 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 	triggerTokens := maxTokens * defaultGroupCompactTriggerPct / 100
 	keepTokens := maxTokens * defaultGroupCompactKeepPct / 100
 
-	fixedPrefix := 0
-	if rc.HasActiveCompactSnapshot && len(msgs) > 0 && len(ids) > 0 && ids[0] == uuid.Nil {
-		fixedPrefix = 1
-	}
-	realMsgs := msgs[fixedPrefix:]
-	if len(realMsgs) < 2 {
+	compactBase := msgs
+	if len(compactBase) < 2 {
 		return nil
 	}
 
-	totalTokens := sumMessageTokens(realMsgs)
+	totalTokens := sumMessageTokens(compactBase)
 	if totalTokens < triggerTokens {
 		return nil
 	}
 
 	keepAccum := 0
-	split := len(realMsgs)
-	for i := len(realMsgs) - 1; i >= 0; i-- {
-		t := messageTokens(&realMsgs[i])
-		if keepAccum+t > keepTokens && i < len(realMsgs)-1 {
+	split := len(compactBase)
+	for i := len(compactBase) - 1; i >= 0; i-- {
+		t := messageTokens(&compactBase[i])
+		if keepAccum+t > keepTokens && i < len(compactBase)-1 {
 			split = i + 1
 			break
 		}
@@ -223,15 +200,13 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 			split = 0
 		}
 	}
-	split = stabilizeCompactStart(realMsgs, split, 0)
-	split = ensureToolPairIntegrity(realMsgs, split)
+	split = stabilizeCompactStart(compactBase, split, 0)
+	split = ensureToolPairIntegrity(compactBase, split)
+	if split > 0 {
+		split = clampPersistSplitBeforeSyntheticTail(compactBase, ids, split)
+	}
 	if split <= 0 {
 		return nil
-	}
-
-	previousSummary := ""
-	if rc.HasActiveCompactSnapshot {
-		previousSummary = strings.TrimSpace(rc.ActiveCompactSnapshotText)
 	}
 
 	gw, model := resolveGroupCompactGateway(ctx, dep, rc)
@@ -241,20 +216,20 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 	}
 
 	prefixMsgs := make([]llm.Message, split)
-	copy(prefixMsgs, realMsgs[:split])
+	copy(prefixMsgs, compactBase[:split])
 	prefixIDs := make([]uuid.UUID, split)
-	copy(prefixIDs, ids[fixedPrefix:fixedPrefix+split])
+	copy(prefixIDs, ids[:split])
 
 	return &groupCompactParams{
-		PrefixMsgs:      prefixMsgs,
-		PrefixIDs:       prefixIDs,
-		PreviousSummary: previousSummary,
-		Gateway:         gw,
-		Model:           model,
-		Split:           split,
-		TotalTokens:     totalTokens,
-		TriggerTokens:   triggerTokens,
-		KeepCount:       len(realMsgs) - split,
+		PrefixMsgs:         prefixMsgs,
+		PrefixIDs:          prefixIDs,
+		ActiveSnapshotText: strings.TrimSpace(rc.ActiveCompactSnapshotText),
+		Gateway:            gw,
+		Model:              model,
+		Split:              split,
+		TotalTokens:        totalTokens,
+		TriggerTokens:      triggerTokens,
+		KeepCount:          len(compactBase) - split,
 	}
 }
 
@@ -287,7 +262,7 @@ func runGroupCompactAsync(parentCtx context.Context, rc *RunContext, dep GroupCo
 		}
 
 		enc := groupTrimEncoder()
-		summary := runGroupCompactWithRetry(ctx, params.Gateway, params.Model, params.PrefixMsgs, enc, params.PreviousSummary)
+		summary, summaryInputDropped := runGroupCompactWithRetry(ctx, params.Gateway, params.Model, params.PrefixMsgs, enc)
 
 		if summary == "" {
 			emitGroupCompactFailure(ctx, dep, runID, accountID, threadID, emitter)
@@ -295,34 +270,40 @@ func runGroupCompactAsync(parentCtx context.Context, rc *RunContext, dep GroupCo
 		}
 
 		summary = truncateGroupSummary(summary)
+		effectivePrefixMsgs := append([]llm.Message(nil), params.PrefixMsgs[summaryInputDropped:]...)
+		effectivePrefixIDs := append([]uuid.UUID(nil), params.PrefixIDs[summaryInputDropped:]...)
 
 		result := groupCompactResult{
-			PrefixIDs:     params.PrefixIDs,
-			Summary:       summary,
-			Split:         params.Split,
-			TotalTokens:   params.TotalTokens,
-			TriggerTokens: params.TriggerTokens,
-			KeepCount:     params.KeepCount,
+			PrefixIDs:          effectivePrefixIDs,
+			PrefixMsgs:         effectivePrefixMsgs,
+			ActiveSnapshotText: params.ActiveSnapshotText,
+			Summary:            summary,
+			Split:              params.Split,
+			TotalTokens:        params.TotalTokens,
+			TriggerTokens:      params.TriggerTokens,
+			KeepCount:          params.KeepCount,
 		}
 		persistGroupCompact(ctx, runID, threadID, accountID, emitter, dep, result)
 	}()
 }
 
 // runGroupCompactWithRetry 带重试的群聊 compact LLM 调用。
-func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) string {
+func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken) (string, int) {
+	prefix, dropped := prepareCompactSummaryInput(enc, prefix)
 	shrinkAttempts := 0
 	for attempt := 0; attempt <= maxGroupCompactRetries; attempt++ {
-		summary, err := runGroupCompactLLM(ctx, gw, model, prefix, enc, previousSummary)
+		summary, err := runGroupCompactLLM(ctx, gw, model, prefix, enc, "")
 		if err == nil && strings.TrimSpace(summary) != "" {
-			return summary
+			return summary, dropped
 		}
 		if err == nil {
-			return ""
+			return "", dropped
 		}
 
 		errMsg := strings.ToLower(err.Error())
 		if isContextWindowExceeded(errMsg) && shrinkAttempts < maxGroupCompactPrefixShrinks && len(prefix) > 1 {
 			prefix = prefix[1:]
+			dropped++
 			shrinkAttempts++
 			attempt--
 			slog.WarnContext(ctx, "group_compact", "phase", "shrink_prefix", "remaining", len(prefix), "shrink_attempt", shrinkAttempts)
@@ -334,7 +315,7 @@ func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string,
 			time.Sleep(time.Duration(1<<uint(attempt)) * time.Second)
 		}
 	}
-	return ""
+	return "", dropped
 }
 
 func isContextWindowExceeded(errMsg string) bool {
@@ -428,12 +409,14 @@ func resolveGroupCompactGateway(ctx context.Context, dep GroupContextTrimDeps, r
 
 // groupCompactResult 存储 compact 结果，供持久化使用。
 type groupCompactResult struct {
-	PrefixIDs     []uuid.UUID
-	Summary       string
-	Split         int
-	TotalTokens   int
-	TriggerTokens int
-	KeepCount     int
+	PrefixMsgs         []llm.Message
+	PrefixIDs          []uuid.UUID
+	ActiveSnapshotText string
+	Summary            string
+	Split              int
+	TotalTokens        int
+	TriggerTokens      int
+	KeepCount          int
 }
 
 // persistGroupCompact 将群聊 compact 结果持久化到数据库。
@@ -465,7 +448,7 @@ func persistGroupCompact(
 	}
 
 	if len(filteredIDs) > 0 {
-		still, chkErr := compactPrefixMessagesStillUncompacted(postCtx, tx, accountID, threadID, filteredIDs)
+		still, chkErr := compactPrefixMessagesStillAvailable(postCtx, tx, accountID, threadID, filteredIDs)
 		if chkErr != nil {
 			_ = tx.Rollback(postCtx)
 			slog.WarnContext(ctx, "group_compact", "phase", "prefix_precheck", "err", chkErr.Error(), "run_id", runID.String())
@@ -475,19 +458,43 @@ func persistGroupCompact(
 			_ = tx.Rollback(postCtx)
 			return
 		}
-		if err := dep.MessagesRepo.MarkThreadMessagesCompacted(postCtx, tx, accountID, threadID, filteredIDs); err != nil {
+	}
+	startThreadSeq, endThreadSeq, layer, ok, rangeErr := resolvePersistReplacementRange(
+		postCtx,
+		tx,
+		dep.MessagesRepo,
+		accountID,
+		threadID,
+		result.PrefixMsgs,
+		result.PrefixIDs,
+		result.ActiveSnapshotText,
+	)
+	if rangeErr != nil {
+		_ = tx.Rollback(postCtx)
+		slog.WarnContext(ctx, "group_compact", "phase", "range_resolve", "err", rangeErr.Error(), "run_id", runID.String())
+		return
+	}
+	if ok {
+		replacementsRepo := data.ThreadContextReplacementsRepository{}
+		replacement, insErr := replacementsRepo.Insert(postCtx, tx, data.ThreadContextReplacementInsertInput{
+			AccountID:      accountID,
+			ThreadID:       threadID,
+			StartThreadSeq: startThreadSeq,
+			EndThreadSeq:   endThreadSeq,
+			SummaryText:    result.Summary,
+			Layer:          layer,
+			MetadataJSON:   compactReplacementMetadata("group_context_compact"),
+		})
+		if insErr != nil {
 			_ = tx.Rollback(postCtx)
-			slog.WarnContext(ctx, "group_compact", "phase", "mark_compacted", "err", err.Error(), "run_id", runID.String())
+			slog.WarnContext(ctx, "group_compact", "phase", "insert_replacement", "err", insErr.Error(), "run_id", runID.String())
 			return
 		}
-	}
-
-	meta, _ := json.Marshal(map[string]string{"kind": "group_context_compact"})
-	_, insErr := (data.ThreadCompactionSnapshotsRepository{}).ReplaceActive(postCtx, tx, accountID, threadID, result.Summary, meta)
-	if insErr != nil {
-		_ = tx.Rollback(postCtx)
-		slog.WarnContext(ctx, "group_compact", "phase", "replace_snapshot", "err", insErr.Error(), "run_id", runID.String())
-		return
+		if supErr := replacementsRepo.SupersedeActiveOverlaps(postCtx, tx, accountID, threadID, replacement.StartThreadSeq, replacement.EndThreadSeq, replacement.ID); supErr != nil {
+			_ = tx.Rollback(postCtx)
+			slog.WarnContext(ctx, "group_compact", "phase", "supersede_replacements", "err", supErr.Error(), "run_id", runID.String())
+			return
+		}
 	}
 
 	if dep.EventsRepo != nil {
@@ -544,16 +551,11 @@ func snapshotGroupTrimStats(rc *RunContext) groupTrimStats {
 	}
 	msgs := rc.Messages
 	ids := rc.ThreadMessageIDs
-	alignedIDs := len(ids) == len(msgs)
-	hasSnapshot := rc.HasActiveCompactSnapshot && len(msgs) > 1 && alignedIDs && ids[0] == uuid.Nil
-	realStart := 0
-	if hasSnapshot {
-		realStart = 1
-	}
+	fixedPrefix, _ := leadingCompactPrefixTokenCount(msgs, ids)
 	stats := groupTrimStats{
 		MessageCount:      len(msgs),
-		RealMessageCount:  len(msgs) - realStart,
-		HasSnapshotPrefix: hasSnapshot,
+		RealMessageCount:  len(msgs) - fixedPrefix,
+		HasSnapshotPrefix: fixedPrefix > 0,
 	}
 	for i := range msgs {
 		stats.EstimatedTrimWeight += messageTokens(&msgs[i])
@@ -601,14 +603,9 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 	ids := rc.ThreadMessageIDs
 	alignedIDs := len(ids) == len(msgs)
 
-	// 检测头部是否为 snapshot
-	hasSnapshot := rc.HasActiveCompactSnapshot && len(msgs) > 1 && alignedIDs && ids[0] == uuid.Nil
-	snapshotTokens := 0
-	realStart := 0
-	if hasSnapshot {
-		snapshotTokens = messageTokens(&msgs[0])
-		realStart = 1
-	}
+	fixedPrefix, snapshotTokens := leadingCompactPrefixTokenCount(msgs, ids)
+	hasSnapshot := fixedPrefix > 0
+	realStart := fixedPrefix
 
 	budget := maxTokens - snapshotTokens
 	if budget <= 0 {
@@ -649,13 +646,13 @@ func trimRunContextMessagesToApproxTokens(rc *RunContext, maxTokens int) {
 		if len(kept) == 0 && keepLatestRealMessageWithoutSnapshot(rc, msgs, ids, alignedIDs, maxTokens) {
 			return
 		}
-		rc.Messages = make([]llm.Message, 0, 1+len(kept))
-		rc.Messages = append(rc.Messages, msgs[0])
+		rc.Messages = make([]llm.Message, 0, fixedPrefix+len(kept))
+		rc.Messages = append(rc.Messages, msgs[:fixedPrefix]...)
 		rc.Messages = append(rc.Messages, kept...)
 		if alignedIDs {
 			keptIDs := ids[realStart+start:]
-			rc.ThreadMessageIDs = make([]uuid.UUID, 0, 1+len(keptIDs))
-			rc.ThreadMessageIDs = append(rc.ThreadMessageIDs, ids[0])
+			rc.ThreadMessageIDs = make([]uuid.UUID, 0, fixedPrefix+len(keptIDs))
+			rc.ThreadMessageIDs = append(rc.ThreadMessageIDs, ids[:fixedPrefix]...)
 			rc.ThreadMessageIDs = append(rc.ThreadMessageIDs, keptIDs...)
 		}
 	} else {
@@ -675,12 +672,15 @@ func keepLatestRealMessageWithoutSnapshot(rc *RunContext, msgs []llm.Message, id
 	}
 	realMsgs := msgs
 	realIDs := ids
-	if rc.HasActiveCompactSnapshot && alignedIDs && len(ids) == len(msgs) && ids[0] == uuid.Nil {
-		if len(msgs) <= 1 {
+	fixedPrefix := leadingCompactPrefixMessageCount(msgs, ids)
+	if fixedPrefix > 0 {
+		if len(msgs) <= fixedPrefix {
 			return false
 		}
-		realMsgs = msgs[1:]
-		realIDs = ids[1:]
+		realMsgs = msgs[fixedPrefix:]
+		if alignedIDs {
+			realIDs = ids[fixedPrefix:]
+		}
 	}
 	if len(realMsgs) == 0 {
 		return false
@@ -705,6 +705,15 @@ func keepLatestRealMessageWithoutSnapshot(rc *RunContext, msgs []llm.Message, id
 		rc.ThreadMessageIDs = append([]uuid.UUID(nil), realIDs[start:]...)
 	}
 	return true
+}
+
+func leadingCompactPrefixTokenCount(msgs []llm.Message, ids []uuid.UUID) (int, int) {
+	count := leadingCompactPrefixMessageCount(msgs, ids)
+	total := 0
+	for i := 0; i < count; i++ {
+		total += messageTokens(&msgs[i])
+	}
+	return count, total
 }
 
 // messageTokens 估算单条在历史截断里的权重，顺序：
