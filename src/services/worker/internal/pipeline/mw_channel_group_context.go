@@ -27,9 +27,7 @@ const defaultChannelGroupMaxContextTokens = 32768
 const groupTrimVisionTokensPerImage = 1024
 
 const (
-	defaultGroupCompactTriggerPct = 80
-	defaultGroupCompactKeepPct    = 25
-	defaultGroupKeepImageTail     = 10
+	defaultGroupKeepImageTail = 10
 
 	maxGroupCompactRetries       = 2
 	maxGroupCompactPrefixShrinks = 3
@@ -115,21 +113,32 @@ func NewChannelGroupContextTrimMiddleware(deps ...GroupContextTrimDeps) RunMiddl
 	}
 }
 
-// resolveGroupMaxTokens 动态计算群聊 maxTokens：
-// 优先从 SelectedRoute 的 context window 按比例计算，fallback 到环境变量或硬编码值。
-func resolveGroupMaxTokens(rc *RunContext) int {
-	if rc.SelectedRoute != nil {
-		window := routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
-		if window > 0 {
-			return window * defaultGroupCompactTriggerPct / 100
+// resolveGroupCompactTriggerTokens 为群聊复用通用 compact 触发配置。
+// 优先使用 route context window + context.compact.*；
+// 若当前 run 未注入配置，再回退到环境变量/硬编码，避免测试与旧路径失效。
+func resolveGroupCompactTriggerTokens(rc *RunContext) (int, int) {
+	if rc != nil {
+		window := 0
+		if rc.SelectedRoute != nil {
+			window = routing.RouteContextWindowTokens(rc.SelectedRoute.Route)
+		}
+		trigger, resolvedWindow := compactPersistTriggerTokens(rc.ContextCompact, window)
+		if trigger > 0 {
+			return trigger, resolvedWindow
 		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_CHANNEL_GROUP_MAX_CONTEXT_TOKENS")); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			return n
+			return n, n
 		}
 	}
-	return defaultChannelGroupMaxContextTokens
+	return defaultChannelGroupMaxContextTokens, defaultChannelGroupMaxContextTokens
+}
+
+// resolveGroupMaxTokens 返回群聊 trim / compact 共享的触发预算。
+func resolveGroupMaxTokens(rc *RunContext) int {
+	trigger, _ := resolveGroupCompactTriggerTokens(rc)
+	return trigger
 }
 
 // stripOlderImages 将更早的 image part 替换为带 attachment_key 的占位符，仅保留最近 keepImages 个真实图片。
@@ -162,6 +171,9 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 	if rc == nil || dep.Pool == nil || len(rc.Messages) < 3 {
 		return nil
 	}
+	if !rc.ContextCompact.PersistEnabled {
+		return nil
+	}
 	msgs := rc.Messages
 	ids := rc.ThreadMessageIDs
 	if len(ids) != len(msgs) {
@@ -174,8 +186,10 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 		return nil
 	}
 
-	triggerTokens := maxTokens * defaultGroupCompactTriggerPct / 100
-	keepTokens := maxTokens * defaultGroupCompactKeepPct / 100
+	triggerTokens, windowTokens := resolveGroupCompactTriggerTokens(rc)
+	if triggerTokens <= 0 {
+		triggerTokens = maxTokens
+	}
 
 	compactBase := msgs
 	if len(compactBase) < 2 {
@@ -187,19 +201,27 @@ func shouldGroupCompact(ctx context.Context, rc *RunContext, dep GroupContextTri
 		return nil
 	}
 
-	keepAccum := 0
-	split := len(compactBase)
-	for i := len(compactBase) - 1; i >= 0; i-- {
-		t := messageTokens(&compactBase[i])
-		if keepAccum+t > keepTokens && i < len(compactBase)-1 {
-			split = i + 1
-			break
-		}
-		keepAccum += t
-		if i == 0 {
-			split = 0
-		}
+	keepMessages := rc.ContextCompact.PersistKeepLastMessages
+	if keepMessages <= 0 {
+		keepMessages = defaultPersistKeepLastMessages
 	}
+	tailKeep := keepMessages
+	tailPct := rc.ContextCompact.PersistKeepTailPct
+	if tailPct > 100 {
+		tailPct = 100
+	}
+	if tailPct > 0 && windowTokens > 0 {
+		tailTokenBudget := windowTokens * tailPct / 100
+		tailKeep = computeGroupTailKeepByTokenBudget(compactBase, tailTokenBudget, keepMessages)
+	}
+	if tailKeep >= len(compactBase) {
+		tailKeep = len(compactBase) - 1
+	}
+	if tailKeep < 1 {
+		tailKeep = 1
+	}
+
+	split := len(compactBase) - tailKeep
 	split = stabilizeCompactStart(compactBase, split, 0)
 	split = ensureToolPairIntegrity(compactBase, split)
 	if split > 0 {
@@ -262,7 +284,7 @@ func runGroupCompactAsync(parentCtx context.Context, rc *RunContext, dep GroupCo
 		}
 
 		enc := groupTrimEncoder()
-		summary, summaryInputDropped := runGroupCompactWithRetry(ctx, params.Gateway, params.Model, params.PrefixMsgs, enc)
+		summary, summaryInputDropped := runGroupCompactWithRetry(ctx, params.Gateway, params.Model, params.PrefixMsgs, enc, params.ActiveSnapshotText)
 
 		if summary == "" {
 			emitGroupCompactFailure(ctx, dep, runID, accountID, threadID, emitter)
@@ -288,11 +310,11 @@ func runGroupCompactAsync(parentCtx context.Context, rc *RunContext, dep GroupCo
 }
 
 // runGroupCompactWithRetry 带重试的群聊 compact LLM 调用。
-func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken) (string, int) {
+func runGroupCompactWithRetry(ctx context.Context, gw llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, int) {
 	prefix, dropped := prepareCompactSummaryInput(enc, prefix)
 	shrinkAttempts := 0
 	for attempt := 0; attempt <= maxGroupCompactRetries; attempt++ {
-		summary, err := runGroupCompactLLM(ctx, gw, model, prefix, enc, "")
+		summary, err := runGroupCompactLLM(ctx, gw, model, prefix, enc, previousSummary)
 		if err == nil && strings.TrimSpace(summary) != "" {
 			return summary, dropped
 		}
@@ -370,6 +392,26 @@ func sumMessageTokens(msgs []llm.Message) int {
 		total += messageTokens(&msgs[i])
 	}
 	return total
+}
+
+func computeGroupTailKeepByTokenBudget(msgs []llm.Message, tokenBudget int, maxMessages int) int {
+	if len(msgs) == 0 || tokenBudget <= 0 {
+		return 0
+	}
+	accum := 0
+	keep := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		mt := messageTokens(&msgs[i])
+		if keep > 0 && accum+mt > tokenBudget {
+			break
+		}
+		accum += mt
+		keep++
+		if maxMessages > 0 && keep >= maxMessages {
+			break
+		}
+	}
+	return keep
 }
 
 // resolveGroupCompactGateway 在 Routing 之后执行，优先使用 rc.Gateway，

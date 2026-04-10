@@ -47,6 +47,38 @@ func TestTrimRunContextMessagesToApproxTokens_keepsSuffixWithinBudget(t *testing
 	}
 }
 
+func TestResolveGroupCompactTriggerTokensUsesContextCompactFallbackWindow(t *testing.T) {
+	rc := &RunContext{
+		ContextCompact: ContextCompactSettings{
+			PersistEnabled:              true,
+			PersistTriggerContextPct:    85,
+			FallbackContextWindowTokens: 128000,
+		},
+	}
+
+	trigger, window := resolveGroupCompactTriggerTokens(rc)
+	if trigger != 108800 {
+		t.Fatalf("expected trigger 108800, got %d", trigger)
+	}
+	if window != 128000 {
+		t.Fatalf("expected window 128000, got %d", window)
+	}
+}
+
+func TestResolveGroupCompactTriggerTokensFallsBackToApproxTokens(t *testing.T) {
+	rc := &RunContext{
+		ContextCompact: ContextCompactSettings{
+			PersistEnabled:             true,
+			PersistTriggerApproxTokens: 54321,
+		},
+	}
+
+	trigger, _ := resolveGroupCompactTriggerTokens(rc)
+	if trigger != 54321 {
+		t.Fatalf("expected trigger 54321, got %d", trigger)
+	}
+}
+
 func TestNewChannelGroupContextTrimMiddleware_projectsButSkipsTrimForPrivate(t *testing.T) {
 	mw := NewChannelGroupContextTrimMiddleware()
 	rc := &RunContext{
@@ -319,7 +351,7 @@ func TestRunGroupCompactWithRetryReturnsDroppedPrefixCount(t *testing.T) {
 		{Role: "user", Content: []llm.TextPart{{Text: "three"}}},
 	}
 
-	summary, dropped := runGroupCompactWithRetry(context.Background(), gateway, "gpt-test", prefix, groupTrimEncoder())
+	summary, dropped := runGroupCompactWithRetry(context.Background(), gateway, "gpt-test", prefix, groupTrimEncoder(), "")
 	if summary != "summary" {
 		t.Fatalf("unexpected summary: %q", summary)
 	}
