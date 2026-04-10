@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -354,11 +352,7 @@ func listEffectiveMCPServerTools(ctx context.Context, server effectiveMCPServerC
 }
 
 func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
-	u, err := url.Parse(server.URL)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateEffectiveMCPURL(u); err != nil {
+	if _, err := url.Parse(server.URL); err != nil {
 		return nil, err
 	}
 	body := map[string]any{
@@ -718,45 +712,7 @@ func parseEffectiveMCPSSEResponse(r io.Reader) (map[string]any, error) {
 }
 
 func newEffectiveMCPHTTPClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, err
-			}
-			ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-			if err != nil {
-				return nil, err
-			}
-			for _, ip := range ips {
-				if isDeniedEffectiveMCPIP(ip) {
-					return nil, fmt.Errorf("mcp effective catalog: denied ip %s", ip)
-				}
-			}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
-		},
-	}
-	return &http.Client{Transport: transport}
-}
-
-func validateEffectiveMCPURL(u *url.URL) error {
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return fmt.Errorf("mcp effective catalog: unsupported scheme %q", scheme)
-	}
-	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
-	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return fmt.Errorf("mcp effective catalog: denied hostname %q", host)
-	}
-	if ip, err := netip.ParseAddr(host); err == nil && isDeniedEffectiveMCPIP(ip) {
-		return fmt.Errorf("mcp effective catalog: denied ip %s", ip)
-	}
-	return nil
-}
-
-func isDeniedEffectiveMCPIP(ip netip.Addr) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || ip == netip.MustParseAddr("169.254.169.254") || ip == netip.MustParseAddr("fd00:ec2::254")
+	return &http.Client{}
 }
 
 func parseEffectiveMCPID(value any) (int64, bool) {
