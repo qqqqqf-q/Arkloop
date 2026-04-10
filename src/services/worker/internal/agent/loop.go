@@ -1035,7 +1035,7 @@ func drainSteeringMessages(
 	if poll == nil {
 		return nil, nil
 	}
-	var out []llm.Message
+	var texts []string
 	for {
 		text, ok := poll(ctx)
 		if !ok || strings.TrimSpace(text) == "" {
@@ -1046,12 +1046,15 @@ func drainSteeringMessages(
 				return nil, err
 			}
 		}
-		msg := llm.Message{
-			Role:    "user",
-			Content: []llm.TextPart{{Text: text}},
+		texts = append(texts, strings.TrimSpace(text))
+	}
+	out := pipeline.NormalizeRuntimeSteeringInputs(texts)
+	for _, msg := range out {
+		content := strings.TrimSpace(llm.VisibleMessageText(msg))
+		if content == "" {
+			continue
 		}
-		out = append(out, msg)
-		if err := yield(emitter.Emit("run.steering_injected", map[string]any{"content": text}, nil, nil)); err != nil {
+		if err := yield(emitter.Emit("run.steering_injected", map[string]any{"content": content}, nil, nil)); err != nil {
 			return nil, err
 		}
 	}

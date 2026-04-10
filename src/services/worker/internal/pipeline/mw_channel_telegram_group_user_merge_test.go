@@ -109,6 +109,58 @@ func TestNewChannelTelegramGroupUserMergeMiddleware_mergesThreeUsersAfterAssista
 	}
 }
 
+func TestNormalizeRuntimeSteeringInputs_CompactsSingleTelegramEnvelope(t *testing.T) {
+	msgs := NormalizeRuntimeSteeringInputs([]string{`---
+display-name: "清风"
+channel: "telegram"
+conversation-type: "private"
+message-id: "10"
+time: "2026-04-10 21:11:11 [UTC+8]"
+timezone: "Asia/Singapore"
+---
+[Telegram] 第一条`})
+	if len(msgs) != 1 {
+		t.Fatalf("messages=%d want 1", len(msgs))
+	}
+	got := llm.VisibleMessageText(msgs[0])
+	if strings.Contains(got, `message-id: "10"`) {
+		t.Fatalf("expected compacted steering text without raw envelope, got %q", got)
+	}
+	if !strings.Contains(got, "第一条") {
+		t.Fatalf("expected compacted steering text to keep body, got %q", got)
+	}
+}
+
+func TestNormalizeRuntimeSteeringInputs_MergesTelegramBurst(t *testing.T) {
+	msgs := NormalizeRuntimeSteeringInputs([]string{
+		`---
+display-name: "清风"
+channel: "telegram"
+conversation-type: "private"
+message-id: "10"
+time: "2026-04-10 21:11:11 [UTC+8]"
+timezone: "Asia/Singapore"
+---
+[Telegram] 第一条`,
+		`---
+display-name: "清风"
+channel: "telegram"
+conversation-type: "private"
+message-id: "11"
+time: "2026-04-10 21:11:12 [UTC+8]"
+timezone: "Asia/Singapore"
+---
+[Telegram] 第二条`,
+	})
+	if len(msgs) != 1 {
+		t.Fatalf("messages=%d want 1", len(msgs))
+	}
+	got := llm.VisibleMessageText(msgs[0])
+	if !strings.Contains(got, "第一条") || !strings.Contains(got, "第二条") {
+		t.Fatalf("expected merged steering text to contain both bodies, got %q", got)
+	}
+}
+
 func TestNewChannelTelegramGroupUserMergeMiddleware_compactsTelegramEnvelopeBurst(t *testing.T) {
 	mw := NewChannelTelegramGroupUserMergeMiddleware()
 	msgs := []llm.Message{

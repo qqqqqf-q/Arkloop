@@ -88,6 +88,39 @@ func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm
 	return outMsgs, outIDs, lastScan
 }
 
+// NormalizeRuntimeSteeringInputs compacts runtime-injected channel envelope texts
+// using the same burst rules as thread-history user messages.
+func NormalizeRuntimeSteeringInputs(texts []string) []llm.Message {
+	if len(texts) == 0 {
+		return nil
+	}
+	msgs := make([]llm.Message, 0, len(texts))
+	for _, text := range texts {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			continue
+		}
+		msgs = append(msgs, llm.Message{
+			Role:    "user",
+			Content: []llm.TextPart{{Type: messagecontent.PartTypeText, Text: trimmed}},
+		})
+	}
+	if len(msgs) == 0 {
+		return nil
+	}
+	if len(msgs) == 1 {
+		if content := compactSingleUserMessage(msgs[0]); content != nil {
+			return []llm.Message{{Role: "user", Content: content}}
+		}
+		return msgs
+	}
+	mergedContent := mergeUserBurstContent(msgs)
+	if len(mergedContent) == 0 {
+		return msgs
+	}
+	return []llm.Message{{Role: "user", Content: mergedContent}}
+}
+
 func isPlainUserMessage(m llm.Message) bool {
 	return strings.EqualFold(strings.TrimSpace(m.Role), "user") && len(m.ToolCalls) == 0
 }
