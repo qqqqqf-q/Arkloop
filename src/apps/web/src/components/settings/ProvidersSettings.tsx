@@ -206,7 +206,7 @@ export function ProvidersSettings({ accessToken }: Props) {
   return (
     <div className="-m-6 flex min-h-0 min-w-0 overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
       {/* Provider list */}
-      <div className="flex w-[220px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)] max-[1230px]:w-[180px] xl:w-[240px]">
+      <div className="flex w-[220px] shrink-0 flex-col overflow-hidden max-[1230px]:w-[180px] xl:w-[240px]" style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}>
         <div className="flex-1 overflow-y-auto px-2 py-1">
           <div className="flex flex-col gap-[3px]">
             {providers.map((pv) => (

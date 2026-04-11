@@ -52,6 +52,7 @@ function formatTimeAgo(dateStr: string | undefined, lang: 'zh' | 'en'): string {
 function ImpressionCard({
   impression,
   updatedAt,
+  loading,
   onRebuild,
   rebuilding,
   rebuildDone,
@@ -59,6 +60,7 @@ function ImpressionCard({
 }: {
   impression: string
   updatedAt?: string
+  loading?: boolean
   onRebuild: () => void
   rebuilding: boolean
   rebuildDone: boolean
@@ -104,7 +106,14 @@ function ImpressionCard({
         </button>
       </div>
 
-      {!hasContent ? (
+      {loading && !hasContent ? (
+        <div
+          className="flex flex-col items-center justify-center rounded-xl py-10"
+          style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+        >
+          <SpinnerIcon />
+        </div>
+      ) : !hasContent ? (
         <div
           className="flex flex-col items-center justify-center rounded-xl py-10"
           style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
@@ -375,6 +384,7 @@ function ModalHitCard({ hit, onLoadContent }: {
 function MemoriesCard({
   hits,
   snapshot,
+  loading,
   onRebuild,
   rebuilding,
   onLoadContent,
@@ -382,6 +392,7 @@ function MemoriesCard({
 }: {
   hits: SnapshotHit[]
   snapshot: string
+  loading?: boolean
   onRebuild: () => void
   rebuilding: boolean
   onLoadContent: (uri: string, layer: 'overview' | 'read') => Promise<string>
@@ -422,7 +433,14 @@ function MemoriesCard({
         </button>
       </div>
 
-      {!hasContent ? (
+      {loading && !hasContent ? (
+        <div
+          className="flex flex-col items-center justify-center rounded-xl py-10"
+          style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+        >
+          <SpinnerIcon />
+        </div>
+      ) : !hasContent ? (
         <div
           className="flex flex-col items-center justify-center rounded-xl py-10"
           style={{ border: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
@@ -561,6 +579,8 @@ export function MemorySettings({ accessToken }: Props) {
   const [impressionUpdatedAt, setImpressionUpdatedAt] = useState<string | undefined>()
   const [rebuildingImpression, setRebuildingImpression] = useState(false)
   const [rebuildImpressionDone, setRebuildImpressionDone] = useState(false)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
+  const [impressionLoading, setImpressionLoading] = useState(false)
   // Runtime health probe (lightweight — no full Bridge UI, just status)
   const [health, setHealth] = useState<HealthStatus>('checking')
   const [healthLabel, setHealthLabel] = useState('')
@@ -617,26 +637,47 @@ export function MemorySettings({ accessToken }: Props) {
     try {
       const cfg = await api.memory.getConfig()
       setMemConfigState(cfg)
+      if (!quiet) setLoading(false)
       void probeHealth(cfg)
       if (accessToken) {
-        try {
-          const errResp = await listMemoryErrors(accessToken, 5)
-          setMemoryErrors(errResp.errors)
-        } catch (err) { console.error('listMemoryErrors failed', err) }
+        void listMemoryErrors(accessToken, 5)
+          .then((errResp) => {
+            setMemoryErrors(errResp.errors)
+          })
+          .catch((err) => { console.error('listMemoryErrors failed', err) })
       }
       if (cfg.enabled) {
-        const snap = await api.memory.getSnapshot()
-        setSnapshot(snap.memory_block ?? '')
-        setHits(snap.hits ?? [])
+        setSnapshotLoading(true)
+        void api.memory.getSnapshot()
+          .then((snap) => {
+            setSnapshot(snap.memory_block ?? '')
+            setHits(snap.hits ?? [])
+          })
+          .catch((err) => { console.error('getSnapshot failed', err) })
+          .finally(() => setSnapshotLoading(false))
         if (api.memory.getImpression) {
-          try {
-            const imp = await api.memory.getImpression()
-            setImpression(imp.impression ?? '')
-            setImpressionUpdatedAt(imp.updated_at)
-          } catch (err) { console.error('getImpression failed', err) }
+          setImpressionLoading(true)
+          void api.memory.getImpression()
+            .then((imp) => {
+              setImpression(imp.impression ?? '')
+              setImpressionUpdatedAt(imp.updated_at)
+            })
+            .catch((err) => { console.error('getImpression failed', err) })
+            .finally(() => setImpressionLoading(false))
         }
+      } else {
+        setSnapshot('')
+        setHits([])
+        setImpression('')
+        setImpressionUpdatedAt(undefined)
+        setSnapshotLoading(false)
+        setImpressionLoading(false)
       }
-    } catch (err) { console.error('memory loadData failed', err) } finally {
+    } catch (err) {
+      console.error('memory loadData failed', err)
+      setSnapshotLoading(false)
+      setImpressionLoading(false)
+    } finally {
       setLoading(false)
     }
   }, [api, probeHealth, accessToken])
@@ -786,6 +827,7 @@ export function MemorySettings({ accessToken }: Props) {
           <ImpressionCard
             impression={impression}
             updatedAt={impressionUpdatedAt}
+            loading={impressionLoading}
             onRebuild={() => void rebuildImpression()}
             rebuilding={rebuildingImpression}
             rebuildDone={rebuildImpressionDone}
@@ -804,6 +846,7 @@ export function MemorySettings({ accessToken }: Props) {
             <MemoriesCard
               hits={hits}
               snapshot={snapshot}
+              loading={snapshotLoading}
               onRebuild={() => void rebuildSnapshot()}
               rebuilding={rebuilding}
               onLoadContent={loadContent}

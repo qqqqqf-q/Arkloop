@@ -474,7 +474,7 @@ export function ConnectorsSettings({ accessToken, nestedUnderTabs = false }: Pro
   return (
     <>
       <div className={wrapperClassName} style={wrapperStyle}>
-        <div className="flex w-[176px] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border-subtle)] max-[1230px]:w-[156px] xl:w-[196px]">
+        <div className="flex w-[176px] shrink-0 flex-col overflow-hidden max-[1230px]:w-[156px] xl:w-[196px]" style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}>
           <div className="flex-1 overflow-y-auto px-2 py-1">
             <div className="flex flex-col gap-[3px]">
               {groupTabs.map((group) => {
