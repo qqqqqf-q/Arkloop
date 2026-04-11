@@ -188,7 +188,7 @@ func TestContextCompactPersistFailureDoesNotMarkTrimmedMessages(t *testing.T) {
 	}
 
 	rc := &RunContext{
-		Run: data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
 		Emitter: events.NewEmitter("trace"),
 		ContextCompact: ContextCompactSettings{
 			Enabled:                     true,
@@ -201,7 +201,7 @@ func TestContextCompactPersistFailureDoesNotMarkTrimmedMessages(t *testing.T) {
 		},
 		Gateway: &compactSummaryGateway{summary: "persisted summary"},
 		SelectedRoute: &routing.SelectedProviderRoute{
-			Route: routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
+			Route:      routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
 			Credential: routing.ProviderCredential{ProviderKind: routing.ProviderKindOpenAI},
 		},
 		Messages: []llm.Message{
@@ -245,5 +245,97 @@ func TestContextCompactPersistFailureDoesNotMarkTrimmedMessages(t *testing.T) {
 	}
 	if strings.TrimSpace(errText) == "" {
 		t.Fatal("expected failure event to include error text")
+	}
+}
+
+func TestContextCompactMiddlewareAfterCompactReceivesPersistOutput(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "context_compact_after_output")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	msg1ID := uuid.New()
+	msg2ID := uuid.New()
+	msg3ID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, []any{accountID}},
+		{`INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, []any{projectID, accountID}},
+		{`INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, []any{threadID, accountID, projectID}},
+		{`INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, []any{runID, accountID, threadID}},
+	} {
+		if _, err := pool.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+	for _, msg := range []struct {
+		id      uuid.UUID
+		role    string
+		content string
+	}{
+		{msg1ID, "user", "m1"},
+		{msg2ID, "assistant", "m2"},
+		{msg3ID, "user", "m3"},
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO messages (id, account_id, thread_id, role, content, metadata_json, hidden, compacted) VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, false, false)`,
+			msg.id, accountID, threadID, msg.role, msg.content,
+		); err != nil {
+			t.Fatalf("insert message: %v", err)
+		}
+	}
+
+	advisor := &captureCompactionAdvisor{}
+	registry := NewHookRegistry()
+	registry.RegisterCompactionAdvisor(advisor)
+
+	rc := &RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("trace"),
+		ContextCompact: ContextCompactSettings{
+			PersistEnabled:              true,
+			PersistTriggerApproxTokens:  1,
+			PersistTriggerContextPct:    0,
+			FallbackContextWindowTokens: 1_000_000,
+			PersistKeepLastMessages:     1,
+		},
+		Gateway: &compactSummaryGateway{summary: "persisted summary"},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route:      routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
+			Credential: routing.ProviderCredential{ProviderKind: routing.ProviderKindOpenAI},
+		},
+		Messages:                  []llm.Message{{Role: "user", Content: []llm.TextPart{{Text: "m1"}}}, {Role: "assistant", Content: []llm.TextPart{{Text: "m2"}}}, {Role: "user", Content: []llm.TextPart{{Text: "m3"}}}},
+		ThreadMessageIDs:          []uuid.UUID{msg1ID, msg2ID, msg3ID},
+		HookRuntime:               NewHookRuntime(registry, NewDefaultHookResultApplier()),
+		ActiveCompactSnapshotText: "",
+	}
+
+	mw := NewContextCompactMiddleware(pool, data.MessagesRepository{}, nil, rc.Gateway, false)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+
+	if len(advisor.outputs) != 1 {
+		t.Fatalf("expected one after compact callback, got %d", len(advisor.outputs))
+	}
+	got := advisor.outputs[0]
+	if !got.Changed {
+		t.Fatal("expected Changed=true")
+	}
+	if strings.TrimSpace(got.Summary) != "persisted summary" {
+		t.Fatalf("unexpected summary: %q", got.Summary)
+	}
+	if len(got.Messages) != len(rc.Messages) {
+		t.Fatalf("expected %d messages, got %d", len(rc.Messages), len(got.Messages))
 	}
 }

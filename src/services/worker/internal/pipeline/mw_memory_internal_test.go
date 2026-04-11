@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/personas"
@@ -199,6 +200,14 @@ func waitForEventTypes(t *testing.T, pool *pgxpool.Pool, runID uuid.UUID, want .
 	t.Fatalf("timed out waiting for events %#v", want)
 }
 
+type failingNotebookSnapshotReader struct {
+	err error
+}
+
+func (r failingNotebookSnapshotReader) GetSnapshot(context.Context, uuid.UUID, uuid.UUID, string) (string, error) {
+	return "", r.err
+}
+
 func TestScheduleSnapshotRefreshPreservesOldSnapshotOnMiss(t *testing.T) {
 	withShortSnapshotRefresh(t)
 	pool, run, ident := setupMemoryRun(t, "memory_snapshot_preserve_old")
@@ -223,6 +232,45 @@ func TestScheduleSnapshotRefreshPreservesOldSnapshotOnMiss(t *testing.T) {
 	}
 	if !found || block != oldBlock {
 		t.Fatalf("expected old snapshot preserved, got found=%v block=%q", found, block)
+	}
+}
+
+func TestPromptHookMiddleware_NotebookReadFailureEmitsRunEventAndHookTrace(t *testing.T) {
+	pool, run, ident := setupMemoryRun(t, "prompt_hook_notebook_failure")
+	tracer := &spyTracer{}
+	registry := NewHookRegistry()
+	registry.RegisterContextContributor(NewNotebookContextContributor(failingNotebookSnapshotReader{
+		err: errors.New("snapshot boom"),
+	}))
+
+	rc := &RunContext{
+		Run:             run,
+		UserID:          &ident.UserID,
+		MemoryServiceDB: pool,
+		Emitter:         events.NewEmitter("trace-notebook"),
+		TraceID:         "trace-notebook",
+		Tracer:          tracer,
+		HookRuntime:     NewHookRuntime(registry, NewDefaultHookResultApplier()),
+	}
+
+	mw := NewPromptHookMiddleware()
+	if err := mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil }); err != nil {
+		t.Fatalf("prompt hook failed: %v", err)
+	}
+
+	waitForEventTypes(t, pool, run.ID, "notebook.snapshot.read_failed")
+	failed := findTraceEvent(tracer.records, "runtime_hook.failed")
+	if failed == nil {
+		t.Fatal("expected runtime_hook.failed event")
+	}
+	if failed.fields["hook_name"] != string(HookBeforePromptAssemble) {
+		t.Fatalf("unexpected hook_name: %#v", failed.fields["hook_name"])
+	}
+	if failed.fields["provider"] != "notebook" {
+		t.Fatalf("unexpected provider: %#v", failed.fields["provider"])
+	}
+	if strings.Contains(rc.SystemPrompt, "notebook_unavailable") {
+		t.Fatalf("unexpected fallback prompt block: %q", rc.SystemPrompt)
 	}
 }
 

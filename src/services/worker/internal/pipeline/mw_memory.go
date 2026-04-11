@@ -67,21 +67,8 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStor
 			return next(ctx, rc)
 		}
 
-		ident := memory.MemoryIdentity{
-			AccountID: rc.Run.AccountID,
-			UserID:    *rc.UserID,
-			AgentID:   StableAgentID(rc),
-		}
-
-		userQuery := lastUserMessageText(rc.Messages)
-		if userQuery != "" {
-			injectFromSnapshotOnly(ctx, rc, snap, impStore, ident)
-		}
-		baseDistillUserMsgs := collectTrailingRealUserMessages(rc.Messages, rc.ThreadMessageIDs)
-
 		err := next(ctx, rc)
 		flushPendingWritesAfterRun(ctx, activeProvider, snap, mdb, configResolver, rc, impStore, impRefresh)
-		distillAfterRun(activeProvider, snap, mdb, configResolver, rc, ident, baseDistillUserMsgs, impStore, impRefresh)
 		return err
 	}
 }
@@ -102,19 +89,6 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		AgentID:   StableAgentID(rc),
 	}
 	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh)
-}
-
-// injectFromSnapshotOnly 仅注入 impression；memory_block 不再进入普通对话 system prompt。
-func injectFromSnapshotOnly(ctx context.Context, rc *RunContext, snap MemorySnapshotStore, impStore ImpressionStore, ident memory.MemoryIdentity) {
-	if impStore != nil {
-		impression, found, err := impStore.Get(ctx, ident.AccountID, ident.UserID, ident.AgentID)
-		if err != nil {
-			slog.WarnContext(ctx, "impression: read failed", "err", err.Error())
-		} else if found && strings.TrimSpace(impression) != "" {
-			rc.SystemPrompt += "\n\n<impression>\n" + impression + "\n</impression>"
-		}
-	}
-	_ = snap
 }
 
 func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc) {

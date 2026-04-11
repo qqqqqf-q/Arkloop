@@ -262,7 +262,7 @@ func NewContextCompactMiddleware(
 							if needsAdditionalPreviousSummary(summaryInputMsgs, persistWindowActiveSnapshotText) {
 								persistPreviousReplacementCount++
 							}
-							summary, sumErr := runContextCompactLLM(ctx, gw, model, summaryInputMsgs, enc, persistWindowActiveSnapshotText)
+							summary, sumErr := runContextCompactLLM(ctx, rc, gw, model, summaryInputMsgs, enc, persistWindowActiveSnapshotText)
 							if sumErr != nil {
 								slog.WarnContext(ctx, "context_compact", "phase", "llm", "err", sumErr.Error(), "run_id", rc.Run.ID.String())
 								persistFailedEvent = map[string]any{
@@ -312,6 +312,16 @@ func NewContextCompactMiddleware(
 								rc.ThreadMessageIDs = ids
 								rc.HasActiveCompactSnapshot = true
 								rc.ActiveCompactSnapshotText = firstCompactSummaryText(msgs, ids)
+								systemPrompt := compactSystemPromptForRun(ctx, rc, contextCompactSystemPrompt, summaryInputMsgs)
+								notifyCompactApplied(ctx, rc, CompactInput{
+									SystemPrompt: systemPrompt,
+									Messages:     append([]llm.Message(nil), summaryInputMsgs...),
+								}, CompactOutput{
+									SystemPrompt: systemPrompt,
+									Messages:     append([]llm.Message(nil), rc.Messages...),
+									Summary:      persistSummary,
+									Changed:      true,
+								})
 							}
 						}
 					}
@@ -677,7 +687,7 @@ func maybePromoteLeadingReplacementTriple(
 			strings.TrimSpace(b.SummaryText),
 			strings.TrimSpace(c.SummaryText),
 		)
-		if generated, genErr := runContextCompactLLM(ctx, gateway, model, prefix, enc, ""); genErr == nil && strings.TrimSpace(generated) != "" {
+		if generated, genErr := runContextCompactLLM(ctx, nil, gateway, model, prefix, enc, ""); genErr == nil && strings.TrimSpace(generated) != "" {
 			promotionSummary = strings.TrimSpace(generated)
 		}
 		if promotionSummary == "" {
@@ -1063,7 +1073,7 @@ func MaybeInlineCompactMessages(
 	if needsAdditionalPreviousSummary(summaryInputMsgs, rc.ActiveCompactSnapshotText) {
 		stats.PreviousReplacementCount++
 	}
-	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, summaryInputMsgs, enc, rc.ActiveCompactSnapshotText)
+	summary, err := runContextCompactLLM(ctx, rc, rc.Gateway, rc.SelectedRoute.Route.Model, summaryInputMsgs, enc, rc.ActiveCompactSnapshotText)
 	if err != nil {
 		return msgs, stats, false, err
 	}
@@ -1079,6 +1089,16 @@ func MaybeInlineCompactMessages(
 	compactedBase := append([]llm.Message(nil), unsummarizedHead...)
 	compactedBase = append(compactedBase, makeCompactSnapshotMessage(summary))
 	compactedBase = append(compactedBase, tail...)
+	systemPrompt := compactSystemPromptForRun(ctx, rc, contextCompactSystemPrompt, summaryInputMsgs)
+	notifyCompactApplied(ctx, rc, CompactInput{
+		SystemPrompt: systemPrompt,
+		Messages:     append([]llm.Message(nil), summaryInputMsgs...),
+	}, CompactOutput{
+		SystemPrompt: systemPrompt,
+		Messages:     append([]llm.Message(nil), compactedBase...),
+		Summary:      summary,
+		Changed:      true,
+	})
 	return compactedBase, stats, true, nil
 }
 
@@ -1115,7 +1135,7 @@ func maybeInlineCompactSingleOversizedTextAtom(
 	if len(headParts) == 0 || len(tailParts) == 0 {
 		return nil, false, nil
 	}
-	summary, err := runContextCompactLLM(ctx, rc.Gateway, rc.SelectedRoute.Route.Model, []llm.Message{{
+	summary, err := runContextCompactLLM(ctx, rc, rc.Gateway, rc.SelectedRoute.Route.Model, []llm.Message{{
 		Role:    role,
 		Content: []llm.TextPart{{Text: strings.Join(headParts, "\n\n")}},
 	}}, enc, "")
@@ -1130,10 +1150,21 @@ func maybeInlineCompactSingleOversizedTextAtom(
 		Phase:   msg.Phase,
 		Content: []llm.TextPart{{Text: strings.TrimSpace(strings.Join(tailParts, "\n\n"))}},
 	}
-	return []llm.Message{makeCompactSnapshotMessage(summary), tailMsg}, true, nil
+	out := []llm.Message{makeCompactSnapshotMessage(summary), tailMsg}
+	systemPrompt := compactSystemPromptForRun(ctx, rc, contextCompactSystemPrompt, []llm.Message{msg})
+	notifyCompactApplied(ctx, rc, CompactInput{
+		SystemPrompt: systemPrompt,
+		Messages:     []llm.Message{msg},
+	}, CompactOutput{
+		SystemPrompt: systemPrompt,
+		Messages:     append([]llm.Message(nil), out...),
+		Summary:      strings.TrimSpace(summary),
+		Changed:      true,
+	})
+	return out, true, nil
 }
 
-func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, error) {
+func runContextCompactLLM(ctx context.Context, rc *RunContext, gateway llm.Gateway, model string, prefix []llm.Message, enc *tiktoken.Tiktoken, previousSummary string) (string, error) {
 	if gateway == nil || strings.TrimSpace(model) == "" {
 		return "", fmt.Errorf("gateway or model missing")
 	}
@@ -1178,12 +1209,12 @@ func runContextCompactLLM(ctx context.Context, gateway llm.Gateway, model string
 	} else {
 		userBlock.WriteString(contextCompactInitialPrompt)
 	}
-
 	maxTok := contextCompactMaxOut
+	systemPrompt := compactSystemPromptForRun(ctx, rc, contextCompactSystemPrompt, prefix)
 	req := llm.Request{
 		Model: model,
 		Messages: []llm.Message{
-			{Role: "system", Content: []llm.TextPart{{Text: contextCompactSystemPrompt}}},
+			{Role: "system", Content: []llm.TextPart{{Text: systemPrompt}}},
 			{Role: "user", Content: []llm.TextPart{{Text: userBlock.String()}}},
 		},
 		MaxOutputTokens: &maxTok,

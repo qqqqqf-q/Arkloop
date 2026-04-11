@@ -32,6 +32,21 @@ func (g *stubCompactGateway) Stream(_ context.Context, request llm.Request, yiel
 	return yield(llm.StreamRunCompleted{})
 }
 
+type captureCompactionAdvisor struct {
+	outputs []CompactOutput
+}
+
+func (a *captureCompactionAdvisor) HookProviderName() string { return "capture_compaction" }
+
+func (a *captureCompactionAdvisor) BeforeCompact(context.Context, *RunContext, CompactInput) (CompactHints, error) {
+	return nil, nil
+}
+
+func (a *captureCompactionAdvisor) AfterCompact(_ context.Context, _ *RunContext, output CompactOutput) (PostCompactActions, error) {
+	a.outputs = append(a.outputs, output)
+	return nil, nil
+}
+
 func TestCompactThreadMessages_trimCount(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "user", Content: []llm.TextPart{{Text: "a"}}},
@@ -236,6 +251,53 @@ func TestMaybeInlineCompactSingleOversizedTextAtomRejectsToolCalls(t *testing.T)
 	}
 	if changed {
 		t.Fatalf("expected tool episode message to stay intact, got %#v", out)
+	}
+}
+
+func TestMaybeInlineCompactMessagesAfterCompactReceivesRealOutput(t *testing.T) {
+	advisor := &captureCompactionAdvisor{}
+	registry := NewHookRegistry()
+	registry.RegisterCompactionAdvisor(advisor)
+
+	rc := &RunContext{
+		ContextCompact: ContextCompactSettings{
+			PersistEnabled:              true,
+			PersistTriggerApproxTokens:  1,
+			PersistTriggerContextPct:    0,
+			FallbackContextWindowTokens: 1_000_000,
+			PersistKeepLastMessages:     1,
+		},
+		Gateway: &stubCompactGateway{summary: "summary"},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{Model: "stub"},
+		},
+		HookRuntime: NewHookRuntime(registry, NewDefaultHookResultApplier()),
+	}
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "first"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "second"}}},
+		{Role: "user", Content: []llm.TextPart{{Text: "tail"}}},
+	}
+
+	out, _, changed, err := MaybeInlineCompactMessages(context.Background(), rc, msgs, nil)
+	if err != nil {
+		t.Fatalf("MaybeInlineCompactMessages: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected inline compact change")
+	}
+	if len(advisor.outputs) != 1 {
+		t.Fatalf("expected one after compact callback, got %d", len(advisor.outputs))
+	}
+	got := advisor.outputs[0]
+	if !got.Changed {
+		t.Fatal("expected compact output Changed=true")
+	}
+	if strings.TrimSpace(got.Summary) != "summary" {
+		t.Fatalf("unexpected summary: %q", got.Summary)
+	}
+	if len(got.Messages) != len(out) {
+		t.Fatalf("expected %d output messages, got %d", len(out), len(got.Messages))
 	}
 }
 
@@ -564,7 +626,7 @@ func TestRunContextCompactLLM_PromotionUsesTargetChunksNotPreviousReplacements(t
 	gateway := &stubCompactGateway{summary: "promoted compact"}
 	msgs := buildPromotionCompactMessages("summary one", "summary two", "summary three")
 
-	out, err := runContextCompactLLM(context.Background(), gateway, "stub", msgs, nil, "")
+	out, err := runContextCompactLLM(context.Background(), nil, gateway, "stub", msgs, nil, "")
 	if err != nil {
 		t.Fatalf("runContextCompactLLM: %v", err)
 	}

@@ -73,6 +73,8 @@ type RunContext struct {
 	Emitter             events.Emitter
 	Router              *routing.ProviderRouter
 	Runtime             *sharedtoolruntime.RuntimeSnapshot
+	HookRuntime         *HookRuntime
+	HookRegistry        *HookRegistry
 
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
 	// agent_id 约定：默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
@@ -88,6 +90,8 @@ type RunContext struct {
 	FinalAssistantOutput string
 	// -- AgentLoopHandler 写入：按 turn 保留的 assistant 输出，供 Channel 逐条投递 --
 	FinalAssistantOutputs []string
+	// -- AgentLoopHandler / desktop agent loop 写入：Arkloop 自身线程写入完成，可执行 thread persist hooks --
+	ThreadPersistReady bool
 	// -- Channel tool / desktop writer 写入：正文已由具副作用的渠道工具直接送达，middleware 不应再次外发 --
 	ChannelOutputDelivered bool
 	// -- telegram_reply 工具写入：覆盖 delivery 层的默认 reply 引用 --
@@ -207,6 +211,7 @@ type RunContext struct {
 	// -- 当前 run 内显式 memory_write 的待刷写缓冲区 --
 	PendingMemoryWrites *memory.PendingWriteBuffer
 	// -- 当前 run 内新增的人类输入，供 memory distill 构造增量归档内容 --
+	baseUserMessages    []memory.MemoryMessage
 	runtimeUserMessages []memory.MemoryMessage
 
 	// -- LLM 重试，由 EngineV1.Execute 注入 --
@@ -297,6 +302,27 @@ func (rc *RunContext) AppendRuntimeUserMessage(text string) {
 		Role:    "user",
 		Content: cleaned,
 	})
+}
+
+func (rc *RunContext) SetBaseUserMessages(messages []memory.MemoryMessage) {
+	if rc == nil {
+		return
+	}
+	rc.baseUserMessages = append([]memory.MemoryMessage(nil), messages...)
+}
+
+func (rc *RunContext) BaseUserMessages() []memory.MemoryMessage {
+	if rc == nil || len(rc.baseUserMessages) == 0 {
+		return nil
+	}
+	return append([]memory.MemoryMessage(nil), rc.baseUserMessages...)
+}
+
+func (rc *RunContext) RuntimeUserMessages() []memory.MemoryMessage {
+	if rc == nil || len(rc.runtimeUserMessages) == 0 {
+		return nil
+	}
+	return append([]memory.MemoryMessage(nil), rc.runtimeUserMessages...)
 }
 
 // SetContextCompactPressureAnchor 记录当前 run 内最近一次真实 request 的 compact 压力锚点。

@@ -25,6 +25,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
 	"arkloop/services/worker/internal/memory"
+	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
@@ -50,6 +51,8 @@ type EngineV1 struct {
 	middlewares           []pipeline.RunMiddleware
 	terminal              pipeline.RunHandler
 	router                *routing.ProviderRouter
+	hookRuntime           *pipeline.HookRuntime
+	hookRegistry          *pipeline.HookRegistry
 	directPool            *pgxpool.Pool
 	broadcastRDB          *redis.Client
 	jobQueue              queue.JobQueue
@@ -199,6 +202,16 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		return nil, fmt.Errorf("init prompt injection capability: %w", err)
 	}
 	cfgResolver := promptInjection.Resolver
+	hookRegistry := pipeline.NewHookRegistry()
+	hookRegistry.RegisterContextContributor(pipeline.NewNotebookContextContributor(notebookprovider.NewProvider(deps.DBPool)))
+	hookRegistry.RegisterContextContributor(pipeline.NewImpressionContextContributor(pipeline.NewPgxImpressionStore(deps.DBPool)))
+	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
+		pipeline.NewPgxMemorySnapshotStore(deps.DBPool),
+		deps.DBPool,
+		deps.ConfigResolver,
+		pipeline.NewPgxImpressionStore(deps.DBPool),
+		newPgxImpressionRefresh(deps),
+	))
 
 	// 中间件执行顺序有隐含的前置条件依赖，不可随意调整：
 	//   CancelGuard     — 必须最先：建立取消监听和 WaitForInput，后续中间件依赖
@@ -221,6 +234,8 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		middlewares:           middlewares,
 		terminal:              terminal,
 		router:                deps.Router,
+		hookRuntime:           pipeline.NewHookRuntime(hookRegistry, pipeline.NewDefaultHookResultApplier()),
+		hookRegistry:          hookRegistry,
 		directPool:            deps.DirectDBPool,
 		broadcastRDB:          deps.RunLimiterRDB,
 		jobQueue:              deps.JobQueue,
@@ -285,6 +300,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Emitter:             events.NewEmitter(traceID),
 		Router:              e.router,
 		Runtime:             &runtimeSnapshot,
+		HookRuntime:         e.hookRuntime,
+		HookRegistry:        e.hookRegistry,
 		UserID:              run.CreatedByUserID,
 		JobPayload:          cloneMap(input.JobPayload),
 		ProfileRef:          derefString(run.ProfileRef),
@@ -574,7 +591,7 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 		pipeline.NewChannelQQToolsMiddleware(pipeline.ChannelQQToolsDeps{
 			ConfigLoader:    deps.ChannelQQLoader,
 			GroupSearchExec: deps.GroupSearchExecutor,
-			GroupSearchSpec:  conversationtool.GroupSearchLlmSpec,
+			GroupSearchSpec: conversationtool.GroupSearchLlmSpec,
 		}),
 	}
 }
@@ -592,7 +609,7 @@ func buildCapabilityLayer(
 		pipeline.NewPgxImpressionStore(deps.DBPool),
 		newPgxImpressionRefresh(deps),
 	)
-	notebookMW := pipeline.NewNotebookInjectionMiddleware(deps.DBPool)
+	promptHookMW := pipeline.NewPromptHookMiddleware()
 	mws := []pipeline.RunMiddleware{
 		pipeline.NewSubAgentContextMiddleware(subagentctl.NewSnapshotStorage()),
 		pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{
@@ -602,7 +619,7 @@ func buildCapabilityLayer(
 			ExternalDirs: serviceExternalSkillDirs,
 		}),
 		traceMemoryInjectionMiddleware(func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
-			return notebookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
+			return promptHookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
 				return memoryMW(ctx, rc, next)
 			})
 		}),
@@ -670,6 +687,7 @@ func buildToolFinalizeLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 func buildDeliveryLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewChannelDeliveryMiddleware(deps.DBPool),
+		pipeline.NewThreadPersistHookMiddleware(),
 	}
 }
 

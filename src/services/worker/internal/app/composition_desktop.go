@@ -121,6 +121,8 @@ type DesktopEngine struct {
 	mcpPool                *mcp.Pool
 	mcpDiscoveryCache      *mcp.DiscoveryCache
 	shellExecutor          *runtime.DynamicShellExecutor
+	hookRuntime            *pipeline.HookRuntime
+	hookRegistry           *pipeline.HookRegistry
 }
 
 const defaultDesktopStageEventMs = 250
@@ -263,7 +265,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		desktop.SetMemoryRuntime("")
 		slog.Info("desktop: memory disabled")
 	}
-
 	if notebookProvider != nil {
 		memExec := memorytool.NewToolExecutor(notebookProvider, db, nil)
 		notebookSpecs := memorytool.NotebookAgentSpecs()
@@ -323,6 +324,23 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if err != nil {
 		return nil, fmt.Errorf("desktop: init prompt injection capability: %w", err)
 	}
+	hookRegistry := pipeline.NewHookRegistry()
+	if notebookProvider != nil {
+		if reader, ok := notebookProvider.(interface {
+			GetSnapshot(ctx context.Context, accountID, userID uuid.UUID, agentIDStr string) (string, error)
+		}); ok {
+			hookRegistry.RegisterContextContributor(pipeline.NewNotebookContextContributor(reader))
+		}
+	}
+	desktopImpStore := pipeline.NewDesktopImpressionStore(db)
+	hookRegistry.RegisterContextContributor(pipeline.NewImpressionContextContributor(desktopImpStore))
+	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
+		pipeline.NewDesktopMemorySnapshotStore(db),
+		db,
+		promptInjection.Resolver,
+		desktopImpStore,
+		newDesktopImpressionRefresh(db, jobQueue),
+	))
 
 	// Use localshell specs for LLM; DynamicShellExecutor routes to correct backend at runtime
 	shellLlmSpecs := localshell.LlmSpecs()
@@ -425,6 +443,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		mcpPool:                mcpPool,
 		mcpDiscoveryCache:      mcpDiscoveryCache,
 		shellExecutor:          shellExec,
+		hookRuntime:            pipeline.NewHookRuntime(hookRegistry, pipeline.NewDefaultHookResultApplier()),
+		hookRegistry:           hookRegistry,
 	}, nil
 }
 
@@ -520,6 +540,8 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		Emitter:             emitter,
 		Router:              e.auxRouter,
 		Runtime:             &runRuntime,
+		HookRuntime:         e.hookRuntime,
+		HookRegistry:        e.hookRegistry,
 
 		ExecutorBuilder:     e.executorRegistry,
 		ToolBudget:          map[string]any{},
@@ -588,7 +610,6 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	impStore := pipeline.NewDesktopImpressionStore(e.db)
 	impRefresh := newDesktopImpressionRefresh(e.db, e.jobQueue)
 	if e.useOV {
-		notebookMW := desktopMemoryInjection(e.db)
 		memoryMW := pipeline.NewMemoryMiddleware(
 			e.memProvider,
 			pipeline.NewDesktopMemorySnapshotStore(e.db),
@@ -597,16 +618,19 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			impStore,
 			impRefresh,
 		)
-		memMiddleware = func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
-			return notebookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
-				return memoryMW(ctx, rc, next)
-			})
-		}
+		memMiddleware = memoryMW
 	} else {
-		// Local SQLite: lightweight snapshot injection
-		memMiddleware = desktopMemoryInjection(e.db)
+		memMiddleware = func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+			return next(ctx, rc)
+		}
 	}
-	memMiddleware = traceDesktopMemoryInjection(memMiddleware)
+	promptHookMW := pipeline.NewPromptHookMiddleware()
+	baseMemMiddleware := memMiddleware
+	memMiddleware = traceDesktopMemoryInjection(func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
+		return promptHookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
+			return baseMemMiddleware(ctx, rc, next)
+		})
+	})
 
 	middlewares := []pipeline.RunMiddleware{
 		desktopCancelGuard(e.db, e.bus),
@@ -662,6 +686,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		pipeline.NewToolBuildMiddleware(),
 		pipeline.NewResultSummarizerMiddleware(nil, e.auxGateway, e.emitDebugEvents, 0, e.routingLoader),
 		desktopChannelDelivery(e.db),
+		pipeline.NewThreadPersistHookMiddleware(),
 	)
 	terminal := desktopAgentLoop(e.db, e.bus, e.jobQueue, runsRepo, eventsRepo, e.shellExecutor, e.runtimeSnapshot)
 	handler := pipeline.Build(middlewares, terminal)
@@ -2345,6 +2370,7 @@ func desktopAgentLoop(
 		}
 		rc.RunToolCallCount = w.toolCallCount
 		rc.RunIterationCount = w.iterationCount
+		rc.ThreadPersistReady = true
 		return nil
 	}
 }
@@ -3142,6 +3168,7 @@ func desktopPersistFinalAssistantOutput(
 			}
 		}
 	}
+	rc.ThreadPersistReady = true
 	return nil
 }
 

@@ -26,6 +26,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type threadPersistProviderSpy struct {
+	called bool
+}
+
+func (p *threadPersistProviderSpy) HookProviderName() string { return "thread_persist_provider_spy" }
+
+func (p *threadPersistProviderSpy) PersistThread(context.Context, *RunContext, ThreadDelta, ThreadPersistHints) ThreadPersistResult {
+	p.called = true
+	return ThreadPersistResult{Handled: true, Provider: "thread_persist_provider_spy"}
+}
+
 func TestEscapeTelegramMarkdownV2EscapesReservedCharacters(t *testing.T) {
 	input := "_*[]()~`>#+-=|{}.!"
 	want := "\\_\\*\\[\\]\\(\\)\\~\\`\\>\\#\\+\\-\\=\\|\\{\\}\\.\\!"
@@ -271,6 +282,98 @@ func TestChannelDeliveryMiddlewarePersistsDeliveryAndLedger(t *testing.T) {
 	}
 	if failureCount != 0 {
 		t.Fatalf("expected no failure events, got %d", failureCount)
+	}
+}
+
+func TestChannelDeliveryFailureDoesNotPreventThreadPersistHooks(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_thread_persist_failure")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(nethttp.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"send failed"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx, `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`, secretID, encryptChannelToken(t, keyBytes, "bot-token")); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`, channelID, secretID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	provider := &threadPersistProviderSpy{}
+	registry := NewHookRegistry()
+	if err := registry.SetThreadPersistenceProvider(provider); err != nil {
+		t.Fatalf("set thread provider: %v", err)
+	}
+
+	rc := &RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		HookRuntime:          NewHookRuntime(registry, NewDefaultHookResultApplier()),
+		FinalAssistantOutput: "worker delivery text",
+		ThreadPersistReady:   true,
+		ChannelContext: &ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "private",
+			Conversation: ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	handler := Build([]RunMiddleware{
+		NewChannelDeliveryMiddleware(pool),
+		NewThreadPersistHookMiddleware(),
+	}, func(_ context.Context, _ *RunContext) error { return nil })
+	if err := handler(ctx, rc); err == nil {
+		t.Fatal("expected delivery error")
+	}
+	if !provider.called {
+		t.Fatal("expected thread persist provider to run before delivery error returned")
 	}
 }
 

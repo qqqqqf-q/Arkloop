@@ -142,7 +142,11 @@ func NewAgentLoopHandler(
 				return err
 			}
 			rc.ChannelTerminalNotice = writer.TerminalUserMessage()
-			return writer.Flush(ctx)
+			flushErr := writer.Flush(ctx)
+			if flushErr == nil {
+				rc.ThreadPersistReady = true
+			}
+			return flushErr
 		}
 
 		err := exec.Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
@@ -195,7 +199,11 @@ func NewAgentLoopHandler(
 				MessageID: writer.pendingReplyOverride,
 			}
 		}
-		return writer.Flush(ctx)
+		flushErr := writer.Flush(ctx)
+		if flushErr == nil {
+			rc.ThreadPersistReady = true
+		}
+		return flushErr
 	}
 }
 

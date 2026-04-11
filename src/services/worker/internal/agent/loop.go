@@ -240,9 +240,22 @@ func (l *Loop) Run(
 		}
 		turnRequest := copyRequest(request, messages)
 		turnRequestContextEstimateTokens := estimateTurnRequestContextTokens(runCtx, turnRequest.Messages)
+		if runCtx.PipelineRC != nil && runCtx.PipelineRC.HookRuntime != nil && runCtx.PipelineRC.HookRegistry != nil {
+			runCtx.PipelineRC.HookRuntime.BeforeModelCall(ctx, runCtx.PipelineRC, turnRequest)
+		}
 		turn, err := l.runTurnWithRetry(ctx, runCtx, turnRequest, emitter, yield, turnIndex)
 		if err != nil {
 			return err
+		}
+		if runCtx.PipelineRC != nil && runCtx.PipelineRC.HookRuntime != nil && runCtx.PipelineRC.HookRegistry != nil {
+			runCtx.PipelineRC.HookRuntime.AfterModelResponse(ctx, runCtx.PipelineRC, pipeline.ModelResponse{
+				AssistantText: strings.TrimSpace(turn.AssistantText),
+				ToolCalls:     append([]llm.ToolCall(nil), turn.ToolCalls...),
+				ToolResults:   append([]llm.StreamToolResult(nil), turn.ToolResults...),
+				Completed:     copyMap(turn.CompletedDataJSON),
+				Terminal:      turn.Terminal,
+				Cancelled:     turn.Cancelled,
+			})
 		}
 		if turn.Terminal {
 			turn = applyTerminalTotals(turn, completionTotals)
@@ -482,6 +495,9 @@ func (l *Loop) Run(
 					if err := yield(emitter.Emit("tool.result", toolResult.ToDataJSON(), stringPtr(toolResult.ToolName), errorClass)); err != nil {
 						return err
 					}
+				}
+				if runCtx.PipelineRC != nil && runCtx.PipelineRC.HookRuntime != nil && runCtx.PipelineRC.HookRegistry != nil {
+					runCtx.PipelineRC.HookRuntime.AfterToolCall(ctx, runCtx.PipelineRC, call, result)
 				}
 			}
 		}
@@ -924,7 +940,8 @@ func (l *Loop) executeToolCall(
 		PipelineRC:                       runCtx.PipelineRC,
 		StreamEvent:                      streamEvent,
 	}
-	return runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
+	result := runCtx.ToolExecutor.Execute(ctx, call.ToolName, copyMap(call.ArgumentsJSON), execCtx, call.ToolCallID)
+	return result
 }
 
 func copyProviderConfigs(src map[string]sharedtoolruntime.ProviderConfig) map[string]sharedtoolruntime.ProviderConfig {
@@ -1033,7 +1050,18 @@ func drainSteeringMessages(
 		}
 		texts = append(texts, strings.TrimSpace(text))
 	}
-	out := pipeline.NormalizeRuntimeSteeringInputs(texts)
+	var out []llm.Message
+	if len(texts) <= 1 {
+		out = pipeline.NormalizeRuntimeSteeringInputs(texts)
+	} else {
+		out = make([]llm.Message, 0, len(texts))
+		for _, text := range texts {
+			out = append(out, llm.Message{
+				Role:    "user",
+				Content: []llm.TextPart{{Text: text}},
+			})
+		}
+	}
 	for _, msg := range out {
 		content := strings.TrimSpace(llm.VisibleMessageText(msg))
 		if content == "" {
@@ -1708,7 +1736,6 @@ func (l *Loop) runSingleTurn(
 			})
 		}
 	}
-
 	// Rollout: 写入 TurnEnd
 	if runCtx.RolloutRecorder != nil {
 		appendRollout(ctx, runCtx.RolloutRecorder, MakeTurnEnd(turnIndex))
