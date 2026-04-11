@@ -370,7 +370,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f com
 
 ### Telegram Channel
 
-Webhook 由 API 接收入站；无公网时用 Desktop 轮询 `getUpdates`，链路仍落到同一套 run / `mw_channel_delivery`。`channels.config_json` 可设 `telegram_typing_indicator`（默认 true）、`telegram_reaction_emoji`（空则关闭；非空则在投递成功后对用户入站消息点表情）。详情见 [社交平台 Channel 接入架构](/docs/specs/channel-integration-architecture)。
+Webhook 由 API 接收入站；无公网时用 Desktop 轮询 `getUpdates`，链路仍落到同一套 run / `mw_channel_delivery`。`channels.config_json` 可设 `telegram_typing_indicator`（默认 true）、`telegram_reaction_emoji`（空则关闭；非空则在投递成功后对用户入站消息点表情）。
 
 ### 调试
 

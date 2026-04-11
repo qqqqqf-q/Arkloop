@@ -1,4 +1,4 @@
 {
   "title": "技术规范",
-  "pages": ["api-and-sse", "database-architecture", "logging-and-observability", "run-execution-architecture", "browser-automation-architecture", "channel-integration-architecture", "mobile-adaptation", "opencode-acp-architecture"]
+  "pages": ["api-and-sse", "database-architecture", "logging-and-observability", "run-execution-architecture"]
 }

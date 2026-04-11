@@ -356,7 +356,7 @@ ARKLOOP_GATEWAY_UPSTREAM=http://host.docker.internal:19001 docker compose -f com
 
 ### Telegram channel
 
-Inbound: API webhook; without a public URL, Desktop uses `getUpdates` polling and the same run / `mw_channel_delivery` path. In `channels.config_json`: `telegram_typing_indicator` (default true), `telegram_reaction_emoji` (empty disables; if set, reaction is applied to the inbound user message after successful delivery). See [Channel integration architecture](/docs/specs/channel-integration-architecture) (ZH).
+Inbound: API webhook; without a public URL, Desktop uses `getUpdates` polling and the same run / `mw_channel_delivery` path. In `channels.config_json`: `telegram_typing_indicator` (default true), `telegram_reaction_emoji` (empty disables; if set, reaction is applied to the inbound user message after successful delivery).
 
 ### Debugging
 
