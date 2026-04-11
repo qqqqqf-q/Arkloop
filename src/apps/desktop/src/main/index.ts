@@ -41,20 +41,24 @@ function getAppIconPath(): string {
         ? [
             path.join(process.resourcesPath, 'icon.icns'),
             path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+            path.join(app.getAppPath(), 'resources', 'icon.icns'),
           ]
         : process.platform === 'win32'
           ? [
               path.join(process.resourcesPath, 'icon.ico'),
               path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.ico'),
+              path.join(app.getAppPath(), 'resources', 'icon.ico'),
             ]
           : [
               path.join(process.resourcesPath, 'icon.png'),
               path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
+              path.join(app.getAppPath(), 'resources', 'icon.png'),
             ]
     )
     : [
         path.join(__dirname, '..', '..', 'resources', 'icon.png'),
         path.join(__dirname, '..', '..', 'resources', 'icon.icns'),
+        path.join(app.getAppPath(), 'resources', 'icon.png'),
       ]
 
   for (const candidate of candidates) {

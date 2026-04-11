@@ -733,6 +733,10 @@ export function OnboardingWizard({ onComplete }: Props) {
       setConfiguredModels((current) =>
         mergeConfiguredModels(current, imported),
       );
+      const importedIdSet = new Set(ids);
+      setAvailableModels((current) =>
+        current.map((m) => (importedIdSet.has(m.id) ? { ...m, configured: true } : m)),
+      );
       setSelectedModelIds(new Set());
       setModelImportStatus("done");
       setStep("appearance");
