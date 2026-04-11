@@ -108,6 +108,47 @@ func (p *refreshProviderStub) ListDir(_ context.Context, _ memory.MemoryIdentity
 	return nil, nil
 }
 
+type fragmentRefreshProviderStub struct {
+	fragments           []memory.MemoryFragment
+	listFragmentsCalled bool
+	treeTouched         bool
+}
+
+func (p *fragmentRefreshProviderStub) Find(context.Context, memory.MemoryIdentity, string, string, int) ([]memory.MemoryHit, error) {
+	return nil, nil
+}
+
+func (p *fragmentRefreshProviderStub) Content(context.Context, memory.MemoryIdentity, string, memory.MemoryLayer) (string, error) {
+	p.treeTouched = true
+	return "", nil
+}
+
+func (p *fragmentRefreshProviderStub) AppendSessionMessages(context.Context, memory.MemoryIdentity, string, []memory.MemoryMessage) error {
+	return nil
+}
+
+func (p *fragmentRefreshProviderStub) CommitSession(context.Context, memory.MemoryIdentity, string) error {
+	return nil
+}
+
+func (p *fragmentRefreshProviderStub) Write(context.Context, memory.MemoryIdentity, memory.MemoryScope, memory.MemoryEntry) error {
+	return nil
+}
+
+func (p *fragmentRefreshProviderStub) Delete(context.Context, memory.MemoryIdentity, string) error {
+	return nil
+}
+
+func (p *fragmentRefreshProviderStub) ListDir(context.Context, memory.MemoryIdentity, string) ([]string, error) {
+	p.treeTouched = true
+	return nil, nil
+}
+
+func (p *fragmentRefreshProviderStub) ListFragments(_ context.Context, _ memory.MemoryIdentity, _ int) ([]memory.MemoryFragment, error) {
+	p.listFragmentsCalled = true
+	return append([]memory.MemoryFragment(nil), p.fragments...), nil
+}
+
 func withShortSnapshotRefresh(t *testing.T) {
 	t.Helper()
 	prevWindow := snapshotRefreshWindow
@@ -232,6 +273,86 @@ func TestScheduleSnapshotRefreshPreservesOldSnapshotOnMiss(t *testing.T) {
 	}
 	if !found || block != oldBlock {
 		t.Fatalf("expected old snapshot preserved, got found=%v block=%q", found, block)
+	}
+}
+
+func TestTryRefreshSnapshotFromQueriesUsesFragments(t *testing.T) {
+	pool, _, ident := setupMemoryRun(t, "memory_snapshot_fragments")
+	provider := &fragmentRefreshProviderStub{
+		fragments: []memory.MemoryFragment{{
+			ID:       "mem-1",
+			URI:      "nowledge://memory/mem-1",
+			Title:    "Preference",
+			Content:  "Owner prefers concise Chinese replies for engineering tasks.",
+			Abstract: "Preference",
+			Score:    0.91,
+		}},
+	}
+
+	updated, err := tryRefreshSnapshotFromQueries(context.Background(), NewPgxMemorySnapshotStore(pool), provider, ident, map[string][]string{
+		string(memory.MemoryScopeUser): {"concise replies"},
+	})
+	if err != nil {
+		t.Fatalf("tryRefreshSnapshotFromQueries: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected snapshot refresh to update")
+	}
+	if !provider.listFragmentsCalled {
+		t.Fatal("expected fragment listing path to be used")
+	}
+	if provider.treeTouched {
+		t.Fatal("did not expect tree path for fragment source")
+	}
+
+	block, found, err := data.MemorySnapshotRepository{}.Get(context.Background(), pool, ident.AccountID, ident.UserID, ident.AgentID)
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	if !found || !strings.Contains(block, "[Preference]") {
+		t.Fatalf("unexpected snapshot block: found=%v block=%q", found, block)
+	}
+
+	hits, hitsFound, err := data.MemorySnapshotRepository{}.GetHits(context.Background(), pool, ident.AccountID, ident.UserID, ident.AgentID)
+	if err != nil {
+		t.Fatalf("load hits: %v", err)
+	}
+	if !hitsFound || len(hits) != 1 {
+		t.Fatalf("expected one cached hit, got found=%v hits=%#v", hitsFound, hits)
+	}
+	if hits[0].URI != "nowledge://memory/mem-1" || !hits[0].IsLeaf {
+		t.Fatalf("unexpected hit: %#v", hits[0])
+	}
+}
+
+func TestTryRefreshSnapshotFromQueriesWritesEmptyBlockWhenFragmentsEmpty(t *testing.T) {
+	pool, _, ident := setupMemoryRun(t, "memory_snapshot_fragments_empty")
+	provider := &fragmentRefreshProviderStub{}
+
+	updated, err := tryRefreshSnapshotFromQueries(context.Background(), NewPgxMemorySnapshotStore(pool), provider, ident, map[string][]string{
+		string(memory.MemoryScopeUser): {"empty case"},
+	})
+	if err != nil {
+		t.Fatalf("tryRefreshSnapshotFromQueries: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected empty fragment result to still update snapshot")
+	}
+
+	block, found, err := data.MemorySnapshotRepository{}.Get(context.Background(), pool, ident.AccountID, ident.UserID, ident.AgentID)
+	if err != nil {
+		t.Fatalf("load snapshot: %v", err)
+	}
+	if !found || block != "" {
+		t.Fatalf("expected empty snapshot block, got found=%v block=%q", found, block)
+	}
+
+	hits, hitsFound, err := data.MemorySnapshotRepository{}.GetHits(context.Background(), pool, ident.AccountID, ident.UserID, ident.AgentID)
+	if err != nil {
+		t.Fatalf("load hits: %v", err)
+	}
+	if hitsFound || len(hits) != 0 {
+		t.Fatalf("expected no cached hits, got found=%v hits=%#v", hitsFound, hits)
 	}
 }
 

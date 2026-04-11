@@ -71,3 +71,37 @@ func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 		t.Fatal("expected acp_agent builtin to be visible")
 	}
 }
+
+func TestBuildRuntimeSnapshotUsesNowledgeResolverConfig(t *testing.T) {
+	t.Setenv("ARKLOOP_MEMORY_PROVIDER", "")
+	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "")
+	t.Setenv("ARKLOOP_NOWLEDGE_API_KEY", "")
+	t.Setenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS", "")
+
+	snapshot, err := BuildRuntimeSnapshot(context.Background(), SnapshotInput{
+		ConfigResolver: stubResolver{values: map[string]string{
+			"browser.enabled":             "false",
+			"nowledge.base_url":           "http://nowledge.internal",
+			"nowledge.api_key":            "nowledge-key",
+			"nowledge.request_timeout_ms": "41000",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildRuntimeSnapshot returned error: %v", err)
+	}
+	if snapshot.MemoryProvider != "nowledge" {
+		t.Fatalf("unexpected memory provider: %q", snapshot.MemoryProvider)
+	}
+	if snapshot.MemoryBaseURL != "http://nowledge.internal" {
+		t.Fatalf("unexpected memory base url: %q", snapshot.MemoryBaseURL)
+	}
+	if snapshot.MemoryAPIKey != "nowledge-key" {
+		t.Fatalf("unexpected memory api key: %q", snapshot.MemoryAPIKey)
+	}
+	if snapshot.MemoryRequestTimeoutMs != 41000 {
+		t.Fatalf("unexpected timeout: %d", snapshot.MemoryRequestTimeoutMs)
+	}
+	if !snapshot.BuiltinAvailable("memory_search") {
+		t.Fatal("expected memory_search builtin to be visible")
+	}
+}

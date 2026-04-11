@@ -84,6 +84,10 @@ func (e *ToolExecutor) Execute(
 		return e.notebookForget(ctx, args, ident, started)
 	case "memory_search":
 		return e.search(ctx, args, ident, execCtx, started)
+	case "memory_thread_search":
+		return e.threadSearch(ctx, args, ident, started)
+	case "memory_thread_fetch":
+		return e.threadFetch(ctx, args, ident, started)
 	case "memory_read":
 		return e.read(ctx, args, ident, started)
 	case "memory_write":
@@ -237,6 +241,53 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"content": content},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) threadSearch(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	provider, ok := e.provider.(memory.MemoryThreadProvider)
+	if !ok {
+		return stateError("thread search is not available in this runtime", started)
+	}
+	query, ok := args["query"].(string)
+	if !ok || strings.TrimSpace(query) == "" {
+		return argError("query must be a non-empty string", started)
+	}
+	limit := parseLimit(args, defaultSearchLimit)
+	data, err := provider.SearchThreads(ctx, ident, strings.TrimSpace(query), limit)
+	if err != nil {
+		return providerError("thread_search", err, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: data,
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) threadFetch(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
+	provider, ok := e.provider.(memory.MemoryThreadProvider)
+	if !ok {
+		return stateError("thread fetch is not available in this runtime", started)
+	}
+	threadID, ok := args["thread_id"].(string)
+	if !ok || strings.TrimSpace(threadID) == "" {
+		return argError("thread_id must be a non-empty string", started)
+	}
+	offset := 0
+	if raw, ok := args["offset"].(float64); ok && raw > 0 {
+		offset = int(raw)
+	}
+	limit := 50
+	if raw, ok := args["limit"].(float64); ok && raw > 0 {
+		limit = int(raw)
+	}
+	data, err := provider.FetchThread(ctx, ident, strings.TrimSpace(threadID), offset, limit)
+	if err != nil {
+		return providerError("thread_fetch", err, started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: data,
 		DurationMs: durationMs(started),
 	}
 }

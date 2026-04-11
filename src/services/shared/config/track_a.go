@@ -87,6 +87,33 @@ func RegisterTrackA(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopePlatform,
 		},
+		{
+			Key:         "nowledge.base_url",
+			Type:        TypeString,
+			Default:     "",
+			Description: "Nowledge Base URL",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_BASE_URL"},
+		},
+		{
+			Key:         "nowledge.api_key",
+			Type:        TypeString,
+			Default:     "",
+			Description: "Nowledge API Key",
+			Sensitive:   true,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_API_KEY"},
+		},
+		{
+			Key:         "nowledge.request_timeout_ms",
+			Type:        TypeInt,
+			Default:     "30000",
+			Description: "Nowledge request timeout in milliseconds",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"},
+		},
 
 		{
 			Key:         "turnstile.secret_key",

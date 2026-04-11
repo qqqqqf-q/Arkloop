@@ -113,3 +113,10 @@ type DesktopLocalMemoryWriteURI interface {
 type DesktopLocalMemoryEditURI interface {
 	UpdateByURI(ctx context.Context, ident MemoryIdentity, uri string, entry MemoryEntry) error
 }
+
+// MemoryThreadProvider is implemented by backends that expose historical
+// conversation thread search and fetch.
+type MemoryThreadProvider interface {
+	SearchThreads(ctx context.Context, ident MemoryIdentity, query string, limit int) (map[string]any, error)
+	FetchThread(ctx context.Context, ident MemoryIdentity, threadID string, offset, limit int) (map[string]any, error)
+}

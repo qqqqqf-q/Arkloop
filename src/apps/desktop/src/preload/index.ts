@@ -20,7 +20,7 @@ export type ConnectorsConfig = {
   }
 }
 
-export type MemoryProvider = 'notebook' | 'openviking'
+export type MemoryProvider = 'notebook' | 'openviking' | 'nowledge'
 
 export type OpenVikingDesktopConfig = {
   rootApiKey?: string
@@ -42,11 +42,18 @@ export type OpenVikingDesktopConfig = {
   rerankApiBase?: string
 }
 
+export type NowledgeDesktopConfig = {
+  baseUrl?: string
+  apiKey?: string
+  requestTimeoutMs?: number
+}
+
 export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
   memoryCommitEachTurn?: boolean
   openviking?: OpenVikingDesktopConfig
+  nowledge?: NowledgeDesktopConfig
 }
 
 export type VoiceConfig = {

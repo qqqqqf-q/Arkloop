@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, CheckCircle, XCircle } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Search } from 'lucide-react'
 import { Modal } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopApi } from '@arkloop/shared/desktop'
-import type { MemoryConfig, OpenVikingDesktopConfig } from '@arkloop/shared/desktop'
+import type { MemoryConfig, NowledgeDesktopConfig, OpenVikingDesktopConfig } from '@arkloop/shared/desktop'
 import {
   bridgeClient,
   checkBridgeAvailable,
@@ -19,7 +19,9 @@ import {
   setSpawnProfile,
   type LlmProvider,
 } from '../../api'
-import { secondaryButtonBorderStyle, secondaryButtonXsCls } from '../buttonStyles'
+import { secondaryButtonBorderStyle, secondaryButtonXsCls, primaryButtonSmCls } from '../buttonStyles'
+import { SettingsInput } from './_SettingsInput'
+import { SettingsLabel } from './_SettingsLabel'
 import { SettingsModelDropdown } from './SettingsModelDropdown'
 import type { LocaleStrings } from '../../locales'
 
@@ -424,6 +426,50 @@ function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, savin
 }
 
 // ---------------------------------------------------------------------------
+// NowledgeDetectButton — probe 本地 nmem 实例
+// ---------------------------------------------------------------------------
+
+const NOWLEDGE_LOCAL_URL = 'http://127.0.0.1:14242'
+
+function NowledgeDetectButton({
+  onDetected,
+  ds,
+}: {
+  onDetected: (url: string) => void
+  ds: LocaleStrings['desktopSettings']
+}) {
+  const [state, setState] = useState<'idle' | 'detecting' | 'found' | 'notfound'>('idle')
+
+  const detect = useCallback(async () => {
+    setState('detecting')
+    try {
+      const res = await fetch(`${NOWLEDGE_LOCAL_URL}/health`, { signal: AbortSignal.timeout(3000) })
+      if (res.ok) {
+        onDetected(NOWLEDGE_LOCAL_URL)
+        setState('found')
+        setTimeout(() => setState('idle'), 2500)
+        return
+      }
+    } catch { /* unreachable */ }
+    setState('notfound')
+    setTimeout(() => setState('idle'), 2500)
+  }, [onDetected])
+
+  return (
+    <button
+      type="button"
+      disabled={state === 'detecting'}
+      onClick={() => void detect()}
+      className="inline-flex items-center gap-1 text-xs disabled:opacity-50"
+      style={{ color: state === 'found' ? '#22c55e' : state === 'notfound' ? '#ef4444' : 'var(--c-accent)', background: 'none', border: 'none', padding: 0, cursor: state === 'detecting' ? 'default' : 'pointer' }}
+    >
+      {state === 'detecting' ? <SpinnerIcon /> : <Search size={11} />}
+      {state === 'found' ? ds.memoryNowledgeDetected : state === 'notfound' ? ds.memoryNowledgeNotFound : ds.memoryNowledgeDetect}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // MemoryConfigModal
 // ---------------------------------------------------------------------------
 
@@ -433,9 +479,10 @@ type Props = {
   accessToken?: string
   memConfig: MemoryConfig | null
   onConfigSaved: (config: MemoryConfig) => void
+  provider?: 'openviking' | 'nowledge'
 }
 
-export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onConfigSaved }: Props) {
+export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onConfigSaved, provider = 'openviking' }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
 
@@ -448,6 +495,8 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
 
   // OpenViking config draft
   const [ovDraft, setOvDraft] = useState<OpenVikingDesktopConfig>(memConfig?.openviking ?? {})
+  const [nowledgeDraft, setNowledgeDraft] = useState<NowledgeDesktopConfig>(memConfig?.nowledge ?? {})
+  const [providerDraft, setProviderDraft] = useState<MemoryConfig['provider']>(memConfig?.provider ?? 'notebook')
   const [configuring, setConfiguring] = useState(false)
   const [configureResult, setConfigureResult] = useState<'ok' | 'error' | null>(null)
 
@@ -541,13 +590,26 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
   // Initialize draft from memConfig when modal opens
   useEffect(() => {
     if (open) {
+      const nd = memConfig?.nowledge ?? {}
       setOvDraft(memConfig?.openviking ?? {})
+      setNowledgeDraft(nd)
+      setProviderDraft(provider)
       setConfigureResult(null)
       setBridgeError(null)
-      void loadBridge()
       void loadProviders()
+      if (provider === 'openviking') {
+        void loadBridge()
+      }
+      // 打开 nowledge 弹窗且尚未填 baseUrl 时，自动检测本地实例
+      if (provider === 'nowledge' && !nd.baseUrl) {
+        void fetch(`${NOWLEDGE_LOCAL_URL}/health`, { signal: AbortSignal.timeout(3000) })
+          .then((res) => {
+            if (res.ok) setNowledgeDraft((prev) => ({ ...prev, baseUrl: NOWLEDGE_LOCAL_URL, apiKey: prev.apiKey ?? '' }))
+          })
+          .catch(() => { /* 未检测到，静默 */ })
+      }
     }
-  }, [open, memConfig, loadBridge, loadProviders])
+  }, [open, memConfig, loadBridge, loadProviders, provider])
 
   useEffect(() => {
     if (providers.length === 0) return
@@ -557,15 +619,21 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
     })
   }, [providers, syncLegacySelectors])
 
+  useEffect(() => {
+    if (!open || providerDraft !== 'openviking') return
+    void loadBridge()
+  }, [open, providerDraft, loadBridge])
+
   // Re-probe bridge when tab becomes visible
   useEffect(() => {
     if (!open) return
+    if (providerDraft !== 'openviking') return
     const onVisible = () => {
       if (document.visibilityState === 'visible') void loadBridge()
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [open, loadBridge])
+  }, [open, loadBridge, providerDraft])
 
   const handleModuleAction = useCallback(async (action: ModuleAction) => {
     setActionInProgress(true); setBridgeError(null)
@@ -702,6 +770,37 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
   }, [accessToken, api, ds, loadBridge, memConfig, onConfigSaved, ovDraft, providers])
 
   const ovShowConfigure = Boolean(ovModule && ovModule.status !== 'not_installed')
+  const handleSaveNowledge = useCallback(async () => {
+    if (!api?.memory || !memConfig) return
+    setConfiguring(true)
+    setConfigureResult(null)
+    setBridgeError(null)
+    try {
+      if (!(nowledgeDraft.baseUrl ?? '').trim()) {
+        throw new Error(ds.memoryNowledgeMissingBaseUrl)
+      }
+      const updatedConfig: MemoryConfig = {
+        ...memConfig,
+        provider: providerDraft,
+        nowledge: {
+          ...nowledgeDraft,
+          baseUrl: nowledgeDraft.baseUrl?.trim(),
+          apiKey: nowledgeDraft.apiKey?.trim(),
+          requestTimeoutMs: nowledgeDraft.requestTimeoutMs && nowledgeDraft.requestTimeoutMs > 0
+            ? nowledgeDraft.requestTimeoutMs
+            : 30000,
+        },
+      }
+      await api.memory.setConfig(updatedConfig)
+      onConfigSaved(updatedConfig)
+      setConfigureResult('ok')
+    } catch (error) {
+      setBridgeError(error instanceof Error ? error.message : ds.memoryConfigureError)
+      setConfigureResult('error')
+    } finally {
+      setConfiguring(false)
+    }
+  }, [api, ds.memoryConfigureError, memConfig, nowledgeDraft, onConfigSaved, providerDraft])
 
   return (
     <Modal open={open} onClose={onClose} title={ds.memoryConfigureModalTitle} width="520px">
@@ -715,18 +814,20 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
           </div>
         )}
 
-        <OVModuleCard
-          bridgeOnline={bridgeOnline}
-          bridgeOfflineHint={ds.modulesOffline}
-          module={ovModule}
-          moduleListProbe={moduleListProbe}
-          actionInProgress={actionInProgress}
-          onAction={handleModuleAction}
-          onRefreshModules={() => void loadBridge()}
-          ds={ds}
-        />
+        {providerDraft === 'openviking' && (
+          <OVModuleCard
+            bridgeOnline={bridgeOnline}
+            bridgeOfflineHint={ds.modulesOffline}
+            module={ovModule}
+            moduleListProbe={moduleListProbe}
+            actionInProgress={actionInProgress}
+            onAction={handleModuleAction}
+            onRefreshModules={() => void loadBridge()}
+            ds={ds}
+          />
+        )}
 
-        {ovShowConfigure && (
+        {providerDraft === 'openviking' && ovShowConfigure && (
           <OVConfigForm
             ov={ovDraft}
             providers={providers}
@@ -737,6 +838,69 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
             saveResult={configureResult}
             ds={ds}
           />
+        )}
+
+        {providerDraft === 'nowledge' && (
+          <div className="flex flex-col gap-4">
+            {/* Base URL */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <SettingsLabel htmlFor="nowledge-base-url">{ds.memoryNowledgeBaseUrl}</SettingsLabel>
+                <NowledgeDetectButton
+                  onDetected={(url) => setNowledgeDraft((prev) => ({ ...prev, baseUrl: url, apiKey: '' }))}
+                  ds={ds}
+                />
+              </div>
+              <SettingsInput
+                id="nowledge-base-url"
+                value={nowledgeDraft.baseUrl ?? ''}
+                onChange={(e) => setNowledgeDraft((prev) => ({ ...prev, baseUrl: e.target.value }))}
+                placeholder="http://127.0.0.1:14242"
+                variant="md"
+              />
+            </div>
+
+            {/* API Key */}
+            <div className="flex flex-col gap-1.5">
+              <SettingsLabel htmlFor="nowledge-api-key">
+                {ds.memoryNowledgeApiKey}
+                <span className="ml-1 font-normal text-[var(--c-text-muted)]">{ds.memoryNowledgeApiKeyHint}</span>
+              </SettingsLabel>
+              <SettingsInput
+                id="nowledge-api-key"
+                value={nowledgeDraft.apiKey ?? ''}
+                onChange={(e) => setNowledgeDraft((prev) => ({ ...prev, apiKey: e.target.value }))}
+                type="password"
+                placeholder="nmem_..."
+                variant="md"
+              />
+            </div>
+
+            {/* Timeout */}
+            <div className="flex flex-col gap-1.5">
+              <SettingsLabel htmlFor="nowledge-timeout">{ds.memoryNowledgeTimeoutMs}</SettingsLabel>
+              <SettingsInput
+                id="nowledge-timeout"
+                value={nowledgeDraft.requestTimeoutMs ?? 30000}
+                onChange={(e) => setNowledgeDraft((prev) => ({ ...prev, requestTimeoutMs: Number(e.target.value) || undefined }))}
+                type="number"
+                variant="md"
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleSaveNowledge()}
+                disabled={configuring}
+                className={primaryButtonSmCls}
+                style={{ background: 'var(--c-btn-bg)' }}
+              >
+                {configuring ? <SpinnerIcon /> : null}
+                {configureResult === 'ok' ? ds.memoryNowledgeSaved : ds.memoryConfigureButton}
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </Modal>

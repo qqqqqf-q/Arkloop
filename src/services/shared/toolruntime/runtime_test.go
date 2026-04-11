@@ -56,7 +56,10 @@ func TestRuntimeSnapshotWithMergedBuiltinToolNames(t *testing.T) {
 
 func TestResolveBuiltinMemoryToolsWithURLOnly(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
-		Env: EnvConfig{MemoryBaseURL: "http://memory.internal"},
+		Env: EnvConfig{
+			MemoryProvider: "openviking",
+			MemoryBaseURL:  "http://memory.internal",
+		},
 	})
 	if resolved.MemoryBaseURL != "http://memory.internal" {
 		t.Fatalf("unexpected memory base url: %q", resolved.MemoryBaseURL)
@@ -78,7 +81,8 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		ArtifactStoreAvailable: true,
 		BrowserEnabled:         true,
 		Env: EnvConfig{
-			MemoryBaseURL: memoryBaseURL,
+			MemoryProvider: "openviking",
+			MemoryBaseURL:  memoryBaseURL,
 		},
 		PlatformProviders: []ProviderConfig{
 			{GroupName: "web_search", ProviderName: "web_search.searxng", BaseURL: strPtr("http://searxng:8080")},
@@ -138,6 +142,64 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected tool names: got %v want %v", got, want)
+	}
+}
+
+func TestResolveBuiltinNowledgeUsesAPIKeyAndThreadTools(t *testing.T) {
+	resolved := ResolveBuiltin(ResolveInput{
+		Env: EnvConfig{
+			MemoryProvider:         "nowledge",
+			MemoryBaseURL:          "https://mem.nowledge.example",
+			MemoryAPIKey:           "nowledge-key",
+			MemoryRequestTimeoutMs: 45_000,
+		},
+	})
+	if resolved.MemoryProvider != "nowledge" {
+		t.Fatalf("unexpected memory provider: %q", resolved.MemoryProvider)
+	}
+	if resolved.MemoryAPIKey != "nowledge-key" {
+		t.Fatalf("unexpected memory api key: %q", resolved.MemoryAPIKey)
+	}
+	if resolved.MemoryRequestTimeoutMs != 45_000 {
+		t.Fatalf("unexpected timeout: %d", resolved.MemoryRequestTimeoutMs)
+	}
+	if _, ok := resolved.ToolNameSet()["memory_edit"]; ok {
+		t.Fatal("memory_edit should be hidden for nowledge")
+	}
+	for _, name := range []string{"memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch"} {
+		if _, ok := resolved.ToolNameSet()[name]; !ok {
+			t.Fatalf("%s should be available", name)
+		}
+	}
+}
+
+func TestResolveBuiltinNowledgeUsesSemanticMemorySubset(t *testing.T) {
+	resolved := ResolveBuiltin(ResolveInput{
+		Env: EnvConfig{
+			MemoryProvider:         "nowledge",
+			MemoryBaseURL:          "http://nowledge.internal",
+			MemoryAPIKey:           "nowledge-key",
+			MemoryRequestTimeoutMs: 45000,
+		},
+	})
+
+	if resolved.MemoryProvider != "nowledge" {
+		t.Fatalf("unexpected memory provider: %q", resolved.MemoryProvider)
+	}
+	if resolved.MemoryBaseURL != "http://nowledge.internal" {
+		t.Fatalf("unexpected memory base url: %q", resolved.MemoryBaseURL)
+	}
+	if resolved.MemoryAPIKey != "nowledge-key" {
+		t.Fatalf("unexpected memory api key: %q", resolved.MemoryAPIKey)
+	}
+	if resolved.MemoryRequestTimeoutMs != 45000 {
+		t.Fatalf("unexpected timeout: %d", resolved.MemoryRequestTimeoutMs)
+	}
+	if _, ok := resolved.ToolNameSet()["memory_write"]; !ok {
+		t.Fatal("memory_write should be available for nowledge")
+	}
+	if _, ok := resolved.ToolNameSet()["memory_edit"]; ok {
+		t.Fatal("memory_edit should stay hidden for nowledge")
 	}
 }
 

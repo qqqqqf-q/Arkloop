@@ -13,6 +13,7 @@ import type {
   MemoryConfig,
   MemoryProvider,
   NetworkConfig,
+  NowledgeDesktopConfig,
   OpenVikingDesktopConfig,
   SearchConnectorConfig,
   SearchProvider,
@@ -109,7 +110,11 @@ function normalizeConnectors(raw: unknown): ConnectorsConfig {
 }
 
 function normalizeMemoryProvider(p: unknown): MemoryProvider {
-  return p === 'openviking' ? 'openviking' : 'notebook'
+  return p === 'openviking'
+    ? 'openviking'
+    : p === 'nowledge'
+      ? 'nowledge'
+      : 'notebook'
 }
 
 function normalizeStr(v: unknown): string | undefined {
@@ -143,14 +148,26 @@ function normalizeOpenVikingConfig(raw: unknown): OpenVikingDesktopConfig | unde
   return out
 }
 
+function normalizeNowledgeConfig(raw: unknown): NowledgeDesktopConfig | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const r = raw as Partial<NowledgeDesktopConfig>
+  const normalized: NowledgeDesktopConfig = {}
+  if (typeof r.baseUrl === 'string' && r.baseUrl.trim()) normalized.baseUrl = r.baseUrl.trim()
+  if (typeof r.apiKey === 'string' && r.apiKey.trim()) normalized.apiKey = r.apiKey.trim()
+  if (typeof r.requestTimeoutMs === 'number' && Number.isFinite(r.requestTimeoutMs) && r.requestTimeoutMs > 0) {
+    normalized.requestTimeoutMs = r.requestTimeoutMs
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined
+}
+
 function normalizeMemory(raw: unknown): MemoryConfig {
   const r = (raw && typeof raw === 'object') ? raw as Partial<MemoryConfig> : {}
   return {
-    // default true to avoid breaking existing installs without the field
     enabled: r.enabled === false ? false : true,
     provider: normalizeMemoryProvider(r.provider),
     memoryCommitEachTurn: r.memoryCommitEachTurn === false ? false : true,
     openviking: normalizeOpenVikingConfig(r.openviking),
+    nowledge: normalizeNowledgeConfig(r.nowledge),
   }
 }
 

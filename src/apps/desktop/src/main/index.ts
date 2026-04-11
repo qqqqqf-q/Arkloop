@@ -201,6 +201,7 @@ function memoryChanged(a: AppConfig, b: AppConfig): boolean {
   return a.memory.enabled !== b.memory.enabled
     || a.memory.provider !== b.memory.provider
     || JSON.stringify(a.memory.openviking) !== JSON.stringify(b.memory.openviking)
+    || JSON.stringify(a.memory.nowledge) !== JSON.stringify(b.memory.nowledge)
 }
 
 function networkChanged(a: AppConfig, b: AppConfig): boolean {

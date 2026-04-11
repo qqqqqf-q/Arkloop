@@ -964,6 +964,15 @@ export interface LocaleStrings {
     memoryOpenvikingProvider: string;
     memoryOpenvikingProviderDesc: string;
     memoryOpenvikingNote: string;
+    memoryNowledgeProvider: string;
+    memoryNowledgeProviderDesc: string;
+    memoryNoBackendHint: string;
+    memoryNowledgeGuide: string;
+    memoryNowledgeDocs: string;
+    memoryNowledgeDetect: string;
+    memoryNowledgeDetected: string;
+    memoryNowledgeNotFound: string;
+    memoryNowledgeApiKeyHint: string;
     memoryEntriesTitle: string;
     memoryEmptyTitle: string;
     memoryEmptyDesc: string;
@@ -1024,10 +1033,20 @@ export interface LocaleStrings {
     memoryConfigured: string;
     memoryConfigureError: string;
     memoryConfigureMissingModels: string;
+    memoryNowledgeBaseUrl: string;
+    memoryNowledgeApiKey: string;
+    memoryNowledgeTimeout: string;
+    memoryNowledgeTimeoutMs: string;
+    memoryNowledgeTimeoutHint: string;
+    memoryNowledgeMissingBaseUrl: string;
+    memoryNowledgeSaved: string;
     memorySelectModel: string;
     memoryNoCompatibleModels: string;
     memoryProviderActivated: string;
     memoryNoEmbeddingModels: string;
+    memoryProviderNotebook: string;
+    memoryProviderOpenviking: string;
+    memoryProviderNowledge: string;
     // notebook settings tab
     notebook: string;
     notebookSettingsTitle: string;
@@ -1040,6 +1059,8 @@ export interface LocaleStrings {
     notebookEntries: (count: number) => string;
     // memory config modal
     memoryConfigureButton: string;
+    memoryActivate: string;
+    memoryInUse: string;
     memoryConfigureModalTitle: string;
     memoryNotConfiguredHint: string;
     memoryRecentErrors: string;

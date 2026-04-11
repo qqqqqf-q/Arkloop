@@ -145,17 +145,17 @@ var registry = []ToolMeta{
 			"Never invent artifact keys.",
 	},
 	{
-		Name:      "terminate_process",
-		Group:     GroupSandbox,
-		Label:     "Terminate process",
-		ShortDesc: "terminate a running sandbox process by process_ref",
+		Name:           "terminate_process",
+		Group:          GroupSandbox,
+		Label:          "Terminate process",
+		ShortDesc:      "terminate a running sandbox process by process_ref",
 		LLMDescription: "terminate a running process started by exec_command. Use when a follow/stdin/pty process should stop and you no longer want to wait for it. Pass the process_ref returned by exec_command.",
 	},
 	{
-		Name:      "resize_process",
-		Group:     GroupSandbox,
-		Label:     "Resize PTY",
-		ShortDesc: "resize a running PTY process by process_ref",
+		Name:           "resize_process",
+		Group:          GroupSandbox,
+		Label:          "Resize PTY",
+		ShortDesc:      "resize a running PTY process by process_ref",
 		LLMDescription: "resize a running PTY process started by exec_command with mode=pty. Use only for real terminal sessions when rows or cols need to change. This tool is not for normal buffered commands.",
 	},
 	{
@@ -269,6 +269,23 @@ var registry = []ToolMeta{
 			"Each hit includes uri: pass that exact string to memory_read, memory_edit, or memory_forget. " +
 			"This memory is auto-recalled and may not appear every turn. " +
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
+	},
+	{
+		Name:      "memory_thread_search",
+		Group:     GroupMemory,
+		Label:     "Memory thread search",
+		ShortDesc: "search historical conversation threads",
+		LLMDescription: "search historical conversation threads when you need prior discussion context that was preserved as thread history. " +
+			"Use this to find relevant past conversations by keyword before fetching the full thread. " +
+			"Results identify candidate thread_id values for memory_thread_fetch.",
+	},
+	{
+		Name:      "memory_thread_fetch",
+		Group:     GroupMemory,
+		Label:     "Memory thread fetch",
+		ShortDesc: "fetch paginated messages from one thread",
+		LLMDescription: "fetch paginated messages from one historical conversation thread by thread_id. " +
+			"Start small and only fetch more pages when you need extra detail from that thread.",
 	},
 	{
 		Name:      "memory_read",

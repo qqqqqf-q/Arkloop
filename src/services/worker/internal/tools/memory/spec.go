@@ -32,6 +32,51 @@ var SearchLlmSpec = llm.ToolSpec{
 	},
 }
 
+var ThreadSearchAgentSpec = tools.AgentToolSpec{
+	Name:        "memory_thread_search",
+	Version:     "1",
+	Description: "search historical conversation threads by keyword",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
+var ThreadSearchLlmSpec = llm.ToolSpec{
+	Name:        "memory_thread_search",
+	Description: stringPtr("search historical conversation threads by keyword"),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query": map[string]any{"type": "string"},
+			"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+		},
+		"required":             []string{"query"},
+		"additionalProperties": false,
+	},
+}
+
+var ThreadFetchAgentSpec = tools.AgentToolSpec{
+	Name:        "memory_thread_fetch",
+	Version:     "1",
+	Description: "fetch paginated messages from one historical conversation thread",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
+var ThreadFetchLlmSpec = llm.ToolSpec{
+	Name:        "memory_thread_fetch",
+	Description: stringPtr("fetch paginated messages from one historical conversation thread"),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"thread_id": map[string]any{"type": "string"},
+			"offset":    map[string]any{"type": "integer", "minimum": 0},
+			"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 200},
+		},
+		"required":             []string{"thread_id"},
+		"additionalProperties": false,
+	},
+}
+
 // --- memory_read ---
 
 var ReadAgentSpec = tools.AgentToolSpec{
@@ -251,6 +296,8 @@ func NotebookAgentSpecs() []tools.AgentToolSpec {
 func MemoryAgentSpecs() []tools.AgentToolSpec {
 	return []tools.AgentToolSpec{
 		SearchAgentSpec,
+		ThreadSearchAgentSpec,
+		ThreadFetchAgentSpec,
 		ReadAgentSpec,
 		WriteAgentSpec,
 		EditAgentSpec,
@@ -275,6 +322,8 @@ func NotebookLlmSpecs() []llm.ToolSpec {
 func MemoryLlmSpecs() []llm.ToolSpec {
 	return []llm.ToolSpec{
 		SearchLlmSpec,
+		ThreadSearchLlmSpec,
+		ThreadFetchLlmSpec,
 		ReadLlmSpec,
 		WriteLlmSpec,
 		EditLlmSpec,

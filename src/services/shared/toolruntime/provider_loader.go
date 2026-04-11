@@ -204,6 +204,11 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"
 		}
 		return validateInternalBaseURL(status.BaseURL)
+	case "memory.nowledge":
+		if blankPtr(status.APIKeyValue) {
+			return ProviderRuntimeStateMissingConfig, "missing_api_key"
+		}
+		return validateBaseURL(status.BaseURL)
 	default:
 		if strings.TrimSpace(status.GroupName) == "read" && blankPtr(status.APIKeyValue) {
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"
@@ -215,6 +220,16 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 func validateOptionalBaseURL(baseURL *string) (ProviderRuntimeState, string) {
 	if blankPtr(baseURL) {
 		return ProviderRuntimeStateReady, ""
+	}
+	if _, err := sharedoutbound.DefaultPolicy().NormalizeBaseURL(strings.TrimSpace(*baseURL)); err != nil {
+		return ProviderRuntimeStateInvalidConfig, "invalid_base_url"
+	}
+	return ProviderRuntimeStateReady, ""
+}
+
+func validateBaseURL(baseURL *string) (ProviderRuntimeState, string) {
+	if blankPtr(baseURL) {
+		return ProviderRuntimeStateMissingConfig, "missing_base_url"
 	}
 	if _, err := sharedoutbound.DefaultPolicy().NormalizeBaseURL(strings.TrimSpace(*baseURL)); err != nil {
 		return ProviderRuntimeStateInvalidConfig, "invalid_base_url"
