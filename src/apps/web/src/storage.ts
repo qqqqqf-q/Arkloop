@@ -1494,18 +1494,18 @@ export type FontSettings = {
 }
 
 export function readFontSettingsFromStorage(): FontSettings {
-  if (!canUseLocalStorage()) return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+  if (!canUseLocalStorage()) return { fontFamily: 'default', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
   try {
     const raw = localStorage.getItem(FONT_SETTINGS_KEY)
-    if (!raw) return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+    if (!raw) return { fontFamily: 'default', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
     const parsed = JSON.parse(raw) as Partial<FontSettings>
     return {
-      fontFamily: (['inter', 'system', 'serif', 'noto-sans', 'source-sans', 'custom'] as FontFamily[]).includes(parsed.fontFamily as FontFamily) ? parsed.fontFamily as FontFamily : 'inter',
+      fontFamily: (['default', 'inter', 'system', 'serif', 'noto-sans', 'source-sans', 'custom'] as FontFamily[]).includes(parsed.fontFamily as FontFamily) ? parsed.fontFamily as FontFamily : 'default',
       codeFontFamily: (['jetbrains-mono', 'fira-code', 'cascadia-code', 'source-code-pro'] as CodeFontFamily[]).includes(parsed.codeFontFamily as CodeFontFamily) ? parsed.codeFontFamily as CodeFontFamily : 'jetbrains-mono',
       fontSize: (['compact', 'normal', 'relaxed'] as FontSize[]).includes(parsed.fontSize as FontSize) ? parsed.fontSize as FontSize : 'normal',
     }
   } catch {
-    return { fontFamily: 'inter', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
+    return { fontFamily: 'default', codeFontFamily: 'jetbrains-mono', fontSize: 'normal' }
   }
 }
 

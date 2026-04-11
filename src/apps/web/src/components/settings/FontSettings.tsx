@@ -6,6 +6,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { Search, ChevronDown } from 'lucide-react'
 
 const BODY_FONTS: { value: FontFamily; label: string; fontFamily: string }[] = [
+  { value: 'default',     label: 'Default',       fontFamily: "'Geist Variable', Geist, 'MiSans Adjusted', system-ui, sans-serif" },
   { value: 'inter',       label: 'Inter',         fontFamily: "'Inter', system-ui, sans-serif" },
   { value: 'system',      label: 'System UI',     fontFamily: "system-ui, sans-serif" },
   { value: 'serif',       label: 'Serif',         fontFamily: "ui-serif, Georgia, serif" },

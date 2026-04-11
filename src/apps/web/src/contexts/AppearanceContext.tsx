@@ -17,6 +17,7 @@ import {
 
 // Font stacks
 const FONT_STACKS: Record<FontFamily, string> = {
+  'default': "'Geist Variable', Geist, 'MiSans Adjusted', system-ui, sans-serif",
   'inter': "'Inter', system-ui, sans-serif",
   'system': "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   'serif': "ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif",
@@ -38,7 +39,7 @@ const FONT_SIZE_VALUES: Record<FontSize, string> = {
   relaxed: '15px',
 }
 
-// Google Fonts URLs for non-system fonts
+// Remote font loading for optional presets that are not bundled locally.
 const GOOGLE_FONT_URLS: Partial<Record<FontFamily | CodeFontFamily, string>> = {
   'noto-sans': 'https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600&display=swap',
   'source-sans': 'https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600&display=swap',
@@ -176,9 +177,16 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     styleRef.current = el
   }, [])
 
-  // Inject font link tags on mount for non-default fonts
   useEffect(() => {
-    if (fontFamily !== 'inter' && fontFamily !== 'system' && fontFamily !== 'custom' && fontFamily !== 'serif') loadGoogleFont(fontFamily)
+    document.documentElement.dataset.bodyFont = fontFamily
+    return () => {
+      delete document.documentElement.dataset.bodyFont
+    }
+  }, [fontFamily])
+
+  // Inject remote font link tags for presets that are not bundled locally.
+  useEffect(() => {
+    if (fontFamily !== 'default' && fontFamily !== 'inter' && fontFamily !== 'system' && fontFamily !== 'custom' && fontFamily !== 'serif') loadGoogleFont(fontFamily)
     if (codeFontFamily !== 'jetbrains-mono' && codeFontFamily !== 'cascadia-code') loadGoogleFont(codeFontFamily)
   }, [fontFamily, codeFontFamily])
 
@@ -194,7 +202,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
 
   const setFontFamily = useCallback((f: FontFamily) => {
     setFontFamilyState(f)
-    if (f !== 'inter' && f !== 'system' && f !== 'custom' && f !== 'serif') loadGoogleFont(f)
+    if (f !== 'default' && f !== 'inter' && f !== 'system' && f !== 'custom' && f !== 'serif') loadGoogleFont(f)
     writeFontSettingsToStorage({ fontFamily: f, codeFontFamily, fontSize })
   }, [codeFontFamily, fontSize])
 
