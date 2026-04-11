@@ -107,6 +107,10 @@ func allowedPromptTag(raw string) (string, bool) {
 		return "notebook", true
 	case "impression":
 		return "impression", true
+	case "working_memory":
+		return "working_memory", true
+	case "recalled_memories":
+		return "recalled_memories", true
 	default:
 		return "", false
 	}

@@ -8,6 +8,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/memory"
+	"arkloop/services/worker/internal/memory/nowledge"
 
 	"github.com/google/uuid"
 )
@@ -126,6 +127,9 @@ func (o *legacyMemoryDistillObserver) HookProviderName() string { return "legacy
 
 func (o *legacyMemoryDistillObserver) AfterThreadPersist(_ context.Context, rc *RunContext, delta ThreadDelta, result ThreadPersistResult) (PersistObservers, error) {
 	if o == nil || rc == nil || rc.UserID == nil || rc.MemoryProvider == nil {
+		return nil, nil
+	}
+	if _, ok := rc.MemoryProvider.(*nowledge.Client); ok {
 		return nil, nil
 	}
 	ident := memory.MemoryIdentity{

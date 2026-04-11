@@ -11,6 +11,7 @@ import (
 func TestMemoryProviderFactory_ReusesBySignature(t *testing.T) {
 	factory := NewMemoryProviderFactory()
 	snapshot := sharedtoolruntime.RuntimeSnapshot{
+		MemoryProvider:   "openviking",
 		MemoryBaseURL:    "http://memory.internal",
 		MemoryRootAPIKey: "key-1",
 	}
@@ -23,6 +24,7 @@ func TestMemoryProviderFactory_ReusesBySignature(t *testing.T) {
 		t.Fatal("expected provider to be reused for identical signature")
 	}
 	third := factory.Resolve(sharedtoolruntime.RuntimeSnapshot{
+		MemoryProvider:   "openviking",
 		MemoryBaseURL:    "http://memory.internal",
 		MemoryRootAPIKey: "key-2",
 	})
@@ -37,6 +39,7 @@ func TestMemoryProviderFactory_ReusesBySignature(t *testing.T) {
 func TestMemoryProviderFactory_URLWithoutKey(t *testing.T) {
 	factory := NewMemoryProviderFactory()
 	snapshot := sharedtoolruntime.RuntimeSnapshot{
+		MemoryProvider:   "openviking",
 		MemoryBaseURL:    "http://memory.internal",
 		MemoryRootAPIKey: "",
 	}
@@ -47,5 +50,26 @@ func TestMemoryProviderFactory_URLWithoutKey(t *testing.T) {
 	again := factory.Resolve(snapshot)
 	if again != p {
 		t.Fatal("expected same cached provider")
+	}
+}
+
+func TestMemoryProviderFactory_SeparatesNowledgeFromOpenViking(t *testing.T) {
+	factory := NewMemoryProviderFactory()
+	nowledgeProvider := factory.Resolve(sharedtoolruntime.RuntimeSnapshot{
+		MemoryProvider:         "nowledge",
+		MemoryBaseURL:          "http://memory.internal",
+		MemoryAPIKey:           "nowledge-key",
+		MemoryRequestTimeoutMs: 45000,
+	})
+	openvikingProvider := factory.Resolve(sharedtoolruntime.RuntimeSnapshot{
+		MemoryProvider:   "openviking",
+		MemoryBaseURL:    "http://memory.internal",
+		MemoryRootAPIKey: "ov-key",
+	})
+	if nowledgeProvider == nil || openvikingProvider == nil {
+		t.Fatal("expected both providers to be created")
+	}
+	if nowledgeProvider == openvikingProvider {
+		t.Fatal("expected provider cache to separate nowledge from openviking")
 	}
 }

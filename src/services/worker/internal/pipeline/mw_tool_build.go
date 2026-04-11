@@ -25,6 +25,8 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"memory_edit":          {},
 	"memory_read":          {},
 	"memory_search":        {},
+	"memory_thread_fetch":  {},
+	"memory_thread_search": {},
 	"memory_write":         {},
 	"python_execute":       {},
 	"resize_process":       {},
@@ -258,15 +260,17 @@ func FilterAllowlistByRuntime(allowlistSet map[string]struct{}, snapshot *shared
 
 // identityRequiredTools are tools that need a valid UserID to function.
 var identityRequiredTools = map[string]struct{}{
-	"memory_search":   {},
-	"memory_read":     {},
-	"memory_write":    {},
-	"memory_edit":     {},
-	"memory_forget":   {},
-	"notebook_read":   {},
-	"notebook_write":  {},
-	"notebook_edit":   {},
-	"notebook_forget": {},
+	"memory_search":        {},
+	"memory_thread_search": {},
+	"memory_thread_fetch":  {},
+	"memory_read":          {},
+	"memory_write":         {},
+	"memory_edit":          {},
+	"memory_forget":        {},
+	"notebook_read":        {},
+	"notebook_write":       {},
+	"notebook_edit":        {},
+	"notebook_forget":      {},
 }
 
 func filterIdentityRequiredTools(allowlistSet map[string]struct{}) map[string]struct{} {

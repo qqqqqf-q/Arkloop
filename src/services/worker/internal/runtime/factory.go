@@ -10,6 +10,7 @@ import (
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	memorypkg "arkloop/services/worker/internal/memory"
+	"arkloop/services/worker/internal/memory/nowledge"
 	"arkloop/services/worker/internal/memory/openviking"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -56,16 +57,26 @@ func (f *MemoryProviderFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapsh
 	if f == nil || snapshot.MemoryBaseURL == "" {
 		return nil
 	}
-	key := snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryRootAPIKey)
+	key := snapshot.MemoryProvider + "|" + snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryAPIKey) + "|" + hashString(snapshot.MemoryRootAPIKey)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if provider := f.byID[key]; provider != nil {
 		return provider
 	}
-	provider := openviking.NewProvider(openviking.Config{
-		BaseURL:    snapshot.MemoryBaseURL,
-		RootAPIKey: snapshot.MemoryRootAPIKey,
-	})
+	var provider memorypkg.MemoryProvider
+	switch snapshot.MemoryProvider {
+	case "nowledge":
+		provider = nowledge.NewProvider(nowledge.Config{
+			BaseURL:          snapshot.MemoryBaseURL,
+			APIKey:           snapshot.MemoryAPIKey,
+			RequestTimeoutMs: snapshot.MemoryRequestTimeoutMs,
+		})
+	default:
+		provider = openviking.NewProvider(openviking.Config{
+			BaseURL:    snapshot.MemoryBaseURL,
+			RootAPIKey: snapshot.MemoryRootAPIKey,
+		})
+	}
 	if provider == nil {
 		return nil
 	}
@@ -93,7 +104,7 @@ func (f *MemoryExecutorFactory) Resolve(snapshot sharedtoolruntime.RuntimeSnapsh
 	if f == nil || provider == nil || snapshot.MemoryBaseURL == "" {
 		return nil
 	}
-	key := snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryRootAPIKey)
+	key := snapshot.MemoryProvider + "|" + snapshot.MemoryBaseURL + "|" + hashString(snapshot.MemoryAPIKey) + "|" + hashString(snapshot.MemoryRootAPIKey)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if executor := f.byID[key]; executor != nil {
