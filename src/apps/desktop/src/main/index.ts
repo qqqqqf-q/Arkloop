@@ -55,6 +55,7 @@ function getAppIconPath(): string {
     : [
         path.join(__dirname, '..', '..', 'resources', 'icon.png'),
         path.join(__dirname, '..', '..', 'resources', 'icon.icns'),
+        path.join(app.getAppPath(), 'resources', 'icon.png'),
       ]
 
   for (const candidate of candidates) {
