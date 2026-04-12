@@ -105,7 +105,9 @@ export function PastedContentModal({ text, size, lineCount, onClose, title, subt
               fontSize: '14px',
               lineHeight: 1.6,
               color: 'var(--c-text-primary)',
-              fontFamily: 'inherit',
+              fontFamily: 'var(--c-font-body)',
+              fontWeight: 'var(--c-fw-325)',
+              fontSynthesis: 'none',
             }}>
               {text}
             </pre>

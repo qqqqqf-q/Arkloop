@@ -248,6 +248,9 @@ export function WorkspaceResource({ file, runId, projectId, accessToken }: Props
             background: 'var(--c-bg-sub)',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
+            fontFamily: 'var(--c-font-body)',
+            fontWeight: 'var(--c-fw-325)',
+            fontSynthesis: 'none',
           }}
         >
           <code>{loadState.content}</code>

@@ -331,7 +331,15 @@ function ModalHitCard({ hit, onLoadContent }: {
               {overview && (
                 <div>
                   <p className="mb-1.5 text-[11px] font-medium text-[var(--c-text-muted)]">L1 Overview</p>
-                  <pre className="rounded-lg p-3 text-xs leading-relaxed text-[var(--c-text-secondary)] whitespace-pre-wrap" style={{ background: 'var(--c-bg-input)' }}>
+                  <pre
+                    className="rounded-lg p-3 text-xs leading-relaxed text-[var(--c-text-secondary)] whitespace-pre-wrap"
+                    style={{
+                      background: 'var(--c-bg-input)',
+                      fontFamily: 'var(--c-font-body)',
+                      fontWeight: 'var(--c-fw-325)',
+                      fontSynthesis: 'none',
+                    }}
+                  >
                     {overview}
                   </pre>
                 </div>
@@ -348,6 +356,9 @@ function ModalHitCard({ hit, onLoadContent }: {
                       transition: 'max-height 0.3s cubic-bezier(0.25,0.1,0.25,1), mask-image 0.25s ease, -webkit-mask-image 0.25s ease',
                       willChange: 'max-height',
                       maxHeight: resolvedMaxHeight(isCollapsed, fullHeight),
+                      fontFamily: 'var(--c-font-body)',
+                      fontWeight: 'var(--c-fw-325)',
+                      fontSynthesis: 'none',
                       ...(isCollapsed
                         ? { WebkitMaskImage: fadeMask, maskImage: fadeMask }
                         : { WebkitMaskImage: 'none', maskImage: 'none' }),
@@ -536,7 +547,15 @@ function MemoriesCard({
             ))}
           </div>
         ) : (
-          <pre className="rounded-lg p-3 text-sm leading-relaxed text-[var(--c-text-secondary)] whitespace-pre-wrap" style={{ background: 'var(--c-bg-input)' }}>
+          <pre
+            className="rounded-lg p-3 text-sm leading-relaxed text-[var(--c-text-secondary)] whitespace-pre-wrap"
+            style={{
+              background: 'var(--c-bg-input)',
+              fontFamily: 'var(--c-font-body)',
+              fontWeight: 'var(--c-fw-325)',
+              fontSynthesis: 'none',
+            }}
+          >
             {snapshot}
           </pre>
         )}
