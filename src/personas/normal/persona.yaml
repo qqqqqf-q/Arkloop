@@ -24,7 +24,7 @@ budgets:
     reasoning_iterations: 99999
     temperature: 1
 reasoning_mode: auto
-prompt_cache_control: none
+prompt_cache_control: system_prompt
 executor_type: agent.simple
 allow_platform_delegation: true
 heartbeat:

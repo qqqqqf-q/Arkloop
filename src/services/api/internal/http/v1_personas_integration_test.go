@@ -272,7 +272,7 @@ func TestPersonasListCreateAndPatchUsePersonaFields(t *testing.T) {
 	if builtinOnly.ReasoningMode != "medium" {
 		t.Fatalf("unexpected builtin reasoning_mode: %q", builtinOnly.ReasoningMode)
 	}
-	if builtinOnly.PromptCacheControl != "none" {
+	if builtinOnly.PromptCacheControl != "system_prompt" {
 		t.Fatalf("unexpected builtin prompt_cache_control: %q", builtinOnly.PromptCacheControl)
 	}
 	if len(builtinOnly.ToolDenylist) != 1 || builtinOnly.ToolDenylist[0] != "exec_command" {

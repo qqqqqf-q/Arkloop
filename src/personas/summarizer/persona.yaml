@@ -17,5 +17,5 @@ result_summarize:
     prompt_file: result_summarize.md
 reasoning_mode: disabled
 stream_thinking: false
-prompt_cache_control: none
+prompt_cache_control: system_prompt
 executor_type: agent.simple

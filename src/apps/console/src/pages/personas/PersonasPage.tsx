@@ -97,7 +97,7 @@ function personaToForm(persona: Persona): DetailForm {
     model: persona.model ?? '',
     isActive: persona.is_active,
     reasoningMode: persona.reasoning_mode || 'auto',
-    promptCacheControl: persona.prompt_cache_control || 'none',
+    promptCacheControl: persona.prompt_cache_control || 'system_prompt',
     preferredCredential: persona.preferred_credential ?? '',
     budgetsJSON: JSON.stringify(persona.budgets ?? {}, null, 2),
     executorType: persona.executor_type || 'agent.simple',

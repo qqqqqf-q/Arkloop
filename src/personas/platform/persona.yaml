@@ -9,5 +9,5 @@ budgets:
     reasoning_iterations: 20
     temperature: 0.3
 reasoning_mode: auto
-prompt_cache_control: none
+prompt_cache_control: system_prompt
 executor_type: agent.simple
