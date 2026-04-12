@@ -9,9 +9,11 @@ function resolveResource(name: string): string {
     ? [
         path.join(process.resourcesPath, name),
         path.join(process.resourcesPath, 'app.asar', 'resources', name),
+        path.join(app.getAppPath(), 'resources', name),
       ]
     : [
         path.join(__dirname, '..', '..', 'resources', name),
+        path.join(app.getAppPath(), 'resources', name),
       ]
   return candidates.find((c) => fs.existsSync(c)) ?? candidates[0]
 }
