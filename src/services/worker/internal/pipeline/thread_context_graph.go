@@ -377,20 +377,12 @@ func mapReplacementsToContextSpans(
 		if strings.TrimSpace(repl.SummaryText) == "" {
 			continue
 		}
-		if upperBoundContextSeq != nil && repl.EndContextSeq > *upperBoundContextSeq {
+		startContextSeq, endContextSeq, ok := resolveContextSeqRangeForReplacement(chunks, repl)
+		if !ok {
 			continue
 		}
-		startContextSeq := repl.StartContextSeq
-		endContextSeq := repl.EndContextSeq
-		if startContextSeq <= 0 || endContextSeq <= 0 || startContextSeq > endContextSeq {
-			if repl.StartThreadSeq <= 0 || repl.EndThreadSeq <= 0 || repl.StartThreadSeq > repl.EndThreadSeq {
-				continue
-			}
-			var ok bool
-			startContextSeq, endContextSeq, ok = resolveContextSeqRangeForThreadSeqRange(chunks, repl.StartThreadSeq, repl.EndThreadSeq)
-			if !ok {
-				continue
-			}
+		if upperBoundContextSeq != nil && endContextSeq > *upperBoundContextSeq {
+			continue
 		}
 		out = append(out, canonicalReplacementSpan{
 			Record:          repl,
@@ -399,6 +391,20 @@ func mapReplacementsToContextSpans(
 		})
 	}
 	return out
+}
+
+func resolveContextSeqRangeForReplacement(chunks []canonicalChunk, repl data.ThreadContextReplacementRecord) (int64, int64, bool) {
+	if repl.StartThreadSeq > 0 && repl.EndThreadSeq > 0 && repl.StartThreadSeq <= repl.EndThreadSeq {
+		if startContextSeq, endContextSeq, ok := resolveContextSeqRangeForThreadSeqRange(chunks, repl.StartThreadSeq, repl.EndThreadSeq); ok {
+			return startContextSeq, endContextSeq, true
+		}
+	}
+	startContextSeq := repl.StartContextSeq
+	endContextSeq := repl.EndContextSeq
+	if startContextSeq <= 0 || endContextSeq <= 0 || startContextSeq > endContextSeq {
+		return 0, 0, false
+	}
+	return startContextSeq, endContextSeq, true
 }
 
 func resolveContextSeqRangeForThreadSeqRange(chunks []canonicalChunk, startThreadSeq, endThreadSeq int64) (int64, int64, bool) {

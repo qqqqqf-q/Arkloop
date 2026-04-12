@@ -393,6 +393,33 @@ func TestSelectRenderableReplacementSpansKeepsWholeRichLastAtomRaw(t *testing.T)
 	}
 }
 
+func TestMapReplacementsToContextSpansPrefersCurrentThreadSeqMapping(t *testing.T) {
+	chunks := []canonicalChunk{
+		{ContextSeq: 1, StartThreadSeq: 10, EndThreadSeq: 10},
+		{ContextSeq: 2, StartThreadSeq: 11, EndThreadSeq: 11},
+		{ContextSeq: 3, StartThreadSeq: 12, EndThreadSeq: 12},
+	}
+	replacements := []data.ThreadContextReplacementRecord{
+		{
+			ID:              uuid.New(),
+			StartThreadSeq:  10,
+			EndThreadSeq:    11,
+			StartContextSeq: 100,
+			EndContextSeq:   200,
+			SummaryText:     "summary",
+			Layer:           1,
+		},
+	}
+
+	spans := mapReplacementsToContextSpans(replacements, chunks, nil)
+	if len(spans) != 1 {
+		t.Fatalf("expected one mapped replacement, got %#v", spans)
+	}
+	if spans[0].StartContextSeq != 1 || spans[0].EndContextSeq != 2 {
+		t.Fatalf("expected thread-seq remap to current chunks, got %#v", spans[0])
+	}
+}
+
 func TestSelectPromotionReplacementsUsesOldestSideOrder(t *testing.T) {
 	now := time.Now().UTC()
 	items := []data.ThreadContextReplacementRecord{
