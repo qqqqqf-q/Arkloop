@@ -25,7 +25,7 @@ const (
 	memorySkeletonTimeout   = 10 * time.Second // 骨架读取总超时
 	memorySkeletonMaxDirs   = 10               // 最多读取的一级子目录数
 	memoryLeafMaxPerDir     = 30               // 每个目录下最多读取的叶子 abstract 数
-	memoryFragmentLimit     = 200
+	memoryFragmentLimit     = 0
 	impressionFragmentLimit = 20
 )
 

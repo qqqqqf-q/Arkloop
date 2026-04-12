@@ -272,13 +272,9 @@ func (c *Client) ListDir(context.Context, memory.MemoryIdentity, string) ([]stri
 }
 
 func (c *Client) ListMemories(ctx context.Context, ident memory.MemoryIdentity, limit int) ([]ListedMemory, error) {
-	if limit <= 0 {
-		limit = 30
-	}
-	values := url.Values{}
-	values.Set("limit", fmt.Sprintf("%d", limit))
+	const maxPageSize = 100
 
-	var response struct {
+	type listMemoriesResponse struct {
 		Memories []struct {
 			ID         string   `json:"id"`
 			Title      string   `json:"title"`
@@ -290,24 +286,66 @@ func (c *Client) ListMemories(ctx context.Context, ident memory.MemoryIdentity, 
 			Confidence float64  `json:"confidence"`
 			Source     string   `json:"source"`
 		} `json:"memories"`
-	}
-	if err := c.doJSON(ctx, ident, http.MethodGet, "/memories?"+values.Encode(), nil, &response); err != nil {
-		return nil, err
+		Pagination struct {
+			Total   int  `json:"total"`
+			HasMore bool `json:"has_more"`
+		} `json:"pagination"`
 	}
 
-	out := make([]ListedMemory, 0, len(response.Memories))
-	for _, item := range response.Memories {
-		out = append(out, ListedMemory{
-			ID:         strings.TrimSpace(item.ID),
-			Title:      strings.TrimSpace(item.Title),
-			Content:    strings.TrimSpace(item.Content),
-			Rating:     item.Rating,
-			Time:       strings.TrimSpace(item.Time),
-			LabelIDs:   append([]string(nil), item.LabelIDs...),
-			IsFavorite: item.IsFavorite,
-			Confidence: item.Confidence,
-			Source:     strings.TrimSpace(item.Source),
-		})
+	target := limit
+	if target < 0 {
+		target = 0
+	}
+	offset := 0
+	out := make([]ListedMemory, 0, min(limit, maxPageSize))
+	for {
+		pageSize := maxPageSize
+		if target > 0 {
+			remaining := target - len(out)
+			if remaining <= 0 {
+				break
+			}
+			pageSize = min(remaining, maxPageSize)
+		}
+
+		values := url.Values{}
+		values.Set("limit", fmt.Sprintf("%d", pageSize))
+		if offset > 0 {
+			values.Set("offset", fmt.Sprintf("%d", offset))
+		}
+
+		var response listMemoriesResponse
+		path := "/memories?" + values.Encode()
+		if err := c.doJSON(ctx, ident, http.MethodGet, path, nil, &response); err != nil {
+			return nil, err
+		}
+
+		for _, item := range response.Memories {
+			out = append(out, ListedMemory{
+				ID:         strings.TrimSpace(item.ID),
+				Title:      strings.TrimSpace(item.Title),
+				Content:    strings.TrimSpace(item.Content),
+				Rating:     item.Rating,
+				Time:       strings.TrimSpace(item.Time),
+				LabelIDs:   append([]string(nil), item.LabelIDs...),
+				IsFavorite: item.IsFavorite,
+				Confidence: item.Confidence,
+				Source:     strings.TrimSpace(item.Source),
+			})
+		}
+
+		offset += len(response.Memories)
+		if len(response.Memories) == 0 {
+			break
+		}
+		if target > 0 && len(out) >= target {
+			break
+		}
+		if !response.Pagination.HasMore {
+			if response.Pagination.Total <= 0 || offset >= response.Pagination.Total {
+				break
+			}
+		}
 	}
 	return out, nil
 }

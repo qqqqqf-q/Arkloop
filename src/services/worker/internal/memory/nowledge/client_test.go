@@ -225,6 +225,51 @@ func TestClientListMemoriesReturnsEmptySlice(t *testing.T) {
 	}
 }
 
+func TestClientListMemoriesPaginatesToFetchAll(t *testing.T) {
+	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/memories" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		seen = append(seen, r.URL.RawQuery)
+		switch r.URL.Query().Get("offset") {
+		case "":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"memories": []map[string]any{
+					{"id": "mem-1", "title": "First", "content": "one"},
+				},
+				"pagination": map[string]any{"total": 2, "has_more": true},
+			})
+		case "1":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"memories": []map[string]any{
+					{"id": "mem-2", "title": "Second", "content": "two"},
+				},
+				"pagination": map[string]any{"total": 2, "has_more": false},
+			})
+		default:
+			t.Fatalf("unexpected offset: %q", r.URL.Query().Get("offset"))
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(Config{BaseURL: srv.URL})
+	memories, err := c.ListMemories(context.Background(), testIdent(), 0)
+	if err != nil {
+		t.Fatalf("ListMemories failed: %v", err)
+	}
+	if len(memories) != 2 {
+		t.Fatalf("expected 2 memories, got %#v", memories)
+	}
+	if memories[0].ID != "mem-1" || memories[1].ID != "mem-2" {
+		t.Fatalf("unexpected memories order: %#v", memories)
+	}
+	if len(seen) != 2 || seen[0] != "limit=100" || seen[1] != "limit=100&offset=1" {
+		t.Fatalf("unexpected paged requests: %#v", seen)
+	}
+}
+
 func TestClientWriteParsesWritableEnvelope(t *testing.T) {
 	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
 	var got map[string]any

@@ -107,7 +107,7 @@ const (
 	nowledgeMemoryURIPrefix  = "nowledge://memory/"
 	nowledgeDefaultBaseURL   = "http://127.0.0.1:14242"
 	nowledgeLocalConfigPath  = ".nowledge-mem/config.json"
-	nowledgeSnapshotLimit    = 200
+	nowledgeSnapshotLimit    = 0
 	nowledgeContentTimeoutMs = 30000
 )
 
@@ -775,42 +775,94 @@ func (h *handler) findAndBuildNowledgeMemoryBlock(ctx context.Context, agentID s
 }
 
 func (h *handler) listNowledgeMemories(ctx context.Context, agentID string, limit int) ([]nowledgeListedMemory, error) {
-	if limit <= 0 {
-		limit = nowledgeSnapshotLimit
-	}
+	const maxPageSize = 100
+
 	cfg, err := h.resolveNowledgeConfig()
 	if err != nil {
 		return nil, err
 	}
-	values := url.Values{}
-	values.Set("limit", fmt.Sprintf("%d", limit))
-	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, strings.TrimRight(cfg.baseURL, "/")+"/memories?"+values.Encode(), nil)
-	if err != nil {
-		return nil, err
+	target := limit
+	if target < 0 {
+		target = 0
 	}
-	h.setNowledgeHeaders(req, agentID, cfg.apiKey)
+	if target <= 0 {
+		target = nowledgeSnapshotLimit
+	}
+
 	client := &nethttp.Client{Timeout: cfg.requestTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("nowledge list memories: %w", err)
-	}
-	defer resp.Body.Close()
+	offset := 0
+	out := make([]nowledgeListedMemory, 0, minInt(target, maxPageSize))
+	for {
+		pageSize := maxPageSize
+		if target > 0 {
+			remaining := target - len(out)
+			if remaining <= 0 {
+				break
+			}
+			pageSize = minInt(remaining, maxPageSize)
+		}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	if err != nil {
-		return nil, fmt.Errorf("read nowledge memories: %w", err)
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("nowledge %d: %s", resp.StatusCode, string(body))
-	}
+		values := url.Values{}
+		values.Set("limit", fmt.Sprintf("%d", pageSize))
+		if offset > 0 {
+			values.Set("offset", fmt.Sprintf("%d", offset))
+		}
+		path := strings.TrimRight(cfg.baseURL, "/") + "/memories?" + values.Encode()
+		req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		h.setNowledgeHeaders(req, agentID, cfg.apiKey)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("nowledge list memories: %w", err)
+		}
 
-	var wrapper struct {
-		Memories []nowledgeListedMemory `json:"memories"`
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read nowledge memories: %w", readErr)
+		}
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("nowledge %d: %s", resp.StatusCode, string(body))
+		}
+
+		var wrapper struct {
+			Memories   []nowledgeListedMemory `json:"memories"`
+			Pagination struct {
+				Total   int  `json:"total"`
+				HasMore bool `json:"has_more"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &wrapper); err != nil {
+			return nil, fmt.Errorf("decode nowledge memories: %w", err)
+		}
+
+		out = append(out, wrapper.Memories...)
+		offset += len(wrapper.Memories)
+		if len(wrapper.Memories) == 0 {
+			break
+		}
+		if target > 0 && len(out) >= target {
+			break
+		}
+		if !wrapper.Pagination.HasMore {
+			if wrapper.Pagination.Total <= 0 || offset >= wrapper.Pagination.Total {
+				break
+			}
+		}
 	}
-	if err := json.Unmarshal(body, &wrapper); err != nil {
-		return nil, fmt.Errorf("decode nowledge memories: %w", err)
+	return out, nil
+}
+
+func minInt(a, b int) int {
+	if a <= 0 {
+		return b
 	}
-	return wrapper.Memories, nil
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func buildNowledgeSnapshotBlock(memories []nowledgeListedMemory) string {
