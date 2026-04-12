@@ -325,7 +325,6 @@ export interface LocaleStrings {
   incognitoLabel: string;
   thisThreadIsIncognito: string;
   toggleIncognito: string;
-  componentUpdatesAvailable: string;
   incognitoForkDivider: string;
   // mode switch
   modeChat: string;
@@ -1180,9 +1179,6 @@ export interface LocaleStrings {
     providerName: string;
     providerNamePlaceholder: string;
     vendor: string;
-    presetGroupBrand: string;
-    presetGroupProtocol: string;
-    presetCustom: string;
     apiKey: string;
     apiKeyPlaceholder: string;
     apiKeyHint: string;
@@ -1356,7 +1352,6 @@ export interface LocaleStrings {
     localStarting: string;
     localProviderTitle: string;
     localProviderDesc: string;
-    localProviderName: string;
     localProviderVendor: string;
     localProviderApiKey: string;
     localProviderApiKeyPlaceholder: string;
