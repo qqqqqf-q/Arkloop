@@ -468,7 +468,6 @@ func buildChannelBurstJobPayload(ch data.Channel, entry data.ChannelInboundLedge
 			},
 			"platform_chat_id":           platformChatID,
 			"platform_message_id":        platformMessageID,
-			"reply_to_message_id":        platformMessageID,
 			"sender_channel_identity_id": entry.SenderChannelIdentityID.String(),
 		},
 	}

@@ -1538,7 +1538,6 @@ func buildTelegramChannelDeliveryPayload(
 		},
 		"platform_chat_id":           incoming.PlatformChatID,
 		"platform_message_id":        incoming.PlatformMsgID,
-		"reply_to_message_id":        incoming.PlatformMsgID,
 		"sender_channel_identity_id": channelIdentityID.String(),
 		"conversation_type":          incoming.ChatType,
 		"mentions_bot":               incoming.MentionsBot,

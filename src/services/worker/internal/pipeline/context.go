@@ -94,7 +94,7 @@ type RunContext struct {
 	ThreadPersistReady bool
 	// -- Channel tool / desktop writer 写入：正文已由具副作用的渠道工具直接送达，middleware 不应再次外发 --
 	ChannelOutputDelivered bool
-	// -- telegram_reply 工具写入：覆盖 delivery 层的默认 reply 引用 --
+	// -- telegram_reply 工具写入：为 delivery 层设置显式 reply 引用 --
 	ChannelReplyOverride *ChannelMessageRef
 
 	// -- AgentLoopHandler 写入：本次 run 的 tool call 总数和 LLM 迭代轮数，供 MemoryMiddleware 判断提炼条件 --

@@ -2694,8 +2694,8 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read request body: %v", err)
 		}
-		if !bytes.Contains(raw, []byte(`"reply_to_message_id":"88"`)) {
-			t.Fatalf("expected reply_to_message_id in request: %s", string(raw))
+		if bytes.Contains(raw, []byte(`"reply_to_message_id"`)) {
+			t.Fatalf("expected telegram request without implicit reply_to_message_id: %s", string(raw))
 		}
 		if !bytes.Contains(raw, []byte(`"message_thread_id":"thread-42"`)) {
 			t.Fatalf("expected message_thread_id in request: %s", string(raw))
@@ -2797,8 +2797,8 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 	if deliveryCount != 1 {
 		t.Fatalf("expected one delivery row, got %d", deliveryCount)
 	}
-	if parentID == nil || *parentID != "88" {
-		t.Fatalf("unexpected platform_parent_message_id: %q", *parentID)
+	if parentID != nil {
+		t.Fatalf("expected no platform_parent_message_id without explicit telegram_reply, got %v", *parentID)
 	}
 	if platformThread != threadRef {
 		t.Fatalf("unexpected platform_thread_id: %q", platformThread)

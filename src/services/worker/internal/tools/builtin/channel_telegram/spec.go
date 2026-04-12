@@ -23,7 +23,7 @@ var ReactAgentSpec = tools.AgentToolSpec{
 
 var ReplyAgentSpec = tools.AgentToolSpec{
 	Name:        ToolReply,
-	Version:     "2",
+	Version:     "3",
 	Description: "Set the reply-to reference for the current Telegram conversation output",
 	RiskLevel:   tools.RiskLevelLow,
 	SideEffects: false,
@@ -61,9 +61,10 @@ var ReplyLlmSpec = llm.ToolSpec{
 	Name: ToolReply,
 	Description: sp(
 		"Set the reply-to reference for your output in the current Telegram conversation. " +
+			"Telegram runs do not attach reply references automatically. " +
 			"Call this tool first with the target message_id, then write your reply text normally — " +
 			"the system will deliver your text as a reply to that message. " +
-			"Only use when you need to quote a specific message; for normal replies the system handles reply references automatically.",
+			"In group triggers such as @mention, keyword, or reply, use this tool whenever you want the outbound message to stay attached to a specific message.",
 	),
 	JSONSchema: map[string]any{
 		"type": "object",
@@ -100,8 +101,8 @@ var SendFileLlmSpec = llm.ToolSpec{
 				"description": "URL to the file (https://...) or local file path (/Users/x/Downloads/...)",
 			},
 			"kind": map[string]any{
-				"type": "string",
-				"enum": []string{"photo", "document", "audio", "video", "voice", "animation"},
+				"type":        "string",
+				"enum":        []string{"photo", "document", "audio", "video", "voice", "animation"},
 				"description": "Media type: photo (images), document (files), audio (music/podcasts), video (video clips), voice (voice notes), animation (GIFs)",
 			},
 			"caption": map[string]any{

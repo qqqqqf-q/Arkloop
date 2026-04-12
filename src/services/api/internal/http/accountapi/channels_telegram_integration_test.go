@@ -1331,9 +1331,6 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	if got := asString(delivery["conversation_type"]); got != "supergroup" {
 		t.Fatalf("unexpected conversation_type: %#v", delivery)
 	}
-	if got := asString(delivery["reply_to_message_id"]); got != "12" {
-		t.Fatalf("unexpected reply_to_message_id: %#v", delivery)
-	}
 	if got := asString(delivery["platform_message_id"]); got != "12" {
 		t.Fatalf("unexpected platform_message_id: %#v", delivery)
 	}
@@ -1635,9 +1632,6 @@ func TestTelegramWebhookReplyUsesParentAsTriggerMessage(t *testing.T) {
 	triggerRef, _ := delivery["trigger_message_ref"].(map[string]any)
 	if got := asString(triggerRef["message_id"]); got != "11" {
 		t.Fatalf("unexpected trigger_message_ref: %#v", delivery)
-	}
-	if got := asString(delivery["reply_to_message_id"]); got != "11" {
-		t.Fatalf("unexpected reply_to_message_id: %#v", delivery)
 	}
 	if got := asString(delivery["inbound_reply_to_message_id"]); got != "11" {
 		t.Fatalf("unexpected inbound_reply_to_message_id: %#v", delivery)

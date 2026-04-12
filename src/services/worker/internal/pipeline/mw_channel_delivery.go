@@ -670,23 +670,7 @@ func telegramReplyReference(ctx context.Context, pool *pgxpool.Pool, rc *RunCont
 	if rc.ChannelReplyOverride != nil {
 		return rc.ChannelReplyOverride
 	}
-	if rc.HeartbeatRun {
-		return nil
-	}
-	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
-		return nil
-	}
-	if telegramRunAlreadyDelivered(ctx, pool, rc.Run.ID) {
-		return nil
-	}
-	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {
-		return rc.ChannelContext.TriggerMessage
-	}
-	if strings.TrimSpace(rc.ChannelContext.InboundMessage.MessageID) == "" {
-		return nil
-	}
-	ref := rc.ChannelContext.InboundMessage
-	return &ref
+	return nil
 }
 
 func telegramRunAlreadyDelivered(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID) bool {

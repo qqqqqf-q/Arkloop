@@ -1701,21 +1701,7 @@ func desktopTelegramReplyReference(rc *pipeline.RunContext) *pipeline.ChannelMes
 	if rc.ChannelReplyOverride != nil {
 		return rc.ChannelReplyOverride
 	}
-	if rc.HeartbeatRun {
-		return nil
-	}
-	if strings.EqualFold(strings.TrimSpace(rc.ChannelContext.ConversationType), "private") ||
-		strings.EqualFold(strings.TrimSpace(rc.ChannelContext.ConversationType), "dm") {
-		return nil
-	}
-	if rc.ChannelContext.TriggerMessage != nil && strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID) != "" {
-		return rc.ChannelContext.TriggerMessage
-	}
-	if strings.TrimSpace(rc.ChannelContext.InboundMessage.MessageID) == "" {
-		return nil
-	}
-	ref := rc.ChannelContext.InboundMessage
-	return &ref
+	return nil
 }
 
 func loadDesktopChannelIdentity(ctx context.Context, db data.DesktopDB, identityID uuid.UUID) (*desktopChannelIdentityRecord, error) {
