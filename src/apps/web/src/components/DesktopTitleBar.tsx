@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Glasses } from 'lucide-react'
+import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Glasses, ArrowUp } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { ModeSwitch } from './ModeSwitch'
 import { useLocale } from '../contexts/LocaleContext'
@@ -18,6 +18,8 @@ type Props = {
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
+  hasComponentUpdates?: boolean
+  onOpenUpdates?: () => void
 }
 
 export function DesktopTitleBar({
@@ -29,6 +31,8 @@ export function DesktopTitleBar({
   showIncognitoToggle = true,
   isPrivateMode,
   onTogglePrivateMode,
+  hasComponentUpdates,
+  onOpenUpdates,
 }: Props) {
   const { t } = useLocale()
   const sidebarToggleTrace = useRef<ReturnType<typeof beginPerfTrace>>(null)
@@ -122,6 +126,16 @@ export function DesktopTitleBar({
             ].join(' ')}
           >
             <Glasses size={17} />
+          </button>
+        )}
+        {hasComponentUpdates && onOpenUpdates && (
+          <button
+            onClick={onOpenUpdates}
+            title={t.componentUpdatesAvailable}
+            className="relative flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-accent)] transition-colors hover:bg-[var(--c-bg-deep)]"
+          >
+            <ArrowUp size={16} />
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--c-accent)]" />
           </button>
         )}
       </div>

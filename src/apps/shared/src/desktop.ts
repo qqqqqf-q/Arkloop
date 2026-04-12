@@ -161,6 +161,7 @@ export type ArkloopDesktopApi = {
     check: () => Promise<UpdaterStatus>
     apply: (opts: { component: UpdaterComponent }) => Promise<{ ok: boolean }>
     onProgress: (callback: (data: { phase: string; percent: number; bytesDownloaded: number; bytesTotal: number; error?: string; component: UpdaterComponent }) => void) => () => void
+    onStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void
   }
   appUpdater?: {
     getState: () => Promise<AppUpdaterState>

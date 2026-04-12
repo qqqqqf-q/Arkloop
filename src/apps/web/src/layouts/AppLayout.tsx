@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { isDesktop } from '@arkloop/shared/desktop'
+import { isDesktop, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
@@ -144,7 +144,7 @@ export function AppLayout() {
   const { sidebarCollapsed, sidebarHiddenByWidth, toggleSidebar } = useSidebarUI()
   const { isSearchMode, searchOverlayOpen, exitSearchMode, closeSearchOverlay } = useSearchUI()
   const { appMode, availableAppModes, setAppMode } = useAppModeUI()
-  const { closeSettings } = useSettingsUI()
+  const { closeSettings, openSettings } = useSettingsUI()
   const { closeNotifications } = useNotificationsUI()
   const { queueSkillPrompt } = useSkillPromptUI()
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI()
@@ -153,6 +153,29 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const desktop = isDesktop()
+
+  const [hasComponentUpdates, setHasComponentUpdates] = useState(true)
+
+  useEffect(() => {
+    if (!desktop) return
+    const api = getDesktopApi()
+    if (!api?.updater) return
+    const checkStatus = (status: Awaited<ReturnType<typeof api.updater.getCached>>) => {
+      setHasComponentUpdates(
+        status.openviking.available ||
+        status.sandbox.kernel.available ||
+        status.sandbox.rootfs.available ||
+        status.bins.rtk.available ||
+        status.bins.opencli.available
+      )
+    }
+    void api.updater.getCached().then(checkStatus).catch(() => {})
+    return api.updater.onStatusChanged?.(checkStatus)
+  }, [desktop])
+
+  const handleOpenUpdates = useCallback(() => {
+    openSettings('updates')
+  }, [openSettings])
 
   const pathnameSearchOpen = location.pathname.endsWith('/search')
   const isSearchOpen = searchOverlayOpen || pathnameSearchOpen
@@ -226,6 +249,8 @@ export function AppLayout() {
             showIncognitoToggle={appMode !== 'work'}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
+            hasComponentUpdates={hasComponentUpdates}
+            onOpenUpdates={handleOpenUpdates}
           />
         )}
 

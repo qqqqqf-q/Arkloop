@@ -191,6 +191,7 @@ export function registerIpcHandlers(
     if (component === 'sandbox_kernel' || component === 'sandbox_rootfs') {
       await controller.restartLocalSidecar()
     }
+    if (win) win.webContents.send('arkloop:updater:status-changed', getCachedUpdateStatus())
     return { ok: true }
   })
 

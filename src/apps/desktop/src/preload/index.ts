@@ -258,6 +258,7 @@ export type ArkloopDesktopApi = {
     check: () => Promise<UpdaterStatus>
     apply: (opts: { component: UpdaterComponent }) => Promise<{ ok: boolean }>
     onProgress: (callback: (data: DownloadProgress & { component: UpdaterComponent }) => void) => () => void
+    onStatusChanged: (callback: (status: UpdaterStatus) => void) => () => void
   }
   appUpdater: {
     getState: () => Promise<AppUpdaterState>
@@ -409,6 +410,11 @@ const api: ArkloopDesktopApi = {
       const handler = (_event: Electron.IpcRendererEvent, data: DownloadProgress & { component: UpdaterComponent }) => callback(data)
       ipcRenderer.on('arkloop:updater:progress', handler)
       return () => ipcRenderer.removeListener('arkloop:updater:progress', handler)
+    },
+    onStatusChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: UpdaterStatus) => callback(status)
+      ipcRenderer.on('arkloop:updater:status-changed', handler)
+      return () => ipcRenderer.removeListener('arkloop:updater:status-changed', handler)
     },
   },
 

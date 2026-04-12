@@ -325,6 +325,7 @@ export interface LocaleStrings {
   incognitoLabel: string;
   thisThreadIsIncognito: string;
   toggleIncognito: string;
+  componentUpdatesAvailable: string;
   incognitoForkDivider: string;
   // mode switch
   modeChat: string;

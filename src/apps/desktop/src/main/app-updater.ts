@@ -111,7 +111,7 @@ export function setupAppUpdater(getWindow: () => Electron.BrowserWindow | null):
     return
   }
 
-  autoUpdater.autoDownload = false
+  autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => {

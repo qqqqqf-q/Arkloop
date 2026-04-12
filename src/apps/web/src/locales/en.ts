@@ -323,6 +323,7 @@ export const en: LocaleStrings = {
   incognitoLabel: "Incognito",
   thisThreadIsIncognito: "This thread is incognito",
   toggleIncognito: "Toggle incognito",
+  componentUpdatesAvailable: "Component updates available",
   incognitoForkDivider:
     "From this point on, messages will not be saved and will be permanently deleted within 24 hours.",
   modeChat: "Chat",
