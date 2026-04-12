@@ -11,6 +11,14 @@ type LocaleContextValue<T> = {
 export function createLocaleContext<T>() {
   const Ctx = createContext<LocaleContextValue<T> | null>(null)
 
+  function resolveDocumentLang(locale: Locale): string {
+    if (typeof document === 'undefined') return locale === 'zh' ? 'zh-CN' : 'en'
+    const bodyFont = document.documentElement.dataset.bodyFont
+    if (bodyFont === 'default') return 'zh-CN'
+    if (bodyFont === 'system') return 'en'
+    return locale === 'zh' ? 'zh-CN' : 'en'
+  }
+
   function LocaleProvider({
     children,
     locales,
@@ -26,7 +34,21 @@ export function createLocaleContext<T>() {
 
     useEffect(() => {
       if (typeof document === 'undefined') return
-      document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en'
+      const applyDocumentLang = () => {
+        document.documentElement.lang = resolveDocumentLang(locale)
+      }
+
+      applyDocumentLang()
+
+      const observer = new MutationObserver(() => {
+        applyDocumentLang()
+      })
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-body-font'],
+      })
+
+      return () => observer.disconnect()
     }, [locale])
 
     const setLocale = (l: Locale) => {

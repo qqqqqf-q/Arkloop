@@ -15,6 +15,26 @@
         } catch(e) {}
       })()
     </script>
+    <script>
+      // 同步读取语言和字体预设，避免首屏使用错误的 lang
+      ;(function(){
+        try {
+          var locale = localStorage.getItem('arkloop:web:locale')
+          var rawFontSettings = localStorage.getItem('arkloop:web:font-settings')
+          var fontFamily = 'default'
+          if (rawFontSettings) {
+            try {
+              var parsed = JSON.parse(rawFontSettings)
+              if (parsed && typeof parsed.fontFamily === 'string') fontFamily = parsed.fontFamily
+            } catch (e) {}
+          }
+          document.documentElement.setAttribute('data-body-font', fontFamily)
+          document.documentElement.lang = fontFamily === 'default'
+            ? 'zh-CN'
+            : (fontFamily === 'system' ? 'en' : (locale === 'zh' ? 'zh-CN' : 'en'))
+        } catch(e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root">
