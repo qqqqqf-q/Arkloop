@@ -7,7 +7,6 @@ import {
   X,
   Loader2,
   ChevronDown,
-  Check,
   Zap,
   SlidersHorizontal,
 } from 'lucide-react'
@@ -32,38 +31,18 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { ModelOptionsModal } from '../ModelOptionsModal'
 import { AnimatedCheck } from '../AnimatedCheck'
 import { secondaryButtonBorderStyle } from '../buttonStyles'
-
-const VENDOR_PRESETS = [
-  { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
-  { key: 'openai_chat_completions', provider: 'openai', openai_api_mode: 'chat_completions' },
-  { key: 'anthropic_message', provider: 'anthropic', openai_api_mode: undefined },
-  { key: 'gemini', provider: 'gemini', openai_api_mode: undefined },
-] as const
-
-type VendorPresetKey = (typeof VENDOR_PRESETS)[number]['key']
+import { PROVIDER_PRESETS, type ProviderPreset } from '../../lib/providerPresets'
 
 const OPENVIKING_BACKEND_ADVANCED_KEY = 'openviking_backend'
 
 type OpenVikingBackendKey = 'openai' | 'azure' | 'volcengine' | 'openai_compatible'
 
-function vendorLabel(
-  key: string,
-  p: { vendorOpenai: string; vendorOpenaiChat: string; vendorAnthropic: string; vendorGemini: string },
-): string {
-  const map: Record<string, string> = {
-    openai_responses: p.vendorOpenai,
-    openai_chat_completions: p.vendorOpenaiChat,
-    anthropic_message: p.vendorAnthropic,
-    gemini: p.vendorGemini,
-  }
-  return map[key] ?? key
-}
 
-function toVendorKey(provider: string, mode: string | null): VendorPresetKey {
-  if (provider === 'anthropic') return 'anthropic_message'
-  if (provider === 'gemini') return 'gemini'
-  if (mode === 'chat_completions') return 'openai_chat_completions'
-  return 'openai_responses'
+function toVendorKey(provider: string, mode: string | null): string {
+  const match = PROVIDER_PRESETS.find(
+    p => p.provider === provider && (p.openai_api_mode ?? null) === (mode ?? null)
+  )
+  return match?.key ?? 'openai_responses'
 }
 
 function defaultOpenVikingBackendForVendor(provider: string): OpenVikingBackendKey {
@@ -100,60 +79,68 @@ function VendorDropdown({
   onChange,
   p,
 }: {
-  value: VendorPresetKey
-  onChange: (v: VendorPresetKey) => void
-  p: ReturnType<typeof useLocale>['t']['adminProviders']
+  value: string
+  onChange: (k: string) => void
+  p: { presetGroupBrand: string; presetGroupProtocol: string; presetCustom: string }
 }) {
   const [open, setOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const selected = PROVIDER_PRESETS.find(pr => pr.key === value)
+
+  const brandPresets = PROVIDER_PRESETS.filter(pr => pr.isBrand)
+  const protocolPresets = PROVIDER_PRESETS.filter(pr => !pr.isBrand && !pr.isCustom)
+  const customPreset = PROVIDER_PRESETS.find(pr => pr.isCustom)!
 
   useEffect(() => {
     if (!open) return
     const handler = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
-      setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
   return (
-    <div className="relative">
+    <div ref={ref} className="relative">
       <button
-        ref={btnRef}
         type="button"
-        onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-        style={{ border: '1px solid var(--c-border-subtle)' }}
+        className="flex h-9 w-full items-center justify-between rounded-lg border border-[var(--c-border)] bg-[var(--c-bg-input)] px-3 text-[13px] text-[var(--c-text-primary)]"
+        onClick={() => setOpen(o => !o)}
       >
-        <span className="truncate">{vendorLabel(value, p)}</span>
-        <ChevronDown size={13} className="ml-2 shrink-0 text-[var(--c-text-muted)]" />
+        <span className="truncate">{selected?.label ?? value}</span>
+        <ChevronDown size={13} className="ml-1 shrink-0 opacity-50" />
       </button>
       {open && (
-        <div
-          ref={menuRef}
-          className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50 min-w-full"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            borderRadius: '10px',
-            padding: '4px',
-            background: 'var(--c-bg-menu)',
-            boxShadow: 'var(--c-dropdown-shadow)',
-          }}
-        >
-          {VENDOR_PRESETS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => { onChange(v.key); setOpen(false) }}
-              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
-              style={{ color: value === v.key ? 'var(--c-text-heading)' : 'var(--c-text-secondary)', fontWeight: value === v.key ? 500 : 400 }}
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-[10px] border border-[var(--c-border)] bg-[var(--c-bg-card)] shadow-lg">
+          <div className="max-h-[260px] overflow-y-auto">
+            <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--c-text-muted)]">{p.presetGroupBrand}</div>
+            {brandPresets.map(pr => (
+              <div
+                key={pr.key}
+                className={`cursor-pointer px-2.5 py-1.5 text-[13px] ${pr.key === value ? 'bg-[var(--c-bg-deep)]' : 'hover:bg-[var(--c-bg-deep)]'} text-[var(--c-text-primary)]`}
+                onMouseDown={() => { onChange(pr.key); setOpen(false) }}
+              >
+                {pr.label}
+              </div>
+            ))}
+            <div className="px-2.5 pb-1 pt-2 text-[11px] text-[var(--c-text-muted)]">{p.presetGroupProtocol}</div>
+            {protocolPresets.map(pr => (
+              <div
+                key={pr.key}
+                className={`cursor-pointer px-2.5 py-1.5 text-[13px] ${pr.key === value ? 'bg-[var(--c-bg-deep)]' : 'hover:bg-[var(--c-bg-deep)]'} text-[var(--c-text-primary)]`}
+                onMouseDown={() => { onChange(pr.key); setOpen(false) }}
+              >
+                {pr.label}
+              </div>
+            ))}
+            <div className="my-1 h-px bg-[var(--c-border)]" />
+            <div
+              className={`cursor-pointer px-2.5 py-1.5 text-[13px] ${customPreset.key === value ? 'bg-[var(--c-bg-deep)]' : 'hover:bg-[var(--c-bg-deep)]'} text-[var(--c-text-primary)]`}
+              onMouseDown={() => { onChange(customPreset.key); setOpen(false) }}
             >
-              <span>{vendorLabel(v.key, p)}</span>
-              {value === v.key && <Check size={13} className="shrink-0" />}
-            </button>
-          ))}
+              {p.presetCustom}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -168,6 +155,7 @@ export function ProvidersSettings({ accessToken }: Props) {
 
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedPreset, setSelectedPreset] = useState<ProviderPreset | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showAddProvider, setShowAddProvider] = useState(false)
@@ -195,6 +183,13 @@ export function ProvidersSettings({ accessToken }: Props) {
 
   const selected = providers.find((pv) => pv.id === selectedId) ?? null
 
+  const configuredPresetKeys = new Set(
+    providers.map(pv => toVendorKey(pv.provider, pv.openai_api_mode ?? null))
+  )
+  const unconfiguredPresets = PROVIDER_PRESETS.filter(
+    p => !p.isCustom && !configuredPresetKeys.has(p.key)
+  )
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -212,7 +207,7 @@ export function ProvidersSettings({ accessToken }: Props) {
             {providers.map((pv) => (
               <button
                 key={pv.id}
-                onClick={() => setSelectedId(pv.id)}
+                onClick={() => { setSelectedId(pv.id); setSelectedPreset(null) }}
                 className={[
                   'flex h-[38px] items-center truncate rounded-lg px-2.5 text-left text-[14px] font-medium transition-all duration-[120ms] active:scale-[0.96]',
                   selectedId === pv.id
@@ -221,6 +216,20 @@ export function ProvidersSettings({ accessToken }: Props) {
                 ].join(' ')}
               >
                 {pv.name}
+              </button>
+            ))}
+            {unconfiguredPresets.map(preset => (
+              <button
+                key={preset.key}
+                onClick={() => { setSelectedPreset(preset); setSelectedId(null) }}
+                className={[
+                  'flex h-[38px] items-center truncate rounded-lg px-2.5 text-left text-[14px] font-medium transition-all duration-[120ms] active:scale-[0.96]',
+                  selectedPreset?.key === preset.key
+                    ? 'rounded-[10px] bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
+                    : 'text-[var(--c-text-muted)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]',
+                ].join(' ')}
+              >
+                {preset.label}
               </button>
             ))}
           </div>
@@ -240,7 +249,7 @@ export function ProvidersSettings({ accessToken }: Props) {
 
       {/* Detail */}
       <div className="min-w-0 flex-1 overflow-y-auto p-4 max-[1230px]:p-3 sm:p-5">
-        {selected ? (
+        {selectedId !== null && selected != null ? (
           <ProviderDetail
             provider={selected}
             accessToken={accessToken}
@@ -248,6 +257,17 @@ export function ProvidersSettings({ accessToken }: Props) {
           onDeleted={load}
           p={p}
         />
+        ) : selectedPreset !== null ? (
+          <PresetProviderPanel
+            preset={selectedPreset}
+            accessToken={accessToken}
+            onCreated={(id) => {
+              setSelectedPreset(null)
+              void load()
+              setSelectedId(id)
+            }}
+            p={p}
+          />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3">
             <p className="text-sm text-[var(--c-text-muted)]">{p.noProviders}</p>
@@ -275,6 +295,81 @@ export function ProvidersSettings({ accessToken }: Props) {
   )
 }
 
+// -- Preset Provider Panel --
+
+function PresetProviderPanel({
+  preset,
+  accessToken,
+  onCreated,
+  p,
+}: {
+  preset: ProviderPreset
+  accessToken: string
+  onCreated: (id: string) => void
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
+}) {
+  const [formApiKey, setFormApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const handleSave = async () => {
+    if (!formApiKey.trim()) return
+    setSaving(true)
+    setErr('')
+    try {
+      const created = await createLlmProvider(accessToken, {
+        name: preset.label,
+        provider: preset.provider,
+        api_key: formApiKey.trim(),
+        base_url: preset.base_url || undefined,
+        openai_api_mode: preset.openai_api_mode ?? undefined,
+      })
+      onCreated(created.id)
+    } catch {
+      setErr(p.saveFailed)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mx-auto min-w-0 max-w-2xl space-y-6">
+      <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{preset.label}</h3>
+      <div className="space-y-4">
+        <LabelField label={p.apiKey}>
+          <input
+            className={INPUT_CLS}
+            type="password"
+            value={formApiKey}
+            placeholder={p.apiKeyPlaceholder}
+            onChange={e => setFormApiKey(e.target.value)}
+            autoComplete="off"
+          />
+        </LabelField>
+        <LabelField label={p.baseUrl}>
+          <input
+            className={INPUT_CLS + ' opacity-60'}
+            type="text"
+            value={preset.base_url}
+            readOnly
+          />
+        </LabelField>
+      </div>
+      {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
+      <div className="flex justify-end border-b border-[var(--c-border-subtle)] pb-4">
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving || !formApiKey.trim()}
+          className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
+          style={{ background: 'var(--c-btn-bg)' }}
+        >
+          {saving ? p.saving : p.save}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // -- Add Provider Modal --
 
 function AddProviderModal({ accessToken, p, onClose, onCreated }: {
@@ -284,18 +379,28 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   onCreated: () => void
 }) {
   const [name, setName] = useState('')
-  const [preset, setPreset] = useState<VendorPresetKey>('openai_responses')
+  const [preset, setPreset] = useState<string>(PROVIDER_PRESETS.find(p => p.isBrand)?.key ?? 'openai_responses')
   const [apiKey, setApiKey] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
+  const [baseUrl, setBaseUrl] = useState(PROVIDER_PRESETS.find(p => p.isBrand)?.base_url ?? '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+
+  const handlePresetChange = (key: string) => {
+    setPreset(key)
+    const found = PROVIDER_PRESETS.find(p => p.key === key)
+    if (found && !found.isCustom) {
+      setBaseUrl(found.base_url)
+    } else {
+      setBaseUrl('')
+    }
+  }
 
   const handleSave = async () => {
     if (!name.trim() || !apiKey.trim()) return
     setSaving(true)
     setErr('')
     try {
-      const v = VENDOR_PRESETS.find((vv) => vv.key === preset)!
+      const v = PROVIDER_PRESETS.find((vv) => vv.key === preset)!
       await createLlmProvider(accessToken, {
         name: name.trim(),
         provider: v.provider,
@@ -347,7 +452,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
           </div>
           <div>
             <label className={fieldLabelCls}>{p.vendor}</label>
-            <VendorDropdown value={preset} onChange={setPreset} p={p} />
+            <VendorDropdown value={preset} onChange={handlePresetChange} p={p} />
           </div>
           <div className="col-span-2">
             <label className={fieldLabelCls}>{p.apiKey}</label>
@@ -414,7 +519,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
   onDeleted: () => void
   p: ReturnType<typeof useLocale>['t']['adminProviders']
 }) {
-  const [formPreset, setFormPreset] = useState<VendorPresetKey>(toVendorKey(provider.provider, provider.openai_api_mode))
+  const [formPreset, setFormPreset] = useState<string>(toVendorKey(provider.provider, provider.openai_api_mode))
   const [formName, setFormName] = useState(provider.name)
   const [formApiKey, setFormApiKey] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
@@ -436,7 +541,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
     setSaving(true)
     setErr('')
     try {
-      const selected = VENDOR_PRESETS.find((v) => v.key === formPreset)
+      const selected = PROVIDER_PRESETS.find((v) => v.key === formPreset)
       await updateLlmProvider(accessToken, provider.id, {
         name: formName.trim() || undefined,
         api_key: formApiKey.trim() || undefined,

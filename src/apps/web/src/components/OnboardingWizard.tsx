@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   CheckCircle,
+  ChevronDown,
   ChevronRight,
   Cloud,
   HardDrive,
@@ -21,8 +22,8 @@ import {
 import { getDesktopApi, getDesktopAccessToken } from "@arkloop/shared/desktop";
 import { useLocale } from "../contexts/LocaleContext";
 import { LogoDrawAnimation } from "./LogoDrawAnimation";
-import { SettingsModelDropdown } from "./settings/SettingsModelDropdown";
 import { useAppearance } from "../contexts/AppearanceContext";
+import { PROVIDER_PRESETS, RECOMMENDED_PATTERNS, type ProviderPreset } from "../lib/providerPresets";
 import { BUILTIN_PRESETS } from "../themes/presets";
 import type { ThemePreset } from "../themes/types";
 import {
@@ -37,7 +38,6 @@ import { routeAdvancedJsonFromAvailableCatalog } from "@arkloop/shared/llm/avail
 
 type Step = "welcome" | "mode" | "provider" | "appearance" | "complete";
 
-type Vendor = "openai_responses" | "openai_chat_completions" | "anthropic" | "gemini";
 type VerifyStatus = "idle" | "verifying" | "verified" | "failed";
 type ModelImportStatus =
   | "idle"
@@ -53,52 +53,11 @@ type Props = { onComplete: () => void };
 const LOCAL_ACCESS_TOKEN =
   getDesktopAccessToken() ?? "arkloop-desktop-local-token";
 
-const VENDOR_OPTIONS = [
-  {
-    key: "openai_responses" as const,
-    label: "OpenAI (Responses)",
-    provider: "openai",
-    openai_api_mode: "responses" as string | undefined,
-  },
-  {
-    key: "openai_chat_completions" as const,
-    label: "OpenAI (Chat Completions)",
-    provider: "openai",
-    openai_api_mode: "chat_completions" as string | undefined,
-  },
-  {
-    key: "anthropic" as const,
-    label: "Anthropic",
-    provider: "anthropic",
-    openai_api_mode: undefined as string | undefined,
-  },
-  {
-    key: "gemini" as const,
-    label: "Gemini",
-    provider: "gemini",
-    openai_api_mode: undefined as string | undefined,
-  },
-] as const;
-
-const VENDOR_URLS: Record<Vendor, string> = {
-  openai_responses: "https://api.openai.com/v1",
-  openai_chat_completions: "https://api.openai.com/v1",
-  anthropic: "https://api.anthropic.com/v1",
-  gemini: "https://generativelanguage.googleapis.com/v1beta",
-};
-
-const RECOMMENDED_PATTERNS: Record<Vendor, string[]> = {
-  openai_responses: ["gpt-4o", "gpt-4o-mini"],
-  openai_chat_completions: ["gpt-4o", "gpt-4o-mini"],
-  anthropic: ["claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-haiku"],
-  gemini: ["gemini-2.0-flash", "gemini-1.5-pro"],
-};
-
 function getDefaultSelectedIds(
   models: AvailableModel[],
-  vendor: Vendor,
+  vendor: string,
 ): Set<string> {
-  const patterns = RECOMMENDED_PATTERNS[vendor];
+  const patterns = RECOMMENDED_PATTERNS[vendor] ?? [];
   const selected = new Set<string>();
   const importable = models.filter((m) => !m.configured);
 
@@ -120,8 +79,9 @@ const btnBase: React.CSSProperties = {
   border: "none",
   cursor: "pointer",
   fontSize: "14px",
-  fontWeight: 500,
+  fontWeight: 450,
   fontFamily: "inherit",
+  fontSynthesis: "none",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -156,12 +116,12 @@ function normalizeMode(mode?: string | null): string | null {
 
 function providerMatches(
   provider: LlmProvider,
-  vendorOpt: (typeof VENDOR_OPTIONS)[number],
+  preset: ProviderPreset,
 ): boolean {
   return (
-    provider.provider === vendorOpt.provider &&
+    provider.provider === preset.provider &&
     normalizeMode(provider.openai_api_mode) ===
-      normalizeMode(vendorOpt.openai_api_mode)
+      normalizeMode(preset.openai_api_mode)
   );
 }
 
@@ -367,6 +327,113 @@ function ModeCard({
   );
 }
 
+function GroupedProviderDropdown({
+  value,
+  onChange,
+  inputStyle: ist,
+}: {
+  value: string
+  onChange: (key: string) => void
+  inputStyle: React.CSSProperties
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selectedPreset = PROVIDER_PRESETS.find(p => p.key === value)
+
+  const brandPresets = PROVIDER_PRESETS.filter(p => p.isBrand)
+  const protocolPresets = PROVIDER_PRESETS.filter(p => !p.isBrand && !p.isCustom)
+  const customPreset = PROVIDER_PRESETS.find(p => p.isCustom)!
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const groupLabelStyle: React.CSSProperties = {
+    fontSize: '11px',
+    color: 'var(--c-placeholder)',
+    padding: '6px 10px 2px',
+    userSelect: 'none',
+  }
+
+  const optionStyle = (selected: boolean): React.CSSProperties => ({
+    padding: '7px 10px',
+    cursor: 'pointer',
+    fontSize: '13px',
+    background: selected ? 'var(--c-bg-deep)' : 'transparent',
+    color: 'var(--c-text-primary)',
+  })
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        style={{
+          ...ist,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          textAlign: 'left',
+          width: '100%',
+        }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span>{selectedPreset?.label ?? value}</span>
+        <ChevronDown size={14} style={{ opacity: 0.5, flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          left: 0,
+          right: 0,
+          zIndex: 100,
+          background: 'var(--c-bg-card)',
+          border: '1px solid var(--c-border)',
+          borderRadius: '8px',
+          overflow: 'hidden',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          maxHeight: '280px',
+          overflowY: 'auto',
+        }}>
+          <div style={groupLabelStyle}>Providers</div>
+          {brandPresets.map(p => (
+            <div
+              key={p.key}
+              style={optionStyle(p.key === value)}
+              onMouseDown={() => { onChange(p.key); setOpen(false) }}
+            >
+              {p.label}
+            </div>
+          ))}
+          <div style={groupLabelStyle}>Protocols</div>
+          {protocolPresets.map(p => (
+            <div
+              key={p.key}
+              style={optionStyle(p.key === value)}
+              onMouseDown={() => { onChange(p.key); setOpen(false) }}
+            >
+              {p.label}
+            </div>
+          ))}
+          <div style={{ height: '1px', background: 'var(--c-border)', margin: '4px 0' }} />
+          <div
+            style={optionStyle(customPreset.key === value)}
+            onMouseDown={() => { onChange(customPreset.key); setOpen(false) }}
+          >
+            {customPreset.label}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function OnboardingWizard({ onComplete }: Props) {
   const { t, locale } = useLocale();
   const ob = t.onboarding;
@@ -386,9 +453,13 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [downloadError, setDownloadError] = useState("");
 
   // Provider state
-  const [vendor, setVendor] = useState<Vendor>("openai_responses");
+  const [vendor, setVendor] = useState<string>('openrouter');
+  const [providerName, setProviderName] = useState('OpenRouter');
+  const [nameAutoSync, setNameAutoSync] = useState(true);
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState(VENDOR_URLS.openai_responses);
+  const [baseUrl, setBaseUrl] = useState(() => {
+    return PROVIDER_PRESETS.find(p => p.key === 'openrouter')?.base_url ?? ''
+  });
   const [verifyStatus, setVerifyStatus] = useState<VerifyStatus>("idle");
   const [providerError, setProviderError] = useState<AppError | null>(null);
 
@@ -484,12 +555,15 @@ export function OnboardingWizard({ onComplete }: Props) {
   }, []);
 
   const handleVendorChange = useCallback(
-    (nextVendor: Vendor) => {
-      setVendor(nextVendor);
-      setBaseUrl(VENDOR_URLS[nextVendor]);
+    (key: string) => {
+      const preset = PROVIDER_PRESETS.find(p => p.key === key);
+      if (!preset) return;
+      setVendor(key);
+      setBaseUrl(preset.base_url);
+      if (nameAutoSync) setProviderName(preset.label);
       resetProviderState();
     },
-    [resetProviderState],
+    [nameAutoSync, resetProviderState],
   );
 
   const ensureSidecar = useCallback(async () => {
@@ -554,34 +628,35 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   const upsertProviderCredential =
     useCallback(async (): Promise<LlmProvider> => {
-      const vendorOpt = VENDOR_OPTIONS.find((option) => option.key === vendor)!;
+      const preset = PROVIDER_PRESETS.find(p => p.key === vendor)!;
+      const effectiveName = providerName.trim() || preset.label;
       const trimmedUrl = baseUrl.trim().replace(/\/$/, "");
       const providers = await listLlmProviders(LOCAL_ACCESS_TOKEN);
       const existing =
         providers.find(
           (provider) =>
-            provider.name === vendorOpt.label &&
-            providerMatches(provider, vendorOpt),
-        ) ?? providers.find((provider) => providerMatches(provider, vendorOpt));
+            provider.name === effectiveName &&
+            providerMatches(provider, preset),
+        ) ?? providers.find((provider) => providerMatches(provider, preset));
 
       if (existing) {
         return await updateLlmProvider(LOCAL_ACCESS_TOKEN, existing.id, {
-          name: vendorOpt.label,
-          provider: vendorOpt.provider,
+          name: effectiveName,
+          provider: preset.provider,
           api_key: apiKey.trim(),
           base_url: trimmedUrl || null,
-          openai_api_mode: vendorOpt.openai_api_mode ?? null,
+          openai_api_mode: preset.openai_api_mode ?? null,
         });
       }
 
       try {
         return await createLlmProvider(LOCAL_ACCESS_TOKEN, {
-          name: vendorOpt.label,
-          provider: vendorOpt.provider,
+          name: effectiveName,
+          provider: preset.provider,
           api_key: apiKey.trim(),
           ...(trimmedUrl ? { base_url: trimmedUrl } : {}),
-          ...(vendorOpt.openai_api_mode
-            ? { openai_api_mode: vendorOpt.openai_api_mode }
+          ...(preset.openai_api_mode
+            ? { openai_api_mode: preset.openai_api_mode }
             : {}),
         });
       } catch (error) {
@@ -596,22 +671,22 @@ export function OnboardingWizard({ onComplete }: Props) {
         const conflicted =
           latestProviders.find(
             (provider) =>
-              provider.name === vendorOpt.label &&
-              providerMatches(provider, vendorOpt),
+              provider.name === effectiveName &&
+              providerMatches(provider, preset),
           ) ??
-          latestProviders.find((provider) => provider.name === vendorOpt.label);
+          latestProviders.find((provider) => provider.name === effectiveName);
 
         if (!conflicted) throw error;
 
         return await updateLlmProvider(LOCAL_ACCESS_TOKEN, conflicted.id, {
-          name: vendorOpt.label,
-          provider: vendorOpt.provider,
+          name: effectiveName,
+          provider: preset.provider,
           api_key: apiKey.trim(),
           base_url: trimmedUrl || null,
-          openai_api_mode: vendorOpt.openai_api_mode ?? null,
+          openai_api_mode: preset.openai_api_mode ?? null,
         });
       }
-    }, [apiKey, baseUrl, vendor]);
+    }, [apiKey, baseUrl, providerName, vendor]);
 
   const handleVerify = useCallback(async () => {
     setVerifyStatus("verifying");
@@ -1045,15 +1120,30 @@ export function OnboardingWizard({ onComplete }: Props) {
                     >
                       <div>
                         <label style={labelStyle}>
+                          {ob.localProviderName}
+                        </label>
+                        <input
+                          className={inputCls}
+                          style={inputStyle}
+                          type="text"
+                          value={providerName}
+                          placeholder="My Provider"
+                          onChange={(e) => {
+                            setProviderName(e.target.value);
+                            setNameAutoSync(false);
+                          }}
+                          autoComplete="off"
+                        />
+                      </div>
+
+                      <div>
+                        <label style={labelStyle}>
                           {ob.localProviderVendor}
                         </label>
-                        <SettingsModelDropdown
+                        <GroupedProviderDropdown
                           value={vendor}
-                          options={VENDOR_OPTIONS.map((opt) => ({ value: opt.key, label: opt.label }))}
-                          placeholder=""
-                          disabled={false}
-                          onChange={(v) => handleVendorChange(v as Vendor)}
-                          showEmpty={false}
+                          onChange={handleVendorChange}
+                          inputStyle={inputStyle}
                         />
                       </div>
 
@@ -1082,11 +1172,16 @@ export function OnboardingWizard({ onComplete }: Props) {
                         </label>
                         <input
                           className={inputCls}
-                          style={inputStyle}
+                          style={{
+                            ...inputStyle,
+                            opacity: vendor !== 'custom' ? 0.6 : 1,
+                          }}
                           type="text"
+                          readOnly={vendor !== 'custom'}
                           placeholder={ob.localProviderBaseUrlPlaceholder}
                           value={baseUrl}
                           onChange={(event) => {
+                            if (vendor !== 'custom') return;
                             setBaseUrl(event.target.value);
                             resetProviderState();
                           }}
