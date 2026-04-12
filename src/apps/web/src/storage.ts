@@ -27,6 +27,27 @@ const CUSTOM_BODY_FONT_KEY = 'arkloop:web:custom-body-font'
 const INPUT_DRAFT_TEXT_PREFIX = 'arkloop:web:input_draft_text'
 const INPUT_DRAFT_ATTACHMENTS_PREFIX = 'arkloop:web:input_draft_attachments'
 const INPUT_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const DRAFT_STORAGE_EVICTION_PREFIXES = [
+  'arkloop:web:msg_run_events:',
+  'arkloop:web:msg_assistant_turn:',
+  'arkloop:web:msg_code_exec:',
+  'arkloop:web:msg_file_ops:',
+  'arkloop:web:msg_web_fetches:',
+  'arkloop:web:msg_sub_agents:',
+  'arkloop:web:msg_widgets:',
+  'arkloop:web:msg_browser_actions:',
+  'arkloop:web:msg_sources:',
+  'arkloop:web:msg_artifacts:',
+  'arkloop:web:msg_search_steps:',
+  'arkloop:web:msg_cop_blocks:',
+  'arkloop:web:msg_memory_actions:',
+  'arkloop:web:msg_thinking:',
+  'arkloop:web:msg_terminal_status:',
+  'arkloop:web:thread_run_handoff:',
+  'arkloop:sse:last_seq:',
+] as const
+const EPHEMERAL_CACHE_INDEX_KEY = 'arkloop:web:ephemeral_cache_index'
+const EPHEMERAL_CACHE_MAX_ITEMS = 900
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
@@ -54,6 +75,195 @@ export type DraftAttachmentRecord = {
 
 function canUseLocalStorage(): boolean {
   return canUseStorage()
+}
+
+function isEphemeralCacheKey(key: string): boolean {
+  if (key === EPHEMERAL_CACHE_INDEX_KEY) return false
+  return DRAFT_STORAGE_EVICTION_PREFIXES.some((prefix) => key.startsWith(prefix))
+}
+
+function readEphemeralCacheIndex(): Record<string, number> {
+  if (!canUseLocalStorage()) return {}
+  try {
+    const raw = localStorage.getItem(EPHEMERAL_CACHE_INDEX_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const next: Record<string, number> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!isEphemeralCacheKey(key)) continue
+      if (!Number.isFinite(value)) continue
+      next[key] = Number(value)
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function writeEphemeralCacheIndex(index: Record<string, number>): void {
+  if (!canUseLocalStorage()) return
+  try {
+    if (Object.keys(index).length === 0) {
+      localStorage.removeItem(EPHEMERAL_CACHE_INDEX_KEY)
+      return
+    }
+    localStorage.setItem(EPHEMERAL_CACHE_INDEX_KEY, JSON.stringify(index))
+  } catch {
+    // ignore
+  }
+}
+
+function listEphemeralCacheKeys(): string[] {
+  if (!canUseLocalStorage()) return []
+  const keys: string[] = []
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index)
+      if (!key || !isEphemeralCacheKey(key)) continue
+      keys.push(key)
+    }
+  } catch {
+    return []
+  }
+  return keys
+}
+
+function removeEphemeralStorageItem(key: string): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // ignore
+  }
+  try {
+    const index = readEphemeralCacheIndex()
+    if (!(key in index)) return
+    delete index[key]
+    writeEphemeralCacheIndex(index)
+  } catch {
+    // ignore
+  }
+}
+
+function pruneEphemeralCache(options?: { keep?: string[] }): void {
+  if (!canUseLocalStorage()) return
+  const keep = new Set((options?.keep ?? []).filter((key) => key.trim() !== ''))
+  try {
+    const index = readEphemeralCacheIndex()
+    const existingKeys = listEphemeralCacheKeys()
+    const existingSet = new Set(existingKeys)
+    for (const key of Object.keys(index)) {
+      if (!existingSet.has(key)) delete index[key]
+    }
+    for (const key of existingKeys) {
+      if (!(key in index)) index[key] = 0
+    }
+
+    const trackedKeys = Object.keys(index)
+    if (trackedKeys.length > EPHEMERAL_CACHE_MAX_ITEMS) {
+      const removable = trackedKeys
+        .filter((key) => !keep.has(key))
+        .sort((left, right) => (index[left] ?? 0) - (index[right] ?? 0))
+      const overflow = trackedKeys.length - EPHEMERAL_CACHE_MAX_ITEMS
+      for (const key of removable.slice(0, overflow)) {
+        try { localStorage.removeItem(key) } catch { /* ignore */ }
+        delete index[key]
+      }
+    }
+    writeEphemeralCacheIndex(index)
+  } catch {
+    // ignore
+  }
+}
+
+function touchEphemeralCacheKey(key: string): void {
+  if (!canUseLocalStorage()) return
+  try {
+    const index = readEphemeralCacheIndex()
+    index[key] = Date.now()
+    writeEphemeralCacheIndex(index)
+  } catch {
+    // ignore
+  }
+}
+
+function writeEphemeralStorageItem(key: string, value: string): void {
+  if (!canUseLocalStorage()) return
+  pruneEphemeralCache({ keep: [key] })
+  try {
+    localStorage.setItem(key, value)
+    touchEphemeralCacheKey(key)
+    pruneEphemeralCache({ keep: [key] })
+    return
+  } catch {
+    // keep going and try harder
+  }
+
+  for (const prefix of DRAFT_STORAGE_EVICTION_PREFIXES) {
+    let removedAny = false
+    try {
+      const index = readEphemeralCacheIndex()
+      const candidates = listEphemeralCacheKeys()
+        .filter((item) => item !== key && item.startsWith(prefix))
+        .sort((left, right) => (index[left] ?? 0) - (index[right] ?? 0))
+      for (const candidate of candidates) {
+        removeEphemeralStorageItem(candidate)
+        removedAny = true
+        try {
+          localStorage.setItem(key, value)
+          touchEphemeralCacheKey(key)
+          pruneEphemeralCache({ keep: [key] })
+          return
+        } catch {
+          // continue pruning
+        }
+      }
+    } catch {
+      // ignore
+    }
+    if (removedAny) continue
+  }
+}
+
+if (typeof window !== 'undefined') {
+  queueMicrotask(() => {
+    try {
+      pruneEphemeralCache()
+    } catch {
+      // ignore
+    }
+  })
+}
+
+function tryWriteDraftWithEviction(write: () => void, protectedKeys: string[]): void {
+  try {
+    write()
+    return
+  } catch {
+    // fall through
+  }
+
+  const protectedSet = new Set(protectedKeys.filter((key) => key.trim() !== ''))
+  for (const prefix of DRAFT_STORAGE_EVICTION_PREFIXES) {
+    let removedAny = false
+    try {
+      for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+        const key = localStorage.key(index)
+        if (!key || protectedSet.has(key) || !key.startsWith(prefix)) continue
+        localStorage.removeItem(key)
+        removedAny = true
+      }
+    } catch {
+      // ignore and continue trying
+    }
+    if (!removedAny) continue
+    try {
+      write()
+      return
+    } catch {
+      // keep evicting
+    }
+  }
 }
 
 function inputDraftBaseKey(scope: InputDraftScope, prefix: string): string | null {
@@ -142,10 +352,13 @@ function writePersistedTextDraft(scope: InputDraftScope, text: string): void {
       localStorage.removeItem(key)
       return
     }
-    localStorage.setItem(key, JSON.stringify({
+    const payload = JSON.stringify({
       text,
       updatedAt: Date.now(),
-    }))
+    })
+    tryWriteDraftWithEviction(() => {
+      localStorage.setItem(key, payload)
+    }, [key])
   } catch {
     // 忽略存储失败
   }
@@ -163,10 +376,13 @@ function writePersistedAttachmentDraft(scope: InputDraftScope, attachments: Draf
       localStorage.removeItem(key)
       return
     }
-    localStorage.setItem(key, JSON.stringify({
+    const payload = JSON.stringify({
       attachments: normalized,
       updatedAt: Date.now(),
-    }))
+    })
+    tryWriteDraftWithEviction(() => {
+      localStorage.setItem(key, payload)
+    }, [key])
   } catch {
     // 忽略存储失败
   }
@@ -222,7 +438,7 @@ export function writeLastSeqToStorage(runId: string, seq: number): void {
   if (!runId || !canUseLocalStorage()) return
   if (!Number.isFinite(seq) || seq < 0) return
   try {
-    localStorage.setItem(lastSeqStorageKey(runId), String(seq))
+    writeEphemeralStorageItem(lastSeqStorageKey(runId), String(seq))
   } catch {
     // 忽略存储失败（无痕模式/禁用存储等）
   }
@@ -231,7 +447,7 @@ export function writeLastSeqToStorage(runId: string, seq: number): void {
 export function clearLastSeqInStorage(runId: string): void {
   if (!runId || !canUseLocalStorage()) return
   try {
-    localStorage.removeItem(lastSeqStorageKey(runId))
+    removeEphemeralStorageItem(lastSeqStorageKey(runId))
   } catch {
     // 忽略存储失败
   }
@@ -384,7 +600,7 @@ export function readMessageSources(messageId: string): WebSource[] | null {
 export function writeMessageSources(messageId: string, sources: WebSource[]): void {
   if (!canUseLocalStorage() || !messageId || sources.length === 0) return
   try {
-    localStorage.setItem(messageSourcesKey(messageId), JSON.stringify(sources))
+    writeEphemeralStorageItem(messageSourcesKey(messageId), JSON.stringify(sources))
   } catch { /* ignore */ }
 }
 
@@ -415,7 +631,7 @@ export function readMessageArtifacts(messageId: string): ArtifactRef[] | null {
 export function writeMessageArtifacts(messageId: string, artifacts: ArtifactRef[]): void {
   if (!canUseLocalStorage() || !messageId || artifacts.length === 0) return
   try {
-    localStorage.setItem(messageArtifactsKey(messageId), JSON.stringify(artifacts))
+    writeEphemeralStorageItem(messageArtifactsKey(messageId), JSON.stringify(artifacts))
   } catch { /* ignore */ }
 }
 
@@ -440,7 +656,7 @@ export function readMessageWidgets(messageId: string): WidgetRef[] | null {
 export function writeMessageWidgets(messageId: string, widgets: WidgetRef[]): void {
   if (!canUseLocalStorage() || !messageId || widgets.length === 0) return
   try {
-    localStorage.setItem(messageWidgetsKey(messageId), JSON.stringify(widgets))
+    writeEphemeralStorageItem(messageWidgetsKey(messageId), JSON.stringify(widgets))
   } catch { /* ignore */ }
 }
 
@@ -471,7 +687,7 @@ export function readMessageBrowserActions(messageId: string): BrowserActionRef[]
 export function writeMessageBrowserActions(messageId: string, actions: BrowserActionRef[]): void {
   if (!canUseLocalStorage() || !messageId || actions.length === 0) return
   try {
-    localStorage.setItem(messageBrowserActionsKey(messageId), JSON.stringify(actions))
+    writeEphemeralStorageItem(messageBrowserActionsKey(messageId), JSON.stringify(actions))
   } catch { /* ignore */ }
 }
 
@@ -548,7 +764,7 @@ export function readMessageCodeExecutions(messageId: string): CodeExecutionRef[]
 export function writeMessageCodeExecutions(messageId: string, executions: CodeExecutionRef[]): void {
   if (!canUseLocalStorage() || !messageId) return
   try {
-    localStorage.setItem(messageCodeExecutionsKey(messageId), JSON.stringify(executions))
+    writeEphemeralStorageItem(messageCodeExecutionsKey(messageId), JSON.stringify(executions))
   } catch { /* ignore */ }
 }
 
@@ -598,7 +814,7 @@ export function writeMessageThinking(messageId: string, thinking: MessageThinkin
   if (!canUseLocalStorage() || !messageId) return
   if (thinking.thinkingText.trim() === '' && thinking.segments.length === 0) return
   try {
-    localStorage.setItem(messageThinkingKey(messageId), JSON.stringify(thinking))
+    writeEphemeralStorageItem(messageThinkingKey(messageId), JSON.stringify(thinking))
   } catch { /* ignore */ }
 }
 
@@ -663,7 +879,7 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
 export function writeMessageSearchSteps(messageId: string, steps: MessageSearchStepRef[]): void {
   if (!canUseLocalStorage() || !messageId || steps.length === 0) return
   try {
-    localStorage.setItem(messageSearchStepsKey(messageId), JSON.stringify(steps))
+    writeEphemeralStorageItem(messageSearchStepsKey(messageId), JSON.stringify(steps))
   } catch { /* ignore */ }
 }
 
@@ -730,7 +946,7 @@ export function readMessageMemoryActions(messageId: string): MemoryActionRef[] |
 export function writeMessageMemoryActions(messageId: string, actions: MemoryActionRef[]): void {
   if (!canUseLocalStorage() || !messageId || actions.length === 0) return
   try {
-    localStorage.setItem(messageMemoryActionsKey(messageId), JSON.stringify(actions))
+    writeEphemeralStorageItem(messageMemoryActionsKey(messageId), JSON.stringify(actions))
   } catch { /* ignore */ }
 }
 
@@ -857,7 +1073,7 @@ export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | n
 export function writeMessageCopBlocks(messageId: string, data: MessageCopBlocksRef): void {
   if (!canUseLocalStorage() || !messageId || data.blocks.length === 0) return
   try {
-    localStorage.setItem(messageCopBlocksKey(messageId), JSON.stringify(data))
+    writeEphemeralStorageItem(messageCopBlocksKey(messageId), JSON.stringify(data))
   } catch { /* ignore */ }
 }
 
@@ -967,14 +1183,14 @@ export function readMessageAssistantTurn(messageId: string): AssistantTurnUi | n
 export function writeMessageAssistantTurn(messageId: string, data: AssistantTurnUi): void {
   if (!canUseLocalStorage() || !messageId || data.segments.length === 0) return
   try {
-    localStorage.setItem(messageAssistantTurnKey(messageId), JSON.stringify(data))
+    writeEphemeralStorageItem(messageAssistantTurnKey(messageId), JSON.stringify(data))
   } catch { /* ignore */ }
 }
 
 export function clearMessageAssistantTurn(messageId: string): void {
   if (!canUseLocalStorage() || !messageId) return
   try {
-    localStorage.removeItem(messageAssistantTurnKey(messageId))
+    removeEphemeralStorageItem(messageAssistantTurnKey(messageId))
   } catch { /* ignore */ }
 }
 
@@ -1029,7 +1245,7 @@ export function readMessageFileOps(messageId: string): FileOpRef[] | null {
 export function writeMessageFileOps(messageId: string, ops: FileOpRef[]): void {
   if (!canUseLocalStorage() || !messageId || ops.length === 0) return
   try {
-    localStorage.setItem(messageFileOpsKey(messageId), JSON.stringify(ops))
+    writeEphemeralStorageItem(messageFileOpsKey(messageId), JSON.stringify(ops))
   } catch { /* ignore */ }
 }
 
@@ -1095,7 +1311,7 @@ export function readMessageSubAgents(messageId: string): SubAgentRef[] | null {
 export function writeMessageSubAgents(messageId: string, agents: SubAgentRef[]): void {
   if (!canUseLocalStorage() || !messageId || agents.length === 0) return
   try {
-    localStorage.setItem(messageSubAgentsKey(messageId), JSON.stringify(agents))
+    writeEphemeralStorageItem(messageSubAgentsKey(messageId), JSON.stringify(agents))
   } catch { /* ignore */ }
 }
 
@@ -1148,7 +1364,7 @@ export function readMessageWebFetches(messageId: string): WebFetchRef[] | null {
 export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]): void {
   if (!canUseLocalStorage() || !messageId || fetches.length === 0) return
   try {
-    localStorage.setItem(messageWebFetchesKey(messageId), JSON.stringify(fetches))
+    writeEphemeralStorageItem(messageWebFetchesKey(messageId), JSON.stringify(fetches))
   } catch { /* ignore */ }
 }
 
@@ -1173,7 +1389,7 @@ export function readMessageTerminalStatus(messageId: string): MessageTerminalSta
 export function writeMessageTerminalStatus(messageId: string, status: MessageTerminalStatusRef): void {
   if (!canUseLocalStorage() || !messageId) return
   try {
-    localStorage.setItem(messageTerminalStatusKey(messageId), status)
+    writeEphemeralStorageItem(messageTerminalStatusKey(messageId), status)
   } catch { /* ignore */ }
 }
 
@@ -1298,14 +1514,14 @@ export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | nu
 export function writeThreadRunHandoff(threadId: string, data: ThreadRunHandoffRef): void {
   if (!canUseLocalStorage() || !threadId || !data.runId) return
   try {
-    localStorage.setItem(threadRunHandoffKey(threadId), JSON.stringify(data))
+    writeEphemeralStorageItem(threadRunHandoffKey(threadId), JSON.stringify(data))
   } catch { /* ignore */ }
 }
 
 export function clearThreadRunHandoff(threadId: string): void {
   if (!canUseLocalStorage() || !threadId) return
   try {
-    localStorage.removeItem(threadRunHandoffKey(threadId))
+    removeEphemeralStorageItem(threadRunHandoffKey(threadId))
   } catch { /* ignore */ }
 }
 
@@ -1416,7 +1632,7 @@ export function readMsgRunEvents(messageId: string): MsgRunEvent[] | null {
 export function writeMsgRunEvents(messageId: string, events: MsgRunEvent[]): void {
   if (!canUseLocalStorage() || !messageId || events.length === 0) return
   try {
-    localStorage.setItem(messageRunEventsKey(messageId), JSON.stringify(events))
+    writeEphemeralStorageItem(messageRunEventsKey(messageId), JSON.stringify(events))
   } catch { /* ignore */ }
 }
 

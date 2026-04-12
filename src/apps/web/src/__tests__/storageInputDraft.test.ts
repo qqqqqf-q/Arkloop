@@ -114,4 +114,50 @@ describe('input draft storage', () => {
     expect(readInputDraftText(scope)).toBe('')
     expect(readInputDraftAttachments(scope)).toEqual([])
   })
+
+  it('配额不足时会清理低优先级缓存以保住文本草稿', () => {
+    const backing = new Map<string, string>()
+    backing.set('arkloop:web:msg_run_events:old', JSON.stringify({ huge: 'x'.repeat(1024) }))
+
+    let quotaBlocked = true
+    const quotaStorage: Storage = {
+      get length() {
+        return backing.size
+      },
+      clear() {
+        backing.clear()
+      },
+      getItem(key: string) {
+        return backing.has(key) ? backing.get(key)! : null
+      },
+      key(index: number) {
+        return Array.from(backing.keys())[index] ?? null
+      },
+      removeItem(key: string) {
+        backing.delete(key)
+        if (key === 'arkloop:web:msg_run_events:old') quotaBlocked = false
+      },
+      setItem(key: string, value: string) {
+        if (key.includes('input_draft_text') && quotaBlocked) {
+          throw new Error('QuotaExceededError')
+        }
+        backing.set(key, value)
+      },
+    }
+
+    Object.defineProperty(globalThis, 'localStorage', { value: quotaStorage, configurable: true })
+    Object.defineProperty(window, 'localStorage', { value: quotaStorage, configurable: true })
+
+    const scope: InputDraftScope = {
+      ownerKey: 'user-1',
+      page: 'thread',
+      threadId: 'thread-a',
+      appMode: 'chat',
+    }
+
+    writeInputDraftText(scope, 'quota draft')
+
+    expect(readInputDraftText(scope)).toBe('quota draft')
+    expect(backing.has('arkloop:web:msg_run_events:old')).toBe(false)
+  })
 })
