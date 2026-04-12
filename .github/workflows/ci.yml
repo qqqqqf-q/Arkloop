@@ -1,8 +1,13 @@
-name: Desktop CI
+name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -37,11 +42,61 @@ jobs:
       - name: Check goose format consistency
         run: |
           cd src/services/api/internal/migrate/migrations
-          bad=$(grep -FL '-- +goose Up' *.sql || true)
+          bad=$(grep -FL -- '-- +goose Up' *.sql || true)
           if [ -n "$bad" ]; then
             echo "::error::PG migrations missing '-- +goose Up' marker: $bad"
             exit 1
           fi
+
+  go-lint:
+    name: Go Lint (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            path: src/services/api
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: bridge
+            path: src/services/bridge
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: cli
+            path: src/services/cli
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: desktop
+            path: src/services/desktop
+            args: --timeout=10m --build-tags=desktop --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: gateway
+            path: src/services/gateway
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: sandbox
+            path: src/services/sandbox
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: shared
+            path: src/services/shared
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+          - name: worker
+            path: src/services/worker
+            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache-dependency-path: |
+            src/services/**/go.sum
+            tests/**/go.sum
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          working-directory: ${{ matrix.path }}
+          args: ${{ matrix.args }}
 
   desktop-go:
     name: Desktop Go
@@ -55,6 +110,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.work
+          cache-dependency-path: |
+            src/services/**/go.sum
+            tests/**/go.sum
 
       - name: Build desktop service
         working-directory: src/services/desktop
@@ -68,34 +126,75 @@ jobs:
         working-directory: src/services/shared
         run: go test -tags desktop -run 'TestAutoMigrate|TestMigrations_UpDown' ./database/sqliteadapter/ -v -count=1
 
-  desktop-typescript:
-    name: Desktop TypeScript
+  pnpm-ci:
+    name: pnpm CI
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.3
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Guardrails
-        run: node bin/check-no-org.mjs
+        run: pnpm run guard:no-org
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type check (desktop)
+      - name: Test shared package
+        run: pnpm --filter @arkloop/shared test
+
+      - name: Web lint
+        run: pnpm --filter web lint
+
+      - name: Web type-check
+        run: pnpm --filter web type-check
+
+      - name: Web test
+        run: pnpm --filter web test
+
+      - name: Web build
+        run: pnpm --filter web build
+
+      - name: Console lint
+        run: pnpm --filter console lint
+
+      - name: Console type-check
+        run: pnpm --filter console type-check
+
+      - name: Console test
+        run: pnpm --filter console test
+
+      - name: Console build
+        run: pnpm --filter console build
+
+      - name: Console Lite lint
+        run: pnpm --filter console-lite lint
+
+      - name: Console Lite type-check
+        run: pnpm --filter console-lite type-check
+
+      - name: Console Lite build
+        run: pnpm --filter console-lite build
+
+      - name: Developers build
+        run: pnpm --filter developers build
+
+      - name: Desktop type-check
         run: pnpm --filter @arkloop/desktop type-check
 
-      - name: Build desktop web assets
+      - name: Desktop web build
         run: pnpm --filter @arkloop/desktop build:web
 
-      - name: Build desktop electron
+      - name: Desktop electron build
         run: pnpm --filter @arkloop/desktop build:electron
