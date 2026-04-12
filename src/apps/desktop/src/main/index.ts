@@ -124,6 +124,9 @@ function showMainWindow(): void {
     win.restore()
   }
   win.show()
+  if (process.platform === 'linux') {
+    app.focus()
+  }
   win.focus()
 }
 
@@ -454,8 +457,8 @@ if (!hasSingleInstanceLock) {
 
     loadContent(mainWindow)
 
-    createTray(getWindow)
-    registerGlobalShortcut(getWindow)
+    createTray(getWindow, showMainWindow)
+    registerGlobalShortcut(getWindow, showMainWindow)
     setupAppUpdater(getWindow)
   })
 

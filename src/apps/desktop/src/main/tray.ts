@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 let tray: Tray | null = null
+type ShowWindow = () => void
 
 function resolveResource(name: string): string {
   const candidates = app.isPackaged
@@ -35,27 +36,19 @@ function getTrayIcon(): Electron.NativeImage {
   }
 }
 
-export function createTray(getWindow: () => BrowserWindow | null): Tray {
+export function createTray(getWindow: () => BrowserWindow | null, showWindow: ShowWindow): Tray {
   tray = new Tray(getTrayIcon())
   tray.setToolTip('Arkloop')
-
-  const openWindow = () => {
-    const win = getWindow()
-    if (win) {
-      win.show()
-      win.focus()
-    }
-  }
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Show Arkloop',
-      click: () => openWindow(),
+      click: () => showWindow(),
     },
     {
       label: 'Settings',
       click: () => {
-        openWindow()
+        showWindow()
         const win = getWindow()
         win?.webContents.send('arkloop:app:open-settings')
       },
@@ -69,7 +62,7 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   tray.setContextMenu(contextMenu)
 
   tray.on('double-click', () => {
-    openWindow()
+    showWindow()
   })
 
   if (process.platform !== 'darwin') {
@@ -81,15 +74,14 @@ export function createTray(getWindow: () => BrowserWindow | null): Tray {
   return tray
 }
 
-export function registerGlobalShortcut(getWindow: () => BrowserWindow | null): void {
+export function registerGlobalShortcut(getWindow: () => BrowserWindow | null, showWindow: ShowWindow): void {
   globalShortcut.register('CommandOrControl+Shift+A', () => {
     const win = getWindow()
     if (!win) return
     if (win.isVisible() && win.isFocused()) {
       win.hide()
     } else {
-      win.show()
-      win.focus()
+      showWindow()
     }
   })
 }
