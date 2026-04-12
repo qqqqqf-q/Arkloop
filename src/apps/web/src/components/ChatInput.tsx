@@ -8,6 +8,7 @@ import type { SettingsTab } from './SettingsModal'
 import {
   DEFAULT_PERSONA_KEY,
   SEARCH_PERSONA_KEY,
+  type InputDraftScope,
   readSelectedPersonaKeyFromStorage,
   writeSelectedPersonaKeyToStorage,
   readSelectedModelFromStorage,
@@ -16,6 +17,8 @@ import {
   writeSelectedThinkingEnabled,
   readThreadThinkingEnabled,
   writeThreadThinkingEnabled,
+  readInputDraftText,
+  writeInputDraftText,
 } from '../storage'
 import type { AppMode } from '../storage'
 import {
@@ -38,7 +41,7 @@ export type ChatInputHandle = {
 
 export type Attachment = {
   id: string
-  file: File
+  file?: File
   name: string
   size: number
   mime_type: string
@@ -69,6 +72,7 @@ type Props = {
   appMode?: AppMode
   hasMessages?: boolean
   workThreadId?: string
+  draftOwnerKey?: string | null
 }
 
 function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
@@ -97,6 +101,14 @@ function countLinesWithinLimit(text: string, limit: number) {
   return lines
 }
 
+function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope): boolean {
+  if (!left) return false
+  return left.page === right.page
+    && (left.threadId ?? null) === (right.threadId ?? null)
+    && left.appMode === right.appMode
+    && !!left.searchMode === !!right.searchMode
+}
+
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onCancel,
@@ -118,6 +130,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   appMode,
   hasMessages,
   workThreadId,
+  draftOwnerKey,
 }, ref) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -150,6 +163,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
   const [chipExiting, setChipExiting] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string | null>(readSelectedModelFromStorage)
+  const draftScope = useMemo<InputDraftScope>(() => ({
+    ownerKey: draftOwnerKey,
+    page: variant === 'welcome' ? 'welcome' : 'thread',
+    threadId: variant === 'welcome' ? undefined : workThreadId,
+    appMode: appMode === 'work' ? 'work' : 'chat',
+    searchMode,
+  }), [appMode, draftOwnerKey, searchMode, variant, workThreadId])
+  const draftScopeKey = useMemo(() => JSON.stringify(draftScope), [draftScope])
+  const skipDraftPersistRef = useRef(false)
+  const prevDraftScopeRef = useRef<InputDraftScope | null>(null)
 
   const [thinkingEnabled, setThinkingEnabled] = useState(() => {
     if (!workThreadId) return readSelectedThinkingEnabled()
@@ -239,6 +262,32 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
   const showSendButton = draft.trim().length > 0 || attachments.length > 0
+
+  useEffect(() => {
+    const prevScope = prevDraftScopeRef.current
+    const nextStored = readInputDraftText(draftScope)
+    let nextDraft = nextStored
+    if (
+      isSameDraftDomain(prevScope, draftScope)
+      && prevScope?.ownerKey !== draftScope.ownerKey
+      && !nextStored
+      && draftRef.current.trim()
+    ) {
+      nextDraft = draftRef.current
+      writeInputDraftText(draftScope, nextDraft)
+    }
+    prevDraftScopeRef.current = draftScope
+    skipDraftPersistRef.current = true
+    setDraft(nextDraft)
+  }, [draftScope, draftScopeKey])
+
+  useEffect(() => {
+    if (skipDraftPersistRef.current) {
+      skipDraftPersistRef.current = false
+      return
+    }
+    writeInputDraftText(draftScope, draft)
+  }, [draft, draftScope, draftScopeKey])
 
   const deactivateMode = useCallback(() => {
     setChipExiting(true)
@@ -484,6 +533,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   key={att.id}
                   attachment={att}
                   onRemove={removeHandler}
+                  accessToken={accessToken}
                 />
               )
             })}

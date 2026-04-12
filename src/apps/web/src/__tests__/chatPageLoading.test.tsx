@@ -1,4 +1,4 @@
-import { act, useState, forwardRef, useImperativeHandle, useRef } from 'react'
+import { act, useEffect, useState, forwardRef, useImperativeHandle, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -50,6 +50,8 @@ const sseMock = vi.hoisted(() => ({
   clearEvents: vi.fn(),
   reset: vi.fn(),
 }))
+
+const chatInputDraftStore = vi.hoisted(() => new Map<string, string>())
 
 vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api')
@@ -126,16 +128,35 @@ vi.mock('../components/ChatInput', () => ({
     canCancel,
     onCancel,
     cancelSubmitting,
+    appMode,
+    searchMode,
+    workThreadId,
+    draftOwnerKey,
   }: {
     onSubmit: (e: { preventDefault: () => void }, personaKey: string, modelOverride?: string) => void
     isStreaming?: boolean
     canCancel?: boolean
     onCancel?: () => void
     cancelSubmitting?: boolean
+    appMode?: 'chat' | 'work'
+    searchMode?: boolean
+    workThreadId?: string
+    draftOwnerKey?: string | null
   }, ref: React.Ref<{ clear: () => void; setValue: (v: string) => void; getValue: () => string }>) => {
-    const [value, setValue] = useState('')
+    const draftKey = `${draftOwnerKey ?? 'global'}:${workThreadId ?? 'welcome'}:${appMode ?? 'chat'}:${searchMode ? 'search' : 'default'}`
+    const [value, setValue] = useState(() => chatInputDraftStore.get(draftKey) ?? '')
     const valueRef = useRef(value)
     valueRef.current = value
+    useEffect(() => {
+      setValue(chatInputDraftStore.get(draftKey) ?? '')
+    }, [draftKey])
+    useEffect(() => {
+      if (value) {
+        chatInputDraftStore.set(draftKey, value)
+      } else {
+        chatInputDraftStore.delete(draftKey)
+      }
+    }, [draftKey, value])
     useImperativeHandle(ref, () => ({
       clear: () => setValue(''),
       setValue: (v: string) => setValue(v),
@@ -504,6 +525,7 @@ describe('ChatPage loading state', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    chatInputDraftStore.clear()
     mockedReadMessageAssistantTurn.mockReturnValue(null)
     mockedReadMessageTerminalStatus.mockReturnValue(null)
     mockedReadMessageCodeExecutions.mockReturnValue(null)
@@ -1083,7 +1105,7 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
-  it('切换 thread 时应清空输入框草稿', async () => {
+  it('切换 thread 时应按线程隔离草稿，并在切回时恢复', async () => {
     mockedListMessages.mockImplementation(async (_accessToken, threadId) => [
       {
         id: `msg-${threadId}`,
@@ -1141,6 +1163,7 @@ describe('ChatPage loading state', () => {
               <Route
                 element={(
                   <>
+                    <NavigateButton to="/t/thread-1" label="go-thread-1" />
                     <NavigateButton to="/t/thread-2" label="go-thread-2" />
                     <OutletShell context={outletContext} />
                   </>
@@ -1179,6 +1202,21 @@ describe('ChatPage loading state', () => {
 
     const nextInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
     expect(nextInput?.value).toBe('')
+
+    const backButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'go-thread-1',
+    )
+    if (!backButton) {
+      throw new Error('thread back navigation control not rendered')
+    }
+
+    await act(async () => {
+      backButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    const restoredInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    expect(restoredInput?.value).toBe('stale draft')
 
     act(() => {
       root.unmount()

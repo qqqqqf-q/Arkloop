@@ -2,6 +2,7 @@ import {
   canUseStorage,
 } from '@arkloop/shared/storage'
 import type { Theme } from '@arkloop/shared/contexts/theme'
+import type { UploadedThreadAttachment } from './api'
 import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeDefinition } from './themes/types'
 import type { AssistantTurnSegment, AssistantTurnUi, CopBlockItem, TurnToolCallRef } from './assistantTurnSegments'
 
@@ -23,6 +24,9 @@ const THEME_PRESET_KEY = 'arkloop:web:theme-preset'
 const CUSTOM_THEME_ID_KEY = 'arkloop:web:custom-theme-id'
 const CUSTOM_THEMES_KEY = 'arkloop:web:custom-themes'
 const CUSTOM_BODY_FONT_KEY = 'arkloop:web:custom-body-font'
+const INPUT_DRAFT_TEXT_PREFIX = 'arkloop:web:input_draft_text'
+const INPUT_DRAFT_ATTACHMENTS_PREFIX = 'arkloop:web:input_draft_attachments'
+const INPUT_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
@@ -30,8 +34,142 @@ export const LEARNING_PERSONA_KEY = 'stem-tutor'
 
 export type AppMode = 'chat' | 'work'
 
+export type InputDraftScope = {
+  ownerKey?: string | null
+  page: 'welcome' | 'thread'
+  threadId?: string | null
+  appMode: AppMode
+  searchMode?: boolean
+}
+
+export type DraftAttachmentRecord = {
+  id: string
+  name: string
+  size: number
+  mime_type: string
+  status: 'ready'
+  uploaded: UploadedThreadAttachment
+  pasted?: { text: string; lineCount: number }
+}
+
 function canUseLocalStorage(): boolean {
   return canUseStorage()
+}
+
+function inputDraftBaseKey(scope: InputDraftScope, prefix: string): string | null {
+  const owner = scope.ownerKey?.trim() || 'global'
+  const mode = scope.appMode === 'work' ? 'work' : 'chat'
+  const search = scope.searchMode ? 'search' : 'default'
+  if (scope.page === 'thread') {
+    const threadId = scope.threadId?.trim()
+    if (!threadId) return null
+    return `${prefix}:${owner}:thread:${threadId}:${mode}:${search}`
+  }
+  return `${prefix}:${owner}:welcome:${mode}:${search}`
+}
+
+function normalizeDraftAttachmentRecord(item: DraftAttachmentRecord): DraftAttachmentRecord | null {
+  if (!item || item.status !== 'ready' || !item.uploaded?.key) return null
+  const id = item.id?.trim()
+  const name = item.name?.trim() || item.uploaded.filename?.trim()
+  const mimeType = item.mime_type?.trim() || item.uploaded.mime_type?.trim()
+  if (!id || !name || !mimeType) return null
+  return {
+    id,
+    name,
+    size: Number.isFinite(item.size) && item.size >= 0 ? item.size : item.uploaded.size,
+    mime_type: mimeType,
+    status: 'ready',
+    uploaded: item.uploaded,
+    pasted: item.pasted,
+  }
+}
+
+function readPersistedTextDraft(scope: InputDraftScope): { text: string; updatedAt: number } | null {
+  if (!canUseLocalStorage()) return null
+  const key = inputDraftBaseKey(scope, INPUT_DRAFT_TEXT_PREFIX)
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const data = JSON.parse(raw) as { text?: unknown; updatedAt?: unknown }
+    const parsed = {
+      text: typeof data.text === 'string' ? data.text : '',
+      updatedAt: Number.isFinite(data.updatedAt) ? Number(data.updatedAt) : Date.now(),
+    }
+    if (Date.now() - parsed.updatedAt > INPUT_DRAFT_TTL_MS) {
+      localStorage.removeItem(key)
+      return null
+    }
+    return parsed
+  } catch {
+    try { localStorage.removeItem(key) } catch { /* ignore */ }
+    return null
+  }
+}
+
+function readPersistedAttachmentDraft(scope: InputDraftScope): { attachments: DraftAttachmentRecord[]; updatedAt: number } | null {
+  if (!canUseLocalStorage()) return null
+  const key = inputDraftBaseKey(scope, INPUT_DRAFT_ATTACHMENTS_PREFIX)
+  if (!key) return null
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const data = JSON.parse(raw) as { attachments?: unknown; updatedAt?: unknown }
+    const parsed = {
+      attachments: Array.isArray(data.attachments)
+        ? data.attachments.map(normalizeDraftAttachmentRecord).filter((item): item is DraftAttachmentRecord => item != null)
+        : [],
+      updatedAt: Number.isFinite(data.updatedAt) ? Number(data.updatedAt) : Date.now(),
+    }
+    if (Date.now() - parsed.updatedAt > INPUT_DRAFT_TTL_MS) {
+      localStorage.removeItem(key)
+      return null
+    }
+    return parsed
+  } catch {
+    try { localStorage.removeItem(key) } catch { /* ignore */ }
+    return null
+  }
+}
+
+function writePersistedTextDraft(scope: InputDraftScope, text: string): void {
+  if (!canUseLocalStorage()) return
+  const key = inputDraftBaseKey(scope, INPUT_DRAFT_TEXT_PREFIX)
+  if (!key) return
+  try {
+    if (text.trim() === '') {
+      localStorage.removeItem(key)
+      return
+    }
+    localStorage.setItem(key, JSON.stringify({
+      text,
+      updatedAt: Date.now(),
+    }))
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+function writePersistedAttachmentDraft(scope: InputDraftScope, attachments: DraftAttachmentRecord[]): void {
+  if (!canUseLocalStorage()) return
+  const key = inputDraftBaseKey(scope, INPUT_DRAFT_ATTACHMENTS_PREFIX)
+  if (!key) return
+  try {
+    const normalized = attachments
+      .map(normalizeDraftAttachmentRecord)
+      .filter((item): item is DraftAttachmentRecord => item != null)
+    if (normalized.length === 0) {
+      localStorage.removeItem(key)
+      return
+    }
+    localStorage.setItem(key, JSON.stringify({
+      attachments: normalized,
+      updatedAt: Date.now(),
+    }))
+  } catch {
+    // 忽略存储失败
+  }
 }
 
 function lastSeqStorageKey(runId: string): string {
@@ -1433,6 +1571,34 @@ export function writeThreadThinkingEnabled(threadId: string, enabled: boolean): 
       localStorage.removeItem(`arkloop:thinking:${threadId}`)
     }
   } catch { /* ignore */ }
+}
+
+export function readInputDraftText(scope: InputDraftScope): string {
+  return readPersistedTextDraft(scope)?.text ?? ''
+}
+
+export function writeInputDraftText(scope: InputDraftScope, text: string): void {
+  writePersistedTextDraft(scope, text)
+}
+
+export function readInputDraftAttachments(scope: InputDraftScope): DraftAttachmentRecord[] {
+  return readPersistedAttachmentDraft(scope)?.attachments ?? []
+}
+
+export function writeInputDraftAttachments(scope: InputDraftScope, attachments: DraftAttachmentRecord[]): void {
+  writePersistedAttachmentDraft(scope, attachments)
+}
+
+export function clearInputDraft(scope: InputDraftScope): void {
+  if (!canUseLocalStorage()) return
+  const textKey = inputDraftBaseKey(scope, INPUT_DRAFT_TEXT_PREFIX)
+  const attachmentsKey = inputDraftBaseKey(scope, INPUT_DRAFT_ATTACHMENTS_PREFIX)
+  try {
+    if (textKey) localStorage.removeItem(textKey)
+    if (attachmentsKey) localStorage.removeItem(attachmentsKey)
+  } catch {
+    // 忽略存储失败
+  }
 }
 
 const SEARCH_THREAD_IDS_KEY = 'arkloop:web:search_thread_ids'

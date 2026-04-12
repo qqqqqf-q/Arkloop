@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Download } from 'lucide-react'
+import { apiBaseUrl } from '@arkloop/shared/api'
 import type { Attachment } from '../ChatInput'
 import { LIGHTBOX_ANIM_MS } from '../messagebubble/utils'
 import { CopyIconButton } from '../CopyIconButton'
@@ -75,35 +76,96 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function AttachmentCard({ attachment, onRemove }: { attachment: Attachment; onRemove: () => void }) {
+export function AttachmentCard({
+  attachment,
+  onRemove,
+  accessToken,
+}: {
+  attachment: Attachment
+  onRemove: () => void
+  accessToken?: string
+}) {
   const [imageLoaded, setImageLoaded] = useState(false)
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [cardHovered, setCardHovered] = useState(false)
   const [lbVisible, setLbVisible] = useState(false)
   const [lbShow, setLbShow] = useState(false)
+  const [remoteBlobUrl, setRemoteBlobUrl] = useState<string | null>(null)
+  const [fetchError, setFetchError] = useState(false)
   const closingTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isImage = attachment.mime_type.startsWith('image/')
+  const previewSrc = attachment.preview_url ?? remoteBlobUrl
 
   useEffect(() => {
-    if (isImage) return
+    if (isImage) {
+      setLineCount(null)
+      return
+    }
+    if (attachment.pasted?.lineCount != null) {
+      setLineCount(attachment.pasted.lineCount)
+      return
+    }
+    if (attachment.uploaded?.extracted_text) {
+      setLineCount(attachment.uploaded.extracted_text.split('\n').length)
+      return
+    }
+    if (!attachment.file) {
+      setLineCount(0)
+      return
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
       setLineCount(text.split('\n').length)
     }
     reader.readAsText(attachment.file)
-  }, [attachment.file, isImage])
+  }, [attachment.file, attachment.pasted?.lineCount, attachment.uploaded?.extracted_text, isImage])
+
+  useEffect(() => {
+    setImageLoaded(false)
+    setFetchError(false)
+    if (!attachment.preview_url) setRemoteBlobUrl(null)
+  }, [attachment.id, attachment.preview_url])
+
+  useEffect(() => {
+    return () => {
+      if (remoteBlobUrl) URL.revokeObjectURL(remoteBlobUrl)
+    }
+  }, [remoteBlobUrl])
+
+  useEffect(() => {
+    if (!isImage || attachment.preview_url || !attachment.uploaded?.key || !accessToken) return
+    let cancelled = false
+    let localBlobUrl: string | null = null
+    const url = `${apiBaseUrl()}/v1/attachments/${attachment.uploaded.key}`
+    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status}`)
+        return res.blob()
+      })
+      .then((blob) => {
+        localBlobUrl = URL.createObjectURL(blob)
+        if (!cancelled) setRemoteBlobUrl(localBlobUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setFetchError(true)
+      })
+    return () => {
+      cancelled = true
+      if (localBlobUrl) URL.revokeObjectURL(localBlobUrl)
+    }
+  }, [accessToken, attachment.preview_url, attachment.uploaded?.key, isImage])
 
   useEffect(() => {
     return () => { if (closingTimer.current) clearTimeout(closingTimer.current) }
   }, [])
 
   const openLightbox = useCallback(() => {
-    if (!isImage || !attachment.preview_url) return
+    if (!isImage || !previewSrc) return
     if (closingTimer.current) clearTimeout(closingTimer.current)
     setLbVisible(true)
     requestAnimationFrame(() => requestAnimationFrame(() => setLbShow(true)))
-  }, [isImage, attachment.preview_url])
+  }, [isImage, previewSrc])
 
   const closeLightbox = useCallback(() => {
     setLbShow(false)
@@ -119,31 +181,31 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
 
   const handleDownload = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!attachment.preview_url) return
+    if (!previewSrc) return
     const a = document.createElement('a')
-    a.href = attachment.preview_url
+    a.href = previewSrc
     a.download = attachment.name
     a.click()
-  }, [attachment.preview_url, attachment.name])
+  }, [attachment.name, previewSrc])
 
   const handleCopyImage = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!attachment.preview_url || !navigator.clipboard?.write) return
+    if (!previewSrc || !navigator.clipboard?.write) return
     try {
-      const res = await fetch(attachment.preview_url)
+      const res = await fetch(previewSrc)
       const blob = await res.blob()
       const mime = blob.type && blob.type !== '' ? blob.type : 'image/png'
       await navigator.clipboard.write([new ClipboardItem({ [mime]: blob })])
     } catch {
       // clipboard / permission
     }
-  }, [attachment.preview_url])
+  }, [previewSrc])
 
   const ext = attachment.name.includes('.')
     ? attachment.name.split('.').pop()!.toUpperCase()
     : ''
   const uploading = attachment.status === 'uploading'
-  const ready = !uploading && (isImage ? imageLoaded : lineCount !== null)
+  const ready = !uploading && (isImage ? (imageLoaded || fetchError) : lineCount !== null)
   const transition = `all ${LIGHTBOX_ANIM_MS}ms ease-out`
 
   return (
@@ -180,19 +242,30 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
           )}
 
           {isImage ? (
-            <img
-              src={attachment.preview_url}
-              alt={attachment.name}
-              onLoad={() => setImageLoaded(true)}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                opacity: ready ? 1 : 0,
-                transition: 'opacity 0.2s ease',
-                display: 'block',
-              }}
-            />
+            previewSrc ? (
+              <img
+                src={previewSrc}
+                alt={attachment.name}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => setFetchError(true)}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  opacity: ready ? 1 : 0,
+                  transition: 'opacity 0.2s ease',
+                  display: 'block',
+                }}
+              />
+            ) : fetchError ? (
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--c-bg-deep)' }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--c-text-muted)' }}>
+                  <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                  <path d="M3 16l5-5 4 4 3-3 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+                </svg>
+              </div>
+            ) : null
           ) : (
             <div style={{
               padding: '10px',
@@ -265,7 +338,7 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
         </button>
       </div>
 
-      {lbVisible && attachment.preview_url && isImage && (
+      {lbVisible && previewSrc && isImage && (
         <div
           onClick={(e) => { if (e.target === e.currentTarget) closeLightbox() }}
           style={{
@@ -308,7 +381,7 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
           </button>
 
           <img
-            src={attachment.preview_url}
+            src={previewSrc}
             alt={attachment.name}
             draggable={false}
             onClick={closeLightbox}
@@ -337,7 +410,7 @@ export function AttachmentCard({ attachment, onRemove }: { attachment: Attachmen
             }}
           >
             <a
-              href={attachment.preview_url}
+              href={previewSrc}
               target="_blank"
               rel="noopener noreferrer"
               draggable={false}

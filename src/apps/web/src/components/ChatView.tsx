@@ -79,6 +79,7 @@ import {
 } from '../lib/chat-helpers'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import { ChatSkeleton } from './ChatSkeleton'
+import { buildDraftAttachmentRecords, restoreAttachmentFromDraftRecord } from '../draftAttachments'
 import {
   createMessage,
   createRun,
@@ -96,6 +97,7 @@ import { buildMessageRequest } from '../messageContent'
 import {
   addSearchThreadId,
   SEARCH_PERSONA_KEY,
+  type InputDraftScope,
   isSearchThreadId,
   readThreadRunHandoff,
   clearThreadRunHandoff,
@@ -133,14 +135,24 @@ import {
   migrateMessageMetadata,
   readMsgRunEvents,
   type MsgRunEvent,
+  readInputDraftAttachments,
   readThreadWorkFolder,
   readThreadThinkingEnabled,
+  writeInputDraftAttachments,
 } from '../storage'
 
 const sidePanelWidth = 360
 const documentPanelWidth = 560
 const chatContentPadding = { panelClosed: '60px', panelOpen: '40px' } as const
 const chatInputPadding = { panelClosed: '60px', panelOpen: '40px', work: '14px' } as const
+
+function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope): boolean {
+  if (!left) return false
+  return left.page === right.page
+    && (left.threadId ?? null) === (right.threadId ?? null)
+    && left.appMode === right.appMode
+    && !!left.searchMode === !!right.searchMode
+}
 
 function FailedRunRetryCard({
   title,
@@ -537,7 +549,7 @@ function LiveTurnMarkdown({
 }
 
 export function ChatView() {
-  const { accessToken, logout: onLoggedOut } = useAuth()
+  const { accessToken, logout: onLoggedOut, me } = useAuth()
   const {
     threads, addThread: onThreadCreated,
     markRunning: onRunStarted, markIdle: onRunEnded,
@@ -1177,13 +1189,6 @@ export function ChatView() {
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
-    chatInputRef.current?.clear()
-    setAttachments((prev) => {
-      prev.forEach((attachment) => {
-        if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
-      })
-      return []
-    })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, clearCompletedTitleTail, resetAssistantTurnLive])
 
@@ -1280,10 +1285,20 @@ export function ChatView() {
   const chatInputRef = useRef<ChatInputHandle>(null)
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
+  const skipAttachmentDraftPersistRef = useRef(false)
+  const prevAttachmentDraftScopeRef = useRef<InputDraftScope | null>(null)
   const pendingIncognitoRef = useRef(pendingIncognito)
   pendingIncognitoRef.current = pendingIncognito
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const draftScope = useMemo<InputDraftScope>(() => ({
+    ownerKey: me?.id,
+    page: 'thread',
+    threadId,
+    appMode: appMode === 'work' ? 'work' : 'chat',
+    searchMode: isSearchThread,
+  }), [appMode, isSearchThread, me?.id, threadId])
+  const draftScopeKey = useMemo(() => JSON.stringify(draftScope), [draftScope])
 
   const {
     revokeDraftAttachment,
@@ -1291,6 +1306,36 @@ export function ChatView() {
     handlePasteContent,
     handleRemoveAttachment,
   } = useAttachmentActions()
+
+  useEffect(() => {
+    const prevScope = prevAttachmentDraftScopeRef.current
+    const storedAttachments = readInputDraftAttachments(draftScope)
+    const shouldMigrateCurrent =
+      isSameDraftDomain(prevScope, draftScope)
+      && prevScope?.ownerKey !== draftScope.ownerKey
+      && storedAttachments.length === 0
+      && attachmentsRef.current.length > 0
+    const nextAttachments = shouldMigrateCurrent
+      ? buildDraftAttachmentRecords(attachmentsRef.current)
+      : storedAttachments
+    if (shouldMigrateCurrent) {
+      writeInputDraftAttachments(draftScope, nextAttachments)
+    }
+    prevAttachmentDraftScopeRef.current = draftScope
+    skipAttachmentDraftPersistRef.current = true
+    setAttachments((prev) => {
+      prev.forEach((attachment) => revokeDraftAttachment(attachment))
+      return nextAttachments.map(restoreAttachmentFromDraftRecord)
+    })
+  }, [draftScope, draftScopeKey, revokeDraftAttachment, setAttachments])
+
+  useEffect(() => {
+    if (skipAttachmentDraftPersistRef.current) {
+      skipAttachmentDraftPersistRef.current = false
+      return
+    }
+    writeInputDraftAttachments(draftScope, buildDraftAttachmentRecords(attachments))
+  }, [attachments, draftScope, draftScopeKey])
 
   const handleSend = useCallback(async (e: React.FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
     e.preventDefault()
@@ -1328,6 +1373,7 @@ export function ChatView() {
         return await Promise.all(
           attachments.map(async (attachment) => {
             if (attachment.uploaded) return attachment.uploaded
+            if (!attachment.file) throw new Error('attachment file missing')
             return await uploadStagingAttachment(accessToken, attachment.file)
           }),
         )
@@ -1746,6 +1792,7 @@ export function ChatView() {
 
   const chatInputEl = useMemo(() => (
     <ChatInput
+      key={`${threadId ?? '__no_thread__'}:${appMode}:${isSearchThread ? 'search' : 'default'}`}
       ref={chatInputRef}
       onSubmit={handleSend}
       onCancel={handleCancel}
@@ -1766,8 +1813,9 @@ export function ChatView() {
       appMode={appMode}
       hasMessages={hasMessages}
       workThreadId={threadId}
+      draftOwnerKey={me?.id}
     />
-  ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, appMode, isSearchThread, hasMessages, threadId, accessToken, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings])
+  ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, appMode, isSearchThread, hasMessages, threadId, accessToken, me?.id, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings])
 
   const renderLiveCopItems = (
     seg: Extract<AssistantTurnSegment, { type: 'cop' }>,

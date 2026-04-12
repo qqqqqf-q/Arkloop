@@ -6,16 +6,20 @@ import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { DebugTrigger, useTimeZone } from '@arkloop/shared'
+import { buildDraftAttachmentRecords, restoreAttachmentFromDraftRecord } from '../draftAttachments'
 import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError } from '../api'
 import {
+  type InputDraftScope,
   writeActiveThreadIdToStorage,
   addSearchThreadId,
   SEARCH_PERSONA_KEY,
   transferGlobalWorkFolderToThread,
   transferGlobalThinkingToThread,
   readSelectedThinkingEnabled,
+  readInputDraftAttachments,
   readWorkFolder,
   readDeveloperShowDebugPanel,
+  writeInputDraftAttachments,
 } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
 import { buildMessageRequest } from '../messageContent'
@@ -52,6 +56,14 @@ type GreetingParts = {
   day: number
   weekday: number
   minute: number
+}
+
+function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope): boolean {
+  if (!left) return false
+  return left.page === right.page
+    && (left.threadId ?? null) === (right.threadId ?? null)
+    && left.appMode === right.appMode
+    && !!left.searchMode === !!right.searchMode
 }
 
 function getGreetingParts(now: Date, timeZone: string): GreetingParts {
@@ -162,6 +174,8 @@ export function WelcomePage() {
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const attachmentsRef = useRef<Attachment[]>([])
+  const skipAttachmentDraftPersistRef = useRef(false)
+  const prevAttachmentDraftScopeRef = useRef<InputDraftScope | null>(null)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
@@ -171,6 +185,13 @@ export function WelcomePage() {
     () => buildGreeting(me?.username ?? null, getGreetingParts(new Date(), timeZone)),
     [me?.username, timeZone],
   )
+  const draftScope = useMemo<InputDraftScope>(() => ({
+    ownerKey: me?.id,
+    page: 'welcome',
+    appMode: appMode === 'work' ? 'work' : 'chat',
+    searchMode: isSearchMode,
+  }), [appMode, isSearchMode, me?.id])
+  const draftScopeKey = useMemo(() => JSON.stringify(draftScope), [draftScope])
 
   useEffect(() => {
     const handleChange = (e: Event) => {
@@ -217,6 +238,36 @@ export function WelcomePage() {
   const revokeDraftAttachment = useCallback((attachment: Attachment) => {
     if (attachment.preview_url) URL.revokeObjectURL(attachment.preview_url)
   }, [])
+
+  useEffect(() => {
+    const prevScope = prevAttachmentDraftScopeRef.current
+    const storedAttachments = readInputDraftAttachments(draftScope)
+    const shouldMigrateCurrent =
+      isSameDraftDomain(prevScope, draftScope)
+      && prevScope?.ownerKey !== draftScope.ownerKey
+      && storedAttachments.length === 0
+      && attachmentsRef.current.length > 0
+    const nextAttachments = shouldMigrateCurrent
+      ? buildDraftAttachmentRecords(attachmentsRef.current)
+      : storedAttachments
+    if (shouldMigrateCurrent) {
+      writeInputDraftAttachments(draftScope, nextAttachments)
+    }
+    prevAttachmentDraftScopeRef.current = draftScope
+    skipAttachmentDraftPersistRef.current = true
+    setAttachments((prev) => {
+      prev.forEach((attachment) => revokeDraftAttachment(attachment))
+      return nextAttachments.map(restoreAttachmentFromDraftRecord)
+    })
+  }, [draftScope, draftScopeKey, revokeDraftAttachment])
+
+  useEffect(() => {
+    if (skipAttachmentDraftPersistRef.current) {
+      skipAttachmentDraftPersistRef.current = false
+      return
+    }
+    writeInputDraftAttachments(draftScope, buildDraftAttachmentRecords(attachments))
+  }, [attachments, draftScope, draftScopeKey])
 
   useEffect(() => {
     attachmentsRef.current = attachments
@@ -318,6 +369,7 @@ export function WelcomePage() {
       const uploaded = await Promise.all(
         attachments.map(async (attachment) => {
           if (attachment.uploaded) return attachment.uploaded
+          if (!attachment.file) throw new Error('attachment file missing')
           return await uploadStagingAttachment(accessToken, attachment.file)
         }),
       )
@@ -439,6 +491,7 @@ export function WelcomePage() {
 
         <div className="w-full max-w-[675px]">
           <ChatInput
+            key={`welcome:${appMode}:${isSearchMode ? 'search' : 'default'}`}
             ref={chatInputRef}
             onSubmit={handleSubmit}
             placeholder={isSearchMode ? '今天有什么想搜索的吗？' : t.chatPlaceholder}
@@ -458,6 +511,7 @@ export function WelcomePage() {
             }}
             onOpenSettings={onOpenSettings}
             appMode={appMode}
+            draftOwnerKey={me?.id}
           />
           {/* incognito note: 平滑展开/收起 */}
           <div
