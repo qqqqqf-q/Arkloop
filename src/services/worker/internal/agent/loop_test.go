@@ -1621,6 +1621,82 @@ func TestAgentLoopPureContinuationDoesNotConsumeReasoningBudget(t *testing.T) {
 	assertNoErrorClass(t, got, ErrorClassAgentReasoningIterationsExceeded)
 }
 
+func TestAgentLoopAppliesPromptCachePlanOnFollowupTurns(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo failed: %v", err)
+	}
+	allowlist := tools.AllowlistFromNames([]string{"echo"})
+	policy := tools.NewPolicyEnforcer(registry, allowlist)
+	dispatcher := tools.NewDispatchingExecutor(registry, policy)
+	if err := dispatcher.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo failed: %v", err)
+	}
+
+	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
+		{
+			llm.ToolCall{
+				ToolCallID:    "call_1",
+				ToolName:      "echo",
+				ArgumentsJSON: map[string]any{"text": "hello"},
+			},
+			llm.StreamRunCompleted{},
+		},
+		{
+			llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"},
+			llm.StreamRunCompleted{},
+		},
+	}}
+	loop := NewLoop(gateway, dispatcher)
+	emitter := events.NewEmitter("trace")
+
+	var got []events.RunEvent
+	err := loop.Run(context.Background(), RunContext{
+		RunID:               uuid.New(),
+		TraceID:             "trace",
+		InputJSON:           map[string]any{},
+		ReasoningIterations: 3,
+		ToolExecutor:        dispatcher,
+		ToolTimeoutMs:       intPtr(1000),
+		CancelSignal:        func() bool { return false },
+		PipelineRC: &pipeline.RunContext{
+			AgentConfig: &pipeline.ResolvedAgentConfig{
+				PromptCacheControl: "system_prompt",
+			},
+		},
+	}, llm.Request{
+		Model: "stub",
+		Messages: []llm.Message{{
+			Role:    "user",
+			Content: []llm.TextPart{{Text: "hi"}},
+		}},
+	}, emitter, func(ev events.RunEvent) error {
+		got = append(got, ev)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+
+	if len(gateway.requests) != 2 {
+		t.Fatalf("expected 2 llm requests, got %d", len(gateway.requests))
+	}
+	second := gateway.requests[1]
+	if second.PromptPlan == nil {
+		t.Fatal("expected prompt cache plan on followup request")
+	}
+	if !second.PromptPlan.MessageCache.Enabled {
+		t.Fatalf("expected message cache enabled, got %#v", second.PromptPlan.MessageCache)
+	}
+	if want := len(second.Messages) - 1; second.PromptPlan.MessageCache.MarkerMessageIndex != want {
+		t.Fatalf("unexpected marker index: got %d want %d", second.PromptPlan.MessageCache.MarkerMessageIndex, want)
+	}
+	if want := len(second.Messages) - 1; second.PromptPlan.MessageCache.ToolResultCacheCutIndex != want {
+		t.Fatalf("unexpected cut index: got %d want %d", second.PromptPlan.MessageCache.ToolResultCacheCutIndex, want)
+	}
+	assertHasEvent(t, got, "run.completed")
+}
+
 func TestAgentLoopZeroReasoningIterationsMeansUnlimited(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
@@ -2987,13 +3063,14 @@ func (e *providerEchoExecutor) Execute(
 }
 
 type scriptedTurnsGateway struct {
-	turns [][]llm.StreamEvent
-	calls int
+	turns    [][]llm.StreamEvent
+	requests []llm.Request
+	calls    int
 }
 
 func (g *scriptedTurnsGateway) Stream(ctx context.Context, request llm.Request, yield func(llm.StreamEvent) error) error {
 	_ = ctx
-	_ = request
+	g.requests = append(g.requests, request)
 	if g.calls >= len(g.turns) {
 		return fmt.Errorf("unexpected turn %d", g.calls)
 	}

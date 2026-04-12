@@ -155,6 +155,29 @@ func TestToAnthropicTools_EmitsCacheControlFromHint(t *testing.T) {
 	}
 }
 
+func TestToAnthropicTools_OnlyAnnotatedToolCarriesCacheControl(t *testing.T) {
+	tools := toAnthropicTools([]ToolSpec{
+		{Name: "read", JSONSchema: map[string]any{"type": "object"}},
+		{
+			Name:       "web_search",
+			JSONSchema: map[string]any{"type": "object"},
+			CacheHint: &CacheHint{
+				Action: CacheHintActionWrite,
+				Scope:  "global",
+			},
+		},
+	})
+	if len(tools) != 2 {
+		t.Fatalf("unexpected tools len: %d", len(tools))
+	}
+	if _, ok := tools[0]["cache_control"]; ok {
+		t.Fatalf("did not expect cache_control on first tool: %#v", tools[0])
+	}
+	if _, ok := tools[1]["cache_control"]; !ok {
+		t.Fatalf("expected cache_control on annotated tool: %#v", tools[1])
+	}
+}
+
 func TestToAnthropicMessagesWithPlan_MessageCacheAndReferences(t *testing.T) {
 	system, messages, err := toAnthropicMessagesWithPlan([]Message{
 		{
@@ -247,6 +270,108 @@ func TestToAnthropicMessagesWithPlan_MessageCacheAndReferences(t *testing.T) {
 	}
 	if rawEdits[0]["cache_reference"] != "call_legacy" {
 		t.Fatalf("unexpected cache edit reference: %#v", rawEdits[0])
+	}
+}
+
+func TestToAnthropicMessagesWithPlan_MessageCacheMarkerOnTrailingToolResult(t *testing.T) {
+	_, messages, err := toAnthropicMessagesWithPlan([]Message{
+		{
+			Role: "assistant",
+			Content: []TextPart{{
+				Text: "正在调用工具",
+			}},
+			ToolCalls: []ToolCall{
+				{
+					ToolCallID:    "call_1",
+					ToolName:      "web_search",
+					ArgumentsJSON: map[string]any{"query": "hello"},
+				},
+			},
+		},
+		{
+			Role: "tool",
+			Content: []TextPart{{
+				Text: `{"tool_call_id":"call_1","tool_name":"web_search","result":{"ok":true}}`,
+			}},
+		},
+	}, &PromptPlan{
+		MessageCache: MessageCachePlan{
+			Enabled:                 true,
+			MarkerMessageIndex:      1,
+			ToolResultCacheCutIndex: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessagesWithPlan failed: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("unexpected messages len: %d", len(messages))
+	}
+
+	lastUser := messages[1]
+	lastBlocks, ok := lastUser["content"].([]map[string]any)
+	if !ok || len(lastBlocks) != 1 {
+		t.Fatalf("unexpected trailing tool_result wrapper: %#v", lastUser["content"])
+	}
+	cc, ok := lastBlocks[0]["cache_control"].(map[string]any)
+	if !ok || cc["type"] != "ephemeral" {
+		t.Fatalf("expected message cache marker on trailing tool_result, got %#v", lastBlocks[0])
+	}
+}
+
+func TestAnthropicSystemBlocksFromPlan_MergesContiguousCacheScopes(t *testing.T) {
+	blocks := anthropicSystemBlocksFromPlan(&PromptPlan{
+		SystemBlocks: []PromptPlanBlock{
+			{
+				Name:          "persona",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          "stable one",
+				Stability:     CacheStabilityStablePrefix,
+				CacheEligible: true,
+			},
+			{
+				Name:          "security",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          "stable two",
+				Stability:     CacheStabilityStablePrefix,
+				CacheEligible: true,
+			},
+			{
+				Name:          "skills",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          "session one",
+				Stability:     CacheStabilitySessionPrefix,
+				CacheEligible: true,
+			},
+			{
+				Name:          "notebook",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          "session two",
+				Stability:     CacheStabilitySessionPrefix,
+				CacheEligible: true,
+			},
+		},
+	})
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 merged system blocks, got %#v", blocks)
+	}
+	if blocks[0]["text"] != "stable one\n\nstable two" {
+		t.Fatalf("unexpected merged stable text: %#v", blocks[0])
+	}
+	cc0, ok := blocks[0]["cache_control"].(map[string]any)
+	if !ok || cc0["scope"] != "global" {
+		t.Fatalf("unexpected stable cache_control: %#v", blocks[0])
+	}
+	if blocks[1]["text"] != "session one\n\nsession two" {
+		t.Fatalf("unexpected merged session text: %#v", blocks[1])
+	}
+	cc1, ok := blocks[1]["cache_control"].(map[string]any)
+	if !ok || cc1["scope"] != "org" {
+		t.Fatalf("unexpected session cache_control: %#v", blocks[1])
 	}
 }
 

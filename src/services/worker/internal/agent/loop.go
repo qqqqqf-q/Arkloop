@@ -178,6 +178,12 @@ func (l *Loop) Run(
 	reasoningTurnsUsed := 0
 	governor := NewLoopGovernor(runCtx)
 	toolResultReplacements := &toolResultReplacementState{ByToolCallID: map[string]string{}}
+	var promptCacheState *promptCacheTurnState
+	if promptCacheEnabled(runCtx) {
+		promptCacheState = &promptCacheTurnState{
+			KnownToolResultRefs: map[string]struct{}{},
+		}
+	}
 	continuationState := continuationBudgetState{
 		Remaining:     maxInt(runCtx.ToolContinuationBudget, 0),
 		SessionCounts: map[string]int{},
@@ -258,6 +264,12 @@ func (l *Loop) Run(
 			}
 		}
 		turnRequest := copyRequest(request, messages)
+		if promptCacheState != nil {
+			prepareTurnRequestPromptCache(&turnRequest, runCtx, promptCacheState)
+			if err := emitPromptCacheBreakEvent(turnRequest, promptCacheState, emitter, yield); err != nil {
+				return err
+			}
+		}
 		refreshCacheSafeSnapshot(&runCtx, messages, turnRequest)
 		turnRequestContextEstimateTokens := estimateTurnRequestContextTokens(runCtx, turnRequest.Messages)
 		if runCtx.PipelineRC != nil && runCtx.PipelineRC.HookRuntime != nil && runCtx.PipelineRC.HookRegistry != nil {
@@ -1936,10 +1948,20 @@ func annotateToolCacheHints(specs []llm.ToolSpec, runCtx RunContext) []llm.ToolS
 			coreTools[strings.TrimSpace(name)] = struct{}{}
 		}
 	}
+	lastCacheableIndex := -1
+	for i, spec := range specs {
+		if spec.CacheHint != nil {
+			continue
+		}
+		lastCacheableIndex = i
+	}
 	out := make([]llm.ToolSpec, len(specs))
 	for i, spec := range specs {
 		out[i] = spec
 		if spec.CacheHint != nil {
+			continue
+		}
+		if i != lastCacheableIndex {
 			continue
 		}
 		scope := "global"

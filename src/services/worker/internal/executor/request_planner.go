@@ -259,9 +259,19 @@ func annotateToolCacheHints(rc *pipeline.RunContext, specs []llm.ToolSpec) []llm
 			coreTools[strings.TrimSpace(name)] = struct{}{}
 		}
 	}
+	lastCacheableIndex := -1
+	for i, spec := range specs {
+		if spec.CacheHint != nil || !promptCacheEnabled(rc) {
+			continue
+		}
+		lastCacheableIndex = i
+	}
 	for i, spec := range specs {
 		out[i] = spec
 		if spec.CacheHint != nil || !promptCacheEnabled(rc) {
+			continue
+		}
+		if i != lastCacheableIndex {
 			continue
 		}
 		scope := "global"

@@ -544,28 +544,66 @@ func anthropicSystemBlocksFromPlan(plan *PromptPlan) []map[string]any {
 	if plan == nil || len(plan.SystemBlocks) == 0 {
 		return nil
 	}
-	blocks := make([]map[string]any, 0, len(plan.SystemBlocks))
-	for _, block := range plan.SystemBlocks {
-		text := strings.TrimSpace(block.Text)
+	type systemAccumulator struct {
+		text       strings.Builder
+		cacheType  string
+		cacheScope string
+	}
+
+	flush := func(blocks []map[string]any, acc *systemAccumulator) []map[string]any {
+		if acc == nil {
+			return blocks
+		}
+		text := strings.TrimSpace(acc.text.String())
 		if text == "" {
-			continue
+			return blocks
 		}
 		item := map[string]any{
 			"type": "text",
 			"text": text,
 		}
+		if acc.cacheType != "" {
+			cc := map[string]any{"type": acc.cacheType}
+			if acc.cacheScope != "" {
+				cc["scope"] = acc.cacheScope
+			}
+			item["cache_control"] = cc
+		}
+		return append(blocks, item)
+	}
+
+	blocks := make([]map[string]any, 0, len(plan.SystemBlocks))
+	var acc *systemAccumulator
+	for _, block := range plan.SystemBlocks {
+		text := strings.TrimSpace(block.Text)
+		if text == "" {
+			continue
+		}
+		cacheType := ""
+		cacheScope := ""
 		if block.CacheEligible {
 			cacheHint := &CacheHint{
 				Action: CacheHintActionWrite,
 				Scope:  cacheScopeFromStability(block.Stability),
 			}
 			if cc := anthropicCacheControlFromHints(cacheHint, nil); cc != nil {
-				item["cache_control"] = cc
+				cacheType, _ = cc["type"].(string)
+				cacheScope, _ = cc["scope"].(string)
 			}
 		}
-		blocks = append(blocks, item)
+		if acc == nil || acc.cacheType != cacheType || acc.cacheScope != cacheScope {
+			blocks = flush(blocks, acc)
+			acc = &systemAccumulator{
+				cacheType:  cacheType,
+				cacheScope: cacheScope,
+			}
+		}
+		if acc.text.Len() > 0 {
+			acc.text.WriteString("\n\n")
+		}
+		acc.text.WriteString(text)
 	}
-	return blocks
+	return flush(blocks, acc)
 }
 
 func cacheScopeFromStability(stability string) string {
@@ -657,12 +695,21 @@ func applySingleMessageCacheMarker(messages []map[string]any, markerOutIdx int) 
 		for j := len(content) - 1; j >= 0; j-- {
 			block := content[j]
 			blockType, _ := block["type"].(string)
-			if blockType != "text" {
+			if !anthropicCacheMarkerBlockType(blockType) {
 				continue
 			}
 			block["cache_control"] = map[string]any{"type": "ephemeral"}
 			return
 		}
+	}
+}
+
+func anthropicCacheMarkerBlockType(blockType string) bool {
+	switch strings.TrimSpace(blockType) {
+	case "text", "tool_result", "tool_use":
+		return true
+	default:
+		return false
 	}
 }
 
