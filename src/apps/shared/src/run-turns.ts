@@ -283,9 +283,13 @@ function isToolResultOnlyMessage(message: Record<string, unknown>): boolean {
   })
 }
 
-function extractLatestUserInput(payload: Record<string, unknown> | undefined): UserInputInfo {
-  const messages = Array.isArray(payload?.messages)
-    ? (payload.messages as Array<Record<string, unknown>>)
+function extractLatestUserInput(
+  payload: Record<string, unknown> | undefined,
+  inputJSON?: Record<string, unknown>,
+): UserInputInfo {
+  const source = inputJSON ?? payload
+  const messages = Array.isArray(source?.messages)
+    ? (source.messages as Array<Record<string, unknown>>)
     : []
   const userMessages = messages.filter(
     (message) => message.role === 'user' && !isToolResultOnlyMessage(message),
@@ -314,7 +318,7 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
     }
   }
 
-  const fallbackCandidates = [payload?.input, payload?.prompt, payload?.input_text]
+  const fallbackCandidates = [source?.input, source?.prompt, source?.input_text, payload?.input, payload?.prompt, payload?.input_text]
   for (const candidate of fallbackCandidates) {
     if (typeof candidate !== 'string') continue
     const rawText = cleanText(redactDataUrlsInString(candidate))
@@ -337,7 +341,7 @@ function extractLatestUserInput(payload: Record<string, unknown> | undefined): U
     }
   }
 
-  const inputRecord = asRecord(payload?.input)
+  const inputRecord = asRecord(source?.input) ?? asRecord(payload?.input)
   const rawInputCandidate =
     typeof inputRecord?.text === 'string'
       ? inputRecord.text
@@ -618,7 +622,8 @@ export function buildTurns(events: RunEventRaw[]): LlmTurn[] {
 
       const data = event.data as Record<string, unknown>
       const payload = data.payload as Record<string, unknown> | undefined
-      const input = extractLatestUserInput(payload)
+      const inputJSON = data.input as Record<string, unknown> | undefined
+      const input = extractLatestUserInput(payload, inputJSON)
       const shouldStartNewTurn =
         currentState == null ||
         (input.userMessageCount > 0 && input.userMessageCount > currentState.userMessageCount) ||

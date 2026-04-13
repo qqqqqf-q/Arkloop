@@ -209,6 +209,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		APIMode:              "messages",
 		BaseURL:              &baseURL,
 		Path:                 &path,
+		InputJSON:            request.ToJSON(),
 		PayloadJSON:          debugPayload,
 		RedactedHints:        redactedHints,
 		SystemBytes:          stats.SystemBytes,

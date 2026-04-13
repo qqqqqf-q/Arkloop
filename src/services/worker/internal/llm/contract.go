@@ -504,6 +504,7 @@ type StreamLlmRequest struct {
 	APIMode       string
 	BaseURL       *string
 	Path          *string
+	InputJSON     map[string]any
 	PayloadJSON   map[string]any
 	RedactedHints map[string]any
 	// 上下文分解统计
@@ -534,6 +535,9 @@ func (r StreamLlmRequest) ToDataJSON() map[string]any {
 		"api_mode":       r.APIMode,
 		"payload":        mapOrEmpty(r.PayloadJSON),
 		"redacted_hints": mapOrEmpty(r.RedactedHints),
+	}
+	if len(r.InputJSON) > 0 {
+		payload["input"] = r.InputJSON
 	}
 	if r.BaseURL != nil {
 		payload["base_url"] = *r.BaseURL

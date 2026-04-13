@@ -350,6 +350,61 @@ func TestGeminiGateway_Stream_RequestBodyDoesNotLeakProviderToolName(t *testing.
 	}
 }
 
+func TestGeminiGateway_Stream_UsesParametersJSONSchema(t *testing.T) {
+	var receivedBody []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body failed: %v", err)
+		}
+		receivedBody = append([]byte(nil), body...)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(sseBody([]string{
+			`{"candidates":[{"content":{"parts":[{"text":"ok"}],"role":"model"},"finishReason":"STOP"}]}`,
+		})))
+	}))
+	t.Cleanup(server.Close)
+
+	gw := NewGeminiGateway(GeminiGatewayConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	})
+
+	err := gw.Stream(context.Background(), Request{
+		Model: "gemini-2.0-flash",
+		Messages: []Message{
+			{Role: "user", Content: []TextPart{{Text: "hi"}}},
+		},
+		Tools: []ToolSpec{{
+			Name: "web_search",
+			JSONSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+				"additionalProperties": false,
+			},
+		}},
+	}, func(StreamEvent) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("stream failed: %v", err)
+	}
+
+	bodyText := string(receivedBody)
+	if !strings.Contains(bodyText, `"parametersJsonSchema"`) {
+		t.Fatalf("expected parametersJsonSchema in request body, got %s", bodyText)
+	}
+	if strings.Contains(bodyText, `"parameters":{"type":"object"`) {
+		t.Fatalf("expected raw JSON schema not to be sent via parameters, got %s", bodyText)
+	}
+	if !strings.Contains(bodyText, `"additionalProperties":false`) {
+		t.Fatalf("expected JSON schema fields to be preserved, got %s", bodyText)
+	}
+}
+
 func TestNewGeminiGateway_PreservesVersionFromBaseURL(t *testing.T) {
 	gw := NewGeminiGateway(GeminiGatewayConfig{
 		APIKey:  "test-key",
@@ -486,7 +541,44 @@ func TestGeminiGateway_Stream_ErrorResponse(t *testing.T) {
 			if failed.Error.Message != "error msg" {
 				t.Fatalf("unexpected message: %q", failed.Error.Message)
 			}
+			if failed.Error.Details["provider_error_body"] == nil {
+				t.Fatalf("expected provider_error_body in details, got %#v", failed.Error.Details)
+			}
+			if failed.Error.Details["gemini_error_code"] != code {
+				t.Fatalf("unexpected gemini_error_code: %#v", failed.Error.Details["gemini_error_code"])
+			}
+			if failed.Error.Details["gemini_error_status"] != "UNAUTHENTICATED" {
+				t.Fatalf("unexpected gemini_error_status: %#v", failed.Error.Details["gemini_error_status"])
+			}
 		})
+	}
+}
+
+func TestGeminiErrorMessageAndDetails_FallbackIncludesRawBody(t *testing.T) {
+	body := []byte(`{"error":{"code":400,"status":"INVALID_ARGUMENT"}}`)
+	msg, details := geminiErrorMessageAndDetails(body, 400, false)
+	if msg == "Gemini request failed" {
+		t.Fatalf("expected fallback message to include body, got %q", msg)
+	}
+	if details["provider_error_body"] != string(body) {
+		t.Fatalf("expected provider_error_body to mirror body, got %#v", details["provider_error_body"])
+	}
+	if details["gemini_error_code"] != 400 {
+		t.Fatalf("unexpected gemini_error_code: %#v", details["gemini_error_code"])
+	}
+	if details["gemini_error_status"] != "INVALID_ARGUMENT" {
+		t.Fatalf("unexpected gemini_error_status: %#v", details["gemini_error_status"])
+	}
+}
+
+func TestGeminiErrorMessageAndDetails_InvalidJSONIncludesRawBody(t *testing.T) {
+	body := []byte(`not-json`)
+	msg, details := geminiErrorMessageAndDetails(body, 400, false)
+	if msg == "Gemini request failed" {
+		t.Fatalf("expected raw body in fallback message, got %q", msg)
+	}
+	if details["provider_error_body"] != string(body) {
+		t.Fatalf("expected provider_error_body to mirror body, got %#v", details["provider_error_body"])
 	}
 }
 

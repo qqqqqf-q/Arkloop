@@ -142,6 +142,56 @@ conversation-title: "Arkloop"
     expect(turns[0]?.assistantText).toBe('我看到了你们刚才的几条群消息。')
   })
 
+  it('prefers abstract input messages when provider payload omits messages', () => {
+    const turns = buildTurns([
+      makeEvent({
+        seq: 1,
+        type: 'llm.request',
+        data: {
+          llm_call_id: 'call_gemini_1',
+          provider_kind: 'gemini',
+          api_mode: 'generate_content',
+          input: {
+            model: 'gemini-2.0-flash',
+            messages: [
+              { role: 'system', content: '你是Arkloop' },
+              { role: 'user', content: '在吗' },
+            ],
+          },
+          payload: {
+            contents: [
+              { role: 'user', parts: [{ text: '在吗' }] },
+            ],
+          },
+        },
+      }),
+      makeEvent({
+        seq: 2,
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '在的',
+        },
+      }),
+      makeEvent({
+        seq: 3,
+        type: 'llm.turn.completed',
+        data: {
+          llm_call_id: 'call_gemini_1',
+          usage: { input_tokens: 10, output_tokens: 8 },
+        },
+      }),
+    ])
+
+    expect(turns).toHaveLength(1)
+    expect(turns[0]?.userInput).toBe('在吗')
+    expect(turns[0]?.systemPrompt).toBe('你是Arkloop')
+    expect(turns[0]?.requests[0]?.messages).toEqual([
+      { role: 'system', text: '你是Arkloop' },
+      { role: 'user', text: '在吗' },
+    ])
+  })
+
   it('keeps assistant preface, tool call, tool result and final output in one turn', () => {
     const turns = buildTurns([
       makeEvent({

@@ -202,6 +202,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		APIMode:              "chat_completions",
 		BaseURL:              &baseURL,
 		Path:                 &path,
+		InputJSON:            request.ToJSON(),
 		PayloadJSON:          debugPayload,
 		RedactedHints:        redactedHints,
 		SystemBytes:          stats.SystemBytes,

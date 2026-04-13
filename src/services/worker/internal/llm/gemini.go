@@ -137,6 +137,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 		APIMode:              "generate_content",
 		BaseURL:              &baseURL,
 		Path:                 &path,
+		InputJSON:            request.ToJSON(),
 		PayloadJSON:          debugPayload,
 		RedactedHints:        redactedHints,
 		SystemBytes:          stats.SystemBytes,
@@ -201,7 +202,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 				Truncated:    bodyTruncated || rawTruncated,
 			})
 		}
-		message, details := geminiErrorMessageAndDetails(body, status)
+		message, details := geminiErrorMessageAndDetails(body, status, bodyTruncated)
 		if status == http.StatusRequestEntityTooLarge {
 			details["network_attempted"] = true
 			details = OversizeFailureDetails(len(encoded), OversizePhaseProvider, details)
@@ -696,8 +697,8 @@ func toGeminiTools(specs []ToolSpec) []map[string]any {
 			name = spec.Name
 		}
 		decl := map[string]any{
-			"name":       name,
-			"parameters": mapOrEmpty(spec.JSONSchema),
+			"name":                 name,
+			"parametersJsonSchema": mapOrEmpty(spec.JSONSchema),
 		}
 		if spec.Description != nil {
 			decl["description"] = *spec.Description
@@ -709,15 +710,31 @@ func toGeminiTools(specs []ToolSpec) []map[string]any {
 	}
 }
 
-func geminiErrorMessageAndDetails(body []byte, status int) (string, map[string]any) {
+func geminiErrorMessageAndDetails(body []byte, status int, bodyTruncated bool) (string, map[string]any) {
 	details := map[string]any{"status_code": status}
+	if len(body) > 0 {
+		raw, truncated := truncateUTF8(string(body), geminiMaxErrorBodyBytes)
+		details["provider_error_body"] = raw
+		if bodyTruncated || truncated {
+			details["provider_error_body_truncated"] = true
+		}
+	}
+
+	fallback := "Gemini request failed"
+	if raw, ok := details["provider_error_body"].(string); ok && strings.TrimSpace(raw) != "" {
+		fallback = fmt.Sprintf("Gemini request failed: status=%d body=%q", status, raw)
+	}
+
 	var root map[string]any
 	if err := json.Unmarshal(body, &root); err != nil {
-		return "Gemini request failed", details
+		return fallback, details
 	}
 	errObj, ok := root["error"].(map[string]any)
 	if !ok {
-		return "Gemini request failed", details
+		if msg, ok := root["message"].(string); ok && strings.TrimSpace(msg) != "" {
+			return strings.TrimSpace(msg), details
+		}
+		return fallback, details
 	}
 	if code, ok := errObj["code"].(float64); ok {
 		details["gemini_error_code"] = int(code)
@@ -728,7 +745,7 @@ func geminiErrorMessageAndDetails(body []byte, status int) (string, map[string]a
 	if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
 		return strings.TrimSpace(msg), details
 	}
-	return "Gemini request failed", details
+	return fallback, details
 }
 
 type geminiGenerateContentResponse struct {
