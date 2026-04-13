@@ -1035,7 +1035,6 @@ export function ChatView() {
           }
         }
 
-        loadFromStorage(items.filter((msg) => msg.role === 'assistant').map((msg) => msg.id))
         const metaEntries = new Map<string, Partial<MessageMeta>>()
         const mergeMeta = (id: string, partial: Partial<MessageMeta>) => {
           const prev = metaEntries.get(id) ?? {}
@@ -1053,6 +1052,7 @@ export function ChatView() {
         searchStepsMap.forEach((searchSteps, id) => mergeMeta(id, { searchSteps }))
         assistantTurnMap.forEach((assistantTurn, id) => mergeMeta(id, { assistantTurn }))
         runEventsMap.forEach((runEvents, id) => mergeMeta(id, { runEvents }))
+        loadFromStorage(items.filter((msg) => msg.role === 'assistant').map((msg) => msg.id))
         setMetaBatch(Array.from(metaEntries.entries()))
         if (interruptedError) {
           setError(interruptedError)

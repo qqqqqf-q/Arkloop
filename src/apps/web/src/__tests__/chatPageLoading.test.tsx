@@ -32,6 +32,7 @@ import {
   readThreadThinkingEnabled,
   readThreadWorkFolder,
   writeMessageAssistantTurn,
+  writeMessageCodeExecutions,
   writeMessageTerminalStatus,
   writeMessageWidgets,
   readThreadRunHandoff,
@@ -506,6 +507,7 @@ describe('ChatPage loading state', () => {
   const mockedContinueThread = vi.mocked(continueThread)
   const mockedRetryThread = vi.mocked(retryThread)
   const mockedWriteMessageAssistantTurn = vi.mocked(writeMessageAssistantTurn)
+  const mockedWriteMessageCodeExecutions = vi.mocked(writeMessageCodeExecutions)
   const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
   const mockedReadMessageAssistantTurn = vi.mocked(readMessageAssistantTurn)
   const mockedReadMessageCodeExecutions = vi.mocked(readMessageCodeExecutions)
@@ -4114,6 +4116,187 @@ describe('ChatPage loading state', () => {
 
     const text = container.textContent ?? ''
     expect(text).toContain('Search completed')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('widgets、assistant turn、code exec 同时 miss 时也应仅靠 replay 恢复', async () => {
+    mockedListMessages.mockResolvedValueOnce([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-replay-rich',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-replay-rich',
+        status: 'completed',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-rich-1',
+        run_id: 'run-replay-rich',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '我先确认一下环境。',
+        },
+      },
+      {
+        event_id: 'evt-rich-2',
+        run_id: 'run-replay-rich',
+        seq: 2,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'show_widget',
+          tool_call_id: 'call-widget-rich',
+          arguments: {
+            title: '状态卡片',
+            widget_code: '<div>ready</div>',
+          },
+        },
+      },
+      {
+        event_id: 'evt-rich-3',
+        run_id: 'run-replay-rich',
+        seq: 3,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-exec-rich',
+          arguments: {
+            command: 'pwd',
+          },
+        },
+      },
+      {
+        event_id: 'evt-rich-4',
+        run_id: 'run-replay-rich',
+        seq: 4,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'exec_command',
+          tool_call_id: 'call-exec-rich',
+          result: {
+            status: 'exited',
+            stdout: '/workspace/demo',
+            exit_code: 0,
+          },
+        },
+      },
+      {
+        event_id: 'evt-rich-5',
+        run_id: 'run-replay-rich',
+        seq: 5,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          content_delta: '已经拿到结果。',
+        },
+      },
+      {
+        event_id: 'evt-rich-6',
+        run_id: 'run-replay-rich',
+        seq: 6,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.completed',
+        data: {},
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedListRunEvents).toHaveBeenCalledWith('token', 'run-replay-rich', { follow: false })
+    expect(mockedWriteMessageWidgets).toHaveBeenCalledWith('msg-2', [
+      {
+        id: 'call-widget-rich',
+        title: '状态卡片',
+        html: '<div>ready</div>',
+      },
+    ])
+    expect(mockedWriteMessageCodeExecutions).toHaveBeenCalledWith('msg-2', [
+      expect.objectContaining({
+        id: 'call-exec-rich',
+        code: 'pwd',
+        output: '/workspace/demo',
+        status: 'success',
+      }),
+    ])
+    expect(mockedWriteMessageAssistantTurn).toHaveBeenCalledWith(
+      'msg-2',
+      expect.objectContaining({
+        segments: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'text',
+          }),
+        ]),
+      }),
+    )
 
     act(() => {
       root.unmount()

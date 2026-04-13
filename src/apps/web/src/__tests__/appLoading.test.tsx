@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ToastProvider } from '@arkloop/shared'
 
 import App from '../App'
 import { LocaleProvider } from '../contexts/LocaleContext'
@@ -10,11 +11,13 @@ const {
   restoreAccessSession,
   setUnauthenticatedHandler,
   setAccessTokenHandler,
+  setSessionExpiredHandler,
   setClientApp,
 } = vi.hoisted(() => ({
   restoreAccessSession: vi.fn(),
   setUnauthenticatedHandler: vi.fn(),
   setAccessTokenHandler: vi.fn(),
+  setSessionExpiredHandler: vi.fn(),
   setClientApp: vi.fn(),
 }))
 
@@ -25,6 +28,7 @@ vi.mock('../api', async (importOriginal) => {
     restoreAccessSession,
     setUnauthenticatedHandler,
     setAccessTokenHandler,
+    setSessionExpiredHandler,
   }
 })
 
@@ -48,6 +52,7 @@ describe('App loading state', () => {
     restoreAccessSession.mockReset()
     setUnauthenticatedHandler.mockReset()
     setAccessTokenHandler.mockReset()
+    setSessionExpiredHandler.mockReset()
     setClientApp.mockReset()
     restoreAccessSession.mockReturnValue(new Promise(() => {}))
   })
@@ -71,9 +76,11 @@ describe('App loading state', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <MemoryRouter initialEntries={['/t/thread-1']}>
-            <App />
-          </MemoryRouter>
+          <ToastProvider>
+            <MemoryRouter initialEntries={['/t/thread-1']}>
+              <App />
+            </MemoryRouter>
+          </ToastProvider>
         </LocaleProvider>,
       )
     })
