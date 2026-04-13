@@ -58,28 +58,28 @@ jobs:
         include:
           - name: api
             path: src/services/api
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: bridge
             path: src/services/bridge
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: cli
             path: src/services/cli
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: desktop
             path: src/services/desktop
-            args: --timeout=10m --build-tags=desktop --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --build-tags=desktop --default=none --enable=errcheck,govet,staticcheck
           - name: gateway
             path: src/services/gateway
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: sandbox
             path: src/services/sandbox
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: shared
             path: src/services/shared
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: worker
             path: src/services/worker
-            args: --timeout=10m --disable-all --enable=errcheck --enable=govet --enable=staticcheck
+            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
 
     steps:
       - uses: actions/checkout@v4
