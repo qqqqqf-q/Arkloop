@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import http from 'http'
 import os from 'os'
 import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
@@ -61,6 +62,9 @@ const DESKTOP_EXPORT_BUNDLE_FILE_SET = new Set([
 
 const DESKTOP_GITHUB_REPO = 'qqqqqf-q/Arkloop'
 const DESKTOP_GITHUB_URL = `https://github.com/${DESKTOP_GITHUB_REPO}`
+const LONG_RUNNING_MEMORY_REQUEST_TIMEOUT_MS = 120_000
+
+const memoryRebuildInFlight = new Map<string, Promise<unknown>>()
 
 type DesktopBundleFile = 'config.json' | 'data.sqlite' | 'themes.json'
 
@@ -272,6 +276,24 @@ export function registerIpcHandlers(
     return resp
   })
 
+  ipcMain.handle('arkloop:memory:get-status', async (_event, agentId?: string) => {
+    const apiBaseUrl = getLocalApiBaseUrl()
+    const checkedAt = new Date().toISOString()
+    if (!apiBaseUrl) {
+      return { provider: 'notebook', configured: false, healthy: false, checked_at: checkedAt, error: 'sidecar not running' }
+    }
+    const token = getDesktopAccessToken()
+    const query = typeof agentId === 'string' && agentId.trim()
+      ? `?agent_id=${encodeURIComponent(agentId.trim())}`
+      : ''
+    const url = `${apiBaseUrl}/v1/desktop/memory/status${query}`
+    const resp = await makeApiRequest(url, 'GET', token)
+    if (resp && typeof resp === 'object') {
+      return resp
+    }
+    return { provider: 'notebook', configured: false, healthy: false, checked_at: checkedAt, error: 'invalid response' }
+  })
+
   ipcMain.handle('arkloop:memory:get-snapshot', async (_event, agentId?: string) => {
     const apiBaseUrl = getLocalApiBaseUrl()
     if (!apiBaseUrl) return { memory_block: '', hits: [] }
@@ -315,9 +337,18 @@ export function registerIpcHandlers(
     const query = typeof agentId === 'string' && agentId.trim()
       ? `?agent_id=${encodeURIComponent(agentId.trim())}`
       : ''
+    const inflightKey = `impression:${agentId?.trim() || 'default'}`
+    const existing = memoryRebuildInFlight.get(inflightKey)
+    if (existing) {
+      return existing
+    }
     const url = `${apiBaseUrl}/v1/desktop/memory/impression/rebuild${query}`
-    const resp = await makeApiRequest(url, 'POST', token)
-    return resp
+    const request = makeApiRequest(url, 'POST', token, undefined, LONG_RUNNING_MEMORY_REQUEST_TIMEOUT_MS)
+      .finally(() => {
+        memoryRebuildInFlight.delete(inflightKey)
+      })
+    memoryRebuildInFlight.set(inflightKey, request)
+    return request
   })
 
   ipcMain.handle('arkloop:memory:get-content', async (_event, uri: string, layer?: string) => {
@@ -488,13 +519,38 @@ function shouldAutoRebuildSemanticMemory(previous: MemoryConfig, next: MemoryCon
 }
 
 async function rebuildSemanticMemoryDerivedState(): Promise<void> {
-  const apiBaseUrl = getLocalApiBaseUrl()
+  const apiBaseUrl = await waitForLocalApiBaseUrlReady()
   if (!apiBaseUrl) {
     throw new Error('sidecar not running')
   }
   const token = getDesktopAccessToken()
   await makeApiRequest(`${apiBaseUrl}/v1/desktop/memory/snapshot/rebuild`, 'POST', token)
   await makeApiRequest(`${apiBaseUrl}/v1/desktop/memory/impression/rebuild`, 'POST', token)
+}
+
+function checkLocalApiHealth(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get(`http://127.0.0.1:${port}/healthz`, (res) => {
+      resolve(res.statusCode === 200)
+    })
+    req.on('error', () => resolve(false))
+    req.setTimeout(2000, () => {
+      req.destroy()
+      resolve(false)
+    })
+  })
+}
+
+async function waitForLocalApiBaseUrlReady(timeoutMs = 30_000): Promise<string | null> {
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < timeoutMs) {
+    const runtime = getSidecarRuntime()
+    if (runtime.status === 'running' && runtime.port && await checkLocalApiHealth(runtime.port)) {
+      return `http://127.0.0.1:${runtime.port}`
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  return getLocalApiBaseUrl()
 }
 
 type ToolProviderItem = {
@@ -691,8 +747,8 @@ async function requestToolProvider(pathname: string, method: string, body?: stri
   await makeApiRequestRaw(url, method, token, body)
 }
 
-async function makeApiRequest(url: string, method: string, token: string): Promise<unknown> {
-  const result = await makeApiRequestRaw(url, method, token)
+async function makeApiRequest(url: string, method: string, token: string, body?: string, timeoutMsOverride?: number): Promise<unknown> {
+  const result = await makeApiRequestRaw(url, method, token, body, timeoutMsOverride)
   if (!result.body) return { raw: '' }
   try {
     return JSON.parse(result.body)
@@ -701,9 +757,9 @@ async function makeApiRequest(url: string, method: string, token: string): Promi
   }
 }
 
-async function makeApiRequestRaw(url: string, method: string, token: string, body?: string): Promise<{ status: number; body: string }> {
+async function makeApiRequestRaw(url: string, method: string, token: string, body?: string, timeoutMsOverride?: number): Promise<{ status: number; body: string }> {
   const config = loadConfig()
-  const timeoutMs = config.network.requestTimeoutMs ?? 30000
+  const timeoutMs = timeoutMsOverride ?? config.network.requestTimeoutMs ?? 30000
   const maxAttempts = Math.max(1, (config.network.retryCount ?? 1) + 1)
   let attempt = 0
 

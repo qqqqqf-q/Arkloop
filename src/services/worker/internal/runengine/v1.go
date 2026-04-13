@@ -214,15 +214,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 			nowledgeProvider,
 			pgxExternalThreadLinks{repo: linkRepo, pool: deps.DBPool},
 		))
-		hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewNowledgeDistillObserver(
-			nowledgeProvider,
-			pgxExternalThreadLinks{repo: linkRepo, pool: deps.DBPool},
-			deps.ConfigResolver,
-			pipeline.NewPgxMemorySnapshotStore(deps.DBPool),
-			deps.DBPool,
-			pipeline.NewPgxImpressionStore(deps.DBPool),
-			newPgxImpressionRefresh(deps),
-		))
 	}
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
 		pipeline.NewPgxMemorySnapshotStore(deps.DBPool),

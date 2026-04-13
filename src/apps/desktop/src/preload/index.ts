@@ -84,6 +84,18 @@ export type SnapshotHit = {
   is_leaf: boolean
 }
 
+export type MemoryRuntimeStatus = {
+  provider: MemoryProvider
+  configured: boolean
+  healthy: boolean
+  checked_at: string
+  error?: string
+  details?: {
+    nowledge?: { version?: string; search_ok?: boolean }
+    openviking?: { health_ok?: boolean }
+  }
+}
+
 export type AppConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
@@ -294,6 +306,7 @@ export type ArkloopDesktopApi = {
     setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
     list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
     delete: (id: string, agentId?: string) => Promise<{ status: string }>
+    getStatus: (agentId?: string) => Promise<MemoryRuntimeStatus>
     getSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
     rebuildSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
     getContent: (uri: string, layer?: 'overview' | 'read') => Promise<{ content: string }>
@@ -469,6 +482,7 @@ const api: ArkloopDesktopApi = {
     setConfig: (config: MemoryConfig) => ipcRenderer.invoke('arkloop:memory:set-config', config),
     list: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:list', agentId),
     delete: (id: string, agentId?: string) => ipcRenderer.invoke('arkloop:memory:delete', id, agentId),
+    getStatus: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:get-status', agentId),
     getSnapshot: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:get-snapshot', agentId),
     rebuildSnapshot: (agentId?: string) => ipcRenderer.invoke('arkloop:memory:rebuild-snapshot', agentId),
     getContent: (uri: string, layer?: 'overview' | 'read') => ipcRenderer.invoke('arkloop:memory:get-content', uri, layer),

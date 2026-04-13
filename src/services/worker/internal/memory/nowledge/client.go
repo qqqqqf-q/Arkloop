@@ -61,6 +61,7 @@ type MemorySnippet struct {
 }
 
 type SearchResult struct {
+	Kind            string
 	ID              string
 	Title           string
 	Content         string
@@ -69,6 +70,9 @@ type SearchResult struct {
 	RelevanceReason string
 	Labels          []string
 	SourceThreadID  string
+	ThreadID        string
+	MatchedSnippet  string
+	Snippets        []string
 	RelatedThreads  []ThreadSearchResult
 }
 
@@ -508,11 +512,12 @@ func (c *Client) SearchRich(ctx context.Context, ident memory.MemoryIdentity, qu
 	if err := c.doJSON(ctx, ident, http.MethodGet, "/memories/search?"+values.Encode(), nil, &response); err != nil {
 		return nil, err
 	}
-	threadResults, err := c.searchThreadsResult(ctx, ident, query, min(limit, 3), "")
+	threadResults, err := c.searchThreadsResult(ctx, ident, query, limit, "")
 	if err != nil {
 		threadResults = nil
 	}
 	results := make([]SearchResult, 0, len(response.Memories))
+	memoryThreadIDs := make(map[string]struct{}, len(response.Memories))
 	for _, item := range response.Memories {
 		sourceThreadID := extractSourceThreadID(item.SourceThread, "", item.Metadata.SourceThreadID)
 		score := item.Score
@@ -527,6 +532,7 @@ func (c *Client) SearchRich(ctx context.Context, ident memory.MemoryIdentity, qu
 			labels = append(labels, item.LabelIDs...)
 		}
 		results = append(results, SearchResult{
+			Kind:            "memory",
 			ID:              strings.TrimSpace(item.ID),
 			Title:           strings.TrimSpace(item.Title),
 			Content:         strings.TrimSpace(item.Content),
@@ -536,6 +542,33 @@ func (c *Client) SearchRich(ctx context.Context, ident memory.MemoryIdentity, qu
 			Labels:          labels,
 			SourceThreadID:  sourceThreadID,
 			RelatedThreads:  append([]ThreadSearchResult(nil), threadResults...),
+		})
+		if sourceThreadID != "" {
+			memoryThreadIDs[sourceThreadID] = struct{}{}
+		}
+	}
+	for _, thread := range threadResults {
+		threadID := strings.TrimSpace(thread.ThreadID)
+		if threadID == "" {
+			continue
+		}
+		if _, duplicated := memoryThreadIDs[threadID]; duplicated {
+			continue
+		}
+		title := firstNonEmpty(thread.Title, thread.MatchedSnippet)
+		content := strings.TrimSpace(thread.MatchedSnippet)
+		if content == "" && len(thread.Snippets) > 0 {
+			content = strings.TrimSpace(thread.Snippets[0])
+		}
+		results = append(results, SearchResult{
+			Kind:           "thread",
+			ID:             threadID,
+			ThreadID:       threadID,
+			Title:          strings.TrimSpace(title),
+			Content:        content,
+			Score:          thread.Score,
+			MatchedSnippet: strings.TrimSpace(thread.MatchedSnippet),
+			Snippets:       append([]string(nil), thread.Snippets...),
 		})
 	}
 	return results, nil

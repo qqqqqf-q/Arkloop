@@ -61,6 +61,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	}
 	mux.HandleFunc("/v1/desktop/memory/entries", h.dispatchEntries)
 	mux.HandleFunc("/v1/desktop/memory/entries/", h.dispatchEntryByID)
+	mux.HandleFunc("/v1/desktop/memory/status", h.getStatus)
 	mux.HandleFunc("/v1/desktop/memory/snapshot", h.getSnapshot)
 	mux.HandleFunc("/v1/desktop/memory/snapshot/rebuild", h.rebuildSnapshotHandler)
 	mux.HandleFunc("/v1/desktop/memory/content", h.getContent)
@@ -76,6 +77,23 @@ type handler struct {
 	nowledgeBaseURL          string
 	nowledgeAPIKey           string
 	nowledgeRequestTimeoutMs int
+}
+
+type memoryRuntimeStatus struct {
+	Provider   string `json:"provider"`
+	Configured bool   `json:"configured"`
+	Healthy    bool   `json:"healthy"`
+	CheckedAt  string `json:"checked_at"`
+	Error      string `json:"error,omitempty"`
+	Details    struct {
+		Nowledge struct {
+			Version  string `json:"version,omitempty"`
+			SearchOK *bool  `json:"search_ok,omitempty"`
+		} `json:"nowledge,omitempty"`
+		OpenViking struct {
+			HealthOK *bool `json:"health_ok,omitempty"`
+		} `json:"openviking,omitempty"`
+	} `json:"details,omitempty"`
 }
 
 var impressionRebuildWaitTimeout = 90 * time.Second
@@ -141,6 +159,170 @@ func (h *handler) dispatchEntryByID(w nethttp.ResponseWriter, r *nethttp.Request
 	default:
 		httpkit.WriteError(w, nethttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", "", nil)
 	}
+}
+
+func (h *handler) getStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if !checkDesktopToken(w, r) {
+		return
+	}
+	if r.Method != nethttp.MethodGet {
+		httpkit.WriteError(w, nethttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", "", nil)
+		return
+	}
+
+	status := memoryRuntimeStatus{
+		Provider:   h.activeMemoryProvider(),
+		Configured: false,
+		Healthy:    false,
+		CheckedAt:  time.Now().UTC().Format(time.RFC3339),
+	}
+
+	ctx := r.Context()
+	agentID := agentIDFromQuery(r)
+
+	switch status.Provider {
+	case "nowledge":
+		cfg, err := h.resolveNowledgeConfig()
+		if err != nil {
+			status.Error = err.Error()
+			writeJSON(w, status)
+			return
+		}
+		status.Configured = strings.TrimSpace(cfg.baseURL) != ""
+		if !status.Configured {
+			status.Error = "nowledge not configured"
+			writeJSON(w, status)
+			return
+		}
+
+		version, healthErr := h.checkNowledgeHealth(ctx, agentID, cfg)
+		if strings.TrimSpace(version) != "" {
+			status.Details.Nowledge.Version = version
+		}
+
+		searchOK, searchErr := h.checkNowledgeSearch(ctx, agentID, cfg)
+		status.Details.Nowledge.SearchOK = boolPtr(searchOK)
+
+		status.Healthy = healthErr == nil && searchErr == nil
+		if !status.Healthy {
+			// Keep error concise; UI should map this to generic labels.
+			status.Error = firstNonEmpty(errString(healthErr), errString(searchErr))
+		}
+
+	case "openviking":
+		status.Configured = strings.TrimSpace(h.ovBaseURL) != ""
+		if !status.Configured {
+			status.Error = "openviking not configured"
+			writeJSON(w, status)
+			return
+		}
+		ok, err := h.checkOpenVikingHealth(ctx)
+		status.Details.OpenViking.HealthOK = boolPtr(ok)
+		status.Healthy = err == nil && ok
+		if !status.Healthy && err != nil {
+			status.Error = err.Error()
+		}
+
+	default:
+		// notebook mode is treated as healthy, but this endpoint is mainly for semantic memory health.
+		status.Configured = true
+		status.Healthy = true
+	}
+
+	writeJSON(w, status)
+}
+
+func (h *handler) checkOpenVikingHealth(ctx context.Context) (bool, error) {
+	base := strings.TrimRight(strings.TrimSpace(h.ovBaseURL), "/")
+	if base == "" {
+		return false, fmt.Errorf("openviking not configured")
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, base+"/health", nil)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(h.ovAPIKey) != "" {
+		req.Header.Set("X-API-Key", strings.TrimSpace(h.ovAPIKey))
+	}
+	client := &nethttp.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return false, fmt.Errorf("openviking %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	io.Copy(io.Discard, resp.Body)
+	return true, nil
+}
+
+func (h *handler) checkNowledgeHealth(ctx context.Context, agentID string, cfg nowledgeConfig) (string, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.baseURL), "/")
+	if base == "" {
+		return "", fmt.Errorf("nowledge base url is empty")
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, base+"/health", nil)
+	if err != nil {
+		return "", err
+	}
+	h.setNowledgeHeaders(req, agentID, cfg.apiKey)
+	client := &nethttp.Client{Timeout: cfg.requestTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+	if readErr != nil {
+		return "", readErr
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("nowledge %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var payload struct {
+		Version string `json:"version"`
+	}
+	if json.Unmarshal(body, &payload) == nil {
+		return strings.TrimSpace(payload.Version), nil
+	}
+	return "", nil
+}
+
+func (h *handler) checkNowledgeSearch(ctx context.Context, agentID string, cfg nowledgeConfig) (bool, error) {
+	base := strings.TrimRight(strings.TrimSpace(cfg.baseURL), "/")
+	if base == "" {
+		return false, fmt.Errorf("nowledge base url is empty")
+	}
+	values := url.Values{}
+	values.Set("query", "arkloop")
+	values.Set("limit", "1")
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, base+"/memories/search?"+values.Encode(), nil)
+	if err != nil {
+		return false, err
+	}
+	h.setNowledgeHeaders(req, agentID, cfg.apiKey)
+	client := &nethttp.Client{Timeout: cfg.requestTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
+	if resp.StatusCode >= 400 {
+		return false, fmt.Errorf("nowledge %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return true, nil
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (h *handler) getSnapshot(w nethttp.ResponseWriter, r *nethttp.Request) {

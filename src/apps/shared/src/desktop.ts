@@ -86,6 +86,18 @@ export type SnapshotHit = {
   is_leaf: boolean
 }
 
+export type MemoryRuntimeStatus = {
+  provider: MemoryProvider
+  configured: boolean
+  healthy: boolean
+  checked_at: string
+  error?: string
+  details?: {
+    nowledge?: { version?: string; search_ok?: boolean }
+    openviking?: { health_ok?: boolean }
+  }
+}
+
 export type DesktopConfig = {
   mode: ConnectionMode
   saas: { baseUrl: string }
@@ -179,6 +191,7 @@ export type ArkloopDesktopApi = {
     setConfig: (config: MemoryConfig) => Promise<{ ok: boolean }>
     list: (agentId?: string) => Promise<{ entries: MemoryEntry[] }>
     delete: (id: string, agentId?: string) => Promise<{ status: string }>
+    getStatus: (agentId?: string) => Promise<MemoryRuntimeStatus>
     getSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
     rebuildSnapshot: (agentId?: string) => Promise<{ memory_block: string; hits?: SnapshotHit[] }>
     getContent: (uri: string, layer?: 'overview' | 'read') => Promise<{ content: string }>

@@ -348,6 +348,7 @@ func TestMemoryExecutor_Search_EnrichesNowledgeResults(t *testing.T) {
 	mp := &richMockProvider{
 		richResults: []nowledge.SearchResult{
 			{
+				Kind:            "memory",
 				ID:              "mem-1",
 				Title:           "Deploy decision",
 				Content:         "Use SeaweedFS",
@@ -391,6 +392,53 @@ func TestMemoryExecutor_Search_EnrichesNowledgeResults(t *testing.T) {
 	}
 	if len(related) != 1 || related[0]["thread_id"] != "thread-1" {
 		t.Fatalf("unexpected related threads: %#v", hits[0]["related_threads"])
+	}
+	if hits[0]["kind"] != "memory" {
+		t.Fatalf("unexpected kind: %#v", hits[0])
+	}
+}
+
+func TestMemoryExecutor_Search_ReturnsUnifiedThreadHits(t *testing.T) {
+	mp := &richMockProvider{
+		richResults: []nowledge.SearchResult{
+			{
+				Kind:           "thread",
+				ID:             "thread-9",
+				ThreadID:       "thread-9",
+				Title:          "Architecture chat",
+				Content:        "统一 Memory 后端",
+				Score:          0.73,
+				MatchedSnippet: "统一 Memory 后端",
+				Snippets:       []string{"统一 Memory 后端", "修掉双 run"},
+			},
+		},
+	}
+	ex := NewToolExecutor(mp, nil, nil)
+	result := ex.Execute(context.Background(), "memory_search", map[string]any{"query": "memory"}, newUserExecCtx(), "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error.Message)
+	}
+	hits, _ := result.ResultJSON["hits"].([]map[string]any)
+	if len(hits) == 0 {
+		raw, _ := json.Marshal(result.ResultJSON["hits"])
+		var arr []map[string]any
+		_ = json.Unmarshal(raw, &arr)
+		hits = arr
+	}
+	if len(hits) != 1 {
+		t.Fatalf("unexpected hits: %#v", result.ResultJSON)
+	}
+	if hits[0]["kind"] != "thread" {
+		t.Fatalf("unexpected kind: %#v", hits[0])
+	}
+	if hits[0]["uri"] != "nowledge://thread/thread-9" {
+		t.Fatalf("unexpected thread uri: %#v", hits[0])
+	}
+	if hits[0]["thread_id"] != "thread-9" {
+		t.Fatalf("unexpected thread id: %#v", hits[0])
+	}
+	if hits[0]["matched_snippet"] != "统一 Memory 后端" {
+		t.Fatalf("unexpected matched snippet: %#v", hits[0])
 	}
 }
 
@@ -486,6 +534,24 @@ func TestMemoryExecutor_Read_NowledgeSnippetRange(t *testing.T) {
 	}
 	if result.ResultJSON["source_thread_id"] != "thread-1" {
 		t.Fatalf("unexpected provenance: %#v", result.ResultJSON)
+	}
+}
+
+func TestMemoryExecutor_Read_NowledgeThreadURI(t *testing.T) {
+	mp := &richMockProvider{}
+	ex := NewToolExecutor(mp, nil, nil)
+	result := ex.Execute(context.Background(), "memory_read", map[string]any{
+		"uri":   "nowledge://thread/thread-9",
+		"depth": "full",
+	}, newUserExecCtx(), "")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error.Message)
+	}
+	if result.ResultJSON["thread_id"] != "thread-9" {
+		t.Fatalf("unexpected thread id: %#v", result.ResultJSON)
+	}
+	if result.ResultJSON["source"] != "thread" {
+		t.Fatalf("unexpected source: %#v", result.ResultJSON)
 	}
 }
 

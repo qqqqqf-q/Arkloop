@@ -264,15 +264,40 @@ func (e *ToolExecutor) searchResults(ctx context.Context, ident memory.MemoryIde
 			if abstract == "" {
 				abstract = strings.TrimSpace(item.Content)
 			}
+			kind := strings.TrimSpace(item.Kind)
+			if kind == "" {
+				kind = "memory"
+			}
+			uri := "nowledge://memory/" + item.ID
+			if kind == "thread" {
+				threadID := strings.TrimSpace(item.ThreadID)
+				if threadID == "" {
+					threadID = strings.TrimSpace(item.ID)
+				}
+				if threadID != "" {
+					uri = "nowledge://thread/" + threadID
+				}
+			}
 			hit := map[string]any{
-				"uri":      "nowledge://memory/" + item.ID,
+				"uri":      uri,
 				"abstract": abstract,
+				"kind":     kind,
+				"score":    item.Score,
 			}
 			if strings.TrimSpace(item.RelevanceReason) != "" {
 				hit["matched_via"] = strings.TrimSpace(item.RelevanceReason)
 			}
 			if strings.TrimSpace(item.SourceThreadID) != "" {
 				hit["source_thread_id"] = strings.TrimSpace(item.SourceThreadID)
+			}
+			if strings.TrimSpace(item.ThreadID) != "" {
+				hit["thread_id"] = strings.TrimSpace(item.ThreadID)
+			}
+			if strings.TrimSpace(item.MatchedSnippet) != "" {
+				hit["matched_snippet"] = strings.TrimSpace(item.MatchedSnippet)
+			}
+			if len(item.Snippets) > 0 {
+				hit["snippets"] = append([]string(nil), item.Snippets...)
 			}
 			if item.Importance != 0 {
 				hit["importance"] = item.Importance
@@ -297,6 +322,14 @@ func (e *ToolExecutor) searchResults(ctx context.Context, ident memory.MemoryIde
 			}
 			hits = append(hits, hit)
 		}
+		sort.SliceStable(hits, func(i, j int) bool {
+			si, _ := hits[i]["score"].(float64)
+			sj, _ := hits[j]["score"].(float64)
+			return si > sj
+		})
+		if limit > 0 && len(hits) > limit {
+			hits = hits[:limit]
+		}
 		return hits, nil
 	}
 
@@ -309,6 +342,8 @@ func (e *ToolExecutor) searchResults(ctx context.Context, ident memory.MemoryIde
 		results = append(results, map[string]any{
 			"uri":      h.URI,
 			"abstract": h.Abstract,
+			"kind":     "memory",
+			"score":    h.Score,
 		})
 	}
 	return results, nil
@@ -390,6 +425,29 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 			}
 			return tools.ExecutionResult{ResultJSON: result, DurationMs: durationMs(started)}
 		}
+	}
+	if strings.HasPrefix(strings.TrimSpace(uri), "nowledge://thread/") {
+		threadProvider, ok := e.provider.(memory.MemoryThreadProvider)
+		if !ok {
+			return stateError("thread fetch is not available in this runtime", started)
+		}
+		threadID := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(uri), "nowledge://thread/"))
+		if threadID == "" {
+			return argError("uri must include a valid nowledge thread id", started)
+		}
+		data, err := threadProvider.FetchThread(ctx, ident, threadID, 0, 50)
+		if err != nil {
+			return providerError("read", err, started)
+		}
+		result := map[string]any{
+			"content":   renderThreadReadContentDesktop(data, depth),
+			"thread_id": threadID,
+			"source":    "thread",
+		}
+		if title, _ := data["title"].(string); strings.TrimSpace(title) != "" {
+			result["title"] = strings.TrimSpace(title)
+		}
+		return tools.ExecutionResult{ResultJSON: result, DurationMs: durationMs(started)}
 	}
 	if wantsSnippet {
 		return stateError("memory line slicing is not available in this runtime", started)
@@ -940,6 +998,58 @@ func parseLimit(args map[string]any, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+func renderThreadReadContentDesktop(data map[string]any, depth string) string {
+	title, _ := data["title"].(string)
+	source, _ := data["source"].(string)
+	messages, _ := data["messages"].([]map[string]any)
+	if len(messages) == 0 {
+		if rawMessages, ok := data["messages"].([]any); ok {
+			for _, item := range rawMessages {
+				if msg, ok := item.(map[string]any); ok {
+					messages = append(messages, msg)
+				}
+			}
+		}
+	}
+	var builder strings.Builder
+	if strings.TrimSpace(title) != "" {
+		builder.WriteString(strings.TrimSpace(title))
+		builder.WriteString("\n")
+	}
+	if strings.TrimSpace(source) != "" {
+		builder.WriteString("source: ")
+		builder.WriteString(strings.TrimSpace(source))
+		builder.WriteString("\n")
+	}
+	if builder.Len() > 0 {
+		builder.WriteString("\n")
+	}
+	limit := len(messages)
+	if strings.EqualFold(strings.TrimSpace(depth), "overview") && limit > 6 {
+		limit = 6
+	}
+	for index := 0; index < limit; index++ {
+		role, _ := messages[index]["role"].(string)
+		content, _ := messages[index]["content"].(string)
+		role = strings.TrimSpace(role)
+		content = strings.TrimSpace(content)
+		if role == "" && content == "" {
+			continue
+		}
+		if role == "" {
+			role = "message"
+		}
+		builder.WriteString(role)
+		builder.WriteString(": ")
+		builder.WriteString(content)
+		builder.WriteString("\n")
+	}
+	if strings.EqualFold(strings.TrimSpace(depth), "overview") && len(messages) > limit {
+		builder.WriteString("...")
+	}
+	return strings.TrimSpace(builder.String())
 }
 
 func buildWritableContent(scope memory.MemoryScope, category, key, content string) string {

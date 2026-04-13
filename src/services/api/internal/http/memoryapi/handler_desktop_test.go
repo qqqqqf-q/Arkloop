@@ -3,10 +3,17 @@
 package memoryapi
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"arkloop/services/api/internal/auth"
 )
 
 func TestBuildNowledgeSnapshotBlock(t *testing.T) {
@@ -70,5 +77,92 @@ func TestNowledgeMemoryIDFromURI(t *testing.T) {
 	}
 	if id != "mem-42" {
 		t.Fatalf("unexpected id: %q", id)
+	}
+}
+
+func TestCheckNowledgeSearchTreatsEndpointAvailabilityAsHealthy(t *testing.T) {
+	var sawAuth bool
+	var sawAgent bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/memories/search" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		sawAuth = r.Header.Get("Authorization") == "Bearer test-key"
+		sawAgent = strings.HasPrefix(r.Header.Get("X-Arkloop-Agent"), "user_")
+		_ = json.NewEncoder(w).Encode(map[string]any{"memories": []map[string]any{}})
+	}))
+	defer srv.Close()
+
+	h := &handler{}
+	ok, err := h.checkNowledgeSearch(context.Background(), "user_test", nowledgeConfig{
+		baseURL:        srv.URL,
+		apiKey:         "test-key",
+		requestTimeout: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("checkNowledgeSearch: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected search probe to report healthy")
+	}
+	if !sawAuth || !sawAgent {
+		t.Fatalf("expected nowledge headers, auth=%v agent=%v", sawAuth, sawAgent)
+	}
+}
+
+func TestGetStatusTreatsLocalNowledgeWithoutAPIKeyAsConfigured(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			_ = json.NewEncoder(w).Encode(map[string]any{"version": "1.2.3"})
+		case "/memories/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{"memories": []map[string]any{}})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	h := &handler{
+		memoryProvider:           "nowledge",
+		nowledgeBaseURL:          srv.URL,
+		nowledgeAPIKey:           "",
+		nowledgeRequestTimeoutMs: 1000,
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/desktop/memory/status", nil)
+	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	rr := httptest.NewRecorder()
+
+	h.getStatus(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var status memoryRuntimeStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if !status.Configured {
+		t.Fatalf("expected local nowledge without api key to be configured: %#v", status)
+	}
+}
+
+func TestCheckOpenVikingHealthSucceeds(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	h := &handler{ovBaseURL: srv.URL}
+	ok, err := h.checkOpenVikingHealth(context.Background())
+	if err != nil {
+		t.Fatalf("checkOpenVikingHealth: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected openviking health check to pass")
 	}
 }

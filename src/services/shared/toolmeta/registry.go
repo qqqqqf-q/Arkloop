@@ -266,7 +266,7 @@ var registry = []ToolMeta{
 		LLMDescription: "search auto-organized long-term memory for user preferences, past experiences, constraints, or prior interactions. " +
 			"Use for recommendations, comparisons, preference-driven questions, or open-ended problems where user context improves quality. " +
 			"Call at most once per query. Results may inform subsequent tool choices but rarely suffice alone. " +
-			"Each hit includes uri: pass that exact string to memory_read, memory_edit, or memory_forget. " +
+			"Each hit includes uri and kind. For kind=memory, pass that exact uri to memory_read, memory_edit, or memory_forget. For kind=thread, pass that exact uri to memory_read or use thread_id with memory_thread_fetch. " +
 			"This memory is auto-recalled and may not appear every turn. " +
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
 	},
@@ -330,7 +330,7 @@ var registry = []ToolMeta{
 		Label:     "Memory read",
 		ShortDesc: "read the full content of a memory entry by URI",
 		LLMDescription: "read the full content of an auto-organized memory entry by URI copied from a memory_search hit or from memory_write. " +
-			"For Nowledge, MEMORY.md is a valid alias for Working Memory. Results may include source_thread_id when the memory was distilled from a conversation. " +
+			"For Nowledge, MEMORY.md is a valid alias for Working Memory, and nowledge://thread/... is a valid thread URI from memory_search. Results may include source_thread_id when the memory was distilled from a conversation. " +
 			"For Nowledge, optional from and lines let you read an exact snippet range instead of the whole entry. " +
 			"These URIs belong to semantic memory recall, not Notebook. Never guess uri from category/key alone.",
 	},

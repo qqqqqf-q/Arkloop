@@ -32,6 +32,9 @@ func NewThreadPersistHookMiddleware() RunMiddleware {
 		if rc == nil || rc.HookRuntime == nil || !rc.ThreadPersistReady {
 			return err
 		}
+		if rc.ImpressionRun || isImpressionRun(rc) {
+			return err
+		}
 		delta := BuildThreadDelta(rc)
 		beforeHints := rc.HookRuntime.BeforeThreadPersist(ctx, rc, delta)
 		result := rc.HookRuntime.ExecuteThreadPersist(ctx, rc, delta, beforeHints)

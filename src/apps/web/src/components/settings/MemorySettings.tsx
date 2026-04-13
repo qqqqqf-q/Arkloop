@@ -20,6 +20,11 @@ import { PastedContentModal } from '../PastedContentModal'
 
 type HealthStatus = 'ok' | 'warning' | 'error' | 'checking'
 
+const memoryUiActionState = {
+  rebuildingSnapshot: false,
+  rebuildingImpression: false,
+}
+
 function statusDotColor(s: HealthStatus): string {
   switch (s) {
     case 'ok': return '#22c55e'
@@ -591,7 +596,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [snapshot, setSnapshot] = useState<string>('')
   const [hits, setHits] = useState<SnapshotHit[]>([])
   const [loading, setLoading] = useState(true)
-  const [rebuilding, setRebuilding] = useState(false)
+  const [rebuilding, setRebuilding] = useState(memoryUiActionState.rebuildingSnapshot)
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [configModalProvider, setConfigModalProvider] = useState<'openviking' | 'nowledge'>('openviking')
   const [viewTab, setViewTab] = useState<'openviking' | 'nowledge'>('openviking')
@@ -600,7 +605,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [memoryErrors, setMemoryErrors] = useState<MemoryErrorEvent[]>([])
   const [impression, setImpression] = useState('')
   const [impressionUpdatedAt, setImpressionUpdatedAt] = useState<string | undefined>()
-  const [rebuildingImpression, setRebuildingImpression] = useState(false)
+  const [rebuildingImpression, setRebuildingImpression] = useState(memoryUiActionState.rebuildingImpression)
   const [rebuildImpressionDone, setRebuildImpressionDone] = useState(false)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [impressionLoading, setImpressionLoading] = useState(false)
@@ -621,18 +626,31 @@ export function MemorySettings({ accessToken }: Props) {
       setHealthLabel(ds.memorySystemSimple)
       return
     }
-    const isConfigured = cfg?.provider === 'nowledge'
-      ? Boolean(cfg?.nowledge?.baseUrl)
-      : Boolean(cfg?.openviking?.vlmModel && cfg?.openviking?.embeddingModel)
-    if (!isConfigured) {
-      setHealth('error')
-      setHealthLabel(ds.memoryNotConfiguredHint)
-      return
-    }
-    if (cfg?.provider === 'nowledge') {
-      setHealth('ok')
-      setHealthLabel(ds.memoryConfigured)
-      return
+    // Prefer runtime status from the semantic memory API. UI config fields are not a health signal.
+    if (api?.memory?.getStatus) {
+      try {
+        const status = await api.memory.getStatus()
+        if (!status?.configured) {
+          setHealth('error')
+          setHealthLabel(ds.memoryNotConfiguredHint)
+          return
+        }
+        if (!status?.healthy) {
+          setHealth('error')
+          setHealthLabel(ds.memoryModuleError)
+          return
+        }
+        if (cfg.provider === 'nowledge') {
+          setHealth('ok')
+          setHealthLabel(ds.memoryConfigured)
+          return
+        }
+      } catch (err) {
+        console.error('memory getStatus failed', err)
+        setHealth('error')
+        setHealthLabel(ds.memoryModuleError)
+        return
+      }
     }
     try {
       const online = await checkBridgeAvailable()
@@ -659,6 +677,25 @@ export function MemorySettings({ accessToken }: Props) {
         return
       }
       if (ov.status === 'running') {
+        // Module can be running while the API is not reachable/healthy.
+        if (api?.memory?.getStatus) {
+          try {
+            const status = await api.memory.getStatus()
+            if (status?.healthy) {
+              setHealth('ok')
+              setHealthLabel(ds.memoryModuleRunning)
+              return
+            }
+            setHealth('error')
+            setHealthLabel(ds.memoryModuleError)
+            return
+          } catch (err) {
+            console.error('memory getStatus failed', err)
+            setHealth('error')
+            setHealthLabel(ds.memoryModuleError)
+            return
+          }
+        }
         setHealth('ok')
         setHealthLabel(ds.memoryModuleRunning)
         return
@@ -737,18 +774,21 @@ export function MemorySettings({ accessToken }: Props) {
 
   const rebuildSnapshot = useCallback(async () => {
     if (!api?.memory?.rebuildSnapshot) return
+    memoryUiActionState.rebuildingSnapshot = true
     setRebuilding(true)
     try {
       const snap = await api.memory.rebuildSnapshot()
       setSnapshot(snap.memory_block ?? '')
       setHits(snap.hits ?? [])
     } catch (err) { console.error('rebuildSnapshot failed', err) } finally {
+      memoryUiActionState.rebuildingSnapshot = false
       setRebuilding(false)
     }
   }, [api])
 
   const rebuildImpression = useCallback(async () => {
     if (!api?.memory?.rebuildImpression) return
+    memoryUiActionState.rebuildingImpression = true
     setRebuildingImpression(true)
     try {
       const resp = await api.memory.rebuildImpression()
@@ -762,6 +802,7 @@ export function MemorySettings({ accessToken }: Props) {
       setRebuildImpressionDone(true)
       setTimeout(() => setRebuildImpressionDone(false), 2000)
     } catch (err) { console.error('rebuildImpression failed', err) } finally {
+      memoryUiActionState.rebuildingImpression = false
       setRebuildingImpression(false)
     }
   }, [api])

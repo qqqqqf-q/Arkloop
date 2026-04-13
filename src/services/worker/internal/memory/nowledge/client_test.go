@@ -87,6 +87,53 @@ func TestClientSearchRich(t *testing.T) {
 	if len(results[0].RelatedThreads) != 1 || results[0].RelatedThreads[0].ThreadID != "thread-9" {
 		t.Fatalf("unexpected related threads: %#v", results[0].RelatedThreads)
 	}
+	if results[0].Kind != "memory" {
+		t.Fatalf("unexpected result kind: %#v", results[0])
+	}
+}
+
+func TestClientSearchRichFallsBackToThreadHits(t *testing.T) {
+	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/memories/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"memories": []map[string]any{},
+			})
+		case "/threads/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"threads": []map[string]any{
+					{
+						"thread_id":       "thread-42",
+						"title":           "Architecture chat",
+						"source":          "arkloop",
+						"message_count":   4,
+						"score":           0.73,
+						"matched_snippet": "统一 Memory 后端",
+						"snippets":        []string{"统一 Memory 后端", "修掉双 run"},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(Config{BaseURL: srv.URL, APIKey: "test-key"})
+	results, err := c.SearchRich(context.Background(), testIdent(), "memory", 3)
+	if err != nil {
+		t.Fatalf("SearchRich failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Kind != "thread" || results[0].ThreadID != "thread-42" {
+		t.Fatalf("unexpected thread fallback result: %#v", results[0])
+	}
+	if results[0].MatchedSnippet != "统一 Memory 后端" {
+		t.Fatalf("unexpected matched snippet: %#v", results[0])
+	}
 }
 
 func TestClientContentParsesNowledgeURI(t *testing.T) {

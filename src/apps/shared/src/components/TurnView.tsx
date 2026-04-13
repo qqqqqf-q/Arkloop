@@ -285,7 +285,7 @@ export function TurnView({ turn, index }: TurnViewProps) {
               if (segment.kind === 'tool_call') {
                 return (
                   <CollapseBlock
-                    key={segment.toolCallId || `tool-call-${segmentIndex}`}
+                    key={`tool-call-${segment.toolCallId || 'unknown'}-${segmentIndex}`}
                     label={`tool.call  ${segment.toolName}`}
                     preview={previewJSON(segment.argsJSON)}
                   >
@@ -296,7 +296,7 @@ export function TurnView({ turn, index }: TurnViewProps) {
 
               return (
                 <CollapseBlock
-                  key={segment.toolCallId || `tool-result-${segmentIndex}`}
+                  key={`tool-result-${segment.toolCallId || 'unknown'}-${segmentIndex}`}
                   label={segment.errorClass ? `tool.result  ${segment.toolName || 'error'}` : `tool.result  ${segment.toolName}`}
                   preview={segment.errorClass ?? previewJSON(segment.resultJSON)}
                   dim={!!segment.errorClass}

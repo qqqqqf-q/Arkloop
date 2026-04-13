@@ -127,13 +127,68 @@ func NewLegacyMemoryDistillObserver(
 
 func (o *legacyMemoryDistillObserver) HookProviderName() string { return "legacy_memory_distill" }
 
-func (o *legacyMemoryDistillObserver) AfterThreadPersist(_ context.Context, rc *RunContext, delta ThreadDelta, result ThreadPersistResult) (PersistObservers, error) {
+func (o *legacyMemoryDistillObserver) AfterThreadPersist(ctx context.Context, rc *RunContext, delta ThreadDelta, result ThreadPersistResult) (PersistObservers, error) {
 	if o == nil || rc == nil || rc.UserID == nil || rc.MemoryProvider == nil {
 		return nil, nil
 	}
-	if _, ok := rc.MemoryProvider.(*nowledge.Client); ok {
+	// Hand-triggered impression rebuild runs should not re-enter semantic distill/snapshot/impression-score
+	// lifecycles, otherwise a single click can cascade into multiple impression refresh runs.
+	if rc.ImpressionRun || isImpressionRun(rc) {
 		return nil, nil
 	}
+
+	// Nowledge semantics: thread persistence is handled by the HookRegistry provider; once committed,
+	// we can distill and refresh snapshots from here to avoid a split between hook vs legacy flows.
+	if typed, ok := rc.MemoryProvider.(*nowledge.Client); ok {
+		if !resolveDistillEnabled(ctx, o.configResolver) {
+			return nil, nil
+		}
+		if result.Err != nil || !result.Handled || !result.Committed {
+			return nil, nil
+		}
+
+		threadID := strings.TrimSpace(result.ExternalThreadID)
+		if threadID == "" {
+			return nil, nil
+		}
+		conversation := buildNowledgeConversation(delta)
+		if strings.TrimSpace(conversation) == "" {
+			return nil, nil
+		}
+		ident := memory.MemoryIdentity{
+			AccountID: delta.AccountID,
+			UserID:    delta.UserID,
+			AgentID:   delta.AgentID,
+		}
+		triage, err := typed.TriageConversation(ctx, ident, conversation)
+		if err != nil || !triage.ShouldDistill {
+			return nil, err
+		}
+		distill, err := typed.DistillThread(ctx, ident, threadID, buildNowledgeThreadTitle(delta), conversation)
+		if err != nil {
+			return nil, err
+		}
+		if distill.MemoriesCreated <= 0 {
+			return nil, nil
+		}
+		if o.impStore != nil {
+			addImpressionScore(ctx, o.impStore, ident, impressionScoreForRun(rc), o.configResolver, o.impRefresh)
+		}
+		scheduleSnapshotRefresh(
+			typed,
+			o.snap,
+			o.mdb,
+			rc.Run.ID,
+			rc.TraceID,
+			ident,
+			threadID,
+			buildNowledgeSnapshotQueries(delta),
+			"memory.distill",
+			"distill",
+		)
+		return nil, nil
+	}
+
 	ident := memory.MemoryIdentity{
 		AccountID: rc.Run.AccountID,
 		UserID:    *rc.UserID,

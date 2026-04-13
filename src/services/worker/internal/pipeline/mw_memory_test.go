@@ -784,6 +784,30 @@ func TestThreadPersistHookMiddleware_SkipsWhenThreadPersistNotReady(t *testing.T
 	}
 }
 
+func TestThreadPersistHookMiddleware_SkipsForImpressionRun(t *testing.T) {
+	provider := &threadProviderStub{
+		result: pipeline.ThreadPersistResult{Handled: true, Provider: "thread_provider"},
+	}
+	registry := pipeline.NewHookRegistry()
+	if err := registry.SetThreadPersistenceProvider(provider); err != nil {
+		t.Fatalf("set thread provider: %v", err)
+	}
+
+	rc := buildMemRC(userIDPtr(), "user prompt", "assistant output")
+	rc.InputJSON = map[string]any{"run_kind": "impression"}
+	rc.ImpressionRun = true
+	rc.HookRuntime = pipeline.NewHookRuntime(registry, pipeline.NewDefaultHookResultApplier())
+
+	mw := pipeline.NewThreadPersistHookMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if provider.called {
+		t.Fatal("expected thread provider to be skipped for impression runs")
+	}
+}
+
 func TestThreadPersistHookMiddleware_DistillStillRunsWhenThreadProviderFails(t *testing.T) {
 	mp := newMemMock()
 	provider := &threadProviderStub{

@@ -358,15 +358,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(typed))
 		hookRegistry.RegisterCompactionAdvisor(pipeline.NewNowledgeCompactionAdvisor(typed))
 		_ = hookRegistry.SetThreadPersistenceProvider(pipeline.NewNowledgeThreadPersistenceProvider(typed, linkStore))
-		hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewNowledgeDistillObserver(
-			typed,
-			linkStore,
-			promptInjection.Resolver,
-			pipeline.NewDesktopMemorySnapshotStore(db),
-			db,
-			desktopImpStore,
-			newDesktopImpressionRefresh(db, jobQueue),
-		))
 	}
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
 		pipeline.NewDesktopMemorySnapshotStore(db),
