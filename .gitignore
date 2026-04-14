@@ -64,3 +64,4 @@ src/services/desktop/desktop
 /sandbox
 release-files/
 ark
+.cache

@@ -706,9 +706,10 @@ export function Sidebar({
       <div
         className={[
           'mt-6 flex min-h-0 flex-1 flex-col overflow-y-auto px-2',
-          collapsed ? 'pointer-events-none opacity-0' : 'opacity-100',
+          collapsed ? 'opacity-0' : 'opacity-100',
         ].join(' ')}
         style={{ transition: 'opacity 150ms ease' }}
+        inert={collapsed || undefined}
       >
           <div className="mb-[12px] mt-1 flex shrink-0 items-center gap-2 px-2">
             <h3
