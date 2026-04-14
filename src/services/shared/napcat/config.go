@@ -18,16 +18,16 @@ type OneBotNetworkConfig struct {
 }
 
 type WSServerConfig struct {
-	Name                string `json:"name"`
-	Enable              bool   `json:"enable"`
-	Host                string `json:"host"`
-	Port                int    `json:"port"`
-	MessagePostFormat   string `json:"messagePostFormat"`
-	ReportSelfMessage   bool   `json:"reportSelfMessage"`
-	Token               string `json:"token"`
+	Name                 string `json:"name"`
+	Enable               bool   `json:"enable"`
+	Host                 string `json:"host"`
+	Port                 int    `json:"port"`
+	MessagePostFormat    string `json:"messagePostFormat"`
+	ReportSelfMessage    bool   `json:"reportSelfMessage"`
+	Token                string `json:"token"`
 	EnableForcePushEvent bool   `json:"enableForcePushEvent"`
-	Debug               bool   `json:"debug"`
-	HeartInterval       int    `json:"heartInterval"`
+	Debug                bool   `json:"debug"`
+	HeartInterval        int    `json:"heartInterval"`
 }
 
 type HTTPClientConfig struct {
@@ -71,16 +71,16 @@ func GenerateOneBotConfig(wsPort int, wsToken string, httpCallbackURL, httpCallb
 			HTTPSseServers: []json.RawMessage{},
 			HTTPClients:    []HTTPClientConfig{},
 			WebsocketServers: []WSServerConfig{{
-				Name:                "arkloop-ws",
-				Enable:              true,
-				Host:                "127.0.0.1",
-				Port:                wsPort,
-				MessagePostFormat:   "array",
-				ReportSelfMessage:   false,
-				Token:               wsToken,
+				Name:                 "arkloop-ws",
+				Enable:               true,
+				Host:                 "127.0.0.1",
+				Port:                 wsPort,
+				MessagePostFormat:    "array",
+				ReportSelfMessage:    false,
+				Token:                wsToken,
 				EnableForcePushEvent: true,
-				Debug:               false,
-				HeartInterval:       30000,
+				Debug:                false,
+				HeartInterval:        30000,
 			}},
 			WebsocketClients: []json.RawMessage{},
 			Plugins:          []json.RawMessage{},
@@ -132,17 +132,19 @@ func WriteOneBotConfig(configDir string, cfg OneBotFullConfig) error {
 	// 同步到所有已存在的 onebot11_{uin}.json
 	matches, _ := filepath.Glob(filepath.Join(configDir, "onebot11_*.json"))
 	for _, path := range matches {
-		os.WriteFile(path, data, 0644)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // NapCatWebUIConfig 是 NapCat WebUI 配置
 type NapCatWebUIConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Token    string `json:"token"`
-	LoginRate int   `json:"loginRate"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	Token     string `json:"token"`
+	LoginRate int    `json:"loginRate"`
 }
 
 // WriteWebUIConfig 写入 WebUI 配置

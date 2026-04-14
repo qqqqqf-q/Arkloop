@@ -1537,7 +1537,7 @@ func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testi
 	if err != nil {
 		t.Fatalf("begin sub-agent tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if _, err := (data.SubAgentRepository{}).Create(ctx, tx, data.SubAgentCreateParams{
 		AccountID:     accountID,
@@ -1673,7 +1673,7 @@ func TestDesktopRunCancelWatcherCancelsOnRequestedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	cancelRequested := events.NewEmitter("watch-trace").Emit("run.cancel_requested", map[string]any{"reason": "test"}, nil, nil)
 	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, cancelRequested); err != nil {
@@ -1838,7 +1838,7 @@ func TestDesktopEventWriterFinalizeCancelledIfRequested(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin check tx: %v", err)
 	}
-	defer checkTx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = checkTx.Rollback(ctx) }() //nolint:errcheck
 
 	eventType, err := (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, checkTx, runID, []string{"run.cancelled"})
 	if err != nil {
@@ -4112,7 +4112,7 @@ func appendDesktopRunInput(t *testing.T, ctx context.Context, db data.DesktopDB,
 	if err != nil {
 		t.Fatalf("begin input tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	ev := events.NewEmitter("desktop-input").Emit(pipeline.EventTypeInputProvided, map[string]any{"content": content}, nil, nil)
 	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, ev); err != nil {

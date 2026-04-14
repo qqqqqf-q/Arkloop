@@ -35,7 +35,7 @@ func TestRunEventsRepository_AppendRunEventPreservesOccurredAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	ev := events.NewEmitter("trace-occurred-at").Emit("llm.request", map[string]any{
 		"llm_call_id": "call-1",

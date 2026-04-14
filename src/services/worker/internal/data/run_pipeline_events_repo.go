@@ -30,7 +30,7 @@ func (r *RunPipelineEventsRepository) InsertBatch(ctx context.Context, records [
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	for _, record := range records {
 		payload, err := json.Marshal(runPipelineFieldsOrEmpty(record.FieldsJSON))
 		if err != nil {

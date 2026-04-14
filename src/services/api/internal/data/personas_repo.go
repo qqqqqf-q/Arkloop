@@ -967,7 +967,9 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	var persona Persona
 	err = scanPersona(tx.QueryRow(

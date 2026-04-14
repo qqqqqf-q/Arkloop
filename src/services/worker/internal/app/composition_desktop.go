@@ -837,7 +837,7 @@ func emitDesktopStageEvent(
 		slog.WarnContext(ctx, "desktop stage event tx begin failed", "event_type", eventType, "error", err)
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); err != nil {
 		slog.WarnContext(ctx, "desktop stage event append failed", "event_type", eventType, "error", err)
 		return
@@ -1086,7 +1086,7 @@ func fetchLatestDesktopInput(ctx context.Context, db data.DesktopDB, runID uuid.
 	if err != nil {
 		return "", 0, false
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	var rawJSON []byte
 	var seq int64
@@ -1803,7 +1803,7 @@ func recordDesktopChannelDeliveryFailure(db data.DesktopDB, runID uuid.UUID, err
 	if txErr != nil {
 		return
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer func() { _ = tx.Rollback(context.Background()) }() //nolint:errcheck
 
 	repo := data.DesktopRunEventsRepository{}
 	if _, appendErr := repo.AppendEvent(context.Background(), tx, runID, "run.channel_delivery_failed", map[string]any{
@@ -1835,7 +1835,7 @@ func recordDesktopChannelDelivery(
 	if txErr != nil {
 		return txErr
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	var runRef *uuid.UUID
 	if runID != uuid.Nil {
@@ -2573,7 +2573,7 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if err := w.runsRepo.LockRunRow(ctx, tx, runID); err != nil {
 		return err
@@ -2995,7 +2995,7 @@ func (w *desktopEventWriter) finalizeCancelledIfRequested(ctx context.Context) (
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if err := w.runsRepo.LockRunRow(ctx, tx, w.run.ID); err != nil {
 		return false, err
@@ -3220,7 +3220,7 @@ func (w *desktopEventWriter) batchInsertIntermediateMessages(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if len(w.intermediateMessages) == 0 {
 		return nil
@@ -3279,7 +3279,7 @@ func desktopWriteTerminalEvent(
 	if err != nil {
 		return fmt.Errorf("desktop write %s: begin tx: %w", eventType, err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, terminal); err != nil {
 		return err
@@ -3351,7 +3351,7 @@ func readDesktopCancelEvent(ctx context.Context, db data.DesktopDB, runID uuid.U
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 	return (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, []string{"run.cancel_requested", "run.cancelled"})
 }
 
@@ -3368,7 +3368,7 @@ func desktopInsertAssistantMessage(ctx context.Context, db data.DesktopDB, run d
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 	if _, err := (data.MessagesRepository{}).InsertAssistantMessageWithMetadata(ctx, tx, run.AccountID, run.ThreadID, run.ID, content, contentJSON, false, metadata); err != nil {
 		return err
 	}
@@ -3387,7 +3387,7 @@ func persistDesktopStreamChunkMessageWithMetadata(ctx context.Context, db data.D
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 	if _, err := (data.MessagesRepository{}).InsertAssistantMessageWithMetadata(
 		ctx, tx,
 		run.AccountID, run.ThreadID, run.ID,
@@ -3616,7 +3616,7 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	if err != nil {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	type credRaw struct {
 		id, provider, name, advancedStr, ownerKind string
@@ -3765,7 +3765,7 @@ func recoverOrphanRuns(ctx context.Context, db data.DesktopDB) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 	tag, err := tx.Exec(ctx,
 		`UPDATE runs SET status = 'interrupted', updated_at = datetime('now')
 		 WHERE status IN ('running', 'queued')`)

@@ -14,15 +14,25 @@ func TestDiscoverExternalSkills(t *testing.T) {
 
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "my-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# test skill"), 0o644)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# test skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	noSkillDir := filepath.Join(root, "not-a-skill")
-	os.MkdirAll(noSkillDir, 0o755)
+	if err := os.MkdirAll(noSkillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	hiddenDir := filepath.Join(root, ".hidden-skill")
-	os.MkdirAll(hiddenDir, 0o755)
-	os.WriteFile(filepath.Join(hiddenDir, "SKILL.md"), []byte("# hidden"), 0o644)
+	if err := os.MkdirAll(hiddenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hiddenDir, "SKILL.md"), []byte("# hidden"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	skills = DiscoverExternalSkills([]string{root})
 	if len(skills) != 1 {
@@ -39,8 +49,12 @@ func TestDiscoverExternalSkills(t *testing.T) {
 func TestDiscoverExternalSkillsDedup(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "dedup-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# test"), 0o644)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	skills := DiscoverExternalSkills([]string{root, root})
 	if len(skills) != 1 {
@@ -59,12 +73,18 @@ func TestDiscoverExternalSkillsSkipsRegularFiles(t *testing.T) {
 	root := t.TempDir()
 
 	// 在搜索根目录下放一个普通文件（非子目录），应被跳过
-	os.WriteFile(filepath.Join(root, "not-a-dir.txt"), []byte("hello"), 0o644)
+	if err := os.WriteFile(filepath.Join(root, "not-a-dir.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// 同时放一个合法 skill 目录作为对照
 	skillDir := filepath.Join(root, "real-skill")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# ok"), 0o644)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	skills := DiscoverExternalSkills([]string{root})
 	if len(skills) != 1 {

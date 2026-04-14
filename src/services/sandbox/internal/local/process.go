@@ -151,7 +151,7 @@ func (p *process) pumpOutput(r io.Reader, isStdout bool, wg *sync.WaitGroup) {
 			if isStdout {
 				p.stdout.Append(buf[:n])
 			} else {
-				p.stderr.Write(buf[:n])
+				_, _ = p.stderr.Write(buf[:n])
 			}
 			p.mu.Unlock()
 		}

@@ -293,7 +293,7 @@ func activateToolProvider(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	if err := toolProvidersRepo.WithTx(tx).Activate(r.Context(), ownerKind, ownerUserID, groupName, providerName); err != nil {
 		var pgErr *pgconn.PgError
@@ -463,7 +463,7 @@ func upsertToolProviderCredential(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	txProviders := toolProvidersRepo.WithTx(tx)
 
@@ -553,7 +553,7 @@ func clearToolProviderCredential(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	var delErr error
 	if ownerKind == "platform" {

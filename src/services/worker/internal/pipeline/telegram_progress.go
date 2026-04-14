@@ -218,13 +218,9 @@ func (t *TelegramProgressTracker) OnToolResult(ctx context.Context, toolCallID, 
 func (t *TelegramProgressTracker) Finalize(ctx context.Context) {
 	t.mu.Lock()
 	closed := t.closeCurrentLocked()
-	hasVisible := closed != nil || len(t.segments) > 0
 	t.mu.Unlock()
 	if closed != nil {
 		t.syncSegment(ctx, *closed, true)
-	}
-	if !hasVisible {
-		return
 	}
 }
 

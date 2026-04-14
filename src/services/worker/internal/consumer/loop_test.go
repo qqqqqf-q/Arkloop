@@ -263,7 +263,9 @@ func TestLeaseLostWaitsForHandlerBeforeUnlock(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		loop.RunOnce(context.Background())
+		if _, err := loop.RunOnce(context.Background()); err != nil {
+			t.Errorf("RunOnce: %v", err)
+		}
 		close(done)
 	}()
 
@@ -328,7 +330,9 @@ func TestHeartbeatFailureWaitsForHandlerBeforeNack(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		loop.RunOnce(context.Background())
+		if _, err := loop.RunOnce(context.Background()); err != nil {
+			t.Errorf("RunOnce: %v", err)
+		}
 		close(done)
 	}()
 

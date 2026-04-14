@@ -64,7 +64,7 @@ func TestReplaceDefaultSkillsAcrossBoundWorkspacesDesktop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	targets, err := replaceDefaultSkillsAcrossBoundWorkspaces(
 		ctx,

@@ -149,7 +149,7 @@ func RegisterNapCatRoutes(mux *nethttp.ServeMux, deps NapCatDeps) {
 		w.Header().Set("Content-Type", "image/png")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.WriteHeader(nethttp.StatusOK)
-		w.Write(data)
+		_, _ = w.Write(data)
 	}))
 
 	mux.HandleFunc("POST /v1/napcat/quick-login", napCatHandler(deps.AuthService, func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -189,5 +189,5 @@ func writeNapCatJSON(w nethttp.ResponseWriter, code int, v any) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(code)
-	w.Write(raw)
+	_, _ = w.Write(raw)
 }

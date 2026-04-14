@@ -208,7 +208,7 @@ func (s *RegistrationService) Register(
 	if err != nil {
 		return RegisterResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	credentialRepo, err := data.NewUserCredentialRepository(tx)
 	if err != nil {
@@ -640,7 +640,7 @@ func (s *RegistrationService) SetupBootstrapAdmin(ctx context.Context, token str
 	if err != nil {
 		return BootstrapSetupResult{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	settingsRepo, err := data.NewPlatformSettingsRepository(tx)
 	if err != nil {

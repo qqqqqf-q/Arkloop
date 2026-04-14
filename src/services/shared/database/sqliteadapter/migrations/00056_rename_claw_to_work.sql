@@ -23,7 +23,36 @@ CREATE TABLE threads_new (
     UNIQUE (id, account_id)
 );
 
-INSERT INTO threads_new SELECT * FROM threads;
+INSERT INTO threads_new (
+    id,
+    account_id,
+    created_by_user_id,
+    title,
+    project_id,
+    deleted_at,
+    is_private,
+    expires_at,
+    parent_thread_id,
+    branched_from_message_id,
+    title_locked,
+    mode,
+    created_at
+)
+SELECT
+    id,
+    account_id,
+    created_by_user_id,
+    title,
+    project_id,
+    deleted_at,
+    is_private,
+    expires_at,
+    parent_thread_id,
+    branched_from_message_id,
+    title_locked,
+    mode,
+    created_at
+FROM threads;
 DROP TABLE threads;
 ALTER TABLE threads_new RENAME TO threads;
 
@@ -61,7 +90,36 @@ CREATE TABLE threads_new (
     UNIQUE (id, account_id)
 );
 
-INSERT INTO threads_new SELECT * FROM threads;
+INSERT INTO threads_new (
+    id,
+    account_id,
+    created_by_user_id,
+    title,
+    project_id,
+    deleted_at,
+    is_private,
+    expires_at,
+    parent_thread_id,
+    branched_from_message_id,
+    title_locked,
+    mode,
+    created_at
+)
+SELECT
+    id,
+    account_id,
+    created_by_user_id,
+    title,
+    project_id,
+    deleted_at,
+    is_private,
+    expires_at,
+    parent_thread_id,
+    branched_from_message_id,
+    title_locked,
+    mode,
+    created_at
+FROM threads;
 DROP TABLE threads;
 ALTER TABLE threads_new RENAME TO threads;
 

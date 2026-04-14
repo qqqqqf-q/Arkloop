@@ -772,6 +772,7 @@ func threadEntry(
 				}
 				retry(w, r, threadID)
 			case "star":
+				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
 			case "continue":
 				if r.Method != nethttp.MethodPost {
 					httpkit.WriteMethodNotAllowed(w, r)
@@ -779,7 +780,6 @@ func threadEntry(
 				}
 				continueRun(w, r, threadID)
 				return
-				handleThreadStar(w, r, traceID, authService, membershipRepo, threadRepo, threadStarRepo, apiKeysRepo, auditWriter, threadID)
 			case "share":
 				share(w, r, threadID)
 			case "report":

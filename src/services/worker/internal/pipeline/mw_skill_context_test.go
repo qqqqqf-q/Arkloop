@@ -179,8 +179,12 @@ func TestSkillContextMiddlewareExternalSkillsEmptyDirsNoEffect(t *testing.T) {
 func TestSkillContextMiddlewareExternalSkills(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "test-external")
-	os.MkdirAll(skillDir, 0o755)
-	os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# External test skill"), 0o644)
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# External test skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	layout := skillstore.PathLayout{MountRoot: "/tmp/skills", IndexPath: "/tmp/index.json"}
 	mw := NewSkillContextMiddleware(SkillContextConfig{

@@ -62,7 +62,7 @@ func TestThreadContextReplacementsRepositoryContextSeqCompatibility(t *testing.T
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	upperBound := int64(15)
 	items, err := repo.ListActiveByThreadUpToContextSeq(ctx, readTx, accountID, threadID, &upperBound)
@@ -132,7 +132,7 @@ func TestThreadContextReplacementsRepositoryListByThreadSeqUsesThreadRange(t *te
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	upperBoundThreadSeq := int64(1)
 	items, err := repo.ListActiveByThreadUpToSeq(ctx, readTx, accountID, threadID, &upperBoundThreadSeq)
@@ -202,7 +202,7 @@ func TestThreadContextReplacementsRepositorySupersedeByContextSeq(t *testing.T) 
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	var supersededAt *string
 	if err := readTx.QueryRow(ctx, `SELECT superseded_at::text FROM thread_context_replacements WHERE id = $1`, a.ID).Scan(&supersededAt); err != nil {
@@ -260,7 +260,7 @@ func TestThreadContextReplacementsRepositoryListByThreadSeqUsesThreadBounds(t *t
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	upper := int64(1)
 	items, err := repo.ListActiveByThreadUpToSeq(ctx, readTx, accountID, threadID, &upper)

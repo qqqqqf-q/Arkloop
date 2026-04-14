@@ -85,7 +85,7 @@ func TestThreadContextChunksRepositoryInsertListAndRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	upper := int64(10)
 	items, err := repo.ListByThreadUpToContextSeq(ctx, readTx, accountID, threadID, &upper)
@@ -134,7 +134,7 @@ func TestThreadContextChunksRepositoryRejectsCrossThreadAtom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	atomsRepo := ThreadContextAtomsRepository{}
 	atom, err := atomsRepo.Insert(ctx, tx, ProtocolAtomInsertInput{

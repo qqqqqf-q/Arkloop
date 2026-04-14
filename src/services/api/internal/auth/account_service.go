@@ -50,7 +50,7 @@ func (s *AccountService) CreateWorkspace(ctx context.Context, slug, name string,
 	if err != nil {
 		return CreateWorkspaceResult{}, fmt.Errorf("account_service.CreateWorkspace: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	accountRepo, err := data.NewAccountRepository(tx)
 	if err != nil {

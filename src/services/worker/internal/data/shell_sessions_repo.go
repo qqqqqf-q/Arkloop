@@ -27,7 +27,7 @@ const (
 	ShellShareScopeRun       = "run"
 	ShellShareScopeThread    = "thread"
 	ShellShareScopeWorkspace = "workspace"
-	ShellShareScopeAccount       = "account"
+	ShellShareScopeAccount   = "account"
 )
 
 var ErrShellSessionLeaseConflict = errors.New("shell session writer lease conflict")
@@ -35,7 +35,7 @@ var ErrShellSessionLeaseConflict = errors.New("shell session writer lease confli
 type ShellSessionRecord struct {
 	SessionRef        string
 	SessionType       string
-	AccountID             uuid.UUID
+	AccountID         uuid.UUID
 	ProfileRef        string
 	WorkspaceRef      string
 	ProjectID         *uuid.UUID
@@ -233,7 +233,7 @@ func (ShellSessionsRepository) Upsert(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := clearCompetingDefaultBindingKeys(ctx, tx, normalized); err != nil {
 		return err
 	}

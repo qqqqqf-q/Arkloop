@@ -68,7 +68,7 @@ func (h *NativeRunEngineV1Handler) Handle(ctx context.Context, lease queue.JobLe
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	runsRepo := data.RunsRepository{}
 	eventsRepo := data.RunEventsRepository{}

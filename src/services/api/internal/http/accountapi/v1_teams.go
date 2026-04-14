@@ -294,7 +294,7 @@ func addTeamMember(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	// 行级锁：防止同一 team 的并发添加操作同时通过配额检查
 	if _, err := tx.Exec(r.Context(), `SELECT id FROM teams WHERE id = $1 FOR UPDATE`, teamID); err != nil {

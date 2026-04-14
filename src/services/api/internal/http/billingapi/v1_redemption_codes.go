@@ -139,7 +139,7 @@ func adminRedemptionCodesBatch(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		txRepo := redemptionRepo.WithTx(tx)
 		codes := make([]redemptionCodeResponse, 0, req.Count)
@@ -409,7 +409,7 @@ func meRedeem(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		defer tx.Rollback(ctx)
+		defer func() { _ = tx.Rollback(ctx) }()
 
 		txRedemption := redemptionRepo.WithTx(tx)
 

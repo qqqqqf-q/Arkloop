@@ -258,7 +258,7 @@ func blockRun(ctx context.Context, rc *RunContext, eventsRepo data.RunEventStore
 	if err != nil {
 		return fmt.Errorf("injection block tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, failedEvent); err != nil {
 		return fmt.Errorf("injection block append event: %w", err)
@@ -391,7 +391,7 @@ func emitRunEvent(ctx context.Context, rc *RunContext, eventsRepo data.RunEventS
 		slog.WarnContext(ctx, "injection scan event tx begin failed", "error", err)
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); err != nil {
 		slog.WarnContext(ctx, "injection scan event append failed", "error", err)
 		return
@@ -778,7 +778,7 @@ func cancelRunForSpeculativeInjectionBlock(
 	if err != nil {
 		return fmt.Errorf("speculative injection cancel tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	runsRepo := rc.RunStatusDB
 	if runsRepo == nil {

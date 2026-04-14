@@ -39,7 +39,7 @@ type patchMCPConfigRequest struct {
 
 type mcpConfigResponse struct {
 	ID               string   `json:"id"`
-	AccountID            string   `json:"account_id"`
+	AccountID        string   `json:"account_id"`
 	Name             string   `json:"name"`
 	Transport        string   `json:"transport"`
 	URL              *string  `json:"url,omitempty"`
@@ -194,7 +194,7 @@ func createMCPConfig(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	txMCP := mcpRepo.WithTx(tx)
 
@@ -337,7 +337,7 @@ func patchMCPConfig(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	txMCP := mcpRepo.WithTx(tx)
 
@@ -451,7 +451,7 @@ func toMCPConfigResponse(cfg data.MCPConfig) mcpConfigResponse {
 
 	return mcpConfigResponse{
 		ID:               cfg.ID.String(),
-		AccountID:            cfg.AccountID.String(),
+		AccountID:        cfg.AccountID.String(),
 		Name:             cfg.Name,
 		Transport:        cfg.Transport,
 		URL:              cfg.URL,

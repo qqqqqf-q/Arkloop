@@ -11,9 +11,9 @@ import (
 // MakeRunMeta 创建 RunMeta RolloutItem
 func MakeRunMeta(runCtx RunContext) rollout.RolloutItem {
 	payload := rollout.RunMeta{
-		RunID:       runCtx.RunID.String(),
-		AccountID:   runCtx.AccountID.String(),
-		CreatedAt:   time.Now().Format(time.RFC3339),
+		RunID:     runCtx.RunID.String(),
+		AccountID: runCtx.AccountID.String(),
+		CreatedAt: time.Now().Format(time.RFC3339),
 	}
 	data, _ := json.Marshal(payload)
 	return rollout.RolloutItem{
@@ -112,7 +112,7 @@ func appendRollout(ctx context.Context, recorder *rollout.Recorder, item rollout
 	if recorder == nil {
 		return
 	}
-	recorder.Append(ctx, item)
+	_ = recorder.Append(ctx, item)
 }
 
 // appendRolloutSync 安全地同步追加 rollout 条目，recorder 为 nil 时不操作
@@ -120,5 +120,5 @@ func appendRolloutSync(ctx context.Context, recorder *rollout.Recorder, item rol
 	if recorder == nil {
 		return
 	}
-	recorder.AppendSync(ctx, item)
+	_ = recorder.AppendSync(ctx, item)
 }

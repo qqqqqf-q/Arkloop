@@ -105,7 +105,7 @@ func profileDefaultSkillsEntry(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			defer tx.Rollback(r.Context())
+			defer func() { _ = tx.Rollback(r.Context()) }()
 			targetWorkspaceRefs, err := replaceDefaultSkillsAcrossBoundWorkspaces(r.Context(), tx, enableRepo, actor.AccountID, actor.UserID, profileRef, workspaceRef, items)
 			if err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)

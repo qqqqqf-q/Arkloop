@@ -54,7 +54,7 @@ func (s *SnapshotStorage) LoadByCurrentRun(ctx context.Context, db data.DB, runI
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	result, err := s.LoadByCurrentRunTx(ctx, tx, runID)
 	if err != nil {
 		return nil, err

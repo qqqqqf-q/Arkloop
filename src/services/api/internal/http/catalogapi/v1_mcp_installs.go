@@ -329,7 +329,7 @@ func createMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 	txInstalls := installsRepo.WithTx(tx)
 	if authSecretID != nil && secretsRepo != nil {
 		secret, err := upsertMCPAuthHeadersSecret(r.Context(), secretsRepo.WithTx(tx), actor.UserID, install.InstallKey, authSecretID)
@@ -393,7 +393,7 @@ func updateMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 	if patch.ClearAuthHeaders && secretsRepo != nil {
 		_ = deleteMCPAuthHeadersSecret(r.Context(), secretsRepo.WithTx(tx), actor.UserID, current.InstallKey)
 	}
@@ -786,7 +786,7 @@ func importMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 	txInstalls := installsRepo.WithTx(tx)
 	txSecrets := secretsRepo.WithTx(tx)
 	secretID, err := writeImportedMCPAuthSecret(r.Context(), txSecrets, actor.UserID, imported)

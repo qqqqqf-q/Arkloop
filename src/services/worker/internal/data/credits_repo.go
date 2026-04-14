@@ -26,7 +26,9 @@ type CreditsRepository struct{}
 // metadata 可选，非 nil 时写入 credit_transactions.metadata（计算明细）。
 func (CreditsRepository) DeductStandalone(
 	ctx context.Context,
-	pool interface{ Begin(context.Context) (pgx.Tx, error) },
+	pool interface {
+		Begin(context.Context) (pgx.Tx, error)
+	},
 	accountID uuid.UUID,
 	amount int64,
 	runID uuid.UUID,
@@ -43,7 +45,7 @@ func (CreditsRepository) DeductStandalone(
 	if err != nil {
 		return fmt.Errorf("credits.DeductStandalone: begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := deductBalance(ctx, tx, accountID, amount); err != nil {
 		return fmt.Errorf("credits.DeductStandalone: %w", err)

@@ -69,7 +69,7 @@ func TestSpawnGovernorDepthLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := governor.ValidateSpawn(context.Background(), tx, ownerThreadID, 2); err != nil {
 		t.Fatalf("depth=2 should pass: %v", err)
@@ -96,7 +96,7 @@ func TestSpawnGovernorActivePerThreadLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateSpawn(context.Background(), tx, threadID, 1)
 	if err == nil {
@@ -118,7 +118,7 @@ func TestSpawnGovernorParallelChildrenLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateSpawn(context.Background(), tx, threadID, 1)
 	if err == nil {
@@ -142,7 +142,7 @@ func TestSpawnGovernorDescendantsPerThreadLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateSpawn(context.Background(), tx, threadID, 1)
 	if err == nil {
@@ -166,7 +166,7 @@ func TestSpawnGovernorPendingInputLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidatePendingInput(context.Background(), tx, threadID)
 	if err == nil {
@@ -191,7 +191,7 @@ func TestSpawnGovernorZeroLimitMeansUnlimited(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := governor.ValidateSpawn(context.Background(), tx, threadID, 100); err != nil {
 		t.Fatalf("zero limits should allow anything: %v", err)
@@ -249,7 +249,7 @@ func TestBackpressureEvaluateBelowThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	result, err := governor.EvaluateBackpressure(context.Background(), tx, threadID)
 	if err != nil {
@@ -277,7 +277,7 @@ func TestBackpressureEvaluateAboveThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	result, err := governor.EvaluateBackpressure(context.Background(), tx, threadID)
 	if err != nil {
@@ -307,7 +307,7 @@ func TestBackpressureSpawnRejectStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateBackpressureForSpawn(context.Background(), tx, threadID)
 	if err == nil {
@@ -334,7 +334,7 @@ func TestBackpressureSpawnSerialStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := governor.ValidateBackpressureForSpawn(context.Background(), tx, threadID); err != nil {
 		t.Fatalf("serial strategy should allow spawn: %v", err)
@@ -357,7 +357,7 @@ func TestBackpressureSpawnPauseStrategy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := governor.ValidateBackpressureForSpawn(context.Background(), tx, threadID); err != nil {
 		t.Fatalf("pause strategy should allow spawn: %v", err)
@@ -380,7 +380,7 @@ func TestBackpressureSendInputRejectsNonInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateBackpressureForSendInput(context.Background(), tx, threadID, false)
 	if err == nil {
@@ -404,7 +404,7 @@ func TestBackpressureSendInputAllowsInterrupt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := governor.ValidateBackpressureForSendInput(context.Background(), tx, threadID, true); err != nil {
 		t.Fatalf("interrupt should be allowed under backpressure: %v", err)
@@ -427,7 +427,7 @@ func TestBackpressureResumeRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	err = governor.ValidateBackpressureForResume(context.Background(), tx, threadID)
 	if err == nil {
@@ -454,7 +454,7 @@ func TestBackpressureDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	result, err := governor.EvaluateBackpressure(context.Background(), tx, threadID)
 	if err != nil {
@@ -486,7 +486,7 @@ func TestBackpressureZeroThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	result, err := governor.EvaluateBackpressure(context.Background(), tx, threadID)
 	if err != nil {

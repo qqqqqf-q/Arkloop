@@ -75,7 +75,7 @@ func (p *SubAgentStateProjector) MarkRunning(ctx context.Context, runID uuid.UUI
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if err := (data.SubAgentRepository{}).TransitionToRunning(ctx, tx, runID); err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (p *SubAgentStateProjector) MarkRunFailed(ctx context.Context, childRunID u
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	subAgent, err := (data.SubAgentRepository{}).GetByCurrentRunID(ctx, tx, childRunID)
 	if err != nil {
 		return err
@@ -276,7 +276,7 @@ func (p *SubAgentStateProjector) enqueueCallbackRunIfIdle(ctx context.Context, c
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var threadCreatedByUserID *uuid.UUID
 	err = tx.QueryRow(ctx,
@@ -446,7 +446,7 @@ func (p *SubAgentStateProjector) markCallbackRunEnqueueFailed(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := (data.RunsRepository{}).LockRunRow(ctx, tx, runID); err != nil {
 		return err

@@ -43,7 +43,9 @@ func TestLocalEventBus_MultipleSubscribers(t *testing.T) {
 	sub2, _ := bus.Subscribe(context.Background(), "topic1")
 	defer sub2.Close()
 
-	bus.Publish(context.Background(), "topic1", "broadcast")
+	if err := bus.Publish(context.Background(), "topic1", "broadcast"); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, sub := range []Subscription{sub1, sub2} {
 		select {
@@ -66,7 +68,9 @@ func TestLocalEventBus_TopicIsolation(t *testing.T) {
 	sub2, _ := bus.Subscribe(context.Background(), "topicB")
 	defer sub2.Close()
 
-	bus.Publish(context.Background(), "topicA", "only-A")
+	if err := bus.Publish(context.Background(), "topicA", "only-A"); err != nil {
+		t.Fatal(err)
+	}
 
 	select {
 	case msg := <-sub1.Channel():
@@ -154,7 +158,9 @@ func TestLocalEventBus_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			bus.Publish(context.Background(), "concurrent", "msg")
+			if err := bus.Publish(context.Background(), "concurrent", "msg"); err != nil {
+				t.Errorf("publish: %v", err)
+			}
 		}()
 	}
 	wg.Wait()

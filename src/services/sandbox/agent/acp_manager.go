@@ -372,7 +372,7 @@ func (p *acpProcess) pumpOutput(r io.Reader, isStdout bool) {
 			if isStdout {
 				p.stdout.Append(buf[:n])
 			} else {
-				p.stderr.Write(buf[:n])
+				_, _ = p.stderr.Write(buf[:n])
 			}
 			p.mu.Unlock()
 		}

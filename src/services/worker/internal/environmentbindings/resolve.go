@@ -35,7 +35,7 @@ func ResolveAndPersistRun(ctx context.Context, pool data.DB, run data.Run) (data
 	if err != nil {
 		return run, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	sourceWorkspaceRef, err := loadProfileDefaultWorkspaceRefTx(ctx, tx, run.AccountID, profileRef)
 	if err != nil {

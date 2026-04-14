@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -93,6 +94,18 @@ func (s *fakeStore) Delete(_ context.Context, key string) error {
 	delete(s.objects, key)
 	delete(s.meta, key)
 	return nil
+}
+
+func (s *fakeStore) ListPrefix(_ context.Context, prefix string) ([]objectstore.ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]objectstore.ObjectInfo, 0)
+	for key, info := range s.meta {
+		if len(prefix) == 0 || strings.HasPrefix(key, prefix) {
+			items = append(items, info)
+		}
+	}
+	return items, nil
 }
 
 func TestNewSnapshotStoreOpensSnapshotBucket(t *testing.T) {

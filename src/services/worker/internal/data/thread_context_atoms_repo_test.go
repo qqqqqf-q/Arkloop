@@ -72,7 +72,7 @@ func TestThreadContextAtomsRepositoryInsertAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	upper := int64(1)
 	items, err := repo.ListByThreadUpToAtomSeq(ctx, readTx, accountID, threadID, &upper)

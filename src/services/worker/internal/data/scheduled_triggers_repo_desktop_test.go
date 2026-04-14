@@ -716,7 +716,7 @@ func TestScheduledTriggersRepositoryInsertHeartbeatRunInTxWritesRecoveryMetadata
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	result, err := (ScheduledTriggersRepository{}).InsertHeartbeatRunInTx(ctx, tx, ScheduledTriggerRow{
 		ID:                triggerID,

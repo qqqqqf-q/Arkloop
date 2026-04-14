@@ -144,7 +144,7 @@ func loadRunInputs(
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	_, dataJSON, err := eventsRepo.FirstEventData(ctx, tx, run.ID)
 	if err != nil {

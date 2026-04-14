@@ -615,7 +615,7 @@ func workspaceSkillsEntry(
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return
 			}
-			defer tx.Rollback(r.Context())
+			defer func() { _ = tx.Rollback(r.Context()) }()
 			if err := enableRepo.Replace(r.Context(), tx, actor.AccountID, workspaceRef, actor.UserID, items); err != nil {
 				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 				return

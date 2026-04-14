@@ -499,8 +499,12 @@ func runJSON(ctx context.Context, output io.Writer, client *apiclient.Client, th
 
 func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
 	enc := json.NewEncoder(output)
+	var eventEncodeErr error
 
 	onEvent := func(e sse.Event) {
+		if eventEncodeErr != nil {
+			return
+		}
 		line := map[string]any{
 			"type": e.Type,
 			"seq":  e.Seq,
@@ -511,10 +515,15 @@ func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Clie
 		for k, v := range e.Data {
 			line[k] = v
 		}
-		enc.Encode(line)
+		if err := enc.Encode(line); err != nil {
+			eventEncodeErr = err
+		}
 	}
 
 	result, err := runner.Execute(ctx, client, threadID, prompt, params, onEvent)
+	if eventEncodeErr != nil {
+		return fmt.Errorf("encode stream event: %w", eventEncodeErr)
+	}
 	if err != nil {
 		if encodeErr := enc.Encode(runErrorLine(err)); encodeErr != nil {
 			return fmt.Errorf("encode error result: %w", encodeErr)
@@ -537,7 +546,9 @@ func cmdStatus(ctx context.Context, args []string) error {
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
 	outputFormat := fs.String("output-format", formatter.OutputText, "output format: text, json")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if fs.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: ark status [flags]")
@@ -568,7 +579,9 @@ func cmdModelsList(ctx context.Context, args []string) error {
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
 	outputFormat := fs.String("output-format", formatter.OutputText, "output format: text, json")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if fs.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: ark models list [flags]")
@@ -592,7 +605,9 @@ func cmdPersonasList(ctx context.Context, args []string) error {
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
 	outputFormat := fs.String("output-format", formatter.OutputText, "output format: text, json")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if fs.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: ark personas list [flags]")
@@ -616,7 +631,9 @@ func cmdSessionsList(ctx context.Context, args []string) error {
 	host := fs.String("host", apiclient.DefaultBaseURL, "desktop API address")
 	token := fs.String("token", "", "bearer token")
 	outputFormat := fs.String("output-format", formatter.OutputText, "output format: text, json")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	if fs.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: ark sessions list [flags]")
@@ -657,7 +674,9 @@ func cmdSessionsResume(ctx context.Context, args []string) error {
 	persona := fs.String("persona", "", "persona_id")
 	model := fs.String("model", "", "model key")
 	workDir := fs.String("work-dir", "", "working directory")
-	fs.Parse(flagArgs)
+	if err := fs.Parse(flagArgs); err != nil {
+		return err
+	}
 
 	if len(positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: ark sessions resume [flags] <session-id>")
@@ -684,7 +703,9 @@ func cmdChat(ctx context.Context, args []string) error {
 	model := fs.String("model", "", "model key")
 	workDir := fs.String("work-dir", "", "working directory")
 	threadID := fs.String("thread", "", "continue from existing thread")
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	client := newClientFromFlags(*host, *token, fs)
 	params := apiclient.RunParams{

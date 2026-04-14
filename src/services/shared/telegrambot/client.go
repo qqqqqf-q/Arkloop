@@ -249,15 +249,23 @@ func (c *Client) sendMediaMultipart(ctx context.Context, token, method, fieldNam
 	}
 
 	// Add fields
-	writer.WriteField("chat_id", chatID)
+	if err := writer.WriteField("chat_id", chatID); err != nil {
+		return nil, fmt.Errorf("telegrambot: write chat_id: %w", err)
+	}
 	if caption != "" {
-		writer.WriteField("caption", caption)
+		if err := writer.WriteField("caption", caption); err != nil {
+			return nil, fmt.Errorf("telegrambot: write caption: %w", err)
+		}
 	}
 	if parseMode != "" {
-		writer.WriteField("parse_mode", parseMode)
+		if err := writer.WriteField("parse_mode", parseMode); err != nil {
+			return nil, fmt.Errorf("telegrambot: write parse_mode: %w", err)
+		}
 	}
 	if messageThreadID != "" {
-		writer.WriteField("message_thread_id", messageThreadID)
+		if err := writer.WriteField("message_thread_id", messageThreadID); err != nil {
+			return nil, fmt.Errorf("telegrambot: write message_thread_id: %w", err)
+		}
 	}
 
 	if err := writer.Close(); err != nil {

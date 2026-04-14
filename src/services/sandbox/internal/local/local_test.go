@@ -245,7 +245,7 @@ func TestAgentWriteAndRead(t *testing.T) {
 
 	// Stop the cat process to clean up.
 	sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_stop",
+		Action:  "acp_stop",
 		ACPStop: &acpStopPayload{ProcessID: pid, Force: true},
 	})
 }
@@ -271,7 +271,7 @@ func TestAgentStopProcess(t *testing.T) {
 
 	// Force-stop it.
 	stopResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_stop",
+		Action:  "acp_stop",
 		ACPStop: &acpStopPayload{ProcessID: pid, Force: true},
 	})
 	if stopResp.Error != "" {
@@ -283,7 +283,7 @@ func TestAgentStopProcess(t *testing.T) {
 
 	// Process should no longer be findable.
 	readResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_read",
+		Action:  "acp_read",
 		ACPRead: &acpReadPayload{ProcessID: pid},
 	})
 	if readResp.Error == "" {
@@ -370,7 +370,7 @@ func TestAgentWaitTimeout(t *testing.T) {
 
 	// Cleanup.
 	sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_stop",
+		Action:  "acp_stop",
 		ACPStop: &acpStopPayload{ProcessID: pid, Force: true},
 	})
 }
@@ -386,7 +386,7 @@ func TestAgentProcessNotFound(t *testing.T) {
 
 	// read
 	readResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_read",
+		Action:  "acp_read",
 		ACPRead: &acpReadPayload{ProcessID: bogusID},
 	})
 	if readResp.Error == "" {
@@ -398,7 +398,7 @@ func TestAgentProcessNotFound(t *testing.T) {
 
 	// write
 	writeResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_write",
+		Action:   "acp_write",
 		ACPWrite: &acpWritePayload{ProcessID: bogusID, Data: "x"},
 	})
 	if writeResp.Error == "" {
@@ -407,7 +407,7 @@ func TestAgentProcessNotFound(t *testing.T) {
 
 	// stop
 	stopResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_stop",
+		Action:  "acp_stop",
 		ACPStop: &acpStopPayload{ProcessID: bogusID},
 	})
 	if stopResp.Error == "" {
@@ -416,7 +416,7 @@ func TestAgentProcessNotFound(t *testing.T) {
 
 	// wait
 	waitResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_wait",
+		Action:  "acp_wait",
 		ACPWait: &acpWaitPayload{ProcessID: bogusID, TimeoutMs: 100},
 	})
 	if waitResp.Error == "" {
@@ -592,13 +592,13 @@ func TestAgentStopAlreadyExited(t *testing.T) {
 
 	// Wait for the process to exit.
 	sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_wait",
+		Action:  "acp_wait",
 		ACPWait: &acpWaitPayload{ProcessID: pid, TimeoutMs: 5000},
 	})
 
 	// Stop should report already_exited.
 	stopResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_stop",
+		Action:  "acp_stop",
 		ACPStop: &acpStopPayload{ProcessID: pid},
 	})
 	if stopResp.Error != "" {
@@ -629,13 +629,13 @@ func TestAgentReadExitedProcess(t *testing.T) {
 
 	// Wait for exit.
 	sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_wait",
+		Action:  "acp_wait",
 		ACPWait: &acpWaitPayload{ProcessID: pid, TimeoutMs: 5000},
 	})
 
 	// Read should reflect exited state and exit code.
 	readResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_read",
+		Action:  "acp_read",
 		ACPRead: &acpReadPayload{ProcessID: pid},
 	})
 	if readResp.Error != "" {
@@ -672,7 +672,7 @@ func TestAgentStartWithCwd(t *testing.T) {
 	pid := resp.ACPStart.ProcessID
 
 	waitResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_wait",
+		Action:  "acp_wait",
 		ACPWait: &acpWaitPayload{ProcessID: pid, TimeoutMs: 5000},
 	})
 	if waitResp.Error != "" {
@@ -705,7 +705,7 @@ func TestAgentStartWithEnv(t *testing.T) {
 	pid := resp.ACPStart.ProcessID
 
 	waitResp := sendACPRequest(t, agent.Addr(), agentRequest{
-		Action: "acp_wait",
+		Action:  "acp_wait",
 		ACPWait: &acpWaitPayload{ProcessID: pid, TimeoutMs: 5000},
 	})
 	if waitResp.Error != "" {
@@ -810,12 +810,12 @@ func TestLimitedBufferNegativeLimit(t *testing.T) {
 
 func TestLimitedBufferExactFit(t *testing.T) {
 	b := newLimitedBuffer(5)
-	b.Write([]byte("exact"))
+	_, _ = b.Write([]byte("exact"))
 	if s := b.String(); s != "exact" {
 		t.Errorf("String() = %q, want %q", s, "exact")
 	}
 	// Subsequent write should be discarded.
-	b.Write([]byte("x"))
+	_, _ = b.Write([]byte("x"))
 	if s := b.String(); s != "exact" {
 		t.Errorf("after extra write, String() = %q, want %q", s, "exact")
 	}

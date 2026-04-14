@@ -34,7 +34,7 @@ type updateAsrCredentialRequest struct {
 
 type asrCredentialResponse struct {
 	ID        string  `json:"id"`
-	AccountID     *string `json:"account_id"` // null for platform scope
+	AccountID *string `json:"account_id"` // null for platform scope
 	Scope     string  `json:"scope"`
 	Provider  string  `json:"provider"`
 	Name      string  `json:"name"`
@@ -191,7 +191,7 @@ func createAsrCredential(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer func() { _ = tx.Rollback(r.Context()) }()
 
 	txSecrets := secretsRepo.WithTx(tx)
 	txCreds := credRepo.WithTx(tx)
@@ -466,7 +466,7 @@ func toAsrCredentialResponse(c data.AsrCredential) asrCredentialResponse {
 	scope := c.OwnerKind
 	return asrCredentialResponse{
 		ID:        c.ID.String(),
-		AccountID:     accountID,
+		AccountID: accountID,
 		Scope:     scope,
 		Provider:  c.Provider,
 		Name:      c.Name,

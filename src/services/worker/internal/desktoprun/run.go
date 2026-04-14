@@ -189,7 +189,7 @@ func (h *desktopHandler) Handle(ctx context.Context, lease queue.JobLease) error
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	run, err := runsRepo.GetRun(ctx, tx, runID)
 	if err != nil {
@@ -305,7 +305,7 @@ func tryAutoLoopResumeDesktopRun(
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	runsRepo := data.DesktopRunsRepository{}
 	eventsRepo := data.DesktopRunEventsRepository{}
@@ -422,7 +422,7 @@ func markAutoResumeEnqueueFailure(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if err := updateInterruptedEventDetails(ctx, tx, runID, interruptedSeq, map[string]any{
 		"recovery_mode":  autoLoopResumeMode,

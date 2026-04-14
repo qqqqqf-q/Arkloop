@@ -606,7 +606,7 @@ func DesktopCreateHeartbeatRunWithContext(
 	if err != nil {
 		return HeartbeatRunResult{}, fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	result, err := ScheduledTriggersRepository{}.InsertHeartbeatRunInTx(ctx, tx, row, ctxData, model)
 	if err != nil {

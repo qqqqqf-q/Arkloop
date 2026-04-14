@@ -304,7 +304,7 @@ func createThreadRun(
 			writeInternalError(w, traceID, err)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		runRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {
@@ -784,7 +784,7 @@ func cancelRun(
 			writeInternalError(w, traceID, err)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		txRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {
@@ -900,7 +900,7 @@ func submitRunInput(
 			writeInternalError(w, traceID, err)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		txRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {

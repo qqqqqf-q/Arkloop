@@ -216,7 +216,7 @@ func TestACPV2Dispatch(t *testing.T) {
 
 	// 等待进程退出后清理
 	time.Sleep(200 * time.Millisecond)
-	acpManager.Stop(ACPStopRequest{ProcessID: resp.ACPStart.ProcessID, Force: true})
+	_, _ = acpManager.Stop(ACPStopRequest{ProcessID: resp.ACPStart.ProcessID, Force: true})
 }
 
 func TestACPV2Dispatch_MissingPayload(t *testing.T) {

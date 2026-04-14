@@ -11,16 +11,16 @@ import (
 
 // Config 日志配置
 type Config struct {
-	Component string      // 组件名：api, worker, gateway, bridge, sandbox
+	Component string     // 组件名：api, worker, gateway, bridge, sandbox
 	Level     slog.Level // 日志级别，默认 slog.LevelInfo
 	Output    io.Writer  // 输出目标，默认 os.Stderr
-	Async     bool        // 是否异步写
-	BufSize   int         // 异步缓冲大小，默认 4096
+	Async     bool       // 是否异步写
+	BufSize   int        // 异步缓冲大小，默认 4096
 }
 
 var (
 	defaultLevel = slog.LevelWarn
-	logMode     = "pretty"
+	logMode      = "pretty"
 )
 
 func init() {
@@ -73,7 +73,7 @@ func New(cfg Config) *slog.Logger {
 		w := cfg.Output
 		go func() {
 			for b := range ch {
-				w.Write(b)
+				_, _ = w.Write(b)
 			}
 		}()
 		return slog.New(&asyncHandler{handler: handler, ch: ch})
@@ -98,8 +98,7 @@ type asyncHandler struct {
 }
 
 func (h *asyncHandler) Handle(ctx context.Context, r slog.Record) error {
-	h.handler.Handle(ctx, r)
-	return nil
+	return h.handler.Handle(ctx, r)
 }
 
 func (h *asyncHandler) Enabled(ctx context.Context, level slog.Level) bool {

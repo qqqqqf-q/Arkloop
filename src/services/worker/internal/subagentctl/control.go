@@ -116,7 +116,7 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	ownerThreadID := s.parentRun.ThreadID
 	depth := 1
 	if parentSubAgent, err := (data.SubAgentRepository{}).GetByCurrentRunID(ctx, tx, s.parentRun.ID); err != nil {
@@ -184,7 +184,7 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, req.SubAgentID)
 	if err != nil {
@@ -444,7 +444,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, req.SubAgentID)
 	if err != nil {
@@ -506,7 +506,7 @@ func (s *Service) Close(ctx context.Context, req CloseRequest) (StatusSnapshot, 
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, req.SubAgentID)
 	if err != nil {
@@ -535,7 +535,7 @@ func (s *Service) Interrupt(ctx context.Context, req InterruptRequest) (StatusSn
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, req.SubAgentID)
 	if err != nil {
@@ -572,7 +572,7 @@ func (s *Service) GetStatus(ctx context.Context, subAgentID uuid.UUID) (StatusSn
 	if err != nil {
 		return StatusSnapshot{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, subAgentID)
 	if err != nil {
@@ -598,7 +598,7 @@ func (s *Service) ListChildren(ctx context.Context) ([]StatusSnapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	out := make([]StatusSnapshot, 0, len(records))
 	for _, record := range records {
@@ -646,7 +646,7 @@ func (s *Service) appendLifecycleEvent(ctx context.Context, subAgentID uuid.UUID
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	record, err := s.mustLoadOwnedSubAgent(ctx, tx, subAgentID)
 	if err != nil {
 		return err

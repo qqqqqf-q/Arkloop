@@ -994,7 +994,7 @@ func (c *Client) doJSON(ctx context.Context, ident memory.MemoryIdentity, method
 		return fmt.Errorf("nowledge %s %s: status=%d body=%s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if out == nil {
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {

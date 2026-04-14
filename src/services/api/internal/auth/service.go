@@ -342,8 +342,6 @@ func (s *Service) resolveTokensInvalidBefore(ctx context.Context, userID uuid.UU
 			if parseErr == nil {
 				return time.UnixMicro(micros).UTC(), nil
 			}
-		} else if !errors.Is(err, redis.Nil) {
-			// Redis 错误时 fail-open：回源 Postgres（由 DB 决定最终一致性）
 		}
 	}
 

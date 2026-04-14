@@ -419,7 +419,7 @@ func writeThreadTitleAndEventOnce(
 		)
 		return 0, false, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err = tx.Exec(ctx, `SELECT 1 FROM runs WHERE id = $1 FOR UPDATE`, runID); err != nil {
 		logTitleSummarizerDebug(ctx, "thread_title_write_err",

@@ -593,7 +593,7 @@ func (m *Manager) Stop() error {
 		m.cancel = nil
 	}
 	if m.cmd != nil && m.cmd.Process != nil {
-		m.cmd.Process.Kill()
+		_ = m.cmd.Process.Kill()
 		m.cmd = nil
 	}
 	m.removePID()
@@ -1012,7 +1012,9 @@ func unzip(src, dest string) error {
 			return fmt.Errorf("invalid zip path: %s", f.Name)
 		}
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(fpath, 0755)
+			if err := os.MkdirAll(fpath, 0o755); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(fpath), 0755); err != nil {
@@ -1044,6 +1046,6 @@ func sha256Hex(s string) string {
 
 func randomHex(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

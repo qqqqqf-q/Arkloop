@@ -62,7 +62,7 @@ func TestCreateChildThreadDesktop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	factory := &SubAgentRunFactory{}
 	parentRun := data.Run{

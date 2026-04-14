@@ -215,7 +215,9 @@ func (s *Service) CreateProvider(ctx context.Context, accountID uuid.UUID, scope
 	if err != nil {
 		return Provider{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	providerID := uuid.New()
 	secretName := providerSecretName(providerID)
@@ -285,7 +287,9 @@ func (s *Service) UpdateProvider(ctx context.Context, accountID, providerID uuid
 	if err != nil {
 		return Provider{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	if input.APIKey != nil {
 		trimmedKey := strings.TrimSpace(*input.APIKey)
@@ -326,7 +330,9 @@ func (s *Service) DeleteProvider(ctx context.Context, accountID, providerID uuid
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	if err := s.credentials.WithTx(tx).Delete(ctx, ownerKind, ownerUserID, providerID); err != nil {
 		return err
@@ -375,7 +381,9 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 	if err != nil {
 		return data.LlmRoute{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	txRoutes := s.routes.WithTx(tx)
 	routeAccountID := accountID
@@ -502,7 +510,9 @@ func (s *Service) UpdateModel(ctx context.Context, accountID, providerID, modelI
 	if err != nil {
 		return data.LlmRoute{}, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
 	txRoutes := s.routes.WithTx(tx)
 	if input.IsDefaultSet && *input.IsDefault && !current.IsDefault {
@@ -572,7 +582,7 @@ func (s *Service) DeleteModel(ctx context.Context, accountID, providerID, modelI
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	txRoutes := s.routes.WithTx(tx)
 	if err := txRoutes.DeleteByID(ctx, accountID, modelID, scope); err != nil {

@@ -214,7 +214,9 @@ type beforeThreadPersistHookStub struct {
 func (s *beforeThreadPersistHookStub) HookProviderName() string { return "before_thread" }
 func (s *beforeThreadPersistHookStub) BeforeThreadPersist(context.Context, *pipeline.RunContext, pipeline.ThreadDelta) (pipeline.ThreadPersistHints, error) {
 	s.called = true
-	return pipeline.ThreadPersistHints{{Key: "provider", Value: "external", Priority: 1}}, nil
+	return pipeline.ThreadPersistHints{
+		pipeline.ThreadPersistHint{Key: "provider", Value: "external", Priority: 1},
+	}, nil
 }
 
 type threadProviderStub struct {

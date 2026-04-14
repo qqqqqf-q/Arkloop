@@ -274,7 +274,7 @@ func autoResumeRecoveredDesktopRun(
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	runsRepo := data.DesktopRunsRepository{}
 	currentRun, err := runsRepo.GetRun(ctx, tx, snapshot.RunID)
@@ -343,7 +343,7 @@ func buildDesktopRecoveryPayload(ctx context.Context, db data.DesktopDB, runID u
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	_, startedData, err := (data.DesktopRunEventsRepository{}).FirstEventData(ctx, tx, runID)
 	if err != nil {
@@ -470,7 +470,7 @@ func syncRunStatusFromTerminalEvent(ctx context.Context, db data.DesktopDB, runI
 	if err != nil {
 		return fmt.Errorf("begin desktop terminal sync tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE runs
@@ -510,7 +510,7 @@ func forceFailDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.UUID
 	if err != nil {
 		return false, fmt.Errorf("begin desktop force-fail tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE runs
@@ -552,7 +552,7 @@ func requestCancelDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.
 	if err != nil {
 		return false, fmt.Errorf("begin desktop cancel tx: %w", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	var status string
 	err = tx.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status)

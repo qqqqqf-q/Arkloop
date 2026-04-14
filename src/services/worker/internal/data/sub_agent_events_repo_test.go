@@ -27,7 +27,7 @@ func TestSubAgentEventsRepository_AppendAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{

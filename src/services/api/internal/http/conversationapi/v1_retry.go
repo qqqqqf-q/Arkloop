@@ -126,7 +126,7 @@ func editThreadMessage(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		txMessageRepo, err := data.NewMessageRepository(tx)
 		if err != nil {
@@ -273,7 +273,7 @@ func retryThread(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		txMessageRepo, err := data.NewMessageRepository(tx)
 		if err != nil {
@@ -416,7 +416,7 @@ func continueThread(
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		defer tx.Rollback(r.Context())
+		defer func() { _ = tx.Rollback(r.Context()) }()
 
 		runRepo, err := data.NewRunEventRepository(tx)
 		if err != nil {

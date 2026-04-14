@@ -36,7 +36,7 @@ func fakeACPAgent(responses map[string]agentResponse) func(net.Conn) {
 			resp = agentResponse{Action: req.Action, Error: "unknown action"}
 		}
 		resp.Action = req.Action
-		json.NewEncoder(conn).Encode(resp)
+		_ = json.NewEncoder(conn).Encode(resp)
 	}
 }
 
@@ -313,7 +313,7 @@ func TestManager_Close(t *testing.T) {
 		if req.Action == "acp_stop" {
 			stopCalled <- struct{}{}
 		}
-		json.NewEncoder(conn).Encode(agentResponse{
+		_ = json.NewEncoder(conn).Encode(agentResponse{
 			Action:  req.Action,
 			ACPStop: &acpStopResult{Status: "stopped"},
 		})
@@ -502,9 +502,9 @@ func TestManager_InvokeACPAction_InvalidJSON(t *testing.T) {
 		defer conn.Close()
 		// read the JSON request so the writer unblocks
 		var req agentRequest
-		json.NewDecoder(conn).Decode(&req)
+		_ = json.NewDecoder(conn).Decode(&req)
 		// write garbage instead of valid JSON
-		conn.Write([]byte("not json"))
+		_, _ = conn.Write([]byte("not json"))
 	}
 	m.sessions["s1"] = &managedACPSession{
 		compute:   newFakeSession(handler),

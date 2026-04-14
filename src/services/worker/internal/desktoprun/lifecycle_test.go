@@ -495,7 +495,7 @@ func appendLifecycleEvent(t *testing.T, ctx context.Context, db data.DesktopDB, 
 	if err != nil {
 		t.Fatalf("begin lifecycle event tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, ev); err != nil {
 		t.Fatalf("append lifecycle event: %v", err)

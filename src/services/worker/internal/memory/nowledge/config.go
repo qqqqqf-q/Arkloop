@@ -2,7 +2,6 @@ package nowledge
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -78,8 +77,6 @@ func ResolveDesktopConfig(explicit Config) Config {
 		if strings.TrimSpace(resolved.APIKey) == "" {
 			resolved.APIKey = localCfg.APIKey
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		// Ignore invalid local config here; desktop caller decides whether to log.
 	}
 	if strings.TrimSpace(resolved.BaseURL) == "" {
 		resolved.BaseURL = defaultLocalBaseURL

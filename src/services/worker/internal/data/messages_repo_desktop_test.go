@@ -54,7 +54,7 @@ func TestMessagesRepository_ListByThreadDesktop_joinsOutputTokens(t *testing.T) 
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer readTx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = readTx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := repo.ListByThread(ctx, readTx, accountID, threadID, 50)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestMessagesRepository_DesktopWritesHighPrecisionCreatedAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer readTx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = readTx.Rollback(ctx) }() //nolint:errcheck
 
 	rows, err := readTx.Query(ctx, `
 		SELECT id, created_at
@@ -207,7 +207,7 @@ func TestMessagesRepository_DesktopSortsMixedOldAndNewTimestampFormats(t *testin
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer readTx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = readTx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := repo.ListByThread(ctx, readTx, accountID, threadID, 50)
 	if err != nil {
@@ -256,7 +256,7 @@ func TestMessagesRepository_ListByThreadDesktopIncludesBooleanIntermediateHistor
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := (MessagesRepository{}).ListByThread(ctx, tx, accountID, threadID, 50)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestMessagesRepository_ListByThreadDesktopSkipsRolledBackIntermediateHistor
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := (MessagesRepository{}).ListByThread(ctx, tx, accountID, threadID, 50)
 	if err != nil {
@@ -347,7 +347,7 @@ func TestMessagesRepository_ListRawByThreadDesktopIncludesHiddenAndCompacted(t *
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := (MessagesRepository{}).ListRawByThread(ctx, tx, accountID, threadID, 50)
 	if err != nil {
@@ -388,7 +388,7 @@ func TestMessagesRepository_ListByThreadDesktopWithoutLimitLoadsFullVisibleHisto
 	if err != nil {
 		t.Fatalf("begin read: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := (MessagesRepository{}).ListByThread(ctx, tx, accountID, threadID, 0)
 	if err != nil {

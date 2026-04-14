@@ -1096,7 +1096,7 @@ func completeSubAgentRun(t *testing.T, pool *pgxpool.Pool, subAgentID uuid.UUID,
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 	if err := (data.SubAgentRepository{}).TransitionToTerminal(context.Background(), tx, runID, data.SubAgentStatusCompleted, nil); err != nil {
 		t.Fatalf("transition terminal: %v", err)
 	}

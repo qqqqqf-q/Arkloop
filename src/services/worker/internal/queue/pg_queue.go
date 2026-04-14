@@ -280,7 +280,7 @@ func (q *PgQueue) tryLeaseOne(ctx context.Context, leaseSeconds int, jobTypes []
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var (
 		jobID       uuid.UUID
@@ -366,7 +366,7 @@ func (q *PgQueue) tryMarkDeadOne(ctx context.Context, jobTypes []string) (bool, 
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var jobID uuid.UUID
 	err = tx.QueryRow(

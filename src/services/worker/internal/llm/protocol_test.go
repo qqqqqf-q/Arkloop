@@ -157,7 +157,7 @@ type timedChunkReader struct {
 }
 
 func (r *timedChunkReader) Read(p []byte) (int, error) {
-	for r.index < len(r.steps) {
+	if r.index < len(r.steps) {
 		step := r.steps[r.index]
 		if r.offset == 0 && step.delay > 0 {
 			timer := time.NewTimer(step.delay)
@@ -170,14 +170,16 @@ func (r *timedChunkReader) Read(p []byte) (int, error) {
 			case <-timer.C:
 			}
 		}
-
-		n := copy(p, step.data[r.offset:])
-		r.offset += n
-		if r.offset >= len(step.data) {
-			r.index++
-			r.offset = 0
-		}
-		return n, nil
 	}
-	return 0, io.EOF
+	if r.index >= len(r.steps) {
+		return 0, io.EOF
+	}
+	step := r.steps[r.index]
+	n := copy(p, step.data[r.offset:])
+	r.offset += n
+	if r.offset >= len(step.data) {
+		r.index++
+		r.offset = 0
+	}
+	return n, nil
 }

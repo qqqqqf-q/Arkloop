@@ -123,7 +123,7 @@ func TestApplyEnvironmentDoesNotDeleteProfileRoot(t *testing.T) {
 	if err := os.Chmod(homeParent, 0o555); err != nil {
 		t.Fatalf("chmod home parent: %v", err)
 	}
-	defer os.Chmod(homeParent, 0o755)
+	defer func() { _ = os.Chmod(homeParent, 0o755) }()
 	data := []byte("export FOO=1\n")
 	sum := sha256.Sum256(data)
 

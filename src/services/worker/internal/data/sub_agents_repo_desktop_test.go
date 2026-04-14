@@ -44,7 +44,7 @@ func TestDesktopSubAgentRepository_CreateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	subAgentsRepo := SubAgentRepository{}
 	record, err := subAgentsRepo.Create(ctx, tx, SubAgentCreateParams{
@@ -111,7 +111,7 @@ func TestDesktopSubAgentRepository_CreateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = readTx.Rollback(ctx) }() //nolint:errcheck
 
 	got, err := subAgentsRepo.Get(ctx, readTx, record.ID)
 	if err != nil {
@@ -182,7 +182,7 @@ func TestDesktopRunsRepository_TouchRunActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	if err := (DesktopRunsRepository{}).TouchRunActivity(ctx, tx, runID); err != nil {
 		t.Fatalf("touch run activity: %v", err)

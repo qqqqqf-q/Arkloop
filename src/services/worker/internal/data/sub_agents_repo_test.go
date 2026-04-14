@@ -32,7 +32,7 @@ func TestSubAgentRepository_CreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
@@ -68,7 +68,7 @@ func TestSubAgentRepository_CreateAndTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(context.Background())
+	defer func() { _ = readTx.Rollback(context.Background()) }()
 
 	got, err := repo.Get(context.Background(), readTx, record.ID)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestSubAgentRepository_RejectsIllegalTransitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	repo := SubAgentRepository{}
 	record, err := repo.Create(context.Background(), tx, SubAgentCreateParams{
@@ -162,7 +162,7 @@ func TestRunsRepository_GetLineage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	repo := RunsRepository{}
 	rootLineage, err := repo.GetLineage(context.Background(), tx, rootRunID)
@@ -204,7 +204,7 @@ func TestRunsRepository_TouchRunActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	if err := (RunsRepository{}).TouchRunActivity(context.Background(), tx, runID); err != nil {
 		t.Fatalf("touch run activity: %v", err)

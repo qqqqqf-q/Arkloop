@@ -129,7 +129,7 @@ func emitMCPDiscoveryEvent(
 		slog.WarnContext(ctx, "mcp discovery event tx begin failed", "error", err)
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, rc.Run.ID, ev); err != nil {
 		slog.WarnContext(ctx, "mcp discovery event append failed", "error", err)
 		return

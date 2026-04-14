@@ -64,7 +64,7 @@ func NewSemanticScanner(cfg SemanticScannerConfig) (*SemanticScanner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create session options: %w", err)
 	}
-	defer options.Destroy()
+	defer func() { _ = options.Destroy() }()
 
 	// Bias towards lower peak memory on small Docker VMs.
 	if err := options.SetExecutionMode(ort.ExecutionModeSequential); err != nil {
@@ -126,13 +126,13 @@ func (s *SemanticScanner) Classify(_ context.Context, text string) (SemanticResu
 	if err != nil {
 		return SemanticResult{}, fmt.Errorf("create input_ids tensor: %w", err)
 	}
-	defer inputIDTensor.Destroy()
+	defer func() { _ = inputIDTensor.Destroy() }()
 
 	maskTensor, err := ort.NewTensor(shape, attentionMask)
 	if err != nil {
 		return SemanticResult{}, fmt.Errorf("create attention_mask tensor: %w", err)
 	}
-	defer maskTensor.Destroy()
+	defer func() { _ = maskTensor.Destroy() }()
 
 	inputs := []ort.Value{inputIDTensor, maskTensor}
 	outputs := []ort.Value{nil}
@@ -143,7 +143,7 @@ func (s *SemanticScanner) Classify(_ context.Context, text string) (SemanticResu
 	defer func() {
 		for _, t := range outputs {
 			if t != nil {
-				t.Destroy()
+				_ = t.Destroy()
 			}
 		}
 	}()
@@ -181,7 +181,7 @@ func (s *SemanticScanner) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.session != nil {
-		s.session.Destroy()
+		_ = s.session.Destroy()
 		s.session = nil
 	}
 }

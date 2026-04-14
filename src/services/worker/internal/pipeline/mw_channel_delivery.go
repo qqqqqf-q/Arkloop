@@ -565,7 +565,7 @@ func recordChannelTerminalNoticeSuccess(
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	messageID, err := messagesRepo.InsertAssistantMessageWithMetadata(
 		ctx, tx,
@@ -877,7 +877,7 @@ func recordChannelDeliveryFailure(ctx context.Context, pool *pgxpool.Pool, runID
 	if txErr != nil {
 		return
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer func() { _ = tx.Rollback(context.Background()) }() //nolint:errcheck
 
 	repo := data.RunEventsRepository{}
 	if _, appendErr := repo.AppendEvent(context.Background(), tx, runID, "run.channel_delivery_failed", map[string]any{
@@ -907,7 +907,7 @@ func recordChannelDeliverySuccess(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	for _, messageID := range messageIDs {
 		if err := deliveryRepo.RecordDelivery(
@@ -1005,7 +1005,7 @@ func persistStreamChunkMessage(ctx context.Context, pool *pgxpool.Pool, repo dat
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 	_, err = repo.InsertAssistantMessageWithMetadata(
 		ctx, tx,
 		rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID,

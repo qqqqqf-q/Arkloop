@@ -130,7 +130,7 @@ func readLatestEventType(
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 	return eventsRepo.GetLatestEventType(ctx, tx, runID, types)
 }
 
@@ -159,7 +159,7 @@ func appendAndCommitSingle(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if _, err := eventsRepo.AppendRunEvent(ctx, tx, run.ID, ev); err != nil {
 		return err

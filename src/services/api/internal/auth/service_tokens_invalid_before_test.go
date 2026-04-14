@@ -89,7 +89,9 @@ func TestVerifyAccessTokenForActor_RedisHitDoesNotQueryDB(t *testing.T) {
 	userID := uuid.New()
 
 	key := tokensInvalidBeforeRedisKeyPrefix + userID.String()
-	mr.Set(key, "0")
+	if err := mr.Set(key, "0"); err != nil {
+		t.Fatalf("seed miniredis: %v", err)
+	}
 
 	q := &countingQuerier{
 		tokensInvalidBefore: time.Unix(0, 0).UTC(),

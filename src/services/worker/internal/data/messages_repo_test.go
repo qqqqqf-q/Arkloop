@@ -139,7 +139,7 @@ func TestMessagesRepository_ListRawByThreadIncludesHiddenAndCompacted(t *testing
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := repo.ListRawByThread(ctx, tx, accountID, threadID, 50)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestMessagesRepository_ListRawByThreadUpToIDIncludesHiddenAndCompacted(t *t
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := repo.ListRawByThreadUpToID(ctx, tx, accountID, threadID, upToID, 50)
 	if err != nil {
@@ -256,7 +256,7 @@ func TestMessagesRepository_ListByThreadWithoutLimitLoadsFullVisibleHistory(t *t
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	msgs, err := repo.ListByThread(ctx, tx, accountID, threadID, 0)
 	if err != nil {

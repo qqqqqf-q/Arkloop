@@ -106,7 +106,9 @@ func TestPool_Stats_AfterOperations(t *testing.T) {
 
 	// Insert and destroy an active entry.
 	socketDir := filepath.Join(t.TempDir(), "s1")
-	os.MkdirAll(socketDir, 0o700)
+	if err := os.MkdirAll(socketDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	pool.mu.Lock()
 	pool.active["s1"] = &entry{
@@ -130,7 +132,9 @@ func TestPool_Drain_CleansActiveEntries(t *testing.T) {
 	dirs := make([]string, 3)
 	for i, id := range []string{"a", "b", "c"} {
 		dirs[i] = filepath.Join(t.TempDir(), id)
-		os.MkdirAll(dirs[i], 0o700)
+		if err := os.MkdirAll(dirs[i], 0o700); err != nil {
+			t.Fatal(err)
+		}
 		pool.mu.Lock()
 		pool.active[id] = &entry{
 			session: &session.Session{ID: id, Tier: "lite", SocketDir: dirs[i]},
