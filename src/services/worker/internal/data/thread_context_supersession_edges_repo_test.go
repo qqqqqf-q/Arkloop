@@ -114,7 +114,7 @@ func TestThreadContextSupersessionEdgesRepositoryInsertAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin read tx: %v", err)
 	}
-	defer readTx.Rollback(ctx)
+	defer func() { _ = readTx.Rollback(ctx) }()
 
 	items, err := edgesRepo.ListByReplacementID(ctx, readTx, accountID, threadID, parent.ID)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestThreadContextSupersessionEdgesRepositoryRejectsCrossThreadTargets(t *te
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	replacementsRepo := ThreadContextReplacementsRepository{}
 	replacementA, err := replacementsRepo.Insert(ctx, tx, ThreadContextReplacementInsertInput{
@@ -218,7 +218,7 @@ func TestThreadContextSupersessionEdgesRepositoryRejectsCrossThreadChunk(t *test
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	replacementsRepo := ThreadContextReplacementsRepository{}
 	parent, err := replacementsRepo.Insert(ctx, tx, ThreadContextReplacementInsertInput{
@@ -295,7 +295,7 @@ func TestThreadContextSupersessionEdgesRepositoryDeleteBySupersededChunkIDs(t *t
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	replacementsRepo := ThreadContextReplacementsRepository{}
 	base, err := replacementsRepo.Insert(ctx, tx, ThreadContextReplacementInsertInput{

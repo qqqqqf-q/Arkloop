@@ -514,7 +514,10 @@ func RewriteOversizeRequest(
 	}
 
 	forceCompact := llm.RequestPayloadTooLarge(stats.RequestBytesAfterRewrite)
-	compacted, compactStats, changed, err := MaybeInlineCompactMessages(ctx, rc, rewritten.Messages, anchor, forceCompact)
+	compacted, compactStats, changed, compactErr := MaybeInlineCompactMessages(ctx, rc, rewritten.Messages, anchor, forceCompact)
+	if compactErr != nil {
+		return request, stats, compactErr
+	}
 	if changed {
 		rewritten.Messages = compacted
 		stats.RewriteApplied = true
@@ -529,7 +532,7 @@ func RewriteOversizeRequest(
 		return request, stats, err
 	}
 	stats.RequestTokensAfterRewrite = ComputeContextCompactPressure(EstimateRequestContextTokens(rc, rewritten), anchor).ContextPressureTokens
-	return rewritten, stats, err
+	return rewritten, stats, nil
 }
 
 func ResolveRunContextWindowTokens(rc *RunContext) int {

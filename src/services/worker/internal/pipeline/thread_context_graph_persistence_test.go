@@ -44,7 +44,7 @@ func TestEnsureCanonicalThreadGraphPersisted_ReorderShrinkKeepsGraphAligned(t *t
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer func() { _ = tx.Rollback(context.Background()) }() //nolint:errcheck
 
 	messagesRepo := data.MessagesRepository{}
 	firstGraph, err := ensureCanonicalThreadGraphPersisted(context.Background(), tx, messagesRepo, accountID, threadID)
@@ -109,7 +109,7 @@ func TestEnsureCanonicalThreadGraphPersisted_RemovesSupersessionEdgesBeforeDelet
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer func() { _ = tx.Rollback(context.Background()) }() //nolint:errcheck
 
 	messagesRepo := data.MessagesRepository{}
 	firstGraph, err := ensureCanonicalThreadGraphPersisted(context.Background(), tx, messagesRepo, accountID, threadID)

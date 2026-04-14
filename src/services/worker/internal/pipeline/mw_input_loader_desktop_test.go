@@ -342,7 +342,7 @@ func insertDesktopReplacementPrefix(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	graph, err := ensureCanonicalThreadGraphPersisted(ctx, tx, data.MessagesRepository{}, accountID, threadID)
 	if err != nil {

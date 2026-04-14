@@ -43,7 +43,7 @@ func TestBuildThreadContextFrontierUsesSupersessionEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	graph, err := ensureCanonicalThreadGraphPersisted(context.Background(), tx, data.MessagesRepository{}, accountID, threadID)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestBuildCanonicalThreadContextReindexesFrontierForTrimmedMessages(t *testi
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	ctx, err := buildCanonicalThreadContext(
 		context.Background(),
@@ -281,7 +281,7 @@ func TestBuildCanonicalThreadContextKeepsVisibleTailWhenRawGraphHasHiddenGap(t *
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background())
+	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	ctx, err := buildCanonicalThreadContext(
 		context.Background(),
@@ -338,7 +338,7 @@ func TestEnsureCanonicalThreadGraphPersisted_ClearsStaleTailEdgesWithoutBreaking
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(context.Background()) //nolint:errcheck
+	defer func() { _ = tx.Rollback(context.Background()) }() //nolint:errcheck
 
 	graphBeforeTrim, err := ensureCanonicalThreadGraphPersisted(context.Background(), tx, data.MessagesRepository{}, accountID, threadID)
 	if err != nil {

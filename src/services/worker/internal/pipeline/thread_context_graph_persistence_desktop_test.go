@@ -64,7 +64,7 @@ func TestEnsureCanonicalThreadGraphPersistedDesktop_ReorderShrinkKeepsGraphAlign
 	if err != nil {
 		t.Fatalf("begin tx: %v", err)
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	messagesRepo := data.MessagesRepository{}
 	firstGraph, err := ensureCanonicalThreadGraphPersisted(ctx, tx, messagesRepo, accountID, threadID)
