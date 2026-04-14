@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useLayoutEffect, useRef, useCallback } from 'react'
 import { debugBus } from '@arkloop/shared'
 
 const DEBUG_PANEL_KEY = 'arkloop:web:developer_show_debug_panel'
@@ -23,11 +23,14 @@ export function useInputPerfDebug() {
   const fpsRef = useRef(0)
   const rafRef = useRef(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastFpsTimeRef = useRef(performance.now())
+  const lastFpsTimeRef = useRef(0)
   const renderStartRef = useRef(0)
 
-  renderCountRef.current++
-  renderStartRef.current = performance.now()
+  useLayoutEffect(() => {
+    if (!enabledRef.current) return
+    renderCountRef.current += 1
+    renderStartRef.current = performance.now()
+  })
 
   // measure render-to-commit (useEffect fires after commit)
   useEffect(() => {

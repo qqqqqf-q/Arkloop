@@ -98,8 +98,7 @@ export function CopThoughtSummaryRow({ markdown, live, thoughtDurationSeconds, s
     : ''
   const thoughtLabel = thoughtDurationSeconds > 0 ? t.copTimelineThoughtForSeconds(thoughtDurationSeconds) : t.copTimelineThinkingDoneNoDuration
   const currentLabel = live ? liveLabel : thoughtLabel
-  const previousStatusLabelRef = useRef(live ? liveLabel : '')
-  const shouldAnimateLabel = live || previousStatusLabelRef.current !== ''
+  const shouldAnimateLabel = currentLabel !== ''
 
   useEffect(() => {
     if (!live || !startedAtMs) {
@@ -112,10 +111,6 @@ export function CopThoughtSummaryRow({ markdown, live, thoughtDurationSeconds, s
     }, 1000)
     return () => clearInterval(id)
   }, [live, startedAtMs])
-
-  useEffect(() => {
-    previousStatusLabelRef.current = currentLabel
-  }, [currentLabel])
 
   return (
     <div>

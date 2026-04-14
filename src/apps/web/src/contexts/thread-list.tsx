@@ -16,7 +16,6 @@ import {
   type AppMode,
 } from '../storage'
 import { useAuth } from './auth'
-import { isPerfDebugEnabled, recordPerfDuration } from '../perfDebug'
 
 export interface ThreadListContextValue {
   threads: ThreadResponse[]
@@ -112,7 +111,6 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const threadsByMode = useMemo<Record<AppMode, ThreadResponse[]>>(() => {
-    const startedAt = typeof performance !== 'undefined' ? performance.now() : 0
     const grouped: Record<AppMode, ThreadResponse[]> = {
       chat: [],
       work: [],
@@ -120,13 +118,6 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     for (const thread of threads) {
       const mode = threadModes[thread.id] ?? 'chat'
       grouped[mode].push(thread)
-    }
-    if (isPerfDebugEnabled() && typeof performance !== 'undefined') {
-      recordPerfDuration('thread_list_mode_partition', performance.now() - startedAt, {
-        threadCount: threads.length,
-        chatCount: grouped.chat.length,
-        workCount: grouped.work.length,
-      })
     }
     return grouped
   }, [threadModes, threads])

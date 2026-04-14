@@ -136,8 +136,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [draft, setDraft] = useState('')
-  const draftRef = useRef(draft)
-  draftRef.current = draft
+  const draftRef = useLatest(draft)
 
   useImperativeHandle(ref, () => ({
     clear: () => setDraft(''),

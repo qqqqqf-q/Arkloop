@@ -144,9 +144,7 @@ export function DesktopSettings({
     initialSection,
   }));
   const hydrationTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null);
-  const motionStartedAtRef = useRef<number>(
-    typeof performance !== "undefined" ? performance.now() : 0,
-  );
+  const motionStartedAtRef = useRef(0);
   const motionCompletedRef = useRef(false);
   const motionFrameRef = useRef<{
     startedAt: number;
@@ -176,6 +174,12 @@ export function DesktopSettings({
     activeKey === "chat" ||
     activeKey === "connection" ||
     activeKey === "voice";
+
+  useEffect(() => {
+    if (typeof performance !== "undefined") {
+      motionStartedAtRef.current = performance.now();
+    }
+  }, []);
 
   useEffect(() => {
     const handler = (e: Event) => setDevMode((e as CustomEvent<boolean>).detail);

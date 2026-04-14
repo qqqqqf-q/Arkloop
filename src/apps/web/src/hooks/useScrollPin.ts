@@ -706,8 +706,10 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   }, [syncBottomState])
 
   // history load: activate anchor and scroll to last user message
-  // keep liveStreamActive in sync (before effects that read it)
-  liveStreamActiveRef.current = liveAssistantTurn != null || liveRunUiVisible
+  // keep liveStreamActive in sync for effects that read it
+  useEffect(() => {
+    liveStreamActiveRef.current = liveAssistantTurn != null || liveRunUiVisible
+  }, [liveAssistantTurn, liveRunUiVisible])
 
   useEffect(() => {
     if (messagesLoading) {

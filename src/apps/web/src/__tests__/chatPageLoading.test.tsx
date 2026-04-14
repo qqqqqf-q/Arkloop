@@ -1,4 +1,4 @@
-import { act, useEffect, useState, forwardRef, useImperativeHandle, useRef } from 'react'
+import { act, useEffect, useState, forwardRef, useImperativeHandle } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,6 +11,7 @@ import { AuthContextBridge, type AuthContextValue } from '../contexts/auth'
 import { ThreadListContextBridge, type ThreadListContextValue } from '../contexts/thread-list'
 import { AppUIContextBridge, type AppUIContextValue } from '../contexts/app-ui'
 import { CreditsContextBridge, type CreditsContextValue } from '../contexts/credits'
+import { useLatest } from '../hooks/useLatest'
 import {
   listMessages,
   listRunEvents,
@@ -146,8 +147,7 @@ vi.mock('../components/ChatInput', () => ({
   }, ref: React.Ref<{ clear: () => void; setValue: (v: string) => void; getValue: () => string }>) => {
     const draftKey = `${draftOwnerKey ?? 'global'}:${workThreadId ?? 'welcome'}:${appMode ?? 'chat'}:${searchMode ? 'search' : 'default'}`
     const [value, setValue] = useState(() => chatInputDraftStore.get(draftKey) ?? '')
-    const valueRef = useRef(value)
-    valueRef.current = value
+    const valueRef = useLatest(value)
     useEffect(() => {
       setValue(chatInputDraftStore.get(draftKey) ?? '')
     }, [draftKey])

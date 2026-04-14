@@ -216,7 +216,6 @@ export function Sidebar({
   const collapsePointerTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
   const searchPointerTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
   const { starredSet, starredThreads, regularThreads } = useMemo(() => {
-    const startedAt = typeof performance !== 'undefined' ? performance.now() : 0
     const nextStarredSet = new Set(starredIds)
     const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const))
     const next = {
@@ -225,14 +224,6 @@ export function Sidebar({
         .map((id) => threadsById.get(id))
         .filter((t): t is ThreadResponse => t !== undefined),
       regularThreads: threads.filter((t) => !nextStarredSet.has(t.id)),
-    }
-    if (isPerfDebugEnabled() && typeof performance !== 'undefined') {
-      recordPerfValue('sidebar_prepare_threads', performance.now() - startedAt, 'ms', {
-        threadCount: threads.length,
-        starredCount: next.starredThreads.length,
-        regularCount: next.regularThreads.length,
-        appMode: appMode ?? 'chat',
-      })
     }
     return next
   }, [appMode, starredIds, threads])

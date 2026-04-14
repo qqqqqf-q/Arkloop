@@ -56,6 +56,16 @@ function ScrollPinHarness({
     messages,
     liveRunUiVisible,
   })
+  const {
+    bottomRef,
+    copCodeExecScrollRef,
+    handleScrollContainerScroll,
+    inputAreaRef,
+    lastUserMsgRef,
+    lastUserPromptRef,
+    scrollContainerRef,
+    spacerRef,
+  } = api
   const metricsKey = JSON.stringify(metrics)
   const contentRootRef = useRef<HTMLDivElement>(null)
   const leadingRef = useRef<HTMLDivElement>(null)
@@ -65,19 +75,23 @@ function ScrollPinHarness({
   const tailRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    lastUserPromptRef.current = headerRef.current
+  })
+
+  useEffect(() => {
     onReady(api)
   }, [api, onReady])
 
   useLayoutEffect(() => {
-    const container = api.scrollContainerRef.current
+    const container = scrollContainerRef.current
     const contentRoot = contentRootRef.current
     const leading = leadingRef.current
-    const turn = api.lastUserMsgRef.current
+    const turn = lastUserMsgRef.current
     const header = headerRef.current
     const collapsible = collapsibleRef.current
     const anchor = anchorRef.current
     const tail = tailRef.current
-    const bottom = api.bottomRef.current
+    const bottom = bottomRef.current
     if (!container || !contentRoot || !leading || !turn || !header || !collapsible || !anchor || !tail || !bottom) return
 
     Object.defineProperty(container, 'clientHeight', {
@@ -94,11 +108,20 @@ function ScrollPinHarness({
     })
 
     const applyRect = (element: HTMLElement, getOffset: () => number, getHeight: () => number) => {
-      element.getBoundingClientRect = () => rect(getOffset() - container.scrollTop, getHeight())
+      Object.defineProperty(element, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => rect(getOffset() - container.scrollTop, getHeight()),
+      })
     }
 
-    container.getBoundingClientRect = () => rect(0, metrics.clientHeight)
-    contentRoot.getBoundingClientRect = () => rect(0, metrics.scrollHeight)
+    Object.defineProperty(container, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect(0, metrics.clientHeight),
+    })
+    Object.defineProperty(contentRoot, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect(0, metrics.scrollHeight),
+    })
     applyRect(leading, () => metrics.leadingOffset ?? 120, () => metrics.leadingHeight ?? 260)
     applyRect(turn, () => metrics.turnOffset, () => metrics.turnHeight)
     applyRect(header, () => metrics.headerOffset ?? metrics.turnOffset, () => metrics.headerHeight ?? 64)
@@ -131,28 +154,27 @@ function ScrollPinHarness({
       }
       return null
     }) as typeof document.elementFromPoint
-  }, [api, metricsKey, onContainerScrollTo, onScrollIntoView])
+  }, [bottomRef, lastUserMsgRef, metricsKey, onContainerScrollTo, onScrollIntoView, scrollContainerRef])
 
   return (
     <>
-      <div ref={api.scrollContainerRef} onScroll={api.handleScrollContainerScroll}>
+      <div ref={scrollContainerRef} onScroll={handleScrollContainerScroll}>
         <div ref={contentRootRef}>
           <div ref={leadingRef} className="group/turn" data-testid="leading-turn">leading</div>
-          <div ref={api.lastUserMsgRef} className="group/turn" data-testid="last-turn">
+          <div ref={lastUserMsgRef} className="group/turn" data-testid="last-turn">
             <div ref={(node) => {
               headerRef.current = node
-              api.lastUserPromptRef.current = node
             }} data-testid="turn-header">header</div>
             <div ref={collapsibleRef} data-testid="turn-collapsible">collapsible</div>
             <div ref={anchorRef} data-testid="turn-anchor">anchor</div>
             <div ref={tailRef} data-testid="turn-tail">tail</div>
           </div>
-          <div ref={api.bottomRef}>bottom</div>
+          <div ref={bottomRef}>bottom</div>
         </div>
       </div>
-      <div ref={api.inputAreaRef} />
-      <div ref={api.copCodeExecScrollRef} />
-      <div ref={api.spacerRef} />
+      <div ref={inputAreaRef} />
+      <div ref={copCodeExecScrollRef} />
+      <div ref={spacerRef} />
     </>
   )
 }

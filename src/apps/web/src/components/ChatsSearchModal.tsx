@@ -224,17 +224,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
   }), [t])
 
   const groups = useMemo(() => {
-    const startedAt = typeof performance !== 'undefined' ? performance.now() : 0
     const next = groupByDate(visibleThreads, dateLabels, timeZone)
-    if (isPerfDebugEnabled() && typeof performance !== 'undefined') {
-      recordPerfDuration('desktop_search_modal_grouping', performance.now() - startedAt, {
-        threadCount: visibleThreads.length,
-        totalThreadCount: displayThreads.length,
-        groupCount: next.length,
-        queryLength: query.length,
-        searching,
-      })
-    }
     return next
   }, [dateLabels, displayThreads.length, query.length, searching, timeZone, visibleThreads])
 
