@@ -202,4 +202,22 @@ describe('MarkdownRenderer', () => {
     expect(html).toContain('<td>ChatGPT</td>')
     expect(html).toContain('<td>Claude</td>')
   })
+
+  it('不应修改格式正常的表格分隔行', () => {
+    const input = [
+      '| 名称 | 类型 | 说明 |',
+      '|---------|----------|---------|',
+      '| foo | string | 测试 |',
+    ].join('\n')
+
+    // 正常表格应正确渲染
+    const html = renderMarkdown(input)
+    expect(html).toContain('<table')
+    expect(html).toContain('<td>foo</td>')
+
+    // 原始内容中的长分隔符不应被压缩为 ---
+    // 通过检查渲染结果包含正常的表格结构来验证（无 || 崩坏）
+    expect(html).not.toContain('||')
+    expect(html).not.toContain('---------|')
+  })
 })

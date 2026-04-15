@@ -60,13 +60,8 @@ const COLLAPSED_PIPE_TABLE_SEPARATOR_RE = /\|\|\s*:?-{3,}/
 const COLLAPSED_PIPE_TABLE_ROW_BREAK_RE = /\|\|\s*(?=\|?\s*:?-{3,}\s*\||[^\s|])/g
 
 function normalizeTableDelimiterCell(cell: string): string {
-  const trimmed = cell.trim()
-  if (trimmed === '') return ' --- '
-  if (!/^[:\-\s]+$/.test(trimmed) || !trimmed.includes('-')) return cell
-
-  const leftAligned = trimmed.startsWith(':')
-  const rightAligned = trimmed.endsWith(':')
-  return ` ${leftAligned ? ':' : ''}---${rightAligned ? ':' : ''} `
+  if (cell.trim() === '') return ' --- '
+  return cell
 }
 
 function normalizeTableDelimiterRow(line: string): string {
@@ -81,6 +76,20 @@ function normalizeTableDelimiterRow(line: string): string {
   return `${startsWithPipe ? '|' : ''}${cells.map(normalizeTableDelimiterCell).join('|')}${endsWithPipe ? '|' : ''}`
 }
 
+function countTableCells(line: string): number {
+  const trimmed = line.trim()
+  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').length
+}
+
+function padDelimiterRow(delimiterLine: string, targetCols: number): string {
+  const trimmed = delimiterLine.trim()
+  const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|')
+  while (cells.length < targetCols) cells.push(' --- ')
+  const startsWithPipe = trimmed.startsWith('|')
+  const endsWithPipe = trimmed.endsWith('|')
+  return `${startsWithPipe ? '|' : ''}${cells.join('|')}${endsWithPipe ? '|' : ''}`
+}
+
 function repairCollapsedTableBlock(block: string): string {
   const pipeCount = (block.match(/\|/g) ?? []).length
   if (pipeCount < 6) return block
@@ -92,11 +101,23 @@ function repairCollapsedTableBlock(block: string): string {
 
   const lines = repaired.split('\n')
   let changed = repaired !== block
-  const normalizedLines = lines.map((line) => {
+  const normalizedLines = lines.map((line, i) => {
     const nextLine = normalizeTableDelimiterRow(line)
     if (nextLine !== line) changed = true
     return nextLine
   })
+
+  // pad delimiter row to match header column count
+  if (changed && normalizedLines.length >= 2) {
+    const headerCols = countTableCells(normalizedLines[0])
+    const delimLine = normalizedLines[1].trim()
+    if (/^\|?[\s:|-]+\|?\s*$/.test(delimLine) && delimLine.includes('-')) {
+      const delimCols = countTableCells(normalizedLines[1])
+      if (delimCols < headerCols) {
+        normalizedLines[1] = padDelimiterRow(normalizedLines[1], headerCols)
+      }
+    }
+  }
 
   return changed ? normalizedLines.join('\n') : block
 }
