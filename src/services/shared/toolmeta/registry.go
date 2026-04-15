@@ -436,7 +436,8 @@ var registry = []ToolMeta{
 		ShortDesc: "write a Markdown document as a downloadable artifact",
 		LLMDescription: "write a Markdown document and save it as a downloadable artifact. " +
 			"Use when the user requests a report, summary, plan, article, or any long-form document. " +
-			"Reference the result as [label](artifact:<key>).",
+			"IMPORTANT: after calling this tool, you MUST reference the artifact in your response using [title](artifact:<key>) where <key> is from the tool result. " +
+			"The document will NOT be visible to the user unless you include this reference.",
 	},
 	// ── orchestration ──
 	{
