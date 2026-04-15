@@ -103,11 +103,35 @@ func IsCurrentInputOversizeError(err error) (*CurrentInputOversizeError, bool) {
 	return typed, true
 }
 
+// 按字符区分估算 token 数：1 个英文字符 ≈ 0.3 token，1 个中文字符 ≈ 0.6 token
 func approxTokensFromText(s string) int {
-	if s == "" {
+	n := len(s)
+	if n == 0 {
 		return 0
 	}
-	return (len(s) + 3) / 4
+	asciiChars := 0
+	nonAsciiChars := 0
+	for i := 0; i < n; {
+		if s[i] < 0x80 {
+			asciiChars++
+			i++
+		} else {
+			nonAsciiChars++
+			// 跳过 UTF-8 多字节序列
+			if s[i]&0xE0 == 0xC0 {
+				i += 2
+			} else if s[i]&0xF0 == 0xE0 {
+				i += 3
+			} else {
+				i += 4
+			}
+		}
+	}
+	tokens := int(float64(asciiChars)*0.3 + float64(nonAsciiChars)*0.6)
+	if tokens < 1 {
+		return 1
+	}
+	return tokens
 }
 
 func messageText(m llm.Message) string {
@@ -1078,7 +1102,9 @@ func compactApproxMessagePressure(msgs []llm.Message) int {
 		for _, tc := range m.ToolCalls {
 			total += approxTokensFromText(tc.ToolName)
 			if len(tc.ArgumentsJSON) > 0 {
-				total += len(tc.ArgumentsJSON) / 4
+				if raw, err := json.Marshal(tc.ArgumentsJSON); err == nil {
+					total += approxTokensFromText(string(raw))
+				}
 			}
 		}
 	}
@@ -1086,14 +1112,53 @@ func compactApproxMessagePressure(msgs []llm.Message) int {
 }
 
 func EstimateRequestContextTokens(rc *RunContext, request llm.Request) int {
-	estimate := compactApproxMessagePressure(request.Messages)
+	// system prompt 统一从 rc.SystemPrompt 估算，跳过 messages 里的 system 角色消息避免重复
+	estimate := compactApproxNonSystemMessagePressure(request.Messages)
+	if rc != nil && rc.SystemPrompt != "" {
+		estimate += approxTokensFromText(rc.SystemPrompt)
+	}
+	// PromptPlan 的 MessageBlocks（非 system 部分）
 	if request.PromptPlan != nil {
-		estimate += promptPlanTextTokens(request.PromptPlan)
+		for _, block := range request.PromptPlan.MessageBlocks {
+			estimate += approxTokensFromText(strings.TrimSpace(block.Text))
+		}
+	}
+	// tool schemas 的 token 开销
+	for _, t := range request.Tools {
+		estimate += approxTokensFromText(t.Name)
+		if t.Description != nil {
+			estimate += approxTokensFromText(*t.Description)
+		}
+		if len(t.JSONSchema) > 0 {
+			if raw, err := json.Marshal(t.JSONSchema); err == nil {
+				estimate += approxTokensFromText(string(raw))
+			}
+		}
 	}
 	if estimate < 1 {
 		return 1
 	}
 	return estimate
+}
+
+// compactApproxNonSystemMessagePressure 与 compactApproxMessagePressure 相同，但跳过 role="system"
+func compactApproxNonSystemMessagePressure(msgs []llm.Message) int {
+	total := 0
+	for _, m := range msgs {
+		if m.Role == "system" {
+			continue
+		}
+		total += approxTokensFromText(messageText(m))
+		for _, tc := range m.ToolCalls {
+			total += approxTokensFromText(tc.ToolName)
+			if len(tc.ArgumentsJSON) > 0 {
+				if raw, err := json.Marshal(tc.ArgumentsJSON); err == nil {
+					total += approxTokensFromText(string(raw))
+				}
+			}
+		}
+	}
+	return total
 }
 
 func EstimateProviderRequestBytesForRunContext(rc *RunContext, request llm.Request) (int, error) {
