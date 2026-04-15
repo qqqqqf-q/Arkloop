@@ -2347,12 +2347,18 @@ func estimateTurnRequestContextTokens(runCtx RunContext, request llm.Request) in
 }
 
 func estimateTurnRequestLimitTokens(runCtx RunContext, request llm.Request) int {
+	raw := 0
 	if runCtx.PipelineRC != nil {
-		if estimate := pipeline.EstimateRequestContextTokens(runCtx.PipelineRC, request); estimate > 0 {
-			return estimate
-		}
+		raw = pipeline.EstimateRequestContextTokens(runCtx.PipelineRC, request)
 	}
-	return estimateTurnRequestContextTokens(runCtx, request)
+	if raw <= 0 {
+		raw = estimateTurnRequestContextTokens(runCtx, request)
+	}
+	// 用 anchor 校准粗估值
+	if anchor := currentContextCompactAnchor(runCtx); anchor != nil {
+		return pipeline.ApplyContextCompactPressure(*anchor, raw)
+	}
+	return raw
 }
 
 func attachContextPressureAnchor(data map[string]any, requestEstimateTokens int) {
