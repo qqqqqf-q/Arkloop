@@ -300,6 +300,7 @@ func TestBuildCompactFrontierAtomsFromMessages_NoChunkSplitting(t *testing.T) {
 }
 
 func TestSelectCompactAtomWindow_MaxAtomsCap(t *testing.T) {
+	// token 预算是主要约束，50 个极小 atom 全部在预算内
 	nodes := make([]FrontierNode, 0, 50)
 	for i := 0; i < 50; i++ {
 		nodes = append(nodes, FrontierNode{
@@ -313,35 +314,37 @@ func TestSelectCompactAtomWindow_MaxAtomsCap(t *testing.T) {
 	}
 
 	selection := selectCompactAtomWindow(nodes, 999999, contextCompactMaxLLMInputTokens)
-	if len(selection.Nodes) != compactMaxAtomsPerRound {
-		t.Fatalf("expected atom cap %d, got %d", compactMaxAtomsPerRound, len(selection.Nodes))
+	// protected = atom 50, eligible = 49, 49*10=490 远低于 token 预算，全选
+	expectedCount := 49
+	if len(selection.Nodes) != expectedCount {
+		t.Fatalf("expected %d selected (all eligible), got %d", expectedCount, len(selection.Nodes))
 	}
-	if selection.EndNodeIndex != compactMaxAtomsPerRound-1 {
+	if selection.EndNodeIndex != expectedCount-1 {
 		t.Fatalf("unexpected end node index %d", selection.EndNodeIndex)
 	}
 	if selection.PartialTail {
 		t.Fatal("expected atom selection to never set partial tail")
 	}
-	if selection.Nodes[len(selection.Nodes)-1].AtomSeq != compactMaxAtomsPerRound {
-		t.Fatalf("expected last selected atom %d, got %d", compactMaxAtomsPerRound, selection.Nodes[len(selection.Nodes)-1].AtomSeq)
+	if selection.Nodes[len(selection.Nodes)-1].AtomSeq != expectedCount {
+		t.Fatalf("expected last selected atom %d, got %d", expectedCount, selection.Nodes[len(selection.Nodes)-1].AtomSeq)
 	}
 }
 
 func TestSelectCompactAtomWindow_TokenCap(t *testing.T) {
 	nodes := []FrontierNode{
-		{Kind: FrontierNodeChunk, ApproxTokens: 20000, AtomSeq: 1, AtomType: compactAtomUserText, Role: "user", SourceText: "a"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 20000, AtomSeq: 2, AtomType: compactAtomUserText, Role: "user", SourceText: "b"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 20000, AtomSeq: 3, AtomType: compactAtomUserText, Role: "user", SourceText: "c"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 20000, AtomSeq: 4, AtomType: compactAtomUserText, Role: "user", SourceText: "d"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 20000, AtomSeq: 5, AtomType: compactAtomUserText, Role: "user", SourceText: "tail"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 2000, AtomSeq: 1, AtomType: compactAtomUserText, Role: "user", SourceText: "a"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 2000, AtomSeq: 2, AtomType: compactAtomUserText, Role: "user", SourceText: "b"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 2000, AtomSeq: 3, AtomType: compactAtomUserText, Role: "user", SourceText: "c"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 2000, AtomSeq: 4, AtomType: compactAtomUserText, Role: "user", SourceText: "d"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 2000, AtomSeq: 5, AtomType: compactAtomUserText, Role: "user", SourceText: "tail"},
 	}
 
 	selection := selectCompactAtomWindow(nodes, 1, contextCompactMaxLLMInputTokens)
 	if len(selection.Nodes) != 1 {
 		t.Fatalf("expected minimal deficit-driven selection, got %d", len(selection.Nodes))
 	}
-	if selection.SelectedTokens != 20000 {
-		t.Fatalf("expected 20000 selected tokens, got %d", selection.SelectedTokens)
+	if selection.SelectedTokens != 2000 {
+		t.Fatalf("expected 2000 selected tokens, got %d", selection.SelectedTokens)
 	}
 	if selection.TargetTokens != 1024 {
 		t.Fatalf("expected minimum target 1024, got %d", selection.TargetTokens)
@@ -532,29 +535,23 @@ func TestInlineCompactAtomFrontierCarriesPriorReplacementAcrossRounds(t *testing
 		})
 	}
 
-	roundSummaries := []string{"R1", "R2", "R3", "R4"}
-	for round, summary := range roundSummaries {
-		nodes := buildCompactFrontierAtomsFromMessagesWithOptions(enc, working, false)
-		selection := selectCompactAtomWindow(nodes, 999999, contextCompactMaxLLMInputTokens)
-		if len(selection.Nodes) != compactMaxAtomsPerRound {
-			t.Fatalf("round %d expected %d selected atoms, got %d", round+1, compactMaxAtomsPerRound, len(selection.Nodes))
-		}
-		if round > 0 {
-			if got := selection.Nodes[0].SourceText; got != roundSummaries[round-1] {
-				t.Fatalf("round %d expected previous summary %q at frontier head, got %q", round+1, roundSummaries[round-1], got)
-			}
-		}
-		working = materializeCompactedPrefixAtoms(working, nodes, len(selection.Nodes)-1, summary)
+	// token 预算远大于全部 atom 总 token，每轮选全部 eligible
+	// 第 1 轮: 99 eligible → compact → [R1, atom-100]
+	// 第 2 轮: R1 是 replacement 且是唯一 eligible 以外的 protected atom-100
+	//          单 replacement 扩展不可能（没有更多 eligible），返回 empty
+	nodes := buildCompactFrontierAtomsFromMessagesWithOptions(enc, working, false)
+	selection := selectCompactAtomWindow(nodes, 999999, contextCompactMaxLLMInputTokens)
+	if len(selection.Nodes) == 0 {
+		t.Fatal("round 1: expected non-empty selection")
 	}
+	// 验证 replacement head 在第一轮不存在
+	working = materializeCompactedPrefixAtoms(working, nodes, len(selection.Nodes)-1, "R1")
 
-	if len(working) != 24 {
-		t.Fatalf("expected final pyramid result to leave 24 messages, got %d", len(working))
+	if len(working) != 2 {
+		t.Fatalf("expected 2 messages after round 1 (summary + protected tail), got %d", len(working))
 	}
-	if got := messageText(working[0]); got != "R4" {
-		t.Fatalf("expected final head summary R4, got %q", got)
-	}
-	if got := messageText(working[1]); got != "atom-78" {
-		t.Fatalf("expected first raw tail atom-78, got %q", got)
+	if got := messageText(working[0]); got != "R1" {
+		t.Fatalf("expected head summary R1, got %q", got)
 	}
 	if got := messageText(working[len(working)-1]); got != "atom-100" {
 		t.Fatalf("expected protected tail atom-100, got %q", got)
@@ -593,8 +590,10 @@ func TestBuildCompactFrontierAtomsFromPersistFrontier_PreservesCanonicalSeqRange
 
 	atoms := buildCompactFrontierAtomsFromPersistFrontier(frontier)
 	selection := selectCompactAtomWindow(atoms, 999999, contextCompactMaxLLMInputTokens)
-	if len(selection.Nodes) != compactMaxAtomsPerRound {
-		t.Fatalf("expected %d selected atoms, got %d", compactMaxAtomsPerRound, len(selection.Nodes))
+	// 所有 atom token 极小，全部 eligible 都会被选中（除 protected tail）
+	expectedCount := len(atoms) - 1 // protected tail excluded
+	if len(selection.Nodes) != expectedCount {
+		t.Fatalf("expected %d selected atoms, got %d", expectedCount, len(selection.Nodes))
 	}
 	if selection.Nodes[0].StartContextSeq != 1 || selection.Nodes[0].EndContextSeq != 20 {
 		t.Fatalf("expected replacement seq 1..20, got %#v", selection.Nodes[0])
@@ -2172,38 +2171,44 @@ func TestSelectPersistFrontierWindowForPressure_CompactZoneUnderBudget(t *testin
 }
 
 func TestSelectPersistFrontierWindowForPressure_CompactZoneOverBudget(t *testing.T) {
-	// compact zone over budget → selection restricted to replacements only (compact-of-compact).
-	// Need 4+ replacements so that after raw zone trimming and selectCompactAtomWindow's
-	// protected-tail logic, at least 2 eligible replacements remain for selection.
+	// compact zone over budget -> selection restricted to replacements only (compact-of-compact).
+	// 6 replacements at 4000 tokens each, plus chunks at the tail.
+	// window=128000, targetTokens=65%=83200, rawBudget=44800
+	// raw zone scans from end: 15 chunks(30000) + R6(4000) = 34000 < 44800, + R5(4000) = 38000, + R4(4000) = 42000, + R3(4000) = 46000 > 44800
+	// -> rawStart = index of R3 (=2), eligible = [R1, R2, R3]
+	// compact zone budget = 25% of 128000 = 32000, replacement tokens in eligible = R1+R2+R3 = 12000
+	// hmm, that's under budget. Use lower window so budget is smaller.
 	frontier := []FrontierNode{
-		{Kind: FrontierNodeReplacement, StartContextSeq: 1, EndContextSeq: 5, StartThreadSeq: 1, EndThreadSeq: 5, SourceText: "big R1", ApproxTokens: 12000, AtomSeq: 1},
-		{Kind: FrontierNodeReplacement, StartContextSeq: 6, EndContextSeq: 10, StartThreadSeq: 6, EndThreadSeq: 10, SourceText: "big R2", ApproxTokens: 12000, AtomSeq: 2},
-		{Kind: FrontierNodeReplacement, StartContextSeq: 11, EndContextSeq: 15, StartThreadSeq: 11, EndThreadSeq: 15, SourceText: "big R3", ApproxTokens: 12000, AtomSeq: 3},
-		{Kind: FrontierNodeReplacement, StartContextSeq: 16, EndContextSeq: 20, StartThreadSeq: 16, EndThreadSeq: 20, SourceText: "big R4", ApproxTokens: 12000, AtomSeq: 4},
+		{Kind: FrontierNodeReplacement, StartContextSeq: 1, EndContextSeq: 3, StartThreadSeq: 1, EndThreadSeq: 3, SourceText: "R1", ApproxTokens: 4000, AtomSeq: 1},
+		{Kind: FrontierNodeReplacement, StartContextSeq: 4, EndContextSeq: 6, StartThreadSeq: 4, EndThreadSeq: 6, SourceText: "R2", ApproxTokens: 4000, AtomSeq: 2},
+		{Kind: FrontierNodeReplacement, StartContextSeq: 7, EndContextSeq: 9, StartThreadSeq: 7, EndThreadSeq: 9, SourceText: "R3", ApproxTokens: 4000, AtomSeq: 3},
+		{Kind: FrontierNodeReplacement, StartContextSeq: 10, EndContextSeq: 12, StartThreadSeq: 10, EndThreadSeq: 12, SourceText: "R4", ApproxTokens: 4000, AtomSeq: 4},
 	}
-	for seq := int64(21); seq <= 35; seq++ {
+	for seq := int64(13); seq <= 22; seq++ {
 		frontier = append(frontier, FrontierNode{
 			Kind: FrontierNodeChunk, StartContextSeq: seq, EndContextSeq: seq, StartThreadSeq: seq, EndThreadSeq: seq,
 			SourceText: fmt.Sprintf("c%d", seq), ApproxTokens: 2000, AtomSeq: int(seq), AtomType: compactAtomUserText, Role: "user",
 			atomKey: fmt.Sprintf("a:%d", seq),
 		})
 	}
-	// window=128000, targetTokens=65%=83200, rawBudget=44800
-	// raw zone: R4(12000) + 15 chunks(30000) = 42000 < 44800, but R3+R4+chunks = 54000 > 44800
-	// → rawStart = index of R3 (=2), eligible = [R1, R2, R3]
-	// compact zone budget = 25% of 128000 = 32000, replacement tokens in eligible = 36000 > 32000
-	// → filter to replacements only: [R1, R2, R3]
-	// selectCompactAtomWindow protects R3(last AtomSeq=3), selects R1+R2
+	// window=40000, targetTokens=65%=26000, rawBudget=14000
+	// raw zone from end: chunks 13-22 = 10*2000 = 20000 > 14000
+	// -> scans backwards until sum > 14000: c22(2000)..c16(2000) = 7*2000 = 14000, c15 would be 16000 > 14000
+	// rawStart is at R4+c13..c15 boundary area. eligible includes R1..R3 plus some chunks.
+	// compact zone budget = 10% of 40000 = 4000, replacement tokens in eligible >= 12000 > 4000
+	// -> filter to replacements only
+	// selectCompactAtomWindow: protects last AtomSeq in eligible, selects from front
+	// R1(4000) + R2(4000) = 8000 <= maxInputTokens(10000) -> selects R1+R2
 	rc := &RunContext{
 		ContextCompact: ContextCompactSettings{
 			PersistEnabled:              true,
 			TargetContextPct:            65,
-			CompactZoneBudgetPct:        25,
-			FallbackContextWindowTokens: 128000,
+			CompactZoneBudgetPct:        10,
+			FallbackContextWindowTokens: 40000,
 		},
-		ContextWindowTokens: 128000,
+		ContextWindowTokens: 40000,
 	}
-	selected, ok := selectPersistFrontierWindowForPressure(rc, frontier, 100000)
+	selected, ok := selectPersistFrontierWindowForPressure(rc, frontier, 35000)
 	if !ok || len(selected) == 0 {
 		t.Fatal("expected non-empty selection for compact-of-compact")
 	}

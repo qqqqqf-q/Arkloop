@@ -58,7 +58,8 @@ type compactFrontierSelection struct {
 	SelectedTokens int
 }
 
-const compactMaxAtomsPerRound = 20
+// 极端保护上限，正常情况下 token 预算会先生效
+const compactMaxAtomsPerRound = 500
 
 type compactProgressRecorder struct {
 	base             map[string]any
@@ -617,9 +618,6 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 	if targetTokens < 1024 {
 		targetTokens = 1024
 	}
-	if maxTargetTokens := maxInputTokens / 2; maxTargetTokens > 0 && targetTokens > maxTargetTokens {
-		targetTokens = maxTargetTokens
-	}
 	if maxInputTokens > 0 && targetTokens > maxInputTokens {
 		targetTokens = maxInputTokens
 	}
@@ -631,7 +629,8 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 		selection.Nodes = append(selection.Nodes, nodes[i])
 		selection.EndNodeIndex = i
 		selection.SelectedTokens += nodes[i].ApproxTokens
-		if len(selection.Nodes) >= compactMaxAtomsPerRound || (targetTokens > 0 && selection.SelectedTokens >= targetTokens) {
+		// token 预算是主要约束
+		if targetTokens > 0 && selection.SelectedTokens >= targetTokens {
 			break
 		}
 	}
@@ -646,9 +645,21 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 	if len(selection.Nodes) == 0 {
 		return compactFrontierSelection{}
 	}
-	// 禁止单独 compact 一个 replacement，无法推进覆盖范围
+	// 单 replacement 无法推进覆盖范围，向右扩展一个 eligible atom
 	if len(selection.Nodes) == 1 && selection.Nodes[0].Kind == FrontierNodeReplacement {
-		return compactFrontierSelection{}
+		if selection.EndNodeIndex+1 < eligibleEnd {
+			next := nodes[selection.EndNodeIndex+1]
+			// 扩展后不超过 maxInputTokens
+			if maxInputTokens <= 0 || selection.SelectedTokens+next.ApproxTokens <= maxInputTokens {
+				selection.Nodes = append(selection.Nodes, next)
+				selection.SelectedTokens += next.ApproxTokens
+				selection.EndNodeIndex++
+			} else {
+				return compactFrontierSelection{}
+			}
+		} else {
+			return compactFrontierSelection{}
+		}
 	}
 	return selection
 }
@@ -802,21 +813,18 @@ func runContextCompactLLMForNodes(
 		},
 		MaxOutputTokens: &maxTok,
 	}
-	streamCtx, cancel := context.WithTimeout(ctx, contextCompactStreamTimeout)
-	defer cancel()
-
 	progress.emit(ctx, rc, "llm_request_started", map[string]any{
-		"attempt":                attempt,
-		"atoms_attempted":        len(nodes),
-		"input_tokens":           compactNodesApproxTokens(nodes),
-		"input_runes":            len([]rune(targetText)),
-		"model":                  model,
-		"stream_timeout_seconds": int(contextCompactStreamTimeout / time.Second),
+		"attempt":         attempt,
+		"atoms_attempted": len(nodes),
+		"input_tokens":    compactNodesApproxTokens(nodes),
+		"input_runes":     len([]rune(targetText)),
+		"model":           model,
 	})
 
 	var chunks []string
 	startedAt := time.Now()
-	err := gateway.Stream(streamCtx, req, func(ev llm.StreamEvent) error {
+	// 超时由 gateway 内部的 idle timeout 控制，与主 agent 一致
+	err := gateway.Stream(ctx, req, func(ev llm.StreamEvent) error {
 		switch typed := ev.(type) {
 		case llm.StreamLlmRequest:
 			progress.emitStandard(ctx, rc, "llm.request", typed.ToDataJSON())

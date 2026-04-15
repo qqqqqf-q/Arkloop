@@ -21,14 +21,13 @@ import (
 
 const (
 	settingContextCompactionModel  = "context.compaction.model"
-	contextCompactStreamTimeout    = 60 * time.Second
-	contextCompactTimeBudget       = 90 * time.Second
+	contextCompactTimeBudget = 90 * time.Second
 	contextCompactMaxOut           = 4096
 	contextCompactGroupMaxOut      = 8192
 	contextCompactPostWriteTimeout = 30 * time.Second
 	defaultPersistKeepLastMessages = 40
 	// 发往压缩摘要 LLM 的用户块上限（tiktoken 用 HistoryThreadPromptTokens；单条超大时再按 rune 截断）。
-	contextCompactMaxLLMInputTokens = 120000
+	contextCompactMaxLLMInputTokens = 10000
 	contextCompactMaxLLMInputRunes  = 400000
 	// 快速裁切：已有 snapshot 且待压缩前缀消息不超过此数量时，跳过 LLM 直接复用已有摘要
 	fastCompactMaxPrefixMessages = 4
