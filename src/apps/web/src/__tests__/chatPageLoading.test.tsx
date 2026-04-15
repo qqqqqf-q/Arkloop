@@ -34,6 +34,7 @@ import {
   readThreadWorkFolder,
   writeMessageAssistantTurn,
   writeMessageCodeExecutions,
+  writeMessageSearchSteps,
   writeMessageTerminalStatus,
   writeMessageWidgets,
   readThreadRunHandoff,
@@ -508,6 +509,7 @@ describe('ChatPage loading state', () => {
   const mockedRetryThread = vi.mocked(retryThread)
   const mockedWriteMessageAssistantTurn = vi.mocked(writeMessageAssistantTurn)
   const mockedWriteMessageCodeExecutions = vi.mocked(writeMessageCodeExecutions)
+  const mockedWriteMessageSearchSteps = vi.mocked(writeMessageSearchSteps)
   const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
   const mockedReadMessageAssistantTurn = vi.mocked(readMessageAssistantTurn)
   const mockedReadMessageCodeExecutions = vi.mocked(readMessageCodeExecutions)
@@ -2498,6 +2500,39 @@ describe('ChatPage loading state', () => {
         run_id: 'run-cancel-closed',
         seq: 8,
         ts: '2026-03-10T00:00:01Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          arguments: {
+            query: 'Claude Desktop 更新',
+          },
+        },
+      },
+      {
+        event_id: 'evt-9',
+        run_id: 'run-cancel-closed',
+        seq: 9,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          result: {
+            results: [
+              {
+                title: 'Release notes',
+                url: 'https://claude.ai/release-notes',
+              },
+            ],
+          },
+        },
+      },
+      {
+        event_id: 'evt-10',
+        run_id: 'run-cancel-closed',
+        seq: 10,
+        ts: '2026-03-10T00:00:01Z',
         type: 'run.cancelled',
         data: {},
       },
@@ -2521,6 +2556,18 @@ describe('ChatPage loading state', () => {
       expect.objectContaining({
         segments: expect.any(Array),
       }),
+    )
+    expect(mockedWriteMessageSearchSteps).toHaveBeenCalledWith(
+      'msg-2',
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'search-1',
+          kind: 'searching',
+          status: 'done',
+          queries: ['Claude Desktop 更新'],
+          sources: [{ title: 'Release notes', url: 'https://claude.ai/release-notes' }],
+        }),
+      ]),
     )
     expect(mockedWriteMessageTerminalStatus).toHaveBeenCalledWith('msg-2', 'cancelled')
 
@@ -4116,6 +4163,148 @@ describe('ChatPage loading state', () => {
 
     const text = container.textContent ?? ''
     expect(text).toContain('Search completed')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('cancelled 历史消息缺 search steps 时也应通过 replay 恢复', async () => {
+    mockedReadMessageAssistantTurn.mockImplementation((messageId: string) => (
+      messageId === 'msg-2'
+        ? {
+            segments: [
+              {
+                type: 'cop',
+                title: null,
+                items: [
+                  {
+                    kind: 'assistant_text',
+                    content: '让我看看官方 release notes。',
+                    seq: 1,
+                  },
+                ],
+              },
+            ],
+          }
+        : null
+    ))
+    mockedListMessages.mockResolvedValueOnce([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-cancelled-replay-search',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-cancelled-replay-search',
+        status: 'cancelled',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-cancelled-replay-search',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'tool.call',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          arguments: { query: 'Claude Desktop release notes' },
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-cancelled-replay-search',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'tool.result',
+        data: {
+          tool_name: 'web_search',
+          tool_call_id: 'search-1',
+          result: { results: [{ title: 'Release notes', url: 'https://claude.ai/release-notes' }] },
+        },
+      },
+      {
+        event_id: 'evt-3',
+        run_id: 'run-cancelled-replay-search',
+        seq: 3,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'run.cancelled',
+        data: {},
+      },
+    ])
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(mockedWriteMessageSearchSteps).toHaveBeenCalledWith(
+      'msg-2',
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'search-1',
+          kind: 'searching',
+          status: 'done',
+          queries: ['Claude Desktop release notes'],
+        }),
+      ]),
+    )
 
     act(() => {
       root.unmount()

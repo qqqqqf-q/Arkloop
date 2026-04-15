@@ -719,6 +719,10 @@ export function useSseDispatch(params: {
         const runId = event.run_id
         run.setTerminalRunDisplayId(runId)
         run.setTerminalRunHandoffStatus('cancelled')
+        const runSearchSteps = finalizeSearchSteps(stream.searchStepsRef.current)
+        if (runSearchSteps.length > 0) {
+          meta.pendingSearchStepsRef.current = runSearchSteps
+        }
         const runEventsForMessage = runId
           ? (run.sse.events as MsgRunEvent[]).filter((e) => {
             if (e.run_id !== runId || typeof e.seq !== 'number') return false

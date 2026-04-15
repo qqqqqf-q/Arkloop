@@ -202,7 +202,7 @@ function FailedRunRetryCard({
 
   return (
     <div
-      className="mt-2 flex w-full max-w-[756px] items-center justify-between gap-3 rounded-2xl px-4 py-4"
+      className="mt-3 flex w-full max-w-[756px] items-center justify-between gap-3 rounded-2xl px-4 py-4"
       style={{ background: 'var(--c-bg-sub)', border: '0.75px solid var(--c-border)' }}
     >
       <div className="flex min-w-0 items-center gap-2 text-[var(--c-text-secondary)]">
@@ -1056,6 +1056,7 @@ export function ChatView() {
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
         const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
+        const replaySearchStepsNeeded = !!(lastAssistant && !searchStepsMap.has(lastAssistant.id))
         const replayAssistantTurnNeeded = !!(lastAssistant && !assistantTurnMap.has(lastAssistant.id))
         const shouldReplayLatestRun =
           !!latest &&
@@ -1070,7 +1071,9 @@ export function ChatView() {
               replaySubAgentsNeeded ||
               replayFileOpsNeeded ||
               replayWebFetchesNeeded ||
-              replayAssistantTurnNeeded
+              replaySearchStepsNeeded ||
+              replayAssistantTurnNeeded ||
+              true // always replay to restore todos
             ))
           )
         if (shouldReplayLatestRun && latest) {
