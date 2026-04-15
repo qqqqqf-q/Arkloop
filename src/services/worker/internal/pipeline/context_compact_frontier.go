@@ -480,19 +480,50 @@ func mapSelectedAtomsToPersistFrontierNodes(selectedAtoms []FrontierNode, fronti
 		return nil
 	}
 	out := make([]FrontierNode, 0, len(selectedAtoms))
+	seen := make(map[uuid.UUID]struct{}, len(selectedAtoms))
 	for _, selected := range selectedAtoms {
+		if selected.Kind == FrontierNodeReplacement {
+			for _, node := range frontier {
+				if node.Kind != FrontierNodeReplacement {
+					continue
+				}
+				if selected.NodeID != uuid.Nil {
+					if node.NodeID == uuid.Nil || node.NodeID != selected.NodeID {
+						continue
+					}
+				} else if node.StartContextSeq != selected.StartContextSeq ||
+					node.EndContextSeq != selected.EndContextSeq ||
+					node.StartThreadSeq != selected.StartThreadSeq ||
+					node.EndThreadSeq != selected.EndThreadSeq {
+					continue
+				}
+				if _, ok := seen[node.NodeID]; ok {
+					break
+				}
+				seen[node.NodeID] = struct{}{}
+				out = append(out, node)
+				break
+			}
+			continue
+		}
 		for _, node := range frontier {
-			if node.Kind != selected.Kind {
+			if node.Kind != FrontierNodeChunk || node.NodeID == uuid.Nil {
 				continue
 			}
-			if node.StartContextSeq != selected.StartContextSeq || node.EndContextSeq != selected.EndContextSeq {
+			if node.atomKey != selected.atomKey {
 				continue
 			}
-			if node.StartThreadSeq != selected.StartThreadSeq || node.EndThreadSeq != selected.EndThreadSeq {
+			if node.StartContextSeq < selected.StartContextSeq || node.EndContextSeq > selected.EndContextSeq {
 				continue
 			}
+			if node.StartThreadSeq < selected.StartThreadSeq || node.EndThreadSeq > selected.EndThreadSeq {
+				continue
+			}
+			if _, ok := seen[node.NodeID]; ok {
+				continue
+			}
+			seen[node.NodeID] = struct{}{}
 			out = append(out, node)
-			break
 		}
 	}
 	return out
@@ -615,23 +646,9 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 	if len(selection.Nodes) == 0 {
 		return compactFrontierSelection{}
 	}
-	// Guard: prevent single-replacement re-compaction (no rightward progress).
-	// A lone replacement being re-compressed produces a slightly shorter replacement
-	// covering the same time range — the frontier shape never improves.
+	// 禁止单独 compact 一个 replacement，无法推进覆盖范围
 	if len(selection.Nodes) == 1 && selection.Nodes[0].Kind == FrontierNodeReplacement {
-		nextIdx := selection.EndNodeIndex + 1
-		if nextIdx < eligibleEnd {
-			next := nodes[nextIdx]
-			if maxInputTokens <= 0 || selection.SelectedTokens+next.ApproxTokens <= maxInputTokens {
-				selection.Nodes = append(selection.Nodes, next)
-				selection.EndNodeIndex = nextIdx
-				selection.SelectedTokens += next.ApproxTokens
-			} else {
-				return compactFrontierSelection{}
-			}
-		} else {
-			return compactFrontierSelection{}
-		}
+		return compactFrontierSelection{}
 	}
 	return selection
 }
@@ -656,9 +673,16 @@ func buildCompactSummaryInputFromAtoms(nodes []FrontierNode) string {
 		return ""
 	}
 	parts := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		text := strings.TrimSpace(node.SourceText)
+	for i := 0; i < len(nodes); {
+		if block, next := buildCompactEnvelopeBurstBlock(nodes, i); next > i {
+			parts = append(parts, block)
+			i = next
+			continue
+		}
+		node := nodes[i]
+		text := strings.TrimSpace(projectCompactNodeText(node))
 		if text == "" {
+			i++
 			continue
 		}
 		tag := "[assistant]"
@@ -673,8 +697,74 @@ func buildCompactSummaryInputFromAtoms(nodes []FrontierNode) string {
 			tag = "[assistant]"
 		}
 		parts = append(parts, tag+"\n"+text)
+		i++
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func buildCompactEnvelopeBurstBlock(nodes []FrontierNode, start int) (string, int) {
+	if start < 0 || start >= len(nodes) {
+		return "", start
+	}
+	msgs := make([]llm.Message, 0, len(nodes)-start)
+	for i := start; i < len(nodes); i++ {
+		node := nodes[i]
+		if !compactNodeUsesEnvelopeProjection(node) {
+			break
+		}
+		text := strings.TrimSpace(node.SourceText)
+		if text == "" {
+			break
+		}
+		msgs = append(msgs, llm.Message{
+			Role:    "user",
+			Content: []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: text}},
+		})
+	}
+	if len(msgs) == 0 {
+		return "", start
+	}
+	compacted, _, ok := compactTelegramGroupEnvelopeBurst(msgs)
+	if !ok {
+		return "", start
+	}
+	compacted = strings.TrimSpace(compacted)
+	if compacted == "" {
+		return "", start
+	}
+	return "[user]\n" + compacted, start + len(msgs)
+}
+
+func compactNodeUsesEnvelopeProjection(node FrontierNode) bool {
+	if node.Kind != FrontierNodeChunk {
+		return false
+	}
+	if strings.TrimSpace(node.Role) != "user" && node.AtomType != compactAtomUserText {
+		return false
+	}
+	text := strings.TrimSpace(node.SourceText)
+	if text == "" {
+		return false
+	}
+	meta, _, ok := parseTelegramEnvelopeText(text)
+	if !ok {
+		return false
+	}
+	return isGroupMergeEligibleChannel(strings.TrimSpace(meta["channel"]))
+}
+
+func projectCompactNodeText(node FrontierNode) string {
+	text := strings.TrimSpace(node.SourceText)
+	if text == "" {
+		return ""
+	}
+	if node.Kind == FrontierNodeReplacement {
+		return text
+	}
+	if fields := parseEnvelope(text); fields != nil {
+		return formatNaturalPrefix(fields)
+	}
+	return text
 }
 
 func runContextCompactLLMForNodes(

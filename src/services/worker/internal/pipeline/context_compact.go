@@ -742,8 +742,7 @@ func selectPersistFrontierWindowForPressure(
 	}
 	eligible := selectionFrontier[:rawStart]
 
-	// compact zone budget: when replacement nodes exceed the budget,
-	// restrict selection to replacements only (compact-of-compact).
+	// 双分支选区：根据 compact zone 是否满来决定选谁
 	compactZoneBudgetPct := rc.ContextCompact.CompactZoneBudgetPct
 	if compactZoneBudgetPct <= 0 {
 		compactZoneBudgetPct = 25
@@ -756,14 +755,27 @@ func selectPersistFrontierWindowForPressure(
 		}
 	}
 	if compactZoneTokens >= compactZoneBudget {
+		// 10.2: compact zone 满了，只选 replacement 做 compact of compact
 		replacementsOnly := make([]FrontierNode, 0, len(eligible))
 		for _, node := range eligible {
 			if node.Kind == FrontierNodeReplacement {
 				replacementsOnly = append(replacementsOnly, node)
 			}
 		}
+		// 11.1: 禁止单独 compact 一个 replacement，至少要 2 个
 		if len(replacementsOnly) > 1 {
 			eligible = replacementsOnly
+		}
+	} else {
+		// 10.1: compact zone 没满，只选 raw chunk，让覆盖范围向右推进
+		rawOnly := make([]FrontierNode, 0, len(eligible))
+		for _, node := range eligible {
+			if node.Kind != FrontierNodeReplacement {
+				rawOnly = append(rawOnly, node)
+			}
+		}
+		if len(rawOnly) > 0 {
+			eligible = rawOnly
 		}
 	}
 

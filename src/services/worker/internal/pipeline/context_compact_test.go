@@ -440,6 +440,55 @@ func TestBuildCompactSummaryInputFromAtoms_StructuredFormat(t *testing.T) {
 	}
 }
 
+func TestBuildCompactSummaryInputFromAtoms_ProjectsTelegramEnvelopeBurst(t *testing.T) {
+	nodes := []FrontierNode{
+		{
+			Kind:     FrontierNodeChunk,
+			AtomType: compactAtomUserText,
+			Role:     "user",
+			SourceText: "---\n" +
+				"display-name: \"清凤\"\n" +
+				"channel: \"telegram\"\n" +
+				"conversation-type: \"supergroup\"\n" +
+				"sender-ref: \"cf842dbb-a8e5-4d0c-876d-533c8d0d1b11\"\n" +
+				"platform-username: \"chiffoncha\"\n" +
+				"conversation-title: \"Arkloop\"\n" +
+				"message-id: \"7158\"\n" +
+				"time: \"2026-04-06T15:28:38Z\"\n" +
+				"---\n" +
+				"[Telegram in Arkloop] 也就是，质量和热度缺一不可？",
+		},
+		{
+			Kind:     FrontierNodeChunk,
+			AtomType: compactAtomUserText,
+			Role:     "user",
+			SourceText: "---\n" +
+				"display-name: \"清凤\"\n" +
+				"channel: \"telegram\"\n" +
+				"conversation-type: \"supergroup\"\n" +
+				"sender-ref: \"cf842dbb-a8e5-4d0c-876d-533c8d0d1b11\"\n" +
+				"platform-username: \"chiffoncha\"\n" +
+				"conversation-title: \"Arkloop\"\n" +
+				"message-id: \"7159\"\n" +
+				"time: \"2026-04-06T15:28:41Z\"\n" +
+				"---\n" +
+				"[Telegram in Arkloop] 草洛",
+		},
+	}
+
+	input := buildCompactSummaryInputFromAtoms(nodes)
+	for _, bad := range []string{"display-name:", "sender-ref:", "platform-username:", "conversation-title:"} {
+		if strings.Contains(input, bad) {
+			t.Fatalf("expected projected compact input without raw metadata %q, got %q", bad, input)
+		}
+	}
+	for _, want := range []string{"[user]\nTelegram supergroup \"Arkloop\"", "清凤", "质量和热度缺一不可", "草洛"} {
+		if !strings.Contains(input, want) {
+			t.Fatalf("expected projected compact input to contain %q, got %q", want, input)
+		}
+	}
+}
+
 func TestMaterializeCompactedPrefixAtoms_NoPartialTail(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "user", Content: []llm.TextPart{{Text: "head"}}},
@@ -613,6 +662,60 @@ func TestMapSelectedAtomsToPersistFrontierNodes_UsesCanonicalSeqRanges(t *testin
 	}
 	if got[1].StartContextSeq != 21 || got[1].EndContextSeq != 21 {
 		t.Fatalf("unexpected second mapped node %#v", got[1])
+	}
+}
+
+func TestMapSelectedAtomsToPersistFrontierNodes_ExpandsMergedChunkAtom(t *testing.T) {
+	selectedAtoms := []FrontierNode{
+		{
+			Kind:            FrontierNodeChunk,
+			StartContextSeq: 21,
+			EndContextSeq:   23,
+			StartThreadSeq:  21,
+			EndThreadSeq:    23,
+			AtomSeq:         21,
+			atomKey:         "atom:21-23",
+		},
+	}
+	chunk1 := uuid.New()
+	chunk2 := uuid.New()
+	chunk3 := uuid.New()
+	frontier := []FrontierNode{
+		{
+			Kind:            FrontierNodeChunk,
+			NodeID:          chunk1,
+			StartContextSeq: 21,
+			EndContextSeq:   21,
+			StartThreadSeq:  21,
+			EndThreadSeq:    21,
+			atomKey:         "atom:21-23",
+		},
+		{
+			Kind:            FrontierNodeChunk,
+			NodeID:          chunk2,
+			StartContextSeq: 22,
+			EndContextSeq:   22,
+			StartThreadSeq:  22,
+			EndThreadSeq:    22,
+			atomKey:         "atom:21-23",
+		},
+		{
+			Kind:            FrontierNodeChunk,
+			NodeID:          chunk3,
+			StartContextSeq: 23,
+			EndContextSeq:   23,
+			StartThreadSeq:  23,
+			EndThreadSeq:    23,
+			atomKey:         "atom:21-23",
+		},
+	}
+
+	got := mapSelectedAtomsToPersistFrontierNodes(selectedAtoms, frontier)
+	if len(got) != 3 {
+		t.Fatalf("expected merged atom to expand to all chunks, got %#v", got)
+	}
+	if got[0].NodeID != chunk1 || got[1].NodeID != chunk2 || got[2].NodeID != chunk3 {
+		t.Fatalf("unexpected mapped chunks %#v", got)
 	}
 }
 

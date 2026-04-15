@@ -212,7 +212,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	if nowledgeProvider := resolveNowledgeProvider(context.Background(), deps.ConfigResolver); nowledgeProvider != nil {
 		linkRepo := data.ExternalThreadLinksRepository{}
 		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(nowledgeProvider))
-		hookRegistry.RegisterCompactionAdvisor(pipeline.NewNowledgeCompactionAdvisor(nowledgeProvider))
 		_ = hookRegistry.SetThreadPersistenceProvider(pipeline.NewNowledgeThreadPersistenceProvider(
 			nowledgeProvider,
 			pgxExternalThreadLinks{repo: linkRepo, pool: deps.DBPool},

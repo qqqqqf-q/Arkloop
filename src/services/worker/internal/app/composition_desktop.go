@@ -356,7 +356,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		linkRepo := data.ExternalThreadLinksRepository{}
 		linkStore := desktopExternalThreadLinks{repo: linkRepo, db: db}
 		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(typed))
-		hookRegistry.RegisterCompactionAdvisor(pipeline.NewNowledgeCompactionAdvisor(typed))
 		_ = hookRegistry.SetThreadPersistenceProvider(pipeline.NewNowledgeThreadPersistenceProvider(typed, linkStore))
 	}
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
