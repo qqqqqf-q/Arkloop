@@ -53,6 +53,51 @@ describe('copTimelinePayloadForSegment', () => {
     expect(r.steps[1]?.sources).toEqual([{ title: 'u', url: 'https://u.test' }])
   })
 
+  it('缺少 searchSteps 池子时，会从段内 web_search call 恢复时间线', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [
+          {
+            kind: 'call',
+            call: {
+              toolCallId: 'ws1',
+              toolName: 'web_search',
+              arguments: { query: 'Claude Desktop 更新' },
+              result: {
+                results: [{ title: 'u', url: 'https://u.test' }],
+              },
+            },
+            seq: 3,
+          },
+        ],
+      },
+      {
+        sources: [{ title: 'u', url: 'https://u.test' }],
+      },
+    )
+    expect(r.steps).toEqual([
+      {
+        id: 'ws1',
+        kind: 'searching',
+        label: 'Search completed',
+        status: 'done',
+        queries: ['Claude Desktop 更新'],
+        seq: 3,
+      },
+      {
+        id: 'ws1::reviewing',
+        kind: 'reviewing',
+        label: 'Reviewing sources',
+        status: 'done',
+        sources: [{ title: 'u', url: 'https://u.test' }],
+        seq: 3.5,
+      },
+    ])
+    expect(r.sources).toEqual([{ title: 'u', url: 'https://u.test' }])
+  })
+
   it('reviewing 按 resultSeq 排序，不抢到其他工具前面', () => {
     const r = copTimelinePayloadForSegment(
       {

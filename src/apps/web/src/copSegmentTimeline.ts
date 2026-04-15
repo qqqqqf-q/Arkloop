@@ -9,7 +9,13 @@ import type {
 } from './storage'
 import type { WebSearchPhaseStep } from './components/CopTimeline'
 import { isWebFetchToolName } from './runEventProcessing'
-import { isWebSearchToolName } from './webSearchTimelineFromRunEvent'
+import {
+  DEFAULT_SEARCHING_LABEL,
+  COMPLETED_SEARCHING_LABEL,
+  isWebSearchToolName,
+  webSearchQueriesFromArguments,
+  webSearchSourcesFromResult,
+} from './webSearchTimelineFromRunEvent'
 
 type CopSegment = Extract<AssistantTurnSegment, { type: 'cop' }>
 export type GenericToolCallRef = {
@@ -58,6 +64,56 @@ function isKnownTimelineTool(toolName: string): boolean {
 
 type WebSearchPhaseStepLike = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources'>
 
+function fallbackWebSearchStepsForSegment(
+  segment: CopSegment,
+  knownStepIds: Set<string>,
+  globalSources: WebSource[],
+): WebSearchPhaseStep[] {
+  const fallbackSteps: WebSearchPhaseStep[] = []
+  let lastSearchStepId: string | null = null
+  let lastSearchStepSeq: number | undefined
+  let hasScopedSources = false
+
+  for (const item of segment.items) {
+    if (item.kind !== 'call') continue
+    const { call, seq } = item
+    if (!isWebSearchToolName(call.toolName)) continue
+    if (knownStepIds.has(call.toolCallId)) continue
+
+    const resultSources = webSearchSourcesFromResult(call.result)
+    const searchStatus: WebSearchPhaseStep['status'] =
+      call.result !== undefined || call.errorClass != null ? 'done' : 'active'
+    fallbackSteps.push({
+      id: call.toolCallId,
+      kind: 'searching',
+      label: searchStatus === 'done' ? COMPLETED_SEARCHING_LABEL : DEFAULT_SEARCHING_LABEL,
+      status: searchStatus,
+      queries: webSearchQueriesFromArguments(call.arguments),
+      seq,
+      ...(resultSources ? { sources: resultSources } : {}),
+    })
+    lastSearchStepId = call.toolCallId
+    lastSearchStepSeq = seq
+
+    if (resultSources && resultSources.length > 0) {
+      hasScopedSources = true
+    }
+  }
+
+  if (!hasScopedSources && globalSources.length > 0 && lastSearchStepId) {
+    fallbackSteps.push({
+      id: `${lastSearchStepId}::reviewing`,
+      kind: 'reviewing',
+      label: 'Reviewing sources',
+      status: 'done',
+      sources: globalSources,
+      seq: typeof lastSearchStepSeq === 'number' ? lastSearchStepSeq + 0.5 : undefined,
+    })
+  }
+
+  return fallbackSteps
+}
+
 /**
  * 仅返回 CopTimeline 已支持的数据子集（代码 / 子代理 / 文件 / 抓取 / 搜索阶段步骤）。
  * segment 内有 toolCallId 但池子尚未匹配时返回 { steps:[], sources:[] }，避免外层把整条 COP 拆掉。
@@ -89,7 +145,7 @@ export function copTimelinePayloadForSegment(
   const webFetches = sortBySeq((pools.webFetches ?? []).filter((x) => ids.has(x.id)))
   const subAgents = sortBySeq((pools.subAgents ?? []).filter((x) => ids.has(x.id)))
 
-  const steps: WebSearchPhaseStep[] = sortBySeq(
+  const mappedSteps: WebSearchPhaseStep[] = sortBySeq(
     (pools.searchSteps ?? [])
       .filter((s) => ids.has(s.id))
       .map((s) => ({
@@ -102,12 +158,22 @@ export function copTimelinePayloadForSegment(
         seq: s.seq,
       })),
   )
-  const sourcesById = new Map(
+  const mappedSourcesById = new Map(
     (pools.searchSteps ?? [])
       .filter((s) => ids.has(s.id) && Array.isArray(s.sources) && s.sources.length > 0)
       .map((s) => [s.id, s.sources ?? []] as const),
   )
+  const fallbackSteps = fallbackWebSearchStepsForSegment(segment, new Set(mappedSteps.map((step) => step.id)), pools.sources)
+  const steps = sortBySeq([...mappedSteps, ...fallbackSteps])
+  const sourcesById = new Map<string, WebSource[]>(mappedSourcesById)
+  for (const step of fallbackSteps) {
+    if (step.kind !== 'searching') continue
+    if (!Array.isArray(step.sources) || step.sources.length === 0) continue
+    sourcesById.set(step.id, step.sources)
+  }
+
   const stepsWithScopedSources: WebSearchPhaseStep[] = steps.flatMap((step) => {
+    if (step.kind === 'reviewing') return [step]
     if (step.kind !== 'searching') return [step]
     const scopedSources = sourcesById.get(step.id)
     if (!scopedSources || scopedSources.length === 0) return [step]
