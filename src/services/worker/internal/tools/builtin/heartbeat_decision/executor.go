@@ -2,7 +2,6 @@ package heartbeat_decision
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/tools"
@@ -50,24 +49,12 @@ func (executor) Execute(
 
 	reply, _ := args["reply"].(bool)
 
-	var fragments []string
-	if raw, ok := args["memory_fragments"].([]any); ok {
-		for _, item := range raw {
-			if s, ok := item.(string); ok {
-				if trimmed := strings.TrimSpace(s); trimmed != "" {
-					fragments = append(fragments, trimmed)
-				}
-			}
-		}
-	}
-
-	binding.SetHeartbeatDecisionOutcome(reply, fragments)
+	binding.SetHeartbeatDecisionOutcome(reply, nil)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"ok":              true,
-			"reply":           reply,
-			"fragments_count": len(fragments),
+			"ok":    true,
+			"reply": reply,
 		},
 		DurationMs: int(time.Since(started).Milliseconds()),
 	}

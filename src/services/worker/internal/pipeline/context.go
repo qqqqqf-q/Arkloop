@@ -277,18 +277,16 @@ type RunContext struct {
 
 // HeartbeatDecisionOutcome 保存 heartbeat_decision 工具的调用结果。
 type HeartbeatDecisionOutcome struct {
-	Reply     bool
-	Fragments []string
+	Reply bool
 }
 
 // SetHeartbeatDecisionOutcome implements tools/builtin/heartbeat_decision.PipelineBinding.
-func (rc *RunContext) SetHeartbeatDecisionOutcome(reply bool, fragments []string) {
+func (rc *RunContext) SetHeartbeatDecisionOutcome(reply bool, _ []string) {
 	if rc == nil {
 		return
 	}
 	rc.HeartbeatToolOutcome = &HeartbeatDecisionOutcome{
-		Reply:     reply,
-		Fragments: fragments,
+		Reply: reply,
 	}
 	rc.HeartbeatSilent = !reply
 }

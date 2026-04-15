@@ -11,7 +11,7 @@ const ToolName = "heartbeat_decision"
 var AgentSpec = tools.AgentToolSpec{
 	Name:        ToolName,
 	Version:     "1",
-	Description: "Use only in heartbeat runs: declare intent to reply or stay silent, and persist memory fragments.",
+	Description: "Use only in heartbeat runs: declare intent to reply or stay silent.",
 	RiskLevel:   tools.RiskLevelLow,
 	SideEffects: true,
 }
@@ -19,7 +19,7 @@ var AgentSpec = tools.AgentToolSpec{
 // Spec 是 heartbeat_decision 工具的 LLM schema 定义。
 var Spec = llm.ToolSpec{
 	Name:        ToolName,
-	Description: strPtr("Use only in heartbeat runs: declare intent to reply or stay silent, and persist memory fragments."),
+	Description: strPtr("Use only in heartbeat runs: declare intent to reply or stay silent."),
 	JSONSchema: map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -28,11 +28,6 @@ var Spec = llm.ToolSpec{
 			"reply": map[string]any{
 				"type":        "boolean",
 				"description": "true = send a reply to the user this heartbeat; false = silent, run ends immediately.",
-			},
-			"memory_fragments": map[string]any{
-				"type":  "array",
-				"items": map[string]any{"type": "string"},
-				"description": "short factual notes to persist to long-term memory; only include when there is substantive content worth remembering.",
 			},
 		},
 	},
@@ -47,6 +42,5 @@ func SystemProtocolSnippet() string {
 		"  - reply=false → run ends immediately, no output.\n" +
 		"  - reply=true → you proceed to Phase 2 with full tool access.\n" +
 		"Phase 2 (after reply=true): all your tools are unlocked. " +
-		"Use them freely to compose your reply to the user.\n" +
-		"If this turn surfaced facts worth remembering long-term, include them in memory_fragments."
+		"Use them freely to compose your reply to the user."
 }
