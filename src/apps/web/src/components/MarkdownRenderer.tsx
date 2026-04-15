@@ -101,7 +101,7 @@ function repairCollapsedTableBlock(block: string): string {
 
   const lines = repaired.split('\n')
   let changed = repaired !== block
-  const normalizedLines = lines.map((line, i) => {
+  const normalizedLines = lines.map((line, _i) => {
     const nextLine = normalizeTableDelimiterRow(line)
     if (nextLine !== line) changed = true
     return nextLine

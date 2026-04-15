@@ -56,10 +56,10 @@ func detectKVM() bool {
 		if err != nil {
 			return false
 		}
-		f.Close()
+		_ = f.Close()
 		return true
 	}
-	f.Close()
+	_ = f.Close()
 	_ = info
 	return true
 }
