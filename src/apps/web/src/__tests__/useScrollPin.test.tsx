@@ -9,6 +9,7 @@ type HarnessMetrics = {
   turnHeight: number
   turnOffset: number
   bottomOffset: number
+  inputAreaHeight?: number
   leadingHeight?: number
   leadingOffset?: number
   headerHeight?: number
@@ -91,8 +92,9 @@ function ScrollPinHarness({
     const collapsible = collapsibleRef.current
     const anchor = anchorRef.current
     const tail = tailRef.current
-    const bottom = bottomRef.current
-    if (!container || !contentRoot || !leading || !turn || !header || !collapsible || !anchor || !tail || !bottom) return
+    const bottom = api.bottomRef.current
+    const inputArea = api.inputAreaRef.current
+    if (!container || !contentRoot || !leading || !turn || !header || !collapsible || !anchor || !tail || !bottom || !inputArea) return
 
     Object.defineProperty(container, 'clientHeight', {
       configurable: true,
@@ -128,6 +130,7 @@ function ScrollPinHarness({
     applyRect(collapsible, () => metrics.collapsibleOffset ?? (metrics.turnOffset + 84), () => metrics.collapsibleHeight ?? 220)
     applyRect(anchor, () => metrics.anchorOffset ?? (metrics.turnOffset + 340), () => metrics.anchorHeight ?? 120)
     applyRect(tail, () => metrics.tailOffset ?? (metrics.turnOffset + metrics.turnHeight - 80), () => metrics.tailHeight ?? 80)
+    inputArea.getBoundingClientRect = () => rect(0, metrics.inputAreaHeight ?? 160)
     container.scrollTo = ((arg1?: number | ScrollToOptions) => {
       if (typeof arg1 === 'number') {
         onContainerScrollTo?.(undefined, arg1)
@@ -289,6 +292,14 @@ describe('useScrollPin', () => {
       throw new Error('last user prompt missing')
     }
     return prompt
+  }
+
+  function requireInputArea(api: ScrollPinResult): HTMLDivElement {
+    const inputArea = api.inputAreaRef.current
+    if (!(inputArea instanceof HTMLDivElement)) {
+      throw new Error('input area missing')
+    }
+    return inputArea
   }
 
   it('发送后应固定在用户消息顶部而不是跟随到底部', async () => {
@@ -806,6 +817,62 @@ describe('useScrollPin', () => {
 
     expect(scrollContainer.scrollTop).toBe(968)
     expect(readyApi.isAtBottomRef.current).toBe(false)
+
+    act(() => {
+      root.unmount()
+    })
+  })
+
+  it('输入区变高时，已贴底视角应继续贴住真实底部', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let api: ScrollPinResult | null = null
+    const metrics = {
+      clientHeight: 400,
+      scrollHeight: 1040,
+      turnHeight: 320,
+      turnOffset: 480,
+      bottomOffset: 880,
+      inputAreaHeight: 160,
+    }
+
+    await act(async () => {
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }, { id: 'assistant-1' }]}
+          onReady={(value) => { api = value }}
+        />,
+      )
+    })
+
+    const readyApi = requireApi(api)
+    const scrollContainer = requireContainer(readyApi)
+    const inputArea = requireInputArea(readyApi)
+
+    act(() => {
+      scrollContainer.scrollTop = metrics.scrollHeight - metrics.clientHeight
+      readyApi.syncBottomState(scrollContainer)
+    })
+
+    await act(async () => {
+      metrics.scrollHeight = 1160
+      metrics.inputAreaHeight = 280
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }, { id: 'assistant-1' }]}
+          onReady={(value) => { api = value }}
+        />,
+      )
+      triggerResize(inputArea)
+      await flushAnimationFrames(2)
+    })
+
+    expect(document.documentElement.style.getPropertyValue('--chat-input-area-height')).toBe('280px')
+    expect(scrollContainer.scrollTop).toBe(760)
+    expect(readyApi.isAtBottomRef.current).toBe(true)
 
     act(() => {
       root.unmount()
