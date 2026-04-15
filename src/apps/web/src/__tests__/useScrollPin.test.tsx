@@ -130,21 +130,30 @@ function ScrollPinHarness({
     applyRect(collapsible, () => metrics.collapsibleOffset ?? (metrics.turnOffset + 84), () => metrics.collapsibleHeight ?? 220)
     applyRect(anchor, () => metrics.anchorOffset ?? (metrics.turnOffset + 340), () => metrics.anchorHeight ?? 120)
     applyRect(tail, () => metrics.tailOffset ?? (metrics.turnOffset + metrics.turnHeight - 80), () => metrics.tailHeight ?? 80)
-    inputArea.getBoundingClientRect = () => rect(0, metrics.inputAreaHeight ?? 160)
-    container.scrollTo = ((arg1?: number | ScrollToOptions) => {
-      if (typeof arg1 === 'number') {
-        onContainerScrollTo?.(undefined, arg1)
-        container.scrollTop = arg1
-        return
-      }
-      onContainerScrollTo?.(arg1?.behavior, arg1?.top ?? 0)
-      container.scrollTop = arg1?.top ?? 0
-    }) as typeof container.scrollTo
-    bottom.scrollIntoView = ((arg?: boolean | ScrollIntoViewOptions) => {
-      const behavior = typeof arg === 'object' && arg != null ? arg.behavior : undefined
-      onScrollIntoView?.(behavior)
-      container.scrollTop = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
-    }) as typeof bottom.scrollIntoView
+    Object.defineProperty(inputArea, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => rect(0, metrics.inputAreaHeight ?? 160),
+    })
+    Object.defineProperty(container, 'scrollTo', {
+      configurable: true,
+      value: ((arg1?: number | ScrollToOptions) => {
+        if (typeof arg1 === 'number') {
+          onContainerScrollTo?.(undefined, arg1)
+          container.scrollTop = arg1
+          return
+        }
+        onContainerScrollTo?.(arg1?.behavior, arg1?.top ?? 0)
+        container.scrollTop = arg1?.top ?? 0
+      }) as typeof container.scrollTo,
+    })
+    Object.defineProperty(bottom, 'scrollIntoView', {
+      configurable: true,
+      value: ((arg?: boolean | ScrollIntoViewOptions) => {
+        const behavior = typeof arg === 'object' && arg != null ? arg.behavior : undefined
+        onScrollIntoView?.(behavior)
+        container.scrollTop = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
+      }) as typeof bottom.scrollIntoView,
+    })
 
     const hitOrder = [anchor, collapsible, header, turn, leading, contentRoot, container]
     document.elementFromPoint = ((x: number, y: number) => {
