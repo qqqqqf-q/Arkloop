@@ -20,6 +20,7 @@ func TestCleanupSession_DeletesRunAndShellSessions(t *testing.T) {
 	sort.Strings(requests)
 	expected := []string{
 		"DELETE /v1/sessions/run-123 org-123",
+		"DELETE /v1/sessions/run-123/file org-123",
 		"DELETE /v1/sessions/run-123/shell/default org-123",
 	}
 	if len(requests) != len(expected) {

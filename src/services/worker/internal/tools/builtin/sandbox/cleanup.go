@@ -26,6 +26,10 @@ func cleanupSessionIDs(runSessionID string) []string {
 	if shellID != runSessionID {
 		ids = append(ids, shellID)
 	}
+	fileID := runSessionID + "/file"
+	if fileID != runSessionID {
+		ids = append(ids, fileID)
+	}
 	return ids
 }
 

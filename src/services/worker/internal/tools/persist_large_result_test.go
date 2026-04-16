@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/google/uuid"
@@ -117,6 +118,9 @@ func TestPersistLargeResult_InvalidToolCallID(t *testing.T) {
 }
 
 func TestPersistLargeResult_FallbackOnWriteFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("read-only directory test skipped on Windows")
+	}
 	// Use a read-only temp dir so WriteFile fails.
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o555); err != nil {

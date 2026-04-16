@@ -353,13 +353,20 @@ func (e *DispatchingExecutor) Execute(
 
 	// Layer 1: smart truncation — use CompressTargetBytes as the LLM-facing budget,
 	// independent from the executor-level MaxOutputBytes truncation.
-	if result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultCompression(logicalName) && result.ResultJSON["persisted"] != true {
+	persisted := false
+	if p, ok := result.ResultJSON["persisted"].(bool); ok && p {
+		persisted = true
+	}
+	if result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultCompression(logicalName) && !persisted {
 		result = CompressResult(logicalName, result, CompressTargetBytes)
 	}
 
 	// Layer 2: LLM summarization
-	if e.summarizer != nil && result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultSummarization(logicalName) && result.ResultJSON["persisted"] != true {
-		if raw, _ := json.Marshal(result.ResultJSON); len(raw) > e.summarizer.threshold {
+	if e.summarizer != nil && result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultSummarization(logicalName) && !persisted {
+		if rawResultJSON == nil {
+			rawResultJSON, _ = json.Marshal(result.ResultJSON)
+		}
+		if len(rawResultJSON) > e.summarizer.threshold {
 			result = e.summarizer.Summarize(ctx, logicalName, result)
 		}
 	}

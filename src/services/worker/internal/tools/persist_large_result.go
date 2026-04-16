@@ -54,6 +54,7 @@ func PersistLargeResult(
 	filePath := filepath.Join(".tool-outputs", execCtx.RunID.String(), toolCallID+".txt")
 	if writeErr := backend.WriteFile(ctx, filePath, raw); writeErr != nil {
 		slog.Warn("persist_large_result: write failed, falling back to compression",
+			"run_id", execCtx.RunID.String(),
 			"tool_call_id", toolCallID,
 			"filepath", filePath,
 			"error", writeErr.Error(),
