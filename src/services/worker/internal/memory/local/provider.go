@@ -408,7 +408,7 @@ func buildNotebookBlock(lines []string) string {
 	sb.WriteString("\n\n<notebook>\n")
 	for _, l := range lines {
 		sb.WriteString("- ")
-		sb.WriteString(memory.SanitizeBlockContent(strings.TrimSpace(l)))
+		sb.WriteString(memory.EscapeXMLContent(strings.TrimSpace(l)))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("</notebook>")

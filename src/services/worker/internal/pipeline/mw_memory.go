@@ -292,7 +292,7 @@ func buildTreeShapedMemoryBlock(skeletonLines []string, leafLines []string) stri
 		if cleaned == "" {
 			continue
 		}
-		sb.WriteString(memory.SanitizeBlockContent(cleaned))
+		sb.WriteString(memory.EscapeXMLContent(cleaned))
 		sb.WriteString("\n\n")
 	}
 	if len(leafLines) > 0 {
@@ -305,7 +305,7 @@ func buildTreeShapedMemoryBlock(skeletonLines []string, leafLines []string) stri
 				continue
 			}
 			sb.WriteString("- ")
-			sb.WriteString(memory.SanitizeBlockContent(cleaned))
+			sb.WriteString(memory.EscapeXMLContent(cleaned))
 			sb.WriteString("\n")
 		}
 	}
@@ -335,7 +335,7 @@ func buildLinearMemoryBlock(fragments []memory.MemoryFragment) string {
 	sb.WriteString("\n\n<memory>\n")
 	for _, line := range lines {
 		sb.WriteString("- ")
-		sb.WriteString(memory.SanitizeBlockContent(line))
+		sb.WriteString(memory.EscapeXMLContent(line))
 		sb.WriteString("\n")
 	}
 	sb.WriteString("</memory>")

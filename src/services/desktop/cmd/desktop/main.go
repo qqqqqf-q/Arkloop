@@ -4,9 +4,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +31,10 @@ func main() {
 }
 
 func run() error {
+	if err := ensureDesktopToken(); err != nil {
+		return fmt.Errorf("ensure desktop token: %w", err)
+	}
+
 	slog.SetDefault(sharedlog.New(sharedlog.Config{
 		Component: "desktop",
 	}))
@@ -137,6 +145,35 @@ func run() error {
 	}
 
 	return firstErr
+}
+
+func ensureDesktopToken() error {
+	if strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN")) != "" {
+		return nil
+	}
+
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Errorf("generate random token: %w", err)
+	}
+	token := "arkloop-desktop-" + hex.EncodeToString(b)
+
+	if err := os.Setenv("ARKLOOP_DESKTOP_TOKEN", token); err != nil {
+		return fmt.Errorf("setenv ARKLOOP_DESKTOP_TOKEN: %w", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("user home dir: %w", err)
+	}
+	tokenPath := filepath.Join(home, ".arkloop", "desktop.token")
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0o700); err != nil {
+		return fmt.Errorf("mkdir for token file: %w", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte(token), 0o600); err != nil {
+		return fmt.Errorf("write token file: %w", err)
+	}
+	return nil
 }
 
 // startEmbeddedSandbox creates and starts a lightweight VZ sandbox HTTP

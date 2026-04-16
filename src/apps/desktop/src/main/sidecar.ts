@@ -748,6 +748,7 @@ function buildNetworkEnv(): Record<string, string> {
 function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<string, string> {
   const env: Record<string, string> = {
     ARKLOOP_BRIDGE_ADDR: `127.0.0.1:${bridgePort}`,
+    ARKLOOP_BRIDGE_AUTH_TOKEN: desktopAccessToken,
   }
 
   const devUrl = process.env.VITE_DEV_URL?.trim()
@@ -855,7 +856,11 @@ async function waitForBridgeReady(): Promise<boolean> {
 async function bridgeGetJson<T>(urlPath: string): Promise<T | null> {
   const base = bridgeBaseUrl
   return new Promise((resolve) => {
-    const req = http.get(`${base}${urlPath}`, (res) => {
+    const req = http.get(`${base}${urlPath}`, {
+      headers: {
+        Authorization: `Bearer ${desktopAccessToken}`,
+      },
+    }, (res) => {
       let data = ''
       res.on('data', (c) => { data += c })
       res.on('end', () => {
@@ -891,6 +896,7 @@ async function bridgePostModuleAction(
       {
         method: 'POST',
         headers: {
+          Authorization: `Bearer ${desktopAccessToken}`,
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body, 'utf8'),
         },
@@ -942,7 +948,11 @@ export async function waitForBridgeOperation(
   const base = bridgeBaseUrl
   return new Promise((resolve) => {
     const url = new URL(`/v1/operations/${encodeURIComponent(operationId)}/stream`, base)
-    const req = http.get(url, (res) => {
+    const req = http.get(url, {
+      headers: {
+        Authorization: `Bearer ${desktopAccessToken}`,
+      },
+    }, (res) => {
       let buf = ''
       const timer = setTimeout(() => {
         req.destroy()
