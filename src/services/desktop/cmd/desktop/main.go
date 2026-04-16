@@ -161,6 +161,9 @@ func ensureDesktopToken() error {
 	if err := os.Setenv("ARKLOOP_DESKTOP_TOKEN", token); err != nil {
 		return fmt.Errorf("setenv ARKLOOP_DESKTOP_TOKEN: %w", err)
 	}
+	if err := os.Setenv("ARKLOOP_BRIDGE_AUTH_TOKEN", token); err != nil {
+		return fmt.Errorf("setenv ARKLOOP_BRIDGE_AUTH_TOKEN: %w", err)
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {

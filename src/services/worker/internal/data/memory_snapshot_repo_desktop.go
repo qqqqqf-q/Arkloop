@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 
+	"arkloop/services/worker/internal/memory"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -176,11 +178,11 @@ func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool Deskt
 }
 
 func newMemoryBlock(line string) string {
-	return "\n\n<memory>\n- " + strings.TrimSpace(line) + "\n</memory>"
+	return "\n\n<memory>\n- " + memory.EscapeXMLContent(strings.TrimSpace(line)) + "\n</memory>"
 }
 
 func appendMemoryLineToBlock(block, line string) string {
-	cleanedLine := strings.TrimSpace(line)
+	cleanedLine := memory.EscapeXMLContent(strings.TrimSpace(line))
 	cleanedBlock := strings.TrimSpace(block)
 	if cleanedLine == "" {
 		return block
