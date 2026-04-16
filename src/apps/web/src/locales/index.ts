@@ -566,6 +566,14 @@ export interface LocaleStrings {
     allowedServerIdsPlaceholder: string
     allowedChannelIds: string
     allowedChannelIdsPlaceholder: string
+    telegramPrivateChatAccess: string
+    telegramAllowEveryone: string
+    telegramSpecificUsersOnly: string
+    telegramGroupChatAccess: string
+    telegramAllowAllGroups: string
+    telegramSpecificGroupsOnly: string
+    telegramAllowedGroupsPlaceholder: string
+    telegramAllowedGroupsHint: string
     persona: string
     personaDefault: string
     webhookUrl: string

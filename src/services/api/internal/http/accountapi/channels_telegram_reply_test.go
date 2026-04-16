@@ -153,18 +153,50 @@ func strPtr(v string) *string {
 	return &v
 }
 
-func TestTelegramUserAllowed_emptyAllowlistOpens(t *testing.T) {
+func TestTelegramPrivateChatAllowed_emptyAllowlistOpens(t *testing.T) {
 	t.Helper()
-	if !telegramUserAllowed(nil, "5957030043") {
+	if !telegramPrivateChatAllowed(telegramChannelConfig{PrivateAllowedUserIDs: nil}, "5957030043") {
 		t.Fatal("nil allowlist should allow any user id")
 	}
-	if !telegramUserAllowed([]string{}, "123") {
+	if !telegramPrivateChatAllowed(telegramChannelConfig{PrivateAllowedUserIDs: []string{}}, "123") {
 		t.Fatal("empty allowlist should allow")
 	}
-	if telegramUserAllowed([]string{"0"}, "5957030043") {
+	if telegramPrivateChatAllowed(telegramChannelConfig{PrivateAllowedUserIDs: []string{"0"}}, "5957030043") {
 		t.Fatal("\"0\" is a literal Telegram user id, not a wildcard")
 	}
-	if !telegramUserAllowed([]string{"5957030043"}, "5957030043") {
+	if !telegramPrivateChatAllowed(telegramChannelConfig{PrivateAllowedUserIDs: []string{"5957030043"}}, "5957030043") {
 		t.Fatal("explicit id should match")
+	}
+}
+
+func TestTelegramPrivateChatAllowed_legacyFallback(t *testing.T) {
+	t.Helper()
+	cfg := telegramChannelConfig{AllowedUserIDs: []string{"111", "222"}, PrivateAllowedUserIDs: nil}
+	if !telegramPrivateChatAllowed(cfg, "111") {
+		t.Fatal("should fall back to allowed_user_ids")
+	}
+	if telegramPrivateChatAllowed(cfg, "333") {
+		t.Fatal("should deny when not in legacy list")
+	}
+}
+
+func TestTelegramGroupChatAllowed_emptyAllowlistOpens(t *testing.T) {
+	t.Helper()
+	if !telegramGroupChatAllowed(telegramChannelConfig{AllowedGroupIDs: nil}, "-20001") {
+		t.Fatal("nil group allowlist should allow any group")
+	}
+	if !telegramGroupChatAllowed(telegramChannelConfig{AllowedGroupIDs: []string{}}, "-20001") {
+		t.Fatal("empty group allowlist should allow")
+	}
+}
+
+func TestTelegramGroupChatAllowed_explicitGroupMatch(t *testing.T) {
+	t.Helper()
+	cfg := telegramChannelConfig{AllowedGroupIDs: []string{"-20001", "-20002"}}
+	if !telegramGroupChatAllowed(cfg, "-20001") {
+		t.Fatal("explicit group id should match")
+	}
+	if telegramGroupChatAllowed(cfg, "-20003") {
+		t.Fatal("unlisted group should be denied")
 	}
 }

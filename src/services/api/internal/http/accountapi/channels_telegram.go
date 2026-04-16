@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	nethttp "net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,8 @@ func SetTelegramPassiveIngestSyncForTest(sync bool) {
 
 type telegramChannelConfig struct {
 	AllowedUserIDs        []string `json:"allowed_user_ids"`
+	PrivateAllowedUserIDs []string `json:"private_allowed_user_ids"`
+	AllowedGroupIDs       []string `json:"allowed_group_ids"`
 	DefaultModel          string   `json:"default_model,omitempty"`
 	BotUsername           string   `json:"bot_username,omitempty"`
 	BotFirstName          string   `json:"bot_first_name,omitempty"`
@@ -201,11 +204,17 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, nil, fmt.Errorf("config_json must be a valid JSON object")
 	}
-	normalizedIDs, err := normalizeTelegramAllowedUserIDs(cfg.AllowedUserIDs)
+	normalizedPrivateIDs, err := normalizeTelegramAllowedUserIDs(cfg.PrivateAllowedUserIDs)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg.AllowedUserIDs = normalizedIDs
+	cfg.PrivateAllowedUserIDs = normalizedPrivateIDs
+	normalizedGroupIDs, err := normalizeAllowedGroupIDs(cfg.AllowedGroupIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg.AllowedGroupIDs = normalizedGroupIDs
+	cfg.AllowedUserIDs = nil
 	cfg.DefaultModel = strings.TrimSpace(cfg.DefaultModel)
 	cfg.BotUsername = strings.TrimSpace(strings.TrimPrefix(cfg.BotUsername, "@"))
 	cfg.TelegramReactionEmoji = strings.TrimSpace(cfg.TelegramReactionEmoji)
@@ -230,6 +239,32 @@ func normalizeTelegramAllowedUserIDs(values []string) ([]string, error) {
 			}
 			if !telegramUserIDPattern.MatchString(cleaned) {
 				return nil, fmt.Errorf("telegram allowed_user_ids must contain numeric user ids")
+			}
+			if _, ok := seen[cleaned]; ok {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+			out = append(out, cleaned)
+		}
+	}
+	return out, nil
+}
+
+var telegramGroupIDPattern = regexp.MustCompile(`^-?[0-9]+$`)
+
+func normalizeAllowedGroupIDs(values []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, item := range strings.FieldsFunc(value, func(r rune) bool {
+			return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+		}) {
+			cleaned := strings.TrimSpace(item)
+			if cleaned == "" {
+				continue
+			}
+			if !telegramGroupIDPattern.MatchString(cleaned) {
+				return nil, fmt.Errorf("telegram allowed_group_ids must contain numeric group ids")
 			}
 			if _, ok := seen[cleaned]; ok {
 				continue
@@ -1186,16 +1221,22 @@ func (c telegramConnector) HandleUpdate(
 		return nil
 	}
 
-	if !telegramUserAllowed(cfg.AllowedUserIDs, incoming.PlatformUserID) {
-		if incoming.IsPrivate() && c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-				ChatID: incoming.PlatformChatID,
-				Text:   "当前账号未被授权使用这个机器人。",
-			})
-			sendCancel()
+	if incoming.IsPrivate() {
+		if !telegramPrivateChatAllowed(cfg, incoming.PlatformUserID) {
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   "当前账号未被授权使用这个机器人。",
+				})
+				sendCancel()
+			}
+			return nil
 		}
-		return nil
+	} else {
+		if !telegramGroupChatAllowed(cfg, incoming.PlatformChatID) {
+			return nil
+		}
 	}
 
 	// Both mustValidateTelegramActivation and entitlementSvc.Resolve use non-tx
@@ -1583,16 +1624,22 @@ func parseTelegramWebhookChannelID(path string) (uuid.UUID, bool) {
 	return id, true
 }
 
-func telegramUserAllowed(allowed []string, userID string) bool {
+func telegramPrivateChatAllowed(cfg telegramChannelConfig, userID string) bool {
+	allowed := cfg.PrivateAllowedUserIDs
+	if allowed == nil {
+		allowed = cfg.AllowedUserIDs
+	}
 	if len(allowed) == 0 {
 		return true
 	}
-	for _, item := range allowed {
-		if item == userID {
-			return true
-		}
+	return slices.Contains(allowed, userID)
+}
+
+func telegramGroupChatAllowed(cfg telegramChannelConfig, chatID string) bool {
+	if len(cfg.AllowedGroupIDs) == 0 {
+		return true
 	}
-	return false
+	return slices.Contains(cfg.AllowedGroupIDs, chatID)
 }
 
 func upsertTelegramIdentity(ctx context.Context, repo *data.ChannelIdentitiesRepository, from *telegramUser) (data.ChannelIdentity, error) {
@@ -1996,16 +2043,22 @@ func (c telegramConnector) HandleUpdateForPoll(
 		return nil
 	}
 
-	if !telegramUserAllowed(cfg.AllowedUserIDs, incoming.PlatformUserID) {
-		if incoming.IsPrivate() && c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
-				ChatID: incoming.PlatformChatID,
-				Text:   "当前账号未被授权使用这个机器人。",
-			})
-			sendCancel()
+	if incoming.IsPrivate() {
+		if !telegramPrivateChatAllowed(cfg, incoming.PlatformUserID) {
+			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+					ChatID: incoming.PlatformChatID,
+					Text:   "当前账号未被授权使用这个机器人。",
+				})
+				sendCancel()
+			}
+			return nil
 		}
-		return nil
+	} else {
+		if !telegramGroupChatAllowed(cfg, incoming.PlatformChatID) {
+			return nil
+		}
 	}
 
 	persona, _, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)

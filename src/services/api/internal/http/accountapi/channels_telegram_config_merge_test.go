@@ -10,12 +10,12 @@ import (
 func TestMergeTelegramChannelConfigJSONPatch_preservesBotFieldsWhenPatchOmitsThem(t *testing.T) {
 	t.Helper()
 	existing := json.RawMessage(`{
-	  "allowed_user_ids": ["1"],
+	  "private_allowed_user_ids": ["1"],
 	  "telegram_bot_user_id": 4242,
 	  "bot_username": "my_bot",
 	  "default_model": "old^m"
 	}`)
-	patch := json.RawMessage(`{"allowed_user_ids":["2"],"default_model":"new^m"}`)
+	patch := json.RawMessage(`{"private_allowed_user_ids":["2"],"default_model":"new^m"}`)
 	out, err := mergeTelegramChannelConfigJSONPatch(existing, patch)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestMergeTelegramChannelConfigJSONPatch_preservesBotFieldsWhenPatchOmitsThe
 func TestNormalizeChannelConfigJSON_preservesTelegramUXFields(t *testing.T) {
 	t.Helper()
 	raw := json.RawMessage(`{
-	  "allowed_user_ids": ["1"],
+	  "private_allowed_user_ids": ["1"],
 	  "telegram_typing_indicator": false,
 	  "telegram_reaction_emoji": "👍"
 	}`)
@@ -66,7 +66,7 @@ func TestNormalizeChannelConfigJSON_preservesTelegramUXFields(t *testing.T) {
 
 func TestMergeTelegramBotProfileFromGetMe_fillsMissingIDAndUsername(t *testing.T) {
 	t.Helper()
-	raw := json.RawMessage(`{"allowed_user_ids":["1"]}`)
+	raw := json.RawMessage(`{"private_allowed_user_ids":["1"]}`)
 	u := "chiffon_arkloop_bot"
 	info := &telegrambot.BotInfo{ID: 9001, Username: &u, FirstName: "Chiffon"}
 	out, changed, err := mergeTelegramBotProfileFromGetMe(raw, info)
@@ -93,7 +93,7 @@ func TestMergeTelegramBotProfileFromGetMe_fillsMissingIDAndUsername(t *testing.T
 
 func TestMergeTelegramBotProfileFromGetMe_fillsOnlyMissingUsername(t *testing.T) {
 	t.Helper()
-	raw := json.RawMessage(`{"allowed_user_ids":["1"],"telegram_bot_user_id":42}`)
+	raw := json.RawMessage(`{"private_allowed_user_ids":["1"],"telegram_bot_user_id":42}`)
 	u := "only_user"
 	info := &telegrambot.BotInfo{ID: 999, Username: &u}
 	out, changed, err := mergeTelegramBotProfileFromGetMe(raw, info)
@@ -117,7 +117,7 @@ func TestMergeTelegramBotProfileFromGetMe_fillsOnlyMissingUsername(t *testing.T)
 
 func TestMergeTelegramBotProfileFromGetMe_noOverwriteWhenPresent(t *testing.T) {
 	t.Helper()
-	raw := json.RawMessage(`{"allowed_user_ids":["1"],"telegram_bot_user_id":1,"bot_username":"keep_me","bot_first_name":"keep_me_too"}`)
+	raw := json.RawMessage(`{"private_allowed_user_ids":["1"],"telegram_bot_user_id":1,"bot_username":"keep_me","bot_first_name":"keep_me_too"}`)
 	u := "other"
 	info := &telegrambot.BotInfo{ID: 999, Username: &u, FirstName: "Other"}
 	out, changed, err := mergeTelegramBotProfileFromGetMe(raw, info)

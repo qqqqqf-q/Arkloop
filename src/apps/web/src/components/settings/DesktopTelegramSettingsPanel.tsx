@@ -39,6 +39,34 @@ type Props = {
   reload: () => Promise<void>
 }
 
+function RadioOption({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean
+  label: string
+  onChange: () => void
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--c-text-secondary)]">
+      <span
+        className="flex h-4 w-4 items-center justify-center rounded-full"
+        style={{ border: '1.5px solid var(--c-border-mid, var(--c-border))' }}
+      >
+        {checked && (
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ background: 'var(--c-accent, var(--c-text-primary))' }}
+          />
+        )}
+      </span>
+      <input type="radio" className="sr-only" checked={checked} onChange={onChange} />
+      {label}
+    </label>
+  )
+}
+
 export function DesktopTelegramSettingsPanel({
   accessToken,
   channel,
@@ -55,8 +83,23 @@ export function DesktopTelegramSettingsPanel({
   const [error, setError] = useState('')
   const [enabled, setEnabled] = useState(channel?.is_active ?? false)
   const [personaID, setPersonaID] = useState(resolvePersonaID(personas, channel?.persona_id))
-  const [allowedUserIDs, setAllowedUserIDs] = useState(readStringArrayConfig(channel, 'allowed_user_ids'))
-  const [allowedUserInput, setAllowedUserInput] = useState('')
+
+  // Private chat access
+  const persistedPrivateIDs = useMemo(() => {
+    const next = readStringArrayConfig(channel, 'private_allowed_user_ids')
+    if (next.length > 0) return next
+    return readStringArrayConfig(channel, 'allowed_user_ids')
+  }, [channel])
+  const [privateRestrict, setPrivateRestrict] = useState(persistedPrivateIDs.length > 0)
+  const [privateIDs, setPrivateIDs] = useState(persistedPrivateIDs)
+  const [privateInput, setPrivateInput] = useState('')
+
+  // Group chat access
+  const persistedGroupIDs = useMemo(() => readStringArrayConfig(channel, 'allowed_group_ids'), [channel])
+  const [groupRestrict, setGroupRestrict] = useState(persistedGroupIDs.length > 0)
+  const [groupIDs, setGroupIDs] = useState(persistedGroupIDs)
+  const [groupInput, setGroupInput] = useState('')
+
   const [tokenDraft, setTokenDraft] = useState('')
   const [defaultModel, setDefaultModel] = useState((channel?.config_json?.default_model as string | undefined) ?? '')
   const [verifying, setVerifying] = useState(false)
@@ -80,8 +123,18 @@ export function DesktopTelegramSettingsPanel({
   useEffect(() => {
     setEnabled(channel?.is_active ?? false)
     setPersonaID(resolvePersonaID(personas, channel?.persona_id))
-    setAllowedUserIDs(readStringArrayConfig(channel, 'allowed_user_ids'))
-    setAllowedUserInput('')
+
+    const nextPrivate = readStringArrayConfig(channel, 'private_allowed_user_ids')
+    const fallbackPrivate = nextPrivate.length > 0 ? nextPrivate : readStringArrayConfig(channel, 'allowed_user_ids')
+    setPrivateRestrict(fallbackPrivate.length > 0)
+    setPrivateIDs(fallbackPrivate)
+    setPrivateInput('')
+
+    const nextGroup = readStringArrayConfig(channel, 'allowed_group_ids')
+    setGroupRestrict(nextGroup.length > 0)
+    setGroupIDs(nextGroup)
+    setGroupInput('')
+
     setTokenDraft('')
     setDefaultModel((channel?.config_json?.default_model as string | undefined) ?? '')
     setVerifyResult(null)
@@ -103,46 +156,59 @@ export function DesktopTelegramSettingsPanel({
     () => personas.map((p) => ({ value: p.id, label: p.display_name || p.id })),
     [personas],
   )
-  const persistedAllowedUserIDs = useMemo(() => readStringArrayConfig(channel, 'allowed_user_ids'), [channel])
-  const effectiveAllowedUserIDs = useMemo(
-    () => mergeListValues(allowedUserIDs, allowedUserInput),
-    [allowedUserIDs, allowedUserInput],
-  )
+
+  const effectivePrivateIDs = useMemo(() => mergeListValues(privateIDs, privateInput), [privateIDs, privateInput])
+  const effectiveGroupIDs = useMemo(() => mergeListValues(groupIDs, groupInput), [groupIDs, groupInput])
   const effectivePersonaID = useMemo(
     () => resolvePersonaID(personas, channel?.persona_id),
     [personas, channel?.persona_id],
   )
   const persistedDefaultModel = (channel?.config_json?.default_model as string | undefined) ?? ''
   const tokenConfigured = channel?.has_credentials === true
+
   const dirty = useMemo(() => {
     if ((channel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
-    if (!sameItems(persistedAllowedUserIDs, effectiveAllowedUserIDs)) return true
+    if (!sameItems(persistedPrivateIDs, privateRestrict ? effectivePrivateIDs : [])) return true
+    if (!sameItems(persistedGroupIDs, groupRestrict ? effectiveGroupIDs : [])) return true
     if (defaultModel !== persistedDefaultModel) return true
     return tokenDraft.trim().length > 0
   }, [
     channel,
     defaultModel,
-    effectiveAllowedUserIDs,
+    effectiveGroupIDs,
     effectivePersonaID,
+    effectivePrivateIDs,
     enabled,
+    groupRestrict,
+    persistedGroupIDs,
+    persistedPrivateIDs,
     personaID,
-    persistedAllowedUserIDs,
     persistedDefaultModel,
+    privateRestrict,
     tokenDraft,
   ])
   const canSave = dirty && (channel !== null || tokenDraft.trim().length > 0)
 
-  const handleAddAllowedUsers = () => {
-    const nextIDs = mergeListValues(allowedUserIDs, allowedUserInput)
-    if (nextIDs.length === allowedUserIDs.length) return
-    setAllowedUserIDs(nextIDs)
-    setAllowedUserInput('')
+  const handleAddPrivate = () => {
+    const next = mergeListValues(privateIDs, privateInput)
+    if (next.length === privateIDs.length) return
+    setPrivateIDs(next)
+    setPrivateInput('')
+    setSaved(false)
+  }
+
+  const handleAddGroup = () => {
+    const next = mergeListValues(groupIDs, groupInput)
+    if (next.length === groupIDs.length) return
+    setGroupIDs(next)
+    setGroupInput('')
     setSaved(false)
   }
 
   const handleSave = async () => {
-    const nextAllowedUserIDs = mergeListValues(allowedUserIDs, allowedUserInput)
+    const nextPrivateIDs = privateRestrict ? mergeListValues(privateIDs, privateInput) : []
+    const nextGroupIDs = groupRestrict ? mergeListValues(groupIDs, groupInput) : []
 
     if (enabled && !personaID) {
       setError(ct.personaRequired)
@@ -160,7 +226,14 @@ export function DesktopTelegramSettingsPanel({
           ? { ...(channel.config_json as Record<string, unknown>) }
           : {}
 
-      const configJSON: Record<string, unknown> = { ...base, allowed_user_ids: nextAllowedUserIDs }
+      const configJSON: Record<string, unknown> = {
+        ...base,
+        private_allowed_user_ids: nextPrivateIDs,
+        allowed_group_ids: nextGroupIDs,
+      }
+      // Never send the legacy key
+      delete configJSON.allowed_user_ids
+
       if (defaultModel.trim()) configJSON.default_model = defaultModel.trim()
       else delete configJSON.default_model
 
@@ -183,8 +256,10 @@ export function DesktopTelegramSettingsPanel({
         })
       }
 
-      setAllowedUserIDs(nextAllowedUserIDs)
-      setAllowedUserInput('')
+      setPrivateIDs(nextPrivateIDs)
+      setPrivateInput('')
+      setGroupIDs(nextGroupIDs)
+      setGroupInput('')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       await reload()
@@ -356,29 +431,101 @@ export function DesktopTelegramSettingsPanel({
             </div>
 
             <div className="md:col-span-2">
-              <ListField
-                label={ct.allowedUsers}
-                values={allowedUserIDs}
-                inputValue={allowedUserInput}
-                placeholder={ct.allowedUsersPlaceholder}
-                addLabel={t.skills.add}
-                onInputChange={setAllowedUserInput}
-                onAdd={handleAddAllowedUsers}
-                onRemove={(value) => {
-                  setAllowedUserIDs((current) => current.filter((item) => item !== value))
-                  setSaved(false)
-                }}
-              />
-              <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
-                {ct.allowedUsersHint}{' '}
-                <button
-                  type="button"
-                  onClick={() => openExternal('https://t.me/userinfobot')}
-                  className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
-                >
-                  @userinfobot
-                </button>
-              </p>
+              <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramPrivateChatAccess}</div>
+              <div className="mt-3 flex flex-col gap-2">
+                <RadioOption
+                  checked={!privateRestrict}
+                  label={ct.telegramAllowEveryone}
+                  onChange={() => {
+                    setPrivateRestrict(false)
+                    setSaved(false)
+                  }}
+                />
+                <RadioOption
+                  checked={privateRestrict}
+                  label={ct.telegramSpecificUsersOnly}
+                  onChange={() => {
+                    setPrivateRestrict(true)
+                    setSaved(false)
+                  }}
+                />
+              </div>
+              {privateRestrict && (
+                <div className="mt-3">
+                  <ListField
+                    label={ct.allowedUsers}
+                    values={privateIDs}
+                    inputValue={privateInput}
+                    placeholder={ct.allowedUsersPlaceholder}
+                    addLabel={t.skills.add}
+                    onInputChange={setPrivateInput}
+                    onAdd={handleAddPrivate}
+                    onRemove={(value) => {
+                      setPrivateIDs((current) => current.filter((item) => item !== value))
+                      setSaved(false)
+                    }}
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
+                    {ct.allowedUsersHint}{' '}
+                    <button
+                      type="button"
+                      onClick={() => openExternal('https://t.me/userinfobot')}
+                      className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
+                    >
+                      @userinfobot
+                    </button>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramGroupChatAccess}</div>
+              <div className="mt-3 flex flex-col gap-2">
+                <RadioOption
+                  checked={!groupRestrict}
+                  label={ct.telegramAllowAllGroups}
+                  onChange={() => {
+                    setGroupRestrict(false)
+                    setSaved(false)
+                  }}
+                />
+                <RadioOption
+                  checked={groupRestrict}
+                  label={ct.telegramSpecificGroupsOnly}
+                  onChange={() => {
+                    setGroupRestrict(true)
+                    setSaved(false)
+                  }}
+                />
+              </div>
+              {groupRestrict && (
+                <div className="mt-3">
+                  <ListField
+                    label={ct.telegramGroupChatAccess}
+                    values={groupIDs}
+                    inputValue={groupInput}
+                    placeholder={ct.telegramAllowedGroupsPlaceholder}
+                    addLabel={t.skills.add}
+                    onInputChange={setGroupInput}
+                    onAdd={handleAddGroup}
+                    onRemove={(value) => {
+                      setGroupIDs((current) => current.filter((item) => item !== value))
+                      setSaved(false)
+                    }}
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
+                    {ct.telegramAllowedGroupsHint}{' '}
+                    <button
+                      type="button"
+                      onClick={() => openExternal('https://t.me/userinfobot')}
+                      className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
+                    >
+                      @userinfobot
+                    </button>
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-2">
