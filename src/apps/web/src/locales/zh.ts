@@ -565,6 +565,7 @@ export const zh: LocaleStrings = {
     telegramSpecificGroupsOnly: '仅允许特定群聊',
     telegramAllowedGroupsPlaceholder: 'Telegram chat_id；逗号或换行；留空不限制',
     telegramAllowedGroupsHint: '群聊 chat_id 通常以 -100 开头，可将 @getidsbot 加入群组获取',
+    telegramAllowedGroupsLabel: '允许的群聊',
     allowedServerIds: '允许的 Server ID',
     allowedServerIdsPlaceholder: 'Server ID；逗号或换行；留空不限制',
     allowedChannelIds: '允许的 Channel ID',

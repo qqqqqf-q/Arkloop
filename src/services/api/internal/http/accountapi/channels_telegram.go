@@ -40,7 +40,7 @@ func SetTelegramPassiveIngestSyncForTest(sync bool) {
 }
 
 type telegramChannelConfig struct {
-	AllowedUserIDs        []string `json:"allowed_user_ids"`
+	AllowedUserIDs        []string `json:"allowed_user_ids,omitempty"`
 	PrivateAllowedUserIDs []string `json:"private_allowed_user_ids"`
 	AllowedGroupIDs       []string `json:"allowed_group_ids"`
 	DefaultModel          string   `json:"default_model,omitempty"`
@@ -226,7 +226,7 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 	return normalized, &cfg, nil
 }
 
-func normalizeTelegramAllowedUserIDs(values []string) ([]string, error) {
+func normalizeIDList(values []string, pattern *regexp.Regexp, errMsg string) ([]string, error) {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -237,8 +237,8 @@ func normalizeTelegramAllowedUserIDs(values []string) ([]string, error) {
 			if cleaned == "" {
 				continue
 			}
-			if !telegramUserIDPattern.MatchString(cleaned) {
-				return nil, fmt.Errorf("telegram allowed_user_ids must contain numeric user ids")
+			if !pattern.MatchString(cleaned) {
+				return nil, fmt.Errorf("%s", errMsg)
 			}
 			if _, ok := seen[cleaned]; ok {
 				continue
@@ -250,30 +250,14 @@ func normalizeTelegramAllowedUserIDs(values []string) ([]string, error) {
 	return out, nil
 }
 
-var telegramGroupIDPattern = regexp.MustCompile(`^-?[0-9]+$`)
+func normalizeTelegramAllowedUserIDs(values []string) ([]string, error) {
+	return normalizeIDList(values, telegramUserIDPattern, "telegram private_allowed_user_ids must contain numeric user ids")
+}
+
+var telegramGroupIDPattern = regexp.MustCompile(`^-[0-9]+$`)
 
 func normalizeAllowedGroupIDs(values []string) ([]string, error) {
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		for _, item := range strings.FieldsFunc(value, func(r rune) bool {
-			return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
-		}) {
-			cleaned := strings.TrimSpace(item)
-			if cleaned == "" {
-				continue
-			}
-			if !telegramGroupIDPattern.MatchString(cleaned) {
-				return nil, fmt.Errorf("telegram allowed_group_ids must contain numeric group ids")
-			}
-			if _, ok := seen[cleaned]; ok {
-				continue
-			}
-			seen[cleaned] = struct{}{}
-			out = append(out, cleaned)
-		}
-	}
-	return out, nil
+	return normalizeIDList(values, telegramGroupIDPattern, "telegram allowed_group_ids must contain numeric group ids")
 }
 
 func normalizeTelegramTriggerKeywords(values []string) []string {
@@ -692,7 +676,7 @@ func mustValidateTelegramActivation(
 	if err != nil {
 		return nil, "", telegramChannelConfig{}, err
 	}
-	// allowed_user_ids 为空：不限制 Telegram user_id（非空时仅允许列表内 ID）。
+	// private_allowed_user_ids 为空（且无 legacy allowed_user_ids）：不限制 Telegram user_id。
 	return persona, buildPersonaRef(*persona), cfg, nil
 }
 
@@ -1235,6 +1219,7 @@ func (c telegramConnector) HandleUpdate(
 		}
 	} else {
 		if !telegramGroupChatAllowed(cfg, incoming.PlatformChatID) {
+			// 静默拒绝：避免在未授权的群里制造噪声
 			return nil
 		}
 	}
@@ -1406,7 +1391,7 @@ func telegramWebhookEntry(
 			status := nethttp.StatusInternalServerError
 			code := "internal.error"
 			message := "internal error"
-			if strings.Contains(err.Error(), "persona") || strings.Contains(err.Error(), "allowed_user_ids") {
+			if strings.Contains(err.Error(), "persona") || strings.Contains(err.Error(), "allowed_user_ids") || strings.Contains(err.Error(), "private_allowed_user_ids") || strings.Contains(err.Error(), "allowed_group_ids") {
 				status = nethttp.StatusUnprocessableEntity
 				code = "validation.error"
 				message = err.Error()
@@ -2057,6 +2042,7 @@ func (c telegramConnector) HandleUpdateForPoll(
 		}
 	} else {
 		if !telegramGroupChatAllowed(cfg, incoming.PlatformChatID) {
+			// 静默拒绝：避免在未授权的群里制造噪声
 			return nil
 		}
 	}

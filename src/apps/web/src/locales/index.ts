@@ -574,6 +574,7 @@ export interface LocaleStrings {
     telegramSpecificGroupsOnly: string
     telegramAllowedGroupsPlaceholder: string
     telegramAllowedGroupsHint: string
+    telegramAllowedGroupsLabel: string
     persona: string
     personaDefault: string
     webhookUrl: string

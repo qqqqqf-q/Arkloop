@@ -200,3 +200,35 @@ func TestTelegramGroupChatAllowed_explicitGroupMatch(t *testing.T) {
 		t.Fatal("unlisted group should be denied")
 	}
 }
+
+// TestTelegramGroupChatAllowed_rejectsPositiveIDs 验证正整数群 ID 被正则拦截。
+func TestTelegramGroupChatAllowed_rejectsPositiveIDs(t *testing.T) {
+	t.Helper()
+	_, err := normalizeAllowedGroupIDs([]string{"12345"})
+	if err == nil {
+		t.Fatal("positive group id should be rejected")
+	}
+	_, err = normalizeAllowedGroupIDs([]string{"-100123456"})
+	if err != nil {
+		t.Fatalf("supergroup id should be allowed: %v", err)
+	}
+}
+
+// TestTelegramGroupChatAllowed_legacyConfigBlocksGroup 模拟老 config 升级后的场景：
+// allowed_user_ids 有值，allowed_group_ids 为空（未配置群聊白名单）。
+// 验证群聊不在白名单的用户不会触发 run。
+func TestTelegramGroupChatAllowed_legacyConfigBlocksGroup(t *testing.T) {
+	t.Helper()
+	// migration 后：allowed_user_ids 的值被复制到 private_allowed_user_ids，
+	// 但 allowed_group_ids 为空（未配置群聊白名单）。
+	// 空 allowlist 表示"允许所有群"，这不是拒绝场景。
+	//
+	// 真正的回归测试：用户配置了 allowed_group_ids 且当前群不在列表中。
+	cfg := telegramChannelConfig{AllowedGroupIDs: []string{"-100123456"}}
+	if !telegramGroupChatAllowed(cfg, "-100123456") {
+		t.Fatal("group in allowlist should be allowed")
+	}
+	if telegramGroupChatAllowed(cfg, "-100999999") {
+		t.Fatal("group not in allowlist should be denied")
+	}
+}

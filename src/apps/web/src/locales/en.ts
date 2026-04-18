@@ -571,6 +571,7 @@ export const en: LocaleStrings = {
     telegramSpecificGroupsOnly: 'Specific groups only',
     telegramAllowedGroupsPlaceholder: 'Telegram chat IDs; commas or newlines; leave empty for no restriction',
     telegramAllowedGroupsHint: 'Group chat IDs usually start with -100. Add a bot like @getidsbot to the group to retrieve it',
+    telegramAllowedGroupsLabel: 'Allowed Groups',
     allowedServerIds: 'Allowed Server IDs',
     allowedServerIdsPlaceholder: 'Server IDs; commas or newlines; leave empty for no restriction',
     allowedChannelIds: 'Allowed Channel IDs',

@@ -51,14 +51,10 @@ function RadioOption({
   return (
     <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--c-text-secondary)]">
       <span
-        className="flex h-4 w-4 items-center justify-center rounded-full"
-        style={{ border: '1.5px solid var(--c-border-mid, var(--c-border))' }}
+        className="flex h-4 w-4 items-center justify-center rounded-full border-[1.5px] border-[var(--c-border-mid)]"
       >
         {checked && (
-          <span
-            className="h-2 w-2 rounded-full"
-            style={{ background: 'var(--c-accent, var(--c-text-primary))' }}
-          />
+          <span className="h-2 w-2 rounded-full bg-[var(--c-accent)]" />
         )}
       </span>
       <input type="radio" className="sr-only" checked={checked} onChange={onChange} />
@@ -125,9 +121,8 @@ export function DesktopTelegramSettingsPanel({
     setPersonaID(resolvePersonaID(personas, channel?.persona_id))
 
     const nextPrivate = readStringArrayConfig(channel, 'private_allowed_user_ids')
-    const fallbackPrivate = nextPrivate.length > 0 ? nextPrivate : readStringArrayConfig(channel, 'allowed_user_ids')
-    setPrivateRestrict(fallbackPrivate.length > 0)
-    setPrivateIDs(fallbackPrivate)
+    setPrivateRestrict(nextPrivate.length > 0)
+    setPrivateIDs(nextPrivate)
     setPrivateInput('')
 
     const nextGroup = readStringArrayConfig(channel, 'allowed_group_ids')
@@ -201,6 +196,9 @@ export function DesktopTelegramSettingsPanel({
   const handleAddGroup = () => {
     const next = mergeListValues(groupIDs, groupInput)
     if (next.length === groupIDs.length) return
+    // 只允许负数 chat_id
+    const valid = next.filter((id) => /^-[0-9]+$/.test(id))
+    if (valid.length !== next.length) return
     setGroupIDs(next)
     setGroupInput('')
     setSaved(false)
@@ -502,7 +500,7 @@ export function DesktopTelegramSettingsPanel({
               {groupRestrict && (
                 <div className="mt-3">
                   <ListField
-                    label={ct.telegramGroupChatAccess}
+                    label={ct.telegramAllowedGroupsLabel}
                     values={groupIDs}
                     inputValue={groupInput}
                     placeholder={ct.telegramAllowedGroupsPlaceholder}
@@ -518,10 +516,10 @@ export function DesktopTelegramSettingsPanel({
                     {ct.telegramAllowedGroupsHint}{' '}
                     <button
                       type="button"
-                      onClick={() => openExternal('https://t.me/userinfobot')}
+                      onClick={() => openExternal('https://t.me/getidsbot')}
                       className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
                     >
-                      @userinfobot
+                      @getidsbot
                     </button>
                   </p>
                 </div>
