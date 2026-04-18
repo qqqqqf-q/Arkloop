@@ -4,6 +4,7 @@ package http
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	nethttp "net/http"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"arkloop/services/api/internal/http/conversationapi"
 	"arkloop/services/api/internal/http/memoryapi"
 	"arkloop/services/api/internal/http/platformapi"
+	"arkloop/services/api/internal/http/scheduledjobsapi"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
@@ -161,6 +163,8 @@ type HandlerConfig struct {
 	UserCredentialRepo *data.UserCredentialRepository
 
 	JobRepo *data.JobRepository
+
+	ScheduledJobsRepo *data.ScheduledJobsRepository
 
 	ArtifactStore          artifactStore
 	MessageAttachmentStore messageAttachmentStore
@@ -454,9 +458,20 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AttachmentStore:          cfg.MessageAttachmentStore,
 	})
 
+	if cfg.ScheduledJobsRepo != nil {
+		scheduledjobsapi.RegisterRoutes(mux, scheduledjobsapi.Deps{
+			AuthService:           cfg.AuthService,
+			AccountMembershipRepo: cfg.AccountMembershipRepo,
+			APIKeysRepo:           cfg.APIKeysRepo,
+			ScheduledJobsRepo:     cfg.ScheduledJobsRepo,
+			Pool:                  cfg.Pool,
+		})
+	}
+
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
-		WriteError(w, nethttp.StatusNotFound, "http.method_not_allowed", "Not Found", traceID, nil)
+		slog.Warn("http.not_found", "method", r.Method, "path", r.URL.Path, "trace_id", traceID)
+		WriteError(w, nethttp.StatusNotFound, "http.not_found", fmt.Sprintf("Not Found: %s %s", r.Method, r.URL.Path), traceID, nil)
 	})
 
 	base := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {

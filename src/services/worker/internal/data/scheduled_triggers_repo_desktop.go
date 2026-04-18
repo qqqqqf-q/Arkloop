@@ -28,6 +28,8 @@ type ScheduledTriggerRow struct {
 	Model             string
 	IntervalMin       int
 	NextFireAt        time.Time
+	TriggerKind       string
+	JobID             uuid.UUID
 }
 
 // ScheduledTriggersRepository 是 SQLite 实现（desktop）。
@@ -231,7 +233,7 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	}
 	now := time.Now().UTC()
 	rows, err := db.Query(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id
 		  FROM scheduled_triggers
 		 WHERE next_fire_at <= $1
 		 ORDER BY next_fire_at ASC
@@ -248,13 +250,19 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	for rows.Next() {
 		var r ScheduledTriggerRow
 		var idStr, channelStr, identityStr, accountStr, nextFireRaw string
-		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw); err != nil {
+		var triggerKind string
+		var jobIDStr *string
+		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr); err != nil {
 			return nil, err
 		}
 		r.ID, _ = uuid.Parse(idStr)
 		r.ChannelID, _ = uuid.Parse(channelStr)
 		r.ChannelIdentityID, _ = uuid.Parse(identityStr)
 		r.AccountID, _ = uuid.Parse(accountStr)
+		r.TriggerKind = triggerKind
+		if jobIDStr != nil {
+			r.JobID, _ = uuid.Parse(*jobIDStr)
+		}
 		pending = append(pending, r)
 		pendingRaw = append(pendingRaw, nextFireRaw)
 	}
@@ -325,6 +333,35 @@ func (ScheduledTriggersRepository) PostponeHeartbeat(
 	_, err := db.Exec(ctx,
 		`UPDATE scheduled_triggers SET next_fire_at = $1 WHERE id = $2`,
 		next.Format(time.RFC3339Nano), id,
+	)
+	return err
+}
+
+// DeleteTriggerByJobID 删除指定 job_id 的 trigger。
+func (ScheduledTriggersRepository) DeleteTriggerByJobID(
+	ctx context.Context,
+	db DesktopDB,
+	jobID uuid.UUID,
+) error {
+	_, err := db.Exec(ctx,
+		`DELETE FROM scheduled_triggers WHERE job_id = $1`,
+		jobID.String(),
+	)
+	return err
+}
+
+// UpdateTriggerNextFire 更新指定 trigger 的 next_fire_at。
+func (ScheduledTriggersRepository) UpdateTriggerNextFire(
+	ctx context.Context,
+	db DesktopDB,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	_, err := db.Exec(ctx,
+		`UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = $2 WHERE id = $3`,
+		nextFireAt.UTC().Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		id.String(),
 	)
 	return err
 }

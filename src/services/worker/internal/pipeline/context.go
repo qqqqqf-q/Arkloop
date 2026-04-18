@@ -259,6 +259,7 @@ type RunContext struct {
 
 	// -- Heartbeat --
 	HeartbeatRun         bool
+	ScheduledJobRun      bool
 	HeartbeatSilent      bool // 由 heartbeat_decision 工具执行时设置，AgentLoop 只读
 	HeartbeatToolOutcome *HeartbeatDecisionOutcome
 

@@ -4,6 +4,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   SquarePen,
   Search,
+  Clock,
   PanelLeftClose,
   Bolt,
   Glasses,
@@ -689,6 +690,15 @@ export function Sidebar({
         >
           <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
           <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.searchTasks : t.searchChats}</span>
+        </button>
+
+        <button
+          onClick={() => navigate('/scheduled-jobs')}
+          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+          style={{ fontWeight: 'var(--c-sidebar-nav-weight)' }}
+        >
+          <Clock size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{t.scheduledJobs}</span>
         </button>
 
       </nav>

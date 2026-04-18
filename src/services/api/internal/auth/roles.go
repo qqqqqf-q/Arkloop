@@ -24,6 +24,7 @@ var accountAdminPerms = []string{
 	PermDataChannelsManage,
 	PermDataSubscriptionsRead,
 	PermDataUsageRead,
+	PermDataScheduledJobsManage,
 	PermAccountAuditRead,
 }
 

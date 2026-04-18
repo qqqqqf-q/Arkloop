@@ -24,6 +24,8 @@ type ScheduledTriggerRow struct {
 	Model             string
 	IntervalMin       int
 	NextFireAt        time.Time
+	TriggerKind       string
+	JobID             uuid.UUID
 }
 
 // ScheduledTriggersRepository provides heartbeat scheduling operations.
@@ -309,7 +311,9 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
                   scheduled_triggers.account_id,
                   scheduled_triggers.model,
                   scheduled_triggers.interval_min,
-                  scheduled_triggers.next_fire_at`,
+                  scheduled_triggers.next_fire_at,
+                  scheduled_triggers.trigger_kind,
+                  scheduled_triggers.job_id`,
 		limit,
 	)
 	if err != nil {
@@ -320,12 +324,45 @@ func (ScheduledTriggersRepository) ClaimDueHeartbeats(
 	var out []ScheduledTriggerRow
 	for rows.Next() {
 		var r ScheduledTriggerRow
-		if err := rows.Scan(&r.ID, &r.ChannelID, &r.ChannelIdentityID, &r.PersonaKey, &r.AccountID, &r.Model, &r.IntervalMin, &r.NextFireAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.ChannelID, &r.ChannelIdentityID, &r.PersonaKey, &r.AccountID, &r.Model, &r.IntervalMin, &r.NextFireAt, &r.TriggerKind, &r.JobID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// UpdateTriggerNextFire updates next_fire_at for any trigger by id.
+func (ScheduledTriggersRepository) UpdateTriggerNextFire(
+	ctx context.Context,
+	db Querier,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	if id == uuid.Nil {
+		return errors.New("id must not be empty")
+	}
+	if nextFireAt.IsZero() {
+		return errors.New("next_fire_at must not be zero")
+	}
+	_, err := db.Exec(ctx,
+		`UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = now() WHERE id = $2`,
+		nextFireAt, id,
+	)
+	return err
+}
+
+// DeleteTriggerByJobID removes the trigger associated with a job.
+func (ScheduledTriggersRepository) DeleteTriggerByJobID(
+	ctx context.Context,
+	db Querier,
+	jobID uuid.UUID,
+) error {
+	if jobID == uuid.Nil {
+		return errors.New("job_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, jobID)
+	return err
 }
 
 // PostponeHeartbeat delays the next fire time by duration (used on error).
@@ -503,7 +540,8 @@ func (ScheduledTriggersRepository) DeleteInactiveHeartbeats(
 	}
 	tag, err := db.Exec(ctx, `
 		DELETE FROM scheduled_triggers st
-		WHERE NOT EXISTS (
+		WHERE (st.trigger_kind = 'heartbeat' OR st.trigger_kind = '')
+		  AND NOT EXISTS (
 			SELECT 1
 			  FROM channel_message_ledger cml
 			 WHERE cml.channel_id = st.channel_id

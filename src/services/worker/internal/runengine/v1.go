@@ -817,6 +817,7 @@ func buildPipeline(
 	mws = append(mws, buildBaseLayer(runsRepo, eventsRepo, messagesRepo, deps.RunControlHub, deps.MessageAttachmentStore, deps.RolloutBlobStore, resolver, releaseSlot)...)
 	mws = append(mws, buildAgentConfigLayer(deps, runsRepo, eventsRepo, baseAllowlistSet, releaseSlot)...)
 	mws = append(mws, buildChannelLayer(deps, messagesRepo, eventsRepo)...)
+	mws = append(mws, pipeline.NewScheduledJobPrepareMiddleware())
 	mws = append(mws, buildCapabilityLayer(deps, promptInjection, eventsRepo)...)
 	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot)...)
 	mws = append(mws, buildToolFinalizeLayer(deps)...)

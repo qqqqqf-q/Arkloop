@@ -1333,6 +1333,57 @@ export interface LocaleStrings {
     applied: string;
   };
 
+  // scheduled jobs
+  scheduledJobs: string;
+  scheduledJobsTitle: string;
+  scheduledJobsCreate: string;
+  scheduledJobsEdit: string;
+  scheduledJobsEmpty: string;
+  scheduledJobsLoadFailed: string;
+  scheduledJobsSaveFailed: string;
+  scheduledJobsDeleteFailed: string;
+  scheduledJobsName: string;
+  scheduledJobsDescription: string;
+  scheduledJobsPersona: string;
+  scheduledJobsSelectPersona: string;
+  scheduledJobsDefaultPersona: string;
+  scheduledJobsPrompt: string;
+  scheduledJobsModel: string;
+  scheduledJobsSelectModel: string;
+  scheduledJobsDefaultModel: string;
+  scheduledJobsInferredFromThread: string;
+  scheduledJobsThreadId: string;
+  scheduledJobsNewThread: string;
+  scheduledJobsSchedule: string;
+  scheduledJobsInterval: string;
+  scheduledJobsDaily: string;
+  scheduledJobsWeekdays: string;
+  scheduledJobsWeekly: string;
+  scheduledJobsMonthly: string;
+  scheduledJobsIntervalMinutes: string;
+  scheduledJobsDailyTime: string;
+  scheduledJobsMonthlyDay: string;
+  scheduledJobsMonthlyTime: string;
+  scheduledJobsWeeklyDay: string;
+  scheduledJobsSunday: string;
+  scheduledJobsMonday: string;
+  scheduledJobsTuesday: string;
+  scheduledJobsWednesday: string;
+  scheduledJobsThursday: string;
+  scheduledJobsFriday: string;
+  scheduledJobsSaturday: string;
+  scheduledJobsTimezone: string;
+  scheduledJobsAdvanced: string;
+  scheduledJobsWorkDir: string;
+  scheduledJobsSave: string;
+  scheduledJobsSaving: string;
+  scheduledJobsCancel: string;
+  scheduledJobsEnabled: string;
+  scheduledJobsDisabled: string;
+  scheduledJobsNextRun: string;
+  scheduledJobsStatus: string;
+  scheduledJobsDeleteConfirm: (name: string) => string;
+
   // onboarding wizard (desktop)
   onboarding: {
     welcomeDesc: string;

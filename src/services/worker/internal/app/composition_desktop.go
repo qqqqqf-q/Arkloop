@@ -705,6 +705,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			GroupSearchSpec: conversationtool.GroupSearchLlmSpec,
 		})),
 		desktopObservedStage("channel_end_reply", eventsRepo, pipeline.NewChannelEndReplyMiddleware()),
+		pipeline.NewScheduledJobPrepareMiddleware(),
 		desktopObservedStage("sub_agent_context", eventsRepo, desktopSubAgentContext(e.db, subagentctl.NewSnapshotStorage())),
 		desktopObservedStage("skill_context", eventsRepo, pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{
 			Resolve:        desktopSkillResolver(e.db),

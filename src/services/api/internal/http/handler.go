@@ -17,6 +17,7 @@ import (
 	"arkloop/services/api/internal/http/conversationapi"
 	"arkloop/services/api/internal/http/llmproxyapi"
 	"arkloop/services/api/internal/http/platformapi"
+	"arkloop/services/api/internal/http/scheduledjobsapi"
 
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
@@ -130,6 +131,8 @@ type HandlerConfig struct {
 	UserCredentialRepo *data.UserCredentialRepository
 
 	JobRepo *data.JobRepository
+
+	ScheduledJobsRepo *data.ScheduledJobsRepository
 
 	ArtifactStore          artifactStore
 	MessageAttachmentStore messageAttachmentStore
@@ -417,6 +420,16 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		SmtpProviderRepo:      cfg.SmtpProviderRepo,
 		UserCredentialRepo:    cfg.UserCredentialRepo,
 	})
+
+	if cfg.ScheduledJobsRepo != nil {
+		scheduledjobsapi.RegisterRoutes(mux, scheduledjobsapi.Deps{
+			AuthService:           cfg.AuthService,
+			AccountMembershipRepo: cfg.AccountMembershipRepo,
+			APIKeysRepo:           cfg.APIKeysRepo,
+			ScheduledJobsRepo:     cfg.ScheduledJobsRepo,
+			Pool:                  cfg.Pool,
+		})
+	}
 
 	llmproxyapi.RegisterRoutes(mux, llmproxyapi.Deps{
 		TokenValidator: cfg.ACPTokenValidator,

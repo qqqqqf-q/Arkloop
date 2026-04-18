@@ -385,6 +385,13 @@ export async function listPersonas(accessToken: string): Promise<Persona[]> {
   })
 }
 
+export async function listAllPersonas(accessToken: string): Promise<Persona[]> {
+  return await apiFetch<Persona[]>('/v1/personas', {
+    method: 'GET',
+    accessToken,
+  })
+}
+
 export async function listChannelPersonas(accessToken: string): Promise<Persona[]> {
   const [projectScoped, platformScoped] = await Promise.all([
     apiFetch<Persona[]>('/v1/personas?scope=user', {

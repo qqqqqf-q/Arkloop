@@ -522,7 +522,8 @@ func RunDesktop(ctx context.Context) error {
 
 		UserCredentialRepo: credentialRepo,
 
-		JobRepo: jobRepo,
+		JobRepo:           jobRepo,
+		ScheduledJobsRepo: &data.ScheduledJobsRepository{},
 
 		ArtifactStore:          artifactStore,
 		MessageAttachmentStore: messageAttachmentStore,

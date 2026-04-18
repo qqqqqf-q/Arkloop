@@ -28,10 +28,11 @@ const (
 	PermDataSkillsRead        = "data.skills.read"
 	PermDataSkillsManage      = "data.skills.manage"
 	PermDataWebhooksManage    = "data.webhooks.manage"
-	PermDataChannelsManage    = "data.channels.manage"
-	PermDataSubscriptionsRead = "data.subscriptions.read"
-	PermDataUsageRead         = "data.usage.read"
-	PermAccountAuditRead      = "org.audit_read"
+	PermDataChannelsManage       = "data.channels.manage"
+	PermDataSubscriptionsRead    = "data.subscriptions.read"
+	PermDataUsageRead            = "data.usage.read"
+	PermDataScheduledJobsManage  = "data.scheduled_jobs.manage"
+	PermAccountAuditRead         = "org.audit_read"
 
 	PermPlatformPlansManage         = "platform.plans.manage"
 	PermPlatformSubscriptionsManage = "platform.subscriptions.manage"
@@ -65,6 +66,7 @@ var allPermissions = []string{
 	PermDataChannelsManage,
 	PermDataSubscriptionsRead,
 	PermDataUsageRead,
+	PermDataScheduledJobsManage,
 	PermAccountAuditRead,
 	PermPlatformPlansManage,
 	PermPlatformSubscriptionsManage,

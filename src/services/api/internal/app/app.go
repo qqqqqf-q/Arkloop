@@ -277,8 +277,9 @@ func (a *Application) Run(ctx context.Context) error {
 
 		asrCredRepo *data.AsrCredentialsRepository
 
-		refreshTokenRepo *data.RefreshTokenRepository
-		jobRepo          *data.JobRepository
+		refreshTokenRepo  *data.RefreshTokenRepository
+		jobRepo           *data.JobRepository
+		scheduledJobsRepo *data.ScheduledJobsRepository
 
 		emailVerifyTokenRepo *data.EmailVerificationTokenRepository
 
@@ -525,7 +526,9 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 
-		hbSched := scheduler.NewLLMHeartbeat(pool, directPool, jobRepo, runEventRepo, threadRepo, runLimiter)
+		scheduledJobsRepo = &data.ScheduledJobsRepository{}
+
+		hbSched := scheduler.NewLLMHeartbeat(pool, directPool, jobRepo, runEventRepo, threadRepo, messageRepo, scheduledJobsRepo, runLimiter)
 		go hbSched.Run(ctx)
 
 		emailVerifyTokenRepo, err = data.NewEmailVerificationTokenRepository(pool)
@@ -835,6 +838,7 @@ func (a *Application) Run(ctx context.Context) error {
 			EmailVerifyService:           emailVerifyService,
 			EmailOTPLoginService:         emailOTPLoginService,
 			JobRepo:                      jobRepo,
+			ScheduledJobsRepo:            scheduledJobsRepo,
 			ArtifactStore:                artifactStore,
 			MessageAttachmentStore:       messageAttachmentStore,
 			EnvironmentStore:             environmentStore,

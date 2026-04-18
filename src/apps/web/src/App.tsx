@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { LoadingPage, useToast } from '@arkloop/shared'
 import { AppLayout } from './layouts/AppLayout'
@@ -27,6 +27,8 @@ import {
   getDesktopAccessToken,
 } from '@arkloop/shared/desktop'
 import { isApiError } from './api'
+
+const ScheduledJobsPage = lazy(() => import('./pages/scheduled-jobs/ScheduledJobsPage'))
 
 const sessionRestoreRetries = 12
 const sessionRestoreDelayMs = 1000
@@ -173,6 +175,7 @@ function App() {
             <Route path="search" element={<WelcomePage />} />
             <Route path="t/:threadId" element={<ChatShell />} />
             <Route path="t/:threadId/search" element={<ChatShell />} />
+            <Route path="scheduled-jobs" element={<Suspense fallback={<LoadingPage label={t.loading} />}><ScheduledJobsPage /></Suspense>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </>
