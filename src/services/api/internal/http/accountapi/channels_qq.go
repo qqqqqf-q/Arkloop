@@ -268,6 +268,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		if handled, replyText, err := handleTelegramCommand(
 			ctx, tx, &ch, identity, text,
 			"",
+			ch.AccountID,
+			nil,
 			c.channelBindCodesRepo,
 			c.channelIdentitiesRepo,
 			c.channelIdentityLinksRepo,

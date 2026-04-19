@@ -116,6 +116,8 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			identity,
 			trimmedCommandText,
 			telegramDMPlatformThreadID(incoming),
+			ch.AccountID,
+			c.entitlementSvc,
 			c.channelBindCodesRepo,
 			c.channelIdentitiesRepo,
 			c.channelIdentityLinksRepo,
@@ -253,9 +255,25 @@ func (c telegramConnector) persistTelegramInboundStageA(
 				cancelRunID: cancelRunID,
 			}, nil
 		}
-	}
-
-	if !incoming.IsPrivate() && !incoming.ShouldCreateRun() {
+		if ok && (cmd == "/model" || strings.HasPrefix(cmd, "/think")) {
+			modelIdentity := identity
+			if groupIdentity != nil {
+				modelIdentity = *groupIdentity
+			}
+			replyText, err := handleTelegramPreferenceCommand(
+				ctx, tx, ch.AccountID, modelIdentity, incoming.CommandText, c.channelIdentitiesRepo, c.entitlementSvc,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &modelIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return nil, err
+			}
+			return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: replyText}, nil
+		}
 		_, finalState, err := c.persistTelegramGroupPassiveMessageTx(ctx, tx, ch, token, incoming, identity, persona, baseMetadata)
 		if err != nil {
 			return nil, err
@@ -448,9 +466,18 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
+	preferredModel, reasoningMode, err := c.channelIdentitiesRepo.GetPreferenceConfig(ctx, *latestEntry.SenderChannelIdentityID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(preferredModel) != "" {
+		defaultModel = preferredModel
+	}
+
 	runStartedData := buildTelegramRunStartedData(
 		personaRef,
 		defaultModel,
+		reasoningMode,
 		ch.ID,
 		*latestEntry.SenderChannelIdentityID,
 		buildTelegramIncomingFromLedger(latestEntry),

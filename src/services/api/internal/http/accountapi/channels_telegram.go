@@ -702,6 +702,8 @@ func configureTelegramRemote(
 		{Command: "help", Description: "查看帮助"},
 		{Command: "bind", Description: "绑定账号"},
 		{Command: "new", Description: "新建会话"},
+		{Command: "model", Description: "View or switch model"},
+		{Command: "think", Description: "View or set thinking intensity"},
 	})
 }
 
@@ -1506,7 +1508,7 @@ func (c telegramConnector) notifyActiveRunInput(ctx context.Context, runID uuid.
 	c.inputNotify(ctx, runID)
 }
 
-func buildChannelRunStartedData(personaRef string, defaultModel string, channelDelivery map[string]any) map[string]any {
+func buildChannelRunStartedData(personaRef string, defaultModel string, reasoningMode string, channelDelivery map[string]any) map[string]any {
 	dataJSON := map[string]any{
 		"persona_id":          personaRef,
 		"continuation_source": "none",
@@ -1514,6 +1516,9 @@ func buildChannelRunStartedData(personaRef string, defaultModel string, channelD
 	}
 	if model := strings.TrimSpace(defaultModel); model != "" {
 		dataJSON["model"] = model
+	}
+	if mode := strings.TrimSpace(reasoningMode); mode != "" {
+		dataJSON["reasoning_mode"] = mode
 	}
 	if len(channelDelivery) > 0 {
 		dataJSON["channel_delivery"] = channelDelivery
@@ -1524,6 +1529,7 @@ func buildChannelRunStartedData(personaRef string, defaultModel string, channelD
 func buildTelegramRunStartedData(
 	personaRef string,
 	defaultModel string,
+	reasoningMode string,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
 	incoming telegramIncomingMessage,
@@ -1531,6 +1537,7 @@ func buildTelegramRunStartedData(
 	return buildChannelRunStartedData(
 		personaRef,
 		defaultModel,
+		reasoningMode,
 		buildTelegramChannelDeliveryPayload(channelID, channelIdentityID, incoming),
 	)
 }
@@ -1649,6 +1656,8 @@ func handleTelegramCommand(
 	identity data.ChannelIdentity,
 	text string,
 	platformThreadID string,
+	accountID uuid.UUID,
+	entSvc *entitlement.Service,
 	channelBindCodesRepo *data.ChannelBindCodesRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
@@ -1667,7 +1676,7 @@ func handleTelegramCommand(
 	command := strings.TrimSpace(parts[0])
 	switch {
 	case command == "/help":
-		return true, "/start — 查看连接状态\n/bind <code> — 绑定你的账号\n/new — 开启新会话\n/stop — 停止当前任务\n/help — 显示此帮助", nil
+		return true, "/start — 查看连接状态\n/bind <code> — 绑定你的账号\n/new — 开启新会话\n/stop — 停止当前任务\n/model [name] — View or switch model\n/think [level] — View or set thinking intensity\n/help — 显示此帮助", nil
 	case command == "/start":
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "bind_") {
 			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"), channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
@@ -1711,6 +1720,77 @@ func handleTelegramCommand(
 		}
 		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
 		return true, "已请求停止当前任务。", nil
+	case command == "/model":
+		allowUserScoped, err := resolveTelegramByokEnabled(ctx, entSvc, accountID)
+		if err != nil {
+			return true, "", err
+		}
+		preferredModel, _, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return true, "", err
+		}
+		if len(parts) < 2 {
+			candidates, err := loadTelegramSelectorCandidates(ctx, tx, accountID)
+			if err != nil {
+				return true, "", err
+			}
+			var sb strings.Builder
+			sb.WriteString("当前模型：")
+			if strings.TrimSpace(preferredModel) == "" {
+				sb.WriteString("跟随频道\n")
+			} else {
+				sb.WriteString(preferredModel + "\n")
+			}
+			sb.WriteString("\n可用模型：\n")
+			for _, c := range candidates {
+				if !c.accountScoped && !allowUserScoped {
+					continue
+				}
+				mark := "  "
+				if strings.EqualFold(strings.TrimSpace(c.model), strings.TrimSpace(preferredModel)) {
+					mark = "✓ "
+				}
+				sb.WriteString(mark + c.model + "\n")
+			}
+			return true, strings.TrimRight(sb.String(), "\n"), nil
+		}
+		newModel := strings.TrimSpace(parts[1])
+		if err := validateTelegramModelSelector(ctx, tx, accountID, newModel, allowUserScoped); err != nil {
+			return true, fmt.Sprintf("模型选择器无效：%s", newModel), nil
+		}
+		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return true, "", err
+		}
+		if err := channelIdentitiesRepo.WithTx(tx).UpdatePreferenceConfig(ctx, identity.ID, newModel, reasoningMode); err != nil {
+			return true, "", err
+		}
+		return true, "model → " + newModel, nil
+	case command == "/think":
+		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return true, "", err
+		}
+		if len(parts) < 2 {
+			display := reasoningMode
+			if display == "" {
+				display = "off"
+			}
+			return true, "think → " + display, nil
+		}
+		newMode := strings.TrimSpace(parts[1])
+		validModes := map[string]bool{"off": true, "minimal": true, "low": true, "medium": true, "high": true, "max": true}
+		if !validModes[newMode] {
+			return true, "可用档位：off、minimal、low、medium、high、max", nil
+		}
+		preferredModel, _, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return true, "", err
+		}
+		if err := channelIdentitiesRepo.WithTx(tx).UpdatePreferenceConfig(ctx, identity.ID, preferredModel, newMode); err != nil {
+			return true, "", err
+		}
+		return true, "think → " + newMode, nil
 	default:
 		return false, "", nil
 	}
@@ -2049,4 +2129,95 @@ func (c telegramConnector) HandleUpdateForPoll(
 	logPhase("stage_b_begin")
 	logPhase("stage_b_complete")
 	return nil
+}
+
+// handleTelegramPreferenceCommand 处理 /model 和 /think 偏好命令（群聊和私聊均可用）。
+func handleTelegramPreferenceCommand(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	identity data.ChannelIdentity,
+	rawText string,
+	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	entSvc *entitlement.Service,
+) (string, error) {
+	parts := strings.Fields(rawText)
+	if len(parts) == 0 {
+		return "", nil
+	}
+	cmd, _ := telegramCommandBase(rawText, "")
+	switch {
+	case cmd == "/model":
+		allowUserScoped, err := resolveTelegramByokEnabled(ctx, entSvc, accountID)
+		if err != nil {
+			return "", err
+		}
+		preferredModel, _, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return "", err
+		}
+		if len(parts) < 2 {
+			candidates, err := loadTelegramSelectorCandidates(ctx, tx, accountID)
+			if err != nil {
+				return "", err
+			}
+			var sb strings.Builder
+			sb.WriteString("当前模型：")
+			if strings.TrimSpace(preferredModel) == "" {
+				sb.WriteString("跟随频道\n")
+			} else {
+				sb.WriteString(preferredModel + "\n")
+			}
+			sb.WriteString("\n可用模型：\n")
+			for _, c := range candidates {
+				if !c.accountScoped && !allowUserScoped {
+					continue
+				}
+				mark := "  "
+				if strings.EqualFold(strings.TrimSpace(c.model), strings.TrimSpace(preferredModel)) {
+					mark = "✓ "
+				}
+				sb.WriteString(mark + c.model + "\n")
+			}
+			return strings.TrimRight(sb.String(), "\n"), nil
+		}
+		newModel := strings.TrimSpace(parts[1])
+		if err := validateTelegramModelSelector(ctx, tx, accountID, newModel, allowUserScoped); err != nil {
+			return fmt.Sprintf("模型选择器无效：%s", newModel), nil
+		}
+		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return "", err
+		}
+		if err := channelIdentitiesRepo.WithTx(tx).UpdatePreferenceConfig(ctx, identity.ID, newModel, reasoningMode); err != nil {
+			return "", err
+		}
+		return "model → " + newModel, nil
+	case cmd == "/think":
+		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return "", err
+		}
+		if len(parts) < 2 {
+			display := reasoningMode
+			if display == "" {
+				display = "off"
+			}
+			return "think → " + display, nil
+		}
+		newMode := strings.TrimSpace(parts[1])
+		validModes := map[string]bool{"off": true, "minimal": true, "low": true, "medium": true, "high": true, "max": true}
+		if !validModes[newMode] {
+			return "可用档位：off、minimal、low、medium、high、max", nil
+		}
+		preferredModel, _, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
+		if err != nil {
+			return "", err
+		}
+		if err := channelIdentitiesRepo.WithTx(tx).UpdatePreferenceConfig(ctx, identity.ID, preferredModel, newMode); err != nil {
+			return "", err
+		}
+		return "think → " + newMode, nil
+	}
+	return "", nil
 }

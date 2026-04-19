@@ -825,6 +825,7 @@ func buildDiscordRunStartedData(
 	return buildChannelRunStartedData(
 		personaRef,
 		defaultModel,
+		"",
 		buildDiscordChannelDeliveryPayload(channelID, channelIdentityID, messageCtx),
 	)
 }

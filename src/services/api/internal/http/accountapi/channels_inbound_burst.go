@@ -421,7 +421,7 @@ func resolveInboundBurstPersonaRef(ctx context.Context, personasRepo *data.Perso
 
 func buildChannelBurstRunStartedData(personaRef string, defaultModel string, jobPayload map[string]any) map[string]any {
 	channelDelivery, _ := jobPayload["channel_delivery"].(map[string]any)
-	return buildChannelRunStartedData(personaRef, defaultModel, channelDelivery)
+	return buildChannelRunStartedData(personaRef, defaultModel, "", channelDelivery)
 }
 
 func resolveChannelBurstDefaultModel(raw json.RawMessage) string {

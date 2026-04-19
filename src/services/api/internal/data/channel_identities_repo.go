@@ -24,6 +24,8 @@ type ChannelIdentity struct {
 	Metadata          json.RawMessage
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	PreferredModel    string
+	ReasoningMode     string
 }
 
 type ChannelIdentitiesRepository struct {
@@ -217,4 +219,35 @@ func (r *ChannelIdentitiesRepository) GetHeartbeatConfig(ctx context.Context, id
 		return false, 0, "", fmt.Errorf("channel_identities.GetHeartbeatConfig: %w", err)
 	}
 	return enabledInt != 0, intervalMinutes, model, nil
+}
+
+// UpdatePreferenceConfig 更新 channel identity 的模型偏好配置。
+func (r *ChannelIdentitiesRepository) UpdatePreferenceConfig(ctx context.Context, id uuid.UUID, preferredModel string, reasoningMode string) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE channel_identities
+		    SET preferred_model = $2,
+		        reasoning_mode = $3,
+		        updated_at = now()
+		  WHERE id = $1`,
+		id, preferredModel, reasoningMode,
+	)
+	if err != nil {
+		return fmt.Errorf("channel_identities.UpdatePreferenceConfig: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("channel_identities.UpdatePreferenceConfig: not found")
+	}
+	return nil
+}
+
+// GetPreferenceConfig 返回 channel identity 的模型偏好配置。
+func (r *ChannelIdentitiesRepository) GetPreferenceConfig(ctx context.Context, id uuid.UUID) (preferredModel string, reasoningMode string, err error) {
+	err = r.db.QueryRow(ctx,
+		`SELECT preferred_model, reasoning_mode FROM channel_identities WHERE id = $1`,
+		id,
+	).Scan(&preferredModel, &reasoningMode)
+	if err != nil {
+		return "", "", fmt.Errorf("channel_identities.GetPreferenceConfig: %w", err)
+	}
+	return preferredModel, reasoningMode, nil
 }
