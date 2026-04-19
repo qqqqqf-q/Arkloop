@@ -101,6 +101,26 @@ var Spec = llm.ToolSpec{
 				"type":        "boolean",
 				"description": "Enable or disable the job",
 			},
+			"delete_after_run": map[string]any{
+				"type":        "boolean",
+				"description": "Delete job after it fires once (useful for 'at' one-time jobs)",
+			},
+			"thinking": map[string]any{
+				"type":        "boolean",
+				"description": "Enable extended thinking for this job's run",
+			},
+			"timeout": map[string]any{
+				"type":        "integer",
+				"description": "Run timeout in seconds (0 means default)",
+			},
+			"light_context": map[string]any{
+				"type":        "boolean",
+				"description": "Use lightweight context injection for this job's run",
+			},
+			"tools_allow": map[string]any{
+				"type":        "string",
+				"description": "Comma-separated list of allowed tool names, empty means all tools allowed",
+			},
 		},
 	},
 }

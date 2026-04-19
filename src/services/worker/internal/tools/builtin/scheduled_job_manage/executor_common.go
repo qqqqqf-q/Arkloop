@@ -181,6 +181,21 @@ func (e *executorCommon) doCreate(
 	if v, ok := args["enabled"].(bool); ok {
 		job.Enabled = v
 	}
+	if v, ok := args["delete_after_run"].(bool); ok {
+		job.DeleteAfterRun = v
+	}
+	if v, ok := args["thinking"].(bool); ok {
+		job.Thinking = v
+	}
+	if v, ok := args["timeout"].(float64); ok {
+		job.Timeout = int(v)
+	}
+	if v, ok := args["light_context"].(bool); ok {
+		job.LightContext = v
+	}
+	if v, ok := args["tools_allow"].(string); ok {
+		job.ToolsAllow = v
+	}
 
 	// validate schedule-kind specific fields
 	if job.ScheduleKind == schedulekind.Cron && job.CronExpr != "" {
@@ -286,6 +301,22 @@ func (e *executorCommon) doUpdate(
 		}
 		p := &parsed
 		upd.ThreadID = &p
+	}
+	if v, ok := args["delete_after_run"].(bool); ok {
+		upd.DeleteAfterRun = &v
+	}
+	if v, ok := args["thinking"].(bool); ok {
+		upd.Thinking = &v
+	}
+	if v, ok := args["timeout"].(float64); ok {
+		iv := int(v)
+		upd.Timeout = &iv
+	}
+	if v, ok := args["light_context"].(bool); ok {
+		upd.LightContext = &v
+	}
+	if v, ok := args["tools_allow"].(string); ok {
+		upd.ToolsAllow = &v
 	}
 
 	if err := e.repo.UpdateJob(ctx, e.db, jobID, accountID, upd); err != nil {
@@ -501,5 +532,10 @@ func jobToMap(j data.ScheduledJobWithTrigger) map[string]any {
 		m["fire_at"] = j.FireAt.Format(time.RFC3339)
 	}
 	m["cron_expr"] = j.CronExpr
+	m["delete_after_run"] = j.DeleteAfterRun
+	m["thinking"] = j.Thinking
+	m["timeout"] = j.Timeout
+	m["light_context"] = j.LightContext
+	m["tools_allow"] = j.ToolsAllow
 	return m
 }

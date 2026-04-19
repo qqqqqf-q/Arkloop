@@ -37,6 +37,7 @@ func (DesktopScheduledJobsRepository) ListByAccount(
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
 		       j.fire_at, j.cron_expr,
+		       j.delete_after_run, j.thinking, j.timeout_seconds, j.light_context, j.tools_allow,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -59,6 +60,7 @@ func (DesktopScheduledJobsRepository) ListByAccount(
 			&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 			&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 			&r.FireAt, &r.CronExpr,
+			&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 			&nextFireAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan scheduled_jobs: %w", err)
@@ -95,6 +97,7 @@ func (DesktopScheduledJobsRepository) GetByID(
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
 		       j.fire_at, j.cron_expr,
+		       j.delete_after_run, j.thinking, j.timeout_seconds, j.light_context, j.tools_allow,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -105,6 +108,7 @@ func (DesktopScheduledJobsRepository) GetByID(
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
+		&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 		&nextFireAt,
 	)
 	if err != nil {
@@ -156,13 +160,15 @@ func (DesktopScheduledJobsRepository) CreateJob(
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
 		     daily_time, monthly_day, monthly_time, weekly_day, timezone, enabled, created_by_user_id,
-		     fire_at, cron_expr, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+		     fire_at, cron_expr, delete_after_run, thinking, timeout_seconds, light_context, tools_allow,
+		     created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)`,
 		job.ID.String(), job.AccountID.String(), job.Name, job.Description,
 		job.PersonaKey, job.Prompt, job.Model, job.WorkspaceRef, job.WorkDir,
 		threadIDStr, job.ScheduleKind, job.IntervalMin, job.DailyTime,
 		job.MonthlyDay, job.MonthlyTime, job.WeeklyDay, job.Timezone, job.Enabled, createdByStr,
 		job.FireAt, job.CronExpr,
+		job.DeleteAfterRun, job.Thinking, job.Timeout, job.LightContext, job.ToolsAllow,
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -251,6 +257,21 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 	if upd.CronExpr != nil {
 		addSet("cron_expr", *upd.CronExpr)
 		scheduleChanged = true
+	}
+	if upd.DeleteAfterRun != nil {
+		addSet("delete_after_run", *upd.DeleteAfterRun)
+	}
+	if upd.Thinking != nil {
+		addSet("thinking", *upd.Thinking)
+	}
+	if upd.Timeout != nil {
+		addSet("timeout_seconds", *upd.Timeout)
+	}
+	if upd.LightContext != nil {
+		addSet("light_context", *upd.LightContext)
+	}
+	if upd.ToolsAllow != nil {
+		addSet("tools_allow", *upd.ToolsAllow)
 	}
 
 	if len(setClauses) == 0 {
@@ -349,7 +370,8 @@ func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob,
 		       model, workspace_ref, work_dir, thread_id, schedule_kind,
 		       interval_min, daily_time, monthly_day, monthly_time, weekly_day, timezone,
 		       enabled, created_by_user_id, created_at, updated_at,
-		       fire_at, cron_expr
+		       fire_at, cron_expr,
+		       delete_after_run, thinking, timeout_seconds, light_context, tools_allow
 		  FROM scheduled_jobs
 		 WHERE id = $1`, id.String(),
 	).Scan(
@@ -358,6 +380,7 @@ func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
+		&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 	)
 	if err != nil {
 		if isNoRows(err) {

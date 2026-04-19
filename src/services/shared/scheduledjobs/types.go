@@ -28,6 +28,11 @@ type ScheduledJob struct {
 	CronExpr        string
 	Timezone        string
 	Enabled         bool
+	DeleteAfterRun  bool
+	Thinking        bool
+	Timeout         int
+	LightContext    bool
+	ToolsAllow      string
 	CreatedByUserID *uuid.UUID
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -56,7 +61,12 @@ type UpdateJobParams struct {
 	MonthlyTime  *string
 	WeeklyDay    **int
 	FireAt       **time.Time
-	CronExpr     *string
-	Timezone     *string
-	Enabled      *bool
+	CronExpr       *string
+	Timezone       *string
+	Enabled        *bool
+	DeleteAfterRun *bool
+	Thinking       *bool
+	Timeout        *int
+	LightContext   *bool
+	ToolsAllow     *string
 }

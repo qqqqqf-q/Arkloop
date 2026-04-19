@@ -402,6 +402,10 @@ func desktopFireJob(
 		"model":                model,
 		"workspace_ref":        job.WorkspaceRef,
 		"work_dir":             job.WorkDir,
+		"thinking":             job.Thinking,
+		"timeout_seconds":      job.Timeout,
+		"light_context":        job.LightContext,
+		"tools_allow":          job.ToolsAllow,
 	}
 	if _, err := eventsRepo.AppendEvent(ctx, tx, runID, "run.started", startedData, nil, nil); err != nil {
 		slog.ErrorContext(ctx, "desktop_job_append_started_failed", "error", err)
@@ -444,6 +448,13 @@ func desktopFireJob(
 			"error", err,
 		)
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+		return
+	}
+
+	if job.DeleteAfterRun {
+		if _, err := db.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID.String()); err != nil {
+			slog.ErrorContext(ctx, "desktop_job_delete_after_run_failed", "error", err, "job_id", job.ID)
+		}
 		return
 	}
 

@@ -412,6 +412,10 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 		"scheduled_job_prompt": job.Prompt,
 		"workspace_ref":        job.WorkspaceRef,
 		"work_dir":             job.WorkDir,
+		"thinking":             job.Thinking,
+		"timeout_seconds":      job.Timeout,
+		"light_context":        job.LightContext,
+		"tools_allow":          job.ToolsAllow,
 	}
 	run, _, err := runRepoTx.CreateRootRunWithClaim(
 		ctx,
@@ -480,6 +484,13 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "scheduled_job_commit_failed", "error", err)
 		_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
+		return
+	}
+
+	if job.DeleteAfterRun {
+		if _, err := s.pool.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID); err != nil {
+			slog.ErrorContext(ctx, "scheduled_job_delete_after_run_failed", "error", err, "job_id", job.ID)
+		}
 		return
 	}
 

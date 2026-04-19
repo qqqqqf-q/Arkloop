@@ -30,13 +30,15 @@ func (ScheduledJobsRepository) CreateJob(
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
 		     daily_time, monthly_day, monthly_time, weekly_day, timezone, enabled, created_by_user_id,
-		     fire_at, cron_expr, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,now(),now())
+		     fire_at, cron_expr, delete_after_run, thinking, timeout_seconds, light_context, tools_allow,
+		     created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,now(),now())
 		RETURNING id, created_at, updated_at`,
 		job.ID, job.AccountID, job.Name, job.Description, job.PersonaKey, job.Prompt,
 		job.Model, job.WorkspaceRef, job.WorkDir, job.ThreadID, job.ScheduleKind,
 		job.IntervalMin, job.DailyTime, job.MonthlyDay, job.MonthlyTime, job.WeeklyDay,
 		job.Timezone, job.Enabled, job.CreatedByUserID, job.FireAt, job.CronExpr,
+		job.DeleteAfterRun, job.Thinking, job.Timeout, job.LightContext, job.ToolsAllow,
 	).Scan(&job.ID, &job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return scheduledjobs.ScheduledJob{}, fmt.Errorf("insert scheduled_jobs: %w", err)
@@ -62,6 +64,7 @@ func (ScheduledJobsRepository) ListByAccount(
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
 		       j.fire_at, j.cron_expr,
+		       j.delete_after_run, j.thinking, j.timeout_seconds, j.light_context, j.tools_allow,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -81,6 +84,7 @@ func (ScheduledJobsRepository) ListByAccount(
 			&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 			&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
 			&r.FireAt, &r.CronExpr,
+			&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 			&r.NextFireAt,
 		); err != nil {
 			return nil, err
@@ -102,6 +106,7 @@ func (ScheduledJobsRepository) GetByID(
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
 		       j.fire_at, j.cron_expr,
+		       j.delete_after_run, j.thinking, j.timeout_seconds, j.light_context, j.tools_allow,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -112,6 +117,7 @@ func (ScheduledJobsRepository) GetByID(
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
+		&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 		&r.NextFireAt,
 	)
 	if err != nil {
@@ -134,7 +140,8 @@ func (ScheduledJobsRepository) GetJobByID(
 		       model, workspace_ref, work_dir, thread_id, schedule_kind,
 		       interval_min, daily_time, monthly_day, monthly_time, weekly_day, timezone,
 		       enabled, created_by_user_id, created_at, updated_at,
-		       fire_at, cron_expr
+		       fire_at, cron_expr,
+		       delete_after_run, thinking, timeout_seconds, light_context, tools_allow
 		  FROM scheduled_jobs
 		 WHERE id = $1`, id,
 	).Scan(
@@ -143,6 +150,7 @@ func (ScheduledJobsRepository) GetJobByID(
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
+		&r.DeleteAfterRun, &r.Thinking, &r.Timeout, &r.LightContext, &r.ToolsAllow,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -233,6 +241,21 @@ func (ScheduledJobsRepository) UpdateJob(
 	if upd.Enabled != nil {
 		addSet("enabled", *upd.Enabled)
 	}
+	if upd.DeleteAfterRun != nil {
+		addSet("delete_after_run", *upd.DeleteAfterRun)
+	}
+	if upd.Thinking != nil {
+		addSet("thinking", *upd.Thinking)
+	}
+	if upd.Timeout != nil {
+		addSet("timeout_seconds", *upd.Timeout)
+	}
+	if upd.LightContext != nil {
+		addSet("light_context", *upd.LightContext)
+	}
+	if upd.ToolsAllow != nil {
+		addSet("tools_allow", *upd.ToolsAllow)
+	}
 
 	if len(setClauses) == 0 {
 		return nil
@@ -240,7 +263,6 @@ func (ScheduledJobsRepository) UpdateJob(
 
 	addSet("updated_at", time.Now().UTC())
 
-	// WHERE id = $N AND account_id = $N+1
 	whereID := fmt.Sprintf("$%d", argIdx)
 	args = append(args, id)
 	argIdx++
