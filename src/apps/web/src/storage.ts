@@ -558,19 +558,18 @@ export function writeSelectedModelToStorage(model: string | null): void {
   }
 }
 
-export function readSelectedThinkingEnabled(): boolean {
-  if (!canUseLocalStorage()) return false
-  return localStorage.getItem(SELECTED_THINKING_KEY) === 'true'
+export function readSelectedReasoningMode(): string {
+  if (!canUseLocalStorage()) return 'off'
+  const v = localStorage.getItem(SELECTED_THINKING_KEY)
+  if (v === 'true') return 'medium'
+  if (!v || v === 'false') return 'off'
+  return v
 }
 
-export function writeSelectedThinkingEnabled(enabled: boolean): void {
+export function writeSelectedReasoningMode(mode: string): void {
   if (!canUseLocalStorage()) return
   try {
-    if (enabled) {
-      localStorage.setItem(SELECTED_THINKING_KEY, 'true')
-    } else {
-      localStorage.removeItem(SELECTED_THINKING_KEY)
-    }
+    localStorage.setItem(SELECTED_THINKING_KEY, mode)
   } catch {
     // 忽略存储失败
   }
@@ -1757,8 +1756,9 @@ export function transferGlobalWorkFolderToThread(threadId: string): void {
 export function transferGlobalThinkingToThread(threadId: string): void {
   if (!canUseLocalStorage() || !threadId) return
   try {
-    if (localStorage.getItem(SELECTED_THINKING_KEY) !== 'true') return
-    localStorage.setItem(`arkloop:thinking:${threadId}`, 'true')
+    const mode = readSelectedReasoningMode()
+    if (mode === 'off') return
+    localStorage.setItem(`arkloop:thinking:${threadId}`, mode)
   } catch { /* ignore */ }
 }
 
@@ -1773,19 +1773,18 @@ export function readWorkRecentFolders(): string[] {
 
 // -- Thread Thinking Toggle --
 
-export function readThreadThinkingEnabled(threadId: string): boolean {
-  if (!canUseLocalStorage() || !threadId) return false
-  return localStorage.getItem(`arkloop:thinking:${threadId}`) === 'true'
+export function readThreadReasoningMode(threadId: string): string {
+  if (!canUseLocalStorage() || !threadId) return 'off'
+  const v = localStorage.getItem(`arkloop:thinking:${threadId}`)
+  if (v === 'true') return 'medium'
+  if (!v || v === 'false') return 'off'
+  return v
 }
 
-export function writeThreadThinkingEnabled(threadId: string, enabled: boolean): void {
+export function writeThreadReasoningMode(threadId: string, mode: string): void {
   if (!canUseLocalStorage() || !threadId) return
   try {
-    if (enabled) {
-      localStorage.setItem(`arkloop:thinking:${threadId}`, 'true')
-    } else {
-      localStorage.removeItem(`arkloop:thinking:${threadId}`)
-    }
+    localStorage.setItem(`arkloop:thinking:${threadId}`, mode)
   } catch { /* ignore */ }
 }
 

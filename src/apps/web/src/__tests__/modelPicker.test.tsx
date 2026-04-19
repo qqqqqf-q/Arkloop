@@ -80,7 +80,11 @@ describe('ModelPicker', () => {
             show_in_picker: true,
             tags: [],
             when: {},
-            advanced_json: null,
+            advanced_json: {
+              available_catalog: {
+                reasoning: true,
+              },
+            },
             multiplier: 1,
           },
         ],
@@ -113,7 +117,7 @@ describe('ModelPicker', () => {
             value={null}
             onChange={onChange}
             onAddApiKey={vi.fn()}
-            thinkingEnabled={false}
+            thinkingEnabled={'off'}
             onThinkingChange={vi.fn()}
           />
         </LocaleProvider>,
@@ -163,6 +167,138 @@ describe('ModelPicker', () => {
         (button) => button.textContent?.trim() === 'claude-sonnet-4-6',
       ),
     ).toBe(false)
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('点击 Options 会打开二级菜单，Thinking 整行可点击切换', async () => {
+    const onThinkingChange = vi.fn()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ModelPicker
+            accessToken="token"
+            value="cery^claude-sonnet-4-6"
+            onChange={vi.fn()}
+            onAddApiKey={vi.fn()}
+            thinkingEnabled="off"
+            onThinkingChange={onThinkingChange}
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('claude-sonnet-4-6'),
+    ) as HTMLButtonElement | null
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    const modelRow = Array.from(container.querySelectorAll('div')).find(
+      (node) => node.textContent?.includes('claude-sonnet-4-6'),
+    ) as HTMLDivElement | null
+    expect(modelRow).not.toBeNull()
+    if (!modelRow) return
+
+    await act(async () => {
+      modelRow.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    const optionsButton = Array.from(container.querySelectorAll('[role="button"]')).find(
+      (button) => button.textContent?.trim() === 'Options',
+    ) as HTMLElement | null
+    expect(optionsButton).not.toBeNull()
+    if (!optionsButton) return
+
+    await act(async () => {
+      optionsButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('Thinking')
+    expect(container.textContent).toContain('Effort')
+
+    const optionsPanel = Array.from(container.querySelectorAll('div')).find(
+      (node) => node.style.transform === 'translateY(-50%)',
+    ) as HTMLDivElement | null
+    expect(optionsPanel).not.toBeNull()
+
+    const thinkingRow = Array.from(container.querySelectorAll('div')).find(
+      (node) => node.getAttribute('role') === 'button' && node.textContent?.includes('Thinking'),
+    ) as HTMLDivElement | null
+    expect(thinkingRow).not.toBeNull()
+    if (!thinkingRow) return
+
+    await act(async () => {
+      thinkingRow.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(onThinkingChange).toHaveBeenCalledWith('medium')
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('重复点击当前模型不会把 reasoning mode 重置掉', async () => {
+    const onChange = vi.fn()
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ModelPicker
+            accessToken="token"
+            value="cery^claude-sonnet-4-6"
+            onChange={onChange}
+            onAddApiKey={vi.fn()}
+            thinkingEnabled="high"
+            onThinkingChange={vi.fn()}
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('claude-sonnet-4-6'),
+    ) as HTMLButtonElement | null
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    const currentModelButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('High'),
+    ) as HTMLButtonElement | null
+    expect(currentModelButton).not.toBeNull()
+    if (!currentModelButton) return
+
+    await act(async () => {
+      currentModelButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(onChange).not.toHaveBeenCalled()
 
     await act(async () => {
       root.unmount()

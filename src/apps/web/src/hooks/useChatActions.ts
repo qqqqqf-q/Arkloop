@@ -21,6 +21,7 @@ import {
   retryThread,
   type MessageContent,
   type MessageResponse,
+  type RunReasoningMode,
 } from '../api'
 import { buildMessageRequest } from '../messageContent'
 import {
@@ -30,7 +31,7 @@ import {
   readSelectedModelFromStorage,
   readSelectedPersonaKeyFromStorage,
   readThreadWorkFolder,
-  readThreadThinkingEnabled,
+  readThreadReasoningMode,
   SEARCH_PERSONA_KEY,
 } from '../storage'
 import { createEmptyAssistantTurnFoldState } from '../assistantTurnSegments'
@@ -134,7 +135,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
       setUserEnterMessageId(message.id)
       setMessages((prev) => [...prev, message])
       noResponseMsgIdRef.current = message.id
-      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadThinkingEnabled(threadId) ? 'enabled' : undefined)
+      const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadReasoningMode(threadId) !== 'off' ? readThreadReasoningMode(threadId) as RunReasoningMode : undefined)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
       resetSearchSteps()
       setActiveRunId(run.run_id)

@@ -655,6 +655,14 @@ export interface LocaleStrings {
     searchPlaceholder: string
     moreModels: string
     thinking: string
+    effort: string
+    effortOff: string
+    effortMinimal: string
+    effortLow: string
+    effortMedium: string
+    effortHigh: string
+    effortMax: string
+    options: string
   }
   // work right panel
   work: {

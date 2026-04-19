@@ -30,7 +30,7 @@ import {
   readMessageCodeExecutions,
   readSelectedModelFromStorage,
   readSelectedPersonaKeyFromStorage,
-  readThreadThinkingEnabled,
+  readThreadReasoningMode,
   readThreadWorkFolder,
   writeMessageAssistantTurn,
   writeMessageCodeExecutions,
@@ -109,7 +109,7 @@ vi.mock('../storage', async () => {
     readSelectedPersonaKeyFromStorage: vi.fn(() => 'default'),
     readSelectedModelFromStorage: vi.fn(() => null),
     readThreadWorkFolder: vi.fn(() => null),
-    readThreadThinkingEnabled: vi.fn(() => false),
+    readThreadReasoningMode: vi.fn(() => 'off'),
     readMessageTerminalStatus: vi.fn(() => null),
     writeMessageTerminalStatus: vi.fn(),
     readMessageAssistantTurn: vi.fn(() => null),
@@ -516,7 +516,7 @@ describe('ChatPage loading state', () => {
   const mockedReadSelectedPersonaKeyFromStorage = vi.mocked(readSelectedPersonaKeyFromStorage)
   const mockedReadSelectedModelFromStorage = vi.mocked(readSelectedModelFromStorage)
   const mockedReadThreadWorkFolder = vi.mocked(readThreadWorkFolder)
-  const mockedReadThreadThinkingEnabled = vi.mocked(readThreadThinkingEnabled)
+  const mockedReadThreadThinkingEnabled = vi.mocked(readThreadReasoningMode)
   const mockedWriteMessageTerminalStatus = vi.mocked(writeMessageTerminalStatus)
   const mockedWriteMessageWidgets = vi.mocked(writeMessageWidgets)
   const mockedReadThreadRunHandoff = vi.mocked(readThreadRunHandoff)
@@ -536,7 +536,7 @@ describe('ChatPage loading state', () => {
     mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('default')
     mockedReadSelectedModelFromStorage.mockReturnValue(null)
     mockedReadThreadWorkFolder.mockReturnValue(null)
-    mockedReadThreadThinkingEnabled.mockReturnValue(false)
+    mockedReadThreadThinkingEnabled.mockReturnValue('off')
     mockedReadThreadRunHandoff.mockReturnValue(null)
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     HTMLElement.prototype.scrollIntoView = vi.fn()
@@ -1714,7 +1714,7 @@ describe('ChatPage loading state', () => {
     mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('search')
     mockedReadSelectedModelFromStorage.mockReturnValue('openai^gpt-5')
     mockedReadThreadWorkFolder.mockReturnValue('/workspace/demo')
-    mockedReadThreadThinkingEnabled.mockReturnValue(true)
+    mockedReadThreadThinkingEnabled.mockReturnValue('high')
 
     const container = document.createElement('div')
     document.body.appendChild(container)

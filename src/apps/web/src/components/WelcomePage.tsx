@@ -7,7 +7,7 @@ import { NotificationBell } from './NotificationBell'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { DebugTrigger, useTimeZone } from '@arkloop/shared'
 import { buildDraftAttachmentRecords, restoreAttachmentFromDraftRecord } from '../draftAttachments'
-import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError } from '../api'
+import { createThread, createMessage, createRun, uploadStagingAttachment, isApiError, type RunReasoningMode } from '../api'
 import {
   type InputDraftScope,
   writeActiveThreadIdToStorage,
@@ -15,7 +15,7 @@ import {
   SEARCH_PERSONA_KEY,
   transferGlobalWorkFolderToThread,
   transferGlobalThinkingToThread,
-  readSelectedThinkingEnabled,
+  readSelectedReasoningMode,
   readInputDraftAttachments,
   readWorkFolder,
   readDeveloperShowDebugPanel,
@@ -380,7 +380,7 @@ export function WelcomePage() {
         personaKey,
         modelOverride,
         readWorkFolder() ?? undefined,
-        readSelectedThinkingEnabled() ? 'enabled' : undefined,
+        readSelectedReasoningMode() !== 'off' ? readSelectedReasoningMode() as RunReasoningMode : undefined,
       )
 
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(thread.id)

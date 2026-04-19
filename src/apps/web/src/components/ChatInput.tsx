@@ -13,10 +13,10 @@ import {
   writeSelectedPersonaKeyToStorage,
   readSelectedModelFromStorage,
   writeSelectedModelToStorage,
-  readSelectedThinkingEnabled,
-  writeSelectedThinkingEnabled,
-  readThreadThinkingEnabled,
-  writeThreadThinkingEnabled,
+  readSelectedReasoningMode,
+  writeSelectedReasoningMode,
+  readThreadReasoningMode,
+  writeThreadReasoningMode,
   readInputDraftText,
   writeInputDraftText,
 } from '../storage'
@@ -173,17 +173,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const skipDraftPersistRef = useRef(false)
   const prevDraftScopeRef = useRef<InputDraftScope | null>(null)
 
-  const [thinkingEnabled, setThinkingEnabled] = useState(() => {
-    if (!workThreadId) return readSelectedThinkingEnabled()
-    return readThreadThinkingEnabled(workThreadId)
+  const [reasoningMode, setReasoningMode] = useState(() => {
+    if (!workThreadId) return readSelectedReasoningMode()
+    return readThreadReasoningMode(workThreadId)
   })
 
   useEffect(() => {
     if (!workThreadId) {
-      setThinkingEnabled(readSelectedThinkingEnabled())
+      setReasoningMode(readSelectedReasoningMode())
       return
     }
-    setThinkingEnabled(readThreadThinkingEnabled(workThreadId))
+    setReasoningMode(readThreadReasoningMode(workThreadId))
   }, [workThreadId])
 
   const { isRecording, isTranscribing, recordingSeconds, waveformBars, startRecording, stopAndTranscribe, cancelRecording } =
@@ -242,21 +242,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleModelChange = useCallback((model: string | null) => {
     setSelectedModel(model)
     writeSelectedModelToStorage(model)
-    setThinkingEnabled(false)
+    setReasoningMode('off')
     if (workThreadId) {
-      writeThreadThinkingEnabled(workThreadId, false)
+      writeThreadReasoningMode(workThreadId, 'off')
       return
     }
-    writeSelectedThinkingEnabled(false)
+    writeSelectedReasoningMode('off')
   }, [workThreadId])
 
-  const handleThinkingChange = useCallback((v: boolean) => {
-    setThinkingEnabled(v)
+  const handleReasoningModeChange = useCallback((mode: string) => {
+    setReasoningMode(mode)
     if (workThreadId) {
-      writeThreadThinkingEnabled(workThreadId, v)
+      writeThreadReasoningMode(workThreadId, mode)
       return
     }
-    writeSelectedThinkingEnabled(v)
+    writeSelectedReasoningMode(mode)
   }, [workThreadId])
 
   const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
@@ -589,8 +589,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onModeSelect={handleModeSelect}
             onDeactivateMode={deactivateMode}
             onModelChange={handleModelChange}
-            thinkingEnabled={thinkingEnabled}
-            onThinkingChange={handleThinkingChange}
+            thinkingEnabled={reasoningMode}
+            onThinkingChange={handleReasoningModeChange}
             onOpenSettings={onOpenSettings}
             onFileInputClick={() => fileInputRef.current?.click()}
             accessToken={accessToken}

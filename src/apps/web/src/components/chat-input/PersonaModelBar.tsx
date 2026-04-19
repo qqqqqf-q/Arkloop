@@ -27,8 +27,8 @@ type Props = {
   onModeSelect: (personaKey: string) => void
   onDeactivateMode: () => void
   onModelChange: (model: string | null) => void
-  thinkingEnabled: boolean
-  onThinkingChange: (v: boolean) => void
+  thinkingEnabled: string
+  onThinkingChange: (mode: string) => void
   onOpenSettings?: (tab: SettingsTab) => void
   onFileInputClick: () => void
   accessToken?: string

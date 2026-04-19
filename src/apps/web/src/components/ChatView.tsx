@@ -94,6 +94,7 @@ import {
   isApiError,
   type MessageContent,
   type MessageResponse,
+  type RunReasoningMode,
 } from '../api'
 import { buildMessageRequest } from '../messageContent'
 import {
@@ -139,7 +140,7 @@ import {
   type MsgRunEvent,
   readInputDraftAttachments,
   readThreadWorkFolder,
-  readThreadThinkingEnabled,
+  readThreadReasoningMode,
   writeInputDraftAttachments,
 } from '../storage'
 
@@ -1520,7 +1521,7 @@ export function ChatView() {
         onThreadCreated(forked)
         const uploaded = await uploadAttachments()
         const forkUserMessage = await createMessage(accessToken, forked.id, buildMessageRequest(text, uploaded))
-        const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadThinkingEnabled(threadId) ? 'enabled' as const : undefined)
+        const run = await createRun(accessToken, forked.id, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadReasoningMode(threadId) !== 'off' ? readThreadReasoningMode(threadId) as RunReasoningMode : undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
         attachments.forEach((attachment) => revokeDraftAttachment(attachment))
         chatInputRef.current?.clear()
@@ -1579,7 +1580,7 @@ export function ChatView() {
         injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = message.id
 
-        const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadThinkingEnabled(threadId) ? 'enabled' as const : undefined)
+        const run = await createRun(accessToken, threadId, personaKey, modelOverride, readThreadWorkFolder(threadId) ?? undefined, readThreadReasoningMode(threadId) !== 'off' ? readThreadReasoningMode(threadId) as RunReasoningMode : undefined)
         if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
         resetSearchSteps()
         setActiveRunId(run.run_id)

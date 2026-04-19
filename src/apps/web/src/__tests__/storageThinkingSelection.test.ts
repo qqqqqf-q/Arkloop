@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  readSelectedThinkingEnabled,
+  readSelectedReasoningMode,
   transferGlobalThinkingToThread,
-  writeSelectedThinkingEnabled,
-  readThreadThinkingEnabled,
+  writeSelectedReasoningMode,
+  readThreadReasoningMode,
 } from '../storage'
 
 function createMemoryStorage(): Storage {
@@ -47,14 +47,24 @@ describe('thinking storage', () => {
   })
 
   it('默认关闭', () => {
-    expect(readSelectedThinkingEnabled()).toBe(false)
+    expect(readSelectedReasoningMode()).toBe('off')
   })
 
   it('写入全局 think 后可迁移到新线程', () => {
-    writeSelectedThinkingEnabled(true)
+    writeSelectedReasoningMode('medium')
     transferGlobalThinkingToThread('thread_1')
 
-    expect(readSelectedThinkingEnabled()).toBe(true)
-    expect(readThreadThinkingEnabled('thread_1')).toBe(true)
+    expect(readSelectedReasoningMode()).toBe('medium')
+    expect(readThreadReasoningMode('thread_1')).toBe('medium')
+  })
+
+  it('旧值 true 向后兼容返回 medium', () => {
+    localStorage.setItem('arkloop:web:selected_thinking', 'true')
+    expect(readSelectedReasoningMode()).toBe('medium')
+  })
+
+  it('旧值 false 向后兼容返回 off', () => {
+    localStorage.setItem('arkloop:web:selected_thinking', 'false')
+    expect(readSelectedReasoningMode()).toBe('off')
   })
 })
