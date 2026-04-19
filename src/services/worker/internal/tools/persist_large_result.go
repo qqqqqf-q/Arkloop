@@ -51,8 +51,25 @@ func PersistLargeResult(
 		execCtx.WorkspaceRef,
 	)
 
-	filePath := filepath.Join(".tool-outputs", execCtx.RunID.String(), toolCallID+".txt")
-	if writeErr := backend.WriteFile(ctx, filePath, raw); writeErr != nil {
+	// extract raw output text; try "output" then "stdout", fall back to full JSON
+	content := raw
+	for _, key := range []string{"output", "stdout"} {
+		if out, ok := result.ResultJSON[key]; ok {
+			if v, ok := out.(string); ok {
+				content = []byte(v)
+				break
+			}
+		}
+	}
+
+	threadID := ""
+	if execCtx.ThreadID != nil {
+		threadID = execCtx.ThreadID.String()
+	} else {
+		threadID = execCtx.RunID.String()
+	}
+	filePath := filepath.Join(".tool-outputs", threadID, toolCallID+".txt")
+	if writeErr := backend.WriteFile(ctx, filePath, content); writeErr != nil {
 		slog.Warn("persist_large_result: write failed, falling back to compression",
 			"run_id", execCtx.RunID.String(),
 			"tool_call_id", toolCallID,
@@ -62,8 +79,8 @@ func PersistLargeResult(
 		return result
 	}
 
-	preview := generatePreview(raw, PersistPreviewBytes)
-	originalBytes := len(raw)
+	preview := generatePreview(content, PersistPreviewBytes)
+	originalBytes := len(content)
 
 	newResult := make(map[string]any, len(metadataFields)+5)
 	for k, v := range result.ResultJSON {

@@ -101,12 +101,9 @@ func TestPersistLargeResult_OverThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted file failed: %v", err)
 	}
-	var recovered map[string]any
-	if err := json.Unmarshal(data, &recovered); err != nil {
-		t.Fatalf("unmarshal persisted file failed: %v", err)
-	}
-	if recovered["output"] == nil {
-		t.Fatalf("expected output in persisted file")
+	// content should be the raw output string, not JSON
+	if len(data) != PersistThreshold+1 {
+		t.Fatalf("expected %d bytes of raw output, got %d", PersistThreshold+1, len(data))
 	}
 }
 
