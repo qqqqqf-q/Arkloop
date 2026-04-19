@@ -24,6 +24,8 @@ type ScheduledJob struct {
 	MonthlyDay      *int
 	MonthlyTime     string
 	WeeklyDay       *int
+	FireAt          *time.Time
+	CronExpr        string
 	Timezone        string
 	Enabled         bool
 	CreatedByUserID *uuid.UUID
@@ -53,6 +55,8 @@ type UpdateJobParams struct {
 	MonthlyDay   **int
 	MonthlyTime  *string
 	WeeklyDay    **int
+	FireAt       **time.Time
+	CronExpr     *string
 	Timezone     *string
 	Enabled      *bool
 }

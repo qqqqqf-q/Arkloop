@@ -10,14 +10,14 @@ const ToolName = "scheduled_job_manage"
 var AgentSpec = tools.AgentToolSpec{
 	Name:        ToolName,
 	Version:     "1",
-	Description: "Manage scheduled jobs: list, get, create, update, delete.",
+	Description: "Manage scheduled jobs: list, get, create, update, delete, run, status, runs, wake.",
 	RiskLevel:   tools.RiskLevelMedium,
 	SideEffects: true,
 }
 
 var Spec = llm.ToolSpec{
 	Name:        ToolName,
-	Description: strPtr("Manage scheduled jobs: list, get, create, update, delete."),
+	Description: strPtr("Manage scheduled jobs: list, get, create, update, delete, run, status, runs, wake."),
 	JSONSchema: map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -25,7 +25,7 @@ var Spec = llm.ToolSpec{
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"list", "get", "create", "update", "delete"},
+				"enum":        []string{"list", "get", "create", "update", "delete", "run", "status", "runs", "wake"},
 				"description": "Operation type",
 			},
 			"job_id": map[string]any{
@@ -50,8 +50,16 @@ var Spec = llm.ToolSpec{
 			},
 			"schedule_kind": map[string]any{
 				"type":        "string",
-				"enum":        []string{"interval", "daily", "monthly", "weekdays", "weekly"},
+				"enum":        []string{"interval", "daily", "monthly", "weekdays", "weekly", "at", "cron"},
 				"description": "Schedule type",
+			},
+			"fire_at": map[string]any{
+				"type":        "string",
+				"description": "ISO8601 datetime for one-time 'at' schedule (e.g. 2025-01-15T09:00:00Z)",
+			},
+			"cron_expr": map[string]any{
+				"type":        "string",
+				"description": "Standard 5-field cron expression (e.g. '*/5 * * * *')",
 			},
 			"interval_min": map[string]any{
 				"type":        "integer",

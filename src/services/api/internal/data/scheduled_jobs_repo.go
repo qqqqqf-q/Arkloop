@@ -30,13 +30,13 @@ func (ScheduledJobsRepository) CreateJob(
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
 		     daily_time, monthly_day, monthly_time, weekly_day, timezone, enabled, created_by_user_id,
-		     created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,now(),now())
+		     fire_at, cron_expr, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,now(),now())
 		RETURNING id, created_at, updated_at`,
 		job.ID, job.AccountID, job.Name, job.Description, job.PersonaKey, job.Prompt,
 		job.Model, job.WorkspaceRef, job.WorkDir, job.ThreadID, job.ScheduleKind,
 		job.IntervalMin, job.DailyTime, job.MonthlyDay, job.MonthlyTime, job.WeeklyDay,
-		job.Timezone, job.Enabled, job.CreatedByUserID,
+		job.Timezone, job.Enabled, job.CreatedByUserID, job.FireAt, job.CronExpr,
 	).Scan(&job.ID, &job.CreatedAt, &job.UpdatedAt)
 	if err != nil {
 		return scheduledjobs.ScheduledJob{}, fmt.Errorf("insert scheduled_jobs: %w", err)
@@ -61,6 +61,7 @@ func (ScheduledJobsRepository) ListByAccount(
 		       j.model, j.workspace_ref, j.work_dir, j.thread_id, j.schedule_kind,
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
+		       j.fire_at, j.cron_expr,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -79,6 +80,7 @@ func (ScheduledJobsRepository) ListByAccount(
 			&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
 			&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 			&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+			&r.FireAt, &r.CronExpr,
 			&r.NextFireAt,
 		); err != nil {
 			return nil, err
@@ -99,6 +101,7 @@ func (ScheduledJobsRepository) GetByID(
 		       j.model, j.workspace_ref, j.work_dir, j.thread_id, j.schedule_kind,
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
+		       j.fire_at, j.cron_expr,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -108,6 +111,7 @@ func (ScheduledJobsRepository) GetByID(
 		&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+		&r.FireAt, &r.CronExpr,
 		&r.NextFireAt,
 	)
 	if err != nil {
@@ -129,7 +133,8 @@ func (ScheduledJobsRepository) GetJobByID(
 		SELECT id, account_id, name, description, persona_key, prompt,
 		       model, workspace_ref, work_dir, thread_id, schedule_kind,
 		       interval_min, daily_time, monthly_day, monthly_time, weekly_day, timezone,
-		       enabled, created_by_user_id, created_at, updated_at
+		       enabled, created_by_user_id, created_at, updated_at,
+		       fire_at, cron_expr
 		  FROM scheduled_jobs
 		 WHERE id = $1`, id,
 	).Scan(
@@ -137,6 +142,7 @@ func (ScheduledJobsRepository) GetJobByID(
 		&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+		&r.FireAt, &r.CronExpr,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -214,6 +220,14 @@ func (ScheduledJobsRepository) UpdateJob(
 	}
 	if upd.Timezone != nil {
 		addSet("timezone", *upd.Timezone)
+		scheduleChanged = true
+	}
+	if upd.FireAt != nil {
+		addSet("fire_at", *upd.FireAt)
+		scheduleChanged = true
+	}
+	if upd.CronExpr != nil {
+		addSet("cron_expr", *upd.CronExpr)
 		scheduleChanged = true
 	}
 	if upd.Enabled != nil {
@@ -360,6 +374,8 @@ func calcJobNextFire(job scheduledjobs.ScheduledJob) (time.Time, error) {
 		derefIntOr(job.MonthlyDay, 1),
 		job.MonthlyTime,
 		derefIntOr(job.WeeklyDay, 0),
+		derefTime(job.FireAt),
+		job.CronExpr,
 		job.Timezone,
 		time.Now().UTC(),
 	)
@@ -399,4 +415,11 @@ func derefIntOr(p *int, def int) int {
 		return *p
 	}
 	return def
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }

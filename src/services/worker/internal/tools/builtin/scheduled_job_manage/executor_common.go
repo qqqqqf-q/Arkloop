@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"time"
 
+	"arkloop/services/shared/schedulekind"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 )
 
 type scheduledJobRepo interface {
@@ -17,6 +19,9 @@ type scheduledJobRepo interface {
 	CreateJob(ctx context.Context, db data.DB, job data.ScheduledJob) (data.ScheduledJob, error)
 	UpdateJob(ctx context.Context, db data.DB, id, accountID uuid.UUID, upd data.UpdateJobParams) error
 	DeleteJob(ctx context.Context, db data.DB, id, accountID uuid.UUID) error
+	SetTriggerFireNow(ctx context.Context, db data.DB, jobID uuid.UUID) error
+	NotifyScheduler(ctx context.Context, db data.DB) error
+	ListRunsByJobID(ctx context.Context, db data.DB, jobID uuid.UUID, limit int) ([]map[string]any, error)
 }
 
 type executorCommon struct {
@@ -57,6 +62,14 @@ func (e *executorCommon) Execute(
 		return e.doUpdate(ctx, accountID, args, started)
 	case "delete":
 		return e.doDelete(ctx, accountID, args, started)
+	case "run":
+		return e.doRun(ctx, args, execCtx, started)
+	case "status":
+		return e.doStatus(ctx, execCtx, started)
+	case "runs":
+		return e.doRuns(ctx, args, execCtx, started)
+	case "wake":
+		return e.doWake(ctx, started)
 	default:
 		return errResult(fmt.Sprintf("unknown action: %s", action), started)
 	}
@@ -155,8 +168,29 @@ func (e *executorCommon) doCreate(
 		iv := int(v)
 		job.WeeklyDay = &iv
 	}
+	if v, ok := args["fire_at"].(string); ok && v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return errResult(fmt.Sprintf("invalid fire_at: %v", err), started)
+		}
+		job.FireAt = &t
+	}
+	if v, ok := args["cron_expr"].(string); ok {
+		job.CronExpr = v
+	}
 	if v, ok := args["enabled"].(bool); ok {
 		job.Enabled = v
+	}
+
+	// validate schedule-kind specific fields
+	if job.ScheduleKind == schedulekind.Cron && job.CronExpr != "" {
+		p := cronParser()
+		if _, err := p.Parse(job.CronExpr); err != nil {
+			return errResult(fmt.Sprintf("invalid cron expression: %v", err), started)
+		}
+	}
+	if job.ScheduleKind == schedulekind.At && (job.FireAt == nil || job.FireAt.IsZero()) {
+		return errResult("fire_at is required for 'at' schedule kind", started)
 	}
 
 	created, err := e.repo.CreateJob(ctx, e.db, job)
@@ -226,6 +260,22 @@ func (e *executorCommon) doUpdate(
 		p := &iv
 		upd.WeeklyDay = &p
 	}
+	if v, ok := args["fire_at"].(string); ok && v != "" {
+		parsed, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return errResult(fmt.Sprintf("invalid fire_at: %v", err), started)
+		}
+		tp := &parsed
+		upd.FireAt = &tp
+	}
+	if v, ok := args["cron_expr"].(string); ok {
+		upd.CronExpr = &v
+		// validate cron expression when updating
+		p := cronParser()
+		if _, err := p.Parse(v); err != nil {
+			return errResult(fmt.Sprintf("invalid cron expression: %v", err), started)
+		}
+	}
 	if v, ok := args["enabled"].(bool); ok {
 		upd.Enabled = &v
 	}
@@ -268,6 +318,114 @@ func (e *executorCommon) doDelete(
 
 // -- helpers --
 
+func (e *executorCommon) doRun(
+	ctx context.Context,
+	args map[string]any,
+	execCtx tools.ExecutionContext,
+	started time.Time,
+) tools.ExecutionResult {
+	jobID, err := parseUUID(args, "job_id")
+	if err != nil {
+		return errResult(err.Error(), started)
+	}
+	if execCtx.AccountID == nil {
+		return errResult("account_id not available", started)
+	}
+	job, err := e.repo.GetByID(ctx, e.db, jobID, *execCtx.AccountID)
+	if err != nil {
+		return errResult(fmt.Sprintf("job not found: %v", err), started)
+	}
+	if job == nil {
+		return errResult("job not found", started)
+	}
+	if !job.Enabled {
+		return errResult("job is disabled, enable it first", started)
+	}
+	if err := e.repo.SetTriggerFireNow(ctx, e.db, jobID); err != nil {
+		return errResult(fmt.Sprintf("failed to trigger job: %v", err), started)
+	}
+	_ = e.repo.NotifyScheduler(ctx, e.db)
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true, "triggered": true, "job_id": jobID.String()},
+		DurationMs: ms(started),
+	}
+}
+
+func (e *executorCommon) doStatus(
+	ctx context.Context,
+	execCtx tools.ExecutionContext,
+	started time.Time,
+) tools.ExecutionResult {
+	if execCtx.AccountID == nil {
+		return errResult("account_id not available", started)
+	}
+	jobs, err := e.repo.ListByAccount(ctx, e.db, *execCtx.AccountID)
+	if err != nil {
+		return errResult(fmt.Sprintf("failed to list jobs: %v", err), started)
+	}
+	summary := make([]map[string]any, 0, len(jobs))
+	for _, j := range jobs {
+		m := map[string]any{
+			"job_id":        j.ID.String(),
+			"name":          j.Name,
+			"enabled":       j.Enabled,
+			"schedule_kind": j.ScheduleKind,
+		}
+		if j.NextFireAt != nil {
+			m["next_fire_at"] = j.NextFireAt.Format(time.RFC3339)
+		}
+		summary = append(summary, m)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true, "jobs": summary, "count": len(summary)},
+		DurationMs: ms(started),
+	}
+}
+
+func (e *executorCommon) doRuns(
+	ctx context.Context,
+	args map[string]any,
+	execCtx tools.ExecutionContext,
+	started time.Time,
+) tools.ExecutionResult {
+	jobID, err := parseUUID(args, "job_id")
+	if err != nil {
+		return errResult(err.Error(), started)
+	}
+	// Verify job belongs to current account before listing runs
+	if execCtx.AccountID == nil {
+		return errResult("account_id not available", started)
+	}
+	job, err := e.repo.GetByID(ctx, e.db, jobID, *execCtx.AccountID)
+	if err != nil {
+		return errResult(fmt.Sprintf("job not found: %v", err), started)
+	}
+	if job == nil {
+		return errResult("job not found", started)
+	}
+	runs, err := e.repo.ListRunsByJobID(ctx, e.db, jobID, 20)
+	if err != nil {
+		return errResult(fmt.Sprintf("failed to list runs: %v", err), started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true, "runs": runs, "count": len(runs)},
+		DurationMs: ms(started),
+	}
+}
+
+func (e *executorCommon) doWake(
+	ctx context.Context,
+	started time.Time,
+) tools.ExecutionResult {
+	if err := e.repo.NotifyScheduler(ctx, e.db); err != nil {
+		return errResult(fmt.Sprintf("failed to wake scheduler: %v", err), started)
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"ok": true},
+		DurationMs: ms(started),
+	}
+}
+
 func errResult(msg string, started time.Time) tools.ExecutionResult {
 	return tools.ExecutionResult{
 		Error: &tools.ExecutionError{
@@ -297,6 +455,10 @@ func parseUUID(args map[string]any, key string) (uuid.UUID, error) {
 func strVal(args map[string]any, key string) string {
 	v, _ := args[key].(string)
 	return v
+}
+
+func cronParser() cron.Parser {
+	return cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 }
 
 func jobToMap(j data.ScheduledJobWithTrigger) map[string]any {
@@ -335,5 +497,9 @@ func jobToMap(j data.ScheduledJobWithTrigger) map[string]any {
 	if j.NextFireAt != nil {
 		m["next_fire_at"] = j.NextFireAt.Format(time.RFC3339)
 	}
+	if j.FireAt != nil {
+		m["fire_at"] = j.FireAt.Format(time.RFC3339)
+	}
+	m["cron_expr"] = j.CronExpr
 	return m
 }

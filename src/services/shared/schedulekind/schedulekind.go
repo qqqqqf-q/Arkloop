@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -13,13 +15,18 @@ const (
 	Monthly  = "monthly"
 	Weekdays = "weekdays"
 	Weekly   = "weekly"
+	At       = "at"
+	Cron     = "cron"
 )
 
 // CalcNextFire 根据调度类型计算下一次触发时间。
-func CalcNextFire(kind string, intervalMin int, dailyTime string, monthlyDay int, monthlyTime string, weeklyDay int, tz string, now time.Time) (time.Time, error) {
+func CalcNextFire(kind string, intervalMin int, dailyTime string, monthlyDay int, monthlyTime string, weeklyDay int, fireAt time.Time, cronExpr string, tz string, now time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(tz)
-	if err != nil {
+	if err != nil && kind != At {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", tz, err)
+	}
+	if loc == nil {
+		loc = time.UTC
 	}
 
 	switch kind {
@@ -84,6 +91,23 @@ func CalcNextFire(kind string, intervalMin int, dailyTime string, monthlyDay int
 			t = t.AddDate(0, 0, 7)
 		}
 		return t.UTC(), nil
+
+	case At:
+		if fireAt.IsZero() {
+			return time.Time{}, fmt.Errorf("fire_at is required for 'at' schedule kind")
+		}
+		return fireAt.UTC(), nil
+
+	case Cron:
+		if cronExpr == "" {
+			return time.Time{}, fmt.Errorf("cron_expr is required for 'cron' schedule kind")
+		}
+		parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		sched, err := parser.Parse(cronExpr)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid cron expression %q: %w", cronExpr, err)
+		}
+		return sched.Next(now.In(loc)).UTC(), nil
 
 	default:
 		return time.Time{}, fmt.Errorf("unknown schedule kind %q", kind)

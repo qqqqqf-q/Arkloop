@@ -36,6 +36,7 @@ func (DesktopScheduledJobsRepository) ListByAccount(
 		       j.model, j.workspace_ref, j.work_dir, j.thread_id, j.schedule_kind,
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
+		       j.fire_at, j.cron_expr,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -57,6 +58,7 @@ func (DesktopScheduledJobsRepository) ListByAccount(
 			&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 			&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 			&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
+			&r.FireAt, &r.CronExpr,
 			&nextFireAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan scheduled_jobs: %w", err)
@@ -92,6 +94,7 @@ func (DesktopScheduledJobsRepository) GetByID(
 		       j.model, j.workspace_ref, j.work_dir, j.thread_id, j.schedule_kind,
 		       j.interval_min, j.daily_time, j.monthly_day, j.monthly_time, j.weekly_day, j.timezone,
 		       j.enabled, j.created_by_user_id, j.created_at, j.updated_at,
+		       j.fire_at, j.cron_expr,
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
@@ -101,6 +104,7 @@ func (DesktopScheduledJobsRepository) GetByID(
 		&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
+		&r.FireAt, &r.CronExpr,
 		&nextFireAt,
 	)
 	if err != nil {
@@ -152,12 +156,13 @@ func (DesktopScheduledJobsRepository) CreateJob(
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
 		     daily_time, monthly_day, monthly_time, weekly_day, timezone, enabled, created_by_user_id,
-		     created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+		     fire_at, cron_expr, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
 		job.ID.String(), job.AccountID.String(), job.Name, job.Description,
 		job.PersonaKey, job.Prompt, job.Model, job.WorkspaceRef, job.WorkDir,
 		threadIDStr, job.ScheduleKind, job.IntervalMin, job.DailyTime,
 		job.MonthlyDay, job.MonthlyTime, job.WeeklyDay, job.Timezone, job.Enabled, createdByStr,
+		job.FireAt, job.CronExpr,
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -238,6 +243,14 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 			v = &s
 		}
 		addSet("thread_id", v)
+	}
+	if upd.FireAt != nil {
+		addSet("fire_at", *upd.FireAt)
+		scheduleChanged = true
+	}
+	if upd.CronExpr != nil {
+		addSet("cron_expr", *upd.CronExpr)
+		scheduleChanged = true
 	}
 
 	if len(setClauses) == 0 {
@@ -335,7 +348,8 @@ func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob,
 		SELECT id, account_id, name, description, persona_key, prompt,
 		       model, workspace_ref, work_dir, thread_id, schedule_kind,
 		       interval_min, daily_time, monthly_day, monthly_time, weekly_day, timezone,
-		       enabled, created_by_user_id, created_at, updated_at
+		       enabled, created_by_user_id, created_at, updated_at,
+		       fire_at, cron_expr
 		  FROM scheduled_jobs
 		 WHERE id = $1`, id.String(),
 	).Scan(
@@ -343,6 +357,7 @@ func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob,
 		&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
 		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
+		&r.FireAt, &r.CronExpr,
 	)
 	if err != nil {
 		if isNoRows(err) {
@@ -402,6 +417,8 @@ func desktopCalcJobNextFire(job ScheduledJob) (time.Time, error) {
 		desktopDerefIntOr(job.MonthlyDay, 1),
 		job.MonthlyTime,
 		desktopDerefIntOr(job.WeeklyDay, 0),
+		desktopDerefTime(job.FireAt),
+		job.CronExpr,
 		job.Timezone,
 		time.Now().UTC(),
 	)
@@ -412,4 +429,64 @@ func desktopDerefIntOr(p *int, def int) int {
 		return *p
 	}
 	return def
+}
+
+func desktopDerefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
+// SetTriggerFireNow schedules the trigger for immediate firing.
+func (DesktopScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db DB, jobID uuid.UUID) error {
+	tag, err := db.Exec(ctx, `UPDATE scheduled_triggers SET next_fire_at = datetime('now') WHERE job_id = $1`, jobID.String())
+	if err != nil {
+		return fmt.Errorf("set trigger fire now: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no trigger found for job %s (job may be disabled)", jobID)
+	}
+	return nil
+}
+
+// NotifyScheduler is a no-op in desktop mode (uses in-process event bus).
+func (DesktopScheduledJobsRepository) NotifyScheduler(_ context.Context, _ DB) error {
+	return nil
+}
+
+// ListRunsByJobID returns the most recent runs for a scheduled job.
+func (DesktopScheduledJobsRepository) ListRunsByJobID(ctx context.Context, db DB, jobID uuid.UUID, limit int) ([]map[string]any, error) {
+	rows, err := db.Query(ctx, `
+		SELECT r.id, r.status, r.created_at, r.status_updated_at
+		  FROM runs r
+		  JOIN run_events e ON e.run_id = r.id
+		 WHERE e.type = 'run.started'
+		   AND json_extract(e.data_json, '$.scheduled_job_id') = $1
+		 ORDER BY r.created_at DESC
+		 LIMIT $2`, jobID.String(), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []map[string]any
+	for rows.Next() {
+		var id, status string
+		var createdAt time.Time
+		var updatedAt *time.Time
+		if err := rows.Scan(&id, &status, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		m := map[string]any{
+			"id":         id,
+			"status":     status,
+			"created_at": createdAt.Format(time.RFC3339),
+		}
+		if updatedAt != nil {
+			m["updated_at"] = updatedAt.Format(time.RFC3339)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }

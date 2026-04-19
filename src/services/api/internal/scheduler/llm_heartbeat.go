@@ -469,6 +469,14 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 		return
 	}
 
+	if job.ScheduleKind == schedulekind.At {
+		if _, err := tx.Exec(ctx, `UPDATE scheduled_jobs SET enabled = false, updated_at = now() WHERE id = $1`, job.ID); err != nil {
+			slog.ErrorContext(ctx, "scheduled_job_disable_at_failed", "error", err)
+			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
+			return
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "scheduled_job_commit_failed", "error", err)
 		_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
@@ -482,12 +490,18 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 		derefInt(job.MonthlyDay),
 		job.MonthlyTime,
 		derefInt(job.WeeklyDay),
+		derefTime(job.FireAt),
+		job.CronExpr,
 		job.Timezone,
 		time.Now().UTC(),
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "scheduled_job_calc_next_fire_failed", "error", err)
 		_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 2*time.Minute)
+		return
+	}
+	if job.ScheduleKind == schedulekind.At {
+		_ = s.triggers.DeleteTriggerByJobID(ctx, s.pool, row.JobID)
 		return
 	}
 	if err := s.triggers.UpdateTriggerNextFire(ctx, s.pool, row.ID, nextFire); err != nil {
@@ -500,4 +514,11 @@ func derefInt(p *int) int {
 		return *p
 	}
 	return 0
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }

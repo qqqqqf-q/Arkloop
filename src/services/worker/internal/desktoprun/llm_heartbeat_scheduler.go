@@ -409,29 +409,19 @@ func desktopFireJob(
 		return
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		slog.ErrorContext(ctx, "desktop_job_commit_failed", "error", err)
-		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-		return
+	if job.ScheduleKind == schedulekind.At {
+		if _, err := tx.Exec(ctx,
+			`UPDATE scheduled_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = $1`,
+			job.ID.String(),
+		); err != nil {
+			slog.ErrorContext(ctx, "desktop_job_disable_at_failed", "error", err)
+			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+			return
+		}
 	}
 
-	nextFire, err := schedulekind.CalcNextFire(
-		job.ScheduleKind,
-		derefInt(job.IntervalMin),
-		job.DailyTime,
-		derefInt(job.MonthlyDay),
-		job.MonthlyTime,
-		derefInt(job.WeeklyDay),
-		job.Timezone,
-		time.Now().UTC(),
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "desktop_job_calc_next_fire_failed", "error", err)
-		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-		return
-	}
-	if err := repo.UpdateTriggerNextFire(ctx, db, row.ID, nextFire); err != nil {
-		slog.ErrorContext(ctx, "desktop_job_update_next_fire_failed", "error", err)
+	if err := tx.Commit(ctx); err != nil {
+		slog.ErrorContext(ctx, "desktop_job_commit_failed", "error", err)
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
 		return
 	}
@@ -454,6 +444,35 @@ func desktopFireJob(
 			"error", err,
 		)
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+		return
+	}
+
+	if job.ScheduleKind == schedulekind.At {
+		_ = repo.DeleteTriggerByJobID(ctx, db, row.JobID)
+		return
+	}
+
+	nextFire, err := schedulekind.CalcNextFire(
+		job.ScheduleKind,
+		derefInt(job.IntervalMin),
+		job.DailyTime,
+		derefInt(job.MonthlyDay),
+		job.MonthlyTime,
+		derefInt(job.WeeklyDay),
+		derefFireAt(job.FireAt),
+		job.CronExpr,
+		job.Timezone,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		slog.ErrorContext(ctx, "desktop_job_calc_next_fire_failed", "error", err)
+		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+		return
+	}
+	if err := repo.UpdateTriggerNextFire(ctx, db, row.ID, nextFire); err != nil {
+		slog.ErrorContext(ctx, "desktop_job_update_next_fire_failed", "error", err)
+		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+		return
 	}
 }
 
@@ -462,6 +481,13 @@ func derefInt(p *int) int {
 		return *p
 	}
 	return 0
+}
+
+func derefFireAt(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 func isNoRows(err error) bool {
