@@ -22,12 +22,14 @@ export function ModelDropdown({
   placeholder,
   disabled,
   onChange,
+  showEmpty = true,
 }: {
   value: string
   options: ModelOption[]
-  placeholder: string
-  disabled: boolean
+  placeholder?: string
+  disabled?: boolean
   onChange: (v: string) => void
+  showEmpty?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -82,17 +84,19 @@ export function ModelDropdown({
             overflowY: 'auto',
           }}
         >
-          <button
-            type="button"
-            onClick={() => {
-              onChange('')
-              setOpen(false)
-            }}
-            className="flex w-full items-center px-3 py-2 text-sm transition-colors bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
-            style={{ borderRadius: '8px', fontWeight: !value ? 600 : 400, color: !value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)' }}
-          >
-            {placeholder}
-          </button>
+          {showEmpty && (
+            <button
+              type="button"
+              onClick={() => {
+                onChange('')
+                setOpen(false)
+              }}
+              className="flex w-full items-center px-3 py-2 text-sm transition-colors bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
+              style={{ borderRadius: '8px', fontWeight: !value ? 600 : 400, color: !value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)' }}
+            >
+              {placeholder}
+            </button>
+          )}
           {options.map(({ value: optionValue, label }) => (
             <button
               key={optionValue}

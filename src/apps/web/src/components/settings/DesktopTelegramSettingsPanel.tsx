@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Radio } from 'lucide-react'
+import { Radio } from 'lucide-react' // icon only
 import { openExternal } from '../../openExternal'
 import {
   type ChannelBindingResponse,
@@ -39,29 +39,6 @@ type Props = {
   reload: () => Promise<void>
 }
 
-function RadioOption({
-  checked,
-  label,
-  onChange,
-}: {
-  checked: boolean
-  label: string
-  onChange: () => void
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-      <span
-        className="flex h-4 w-4 items-center justify-center rounded-full border-[1.5px] border-[var(--c-border-mid)]"
-      >
-        {checked && (
-          <span className="h-2 w-2 rounded-full bg-[var(--c-accent)]" />
-        )}
-      </span>
-      <input type="radio" className="sr-only" checked={checked} onChange={onChange} />
-      {label}
-    </label>
-  )
-}
 
 export function DesktopTelegramSettingsPanel({
   accessToken,
@@ -430,20 +407,16 @@ export function DesktopTelegramSettingsPanel({
 
             <div className="md:col-span-2">
               <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramPrivateChatAccess}</div>
-              <div className="mt-3 flex flex-col gap-2">
-                <RadioOption
-                  checked={!privateRestrict}
-                  label={ct.telegramAllowEveryone}
-                  onChange={() => {
-                    setPrivateRestrict(false)
-                    setSaved(false)
-                  }}
-                />
-                <RadioOption
-                  checked={privateRestrict}
-                  label={ct.telegramSpecificUsersOnly}
-                  onChange={() => {
-                    setPrivateRestrict(true)
+              <div className="mt-3">
+                <ModelDropdown
+                  value={privateRestrict ? 'restrict' : 'all'}
+                  options={[
+                    { value: 'all', label: ct.telegramAllowEveryone },
+                    { value: 'restrict', label: ct.telegramSpecificUsersOnly },
+                  ]}
+                  showEmpty={false}
+                  onChange={(value) => {
+                    setPrivateRestrict(value === 'restrict')
                     setSaved(false)
                   }}
                 />
@@ -479,20 +452,16 @@ export function DesktopTelegramSettingsPanel({
 
             <div className="md:col-span-2">
               <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramGroupChatAccess}</div>
-              <div className="mt-3 flex flex-col gap-2">
-                <RadioOption
-                  checked={!groupRestrict}
-                  label={ct.telegramAllowAllGroups}
-                  onChange={() => {
-                    setGroupRestrict(false)
-                    setSaved(false)
-                  }}
-                />
-                <RadioOption
-                  checked={groupRestrict}
-                  label={ct.telegramSpecificGroupsOnly}
-                  onChange={() => {
-                    setGroupRestrict(true)
+              <div className="mt-3">
+                <ModelDropdown
+                  value={groupRestrict ? 'restrict' : 'all'}
+                  options={[
+                    { value: 'all', label: ct.telegramAllowAllGroups },
+                    { value: 'restrict', label: ct.telegramSpecificGroupsOnly },
+                  ]}
+                  showEmpty={false}
+                  onChange={(value) => {
+                    setGroupRestrict(value === 'restrict')
                     setSaved(false)
                   }}
                 />
