@@ -3006,6 +3006,24 @@ func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing
 			metadata_json TEXT NOT NULL DEFAULT '{}',
 			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS channel_delivery_outbox (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL,
+			thread_id TEXT,
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'message',
+			status TEXT NOT NULL DEFAULT 'pending',
+			payload_json TEXT NOT NULL DEFAULT '{}',
+			segments_sent INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT,
+			next_retry_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_run ON channel_delivery_outbox (run_id, kind)
+			WHERE status != 'dead'`,
 	} {
 		if _, err := db.Exec(ctx, stmt); err != nil {
 			t.Fatalf("create channel tables: %v", err)

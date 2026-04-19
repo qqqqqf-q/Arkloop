@@ -97,6 +97,8 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("telegram desktop poll: %w", err)
 	}
 
+	app.StartDesktopChannelDeliveryDrain(ctx, db)
+
 	handler := &desktopHandler{
 		db:     db,
 		bus:    bus,

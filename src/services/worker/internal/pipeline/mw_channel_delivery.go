@@ -218,59 +218,272 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, fmt.Errorf("channel not found or inactive"))
 			return err
 		}
+		if rc.ChannelOutputDelivered {
+			return err
+		}
+		if streamFlush != nil && streamMidCount > 0 && remainder == "" {
+			return err
+		}
+
+		outboxRepo := data.ChannelDeliveryOutboxRepository{}
+		payload := buildOutboxPayload(rc, channelType, output, finalOutputs, isTerminalNoticeOnly)
+		outboxRecord, insertErr := outboxRepo.InsertPending(ctx, pool, rc.Run.ID, rc.ChannelContext.ChannelID, uuidPtr(rc.Run.ThreadID), channelType, data.OutboxKindMessage, payload)
+		if insertErr != nil {
+			recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, insertErr)
+			slog.WarnContext(ctx, "channel delivery outbox insert failed", "run_id", rc.Run.ID, "err", insertErr.Error())
+			return err
+		}
+
+		var deliverErr error
 		switch channelType {
 		case "telegram":
 			uxSend := ParseTelegramChannelUX(channel.ConfigJSON)
-			if isTerminalNoticeOnly {
-				if finalRecordErr := deliverTelegramTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, tgClient, channel, output); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			} else {
-				if finalRecordErr := deliverTelegramChannelOutputs(ctx, pool, repo, ledgerRepo, rc, tgClient, channel, output, finalOutputs, nil); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "telegram channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			}
-			if strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
+			deliverErr = inlineDeliverTelegramOutbox(ctx, pool, rc, tgClient, channel, outboxRecord, payload, outboxRepo, repo, ledgerRepo, messagesRepo)
+			if deliverErr == nil && strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
 				MaybeTelegramInboundReaction(ctx, tgClient, channel.Token, rc, uxSend.ReactionEmoji)
 			}
 		case "discord":
-			if isTerminalNoticeOnly {
-				if finalRecordErr := deliverDiscordTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, discordClient, discordAPIBase, channel, output); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "discord channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			} else {
-				if finalRecordErr := deliverDiscordChannelOutput(ctx, pool, repo, ledgerRepo, rc, discordClient, discordAPIBase, channel, output, nil); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "discord channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			}
+			deliverErr = inlineDeliverDiscordOutbox(ctx, pool, rc, discordClient, discordAPIBase, channel, outboxRecord, payload, outboxRepo, repo, ledgerRepo, messagesRepo)
 		case "qq":
-			if isTerminalNoticeOnly {
-				if finalRecordErr := deliverOneBotTerminalNotice(ctx, pool, messagesRepo, repo, ledgerRepo, rc, channel, output); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			} else {
-				if finalRecordErr := deliverOneBotChannelOutput(ctx, pool, repo, ledgerRepo, rc, channel, output); finalRecordErr != nil {
-					recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, finalRecordErr)
-					slog.WarnContext(ctx, "qq channel delivery failed", "run_id", rc.Run.ID, "err", finalRecordErr.Error())
-					return err
-				}
-			}
-			if strings.TrimSpace(obUX.ReactionEmojiID) != "" {
+			deliverErr = inlineDeliverOneBotOutbox(ctx, pool, rc, channel, outboxRecord, payload, outboxRepo, repo, ledgerRepo, messagesRepo)
+			if deliverErr == nil && strings.TrimSpace(obUX.ReactionEmojiID) != "" {
 				MaybeOneBotInboundReaction(ctx, channel, rc, obUX.ReactionEmojiID)
 			}
 		}
+
+		if deliverErr != nil {
+			recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, deliverErr)
+			slog.WarnContext(ctx, "channel delivery inline try failed, will retry via drain", "run_id", rc.Run.ID, "outbox_id", outboxRecord.ID, "err", deliverErr.Error())
+		}
 		return err
 	}
+}
+
+func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []string, isTerminalNotice bool) data.OutboxPayload {
+	payload := data.OutboxPayload{
+		AccountID:        rc.Run.AccountID,
+		RunID:            rc.Run.ID,
+		ThreadID:         uuidPtr(rc.Run.ThreadID),
+		PlatformChatID:   rc.ChannelContext.Conversation.Target,
+		ConversationType: rc.ChannelContext.ConversationType,
+		IsTerminalNotice: isTerminalNotice,
+	}
+	if rc.ChannelContext.Conversation.ThreadID != nil {
+		payload.PlatformThreadID = rc.ChannelContext.Conversation.ThreadID
+	}
+	if rc.ChannelReplyOverride != nil {
+		payload.ChannelReplyOverrideID = rc.ChannelReplyOverride.MessageID
+	}
+
+	switch channelType {
+	case "telegram":
+		if rc.ChannelReplyOverride != nil {
+			payload.ReplyToMessageID = rc.ChannelReplyOverride.MessageID
+		}
+	case "discord":
+		if rc.ChannelContext.TriggerMessage != nil && rc.ChannelContext.TriggerMessage.MessageID != "" {
+			payload.ReplyToMessageID = rc.ChannelContext.TriggerMessage.MessageID
+		} else if rc.ChannelContext.InboundMessage.MessageID != "" {
+			payload.ReplyToMessageID = rc.ChannelContext.InboundMessage.MessageID
+		}
+	case "qq":
+		if !rc.HeartbeatRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+			if rc.ChannelContext.TriggerMessage != nil && rc.ChannelContext.TriggerMessage.MessageID != "" {
+				payload.ReplyToMessageID = rc.ChannelContext.TriggerMessage.MessageID
+			} else if rc.ChannelContext.InboundMessage.MessageID != "" {
+				payload.ReplyToMessageID = rc.ChannelContext.InboundMessage.MessageID
+			}
+		}
+	}
+
+	if isTerminalNotice {
+		payload.Outputs = []string{output}
+	} else {
+		payload.Outputs = outputs
+	}
+
+	if channelType == "qq" {
+		metadata := map[string]any{}
+		if rc.ChannelContext.ConversationType == "group" {
+			metadata["message_type"] = "group"
+		}
+		payload.Metadata = metadata
+	}
+
+	return payload
+}
+
+func inlineDeliverTelegramOutbox(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	rc *RunContext,
+	client *telegrambot.Client,
+	channel *data.DeliveryChannelRecord,
+	outboxRec *data.ChannelDeliveryOutboxRecord,
+	payload data.OutboxPayload,
+	outboxRepo data.ChannelDeliveryOutboxRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	messagesRepo data.MessagesRepository,
+) error {
+	sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
+	replyTo := telegramReplyReference(ctx, pool, rc)
+
+	for i := outboxRec.SegmentsSent; i < len(payload.Outputs); i++ {
+		trimmed := strings.TrimSpace(payload.Outputs[i])
+		if trimmed == "" {
+			if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+				return err
+			}
+			continue
+		}
+		ref := replyTo
+		if i > 0 {
+			ref = nil
+		}
+		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
+			ChannelType:  rc.ChannelContext.ChannelType,
+			Conversation: rc.ChannelContext.Conversation,
+			ReplyTo:      ref,
+		}, trimmed)
+		if sendErr != nil {
+			return handleInlineOutboxFailure(ctx, pool, outboxRec, sendErr, outboxRepo)
+		}
+		if payload.IsTerminalNotice {
+			_, err := recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, ref, messageIDs, trimmed)
+			if err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		} else {
+			if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, ref, messageIDs, nil); err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		}
+		if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+			return err
+		}
+		outboxRec.SegmentsSent = i + 1
+	}
+	return outboxRepo.UpdateSent(ctx, pool, outboxRec.ID)
+}
+
+func inlineDeliverDiscordOutbox(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	rc *RunContext,
+	client DiscordHTTPDoer,
+	baseURL string,
+	channel *data.DeliveryChannelRecord,
+	outboxRec *data.ChannelDeliveryOutboxRecord,
+	payload data.OutboxPayload,
+	outboxRepo data.ChannelDeliveryOutboxRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	messagesRepo data.MessagesRepository,
+) error {
+	sender := NewDiscordChannelSenderWithClient(client, baseURL, channel.Token, resolveSegmentDelay())
+	replyTo := discordReplyReference(rc)
+
+	for i := outboxRec.SegmentsSent; i < len(payload.Outputs); i++ {
+		trimmed := strings.TrimSpace(payload.Outputs[i])
+		if trimmed == "" {
+			if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+				return err
+			}
+			continue
+		}
+		ref := replyTo
+		if i > 0 {
+			ref = nil
+		}
+		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
+			ChannelType:  rc.ChannelContext.ChannelType,
+			Conversation: rc.ChannelContext.Conversation,
+			ReplyTo:      ref,
+		}, trimmed)
+		if sendErr != nil {
+			return handleInlineOutboxFailure(ctx, pool, outboxRec, sendErr, outboxRepo)
+		}
+		if payload.IsTerminalNotice {
+			_, err := recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, ref, messageIDs, trimmed)
+			if err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		} else {
+			if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, ref, messageIDs, nil); err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		}
+		if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+			return err
+		}
+		outboxRec.SegmentsSent = i + 1
+	}
+	return outboxRepo.UpdateSent(ctx, pool, outboxRec.ID)
+}
+
+func inlineDeliverOneBotOutbox(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	rc *RunContext,
+	channel *data.DeliveryChannelRecord,
+	outboxRec *data.ChannelDeliveryOutboxRecord,
+	payload data.OutboxPayload,
+	outboxRepo data.ChannelDeliveryOutboxRepository,
+	deliveryRepo data.ChannelDeliveryRepository,
+	ledgerRepo data.ChannelMessageLedgerRepository,
+	messagesRepo data.MessagesRepository,
+) error {
+	obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
+	if obBaseURL == "" {
+		obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))
+	}
+	obToken := strings.TrimSpace(channel.Token)
+	client := onebotclient.NewClient(obBaseURL, obToken, nil)
+	sender := NewOneBotChannelSender(client, resolveSegmentDelay())
+	replyTo := onebotReplyReference(rc)
+	metadata := payload.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+
+	for i := outboxRec.SegmentsSent; i < len(payload.Outputs); i++ {
+		trimmed := strings.TrimSpace(payload.Outputs[i])
+		if trimmed == "" {
+			if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+				return err
+			}
+			continue
+		}
+		ref := replyTo
+		if i > 0 {
+			ref = nil
+		}
+		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
+			ChannelType:  rc.ChannelContext.ChannelType,
+			Conversation: rc.ChannelContext.Conversation,
+			ReplyTo:      ref,
+			Metadata:     metadata,
+		}, trimmed)
+		if sendErr != nil {
+			return handleInlineOutboxFailure(ctx, pool, outboxRec, sendErr, outboxRepo)
+		}
+		if payload.IsTerminalNotice {
+			_, err := recordChannelTerminalNoticeSuccess(ctx, pool, messagesRepo, deliveryRepo, ledgerRepo, rc, ref, messageIDs, trimmed)
+			if err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		} else {
+			if err := recordChannelDeliverySuccess(ctx, pool, deliveryRepo, ledgerRepo, rc, ref, messageIDs, nil); err != nil {
+				return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+			}
+		}
+		if err := outboxRepo.UpdateProgress(ctx, pool, outboxRec.ID, i+1); err != nil {
+			return err
+		}
+		outboxRec.SegmentsSent = i + 1
+	}
+	return outboxRepo.UpdateSent(ctx, pool, outboxRec.ID)
 }
 
 func normalizedChannelTypeFromContext(rc *RunContext) string {
@@ -955,10 +1168,20 @@ func TryDeliverChannelInjectionBlockNotice(ctx context.Context, pool *pgxpool.Po
 	repo := data.ChannelDeliveryRepository{}
 	ledgerRepo := data.ChannelMessageLedgerRepository{}
 	messagesRepo := data.MessagesRepository{}
+	outboxRepo := data.ChannelDeliveryOutboxRepository{}
 	channel, err := repo.GetChannel(ctx, pool, rc.ChannelContext.ChannelID)
 	if err != nil || channel == nil {
 		return
 	}
+
+	payload := buildOutboxPayload(rc, channelType, text, nil, true)
+	outboxRecord, insertErr := outboxRepo.InsertPending(ctx, pool, rc.Run.ID, rc.ChannelContext.ChannelID, uuidPtr(rc.Run.ThreadID), channelType, data.OutboxKindInjectionBlockNotice, payload)
+	if insertErr != nil {
+		recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, insertErr)
+		slog.WarnContext(ctx, "channel injection block notice outbox insert failed", "run_id", rc.Run.ID, "err", insertErr.Error())
+		return
+	}
+
 	var deliverErr error
 	switch channelType {
 	case "telegram":
@@ -984,7 +1207,19 @@ func TryDeliverChannelInjectionBlockNotice(ctx context.Context, pool *pgxpool.Po
 	}
 	if deliverErr != nil {
 		recordChannelDeliveryFailure(ctx, pool, rc.Run.ID, deliverErr)
-		slog.WarnContext(ctx, "channel injection block notice failed", "run_id", rc.Run.ID, "channel_type", channelType, "err", deliverErr.Error())
+		if outboxRecord != nil {
+			// 走统一 backoff/dead 逻辑，供 drainer 后续接管。
+			if failErr := handleInlineOutboxFailure(ctx, pool, outboxRecord, deliverErr, outboxRepo); failErr != nil {
+				slog.WarnContext(ctx, "channel injection block notice inline try failed, will retry via drain",
+					"run_id", rc.Run.ID, "outbox_id", outboxRecord.ID, "err", failErr.Error())
+			}
+		} else {
+			slog.WarnContext(ctx, "channel injection block notice failed", "run_id", rc.Run.ID, "channel_type", channelType, "err", deliverErr.Error())
+		}
+	} else if outboxRecord != nil {
+		if updateErr := outboxRepo.UpdateSent(ctx, pool, outboxRecord.ID); updateErr != nil {
+			slog.WarnContext(ctx, "channel injection block notice outbox update sent failed", "run_id", rc.Run.ID, "outbox_id", outboxRecord.ID, "err", updateErr.Error())
+		}
 	}
 }
 

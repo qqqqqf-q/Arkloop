@@ -19,6 +19,7 @@ import (
 	"arkloop/services/worker/internal/consumer"
 	"arkloop/services/worker/internal/email"
 	"arkloop/services/worker/internal/executor"
+	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/registration"
 	"arkloop/services/worker/internal/webhook"
@@ -192,6 +193,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	drainer := pipeline.NewChannelDeliveryDrainer(pool, pipeline.ChannelDeliveryDrainOptions{})
+	drainer.Start(runCtx)
+	defer drainer.Stop()
 
 	logger.Info("worker_go entering consume mode")
 	runErr := loop.Run(runCtx)

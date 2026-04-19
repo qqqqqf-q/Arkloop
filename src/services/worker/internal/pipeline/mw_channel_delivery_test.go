@@ -1851,6 +1851,25 @@ func createChannelDeliveryTables(t *testing.T, pool *pgxpool.Pool, ledgerTableSQ
 			platform_message_id TEXT NOT NULL,
 			UNIQUE (channel_id, platform_chat_id, platform_message_id)
 		)`,
+		`CREATE TABLE channel_delivery_outbox (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			run_id UUID NOT NULL,
+			thread_id UUID NULL,
+			channel_id UUID NOT NULL,
+			channel_type TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			payload_json JSONB NOT NULL,
+			segments_sent INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NULL,
+			next_retry_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX idx_outbox_drain ON channel_delivery_outbox (status, next_retry_at)
+			WHERE status = 'pending'`,
+		`CREATE UNIQUE INDEX idx_outbox_run ON channel_delivery_outbox (run_id)
+			WHERE status != 'dead'`,
 		ledgerTableSQL,
 	} {
 		if _, err := pool.Exec(context.Background(), stmt); err != nil {
@@ -1876,4 +1895,180 @@ func encryptChannelToken(t *testing.T, key []byte, plaintext string) string {
 	}
 	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
 	return base64.StdEncoding.EncodeToString(append(nonce, ciphertext...))
+}
+
+func TestChannelDeliveryMiddlewareWritesOutboxAndInlineTrySucceeds(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_outbox_success")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":801,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx, `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`, secretID, encryptChannelToken(t, keyBytes, "bot-token")); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`, channelID, secretID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "outbox inline try text",
+		ChannelContext: &ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := NewChannelDeliveryMiddleware(pool)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	var outboxStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM channel_delivery_outbox WHERE run_id = $1`, runID).Scan(&outboxStatus); err != nil {
+		t.Fatalf("query outbox: %v", err)
+	}
+	if outboxStatus != "sent" {
+		t.Fatalf("expected outbox status sent, got %q", outboxStatus)
+	}
+}
+
+func TestChannelDeliveryMiddlewareWritesOutboxAndInlineTryFails(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery_outbox_fail")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		w.WriteHeader(nethttp.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"ok":false,"description":"send failed"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx, `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`, secretID, encryptChannelToken(t, keyBytes, "bot-token")); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`, channelID, secretID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	rc := &RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "outbox inline try fail text",
+		ChannelContext: &ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := NewChannelDeliveryMiddleware(pool)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	var outboxStatus string
+	if err := pool.QueryRow(ctx, `SELECT status FROM channel_delivery_outbox WHERE run_id = $1`, runID).Scan(&outboxStatus); err != nil {
+		t.Fatalf("query outbox: %v", err)
+	}
+	if outboxStatus != "pending" {
+		t.Fatalf("expected outbox status pending after inline try failure, got %q", outboxStatus)
+	}
+
+	var failureCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM run_events WHERE run_id = $1 AND type = 'run.channel_delivery_failed'`, runID).Scan(&failureCount); err != nil {
+		t.Fatalf("count failure events: %v", err)
+	}
+	if failureCount != 1 {
+		t.Fatalf("expected 1 failure event, got %d", failureCount)
+	}
 }
