@@ -45,8 +45,8 @@ var Spec = llm.ToolSpec{
 				"description": "Execution prompt",
 			},
 			"thread_id": map[string]any{
-				"type":        "string",
-				"description": "Thread ID to reuse",
+				"type":        []string{"string", "null"},
+				"description": "Thread ID to reuse; for update, set null to clear",
 			},
 			"schedule_kind": map[string]any{
 				"type":        "string",
@@ -54,32 +54,32 @@ var Spec = llm.ToolSpec{
 				"description": "Schedule type",
 			},
 			"fire_at": map[string]any{
-				"type":        "string",
-				"description": "ISO8601 datetime for one-time 'at' schedule (e.g. 2025-01-15T09:00:00Z)",
+				"type":        []string{"string", "null"},
+				"description": "ISO8601 datetime for one-time 'at' schedule (e.g. 2025-01-15T09:00:00Z); for update, set null to clear",
 			},
 			"cron_expr": map[string]any{
 				"type":        "string",
 				"description": "Standard 5-field cron expression (e.g. '*/5 * * * *')",
 			},
 			"interval_min": map[string]any{
-				"type":        "integer",
-				"description": "Interval in minutes (for interval kind)",
+				"type":        []string{"integer", "null"},
+				"description": "Interval in minutes (for interval kind); for update, set null to clear",
 			},
 			"daily_time": map[string]any{
 				"type":        "string",
 				"description": "HH:MM (for daily/weekdays/weekly kind)",
 			},
 			"monthly_day": map[string]any{
-				"type":        "integer",
-				"description": "Day of month 1-28 (for monthly kind)",
+				"type":        []string{"integer", "null"},
+				"description": "Day of month 1-28 (for monthly kind); for update, set null to clear",
 			},
 			"monthly_time": map[string]any{
 				"type":        "string",
 				"description": "HH:MM (for monthly kind)",
 			},
 			"weekly_day": map[string]any{
-				"type":        "integer",
-				"description": "Day of week 0-6, where 0=Sunday (for weekly kind)",
+				"type":        []string{"integer", "null"},
+				"description": "Day of week 0-6, where 0=Sunday (for weekly kind); for update, set null to clear",
 			},
 			"timezone": map[string]any{
 				"type":        "string",

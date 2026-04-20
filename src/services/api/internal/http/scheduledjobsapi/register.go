@@ -572,6 +572,33 @@ func nilTimePtr() **time.Time {
 
 var timeHHMMRe = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
+func decodeStringField(raw json.RawMessage, field string, errs *[]string) (string, bool) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s must be a string", field))
+		return "", false
+	}
+	return value, true
+}
+
+func decodeIntField(raw json.RawMessage, field string, errs *[]string) (int, bool) {
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s must be an integer", field))
+		return 0, false
+	}
+	return value, true
+}
+
+func decodeBoolField(raw json.RawMessage, field string, errs *[]string) (bool, bool) {
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s must be a boolean", field))
+		return false, false
+	}
+	return value, true
+}
+
 func validateCreate(req createJobRequest) []string {
 	var errs []string
 
@@ -676,8 +703,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 	var errs []string
 
 	if v, ok := raw["name"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "name", &errs); ok {
 			if strings.TrimSpace(s) == "" {
 				errs = append(errs, "name cannot be empty")
 			} else if len(s) > 200 {
@@ -688,20 +714,17 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["description"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "description", &errs); ok {
 			p.Description = &s
 		}
 	}
 	if v, ok := raw["persona_key"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "persona_key", &errs); ok {
 			p.PersonaKey = &s
 		}
 	}
 	if v, ok := raw["prompt"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "prompt", &errs); ok {
 			if strings.TrimSpace(s) == "" {
 				errs = append(errs, "prompt cannot be empty")
 			} else {
@@ -710,14 +733,12 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["model"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "model", &errs); ok {
 			p.Model = &s
 		}
 	}
 	if v, ok := raw["work_dir"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "work_dir", &errs); ok {
 			p.WorkDir = &s
 		}
 	}
@@ -725,8 +746,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		if string(v) == "null" {
 			p.ThreadID = nilUUIDPtr()
 		} else {
-			var s string
-			if json.Unmarshal(v, &s) == nil {
+			if s, ok := decodeStringField(v, "thread_id", &errs); ok {
 				parsed, err := uuid.Parse(s)
 				if err != nil {
 					errs = append(errs, "invalid thread_id")
@@ -737,8 +757,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["schedule_kind"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "schedule_kind", &errs); ok {
 			switch s {
 			case "interval", "daily", "monthly", "weekdays", "weekly", "at", "cron":
 				p.ScheduleKind = &s
@@ -751,8 +770,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		if string(v) == "null" {
 			p.IntervalMin = nilIntPtr()
 		} else {
-			var n int
-			if json.Unmarshal(v, &n) == nil {
+			if n, ok := decodeIntField(v, "interval_min", &errs); ok {
 				if n < 1 {
 					errs = append(errs, "interval_min must be >= 1")
 				} else {
@@ -762,8 +780,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["daily_time"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "daily_time", &errs); ok {
 			if s != "" && !timeHHMMRe.MatchString(s) {
 				errs = append(errs, "daily_time must be HH:MM format")
 			} else {
@@ -775,8 +792,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		if string(v) == "null" {
 			p.MonthlyDay = nilIntPtr()
 		} else {
-			var n int
-			if json.Unmarshal(v, &n) == nil {
+			if n, ok := decodeIntField(v, "monthly_day", &errs); ok {
 				if n < 1 || n > 28 {
 					errs = append(errs, "monthly_day must be 1-28")
 				} else {
@@ -786,8 +802,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["monthly_time"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "monthly_time", &errs); ok {
 			if s != "" && !timeHHMMRe.MatchString(s) {
 				errs = append(errs, "monthly_time must be HH:MM format")
 			} else {
@@ -799,8 +814,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		if string(v) == "null" {
 			p.WeeklyDay = nilIntPtr()
 		} else {
-			var n int
-			if json.Unmarshal(v, &n) == nil {
+			if n, ok := decodeIntField(v, "weekly_day", &errs); ok {
 				if n < 0 || n > 6 {
 					errs = append(errs, "weekly_day must be 0-6")
 				} else {
@@ -810,8 +824,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["timezone"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "timezone", &errs); ok {
 			s = normalizeScheduledJobTimezone(s)
 			if _, err := time.LoadLocation(s); err != nil {
 				errs = append(errs, fmt.Sprintf("invalid timezone: %s", s))
@@ -824,8 +837,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		if string(v) == "null" {
 			p.FireAt = nilTimePtr()
 		} else {
-			var s string
-			if json.Unmarshal(v, &s) == nil {
+			if s, ok := decodeStringField(v, "fire_at", &errs); ok {
 				parsed, err := time.Parse(time.RFC3339, s)
 				if err != nil {
 					errs = append(errs, "fire_at must be RFC3339 format")
@@ -837,20 +849,17 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["cron_expr"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "cron_expr", &errs); ok {
 			p.CronExpr = &s
 		}
 	}
 	if v, ok := raw["delete_after_run"]; ok {
-		var b bool
-		if json.Unmarshal(v, &b) == nil {
+		if b, ok := decodeBoolField(v, "delete_after_run", &errs); ok {
 			p.DeleteAfterRun = &b
 		}
 	}
 	if v, ok := raw["reasoning_mode"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
+		if s, ok := decodeStringField(v, "reasoning_mode", &errs); ok {
 			normalized := normalizeScheduledJobReasoningMode(s)
 			if s != "" && normalized == "" {
 				errs = append(errs, "invalid reasoning_mode")
@@ -860,8 +869,7 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		}
 	}
 	if v, ok := raw["timeout"]; ok {
-		var n int
-		if json.Unmarshal(v, &n) == nil {
+		if n, ok := decodeIntField(v, "timeout", &errs); ok {
 			p.Timeout = &n
 		}
 	}
@@ -984,6 +992,7 @@ func shouldValidateScheduledJobUpdate(upd scheduledjobs.UpdateJobParams) bool {
 		upd.FireAt != nil ||
 		upd.CronExpr != nil ||
 		upd.Timezone != nil ||
+		upd.DeleteAfterRun != nil ||
 		(upd.Enabled != nil && *upd.Enabled)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/tools"
@@ -131,8 +132,71 @@ func TestExecutorCommonUpdateAllowsClearingCronWhenSwitchingScheduleKind(t *test
 	}
 }
 
+func TestExecutorCommonUpdateSupportsNullableClearFields(t *testing.T) {
+	accountID := uuid.New()
+	jobID := uuid.New()
+	repo := &scheduledJobRepoStub{}
+	exec := &executorCommon{db: stubDB{}, repo: repo}
+
+	result := exec.Execute(context.Background(), ToolName, map[string]any{
+		"action":       "update",
+		"job_id":       jobID.String(),
+		"thread_id":    nil,
+		"interval_min": nil,
+		"monthly_day":  nil,
+		"weekly_day":   nil,
+		"fire_at":      nil,
+	}, tools.ExecutionContext{
+		AccountID: &accountID,
+	}, "")
+	if result.Error != nil {
+		t.Fatalf("expected update to pass executor validation, got %v", result.Error)
+	}
+	if repo.updateCalls != 1 {
+		t.Fatalf("update calls = %d, want 1", repo.updateCalls)
+	}
+	assertClearedUUID(t, "thread_id", repo.lastUpdate.ThreadID)
+	assertClearedInt(t, "interval_min", repo.lastUpdate.IntervalMin)
+	assertClearedInt(t, "monthly_day", repo.lastUpdate.MonthlyDay)
+	assertClearedInt(t, "weekly_day", repo.lastUpdate.WeeklyDay)
+	assertClearedTime(t, "fire_at", repo.lastUpdate.FireAt)
+}
+
+func TestSpecAllowsNullForUpdateClearFields(t *testing.T) {
+	properties, ok := Spec.JSONSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("tool spec properties missing")
+	}
+
+	for field, want := range map[string][]string{
+		"thread_id":    {"string", "null"},
+		"interval_min": {"integer", "null"},
+		"monthly_day":  {"integer", "null"},
+		"weekly_day":   {"integer", "null"},
+		"fire_at":      {"string", "null"},
+	} {
+		property, ok := properties[field].(map[string]any)
+		if !ok {
+			t.Fatalf("property %s missing", field)
+		}
+		types, ok := property["type"].([]string)
+		if !ok {
+			t.Fatalf("property %s type is %T, want []string", field, property["type"])
+		}
+		if len(types) != len(want) {
+			t.Fatalf("property %s types = %v, want %v", field, types, want)
+		}
+		for i := range want {
+			if types[i] != want[i] {
+				t.Fatalf("property %s types = %v, want %v", field, types, want)
+			}
+		}
+	}
+}
+
 type scheduledJobRepoStub struct {
 	createdJob  data.ScheduledJob
+	lastUpdate  data.UpdateJobParams
 	createErr   error
 	updateErr   error
 	deleteErr   error
@@ -158,8 +222,9 @@ func (s *scheduledJobRepoStub) CreateJob(context.Context, data.DB, data.Schedule
 	return s.createdJob, nil
 }
 
-func (s *scheduledJobRepoStub) UpdateJob(context.Context, data.DB, uuid.UUID, uuid.UUID, data.UpdateJobParams) error {
+func (s *scheduledJobRepoStub) UpdateJob(_ context.Context, _ data.DB, _ uuid.UUID, _ uuid.UUID, upd data.UpdateJobParams) error {
 	s.updateCalls++
+	s.lastUpdate = upd
 	return s.updateErr
 }
 
@@ -197,4 +262,34 @@ func (stubDB) QueryRow(context.Context, string, ...any) pgx.Row {
 
 func (stubDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
 	panic("unexpected BeginTx call")
+}
+
+func assertClearedUUID(t *testing.T, field string, value **uuid.UUID) {
+	t.Helper()
+	if value == nil {
+		t.Fatalf("%s outer pointer is nil", field)
+	}
+	if *value != nil {
+		t.Fatalf("%s inner pointer = %v, want nil", field, **value)
+	}
+}
+
+func assertClearedInt(t *testing.T, field string, value **int) {
+	t.Helper()
+	if value == nil {
+		t.Fatalf("%s outer pointer is nil", field)
+	}
+	if *value != nil {
+		t.Fatalf("%s inner pointer = %d, want nil", field, **value)
+	}
+}
+
+func assertClearedTime(t *testing.T, field string, value **time.Time) {
+	t.Helper()
+	if value == nil {
+		t.Fatalf("%s outer pointer is nil", field)
+	}
+	if *value != nil {
+		t.Fatalf("%s inner pointer = %s, want nil", field, (**value).Format(time.RFC3339Nano))
+	}
 }

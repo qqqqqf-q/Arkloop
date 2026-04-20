@@ -260,28 +260,25 @@ func (e *executorCommon) doUpdate(
 	if v, ok := args["timezone"].(string); ok {
 		upd.Timezone = &v
 	}
-	if v, ok := args["interval_min"].(float64); ok {
-		iv := int(v)
-		p := &iv
-		upd.IntervalMin = &p
+	if value, err := nullableIntUpdateArg(args, "interval_min"); err != nil {
+		return errResult(err.Error(), started)
+	} else if value != nil {
+		upd.IntervalMin = value
 	}
-	if v, ok := args["monthly_day"].(float64); ok {
-		iv := int(v)
-		p := &iv
-		upd.MonthlyDay = &p
+	if value, err := nullableIntUpdateArg(args, "monthly_day"); err != nil {
+		return errResult(err.Error(), started)
+	} else if value != nil {
+		upd.MonthlyDay = value
 	}
-	if v, ok := args["weekly_day"].(float64); ok {
-		iv := int(v)
-		p := &iv
-		upd.WeeklyDay = &p
+	if value, err := nullableIntUpdateArg(args, "weekly_day"); err != nil {
+		return errResult(err.Error(), started)
+	} else if value != nil {
+		upd.WeeklyDay = value
 	}
-	if v, ok := args["fire_at"].(string); ok && v != "" {
-		parsed, err := time.Parse(time.RFC3339, v)
-		if err != nil {
-			return errResult(fmt.Sprintf("invalid fire_at: %v", err), started)
-		}
-		tp := &parsed
-		upd.FireAt = &tp
+	if value, err := nullableTimeUpdateArg(args, "fire_at"); err != nil {
+		return errResult(err.Error(), started)
+	} else if value != nil {
+		upd.FireAt = value
 	}
 	if v, ok := args["cron_expr"].(string); ok {
 		upd.CronExpr = &v
@@ -289,13 +286,10 @@ func (e *executorCommon) doUpdate(
 	if v, ok := args["enabled"].(bool); ok {
 		upd.Enabled = &v
 	}
-	if v, ok := args["thread_id"].(string); ok {
-		parsed, parseErr := uuid.Parse(v)
-		if parseErr != nil {
-			return errResult("invalid thread_id", started)
-		}
-		p := &parsed
-		upd.ThreadID = &p
+	if value, err := nullableUUIDUpdateArg(args, "thread_id"); err != nil {
+		return errResult(err.Error(), started)
+	} else if value != nil {
+		upd.ThreadID = value
 	}
 	if v, ok := args["delete_after_run"].(bool); ok {
 		upd.DeleteAfterRun = &v
@@ -343,6 +337,76 @@ func (e *executorCommon) doDelete(
 }
 
 // -- helpers --
+
+func nullableUUIDUpdateArg(args map[string]any, key string) (**uuid.UUID, error) {
+	raw, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	if raw == nil {
+		var cleared *uuid.UUID
+		return &cleared, nil
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid %s", key)
+	}
+	parsed, err := uuid.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s", key)
+	}
+	value := &parsed
+	return &value, nil
+}
+
+func nullableIntUpdateArg(args map[string]any, key string) (**int, error) {
+	raw, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	if raw == nil {
+		var cleared *int
+		return &cleared, nil
+	}
+
+	var value int
+	switch v := raw.(type) {
+	case float64:
+		value = int(v)
+	case int:
+		value = v
+	case int32:
+		value = int(v)
+	case int64:
+		value = int(v)
+	default:
+		return nil, fmt.Errorf("invalid %s", key)
+	}
+
+	ptr := &value
+	return &ptr, nil
+}
+
+func nullableTimeUpdateArg(args map[string]any, key string) (**time.Time, error) {
+	raw, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	if raw == nil {
+		var cleared *time.Time
+		return &cleared, nil
+	}
+	s, ok := raw.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid %s", key)
+	}
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %v", key, err)
+	}
+	value := &parsed
+	return &value, nil
+}
 
 func (e *executorCommon) doRun(
 	ctx context.Context,

@@ -284,6 +284,24 @@ func desktopFireJob(
 		_ = repo.DeleteTriggerByJobID(ctx, db, row.JobID)
 		return
 	}
+	if job.ScheduleKind == schedulekind.At {
+		dispatched, err := desktopOneShotJobAlreadyDispatched(ctx, db, job.ID)
+		if err != nil {
+			slog.ErrorContext(ctx, "desktop_job_check_one_shot_dispatch_failed",
+				"job_id", job.ID.String(),
+				"error", err,
+			)
+			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+			return
+		}
+		if dispatched {
+			if err := finalizeDesktopOneShotJob(ctx, db, row, *job); err != nil {
+				slog.ErrorContext(ctx, "desktop_job_finalize_at_failed", "error", err, "job_id", job.ID)
+				_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+			}
+			return
+		}
+	}
 
 	var threadID uuid.UUID
 	if job.ThreadID != nil {
@@ -492,6 +510,32 @@ func derefFireAt(t *time.Time) time.Time {
 	return *t
 }
 
+func desktopOneShotJobAlreadyDispatched(ctx context.Context, db data.DesktopDB, jobID uuid.UUID) (bool, error) {
+	var dispatched int
+	err := db.QueryRow(ctx, `
+		SELECT 1
+		  FROM run_events started
+		 WHERE started.type = 'run.started'
+		   AND json_extract(started.data_json, '$.scheduled_job_id') = $1
+		   AND NOT EXISTS (
+		       SELECT 1
+		         FROM run_events failed
+		        WHERE failed.run_id = started.run_id
+		          AND failed.type = 'run.failed'
+		          AND COALESCE(failed.error_class, '') = 'worker.enqueue_failed'
+		   )
+		 LIMIT 1`,
+		jobID.String(),
+	).Scan(&dispatched)
+	if err != nil {
+		if isNoRows(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return dispatched == 1, nil
+}
+
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
 }
@@ -511,12 +555,15 @@ func finalizeDesktopOneShotJob(ctx context.Context, db data.DesktopDB, row data.
 
 	if job.DeleteAfterRun {
 		_, err = tx.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID.String())
-		return err
+	} else {
+		if _, err = tx.Exec(ctx,
+			`UPDATE scheduled_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = $1`,
+			job.ID.String(),
+		); err != nil {
+			return err
+		}
 	}
-	if _, err = tx.Exec(ctx,
-		`UPDATE scheduled_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = $1`,
-		job.ID.String(),
-	); err != nil {
+	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, row.JobID.String())
