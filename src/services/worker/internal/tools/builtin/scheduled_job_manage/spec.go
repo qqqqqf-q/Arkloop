@@ -103,7 +103,7 @@ var Spec = llm.ToolSpec{
 			},
 			"delete_after_run": map[string]any{
 				"type":        "boolean",
-				"description": "Delete job after it fires once (useful for 'at' one-time jobs)",
+				"description": "Delete the job record after an 'at' schedule fires",
 			},
 			"reasoning_mode": map[string]any{
 				"type":        "string",

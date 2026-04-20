@@ -235,8 +235,8 @@ func desktopFireTrigger(
 	payload := map[string]any{
 		"source":                     "desktop_trigger_scheduler",
 		"run_kind":                   runkind.Heartbeat,
-		"trigger_interval_minutes":   row.IntervalMin,
-		"trigger_reason":             "interval",
+		"heartbeat_interval_minutes": row.IntervalMin,
+		"heartbeat_reason":           "interval",
 		"persona_key":                row.PersonaKey,
 		"model":                      row.Model,
 		"channel_delivery": map[string]any{
@@ -255,6 +255,9 @@ func desktopFireTrigger(
 			"run_id", result.RunID.String(),
 			"error", err,
 		)
+		if markErr := markDesktopRunFailed(ctx, db, result.RunID, "worker.enqueue_failed", "failed to enqueue heartbeat run", err); markErr != nil {
+			slog.ErrorContext(ctx, "desktop_trigger_mark_run_failed_failed", "run_id", result.RunID.String(), "error", markErr)
+		}
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
 	}
 }
@@ -413,37 +416,6 @@ func desktopFireJob(
 		return
 	}
 
-	// At 类型: 在事务内 disable job + delete trigger，然后提交并返回
-	if job.ScheduleKind == schedulekind.At {
-		if _, err := tx.Exec(ctx,
-			`UPDATE scheduled_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = $1`,
-			job.ID.String(),
-		); err != nil {
-			slog.ErrorContext(ctx, "desktop_job_disable_at_failed", "error", err)
-			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-			return
-		}
-		if _, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, row.JobID.String()); err != nil {
-			slog.ErrorContext(ctx, "desktop_job_delete_at_trigger_failed", "error", err)
-			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-			return
-		}
-		if err := tx.Commit(ctx); err != nil {
-			slog.ErrorContext(ctx, "desktop_job_commit_failed", "error", err)
-			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-		}
-		return
-	}
-
-	// deleteAfterRun: 在事务内删除 job，保证与 run 创建原子提交
-	if job.DeleteAfterRun {
-		if _, err := tx.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID.String()); err != nil {
-			slog.ErrorContext(ctx, "desktop_job_delete_after_run_failed", "error", err, "job_id", job.ID)
-			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
-			return
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "desktop_job_commit_failed", "error", err)
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
@@ -467,12 +439,18 @@ func desktopFireJob(
 			"run_id", runID.String(),
 			"error", err,
 		)
+		if markErr := markDesktopRunFailed(ctx, db, runID, "worker.enqueue_failed", "failed to enqueue scheduled job run", err); markErr != nil {
+			slog.ErrorContext(ctx, "desktop_job_mark_run_failed_failed", "run_id", runID.String(), "error", markErr)
+		}
 		_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
 		return
 	}
 
-	// deleteAfterRun 已在事务内处理完毕
-	if job.DeleteAfterRun {
+	if job.ScheduleKind == schedulekind.At {
+		if err := finalizeDesktopOneShotJob(ctx, db, row, *job); err != nil {
+			slog.ErrorContext(ctx, "desktop_job_finalize_at_failed", "error", err, "job_id", job.ID)
+			_ = repo.PostponeTrigger(ctx, db, row.ID, 2*time.Minute)
+		}
 		return
 	}
 
@@ -516,4 +494,58 @@ func derefFireAt(t *time.Time) time.Time {
 
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+func finalizeDesktopOneShotJob(ctx context.Context, db data.DesktopDB, row data.ScheduledTriggerRow, job data.ScheduledJob) (err error) {
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return
+		}
+		err = tx.Commit(ctx)
+	}()
+
+	if job.DeleteAfterRun {
+		_, err = tx.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID.String())
+		return err
+	}
+	if _, err = tx.Exec(ctx,
+		`UPDATE scheduled_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = $1`,
+		job.ID.String(),
+	); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, row.JobID.String())
+	return err
+}
+
+func markDesktopRunFailed(ctx context.Context, db data.DesktopDB, runID uuid.UUID, errorClass string, message string, cause error) (err error) {
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			return
+		}
+		err = tx.Commit(ctx)
+	}()
+
+	var errorClassPtr *string
+	if strings.TrimSpace(errorClass) != "" {
+		errorClassPtr = &errorClass
+	}
+	payload := map[string]any{"message": message}
+	if cause != nil {
+		payload["details"] = map[string]any{"reason": cause.Error()}
+	}
+	if _, err = (data.DesktopRunEventsRepository{}).AppendEvent(ctx, tx, runID, "run.failed", payload, nil, errorClassPtr); err != nil {
+		return err
+	}
+	return (data.DesktopRunsRepository{}).UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{Status: "failed"})
 }

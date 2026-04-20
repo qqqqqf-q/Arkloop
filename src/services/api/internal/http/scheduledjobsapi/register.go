@@ -16,6 +16,7 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/scheduledjobs"
+	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
 )
@@ -25,6 +26,7 @@ type Deps struct {
 	AccountMembershipRepo *data.AccountMembershipRepository
 	APIKeysRepo           *data.APIKeysRepository
 	ScheduledJobsRepo     *data.ScheduledJobsRepository
+	ThreadRepo            *data.ThreadRepository
 	Pool                  data.DB
 }
 
@@ -101,7 +103,6 @@ type createJobRequest struct {
 	PersonaKey     string  `json:"persona_key"`
 	Prompt         string  `json:"prompt"`
 	Model          string  `json:"model"`
-	WorkspaceRef   string  `json:"workspace_ref"`
 	WorkDir        string  `json:"work_dir"`
 	ThreadID       *string `json:"thread_id"`
 	ScheduleKind   string  `json:"schedule_kind"`
@@ -124,7 +125,6 @@ type updateJobRequest struct {
 	PersonaKey     *string  `json:"persona_key"`
 	Prompt         *string  `json:"prompt"`
 	Model          *string  `json:"model"`
-	WorkspaceRef   *string  `json:"workspace_ref"`
 	WorkDir        *string  `json:"work_dir"`
 	ThreadID       **string `json:"thread_id"`
 	ScheduleKind   *string  `json:"schedule_kind"`
@@ -149,7 +149,6 @@ type jobResponse struct {
 	PersonaKey     string     `json:"persona_key"`
 	Prompt         string     `json:"prompt"`
 	Model          string     `json:"model"`
-	WorkspaceRef   string     `json:"workspace_ref"`
 	WorkDir        string     `json:"work_dir"`
 	ThreadID       *uuid.UUID `json:"thread_id"`
 	ScheduleKind   string     `json:"schedule_kind"`
@@ -183,7 +182,6 @@ func toJobResponse(j scheduledjobs.ScheduledJobWithTrigger) jobResponse {
 		PersonaKey:     j.PersonaKey,
 		Prompt:         j.Prompt,
 		Model:          j.Model,
-		WorkspaceRef:   j.WorkspaceRef,
 		WorkDir:        j.WorkDir,
 		ThreadID:       j.ThreadID,
 		ScheduleKind:   j.ScheduleKind,
@@ -258,13 +256,17 @@ func createJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 			return
 		}
 		threadID = &parsed
+		if !validateOwnedThread(r.Context(), deps.ThreadRepo, actor.AccountID, parsed) {
+			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+			return
+		}
 	}
 
 	personaKey := req.PersonaKey
 	model := req.Model
 	if threadID != nil {
 		if strings.TrimSpace(personaKey) == "" || strings.TrimSpace(model) == "" {
-			inferredPersona, inferredModel, err := deps.ScheduledJobsRepo.InferThreadContext(r.Context(), deps.Pool, *threadID)
+			inferredPersona, inferredModel, err := deps.ScheduledJobsRepo.InferThreadContext(r.Context(), deps.Pool, actor.AccountID, *threadID)
 			if err != nil {
 				slog.ErrorContext(r.Context(), "infer_thread_context_failed", "error", err)
 			}
@@ -277,10 +279,7 @@ func createJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		}
 	}
 
-	tz := req.Timezone
-	if tz == "" {
-		tz = "UTC"
-	}
+	tz := normalizeScheduledJobTimezone(req.Timezone)
 
 	job := scheduledjobs.ScheduledJob{
 		ID:              uuid.New(),
@@ -290,7 +289,6 @@ func createJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		PersonaKey:      personaKey,
 		Prompt:          req.Prompt,
 		Model:           model,
-		WorkspaceRef:    req.WorkspaceRef,
 		WorkDir:         req.WorkDir,
 		ThreadID:        threadID,
 		ScheduleKind:    req.ScheduleKind,
@@ -317,9 +315,17 @@ func createJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		}
 		job.FireAt = &t
 	}
+	if err := validateScheduledJobDefinition(job); err != nil {
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+		return
+	}
 
 	created, err := deps.ScheduledJobsRepo.CreateJob(r.Context(), deps.Pool, job)
 	if err != nil {
+		if data.IsScheduledJobValidationError(err) {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 		slog.Error("create scheduled job", "error", err, "trace_id", traceID)
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
@@ -369,6 +375,17 @@ func updateJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		return
 	}
 
+	existing, err := deps.ScheduledJobsRepo.GetByID(r.Context(), deps.Pool, jobID, actor.AccountID)
+	if err != nil {
+		slog.Error("get scheduled job", "error", err, "trace_id", traceID)
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	if existing == nil {
+		httpkit.WriteError(w, nethttp.StatusNotFound, "not_found", "scheduled job not found", traceID, nil)
+		return
+	}
+
 	// 用 json.RawMessage 做部分解码，支持 null vs absent 区分
 	var raw map[string]json.RawMessage
 	if err := httpkit.DecodeJSON(r, &raw); err != nil {
@@ -384,8 +401,12 @@ func updateJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 
 	// thread_id 变更时，自动推断 persona_key 和 model
 	if params.ThreadID != nil && *params.ThreadID != nil {
+		if !validateOwnedThread(r.Context(), deps.ThreadRepo, actor.AccountID, **params.ThreadID) {
+			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
+			return
+		}
 		if (params.PersonaKey != nil && *params.PersonaKey == "") || (params.Model != nil && *params.Model == "") {
-			inferredPersona, inferredModel, err := deps.ScheduledJobsRepo.InferThreadContext(r.Context(), deps.Pool, **params.ThreadID)
+			inferredPersona, inferredModel, err := deps.ScheduledJobsRepo.InferThreadContext(r.Context(), deps.Pool, actor.AccountID, **params.ThreadID)
 			if err == nil {
 				if params.PersonaKey != nil && *params.PersonaKey == "" && inferredPersona != "" {
 					*params.PersonaKey = inferredPersona
@@ -396,8 +417,19 @@ func updateJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 			}
 		}
 	}
+	if shouldValidateScheduledJobUpdate(params) {
+		merged := applyJobUpdatePreview(*existing, params)
+		if err := validateScheduledJobDefinition(merged); err != nil {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
+	}
 
 	if err := deps.ScheduledJobsRepo.UpdateJob(r.Context(), deps.Pool, jobID, actor.AccountID, params); err != nil {
+		if data.IsScheduledJobValidationError(err) {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			httpkit.WriteError(w, nethttp.StatusNotFound, "not_found", "scheduled job not found", traceID, nil)
 			return
@@ -476,6 +508,10 @@ func resumeJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 	}
 
 	if err := deps.ScheduledJobsRepo.SetJobEnabled(r.Context(), deps.Pool, jobID, actor.AccountID, true); err != nil {
+		if data.IsScheduledJobValidationError(err) {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			httpkit.WriteError(w, nethttp.StatusNotFound, "not_found", "scheduled job not found", traceID, nil)
 			return
@@ -599,6 +635,9 @@ func validateCreate(req createJobRequest) []string {
 	if req.ReasoningMode != "" && normalizeScheduledJobReasoningMode(req.ReasoningMode) == "" {
 		errs = append(errs, "invalid reasoning_mode")
 	}
+	if req.DeleteAfterRun && !schedulekind.SupportsDeleteAfterRun(req.ScheduleKind) {
+		errs = append(errs, "delete_after_run is only supported for at schedule")
+	}
 
 	return errs
 }
@@ -674,12 +713,6 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 		var s string
 		if json.Unmarshal(v, &s) == nil {
 			p.Model = &s
-		}
-	}
-	if v, ok := raw["workspace_ref"]; ok {
-		var s string
-		if json.Unmarshal(v, &s) == nil {
-			p.WorkspaceRef = &s
 		}
 	}
 	if v, ok := raw["work_dir"]; ok {
@@ -779,12 +812,9 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 	if v, ok := raw["timezone"]; ok {
 		var s string
 		if json.Unmarshal(v, &s) == nil {
-			if s != "" {
-				if _, err := time.LoadLocation(s); err != nil {
-					errs = append(errs, fmt.Sprintf("invalid timezone: %s", s))
-				} else {
-					p.Timezone = &s
-				}
+			s = normalizeScheduledJobTimezone(s)
+			if _, err := time.LoadLocation(s); err != nil {
+				errs = append(errs, fmt.Sprintf("invalid timezone: %s", s))
 			} else {
 				p.Timezone = &s
 			}
@@ -837,4 +867,151 @@ func buildUpdateParams(raw map[string]json.RawMessage) (scheduledjobs.UpdateJobP
 	}
 
 	return p, errs
+}
+
+func validateOwnedThread(ctx context.Context, threadRepo *data.ThreadRepository, accountID, threadID uuid.UUID) bool {
+	if threadRepo == nil {
+		return false
+	}
+	thread, err := threadRepo.GetByID(ctx, threadID)
+	if err != nil || thread == nil {
+		return false
+	}
+	return thread.AccountID == accountID
+}
+
+func validateScheduledJobDefinition(job scheduledjobs.ScheduledJob) error {
+	if strings.TrimSpace(job.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(job.Prompt) == "" {
+		return fmt.Errorf("prompt is required")
+	}
+	if job.ThreadID == nil && strings.TrimSpace(job.PersonaKey) == "" {
+		return fmt.Errorf("persona_key is required when thread_id is not set")
+	}
+	if job.DeleteAfterRun && !schedulekind.SupportsDeleteAfterRun(job.ScheduleKind) {
+		return fmt.Errorf("delete_after_run is only supported for at schedule")
+	}
+	job.Timezone = normalizeScheduledJobTimezone(job.Timezone)
+	return schedulekind.Validate(
+		job.ScheduleKind,
+		job.IntervalMin,
+		job.DailyTime,
+		job.MonthlyDay,
+		job.MonthlyTime,
+		job.WeeklyDay,
+		job.FireAt,
+		job.CronExpr,
+		job.Timezone,
+	)
+}
+
+func applyJobUpdatePreview(existing scheduledjobs.ScheduledJobWithTrigger, upd scheduledjobs.UpdateJobParams) scheduledjobs.ScheduledJob {
+	job := existing.ScheduledJob
+	if upd.Name != nil {
+		job.Name = *upd.Name
+	}
+	if upd.Description != nil {
+		job.Description = *upd.Description
+	}
+	if upd.PersonaKey != nil {
+		job.PersonaKey = *upd.PersonaKey
+	}
+	if upd.Prompt != nil {
+		job.Prompt = *upd.Prompt
+	}
+	if upd.Model != nil {
+		job.Model = *upd.Model
+	}
+	if upd.WorkDir != nil {
+		job.WorkDir = *upd.WorkDir
+	}
+	if upd.ThreadID != nil {
+		job.ThreadID = *upd.ThreadID
+	}
+	if upd.ScheduleKind != nil {
+		job.ScheduleKind = *upd.ScheduleKind
+	}
+	if upd.IntervalMin != nil {
+		job.IntervalMin = *upd.IntervalMin
+	}
+	if upd.DailyTime != nil {
+		job.DailyTime = *upd.DailyTime
+	}
+	if upd.MonthlyDay != nil {
+		job.MonthlyDay = *upd.MonthlyDay
+	}
+	if upd.MonthlyTime != nil {
+		job.MonthlyTime = *upd.MonthlyTime
+	}
+	if upd.WeeklyDay != nil {
+		job.WeeklyDay = *upd.WeeklyDay
+	}
+	if upd.FireAt != nil {
+		job.FireAt = *upd.FireAt
+	}
+	if upd.CronExpr != nil {
+		job.CronExpr = *upd.CronExpr
+	}
+	if upd.Timezone != nil {
+		job.Timezone = normalizeScheduledJobTimezone(*upd.Timezone)
+	}
+	if upd.Enabled != nil {
+		job.Enabled = *upd.Enabled
+	}
+	if upd.DeleteAfterRun != nil {
+		job.DeleteAfterRun = *upd.DeleteAfterRun
+	}
+	if upd.ReasoningMode != nil {
+		job.ReasoningMode = *upd.ReasoningMode
+	}
+	if upd.Timeout != nil {
+		job.Timeout = *upd.Timeout
+	}
+	return job
+}
+
+func shouldValidateScheduledJobUpdate(upd scheduledjobs.UpdateJobParams) bool {
+	return upd.PersonaKey != nil ||
+		upd.ThreadID != nil ||
+		upd.ScheduleKind != nil ||
+		upd.IntervalMin != nil ||
+		upd.DailyTime != nil ||
+		upd.MonthlyDay != nil ||
+		upd.MonthlyTime != nil ||
+		upd.WeeklyDay != nil ||
+		upd.FireAt != nil ||
+		upd.CronExpr != nil ||
+		upd.Timezone != nil ||
+		(upd.Enabled != nil && *upd.Enabled)
+}
+
+func normalizeScheduledJobTimezone(tz string) string {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return "UTC"
+	}
+	return tz
+}
+
+func derefIntPtr(v *int) int {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func derefIntPtrOr(v *int, fallback int) int {
+	if v == nil {
+		return fallback
+	}
+	return *v
+}
+
+func derefTimePtr(v *time.Time) time.Time {
+	if v == nil {
+		return time.Time{}
+	}
+	return *v
 }

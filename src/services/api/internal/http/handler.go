@@ -427,6 +427,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			AccountMembershipRepo: cfg.AccountMembershipRepo,
 			APIKeysRepo:           cfg.APIKeysRepo,
 			ScheduledJobsRepo:     cfg.ScheduledJobsRepo,
+			ThreadRepo:            cfg.ThreadRepo,
 			Pool:                  cfg.Pool,
 		})
 	}

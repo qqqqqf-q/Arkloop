@@ -475,17 +475,25 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 		return
 	}
 
-	// At 类型: 在事务内 disable job + delete trigger，然后提交并返回
+	// At 类型: one-shot job 在事务内完成最终状态切换，然后提交并返回
 	if job.ScheduleKind == schedulekind.At {
-		if _, err := tx.Exec(ctx, `UPDATE scheduled_jobs SET enabled = false, updated_at = now() WHERE id = $1`, job.ID); err != nil {
-			slog.ErrorContext(ctx, "scheduled_job_disable_at_failed", "error", err)
-			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
-			return
-		}
-		if err := s.triggers.DeleteTriggerByJobID(ctx, tx, row.JobID); err != nil {
-			slog.ErrorContext(ctx, "scheduled_job_delete_at_trigger_failed", "error", err)
-			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
-			return
+		if job.DeleteAfterRun {
+			if _, err := tx.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID); err != nil {
+				slog.ErrorContext(ctx, "scheduled_job_delete_after_run_failed", "error", err, "job_id", job.ID)
+				_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
+				return
+			}
+		} else {
+			if _, err := tx.Exec(ctx, `UPDATE scheduled_jobs SET enabled = false, updated_at = now() WHERE id = $1`, job.ID); err != nil {
+				slog.ErrorContext(ctx, "scheduled_job_disable_at_failed", "error", err)
+				_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
+				return
+			}
+			if err := s.triggers.DeleteTriggerByJobID(ctx, tx, row.JobID); err != nil {
+				slog.ErrorContext(ctx, "scheduled_job_delete_at_trigger_failed", "error", err)
+				_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
+				return
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			slog.ErrorContext(ctx, "scheduled_job_commit_failed", "error", err)
@@ -494,23 +502,9 @@ func (s *TriggerScheduler) fireJob(ctx context.Context, row data.ScheduledTrigge
 		return
 	}
 
-	// deleteAfterRun: 在事务内删除 job，保证与 run 创建原子提交
-	if job.DeleteAfterRun {
-		if _, err := tx.Exec(ctx, `DELETE FROM scheduled_jobs WHERE id = $1`, job.ID); err != nil {
-			slog.ErrorContext(ctx, "scheduled_job_delete_after_run_failed", "error", err, "job_id", job.ID)
-			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
-			return
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		slog.ErrorContext(ctx, "scheduled_job_commit_failed", "error", err)
 		_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, 90*time.Second)
-		return
-	}
-
-	// deleteAfterRun 已在事务内处理完毕
-	if job.DeleteAfterRun {
 		return
 	}
 

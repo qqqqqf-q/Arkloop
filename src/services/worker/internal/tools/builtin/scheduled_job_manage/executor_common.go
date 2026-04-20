@@ -211,6 +211,7 @@ func (e *executorCommon) doCreate(
 	if err != nil {
 		return errResult(fmt.Sprintf("create job: %v", err), started)
 	}
+	e.notifyScheduler(ctx)
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"ok": true, "job_id": created.ID.String()},
 		DurationMs: ms(started),
@@ -284,11 +285,6 @@ func (e *executorCommon) doUpdate(
 	}
 	if v, ok := args["cron_expr"].(string); ok {
 		upd.CronExpr = &v
-		// validate cron expression when updating
-		p := cronParser()
-		if _, err := p.Parse(v); err != nil {
-			return errResult(fmt.Sprintf("invalid cron expression: %v", err), started)
-		}
 	}
 	if v, ok := args["enabled"].(bool); ok {
 		upd.Enabled = &v
@@ -319,6 +315,7 @@ func (e *executorCommon) doUpdate(
 	if err := e.repo.UpdateJob(ctx, e.db, jobID, accountID, upd); err != nil {
 		return errResult(fmt.Sprintf("update job: %v", err), started)
 	}
+	e.notifyScheduler(ctx)
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"ok": true},
 		DurationMs: ms(started),
@@ -338,6 +335,7 @@ func (e *executorCommon) doDelete(
 	if err := e.repo.DeleteJob(ctx, e.db, jobID, accountID); err != nil {
 		return errResult(fmt.Sprintf("delete job: %v", err), started)
 	}
+	e.notifyScheduler(ctx)
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"ok": true},
 		DurationMs: ms(started),
@@ -372,7 +370,7 @@ func (e *executorCommon) doRun(
 	if err := e.repo.SetTriggerFireNow(ctx, e.db, jobID); err != nil {
 		return errResult(fmt.Sprintf("failed to trigger job: %v", err), started)
 	}
-	_ = e.repo.NotifyScheduler(ctx, e.db)
+	e.notifyScheduler(ctx)
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"ok": true, "triggered": true, "job_id": jobID.String()},
 		DurationMs: ms(started),
@@ -452,6 +450,10 @@ func (e *executorCommon) doWake(
 		ResultJSON: map[string]any{"ok": true},
 		DurationMs: ms(started),
 	}
+}
+
+func (e *executorCommon) notifyScheduler(ctx context.Context) {
+	_ = e.repo.NotifyScheduler(ctx, e.db)
 }
 
 func errResult(msg string, started time.Time) tools.ExecutionResult {

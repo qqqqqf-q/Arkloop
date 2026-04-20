@@ -21,11 +21,12 @@ import {
   clearWorkFolder,
 } from '../../storage'
 import {
+  buildScheduledJobRequest,
   createScheduledJob,
+  formatScheduledJobFireAtForInput,
   updateScheduledJob,
   getThreadLatestRunContext,
   type ScheduledJob,
-  type CreateJobRequest,
 } from './api'
 
 type Props = {
@@ -112,7 +113,7 @@ export default function ScheduledJobEditor({
       setWeeklyDay(job.weekly_day ?? 1)
       setTimezone(job.timezone)
       setWorkDir(job.work_dir)
-      setFireAt(job.fire_at ?? '')
+      setFireAt(formatScheduledJobFireAtForInput(job.fire_at))
       setCronExpr(job.cron_expr ?? '')
       setDeleteAfterRun(job.delete_after_run ?? false)
       setReasoningMode(job.reasoning_mode ?? '')
@@ -152,8 +153,8 @@ export default function ScheduledJobEditor({
     if (threadId.trim()) {
       getThreadLatestRunContext(accessToken, threadId.trim())
         .then((ctx) => {
-          if (ctx.persona_id) setPersonaKey(ctx.persona_id)
-          if (ctx.model) setModel(ctx.model)
+          setPersonaKey(ctx.persona_id ?? '')
+          setModel(ctx.model ?? '')
         })
         .catch(() => { /* ignore */ })
     } else {
@@ -211,36 +212,52 @@ export default function ScheduledJobEditor({
   }, [])
 
   const handleSave = useCallback(async () => {
-    const data: CreateJobRequest = {
-      name: name.trim(),
-      description,
-      persona_key: personaKey.trim(),
-      prompt: prompt.trim(),
-      model,
-      work_dir: workDir,
-      schedule_kind: scheduleKind,
-      timezone,
-      ...(threadId.trim() ? { thread_id: threadId.trim() } : {}),
-      ...(scheduleKind === 'interval' ? { interval_min: intervalMin } : {}),
-      ...(scheduleKind === 'daily' || scheduleKind === 'weekdays' || scheduleKind === 'weekly'
-        ? { daily_time: dailyTime }
-        : {}),
-      ...(scheduleKind === 'monthly'
-        ? { monthly_day: monthlyDay, monthly_time: monthlyTime }
-        : {}),
-      ...(scheduleKind === 'weekly' ? { weekly_day: weeklyDay } : {}),
-      ...(scheduleKind === 'at' ? { fire_at: fireAt, delete_after_run: deleteAfterRun } : {}),
-      ...(scheduleKind === 'cron' ? { cron_expr: cronExpr } : {}),
-      ...(reasoningMode ? { reasoning_mode: reasoningMode } : {}),
-      ...(timeout > 0 ? { timeout } : {}),
-    }
-
     setSaving(true)
     try {
       if (isEdit && job) {
-        await updateScheduledJob(accessToken, job.id, data)
+        await updateScheduledJob(accessToken, job.id, buildScheduledJobRequest({
+          name,
+          description,
+          persona_key: personaKey,
+          prompt,
+          model,
+          work_dir: workDir,
+          thread_id: threadId,
+          schedule_kind: scheduleKind,
+          interval_min: intervalMin,
+          daily_time: dailyTime,
+          monthly_day: monthlyDay,
+          monthly_time: monthlyTime,
+          weekly_day: weeklyDay,
+          fire_at: fireAt,
+          cron_expr: cronExpr,
+          delete_after_run: deleteAfterRun,
+          timezone,
+          reasoning_mode: reasoningMode,
+          timeout,
+        }, 'update'))
       } else {
-        await createScheduledJob(accessToken, data)
+        await createScheduledJob(accessToken, buildScheduledJobRequest({
+          name,
+          description,
+          persona_key: personaKey,
+          prompt,
+          model,
+          work_dir: workDir,
+          thread_id: threadId,
+          schedule_kind: scheduleKind,
+          interval_min: intervalMin,
+          daily_time: dailyTime,
+          monthly_day: monthlyDay,
+          monthly_time: monthlyTime,
+          weekly_day: weeklyDay,
+          fire_at: fireAt,
+          cron_expr: cronExpr,
+          delete_after_run: deleteAfterRun,
+          timezone,
+          reasoning_mode: reasoningMode,
+          timeout,
+        }, 'create'))
       }
       onSaved()
     } catch {

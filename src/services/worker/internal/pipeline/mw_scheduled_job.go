@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"strings"
+	"time"
 
 	"arkloop/services/shared/runkind"
 )
@@ -49,7 +50,31 @@ func NewScheduledJobPrepareMiddleware() RunMiddleware {
 		if wd, ok := stringField(rc.JobPayload, "work_dir"); ok {
 			rc.WorkDir = wd
 		}
+		if timeoutSeconds := scheduledJobTimeoutSeconds(rc.InputJSON, rc.JobPayload); timeoutSeconds > 0 {
+			rc.RunWallClockTimeout = time.Duration(timeoutSeconds) * time.Second
+		}
 
 		return next(ctx, rc)
 	}
+}
+
+func scheduledJobTimeoutSeconds(input, job map[string]any) int {
+	for _, m := range []map[string]any{input, job} {
+		if m == nil {
+			continue
+		}
+		if raw, ok := m["timeout_seconds"]; ok {
+			switch value := raw.(type) {
+			case int:
+				if value > 0 {
+					return value
+				}
+			case float64:
+				if int(value) > 0 {
+					return int(value)
+				}
+			}
+		}
+	}
+	return 0
 }

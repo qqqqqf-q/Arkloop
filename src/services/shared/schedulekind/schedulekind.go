@@ -19,8 +19,72 @@ const (
 	Cron     = "cron"
 )
 
+func SupportsDeleteAfterRun(kind string) bool {
+	return kind == At
+}
+
+// Validate 校验调度参数组合是否合法。
+func Validate(kind string, intervalMin *int, dailyTime string, monthlyDay *int, monthlyTime string, weeklyDay *int, fireAt *time.Time, cronExpr string, tz string) error {
+	switch kind {
+	case Interval:
+		if intervalMin == nil || *intervalMin < 1 {
+			return fmt.Errorf("interval_min must be >= 1 for interval schedule")
+		}
+	case Daily:
+		if _, _, err := parseHHMM(dailyTime); err != nil {
+			return fmt.Errorf("invalid daily_time: %w", err)
+		}
+	case Monthly:
+		if monthlyDay == nil || *monthlyDay < 1 || *monthlyDay > 28 {
+			return fmt.Errorf("monthly_day must be between 1 and 28")
+		}
+		if _, _, err := parseHHMM(monthlyTime); err != nil {
+			return fmt.Errorf("invalid monthly_time: %w", err)
+		}
+	case Weekdays:
+		if _, _, err := parseHHMM(dailyTime); err != nil {
+			return fmt.Errorf("invalid daily_time: %w", err)
+		}
+	case Weekly:
+		if weeklyDay == nil || *weeklyDay < 0 || *weeklyDay > 6 {
+			return fmt.Errorf("weekly_day must be between 0 and 6")
+		}
+		if _, _, err := parseHHMM(dailyTime); err != nil {
+			return fmt.Errorf("invalid daily_time: %w", err)
+		}
+	case At:
+		if fireAt == nil || fireAt.IsZero() {
+			return fmt.Errorf("fire_at is required for 'at' schedule kind")
+		}
+	case Cron:
+		if strings.TrimSpace(cronExpr) == "" {
+			return fmt.Errorf("cron_expr is required for 'cron' schedule kind")
+		}
+	default:
+		return fmt.Errorf("unknown schedule kind %q", kind)
+	}
+
+	_, err := CalcNextFire(
+		kind,
+		derefInt(intervalMin),
+		dailyTime,
+		derefIntOr(monthlyDay, 1),
+		monthlyTime,
+		derefIntOr(weeklyDay, 0),
+		derefTime(fireAt),
+		cronExpr,
+		tz,
+		time.Now().UTC(),
+	)
+	return err
+}
+
 // CalcNextFire 根据调度类型计算下一次触发时间。
 func CalcNextFire(kind string, intervalMin int, dailyTime string, monthlyDay int, monthlyTime string, weeklyDay int, fireAt time.Time, cronExpr string, tz string, now time.Time) (time.Time, error) {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		tz = "UTC"
+	}
 	loc, err := time.LoadLocation(tz)
 	if err != nil && kind != At {
 		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", tz, err)
@@ -129,6 +193,27 @@ func parseHHMM(s string) (int, int, error) {
 		return 0, 0, fmt.Errorf("invalid minute in %q", s)
 	}
 	return h, m, nil
+}
+
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefIntOr(p *int, def int) int {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 // clampDay 将天数限制在指定月份的有效范围内。

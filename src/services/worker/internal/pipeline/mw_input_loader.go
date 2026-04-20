@@ -175,6 +175,18 @@ func loadRunInputs(
 		if rawReasoningMode, ok := dataJSON["reasoning_mode"].(string); ok && strings.TrimSpace(rawReasoningMode) != "" {
 			inputJSON["reasoning_mode"] = strings.TrimSpace(rawReasoningMode)
 		}
+		if rawTimeoutSeconds, ok := dataJSON["timeout_seconds"]; ok {
+			switch value := rawTimeoutSeconds.(type) {
+			case int:
+				if value > 0 {
+					inputJSON["timeout_seconds"] = value
+				}
+			case float64:
+				if int(value) > 0 {
+					inputJSON["timeout_seconds"] = int(value)
+				}
+			}
+		}
 		if rawContinuationSource, ok := dataJSON[runStartedContinuationSourceKey].(string); ok && strings.TrimSpace(rawContinuationSource) != "" {
 			inputJSON[runStartedContinuationSourceKey] = strings.TrimSpace(rawContinuationSource)
 		}

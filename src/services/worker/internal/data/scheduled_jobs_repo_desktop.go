@@ -8,13 +8,23 @@ import (
 	"strings"
 	"time"
 
+	shareddesktop "arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // DesktopScheduledJobsRepository 提供 desktop 侧的 scheduled_jobs CRUD（SQLite）。
 type DesktopScheduledJobsRepository struct{}
+
+type desktopScheduledJobsQuerier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // GetJobByID 按 ID 加载 job 定义。
 func (DesktopScheduledJobsRepository) GetJobByID(
@@ -136,10 +146,20 @@ func (DesktopScheduledJobsRepository) CreateJob(
 	ctx context.Context,
 	db DB,
 	job ScheduledJob,
-) (ScheduledJob, error) {
+) (created ScheduledJob, err error) {
 	if job.AccountID == uuid.Nil {
 		return ScheduledJob{}, fmt.Errorf("account_id must not be empty")
 	}
+	if err := validateScheduledJob(job); err != nil {
+		return ScheduledJob{}, err
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ScheduledJob{}, err
+	}
+	defer finishScheduledJobsTx(ctx, tx, &err)
+
 	now := time.Now().UTC()
 	job.CreatedAt = now
 	job.UpdatedAt = now
@@ -155,7 +175,7 @@ func (DesktopScheduledJobsRepository) CreateJob(
 		createdByStr = &s
 	}
 
-	_, err := db.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO scheduled_jobs
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
@@ -176,7 +196,7 @@ func (DesktopScheduledJobsRepository) CreateJob(
 	}
 
 	if job.Enabled {
-		if err := desktopInsertJobTrigger(ctx, db, job); err != nil {
+		if err := desktopInsertJobTrigger(ctx, tx, job); err != nil {
 			return ScheduledJob{}, err
 		}
 	}
@@ -190,7 +210,7 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 	db DB,
 	id, accountID uuid.UUID,
 	upd UpdateJobParams,
-) error {
+) (err error) {
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -201,6 +221,23 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 		argIdx++
 	}
 
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer finishScheduledJobsTx(ctx, tx, &err)
+
+	current, err := desktopGetJobByID(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if current == nil || current.AccountID != accountID {
+		return fmt.Errorf("scheduled_job %s not found", id)
+	}
+
+	next := *current
+	applyJobUpdate(&next, upd)
+
 	scheduleChanged := false
 	if upd.Name != nil {
 		addSet("name", *upd.Name)
@@ -208,8 +245,17 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 	if upd.Description != nil {
 		addSet("description", *upd.Description)
 	}
+	if upd.PersonaKey != nil {
+		addSet("persona_key", *upd.PersonaKey)
+	}
 	if upd.Prompt != nil {
 		addSet("prompt", *upd.Prompt)
+	}
+	if upd.Model != nil {
+		addSet("model", *upd.Model)
+	}
+	if upd.WorkDir != nil {
+		addSet("work_dir", *upd.WorkDir)
 	}
 	if upd.ScheduleKind != nil {
 		addSet("schedule_kind", *upd.ScheduleKind)
@@ -236,7 +282,7 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 		scheduleChanged = true
 	}
 	if upd.Timezone != nil {
-		addSet("timezone", *upd.Timezone)
+		addSet("timezone", next.Timezone)
 		scheduleChanged = true
 	}
 	if upd.Enabled != nil {
@@ -272,6 +318,12 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 		return nil
 	}
 
+	if scheduleChanged || shouldValidateEnabledTransition(upd, current.Enabled) {
+		if err := validateScheduledJob(next); err != nil {
+			return err
+		}
+	}
+
 	addSet("updated_at", time.Now().UTC().Format(time.RFC3339Nano))
 
 	whereID := fmt.Sprintf("$%d", argIdx)
@@ -283,7 +335,7 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 	sql := fmt.Sprintf("UPDATE scheduled_jobs SET %s WHERE id = %s AND account_id = %s",
 		strings.Join(setClauses, ", "), whereID, whereAccount)
 
-	tag, err := db.Exec(ctx, sql, args...)
+	tag, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("update scheduled_jobs: %w", err)
 	}
@@ -293,34 +345,23 @@ func (DesktopScheduledJobsRepository) UpdateJob(
 
 	// enabled 切换
 	if upd.Enabled != nil && !*upd.Enabled {
-		_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id.String())
+		_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id.String())
 		return err
 	}
 	if upd.Enabled != nil && *upd.Enabled {
-		job, err := desktopGetJobByID(ctx, db, id)
-		if err != nil {
-			return err
-		}
-		if job == nil {
-			return nil
-		}
-		return desktopInsertJobTrigger(ctx, db, *job)
+		return desktopInsertJobTrigger(ctx, tx, next)
 	}
 
 	// schedule 参数变更，重算 next_fire_at
 	if scheduleChanged {
-		job, err := desktopGetJobByID(ctx, db, id)
-		if err != nil {
-			return err
-		}
-		if job == nil || !job.Enabled {
+		if !next.Enabled {
 			return nil
 		}
-		nextFire, err := desktopCalcJobNextFire(*job)
+		nextFire, err := desktopCalcJobNextFire(next)
 		if err != nil {
 			return err
 		}
-		_, err = db.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = $2 WHERE job_id = $3`,
 			nextFire.Format(time.RFC3339Nano),
 			time.Now().UTC().Format(time.RFC3339Nano),
@@ -355,7 +396,7 @@ func (DesktopScheduledJobsRepository) DeleteJob(
 
 // -- internal helpers --
 
-func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob, error) {
+func desktopGetJobByID(ctx context.Context, db desktopScheduledJobsQuerier, id uuid.UUID) (*ScheduledJob, error) {
 	var r ScheduledJob
 	var idStr, accountStr string
 	var threadIDStr, createdByStr *string
@@ -395,7 +436,7 @@ func desktopGetJobByID(ctx context.Context, db DB, id uuid.UUID) (*ScheduledJob,
 	return &r, nil
 }
 
-func desktopInsertJobTrigger(ctx context.Context, db DB, job ScheduledJob) error {
+func desktopInsertJobTrigger(ctx context.Context, db desktopScheduledJobsQuerier, job ScheduledJob) error {
 	nextFire, err := desktopCalcJobNextFire(job)
 	if err != nil {
 		return fmt.Errorf("calc next fire: %w", err)
@@ -441,6 +482,107 @@ func desktopCalcJobNextFire(job ScheduledJob) (time.Time, error) {
 	)
 }
 
+func validateScheduledJob(job ScheduledJob) error {
+	if strings.TrimSpace(job.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(job.Prompt) == "" {
+		return fmt.Errorf("prompt is required")
+	}
+	if job.ThreadID == nil && strings.TrimSpace(job.PersonaKey) == "" {
+		return fmt.Errorf("persona_key is required when thread_id is not set")
+	}
+	if job.DeleteAfterRun && !schedulekind.SupportsDeleteAfterRun(job.ScheduleKind) {
+		return fmt.Errorf("delete_after_run is only supported for at schedule")
+	}
+	return schedulekind.Validate(
+		job.ScheduleKind,
+		job.IntervalMin,
+		job.DailyTime,
+		job.MonthlyDay,
+		job.MonthlyTime,
+		job.WeeklyDay,
+		job.FireAt,
+		job.CronExpr,
+		job.Timezone,
+	)
+}
+
+func applyJobUpdate(job *ScheduledJob, upd UpdateJobParams) {
+	if upd.Name != nil {
+		job.Name = *upd.Name
+	}
+	if upd.Description != nil {
+		job.Description = *upd.Description
+	}
+	if upd.PersonaKey != nil {
+		job.PersonaKey = *upd.PersonaKey
+	}
+	if upd.Prompt != nil {
+		job.Prompt = *upd.Prompt
+	}
+	if upd.Model != nil {
+		job.Model = *upd.Model
+	}
+	if upd.WorkDir != nil {
+		job.WorkDir = *upd.WorkDir
+	}
+	if upd.ScheduleKind != nil {
+		job.ScheduleKind = *upd.ScheduleKind
+	}
+	if upd.IntervalMin != nil {
+		job.IntervalMin = *upd.IntervalMin
+	}
+	if upd.DailyTime != nil {
+		job.DailyTime = *upd.DailyTime
+	}
+	if upd.MonthlyDay != nil {
+		job.MonthlyDay = *upd.MonthlyDay
+	}
+	if upd.MonthlyTime != nil {
+		job.MonthlyTime = *upd.MonthlyTime
+	}
+	if upd.WeeklyDay != nil {
+		job.WeeklyDay = *upd.WeeklyDay
+	}
+	if upd.Timezone != nil {
+		job.Timezone = normalizeScheduledJobsTimezone(*upd.Timezone)
+	}
+	if upd.Enabled != nil {
+		job.Enabled = *upd.Enabled
+	}
+	if upd.ThreadID != nil {
+		job.ThreadID = *upd.ThreadID
+	}
+	if upd.FireAt != nil {
+		job.FireAt = *upd.FireAt
+	}
+	if upd.CronExpr != nil {
+		job.CronExpr = *upd.CronExpr
+	}
+	if upd.DeleteAfterRun != nil {
+		job.DeleteAfterRun = *upd.DeleteAfterRun
+	}
+	if upd.ReasoningMode != nil {
+		job.ReasoningMode = *upd.ReasoningMode
+	}
+	if upd.Timeout != nil {
+		job.Timeout = *upd.Timeout
+	}
+}
+
+func shouldValidateEnabledTransition(upd UpdateJobParams, currentEnabled bool) bool {
+	return upd.Enabled != nil && *upd.Enabled && !currentEnabled
+}
+
+func normalizeScheduledJobsTimezone(tz string) string {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return "UTC"
+	}
+	return tz
+}
+
 func desktopDerefIntOr(p *int, def int) int {
 	if p != nil {
 		return *p
@@ -455,6 +597,14 @@ func desktopDerefTime(t *time.Time) time.Time {
 	return *t
 }
 
+func finishScheduledJobsTx(ctx context.Context, tx pgx.Tx, errp *error) {
+	if *errp != nil {
+		_ = tx.Rollback(ctx)
+		return
+	}
+	*errp = tx.Commit(ctx)
+}
+
 // SetTriggerFireNow schedules the trigger for immediate firing.
 func (DesktopScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db DB, jobID uuid.UUID) error {
 	tag, err := db.Exec(ctx, `UPDATE scheduled_triggers SET next_fire_at = datetime('now') WHERE job_id = $1`, jobID.String())
@@ -467,9 +617,13 @@ func (DesktopScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db 
 	return nil
 }
 
-// NotifyScheduler is a no-op in desktop mode (uses in-process event bus).
-func (DesktopScheduledJobsRepository) NotifyScheduler(_ context.Context, _ DB) error {
-	return nil
+// NotifyScheduler wakes the desktop scheduler through the shared in-process event bus.
+func (DesktopScheduledJobsRepository) NotifyScheduler(ctx context.Context, _ DB) error {
+	bus, ok := shareddesktop.GetEventBus().(eventbus.EventBus)
+	if !ok || bus == nil {
+		return nil
+	}
+	return bus.Publish(ctx, pgnotify.ChannelScheduledJobs, "")
 }
 
 // ListRunsByJobID returns the most recent runs for a scheduled job.

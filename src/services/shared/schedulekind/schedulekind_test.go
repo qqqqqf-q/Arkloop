@@ -127,7 +127,7 @@ func TestCalcNextFire(t *testing.T) {
 			dailyTime: "08:00",
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 15, 10, 0, 0, 0, utc), // Wed
-			want:      time.Date(2026, 4, 16, 8, 0, 0, 0, utc),   // Thu
+			want:      time.Date(2026, 4, 16, 8, 0, 0, 0, utc),  // Thu
 		},
 		{
 			name:      "weekdays on friday after time",
@@ -135,7 +135,7 @@ func TestCalcNextFire(t *testing.T) {
 			dailyTime: "08:00",
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 17, 10, 0, 0, 0, utc), // Fri
-			want:      time.Date(2026, 4, 20, 8, 0, 0, 0, utc),   // Mon
+			want:      time.Date(2026, 4, 20, 8, 0, 0, 0, utc),  // Mon
 		},
 		{
 			name:      "weekdays on saturday",
@@ -143,7 +143,7 @@ func TestCalcNextFire(t *testing.T) {
 			dailyTime: "09:00",
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 18, 8, 0, 0, 0, utc), // Sat
-			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc),  // Mon
+			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc), // Mon
 		},
 		{
 			name:      "weekdays on sunday",
@@ -151,7 +151,7 @@ func TestCalcNextFire(t *testing.T) {
 			dailyTime: "09:00",
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 19, 8, 0, 0, 0, utc), // Sun
-			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc),  // Mon
+			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc), // Mon
 		},
 		{
 			name:      "weekly same day not passed",
@@ -169,7 +169,7 @@ func TestCalcNextFire(t *testing.T) {
 			weeklyDay: 3, // Wed
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 15, 10, 0, 0, 0, utc), // Wed
-			want:      time.Date(2026, 4, 22, 8, 0, 0, 0, utc),   // next Wed
+			want:      time.Date(2026, 4, 22, 8, 0, 0, 0, utc),  // next Wed
 		},
 		{
 			name:      "weekly earlier weekday",
@@ -178,7 +178,7 @@ func TestCalcNextFire(t *testing.T) {
 			weeklyDay: 1, // Mon
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 15, 10, 0, 0, 0, utc), // Wed
-			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc),   // next Mon
+			want:      time.Date(2026, 4, 20, 9, 0, 0, 0, utc),  // next Mon
 		},
 		{
 			name:      "weekly later weekday",
@@ -187,7 +187,7 @@ func TestCalcNextFire(t *testing.T) {
 			weeklyDay: 5, // Fri
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 15, 10, 0, 0, 0, utc), // Wed
-			want:      time.Date(2026, 4, 17, 9, 0, 0, 0, utc),   // Fri
+			want:      time.Date(2026, 4, 17, 9, 0, 0, 0, utc),  // Fri
 		},
 		{
 			name:      "weekly sunday",
@@ -196,13 +196,13 @@ func TestCalcNextFire(t *testing.T) {
 			weeklyDay: 0, // Sun
 			tz:        "UTC",
 			now:       time.Date(2026, 4, 15, 10, 0, 0, 0, utc), // Wed
-			want:      time.Date(2026, 4, 19, 9, 0, 0, 0, utc),   // Sun
+			want:      time.Date(2026, 4, 19, 9, 0, 0, 0, utc),  // Sun
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CalcNextFire(tt.kind, tt.intervalMin, tt.dailyTime, tt.monthlyDay, tt.monthlyTime, tt.weeklyDay, tt.tz, tt.now)
+			got, err := CalcNextFire(tt.kind, tt.intervalMin, tt.dailyTime, tt.monthlyDay, tt.monthlyTime, tt.weeklyDay, time.Time{}, "", tt.tz, tt.now)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

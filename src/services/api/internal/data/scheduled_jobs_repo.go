@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"arkloop/services/shared/schedulekind"
 	"arkloop/services/shared/scheduledjobs"
+	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,16 +16,47 @@ import (
 
 type ScheduledJobsRepository struct{}
 
+type ScheduledJobValidationError struct {
+	msg string
+}
+
+func (e *ScheduledJobValidationError) Error() string {
+	return e.msg
+}
+
+func newScheduledJobValidationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &ScheduledJobValidationError{msg: err.Error()}
+}
+
+func IsScheduledJobValidationError(err error) bool {
+	var target *ScheduledJobValidationError
+	return errors.As(err, &target)
+}
+
 func (ScheduledJobsRepository) CreateJob(
 	ctx context.Context,
 	db Querier,
 	job scheduledjobs.ScheduledJob,
-) (scheduledjobs.ScheduledJob, error) {
+) (created scheduledjobs.ScheduledJob, err error) {
 	if job.AccountID == uuid.Nil {
 		return scheduledjobs.ScheduledJob{}, errors.New("account_id must not be empty")
 	}
+	if err := validateScheduledJob(job); err != nil {
+		return scheduledjobs.ScheduledJob{}, newScheduledJobValidationError(err)
+	}
 
-	err := db.QueryRow(ctx, `
+	tx, ownedTx, err := beginScheduledJobsTx(ctx, db)
+	if err != nil {
+		return scheduledjobs.ScheduledJob{}, err
+	}
+	if ownedTx {
+		defer finishScheduledJobsTx(ctx, tx, &err)
+	}
+
+	err = tx.QueryRow(ctx, `
 		INSERT INTO scheduled_jobs
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
@@ -45,7 +76,7 @@ func (ScheduledJobsRepository) CreateJob(
 	}
 
 	if job.Enabled {
-		if err := insertJobTrigger(ctx, db, job); err != nil {
+		if err := insertJobTrigger(ctx, tx, job); err != nil {
 			return scheduledjobs.ScheduledJob{}, err
 		}
 	}
@@ -161,12 +192,44 @@ func (ScheduledJobsRepository) GetJobByID(
 	return &r, nil
 }
 
+func getJobByID(
+	ctx context.Context,
+	db Querier,
+	id uuid.UUID,
+) (*scheduledjobs.ScheduledJob, error) {
+	var r scheduledjobs.ScheduledJob
+	err := db.QueryRow(ctx, `
+		SELECT id, account_id, name, description, persona_key, prompt,
+		       model, workspace_ref, work_dir, thread_id, schedule_kind,
+		       interval_min, daily_time, monthly_day, monthly_time, weekly_day, timezone,
+		       enabled, created_by_user_id, created_at, updated_at,
+		       fire_at, cron_expr,
+		       delete_after_run, reasoning_mode, timeout_seconds
+		  FROM scheduled_jobs
+		 WHERE id = $1`, id,
+	).Scan(
+		&r.ID, &r.AccountID, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
+		&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
+		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
+		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+		&r.FireAt, &r.CronExpr,
+		&r.DeleteAfterRun, &r.ReasoningMode, &r.Timeout,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
+}
+
 func (ScheduledJobsRepository) UpdateJob(
 	ctx context.Context,
 	db Querier,
 	id, accountID uuid.UUID,
 	upd scheduledjobs.UpdateJobParams,
-) error {
+) (err error) {
 	setClauses := []string{}
 	args := []any{}
 	argIdx := 1
@@ -176,6 +239,25 @@ func (ScheduledJobsRepository) UpdateJob(
 		args = append(args, val)
 		argIdx++
 	}
+
+	tx, ownedTx, err := beginScheduledJobsTx(ctx, db)
+	if err != nil {
+		return err
+	}
+	if ownedTx {
+		defer finishScheduledJobsTx(ctx, tx, &err)
+	}
+
+	current, err := getJobByID(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if current == nil || current.AccountID != accountID {
+		return fmt.Errorf("scheduled_job %s not found", id)
+	}
+
+	next := *current
+	applyJobUpdate(&next, upd)
 
 	scheduleChanged := false
 	if upd.Name != nil {
@@ -227,7 +309,7 @@ func (ScheduledJobsRepository) UpdateJob(
 		scheduleChanged = true
 	}
 	if upd.Timezone != nil {
-		addSet("timezone", *upd.Timezone)
+		addSet("timezone", next.Timezone)
 		scheduleChanged = true
 	}
 	if upd.FireAt != nil {
@@ -255,6 +337,12 @@ func (ScheduledJobsRepository) UpdateJob(
 		return nil
 	}
 
+	if scheduleChanged || shouldValidateEnabledTransition(upd, current.Enabled) {
+		if err := validateScheduledJob(next); err != nil {
+			return newScheduledJobValidationError(err)
+		}
+	}
+
 	addSet("updated_at", time.Now().UTC())
 
 	whereID := fmt.Sprintf("$%d", argIdx)
@@ -266,7 +354,7 @@ func (ScheduledJobsRepository) UpdateJob(
 	sql := fmt.Sprintf("UPDATE scheduled_jobs SET %s WHERE id = %s AND account_id = %s",
 		strings.Join(setClauses, ", "), whereID, whereAccount)
 
-	cmd, err := db.Exec(ctx, sql, args...)
+	cmd, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("update scheduled_jobs: %w", err)
 	}
@@ -276,31 +364,23 @@ func (ScheduledJobsRepository) UpdateJob(
 
 	// enabled 切换逻辑
 	if upd.Enabled != nil && !*upd.Enabled {
-		_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id)
+		_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id)
 		return err
 	}
 	if upd.Enabled != nil && *upd.Enabled {
-		job, err := (ScheduledJobsRepository{}).GetJobByID(ctx, db, id)
-		if err != nil {
-			return err
-		}
-		return insertJobTrigger(ctx, db, *job)
+		return insertJobTrigger(ctx, tx, next)
 	}
 
 	// schedule 参数变更，重算 next_fire_at
 	if scheduleChanged {
-		job, err := (ScheduledJobsRepository{}).GetJobByID(ctx, db, id)
-		if err != nil {
-			return err
-		}
-		if !job.Enabled {
+		if !next.Enabled {
 			return nil
 		}
-		nextFire, err := calcJobNextFire(*job)
+		nextFire, err := calcJobNextFire(next)
 		if err != nil {
 			return err
 		}
-		_, err = db.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = now() WHERE job_id = $2`,
 			nextFire, id)
 		return err
@@ -330,28 +410,45 @@ func (ScheduledJobsRepository) SetJobEnabled(
 	db Querier,
 	id, accountID uuid.UUID,
 	enabled bool,
-) error {
-	cmd, err := db.Exec(ctx, `
-		UPDATE scheduled_jobs SET enabled = $1, updated_at = now()
-		 WHERE id = $2 AND account_id = $3`, enabled, id, accountID)
+) (err error) {
+	tx, ownedTx, err := beginScheduledJobsTx(ctx, db)
 	if err != nil {
 		return err
 	}
-	if cmd.RowsAffected() == 0 {
+	if ownedTx {
+		defer finishScheduledJobsTx(ctx, tx, &err)
+	}
+
+	job, err := getJobByID(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if job == nil || job.AccountID != accountID {
 		return fmt.Errorf("scheduled_job %s not found", id)
 	}
 
 	if !enabled {
-		_, err = db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id)
+		_, err = tx.Exec(ctx, `
+			UPDATE scheduled_jobs SET enabled = false, updated_at = now()
+			 WHERE id = $1 AND account_id = $2`, id, accountID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id)
 		return err
 	}
 
-	// enabled = true: 确保 trigger 存在
-	job, err := (ScheduledJobsRepository{}).GetJobByID(ctx, db, id)
+	if err := validateScheduledJob(*job); err != nil {
+		return newScheduledJobValidationError(err)
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE scheduled_jobs SET enabled = true, updated_at = now()
+		 WHERE id = $1 AND account_id = $2`, id, accountID)
 	if err != nil {
 		return err
 	}
-	return insertJobTrigger(ctx, db, *job)
+	job.Enabled = true
+	return insertJobTrigger(ctx, tx, *job)
 }
 
 // insertJobTrigger 为 job 计算 next_fire_at 并插入 trigger（ON CONFLICT 忽略）。
@@ -401,15 +498,16 @@ func calcJobNextFire(job scheduledjobs.ScheduledJob) (time.Time, error) {
 func (ScheduledJobsRepository) InferThreadContext(
 	ctx context.Context,
 	db Querier,
+	accountID uuid.UUID,
 	threadID uuid.UUID,
 ) (personaKey string, model string, err error) {
 	var p, m *string
 	err = db.QueryRow(ctx, `
 		SELECT persona_id, model
 		FROM runs
-		WHERE thread_id = $1 AND deleted_at IS NULL
+		WHERE thread_id = $1 AND account_id = $2 AND deleted_at IS NULL
 		ORDER BY created_at DESC, id DESC
-		LIMIT 1`, threadID,
+		LIMIT 1`, threadID, accountID,
 	).Scan(&p, &m)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -438,4 +536,134 @@ func derefTime(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+func validateScheduledJob(job scheduledjobs.ScheduledJob) error {
+	if strings.TrimSpace(job.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(job.Prompt) == "" {
+		return fmt.Errorf("prompt is required")
+	}
+	if job.ThreadID == nil && strings.TrimSpace(job.PersonaKey) == "" {
+		return fmt.Errorf("persona_key is required when thread_id is not set")
+	}
+	if job.DeleteAfterRun && !schedulekind.SupportsDeleteAfterRun(job.ScheduleKind) {
+		return fmt.Errorf("delete_after_run is only supported for at schedule")
+	}
+	if err := schedulekind.Validate(
+		job.ScheduleKind,
+		job.IntervalMin,
+		job.DailyTime,
+		job.MonthlyDay,
+		job.MonthlyTime,
+		job.WeeklyDay,
+		job.FireAt,
+		job.CronExpr,
+		job.Timezone,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func applyJobUpdate(job *scheduledjobs.ScheduledJob, upd scheduledjobs.UpdateJobParams) {
+	if upd.Name != nil {
+		job.Name = *upd.Name
+	}
+	if upd.Description != nil {
+		job.Description = *upd.Description
+	}
+	if upd.PersonaKey != nil {
+		job.PersonaKey = *upd.PersonaKey
+	}
+	if upd.Prompt != nil {
+		job.Prompt = *upd.Prompt
+	}
+	if upd.Model != nil {
+		job.Model = *upd.Model
+	}
+	if upd.WorkspaceRef != nil {
+		job.WorkspaceRef = *upd.WorkspaceRef
+	}
+	if upd.WorkDir != nil {
+		job.WorkDir = *upd.WorkDir
+	}
+	if upd.ThreadID != nil {
+		job.ThreadID = *upd.ThreadID
+	}
+	if upd.ScheduleKind != nil {
+		job.ScheduleKind = *upd.ScheduleKind
+	}
+	if upd.IntervalMin != nil {
+		job.IntervalMin = *upd.IntervalMin
+	}
+	if upd.DailyTime != nil {
+		job.DailyTime = *upd.DailyTime
+	}
+	if upd.MonthlyDay != nil {
+		job.MonthlyDay = *upd.MonthlyDay
+	}
+	if upd.MonthlyTime != nil {
+		job.MonthlyTime = *upd.MonthlyTime
+	}
+	if upd.WeeklyDay != nil {
+		job.WeeklyDay = *upd.WeeklyDay
+	}
+	if upd.Timezone != nil {
+		job.Timezone = normalizeScheduledJobsTimezone(*upd.Timezone)
+	}
+	if upd.FireAt != nil {
+		job.FireAt = *upd.FireAt
+	}
+	if upd.CronExpr != nil {
+		job.CronExpr = *upd.CronExpr
+	}
+	if upd.Enabled != nil {
+		job.Enabled = *upd.Enabled
+	}
+	if upd.DeleteAfterRun != nil {
+		job.DeleteAfterRun = *upd.DeleteAfterRun
+	}
+	if upd.ReasoningMode != nil {
+		job.ReasoningMode = *upd.ReasoningMode
+	}
+	if upd.Timeout != nil {
+		job.Timeout = *upd.Timeout
+	}
+}
+
+func shouldValidateEnabledTransition(upd scheduledjobs.UpdateJobParams, currentEnabled bool) bool {
+	return upd.Enabled != nil && *upd.Enabled && !currentEnabled
+}
+
+func normalizeScheduledJobsTimezone(tz string) string {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return "UTC"
+	}
+	return tz
+}
+
+func beginScheduledJobsTx(ctx context.Context, db Querier) (pgx.Tx, bool, error) {
+	if tx, ok := db.(pgx.Tx); ok {
+		return tx, false, nil
+	}
+	beginner, ok := db.(TxStarter)
+	if !ok {
+		return nil, false, fmt.Errorf("querier does not support transactions")
+	}
+	tx, err := beginner.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, false, err
+	}
+	return tx, true, nil
+}
+
+func finishScheduledJobsTx(ctx context.Context, tx pgx.Tx, errp *error) {
+	if *errp != nil {
+		_ = tx.Rollback(ctx)
+		return
+	}
+	*errp = tx.Commit(ctx)
 }
