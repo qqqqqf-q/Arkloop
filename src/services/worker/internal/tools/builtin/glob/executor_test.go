@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
 
@@ -25,7 +26,7 @@ func (f failingBackend) Exec(context.Context, string) (string, string, int, erro
 func (f failingBackend) NormalizePath(path string) string { return path }
 
 func TestGlobFilesDoesNotFallbackOutsideBackend(t *testing.T) {
-	_, _, err := globFiles(context.Background(), failingBackend{}, "*.go", ".")
+	_, _, err := globFiles(context.Background(), failingBackend{}, "*.go", ".", "thread-1")
 	if err == nil {
 		t.Fatal("expected ripgrep error to be returned for non-local backend")
 	}
@@ -45,11 +46,32 @@ func TestGlobFilesLocalFallbackStillWorks(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	matches, _, err := globFiles(context.Background(), backend, "*.txt", ".")
+	matches, _, err := globFiles(context.Background(), backend, "*.txt", ".", "thread-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(matches) != 1 || matches[0] != "nested/one.txt" {
+		t.Fatalf("unexpected matches: %#v", matches)
+	}
+}
+
+func TestGlobFilesFindsScopedToolOutputs(t *testing.T) {
+	dataDir := t.TempDir()
+	workDir := t.TempDir()
+	store, err := objectstore.NewFilesystemOpener(dataDir).Open(context.Background(), "tool-output-test")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	backend := &fileops.LocalBackend{WorkDir: workDir, ToolOutputScopeID: "thread-1", ToolOutputStore: store}
+	if err := store.PutObject(context.Background(), "tool-outputs/thread-1/run-1/one.txt", []byte("a"), objectstore.PutOptions{}); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	matches, _, err := globFiles(context.Background(), backend, "*.txt", filepath.Join(".tool-outputs", "thread-1"), "thread-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(matches) != 1 || matches[0] != filepath.ToSlash(filepath.Join(".tool-outputs", "thread-1", "run-1", "one.txt")) {
 		t.Fatalf("unexpected matches: %#v", matches)
 	}
 }
