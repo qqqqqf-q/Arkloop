@@ -27,6 +27,8 @@ type ScheduledTriggerRow struct {
 	TriggerKind       string
 	JobID             uuid.UUID
 	CooldownLevel     int
+	LastUserMsgAt     *time.Time
+	BurstStartAt      *time.Time
 }
 
 // ScheduledTriggersRepository provides heartbeat scheduling operations.
@@ -103,7 +105,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 
 	var row ScheduledTriggerRow
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2`,
@@ -119,6 +121,8 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 		&row.IntervalMin,
 		&row.NextFireAt,
 		&row.CooldownLevel,
+		&row.LastUserMsgAt,
+		&row.BurstStartAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -249,14 +253,16 @@ func (ScheduledTriggersRepository) SyncHeartbeatConfig(
 	return err
 }
 
-// ResetCooldownLevelAndNextFire resets cooldown_level and next_fire_at for a channel identity.
-func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
+// ResetCooldownForMessage updates cooldown state when a new message arrives.
+// It sets cooldown_level=0, next_fire_at, last_user_msg_at, and burst_start_at.
+func (ScheduledTriggersRepository) ResetCooldownForMessage(
 	ctx context.Context,
 	db Querier,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
-	cooldownLevel int,
 	nextFireAt time.Time,
+	lastUserMsgAt time.Time,
+	burstStartAt time.Time,
 ) error {
 	if channelID == uuid.Nil {
 		return errors.New("channel_id must not be empty")
@@ -266,12 +272,14 @@ func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
 	}
 	_, err := db.Exec(ctx, `
 		UPDATE scheduled_triggers
-		   SET cooldown_level = $1,
-		       next_fire_at = $2,
+		   SET cooldown_level = 0,
+		       next_fire_at = $1,
+		       last_user_msg_at = $2,
+		       burst_start_at = $3,
 		       updated_at = now()
-		 WHERE channel_id = $3
-		   AND channel_identity_id = $4`,
-		cooldownLevel, nextFireAt, channelID, channelIdentityID,
+		 WHERE channel_id = $4
+		   AND channel_identity_id = $5`,
+		nextFireAt, lastUserMsgAt, burstStartAt, channelID, channelIdentityID,
 	)
 	return err
 }

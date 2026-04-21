@@ -95,13 +95,33 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		return stageResult, nil
 	}
 
-	// 消息到达 -> 重置 heartbeat cooldown（仅群聊）
+	// 消息到达 -> 递减 delay 重置 heartbeat cooldown（仅群聊）
 	if !incoming.IsPrivate() && groupIdentity != nil && c.scheduledTriggersRepo != nil {
-		if resetErr := c.scheduledTriggersRepo.ResetCooldownLevelAndNextFire(
+		existing, _ := c.scheduledTriggersRepo.GetHeartbeat(ctx, tx, ch.ID, groupIdentity.ID)
+
+		burstStart := now
+		if existing != nil && existing.LastUserMsgAt != nil {
+			if now.Sub(*existing.LastUserMsgAt) <= 30*time.Second {
+				if existing.BurstStartAt != nil {
+					burstStart = *existing.BurstStartAt
+				}
+			}
+		}
+
+		timeInBurst := now.Sub(burstStart)
+		delaySec := 15.0 - timeInBurst.Seconds()/2
+		if delaySec < 3 {
+			delaySec = 3
+		}
+		nextFire := now.Add(time.Duration(delaySec) * time.Second)
+		if existing != nil && existing.NextFireAt.After(nextFire) {
+			nextFire = existing.NextFireAt
+		}
+
+		if resetErr := c.scheduledTriggersRepo.ResetCooldownForMessage(
 			ctx, tx,
 			ch.ID, groupIdentity.ID,
-			0,
-			now.Add(15*time.Second),
+			nextFire, now, burstStart,
 		); resetErr != nil {
 			slog.WarnContext(ctx, "heartbeat_cooldown_reset_failed", "error", resetErr, "channel_id", ch.ID, "identity_id", groupIdentity.ID)
 		} else {

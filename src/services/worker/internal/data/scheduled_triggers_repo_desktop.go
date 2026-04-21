@@ -31,6 +31,8 @@ type ScheduledTriggerRow struct {
 	TriggerKind       string
 	JobID             uuid.UUID
 	CooldownLevel     int
+	LastUserMsgAt     *time.Time
+	BurstStartAt      *time.Time
 }
 
 // ScheduledTriggersRepository 是 SQLite 实现（desktop）。
@@ -114,13 +116,13 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 	var row ScheduledTriggerRow
 	var idStr, channelStr, identityStr, accountStr string
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2`,
 		channelID.String(),
 		channelIdentityID.String(),
-	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel)
+	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil
@@ -303,14 +305,15 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 	return out, nil
 }
 
-// ResetCooldownLevelAndNextFire resets cooldown_level and next_fire_at for a channel identity.
-func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
+// ResetCooldownForMessage updates cooldown state when a new message arrives.
+func (ScheduledTriggersRepository) ResetCooldownForMessage(
 	ctx context.Context,
 	db DesktopDB,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
-	cooldownLevel int,
 	nextFireAt time.Time,
+	lastUserMsgAt time.Time,
+	burstStartAt time.Time,
 ) error {
 	if channelID == uuid.Nil {
 		return fmt.Errorf("channel_id must not be empty")
@@ -318,16 +321,20 @@ func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
 	if channelIdentityID == uuid.Nil {
 		return fmt.Errorf("channel_identity_id must not be empty")
 	}
+	now := time.Now().UTC()
 	_, err := db.Exec(ctx, `
 		UPDATE scheduled_triggers
-		   SET cooldown_level = $1,
-		       next_fire_at = $2,
-		       updated_at = $3
-		 WHERE channel_id = $4
-		   AND channel_identity_id = $5`,
-		cooldownLevel,
+		   SET cooldown_level = 0,
+		       next_fire_at = $1,
+		       last_user_msg_at = $2,
+		       burst_start_at = $3,
+		       updated_at = $4
+		 WHERE channel_id = $5
+		   AND channel_identity_id = $6`,
 		nextFireAt.Format(time.RFC3339Nano),
-		time.Now().UTC().Format(time.RFC3339Nano),
+		lastUserMsgAt.Format(time.RFC3339Nano),
+		burstStartAt.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
 		channelID.String(),
 		channelIdentityID.String(),
 	)
