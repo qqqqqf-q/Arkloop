@@ -649,7 +649,7 @@ func TestNonZeroExitCode_NotError(t *testing.T) {
 	}
 }
 
-func TestOutputTruncation(t *testing.T) {
+func TestOutputNotTruncatedAtExecutor(t *testing.T) {
 	largeOutput := strings.Repeat("x", 40*1024)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -676,11 +676,8 @@ func TestOutputTruncation(t *testing.T) {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
 	stdout := result.ResultJSON["stdout"].(string)
-	if len(stdout) > maxOutputBytes+200 {
-		t.Errorf("stdout not properly truncated: %d bytes", len(stdout))
-	}
-	if !strings.Contains(stdout, "truncated") {
-		t.Error("truncated output should contain truncation marker")
+	if len(stdout) != len(largeOutput) {
+		t.Errorf("stdout should not be truncated at executor: expected %d bytes, got %d", len(largeOutput), len(stdout))
 	}
 }
 
@@ -898,7 +895,7 @@ func TestContinueProcess_ClampsWaitMsBySoftLimit(t *testing.T) {
 	}
 }
 
-func TestExecCommand_TruncatesOutputBySoftLimit(t *testing.T) {
+func TestExecCommand_DoesNotTruncateAtExecutor(t *testing.T) {
 	disableSandboxRTK(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/process/exec" {
@@ -930,11 +927,11 @@ func TestExecCommand_TruncatesOutputBySoftLimit(t *testing.T) {
 		t.Fatalf("unexpected error: %+v", result.Error)
 	}
 	stdout, _ := result.ResultJSON["stdout"].(string)
-	if len(stdout) > 64 {
-		t.Fatalf("expected truncated stdout <= 64 bytes, got %d", len(stdout))
+	if len(stdout) != 200 {
+		t.Fatalf("expected full stdout (200 bytes), got %d", len(stdout))
 	}
-	if result.ResultJSON["truncated"] != true {
-		t.Fatalf("expected truncated=true, got %v", result.ResultJSON["truncated"])
+	if result.ResultJSON["truncated"] != false {
+		t.Fatalf("expected truncated=false (no executor truncation), got %v", result.ResultJSON["truncated"])
 	}
 }
 

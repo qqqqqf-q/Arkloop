@@ -378,9 +378,8 @@ func parseResizeProcessArgs(args map[string]any) (resizeProcessArgs, error) {
 }
 
 func buildProcessResult(resp processResponse, toolName string, limits tools.PerToolSoftLimits, started time.Time) tools.ExecutionResult {
-	outputLimit := resolveProcessOutputLimit(limits, toolName)
-	stdout, stdoutTruncated := truncateOutput(resp.Stdout, outputLimit)
-	stderr, stderrTruncated := truncateOutput(resp.Stderr, outputLimit)
+	stdout := resp.Stdout
+	stderr := resp.Stderr
 
 	resultJSON := map[string]any{
 		"status":      resp.Status,
@@ -391,7 +390,7 @@ func buildProcessResult(resp processResponse, toolName string, limits tools.PerT
 		"next_cursor": resp.NextCursor,
 		"items":       resp.Items,
 		"has_more":    resp.HasMore,
-		"truncated":   resp.Truncated || stdoutTruncated || stderrTruncated,
+		"truncated":   resp.Truncated,
 		"duration_ms": durationMs(started),
 	}
 	if strings.TrimSpace(resp.ProcessRef) != "" {
@@ -404,7 +403,7 @@ func buildProcessResult(resp processResponse, toolName string, limits tools.PerT
 		resultJSON["accepted_input_seq"] = *resp.AcceptedInputSeq
 	}
 	outputRef := strings.TrimSpace(resp.OutputRef)
-	if outputRef == "" && (resp.Truncated || stdoutTruncated || stderrTruncated) {
+	if outputRef == "" && resp.Truncated {
 		ref := strings.TrimSpace(resp.ProcessRef)
 		if ref == "" {
 			ref = "buffered"
@@ -418,21 +417,6 @@ func buildProcessResult(resp processResponse, toolName string, limits tools.PerT
 		resultJSON["artifacts"] = resp.Artifacts
 	}
 	return tools.ExecutionResult{ResultJSON: resultJSON, DurationMs: durationMs(started)}
-}
-
-func resolveProcessOutputLimit(limits tools.PerToolSoftLimits, toolName string) int {
-	target := toolName
-	if target != ExecCommandAgentSpec.Name && target != ContinueProcessAgentSpec.Name {
-		target = ContinueProcessAgentSpec.Name
-	}
-	limit := tools.ResolveToolSoftLimit(limits, target)
-	if limit.MaxOutputBytes != nil && *limit.MaxOutputBytes > 0 {
-		return *limit.MaxOutputBytes
-	}
-	if target == ExecCommandAgentSpec.Name {
-		return tools.DefaultExecCommandMaxOutputBytes
-	}
-	return tools.DefaultContinueProcessMaxOutputBytes
 }
 
 func requestTimeoutForExec(mode string, timeoutMs int) time.Duration {
@@ -538,18 +522,6 @@ func readNullableStringMapArg(raw any) map[string]*string {
 		return nil
 	}
 	return out
-}
-
-func truncateOutput(value string, limit int) (string, bool) {
-	if limit <= 0 || len(value) <= limit {
-		return value, false
-	}
-	marker := fmt.Sprintf("\n...[truncated %d bytes]", len(value)-limit)
-	allowed := limit - len(marker)
-	if allowed < 0 {
-		allowed = 0
-	}
-	return value[:allowed] + marker, true
 }
 
 func errResult(errorClass, message string, started time.Time) tools.ExecutionResult {

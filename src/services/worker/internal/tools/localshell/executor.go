@@ -330,9 +330,8 @@ func buildProcessResult(resp *Response, toolName string, limits tools.PerToolSof
 		return errResult(errorShellError, "process response is empty", started)
 	}
 
-	outputLimit := resolveProcessOutputLimit(limits, toolName)
-	stdout, stdoutTruncated := truncateOutput(sanitizeOutput(resp.Stdout), outputLimit)
-	stderr, stderrTruncated := truncateOutput(sanitizeOutput(resp.Stderr), outputLimit)
+	stdout := sanitizeOutput(resp.Stdout)
+	stderr := sanitizeOutput(resp.Stderr)
 	items := make([]map[string]any, 0, len(resp.Items))
 	for _, item := range resp.Items {
 		items = append(items, map[string]any{
@@ -351,7 +350,7 @@ func buildProcessResult(resp *Response, toolName string, limits tools.PerToolSof
 		"next_cursor": resp.NextCursor,
 		"items":       items,
 		"has_more":    resp.HasMore,
-		"truncated":   resp.Truncated || stdoutTruncated || stderrTruncated,
+		"truncated":   resp.Truncated,
 		"duration_ms": durationMs(started),
 	}
 	if strings.TrimSpace(resp.ProcessRef) != "" {
@@ -364,7 +363,7 @@ func buildProcessResult(resp *Response, toolName string, limits tools.PerToolSof
 		resultJSON["accepted_input_seq"] = *resp.AcceptedInputSeq
 	}
 	outputRef := strings.TrimSpace(resp.OutputRef)
-	if outputRef == "" && (resp.Truncated || stdoutTruncated || stderrTruncated) {
+	if outputRef == "" && resp.Truncated {
 		outputRef = buildOutputRef(strings.TrimSpace(resp.ProcessRef), 0, 0)
 	}
 	if outputRef != "" {
@@ -442,21 +441,6 @@ func sanitizeLocalEnvPatches(overrides map[string]*string) map[string]*string {
 	return patches
 }
 
-func resolveProcessOutputLimit(limits tools.PerToolSoftLimits, toolName string) int {
-	target := toolName
-	if target != ExecCommandAgentSpec.Name && target != ContinueProcessAgentSpec.Name {
-		target = ContinueProcessAgentSpec.Name
-	}
-	limit := tools.ResolveToolSoftLimit(limits, target)
-	if limit.MaxOutputBytes != nil && *limit.MaxOutputBytes > 0 {
-		return *limit.MaxOutputBytes
-	}
-	if target == ExecCommandAgentSpec.Name {
-		return tools.DefaultExecCommandMaxOutputBytes
-	}
-	return tools.DefaultContinueProcessMaxOutputBytes
-}
-
 func isProcessNotFound(err error) bool {
 	var procErr *Error
 	return errors.As(err, &procErr) && procErr.Code == CodeProcessNotFound
@@ -505,18 +489,6 @@ func readNullableStringMapArg(raw any) map[string]*string {
 		return nil
 	}
 	return out
-}
-
-func truncateOutput(value string, limit int) (string, bool) {
-	if limit <= 0 || len(value) <= limit {
-		return value, false
-	}
-	marker := fmt.Sprintf("\n...[truncated %d bytes]", len(value)-limit)
-	allowed := limit - len(marker)
-	if allowed < 0 {
-		allowed = 0
-	}
-	return value[:allowed] + marker, true
 }
 
 func errResult(errorClass, message string, started time.Time) tools.ExecutionResult {

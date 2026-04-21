@@ -256,8 +256,8 @@ func (e *ToolExecutor) executeProcessRequest(
 		return errResult(errorSandboxError, "decode response failed", started)
 	}
 
-	stdout, stdoutTruncated := truncateOutputByLimit(sanitizeShellOutput(result.Stdout), tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
-	stderr, stderrTruncated := truncateOutputByLimit(sanitizeShellOutput(result.Stderr), tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
+	stdout := sanitizeShellOutput(result.Stdout)
+	stderr := sanitizeShellOutput(result.Stderr)
 	items := make([]map[string]any, 0, len(result.Items))
 	for _, item := range result.Items {
 		items = append(items, map[string]any{
@@ -276,7 +276,7 @@ func (e *ToolExecutor) executeProcessRequest(
 		"next_cursor": result.NextCursor,
 		"items":       items,
 		"has_more":    result.HasMore,
-		"truncated":   result.Truncated || stdoutTruncated || stderrTruncated,
+		"truncated":   result.Truncated,
 		"duration_ms": durationMs(started),
 	}
 	if ref := strings.TrimSpace(result.ProcessRef); ref != "" {
@@ -289,7 +289,7 @@ func (e *ToolExecutor) executeProcessRequest(
 		resultJSON["accepted_input_seq"] = *result.AcceptedInputSeq
 	}
 	outputRef := strings.TrimSpace(result.OutputRef)
-	if outputRef == "" && (result.Truncated || stdoutTruncated || stderrTruncated) {
+	if outputRef == "" && result.Truncated {
 		ref := strings.TrimSpace(result.ProcessRef)
 		if ref == "" {
 			ref = "buffered"

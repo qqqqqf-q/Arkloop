@@ -62,9 +62,8 @@ func buildBrowserPublicResult(
 	if isSnapshotCommand(command) {
 		return buildBrowserSnapshotResult(resp, softLimits, started)
 	}
-	output, _ := truncateOutputByLimit(strings.TrimSpace(resp.Output), tools.ResolveToolSoftLimit(softLimits, "exec_command").MaxOutputBytes)
 	resultJSON := map[string]any{
-		"output":      output,
+		"output":      strings.TrimSpace(resp.Output),
 		"duration_ms": durationMs(started),
 	}
 	if resp.ExitCode != nil {
@@ -85,14 +84,13 @@ func buildBrowserSnapshotResult(
 	if !ok {
 		return nil, browserSnapshotParseResult(started).Error
 	}
-	output, _ := truncateOutputByLimit(payload.Output, tools.ResolveToolSoftLimit(softLimits, "exec_command").MaxOutputBytes)
 	resultJSON := map[string]any{
 		"url":           payload.URL,
 		"title":         payload.Title,
 		"clickables":    payload.Clickables,
 		"form_controls": payload.FormControls,
 		"visible_text":  payload.VisibleText,
-		"output":        output,
+		"output":        payload.Output,
 		"duration_ms":   durationMs(started),
 	}
 	if resp.ExitCode != nil {

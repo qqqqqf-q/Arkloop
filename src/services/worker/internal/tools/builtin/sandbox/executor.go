@@ -249,8 +249,8 @@ func (e *ToolExecutor) executePython(
 	}
 
 	resultJSON := map[string]any{
-		"stdout":      truncateOutput(sanitizeShellOutput(result.Stdout)),
-		"stderr":      truncateOutput(sanitizeShellOutput(result.Stderr)),
+		"stdout":      sanitizeShellOutput(result.Stdout),
+		"stderr":      sanitizeShellOutput(result.Stderr),
 		"exit_code":   result.ExitCode,
 		"duration_ms": result.DurationMs,
 	}
@@ -818,15 +818,14 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if err := json.Unmarshal(body, &result); err != nil {
 		return errResult(errorSandboxError, "decode response failed", started)
 	}
-	output, outputTruncated := truncateOutputByLimit(sanitizeShellOutput(result.Output), tools.ResolveToolSoftLimit(softLimits, toolName).MaxOutputBytes)
 	resultJSON := map[string]any{
 		"session_id":                  result.SessionID,
 		"status":                      result.Status,
 		"cwd":                         result.Cwd,
-		"output":                      output,
+		"output":                      sanitizeShellOutput(result.Output),
 		"running":                     result.Running,
 		"timed_out":                   result.TimedOut,
-		"truncated":                   result.Truncated || outputTruncated,
+		"truncated":                   result.Truncated,
 		"duration_ms":                 durationMs(started),
 		"restored_from_restore_state": result.Restored,
 	}
@@ -850,28 +849,6 @@ func clampYieldTimeMs(value int, limit tools.ToolSoftLimit) int {
 		return *limit.MaxWaitTimeMs
 	}
 	return value
-}
-
-func truncateOutputByLimit(value string, limit *int) (string, bool) {
-	if limit == nil || *limit <= 0 {
-		return value, false
-	}
-	if len(value) <= *limit {
-		return value, false
-	}
-	// 保留头尾上下文，但最终结果长度不能超过 limit。
-	half := *limit / 2
-	skipped := countOutputLines(value[half : len(value)-half])
-	marker := fmt.Sprintf("\n...[%d lines truncated]\n", skipped)
-	if len(marker) >= *limit {
-		return marker[:*limit], true
-	}
-	remain := *limit - len(marker)
-	headLen := remain / 2
-	tailLen := remain - headLen
-	head := value[:headLen]
-	tail := value[len(value)-tailLen:]
-	return head + marker + tail, true
 }
 
 type requestError struct {
@@ -1233,17 +1210,6 @@ func resolveTimeoutMs(args map[string]any) int {
 		}
 	}
 	return defaultTimeoutMs
-}
-
-func truncateOutput(s string) string {
-	if len(s) <= maxOutputBytes {
-		return s
-	}
-	half := maxOutputBytes / 2
-	head := s[:half]
-	tail := s[len(s)-half:]
-	skipped := countOutputLines(s[half : len(s)-half])
-	return fmt.Sprintf("%s\n...[%d lines truncated]\n%s", head, skipped, tail)
 }
 
 func countOutputLines(s string) int {
