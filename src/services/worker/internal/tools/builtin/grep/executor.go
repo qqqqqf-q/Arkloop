@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
@@ -66,9 +65,9 @@ func (e *Executor) Execute(
 		contextLines = 10
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), tools.ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef, execCtx.ToolOutputStore)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
-	matches, rawOutput, truncated, err := searchFiles(ctx, backend, pattern, searchPath, include, contextLines, tools.ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID))
+	matches, rawOutput, truncated, err := searchFiles(ctx, backend, pattern, searchPath, include, contextLines)
 	if err != nil {
 		return errResult(fmt.Sprintf("grep failed: %s", err.Error()), started)
 	}
@@ -101,33 +100,7 @@ func (e *Executor) Execute(
 	}
 }
 
-func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int, toolOutputScopeID string) (matches []grepMatch, rawOutput string, truncated bool, err error) {
-	if localBackend, ok := backend.(*fileops.LocalBackend); ok {
-		if objectPrefix, displayRoot, scoped, err := fileops.ResolveScopedToolOutputSearch(searchPath, toolOutputScopeID, localBackend.ToolOutputStore); scoped {
-			if err != nil {
-				return nil, "", false, err
-			}
-			if contextLines > 0 {
-				raw, rErr := searchToolOutputObjectsRaw(ctx, localBackend.ToolOutputStore, objectPrefix, displayRoot, pattern, include, contextLines)
-				return nil, raw, false, rErr
-			}
-			m, trunc, sErr := searchToolOutputObjects(ctx, localBackend.ToolOutputStore, objectPrefix, displayRoot, pattern, include)
-			return m, "", trunc, sErr
-		}
-	}
-	if sandboxBackend, ok := backend.(*fileops.SandboxExecBackend); ok {
-		if objectPrefix, displayRoot, scoped, err := fileops.ResolveScopedToolOutputSearch(searchPath, toolOutputScopeID, sandboxBackend.ToolOutputStore()); scoped {
-			if err != nil {
-				return nil, "", false, err
-			}
-			if contextLines > 0 {
-				raw, rErr := searchToolOutputObjectsRaw(ctx, sandboxBackend.ToolOutputStore(), objectPrefix, displayRoot, pattern, include, contextLines)
-				return nil, raw, false, rErr
-			}
-			m, trunc, sErr := searchToolOutputObjects(ctx, sandboxBackend.ToolOutputStore(), objectPrefix, displayRoot, pattern, include)
-			return m, "", trunc, sErr
-		}
-	}
+func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int) (matches []grepMatch, rawOutput string, truncated bool, err error) {
 	if contextLines > 0 {
 		raw, rErr := searchWithRipgrepRaw(ctx, backend, pattern, searchPath, include, contextLines)
 		if rErr == nil {
@@ -137,7 +110,7 @@ func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPa
 		if !ok {
 			return nil, "", false, rErr
 		}
-		raw, rErr = searchWithContextFallback(localBackend.NormalizePath(searchPath), filepath.ToSlash(filepath.Clean(searchPath)), pattern, include, contextLines)
+		raw, rErr = searchWithContextFallback(localBackend.NormalizePath(searchPath), pattern, include, contextLines)
 		if rErr != nil {
 			return nil, "", false, rErr
 		}
@@ -147,123 +120,6 @@ func searchFiles(ctx context.Context, backend fileops.Backend, pattern, searchPa
 	// contextLines == 0: original structured path
 	m, trunc, sErr := searchFilesStructured(ctx, backend, pattern, searchPath, include)
 	return m, "", trunc, sErr
-}
-
-func searchToolOutputObjects(
-	ctx context.Context,
-	store objectstore.Store,
-	objectPrefix string,
-	displayRoot string,
-	pattern string,
-	include string,
-) ([]grepMatch, bool, error) {
-	if store == nil {
-		return nil, false, fmt.Errorf("tool output store is unavailable")
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, false, fmt.Errorf("invalid regex: %w", err)
-	}
-	var includeRe *regexp.Regexp
-	if include != "" {
-		includeRe = globToRegex(include)
-	}
-	objects, err := store.ListPrefix(ctx, objectPrefix)
-	if err != nil {
-		return nil, false, err
-	}
-	displayRoot = normalizeDisplayRoot(displayRoot)
-	var matches []grepMatch
-	for _, item := range objects {
-		displayPath, ok := fileops.ToolOutputDisplayPathFromObjectKey(item.Key)
-		if !ok {
-			continue
-		}
-		if displayRoot != "" && !strings.HasPrefix(displayPath, displayRoot+"/") && displayPath != displayRoot {
-			continue
-		}
-		if includeRe != nil && !includeRe.MatchString(filepath.Base(displayPath)) {
-			continue
-		}
-		data, getErr := store.Get(ctx, item.Key)
-		if getErr != nil {
-			return nil, false, getErr
-		}
-		modTime := time.Time{}
-		if raw := strings.TrimSpace(item.Metadata["updated_at"]); raw != "" {
-			if parsed, parseErr := time.Parse(time.RFC3339Nano, raw); parseErr == nil {
-				modTime = parsed
-			}
-		}
-		fileMatches := searchInBytes(data, displayPath, re, modTime)
-		matches = append(matches, fileMatches...)
-		if len(matches) > maxMatches*2 {
-			break
-		}
-	}
-	sort.Slice(matches, func(i, j int) bool {
-		return matches[i].modTime.After(matches[j].modTime)
-	})
-	truncated := len(matches) > maxMatches
-	if truncated {
-		matches = matches[:maxMatches]
-	}
-	return matches, truncated, nil
-}
-
-func searchToolOutputObjectsRaw(
-	ctx context.Context,
-	store objectstore.Store,
-	objectPrefix string,
-	displayRoot string,
-	pattern string,
-	include string,
-	contextLines int,
-) (string, error) {
-	if store == nil {
-		return "", fmt.Errorf("tool output store is unavailable")
-	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return "", fmt.Errorf("invalid regex: %w", err)
-	}
-	var includeRe *regexp.Regexp
-	if include != "" {
-		includeRe = globToRegex(include)
-	}
-	objects, err := store.ListPrefix(ctx, objectPrefix)
-	if err != nil {
-		return "", err
-	}
-	displayRoot = normalizeDisplayRoot(displayRoot)
-	var sb strings.Builder
-	first := true
-	for _, item := range objects {
-		displayPath, ok := fileops.ToolOutputDisplayPathFromObjectKey(item.Key)
-		if !ok {
-			continue
-		}
-		if displayRoot != "" && !strings.HasPrefix(displayPath, displayRoot+"/") && displayPath != displayRoot {
-			continue
-		}
-		if includeRe != nil && !includeRe.MatchString(filepath.Base(displayPath)) {
-			continue
-		}
-		data, getErr := store.Get(ctx, item.Key)
-		if getErr != nil {
-			return "", getErr
-		}
-		fileOutput := buildContextOutputFromBytes(data, displayPath, re, contextLines)
-		if fileOutput == "" {
-			continue
-		}
-		if !first {
-			sb.WriteString("\n")
-		}
-		first = false
-		sb.WriteString(fileOutput)
-	}
-	return sb.String(), nil
 }
 
 func searchFilesStructured(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string) ([]grepMatch, bool, error) {
@@ -279,7 +135,7 @@ func searchFilesStructured(ctx context.Context, backend fileops.Backend, pattern
 	if !ok {
 		return nil, false, err
 	}
-	return searchWithRegex(localBackend.NormalizePath(searchPath), filepath.ToSlash(filepath.Clean(searchPath)), pattern, include)
+	return searchWithRegex(localBackend.NormalizePath(searchPath), pattern, include)
 }
 
 func searchWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string) ([]grepMatch, error) {
@@ -337,11 +193,10 @@ func searchWithRipgrepRaw(ctx context.Context, backend fileops.Backend, pattern,
 	return stdout, nil
 }
 
-func searchWithContextFallback(root, displayRoot, pattern, include string, contextLines int) (string, error) {
+func searchWithContextFallback(root, pattern, include string, contextLines int) (string, error) {
 	if root == "" {
 		root = "."
 	}
-	displayRoot = normalizeDisplayRoot(displayRoot)
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return "", fmt.Errorf("invalid regex: %w", err)
@@ -380,8 +235,7 @@ func searchWithContextFallback(root, displayRoot, pattern, include string, conte
 			return nil
 		}
 
-		displayPath := displayRelPath(displayRoot, rel)
-		fileOutput := buildContextOutput(path, displayPath, re, contextLines)
+		fileOutput := buildContextOutput(path, filepath.ToSlash(filepath.Clean(rel)), re, contextLines)
 		if fileOutput == "" {
 			return nil
 		}
@@ -500,11 +354,10 @@ func parseRipgrepLine(line string) (grepMatch, bool) {
 	return grepMatch{file: file, line: lineNum, text: text}, true
 }
 
-func searchWithRegex(root, displayRoot, pattern, include string) ([]grepMatch, bool, error) {
+func searchWithRegex(root, pattern, include string) ([]grepMatch, bool, error) {
 	if root == "" {
 		root = "."
 	}
-	displayRoot = normalizeDisplayRoot(displayRoot)
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, false, fmt.Errorf("invalid regex: %w", err)
@@ -541,7 +394,7 @@ func searchWithRegex(root, displayRoot, pattern, include string) ([]grepMatch, b
 			return nil
 		}
 
-		fileMatches := searchInFile(path, displayRelPath(displayRoot, rel), re, info.ModTime())
+		fileMatches := searchInFile(path, filepath.ToSlash(filepath.Clean(rel)), re, info.ModTime())
 		matches = append(matches, fileMatches...)
 		if len(matches) > maxMatches*2 {
 			return filepath.SkipAll
@@ -560,22 +413,6 @@ func searchWithRegex(root, displayRoot, pattern, include string) ([]grepMatch, b
 		matches = matches[:maxMatches]
 	}
 	return matches, truncated, nil
-}
-
-func normalizeDisplayRoot(displayRoot string) string {
-	displayRoot = strings.TrimSpace(filepath.ToSlash(filepath.Clean(displayRoot)))
-	if displayRoot == "" || displayRoot == "." {
-		return ""
-	}
-	return displayRoot
-}
-
-func displayRelPath(displayRoot, rel string) string {
-	rel = filepath.ToSlash(filepath.Clean(rel))
-	if displayRoot == "" {
-		return rel
-	}
-	return filepath.ToSlash(filepath.Join(displayRoot, rel))
 }
 
 func searchInFile(path string, displayPath string, re *regexp.Regexp, modTime time.Time) []grepMatch {
@@ -607,96 +444,6 @@ func searchInFile(path string, displayPath string, re *regexp.Regexp, modTime ti
 		}
 	}
 	return matches
-}
-
-func searchInBytes(data []byte, displayPath string, re *regexp.Regexp, modTime time.Time) []grepMatch {
-	if strings.TrimSpace(displayPath) == "" {
-		return nil
-	}
-	var matches []grepMatch
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		text := scanner.Text()
-		if re.MatchString(text) {
-			matches = append(matches, grepMatch{
-				file:    displayPath,
-				line:    lineNum,
-				text:    text,
-				modTime: modTime,
-			})
-			if len(matches) >= 20 {
-				break
-			}
-		}
-	}
-	return matches
-}
-
-func buildContextOutputFromBytes(data []byte, displayPath string, re *regexp.Regexp, contextLines int) string {
-	if strings.TrimSpace(displayPath) == "" {
-		return ""
-	}
-	var allLines []string
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		allLines = append(allLines, scanner.Text())
-	}
-	type interval struct{ start, end int }
-	var intervals []interval
-	for i, line := range allLines {
-		if re.MatchString(line) {
-			s := i - contextLines
-			if s < 0 {
-				s = 0
-			}
-			e := i + contextLines
-			if e >= len(allLines) {
-				e = len(allLines) - 1
-			}
-			intervals = append(intervals, interval{s, e})
-		}
-	}
-	if len(intervals) == 0 {
-		return ""
-	}
-	merged := []interval{intervals[0]}
-	for _, iv := range intervals[1:] {
-		last := &merged[len(merged)-1]
-		if iv.start <= last.end+1 {
-			if iv.end > last.end {
-				last.end = iv.end
-			}
-		} else {
-			merged = append(merged, iv)
-		}
-	}
-	matchSet := map[int]bool{}
-	for _, iv := range intervals {
-		for i := iv.start; i <= iv.end; i++ {
-			if re.MatchString(allLines[i]) {
-				matchSet[i] = true
-			}
-		}
-	}
-	var sb strings.Builder
-	firstBlock := true
-	for _, iv := range merged {
-		if !firstBlock {
-			sb.WriteString("--\n")
-		}
-		firstBlock = false
-		for i := iv.start; i <= iv.end; i++ {
-			lineNum := i + 1
-			if matchSet[i] {
-				sb.WriteString(fmt.Sprintf("%s:%d:%s\n", displayPath, lineNum, allLines[i]))
-			} else {
-				sb.WriteString(fmt.Sprintf("%s-%d-%s\n", displayPath, lineNum, allLines[i]))
-			}
-		}
-	}
-	return sb.String()
 }
 
 func globToRegex(pattern string) *regexp.Regexp {

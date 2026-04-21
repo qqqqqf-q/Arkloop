@@ -14,22 +14,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"arkloop/services/shared/objectstore"
 )
 
 // SandboxExecBackend performs file operations by executing shell commands
 // through the buffered process API inside the sandbox session.
 type SandboxExecBackend struct {
-	baseURL           string
-	authToken         string
-	sessionID         string
-	accountID         string
-	profileRef        string
-	workspaceRef      string
-	toolOutputScopeID string
-	toolOutputStore   objectstore.Store
-	client            *http.Client
+	baseURL      string
+	authToken    string
+	sessionID    string
+	accountID    string
+	profileRef   string
+	workspaceRef string
+	client       *http.Client
 }
 
 type sandboxProcessExecRequest struct {
@@ -71,17 +67,7 @@ func (b *SandboxExecBackend) httpClient() *http.Client {
 	return &http.Client{}
 }
 
-func (b *SandboxExecBackend) ToolOutputStore() objectstore.Store {
-	return b.toolOutputStore
-}
-
 func (b *SandboxExecBackend) NormalizePath(path string) string {
-	if displayPath, _, ok, err := resolveScopedToolOutputObject(path, b.toolOutputScopeID); ok {
-		if err != nil {
-			return normalizePathKey(path)
-		}
-		return displayPath
-	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return ""
@@ -154,15 +140,6 @@ func (b *SandboxExecBackend) exec(ctx context.Context, command string, timeoutMs
 }
 
 func (b *SandboxExecBackend) ReadFile(ctx context.Context, path string) ([]byte, error) {
-	if _, objectKey, ok, err := resolveScopedToolOutputObject(path, b.toolOutputScopeID); ok {
-		if err != nil {
-			return nil, err
-		}
-		if b.toolOutputStore == nil {
-			return nil, os.ErrNotExist
-		}
-		return b.toolOutputStore.Get(ctx, objectKey)
-	}
 	output, _, _, err := b.exec(ctx, fmt.Sprintf("cat %s", shellQuote(path)), 30_000)
 	if err != nil {
 		return nil, err
@@ -173,21 +150,6 @@ func (b *SandboxExecBackend) ReadFile(ctx context.Context, path string) ([]byte,
 }
 
 func (b *SandboxExecBackend) WriteFile(ctx context.Context, path string, data []byte) error {
-	if _, objectKey, ok, err := resolveScopedToolOutputObject(path, b.toolOutputScopeID); ok {
-		if err != nil {
-			return err
-		}
-		if b.toolOutputStore == nil {
-			return fmt.Errorf("tool output store is unavailable")
-		}
-		return b.toolOutputStore.PutObject(ctx, objectKey, data, objectstore.PutOptions{
-			ContentType: "text/plain; charset=utf-8",
-			Metadata: map[string]string{
-				"scope_id":   strings.TrimSpace(b.toolOutputScopeID),
-				"updated_at": time.Now().UTC().Format(time.RFC3339Nano),
-			},
-		})
-	}
 	encoded := base64.StdEncoding.EncodeToString(data)
 	dir := filepath.Dir(path)
 	cmd := fmt.Sprintf("mkdir -p %s && printf '%%s' %s | base64 -d > %s",
@@ -206,25 +168,6 @@ func (b *SandboxExecBackend) WriteFile(ctx context.Context, path string, data []
 }
 
 func (b *SandboxExecBackend) Stat(ctx context.Context, path string) (FileInfo, error) {
-	if _, objectKey, ok, err := resolveScopedToolOutputObject(path, b.toolOutputScopeID); ok {
-		if err != nil {
-			return FileInfo{}, err
-		}
-		if b.toolOutputStore == nil {
-			return FileInfo{}, os.ErrNotExist
-		}
-		info, headErr := b.toolOutputStore.Head(ctx, objectKey)
-		if headErr != nil {
-			return FileInfo{}, headErr
-		}
-		modTime := time.Time{}
-		if raw := strings.TrimSpace(info.Metadata["updated_at"]); raw != "" {
-			if parsed, parseErr := time.Parse(time.RFC3339Nano, raw); parseErr == nil {
-				modTime = parsed
-			}
-		}
-		return FileInfo{Size: info.Size, IsDir: false, ModTime: modTime}, nil
-	}
 	// GNU stat only; sandbox is always Linux.
 	// Use | as separator to handle multi-word %F values like "regular file", "symbolic link".
 	output, stderr, exitCode, err := b.exec(ctx,

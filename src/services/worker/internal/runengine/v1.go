@@ -67,7 +67,6 @@ type EngineV1 struct {
 	llmRetryBaseDelayMs   int
 	configResolver        sharedconfig.Resolver
 	releaseSlot           func(ctx context.Context, run data.Run)
-	toolOutputStore       objectstore.Store
 	rolloutBlobStore      objectstore.BlobStore
 }
 
@@ -110,7 +109,6 @@ type EngineV1Deps struct {
 	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
 	RoutingConfigLoader    *routing.ConfigLoader
 	MessageAttachmentStore pipeline.MessageAttachmentStore
-	ToolOutputStore        objectstore.Store
 	RolloutBlobStore       objectstore.BlobStore // 用于创建 RolloutRecorder，非 desktop 模式下可选
 
 	// PlatformToolExecutor: platform_manage 的执行器，nil 时跳过注入
@@ -264,7 +262,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		llmRetryBaseDelayMs:   deps.LlmRetryBaseDelayMs,
 		configResolver:        cfgResolver,
 		releaseSlot:           releaseSlot,
-		toolOutputStore:       deps.ToolOutputStore,
 		rolloutBlobStore:      deps.RolloutBlobStore,
 	}, nil
 }
@@ -362,24 +359,24 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		promptCacheDebugEnabled = debugEnabled
 	}
 	rc := &pipeline.RunContext{
-		Run:                     run,
-		DB:                      pool,
-		RunStatusDB:             data.RunsRepository{},
-		Pool:                    pool,
-		MemoryServiceDB:         pool,
-		MemorySnapshotStore:     pipeline.NewPgxMemorySnapshotStore(pool),
-		DirectPool:              directPool,
-		BroadcastRDB:            e.broadcastRDB,
-		TraceID:                 traceID,
-		Tracer:                  tracer,
-		Emitter:                 events.NewEmitter(traceID),
-		Router:                  e.router,
-		Runtime:                 &runtimeSnapshot,
-		HookRuntime:             e.hookRuntime,
-		HookRegistry:            e.hookRegistry,
-		UserID:                  run.CreatedByUserID,
-		JobPayload:              cloneMap(input.JobPayload),
-		ProfileRef:              derefString(run.ProfileRef),
+		Run:                 run,
+		DB:                  pool,
+		RunStatusDB:         data.RunsRepository{},
+		Pool:                pool,
+		MemoryServiceDB:     pool,
+		MemorySnapshotStore: pipeline.NewPgxMemorySnapshotStore(pool),
+		DirectPool:          directPool,
+		BroadcastRDB:        e.broadcastRDB,
+		TraceID:             traceID,
+		Tracer:              tracer,
+		Emitter:             events.NewEmitter(traceID),
+		Router:              e.router,
+		Runtime:             &runtimeSnapshot,
+		HookRuntime:         e.hookRuntime,
+		HookRegistry:        e.hookRegistry,
+		UserID:              run.CreatedByUserID,
+		JobPayload:          cloneMap(input.JobPayload),
+		ProfileRef:          derefString(run.ProfileRef),
 		WorkspaceRef:            derefString(run.WorkspaceRef),
 		ExecutorBuilder:         e.executorRegistry,
 		MemoryProvider:          nil,
@@ -397,7 +394,6 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		rc.ResponseDraftStore = e.rolloutBlobStore
 		defer recorder.Close(context.Background())
 	}
-	rc.ToolOutputStore = e.toolOutputStore
 
 	registry := sharedconfig.DefaultRegistry()
 	platformScope := sharedconfig.Scope{}
@@ -514,6 +510,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		accountID := run.AccountID.String()
 		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), accountID)
 	}
+	go tools.CleanupPersistedToolOutputs(rc.WorkDir, run.ID.String())
+
 	return err
 }
 

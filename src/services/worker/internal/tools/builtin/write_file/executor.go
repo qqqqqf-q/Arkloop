@@ -34,7 +34,7 @@ func (e *Executor) Execute(
 		return errResult(fmt.Sprintf("content too large (%d bytes, max %d)", len(content), maxWriteSize), started)
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), tools.ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef, execCtx.ToolOutputStore)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
 	if err := backend.WriteFile(ctx, filePath, []byte(content)); err != nil {
 		return errResult(fmt.Sprintf("write failed: %s", err.Error()), started)

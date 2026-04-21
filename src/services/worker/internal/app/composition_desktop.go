@@ -115,7 +115,6 @@ type DesktopEngine struct {
 	runtimeSnapshot        *sharedtoolruntime.RuntimeSnapshot
 	jobQueue               queue.JobQueue
 	routingLoader          *routing.ConfigLoader
-	toolOutputStore        objectstore.Store
 	messageAttachmentStore objectstore.Store
 	rolloutStore           objectstore.BlobStore
 	promptInjection        securitycap.Runtime
@@ -149,9 +148,6 @@ var desktopObservedEventNames = map[string]string{
 // ComposeDesktopEngine assembles a DesktopEngine from environment configuration.
 // execRegistry is the agent executor builder (e.g., executor.DefaultExecutorRegistry()).
 func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.EventBus, execRegistry pipeline.AgentExecutorBuilder, jobQueue queue.JobQueue) (*DesktopEngine, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	// Router is loaded dynamically per-run in desktopRouting middleware
 	// so that credentials configured after startup are picked up immediately.
 	auxRouter := routing.NewProviderRouter(routing.DefaultRoutingConfig())
@@ -309,7 +305,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if err != nil {
 		slog.WarnContext(ctx, "desktop: artifact store init failed, skipping persisted artifact tools", "err", err.Error())
 	}
-	tools.StartToolOutputCleanupLoop(ctx, artifactStore)
 
 	var messageAttachmentStore objectstore.Store
 	if mas, err := openDesktopMessageAttachmentStore(ctx); err != nil {
@@ -471,7 +466,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		runtimeSnapshot:        runtimeSnapshot,
 		jobQueue:               jobQueue,
 		routingLoader:          routingLoader,
-		toolOutputStore:        artifactStore,
 		messageAttachmentStore: messageAttachmentStore,
 		rolloutStore:           rolloutStore,
 		promptInjection:        promptInjection,
@@ -631,7 +625,6 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		rc.ResponseDraftStore = e.rolloutStore
 		defer recorder.Close(context.Background())
 	}
-	rc.ToolOutputStore = e.toolOutputStore
 	if !e.useVM {
 		defer func() {
 			if err := cleanupDesktopSkillRuntime(run.ID); err != nil {
@@ -2794,6 +2787,7 @@ func cleanupDesktopRunTools(rc *pipeline.RunContext, writer *desktopEventWriter)
 	if rc.Runtime != nil && rc.Runtime.SandboxBaseURL != "" {
 		go sandboxbuiltin.CleanupSession(rc.Runtime.SandboxBaseURL, rc.Runtime.SandboxAuthToken, rc.Run.ID.String(), rc.Run.AccountID.String())
 	}
+	tools.CleanupPersistedToolOutputs(rc.WorkDir, rc.Run.ID.String())
 }
 
 var errDesktopStopProcessing = errors.New("desktop_stop_processing")

@@ -20,7 +20,6 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
-	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
@@ -33,9 +32,10 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/channel_qq"
 	"arkloop/services/worker/internal/tools/builtin/channel_telegram"
 	"arkloop/services/worker/internal/tools/builtin/platform"
-	"arkloop/services/worker/internal/tools/builtin/read"
 	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
+	"arkloop/services/worker/internal/tools/builtin/read"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
+	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/google/uuid"
@@ -105,6 +105,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
 	configRegistry := sharedconfig.DefaultRegistry()
 	var configCache sharedconfig.Cache
 	configCacheTTL := sharedconfig.CacheTTLFromEnv()
@@ -214,7 +215,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		return nil, fmt.Errorf("open artifact store: %w", err)
 	}
-	tools.StartToolOutputCleanupLoop(ctx, artifactStore)
 
 	var messageAttachmentStore objectstore.Store
 	if s3Bucket := strings.TrimSpace(os.Getenv("ARKLOOP_S3_BUCKET")); s3Bucket != "" && storageBucketOpener != nil {
@@ -250,10 +250,10 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	runtimeManager := workerruntime.NewManager(runtimeSnapshotTTL, func(loadCtx context.Context) (sharedtoolruntime.RuntimeSnapshot, error) {
 		return sharedtoolruntime.BuildRuntimeSnapshot(loadCtx, sharedtoolruntime.SnapshotInput{
-			ConfigResolver:         configResolver,
-			HasConversationSearch:  pool != nil,
-			HasGroupHistorySearch:  pool != nil,
-			ArtifactStoreAvailable: artifactStore != nil,
+			ConfigResolver:          configResolver,
+			HasConversationSearch:   pool != nil,
+			HasGroupHistorySearch:   pool != nil,
+			ArtifactStoreAvailable:  artifactStore != nil,
 			LoadPlatformProviders: func(innerCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
 				providers, err := toolProviderCache.GetPlatform(innerCtx, pool)
 				if err != nil {
@@ -421,7 +421,6 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		MemoryProviderFactory:        memoryProviderFactory,
 		RoutingConfigLoader:          routingLoader,
 		MessageAttachmentStore:       messageAttachmentStore,
-		ToolOutputStore:              artifactStore,
 		RolloutBlobStore:             rolloutStore,
 		PlatformToolExecutor:         platformExec,
 		ChannelTelegramLoader:        chTelegram,

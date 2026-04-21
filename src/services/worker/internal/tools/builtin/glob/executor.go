@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
@@ -48,9 +47,9 @@ func (e *Executor) Execute(
 	}
 	searchPath, _ := args["path"].(string)
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), tools.ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef, execCtx.ToolOutputStore)
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
-	matches, truncated, err := globFiles(ctx, backend, pattern, searchPath, tools.ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID))
+	matches, truncated, err := globFiles(ctx, backend, pattern, searchPath)
 	if err != nil {
 		return errResult(fmt.Sprintf("glob failed: %s", err.Error()), started)
 	}
@@ -65,23 +64,7 @@ func (e *Executor) Execute(
 	}
 }
 
-func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath, toolOutputScopeID string) ([]string, bool, error) {
-	if localBackend, ok := backend.(*fileops.LocalBackend); ok {
-		if objectPrefix, displayRoot, scoped, err := fileops.ResolveScopedToolOutputSearch(searchPath, toolOutputScopeID, localBackend.ToolOutputStore); scoped {
-			if err != nil {
-				return nil, false, err
-			}
-			return globToolOutputObjects(ctx, localBackend.ToolOutputStore, objectPrefix, displayRoot, pattern)
-		}
-	}
-	if sandboxBackend, ok := backend.(*fileops.SandboxExecBackend); ok {
-		if objectPrefix, displayRoot, scoped, err := fileops.ResolveScopedToolOutputSearch(searchPath, toolOutputScopeID, sandboxBackend.ToolOutputStore()); scoped {
-			if err != nil {
-				return nil, false, err
-			}
-			return globToolOutputObjects(ctx, sandboxBackend.ToolOutputStore(), objectPrefix, displayRoot, pattern)
-		}
-	}
+func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]string, bool, error) {
 	// ripgrep fast path
 	matches, err := globWithRipgrep(ctx, backend, pattern, searchPath)
 	if err == nil {
@@ -98,53 +81,7 @@ func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath
 	}
 
 	// fallback: pure Go walk only when the backend itself is local.
-	root := localBackend.NormalizePath(searchPath)
-	displayRoot := filepath.ToSlash(filepath.Clean(searchPath))
-	return globWalk(root, displayRoot, pattern)
-}
-
-func globToolOutputObjects(ctx context.Context, store interface {
-	ListPrefix(ctx context.Context, prefix string) ([]objectstore.ObjectInfo, error)
-}, objectPrefix, displayRoot, pattern string) ([]string, bool, error) {
-	objects, err := store.ListPrefix(ctx, objectPrefix)
-	if err != nil {
-		return nil, false, err
-	}
-	prefix := strings.TrimSuffix(filepath.ToSlash(displayRoot), "/")
-	if prefix != "" {
-		prefix += "/"
-	}
-	if !strings.Contains(pattern, "/") && !strings.HasPrefix(pattern, "**/") {
-		pattern = "**/" + pattern
-	}
-	matches := make([]string, 0, len(objects))
-	for _, item := range objects {
-		displayPath, ok := fileops.ToolOutputDisplayPathFromObjectKey(item.Key)
-		if !ok {
-			continue
-		}
-		if prefix != "" && !strings.HasPrefix(displayPath, prefix) {
-			continue
-		}
-		rel := strings.TrimPrefix(displayPath, prefix)
-		matched, matchErr := filepath.Match(pattern, rel)
-		if matchErr != nil {
-			if suffix, ok := strings.CutPrefix(pattern, "**/"); ok {
-				matched, _ = filepath.Match(suffix, filepath.Base(rel))
-			}
-		}
-		if matched {
-			matches = append(matches, displayPath)
-		}
-	}
-	sort.Slice(matches, func(i, j int) bool {
-		return len(matches[i]) < len(matches[j])
-	})
-	truncated := len(matches) > maxResults
-	if truncated {
-		matches = matches[:maxResults]
-	}
-	return matches, truncated, nil
+	return globWalk(localBackend.NormalizePath(searchPath), pattern)
 }
 
 func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]string, error) {
@@ -181,13 +118,9 @@ func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, sear
 	return matches, nil
 }
 
-func globWalk(root, displayRoot, pattern string) ([]string, bool, error) {
+func globWalk(root, pattern string) ([]string, bool, error) {
 	if root == "" {
 		root = "."
-	}
-	displayRoot = strings.TrimSpace(filepath.ToSlash(filepath.Clean(displayRoot)))
-	if displayRoot == "" || displayRoot == "." {
-		displayRoot = ""
 	}
 	// Prepend **/ if pattern doesn't already have a directory component
 	if !strings.Contains(pattern, "/") && !strings.HasPrefix(pattern, "**/") {
@@ -221,11 +154,7 @@ func globWalk(root, displayRoot, pattern string) ([]string, bool, error) {
 			}
 		}
 		if matched {
-			display := filepath.ToSlash(filepath.Clean(rel))
-			if displayRoot != "" {
-				display = filepath.ToSlash(filepath.Join(displayRoot, rel))
-			}
-			matches = append(matches, display)
+			matches = append(matches, filepath.ToSlash(filepath.Clean(rel)))
 		}
 		return nil
 	})

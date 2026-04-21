@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"arkloop/services/shared/objectstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 )
 
@@ -28,21 +27,19 @@ type FileInfo struct {
 // ResolveBackend returns a SandboxExecBackend only when the current runtime
 // should execute file operations in sandbox, otherwise it falls back to a
 // LocalBackend rooted at workDir.
-func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string, runID, toolOutputScopeID, accountID, profileRef, workspaceRef string, toolOutputStore objectstore.Store) Backend {
+func ResolveBackend(snapshot *sharedtoolruntime.RuntimeSnapshot, workDir string, runID, accountID, profileRef, workspaceRef string) Backend {
 	resolvedWorkDir := resolveWorkDir(workDir)
 	if useSandboxBackend(snapshot) {
 		return &SandboxExecBackend{
-			baseURL:           snapshot.SandboxBaseURL,
-			authToken:         snapshot.SandboxAuthToken,
-			sessionID:         runID + "/file",
-			accountID:         accountID,
-			profileRef:        profileRef,
-			workspaceRef:      workspaceRef,
-			toolOutputScopeID: toolOutputScopeID,
-			toolOutputStore:   toolOutputStore,
+			baseURL:      snapshot.SandboxBaseURL,
+			authToken:    snapshot.SandboxAuthToken,
+			sessionID:    runID + "/file",
+			accountID:    accountID,
+			profileRef:   profileRef,
+			workspaceRef: workspaceRef,
 		}
 	}
-	return &LocalBackend{WorkDir: resolvedWorkDir, ToolOutputScopeID: toolOutputScopeID, ToolOutputStore: toolOutputStore}
+	return &LocalBackend{WorkDir: resolvedWorkDir}
 }
 
 func IsLocalBackend(backend Backend) bool {

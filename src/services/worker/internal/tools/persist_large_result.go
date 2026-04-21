@@ -41,19 +41,14 @@ func PersistLargeResult(
 	if execCtx.AccountID != nil {
 		accountID = execCtx.AccountID.String()
 	}
-	if execCtx.ToolOutputStore == nil {
-		return result
-	}
 
 	backend := fileops.ResolveBackend(
 		execCtx.RuntimeSnapshot,
 		execCtx.WorkDir,
 		execCtx.RunID.String(),
-		ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID),
 		accountID,
 		execCtx.ProfileRef,
 		execCtx.WorkspaceRef,
-		execCtx.ToolOutputStore,
 	)
 
 	// extract raw output text; try "output" then "stdout", fall back to full JSON
@@ -67,8 +62,13 @@ func PersistLargeResult(
 		}
 	}
 
-	scopeID := ToolOutputScopeID(execCtx.ThreadID, execCtx.RunID)
-	filePath := filepath.Join(".tool-outputs", scopeID, execCtx.RunID.String(), toolCallID+".txt")
+	threadID := ""
+	if execCtx.ThreadID != nil {
+		threadID = execCtx.ThreadID.String()
+	} else {
+		threadID = execCtx.RunID.String()
+	}
+	filePath := filepath.Join(".tool-outputs", threadID, toolCallID+".txt")
 	if writeErr := backend.WriteFile(ctx, filePath, content); writeErr != nil {
 		slog.Warn("persist_large_result: write failed, falling back to compression",
 			"run_id", execCtx.RunID.String(),

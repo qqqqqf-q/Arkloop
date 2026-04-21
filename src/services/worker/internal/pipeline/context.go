@@ -274,8 +274,6 @@ type RunContext struct {
 	RolloutRecorder *rollout.Recorder
 	// ResponseDraftStore 用于保存未完成正文草稿
 	ResponseDraftStore objectstore.BlobStore
-	// ToolOutputStore 用于保存大 tool output 的持久化对象
-	ToolOutputStore objectstore.Store
 
 	// -- Prompt cache 调试开关（账号级，默认 false） --
 	PromptCacheDebugEnabled bool
