@@ -21,6 +21,13 @@ __pycache__/
 
 # Harbor 本地试炼输出（result.json 等）
 tests/bench/experiments/harbor/trials/
+tests/bench/experiments/harbor/compact-test-results/
+
+# bench 基线结果
+tests/bench/baseline-*.json
+
+# smoke 测试产物
+tests/smoke/*.log
 
 # root-level compiled Go binaries
 /api

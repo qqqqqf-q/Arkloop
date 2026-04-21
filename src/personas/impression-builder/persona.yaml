@@ -2,7 +2,6 @@ id: impression-builder
 version: "1"
 title: Impression Builder
 description: 系统级记忆画像生成器，消费 memory 原始数据生成全面画像。
-soul_file: prompt.md
 user_selectable: false
 is_system: true
 is_builtin: true

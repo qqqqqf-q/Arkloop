@@ -22,6 +22,7 @@ func NewStickerPrepareMiddleware(db data.DB, store MessageAttachmentStore) RunMi
 			return next(ctx, rc)
 		}
 		rc.StickerRegisterRun = true
+		rc.AllowlistSet = map[string]struct{}{}
 
 		stickerID := strings.TrimSpace(stringValue(rc.InputJSON["sticker_id"]))
 		if stickerID == "" || db == nil || store == nil {

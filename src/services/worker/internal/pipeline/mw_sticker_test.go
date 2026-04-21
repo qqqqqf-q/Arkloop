@@ -319,6 +319,51 @@ func TestStickerPrepareMiddleware_SkipsLLMWithoutVisionRoute(t *testing.T) {
 	}
 }
 
+func TestStickerPrepareMiddleware_ClearsToolAllowlist(t *testing.T) {
+	mw := NewStickerPrepareMiddleware(
+		fakeStickerPrepareDB{
+			row: fakeStickerPrepareRow{
+				sticker: &data.AccountSticker{
+					AccountID:         uuid.New(),
+					ContentHash:       "hash",
+					StorageKey:        "raw.webp",
+					PreviewStorageKey: "preview.jpg",
+				},
+			},
+		},
+		fakeStickerAttachmentStore{
+			bytes: []byte("image"),
+			mime:  "image/jpeg",
+		},
+	)
+
+	rc := &RunContext{
+		Run:          data.Run{AccountID: uuid.New()},
+		InputJSON:    map[string]any{"run_kind": "sticker_register", "sticker_id": "hash"},
+		AllowlistSet: map[string]struct{}{"web_search": {}, "exec_command": {}},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route: routing.ProviderRouteRule{
+				Model: "gpt-4o",
+				AdvancedJSON: map[string]any{
+					"available_catalog": map[string]any{
+						"input_modalities": []any{"text", "image"},
+					},
+				},
+			},
+		},
+	}
+
+	err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error {
+		if len(rc.AllowlistSet) != 0 {
+			t.Fatalf("expected sticker register run to have no tools, got %#v", rc.AllowlistSet)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+}
+
 func TestStickerPrepareMiddleware_PropagatesPersistenceErrors(t *testing.T) {
 	dbErr := errors.New("write failed")
 	mw := NewStickerPrepareMiddleware(
