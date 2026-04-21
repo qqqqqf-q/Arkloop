@@ -26,6 +26,7 @@
     "dist:mac:arm64": "pnpm build:web && pnpm build:electron && node scripts/build-sidecar.mjs --platform darwin --arch arm64 && electron-builder --mac --arm64",
     "dist:mac:x64": "pnpm build:web && pnpm build:electron && node scripts/build-sidecar.mjs --platform darwin --arch x64 && electron-builder --mac --x64",
     "dist:linux": "pnpm build:web && pnpm build:electron && pnpm build:sidecar && electron-builder --linux",
+    "dist:linux:rpm": "pnpm build:web && pnpm build:electron && pnpm build:sidecar && electron-builder --linux rpm",
     "dist:win": "pnpm build:web && pnpm build:electron && node scripts/build-sidecar.mjs --platform win32 --arch x64 && electron-builder --win",
     "dist:all": "pnpm build:web && pnpm build:electron && pnpm build:sidecar:all && electron-builder -mwl",
     "type-check": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.preload.json --noEmit"

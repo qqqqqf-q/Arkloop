@@ -60,6 +60,7 @@ linux:
   target:
     - AppImage
     - deb
+    - rpm
   icon: resources/icon.png
   extraResources:
     - from: sidecar-bin/desktop-linux-${arch}

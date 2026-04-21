@@ -161,6 +161,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Linux packaging dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
       - name: Download sidecar binary
         uses: actions/download-artifact@v4
         with:
@@ -212,6 +218,7 @@ jobs:
             src/apps/desktop/release/*.zip
             src/apps/desktop/release/*.AppImage
             src/apps/desktop/release/*.deb
+            src/apps/desktop/release/*.rpm
             src/apps/desktop/release/*.exe
             src/apps/desktop/release/*.blockmap
             src/apps/desktop/release/latest*.yml
@@ -267,6 +274,7 @@ jobs:
             -name '*.zip' -o \
             -name '*.AppImage' -o \
             -name '*.deb' -o \
+            -name '*.rpm' -o \
             -name '*.exe' -o \
             -name '*.blockmap' -o \
             -name 'latest*.yml' \
@@ -447,7 +455,7 @@ jobs:
           - Windows：下载 `Arkloop-win-x64.exe`
           - macOS Apple Silicon：下载 `Arkloop-mac-arm64.dmg`
           - macOS Intel：下载 `Arkloop-mac-x64.dmg`
-          - Linux x64：下载 `Arkloop-linux-amd64.deb` 或 `Arkloop-linux-x86_64.AppImage`
+          - Linux x64：下载 `Arkloop-linux-amd64.deb`、`Arkloop-linux-x86_64.rpm` 或 `Arkloop-linux-x86_64.AppImage`
 
           ## 说明
           EOF
