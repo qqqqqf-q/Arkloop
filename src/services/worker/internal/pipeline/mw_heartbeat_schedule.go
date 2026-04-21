@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"arkloop/services/shared/pgnotify"
 	"arkloop/services/worker/internal/data"
@@ -24,8 +25,7 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 			return err
 		}
 		if rc.HeartbeatRun {
-			slog.DebugContext(ctx, "heartbeat_schedule: skip heartbeat run")
-			return nil
+			return updateHeartbeatCooldown(ctx, db, rc, repo)
 		}
 		if rc.ChannelContext == nil {
 			slog.DebugContext(ctx, "heartbeat_schedule: no channel context")
@@ -187,6 +187,58 @@ func isPrivateChannelConversation(ct string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, repo data.ScheduledTriggersRepository) error {
+	channelID, identityID, _, _, _ := resolveHeartbeatIdentityConfig(ctx, db, rc)
+	if identityID == uuid.Nil {
+		return nil
+	}
+
+	existing, err := repo.GetHeartbeat(ctx, db, channelID, identityID)
+	if err != nil || existing == nil {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	var newLevel int
+	var nextFire time.Time
+
+	if rc.HeartbeatToolOutcome != nil && rc.HeartbeatToolOutcome.Reply {
+		newLevel = existing.CooldownLevel
+		nextFire = now.Add(1 * time.Minute)
+	} else {
+		newLevel = existing.CooldownLevel + 1
+		if newLevel > 4 {
+			newLevel = 4
+		}
+		nextFire = now.Add(idleIntervalForLevel(newLevel))
+	}
+
+	if err := repo.UpdateCooldownAfterHeartbeat(ctx, db, channelID, identityID, newLevel, nextFire); err != nil {
+		slog.WarnContext(ctx, "heartbeat_schedule: update cooldown failed", "error", err)
+		return nil
+	}
+
+	notifyHeartbeatScheduler(ctx, rc)
+	return nil
+}
+
+func idleIntervalForLevel(level int) time.Duration {
+	switch level {
+	case 0:
+		return 1 * time.Minute
+	case 1:
+		return 5 * time.Minute
+	case 2:
+		return 15 * time.Minute
+	case 3:
+		return 30 * time.Minute
+	case 4:
+		return 60 * time.Minute
+	default:
+		return 60 * time.Minute
 	}
 }
 

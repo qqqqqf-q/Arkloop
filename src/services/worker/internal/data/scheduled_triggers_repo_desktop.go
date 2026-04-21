@@ -30,6 +30,7 @@ type ScheduledTriggerRow struct {
 	NextFireAt        time.Time
 	TriggerKind       string
 	JobID             uuid.UUID
+	CooldownLevel     int
 }
 
 // ScheduledTriggersRepository 是 SQLite 实现（desktop）。
@@ -113,13 +114,13 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 	var row ScheduledTriggerRow
 	var idStr, channelStr, identityStr, accountStr string
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2`,
 		channelID.String(),
 		channelIdentityID.String(),
-	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt)
+	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil
@@ -153,6 +154,7 @@ func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 		UPDATE scheduled_triggers
 		   SET interval_min = $1,
 		       next_fire_at = $2,
+		       cooldown_level = 0,
 		       updated_at = $3
 		 WHERE channel_id = $4
 		   AND channel_identity_id = $5`,
@@ -233,7 +235,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 	}
 	now := time.Now().UTC()
 	rows, err := db.Query(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id, cooldown_level
 		  FROM scheduled_triggers
 		 WHERE next_fire_at <= $1
 		 ORDER BY next_fire_at ASC
@@ -252,7 +254,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 		var idStr, channelStr, identityStr, accountStr, nextFireRaw string
 		var triggerKind string
 		var jobIDStr *string
-		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr); err != nil {
+		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr, &r.CooldownLevel); err != nil {
 			return nil, err
 		}
 		r.ID, _ = uuid.Parse(idStr)
@@ -299,6 +301,68 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// ResetCooldownLevelAndNextFire resets cooldown_level and next_fire_at for a channel identity.
+func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
+	ctx context.Context,
+	db DesktopDB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	cooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return fmt.Errorf("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE channel_id = $4
+		   AND channel_identity_id = $5`,
+		cooldownLevel,
+		nextFireAt.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		channelID.String(),
+		channelIdentityID.String(),
+	)
+	return err
+}
+
+// UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
+	ctx context.Context,
+	db DesktopDB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return fmt.Errorf("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE channel_id = $4
+		   AND channel_identity_id = $5`,
+		newCooldownLevel,
+		nextFireAt.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		channelID.String(),
+		channelIdentityID.String(),
+	)
+	return err
 }
 
 // GetEarliestDue returns the earliest scheduled next_fire_at.

@@ -26,6 +26,7 @@ type ScheduledTriggerRow struct {
 	NextFireAt        time.Time
 	TriggerKind       string
 	JobID             uuid.UUID
+	CooldownLevel     int
 }
 
 // ScheduledTriggersRepository provides heartbeat scheduling operations.
@@ -102,7 +103,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 
 	var row ScheduledTriggerRow
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2`,
@@ -117,6 +118,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 		&row.Model,
 		&row.IntervalMin,
 		&row.NextFireAt,
+		&row.CooldownLevel,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -147,6 +149,7 @@ func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 		UPDATE scheduled_triggers
 		   SET interval_min = $1,
 		       next_fire_at = $2,
+		       cooldown_level = 0,
 		       updated_at = now()
 		 WHERE channel_id = $3
 		   AND channel_identity_id = $4`,
@@ -246,6 +249,60 @@ func (ScheduledTriggersRepository) SyncHeartbeatConfig(
 	return err
 }
 
+// ResetCooldownLevelAndNextFire resets cooldown_level and next_fire_at for a channel identity.
+func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	cooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return errors.New("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = now()
+		 WHERE channel_id = $3
+		   AND channel_identity_id = $4`,
+		cooldownLevel, nextFireAt, channelID, channelIdentityID,
+	)
+	return err
+}
+
+// UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return errors.New("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = now()
+		 WHERE channel_id = $3
+		   AND channel_identity_id = $4`,
+		newCooldownLevel, nextFireAt, channelID, channelIdentityID,
+	)
+	return err
+}
+
 // GetEarliestDue returns the earliest scheduled next_fire_at.
 func (ScheduledTriggersRepository) GetEarliestDue(
 	ctx context.Context,
@@ -293,17 +350,12 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
               ORDER BY next_fire_at ASC
               LIMIT $1
               FOR UPDATE SKIP LOCKED
-        ),
-        due_with_steps AS (
-             SELECT *,
-                    1 + CAST(FLOOR(EXTRACT(EPOCH FROM now() - next_fire_at) / (effective_interval * 60.0)) AS INT) AS intervals
-               FROM due
         )
         UPDATE scheduled_triggers
-           SET next_fire_at = due_with_steps.next_fire_at + (due_with_steps.effective_interval * due_with_steps.intervals) * interval '1 minute',
+           SET next_fire_at = due.next_fire_at + (due.effective_interval * interval '1 minute'),
                updated_at   = now()
-          FROM due_with_steps
-         WHERE scheduled_triggers.id = due_with_steps.id
+          FROM due
+         WHERE scheduled_triggers.id = due.id
         RETURNING scheduled_triggers.id,
                   scheduled_triggers.channel_id,
                   scheduled_triggers.channel_identity_id,
@@ -313,7 +365,8 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
                   scheduled_triggers.interval_min,
                   scheduled_triggers.next_fire_at,
                   scheduled_triggers.trigger_kind,
-                  scheduled_triggers.job_id`,
+                  scheduled_triggers.job_id,
+                  scheduled_triggers.cooldown_level`,
 		limit,
 	)
 	if err != nil {
@@ -324,7 +377,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 	var out []ScheduledTriggerRow
 	for rows.Next() {
 		var r ScheduledTriggerRow
-		if err := rows.Scan(&r.ID, &r.ChannelID, &r.ChannelIdentityID, &r.PersonaKey, &r.AccountID, &r.Model, &r.IntervalMin, &r.NextFireAt, &r.TriggerKind, &r.JobID); err != nil {
+		if err := rows.Scan(&r.ID, &r.ChannelID, &r.ChannelIdentityID, &r.PersonaKey, &r.AccountID, &r.Model, &r.IntervalMin, &r.NextFireAt, &r.TriggerKind, &r.JobID, &r.CooldownLevel); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

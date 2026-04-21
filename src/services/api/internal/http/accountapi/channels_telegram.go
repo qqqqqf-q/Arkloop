@@ -929,6 +929,7 @@ type telegramConnector struct {
 	channelGroupThreadsRepo  *data.ChannelGroupThreadsRepository
 	channelReceiptsRepo      *data.ChannelMessageReceiptsRepository
 	channelLedgerRepo        *data.ChannelMessageLedgerRepository
+	scheduledTriggersRepo    *data.ScheduledTriggersRepository
 	personasRepo             *data.PersonasRepository
 	usersRepo                *data.UserRepository
 	accountRepo              *data.AccountRepository
@@ -1340,6 +1341,7 @@ func telegramWebhookEntry(
 		channelGroupThreadsRepo:  channelGroupThreadsRepo,
 		channelReceiptsRepo:      channelReceiptsRepo,
 		channelLedgerRepo:        channelLedgerRepo,
+		scheduledTriggersRepo:    &data.ScheduledTriggersRepository{},
 		personasRepo:             personasRepo,
 		usersRepo:                usersRepo,
 		accountRepo:              accountRepo,
@@ -1897,7 +1899,7 @@ func handleTelegramHeartbeatCommand(
 		if strings.TrimSpace(model) != "" {
 			modelDisplay = model
 		}
-		return fmt.Sprintf("心跳：%s\n间隔：%d 分钟\n模型：%s", status, intervalMin, modelDisplay), nil
+		return fmt.Sprintf("心跳：%s\n模型：%s", status, modelDisplay), nil
 	}
 
 	sub := strings.TrimSpace(parts[1])
@@ -1915,7 +1917,7 @@ func handleTelegramHeartbeatCommand(
 		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("心跳已开启（间隔 %d 分钟）。", intervalMin), nil
+		return "心跳已开启。", nil
 	case "off":
 		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, false, intervalMin, model); err != nil {
 			return "", err
@@ -1930,7 +1932,7 @@ func handleTelegramHeartbeatCommand(
 		}
 		n, parseErr := strconv.Atoi(strings.TrimSpace(parts[2]))
 		if parseErr != nil || n <= 0 {
-			return "间隔必须是正整数（分钟）。", nil
+			return "最长间隔必须是正整数（分钟）。", nil
 		}
 		if err := validateTelegramModelSelector(ctx, tx, accountID, firstNonEmptySelector(model, defaultModel), allowUserScoped); err != nil {
 			return "当前心跳模型无效，请先重新设置 /heartbeat model <模型选择器>。", nil
@@ -1941,7 +1943,7 @@ func handleTelegramHeartbeatCommand(
 		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("心跳间隔已设为 %d 分钟。", n), nil
+		return fmt.Sprintf("心跳最长间隔已设为 %d 分钟。", n), nil
 	case "model":
 		newModel := ""
 		if len(parts) >= 3 {

@@ -133,8 +133,9 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 
 	intervalDuration := time.Duration(normalizeHeartbeatInterval(intervalMin)) * time.Minute
-	if diff := updated.Sub(originalNextFire); diff%intervalDuration != 0 {
-		t.Fatalf("expected update to advance by whole intervals, diff=%s interval=%s", diff, intervalDuration)
+	expectedNextFire := originalNextFire.Add(intervalDuration)
+	if d := updated.Sub(expectedNextFire); d < -time.Second || d > time.Second {
+		t.Fatalf("expected next_fire_at to advance by exactly one interval from original, got=%s want=%s", updated, expectedNextFire)
 	}
 }
 

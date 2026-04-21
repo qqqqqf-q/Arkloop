@@ -24,6 +24,7 @@ type ScheduledTriggerRow struct {
 	Model             string
 	IntervalMin       int
 	NextFireAt        time.Time
+	CooldownLevel     int
 }
 
 // ScheduledTriggersRepository 提供 heartbeat 调度操作（cloud / Postgres）。
@@ -86,7 +87,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 
 	var row ScheduledTriggerRow
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at
+		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2`,
@@ -101,6 +102,7 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 		&row.Model,
 		&row.IntervalMin,
 		&row.NextFireAt,
+		&row.CooldownLevel,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -109,6 +111,60 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 		return nil, err
 	}
 	return &row, nil
+}
+
+// ResetCooldownLevelAndNextFire resets cooldown_level and next_fire_at for a channel identity.
+func (ScheduledTriggersRepository) ResetCooldownLevelAndNextFire(
+	ctx context.Context,
+	db DB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	cooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return errors.New("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = now()
+		 WHERE channel_id = $3
+		   AND channel_identity_id = $4`,
+		cooldownLevel, nextFireAt, channelID, channelIdentityID,
+	)
+	return err
+}
+
+// UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
+	ctx context.Context,
+	db DB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return errors.New("channel_identity_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = now()
+		 WHERE channel_id = $3
+		   AND channel_identity_id = $4`,
+		newCooldownLevel, nextFireAt, channelID, channelIdentityID,
+	)
+	return err
 }
 
 // ResetHeartbeatNextFire sets next_fire_at to now + interval_min for the provided channel identity.
@@ -131,6 +187,7 @@ func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 		UPDATE scheduled_triggers
 		   SET interval_min = $1,
 		       next_fire_at = $2,
+		       cooldown_level = 0,
 		       updated_at = now()
 		 WHERE channel_id = $3
 		   AND channel_identity_id = $4`,

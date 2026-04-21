@@ -13,6 +13,7 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -92,6 +93,20 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return nil, err
 		}
 		return stageResult, nil
+	}
+
+	// 消息到达 -> 重置 heartbeat cooldown（仅群聊）
+	if !incoming.IsPrivate() && groupIdentity != nil && c.scheduledTriggersRepo != nil {
+		if resetErr := c.scheduledTriggersRepo.ResetCooldownLevelAndNextFire(
+			ctx, tx,
+			ch.ID, groupIdentity.ID,
+			0,
+			now.Add(15*time.Second),
+		); resetErr != nil {
+			slog.WarnContext(ctx, "heartbeat_cooldown_reset_failed", "error", resetErr, "channel_id", ch.ID, "identity_id", groupIdentity.ID)
+		} else {
+			_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
+		}
 	}
 
 	if incoming.IsPrivate() {
