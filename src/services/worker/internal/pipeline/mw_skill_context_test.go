@@ -207,3 +207,43 @@ func TestSkillContextMiddlewareExternalSkills(t *testing.T) {
 		t.Fatalf("expected external skills in context, got %#v", rc.ExternalSkills)
 	}
 }
+
+func TestSkillContextMiddlewareSkipsStickerRegisterRuns(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "test-external")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# External test skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	mw := NewSkillContextMiddleware(SkillContextConfig{
+		Resolve: func(_ context.Context, _ uuid.UUID, _ string, _ string) ([]skillstore.ResolvedSkill, error) {
+			return []skillstore.ResolvedSkill{{
+				SkillKey:   "grep-helper",
+				Version:    "1",
+				AutoInject: true,
+			}}, nil
+		},
+		ExternalDirs: func(_ context.Context) []string {
+			return []string{root}
+		},
+	})
+	rc := newSkillTestRunContext()
+	rc.EnabledSkills = []skillstore.ResolvedSkill{{SkillKey: "old", Version: "1"}}
+	rc.ExternalSkills = []skillstore.ExternalSkill{{Name: "old"}}
+	rc.InputJSON = map[string]any{"run_kind": "sticker_register"}
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+	if len(rc.EnabledSkills) != 0 {
+		t.Fatalf("expected enabled skills cleared, got %#v", rc.EnabledSkills)
+	}
+	if len(rc.ExternalSkills) != 0 {
+		t.Fatalf("expected external skills cleared, got %#v", rc.ExternalSkills)
+	}
+	if strings.Contains(rc.SystemPrompt, "<available_skills>") {
+		t.Fatalf("did not expect available skills prompt for sticker run, got %q", rc.SystemPrompt)
+	}
+}

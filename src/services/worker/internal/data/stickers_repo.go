@@ -169,6 +169,38 @@ func (AccountStickersRepository) Search(ctx context.Context, db QueryDB, account
 	return out, rows.Err()
 }
 
+func (AccountStickersRepository) ListRegistered(ctx context.Context, db QueryDB, accountID uuid.UUID, limit int) ([]AccountSticker, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db must not be nil")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := db.Query(ctx, `
+		SELECT id, account_id, content_hash, storage_key, preview_storage_key, file_size, mime_type,
+		       is_animated, short_tags, long_desc, usage_count, last_used_at, is_registered, created_at, updated_at
+		  FROM account_stickers
+		 WHERE account_id = $1
+		   AND is_registered = TRUE
+		 ORDER BY usage_count DESC, last_used_at DESC NULLS LAST, created_at DESC
+		 LIMIT $2`,
+		accountID, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]AccountSticker, 0, limit)
+	for rows.Next() {
+		item, scanErr := scanAccountSticker(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (AccountStickersRepository) IncrementUsage(ctx context.Context, db DB, accountID uuid.UUID, contentHash string) error {
 	if db == nil {
 		return fmt.Errorf("db must not be nil")

@@ -76,7 +76,7 @@ func TestStickerToolMiddleware_AddsToolForTelegramRuns(t *testing.T) {
 		AllowlistSet:  map[string]struct{}{},
 		ToolRegistry:  tools.NewRegistry(),
 		PersonaDefinition: &personas.Definition{
-			ToolAllowlist: []string{stickerSearchToolName},
+			ToolAllowlist: []string{stickerSearchToolName, stickerListToolName},
 		},
 	}
 	mw := NewStickerToolMiddleware(fakeStickerQueryDB{})
@@ -86,11 +86,20 @@ func TestStickerToolMiddleware_AddsToolForTelegramRuns(t *testing.T) {
 	if _, ok := rc.AllowlistSet[stickerSearchToolName]; !ok {
 		t.Fatalf("expected %s in allowlist", stickerSearchToolName)
 	}
+	if _, ok := rc.AllowlistSet[stickerListToolName]; !ok {
+		t.Fatalf("expected %s in allowlist", stickerListToolName)
+	}
 	if rc.ToolExecutors[stickerSearchToolName] == nil {
 		t.Fatalf("expected %s executor bound", stickerSearchToolName)
 	}
+	if rc.ToolExecutors[stickerListToolName] == nil {
+		t.Fatalf("expected %s executor bound", stickerListToolName)
+	}
 	if _, ok := rc.ToolRegistry.Get(stickerSearchToolName); !ok {
 		t.Fatalf("expected %s registered", stickerSearchToolName)
+	}
+	if _, ok := rc.ToolRegistry.Get(stickerListToolName); !ok {
+		t.Fatalf("expected %s registered", stickerListToolName)
 	}
 }
 
@@ -117,6 +126,72 @@ func TestStickerToolMiddleware_RespectsPersonaAllowlist(t *testing.T) {
 	if rc.ToolExecutors[stickerSearchToolName] != nil {
 		t.Fatalf("did not expect %s executor bound", stickerSearchToolName)
 	}
+	if _, ok := rc.AllowlistSet[stickerListToolName]; ok {
+		t.Fatalf("did not expect %s in allowlist", stickerListToolName)
+	}
+	if rc.ToolExecutors[stickerListToolName] != nil {
+		t.Fatalf("did not expect %s executor bound", stickerListToolName)
+	}
+}
+
+func TestStickerToolMiddleware_AllowsOnlyStickerListWhenListed(t *testing.T) {
+	rc := &RunContext{
+		Run: data.Run{AccountID: uuid.New()},
+		ChannelContext: &ChannelContext{
+			ChannelType: "telegram",
+		},
+		ToolExecutors: map[string]tools.Executor{},
+		AllowlistSet:  map[string]struct{}{},
+		ToolRegistry:  tools.NewRegistry(),
+		PersonaDefinition: &personas.Definition{
+			ToolAllowlist: []string{stickerListToolName},
+		},
+	}
+	mw := NewStickerToolMiddleware(fakeStickerQueryDB{})
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+	if _, ok := rc.AllowlistSet[stickerSearchToolName]; ok {
+		t.Fatalf("did not expect %s in allowlist", stickerSearchToolName)
+	}
+	if rc.ToolExecutors[stickerSearchToolName] != nil {
+		t.Fatalf("did not expect %s executor bound", stickerSearchToolName)
+	}
+	if _, ok := rc.AllowlistSet[stickerListToolName]; !ok {
+		t.Fatalf("expected %s in allowlist", stickerListToolName)
+	}
+	if rc.ToolExecutors[stickerListToolName] == nil {
+		t.Fatalf("expected %s executor bound", stickerListToolName)
+	}
+}
+
+func TestStickerToolMiddleware_DenySearchKeepsStickerList(t *testing.T) {
+	rc := &RunContext{
+		Run: data.Run{AccountID: uuid.New()},
+		ChannelContext: &ChannelContext{
+			ChannelType: "telegram",
+		},
+		ToolExecutors: map[string]tools.Executor{},
+		AllowlistSet:  map[string]struct{}{},
+		ToolRegistry:  tools.NewRegistry(),
+		ToolDenylist:  []string{stickerSearchToolName},
+	}
+	mw := NewStickerToolMiddleware(fakeStickerQueryDB{})
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+	if _, ok := rc.AllowlistSet[stickerSearchToolName]; ok {
+		t.Fatalf("did not expect %s in allowlist", stickerSearchToolName)
+	}
+	if rc.ToolExecutors[stickerSearchToolName] != nil {
+		t.Fatalf("did not expect %s executor bound", stickerSearchToolName)
+	}
+	if _, ok := rc.AllowlistSet[stickerListToolName]; !ok {
+		t.Fatalf("expected %s in allowlist", stickerListToolName)
+	}
+	if rc.ToolExecutors[stickerListToolName] == nil {
+		t.Fatalf("expected %s executor bound", stickerListToolName)
+	}
 }
 
 func TestRenderHotStickerPrompt_EscapesXMLAttributes(t *testing.T) {
@@ -129,6 +204,55 @@ func TestRenderHotStickerPrompt_EscapesXMLAttributes(t *testing.T) {
 	}
 	if !strings.Contains(got, `short="doge&#34; &amp; &lt;meme&gt;"`) {
 		t.Fatalf("expected escaped short tags, got %q", got)
+	}
+}
+
+func TestStickerInjectMiddleware_AddsInstructionWithoutHotList(t *testing.T) {
+	rc := &RunContext{
+		Run: data.Run{AccountID: uuid.New()},
+		ChannelContext: &ChannelContext{
+			ChannelType: "telegram",
+		},
+	}
+	mw := NewStickerInjectMiddleware(fakeStickerListErrorDB{})
+	if err := mw(context.Background(), rc, func(ctx context.Context, rc *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+	found := false
+	segmentText := ""
+	for _, segment := range rc.PromptSegments() {
+		if segment.Name != "telegram.sticker_instruction" {
+			continue
+		}
+		found = true
+		segmentText = segment.Text
+		break
+	}
+	if !found {
+		t.Fatal("expected sticker instruction segment")
+	}
+	if !strings.Contains(segmentText, "[sticker:<id>]") {
+		t.Fatalf("expected sticker send placeholder instruction, got %q", segmentText)
+	}
+	if !strings.Contains(segmentText, "sticker_list") || !strings.Contains(segmentText, "sticker_search") {
+		t.Fatalf("expected sticker tool guidance, got %q", segmentText)
+	}
+}
+
+func TestStickerToolSpecs_DescribeHowToSend(t *testing.T) {
+	searchDesc := ""
+	if stickerSearchLlmSpec.Description != nil {
+		searchDesc = *stickerSearchLlmSpec.Description
+	}
+	if !strings.Contains(searchDesc, "[sticker:<id>]") || !strings.Contains(searchDesc, "telegram_send_file") {
+		t.Fatalf("unexpected sticker_search description: %q", searchDesc)
+	}
+	listDesc := ""
+	if stickerListLlmSpec.Description != nil {
+		listDesc = *stickerListLlmSpec.Description
+	}
+	if !strings.Contains(listDesc, "[sticker:<id>]") || !strings.Contains(listDesc, "telegram_send_file") {
+		t.Fatalf("unexpected sticker_list description: %q", listDesc)
 	}
 }
 
@@ -247,6 +371,16 @@ func (fakeStickerQueryDB) QueryRow(context.Context, string, ...any) pgx.Row {
 type fakeStickerRow struct{}
 
 func (fakeStickerRow) Scan(...any) error { return nil }
+
+type fakeStickerListErrorDB struct{}
+
+func (fakeStickerListErrorDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("list hot failed")
+}
+
+func (fakeStickerListErrorDB) QueryRow(context.Context, string, ...any) pgx.Row {
+	return fakeStickerRow{}
+}
 
 type fakeStickerPrepareDB struct {
 	row     fakeStickerPrepareRow

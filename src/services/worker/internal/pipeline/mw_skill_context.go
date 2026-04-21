@@ -34,6 +34,11 @@ type SkillContextConfig struct {
 func NewSkillContextMiddleware(cfg SkillContextConfig) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		rc.RemovePromptSegment("skills.available")
+		if isStickerRegisterRun(rc) {
+			rc.EnabledSkills = nil
+			rc.ExternalSkills = nil
+			return next(ctx, rc)
+		}
 		var externalSkills []skillstore.ExternalSkill
 		if cfg.ExternalDirs != nil {
 			externalSkills = skillstore.DiscoverExternalSkills(cfg.ExternalDirs(ctx))

@@ -358,6 +358,7 @@ func maybeSendTelegramImmediateTyping(
 }
 
 type telegramSelectorCandidate struct {
+	routeID        uuid.UUID
 	credentialID   uuid.UUID
 	credentialName string
 	ownerKind      string
@@ -395,9 +396,34 @@ func validateTelegramModelSelector(ctx context.Context, db data.Querier, account
 	return nil
 }
 
+func resolveTelegramRouteIDBySelector(ctx context.Context, db data.Querier, accountID uuid.UUID, selector string, allowUserScoped bool) (string, error) {
+	cleanedSelector := strings.TrimSpace(selector)
+	if cleanedSelector == "" {
+		return "", nil
+	}
+	if db == nil {
+		return "", fmt.Errorf("selector resolution unavailable")
+	}
+	candidates, err := loadTelegramSelectorCandidates(ctx, db, accountID)
+	if err != nil {
+		return "", err
+	}
+	selected, ok := resolveTelegramSelectorCandidate(candidates, cleanedSelector)
+	if !ok {
+		return "", fmt.Errorf("selector not found: %s", cleanedSelector)
+	}
+	if !allowUserScoped && strings.EqualFold(selected.ownerKind, "user") {
+		return "", fmt.Errorf("selector requires BYOK: %s", cleanedSelector)
+	}
+	if selected.routeID == uuid.Nil {
+		return "", nil
+	}
+	return strings.TrimSpace(selected.routeID.String()), nil
+}
+
 func loadTelegramSelectorCandidates(ctx context.Context, db data.Querier, accountID uuid.UUID) ([]telegramSelectorCandidate, error) {
 	rows, err := db.Query(ctx, `
-		SELECT c.id, c.name, c.owner_kind, r.model, r.priority, (r.account_id IS NOT NULL) AS account_scoped
+		SELECT r.id, c.id, c.name, c.owner_kind, r.model, r.priority, (r.account_id IS NOT NULL) AS account_scoped
 		  FROM llm_routes r
 		  JOIN llm_credentials c ON c.id = r.credential_id
 		 WHERE c.revoked_at IS NULL
@@ -417,7 +443,7 @@ func loadTelegramSelectorCandidates(ctx context.Context, db data.Querier, accoun
 	var candidates []telegramSelectorCandidate
 	for rows.Next() {
 		var item telegramSelectorCandidate
-		if err := rows.Scan(&item.credentialID, &item.credentialName, &item.ownerKind, &item.model, &item.priority, &item.accountScoped); err != nil {
+		if err := rows.Scan(&item.routeID, &item.credentialID, &item.credentialName, &item.ownerKind, &item.model, &item.priority, &item.accountScoped); err != nil {
 			return nil, err
 		}
 		candidates = append(candidates, item)
