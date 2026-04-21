@@ -458,6 +458,9 @@ export function readLocaleFromStorage(): import('./locales').Locale {
   try {
     const raw = localStorage.getItem(LOCALE_KEY)
     if (raw === 'zh' || raw === 'en') return raw
+    const navLang = navigator.language
+    if (navLang.startsWith('en')) return 'en'
+    if (navLang.startsWith('zh')) return 'zh'
     return 'zh'
   } catch {
     return 'zh'

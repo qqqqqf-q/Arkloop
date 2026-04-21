@@ -324,7 +324,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      if (!disabled && draft.trim()) {
+      if (!disabled && (draft.trim() || attachments.length > 0)) {
         e.currentTarget.form?.requestSubmit()
       }
     }

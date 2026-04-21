@@ -1534,7 +1534,8 @@ export const zh: LocaleStrings = {
     stepOf: (current: number, total: number) => `${current} / ${total}`,
     comingSoon: "暂未开放",
     greeting: "你好",
-    appearanceTitle: "外观",
-    appearanceDesc: "选择一个配色方案，随时可以在设置中更改。",
+    appearanceTitle: "偏好设置",
+    appearanceDesc: "选择语言和配色方案，随时可以在设置中更改。",
+    languageLabel: "语言",
   },
 };

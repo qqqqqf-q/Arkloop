@@ -1496,6 +1496,7 @@ export interface LocaleStrings {
     greeting: string;
     appearanceTitle: string;
     appearanceDesc: string;
+    languageLabel: string;
   };
 }
 

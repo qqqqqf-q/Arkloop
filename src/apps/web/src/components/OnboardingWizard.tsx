@@ -22,6 +22,7 @@ import { getDesktopApi, getDesktopAccessToken } from "@arkloop/shared/desktop";
 import { useLocale } from "../contexts/LocaleContext";
 import { LogoDrawAnimation } from "./LogoDrawAnimation";
 import { SettingsModelDropdown } from "./settings/SettingsModelDropdown";
+import { LanguageContent } from "./settings/AppearanceSettings";
 import { useAppearance } from "../contexts/AppearanceContext";
 import { BUILTIN_PRESETS } from "../themes/presets";
 import type { ThemePreset } from "../themes/types";
@@ -368,7 +369,7 @@ function ModeCard({
 }
 
 export function OnboardingWizard({ onComplete }: Props) {
-  const { t, locale } = useLocale();
+  const { t, locale, setLocale } = useLocale();
   const ob = t.onboarding;
   const api = getDesktopApi();
   const { themePreset, setThemePreset } = useAppearance();
@@ -431,9 +432,9 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   const stepMeta = useMemo(() => {
     switch (step) {
-      case "provider":
-        return { n: 1, total: 3 };
       case "appearance":
+        return { n: 1, total: 3 };
+      case "provider":
         return { n: 2, total: 3 };
       case "complete":
         return { n: 3, total: 3 };
@@ -543,7 +544,7 @@ export function OnboardingWizard({ onComplete }: Props) {
   }, [step, sidecarReady]);
 
   const handleWelcomeNext = useCallback(() => {
-    setStep("mode");
+    setStep("appearance");
   }, []);
 
   const handleModeSelectLocal = useCallback(async () => {
@@ -697,7 +698,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   const handleNextFromPanel = useCallback(async () => {
     if (!createdProviderId || selectedModelIds.size === 0) {
-      setStep("appearance");
+      setStep("complete");
       return;
     }
 
@@ -739,7 +740,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       );
       setSelectedModelIds(new Set());
       setModelImportStatus("done");
-      setStep("appearance");
+      setStep("complete");
     } catch (error) {
       setModelImportStatus("failed");
       setModelError(normalizeError(error, t.requestFailed));
@@ -751,10 +752,6 @@ export function OnboardingWizard({ onComplete }: Props) {
     selectedModelIds,
     t.requestFailed,
   ]);
-
-  const handleBackToMode = useCallback(() => {
-    setStep("mode");
-  }, []);
 
   const handleComplete = useCallback(async () => {
     if (!api) return;
@@ -1137,11 +1134,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
                     <button
                       type="button"
-                      onClick={
-                        verifyStatus === "verified"
-                          ? handleBackToMode
-                          : () => setStep("appearance")
-                      }
+                      onClick={() => setStep(verifyStatus === "verified" ? "appearance" : "complete")}
                       className="onb-btn-ghost" style={ghostBtn}
                     >
                       {verifyStatus === "verified"
@@ -1174,6 +1167,9 @@ export function OnboardingWizard({ onComplete }: Props) {
                   }}
                 >
                   {ob.appearanceDesc}
+                </div>
+                <div style={{ marginBottom: "20px" }}>
+                  <LanguageContent locale={locale} setLocale={setLocale} label={ob.languageLabel} />
                 </div>
                 <div
                   style={{
@@ -1290,14 +1286,14 @@ export function OnboardingWizard({ onComplete }: Props) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setStep("complete")}
+                  onClick={() => setStep("provider")}
                   className="onb-btn-primary" style={primaryBtn}
                 >
                   {ob.next}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStep("provider")}
+                  onClick={() => setStep("welcome")}
                   className="onb-btn-ghost" style={ghostBtn}
                 >
                   {ob.back}

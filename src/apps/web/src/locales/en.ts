@@ -1554,7 +1554,8 @@ export const en: LocaleStrings = {
     stepOf: (current: number, total: number) => `${current} / ${total}`,
     comingSoon: "Coming soon",
     greeting: "Hello",
-    appearanceTitle: "Appearance",
-    appearanceDesc: "Choose a color scheme. You can change this anytime in settings.",
+    appearanceTitle: "Preferences",
+    appearanceDesc: "Choose your language and color scheme. You can change these anytime in settings.",
+    languageLabel: "Language",
   },
 };
