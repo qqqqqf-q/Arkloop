@@ -76,9 +76,10 @@ func (r resolverStub) ResolvePrefix(_ context.Context, _ string, _ sharedconfig.
 }
 
 func TestToolExecutorExecuteWritesArtifact(t *testing.T) {
+	accountID := uuid.New()
 	store := &testStore{
 		objects: map[string]storedObject{
-			"demo/source.png": {
+			accountID.String() + "/demo/source.png": {
 				data:        []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0},
 				contentType: "image/png",
 			},
@@ -125,11 +126,10 @@ func TestToolExecutorExecuteWritesArtifact(t *testing.T) {
 	}
 
 	runID := uuid.New()
-	accountID := uuid.New()
 	threadID := uuid.New()
 	result := executor.Execute(context.Background(), AgentSpec.Name, map[string]any{
 		"prompt":        "draw a cat",
-		"input_images":  []any{"artifact:demo/source.png"},
+		"input_images":  []any{"artifact:" + accountID.String() + "/demo/source.png"},
 		"size":          "1024x1024",
 		"output_format": "png",
 	}, tools.ExecutionContext{
@@ -210,6 +210,49 @@ func TestToolExecutorExecutePropagatesGatewayErrorClass(t *testing.T) {
 	}
 	if result.Error.Details["provider_error_body"] != `{"error":{"message":"bad request"}}` {
 		t.Fatalf("unexpected provider_error_body: %#v", result.Error.Details)
+	}
+}
+
+func TestToolExecutorExecuteRejectsCrossAccountInputImage(t *testing.T) {
+	accountID := uuid.New()
+	otherAccountID := uuid.New()
+	store := &testStore{
+		objects: map[string]storedObject{
+			otherAccountID.String() + "/demo/source.png": {
+				data:        []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0},
+				contentType: "image/png",
+			},
+		},
+	}
+	routingLoader := routing.NewConfigLoader(nil, routing.ProviderRoutingConfig{
+		Credentials: []routing.ProviderCredential{{
+			ID:           "cred-openai",
+			Name:         "img-openai",
+			OwnerKind:    routing.CredentialScopePlatform,
+			ProviderKind: routing.ProviderKindOpenAI,
+			APIKeyValue:  stringPtr("sk-test"),
+		}},
+		Routes: []routing.ProviderRouteRule{{
+			ID:           "route-openai",
+			Model:        "gpt-image-1",
+			CredentialID: "cred-openai",
+		}},
+		DefaultRouteID: "route-openai",
+	})
+	executor := NewToolExecutor(store, nil, resolverStub{value: "img-openai^gpt-image-1"}, routingLoader)
+
+	result := executor.Execute(context.Background(), AgentSpec.Name, map[string]any{
+		"prompt":       "draw a cat",
+		"input_images": []any{"artifact:" + otherAccountID.String() + "/demo/source.png"},
+	}, tools.ExecutionContext{
+		RunID:     uuid.New(),
+		AccountID: &accountID,
+	}, "call_1")
+	if result.Error == nil {
+		t.Fatal("expected error")
+	}
+	if result.Error.Message != "input_images[0] is outside the current account" {
+		t.Fatalf("unexpected error: %#v", result.Error)
 	}
 }
 

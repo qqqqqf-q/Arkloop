@@ -233,6 +233,7 @@ func TestExecutorReply_NumericMessageID(t *testing.T) {
 }
 
 func TestExecutorSendFile_ArtifactRefUploadsMultipart(t *testing.T) {
+	accountID := uuid.New()
 	var (
 		gotMethod   string
 		gotFilename string
@@ -279,9 +280,12 @@ func TestExecutorSendFile_ArtifactRefUploadsMultipart(t *testing.T) {
 		PlatformChatID: "1001",
 	}
 	res := exec.Execute(context.Background(), ToolSendFile, map[string]any{
-		"file_url": "artifact:acc/run/generated-image.png",
+		"file_url": "artifact:" + accountID.String() + "/run/generated-image.png",
 		"kind":     "photo",
-	}, tools.ExecutionContext{Channel: surface}, "")
+	}, tools.ExecutionContext{
+		AccountID: &accountID,
+		Channel:   surface,
+	}, "")
 	if res.Error != nil {
 		t.Fatalf("send file: %v", res.Error)
 	}
@@ -293,6 +297,37 @@ func TestExecutorSendFile_ArtifactRefUploadsMultipart(t *testing.T) {
 	}
 	if string(gotBytes) != "png-bytes" {
 		t.Fatalf("unexpected bytes: %q", gotBytes)
+	}
+}
+
+func TestExecutorSendFile_RejectsCrossAccountArtifact(t *testing.T) {
+	accountID := uuid.New()
+	otherAccountID := uuid.New()
+	exec := NewExecutor(
+		fixedToken{token: "TEST"},
+		telegrambot.NewClient("https://example.invalid", nil),
+		testArtifactStore{
+			data:        []byte("png-bytes"),
+			contentType: "image/png",
+		},
+	)
+	surface := &tools.ChannelToolSurface{
+		ChannelID:      uuid.New(),
+		ChannelType:    "telegram",
+		PlatformChatID: "1001",
+	}
+	res := exec.Execute(context.Background(), ToolSendFile, map[string]any{
+		"file_url": "artifact:" + otherAccountID.String() + "/run/generated-image.png",
+		"kind":     "photo",
+	}, tools.ExecutionContext{
+		AccountID: &accountID,
+		Channel:   surface,
+	}, "")
+	if res.Error == nil {
+		t.Fatal("expected error")
+	}
+	if res.Error.Message != "artifact is outside the current account" {
+		t.Fatalf("unexpected error: %#v", res.Error)
 	}
 }
 

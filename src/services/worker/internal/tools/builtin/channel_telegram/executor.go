@@ -101,6 +101,14 @@ func tempArtifactFilename(key, contentType string) string {
 	return "artifact" + tempFileExt(key, contentType)
 }
 
+func artifactKeyMatchesAccount(key string, accountID uuid.UUID) bool {
+	key = strings.TrimSpace(key)
+	if key == "" || accountID == uuid.Nil {
+		return false
+	}
+	return strings.HasPrefix(key, accountID.String()+"/")
+}
+
 // TokenLoader resolves the bot token for a channel (Server PG or Desktop SQLite).
 type TokenLoader interface {
 	BotToken(ctx context.Context, channelID uuid.UUID) (string, error)
@@ -166,7 +174,7 @@ func (e *Executor) Execute(ctx context.Context, toolName string, args map[string
 	case ToolReply:
 		return e.reply(ctx, args, surface, chatID, token, started)
 	case ToolSendFile:
-		return e.sendFile(ctx, args, surface, chatID, token, started)
+		return e.sendFile(ctx, args, execCtx.AccountID, surface, chatID, token, started)
 	default:
 		return tools.ExecutionResult{
 			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolNotRegistered, Message: fmt.Sprintf("unknown tool %q", toolName)},
@@ -269,6 +277,7 @@ func (e *Executor) reply(
 func (e *Executor) sendFile(
 	ctx context.Context,
 	args map[string]any,
+	accountID *uuid.UUID,
 	surface *tools.ChannelToolSurface,
 	chatID, token string,
 	started time.Time,
@@ -284,6 +293,12 @@ func (e *Executor) sendFile(
 	}
 	cleanup := func() {}
 	if artifactKey := normalizeArtifactRef(fileURL); artifactKey != "" {
+		if accountID == nil || !artifactKeyMatchesAccount(artifactKey, *accountID) {
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "artifact is outside the current account"},
+				DurationMs: ms(),
+			}
+		}
 		if e.store == nil {
 			return tools.ExecutionResult{
 				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "artifact storage is not configured"},

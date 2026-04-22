@@ -68,7 +68,7 @@ func (e *ToolExecutor) Execute(
 	if prompt == "" {
 		return errResult("tool.args_invalid", "parameter prompt is required", started)
 	}
-	inputImages, err := e.loadInputImages(ctx, args)
+	inputImages, err := e.loadInputImages(ctx, args, *execCtx.AccountID)
 	if err != nil {
 		return errResult("tool.args_invalid", err.Error(), started)
 	}
@@ -225,7 +225,7 @@ func buildArtifactKey(execCtx tools.ExecutionContext, filename string) string {
 	return filepath.ToSlash(fmt.Sprintf("%s/%s/%s", accountID, execCtx.RunID.String(), filename))
 }
 
-func (e *ToolExecutor) loadInputImages(ctx context.Context, args map[string]any) ([]llm.ContentPart, error) {
+func (e *ToolExecutor) loadInputImages(ctx context.Context, args map[string]any, accountID uuid.UUID) ([]llm.ContentPart, error) {
 	if e == nil || e.store == nil || args == nil {
 		return nil, nil
 	}
@@ -246,6 +246,9 @@ func (e *ToolExecutor) loadInputImages(ctx context.Context, args map[string]any)
 		key := normalizeArtifactRef(raw)
 		if key == "" {
 			return nil, fmt.Errorf("input_images[%d] is empty", idx)
+		}
+		if !artifactKeyMatchesAccount(key, accountID) {
+			return nil, fmt.Errorf("input_images[%d] is outside the current account", idx)
 		}
 		data, contentType, err := e.store.GetWithContentType(ctx, key)
 		if err != nil {
@@ -277,6 +280,14 @@ func normalizeArtifactRef(value string) string {
 		return strings.TrimSpace(strings.TrimPrefix(trimmed, "artifact:"))
 	}
 	return trimmed
+}
+
+func artifactKeyMatchesAccount(key string, accountID uuid.UUID) bool {
+	key = strings.TrimSpace(key)
+	if key == "" || accountID == uuid.Nil {
+		return false
+	}
+	return strings.HasPrefix(key, accountID.String()+"/")
 }
 
 func normalizeImageContentType(contentType string, data []byte) string {
