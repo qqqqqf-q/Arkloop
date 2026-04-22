@@ -144,7 +144,7 @@ export function AppLayout() {
   const { sidebarCollapsed, sidebarHiddenByWidth, toggleSidebar } = useSidebarUI()
   const { isSearchMode, searchOverlayOpen, exitSearchMode, closeSearchOverlay } = useSearchUI()
   const { appMode, availableAppModes, setAppMode } = useAppModeUI()
-  const { closeSettings, openSettings } = useSettingsUI()
+  const { closeSettings } = useSettingsUI()
   const { closeNotifications } = useNotificationsUI()
   const { queueSkillPrompt } = useSkillPromptUI()
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI()
@@ -154,8 +154,10 @@ export function AppLayout() {
   const location = useLocation()
   const desktop = isDesktop()
 
-  const [hasComponentUpdates, setHasComponentUpdates] = useState(true)
+  const [hasComponentUpdates, setHasComponentUpdates] = useState(false)
+  const [appUpdateState, setAppUpdateState] = useState<import('@arkloop/shared/desktop').AppUpdaterState | null>(null)
 
+  // component updater
   useEffect(() => {
     if (!desktop) return
     const api = getDesktopApi()
@@ -173,9 +175,29 @@ export function AppLayout() {
     return api.updater.onStatusChanged?.(checkStatus)
   }, [desktop])
 
-  const handleOpenUpdates = useCallback(() => {
-    openSettings('updates')
-  }, [openSettings])
+  // app updater
+  useEffect(() => {
+    if (!desktop) return
+    const api = getDesktopApi()
+    if (!api?.appUpdater) return
+    void api.appUpdater.getState().then(setAppUpdateState).catch(() => {})
+    return api.appUpdater.onState(setAppUpdateState)
+  }, [desktop])
+
+  const handleCheckAppUpdate = useCallback(() => {
+    const api = getDesktopApi()
+    void api?.appUpdater?.check().then(setAppUpdateState).catch(() => {})
+  }, [])
+
+  const handleDownloadApp = useCallback(() => {
+    const api = getDesktopApi()
+    void api?.appUpdater?.download().then(setAppUpdateState).catch(() => {})
+  }, [])
+
+  const handleInstallApp = useCallback(() => {
+    const api = getDesktopApi()
+    void api?.appUpdater?.install().catch(() => {})
+  }, [])
 
   const pathnameSearchOpen = location.pathname.endsWith('/search')
   const isSearchOpen = searchOverlayOpen || pathnameSearchOpen
@@ -249,8 +271,11 @@ export function AppLayout() {
             showIncognitoToggle={appMode !== 'work'}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
-            hasComponentUpdates={hasComponentUpdates}
-            onOpenUpdates={handleOpenUpdates}
+            hasComponentUpdates={hasComponentUpdates || (appUpdateState != null && appUpdateState.phase === 'available')}
+            onCheckAppUpdate={handleCheckAppUpdate}
+            appUpdateState={appUpdateState}
+            onDownloadApp={handleDownloadApp}
+            onInstallApp={handleInstallApp}
           />
         )}
 
