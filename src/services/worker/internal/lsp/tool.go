@@ -5,10 +5,12 @@ package lsp
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,22 +56,8 @@ func parseLSPArgs(raw map[string]any) (lspArgs, error) {
 	a.Query, _ = raw["query"].(string)
 	a.NewName, _ = raw["new_name"].(string)
 
-	if v, ok := raw["line"]; ok {
-		switch n := v.(type) {
-		case float64:
-			a.Line = int(n)
-		case int:
-			a.Line = n
-		}
-	}
-	if v, ok := raw["column"]; ok {
-		switch n := v.(type) {
-		case float64:
-			a.Column = int(n)
-		case int:
-			a.Column = n
-		}
-	}
+	a.Line = toInt(raw["line"])
+	a.Column = toInt(raw["column"])
 	if v, ok := raw["include_declaration"]; ok {
 		if b, ok := v.(bool); ok {
 			a.IncludeDeclaration = &b
@@ -639,6 +627,25 @@ func gitCheckIgnore(ctx context.Context, workDir string, paths map[string]struct
 		}
 	}
 	return result
+}
+
+// toInt converts a value from map[string]any to int.
+// Handles string, float64, int, json.Number — all types the framework may deliver.
+func toInt(v any) int {
+	switch n := v.(type) {
+	case string:
+		i, _ := strconv.Atoi(n)
+		return i
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
 }
 
 func ms(start time.Time) int {

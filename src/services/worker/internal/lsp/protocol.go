@@ -444,13 +444,9 @@ type RenameClientCapabilities struct {
 type CallHierarchyClientCapabilities struct{}
 
 type WorkspaceClientCapabilities struct {
-	WorkspaceFolders       *WorkspaceFoldersClientCapabilities       `json:"workspaceFolders,omitempty"`
-	DidChangeWatchedFiles  *DidChangeWatchedFilesClientCapabilities  `json:"didChangeWatchedFiles,omitempty"`
-	WorkspaceEdit          *WorkspaceEditClientCapabilities          `json:"workspaceEdit,omitempty"`
-}
-
-type WorkspaceFoldersClientCapabilities struct {
-	Supported bool `json:"supported,omitempty"`
+	WorkspaceFolders      bool                                     `json:"workspaceFolders,omitempty"`
+	DidChangeWatchedFiles *DidChangeWatchedFilesClientCapabilities `json:"didChangeWatchedFiles,omitempty"`
+	WorkspaceEdit         *WorkspaceEditClientCapabilities         `json:"workspaceEdit,omitempty"`
 }
 
 type DidChangeWatchedFilesClientCapabilities struct{}
@@ -589,9 +585,7 @@ func DefaultClientCapabilities() ClientCapabilities {
 			CallHierarchy: &CallHierarchyClientCapabilities{},
 		},
 		Workspace: &WorkspaceClientCapabilities{
-			WorkspaceFolders: &WorkspaceFoldersClientCapabilities{
-				Supported: true,
-			},
+			WorkspaceFolders: true,
 			DidChangeWatchedFiles: &DidChangeWatchedFilesClientCapabilities{},
 			WorkspaceEdit: &WorkspaceEditClientCapabilities{
 				DocumentChanges: true,
