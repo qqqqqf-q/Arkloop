@@ -145,7 +145,7 @@ func (e *ToolExecutor) executeProcessCommand(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/exec", payload, "exec_command", resolveAccountID(execCtx), execCtx.PerToolSoftLimits, started)
+	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/exec", payload, "exec_command", resolveAccountID(execCtx), execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeContinueProcess(
@@ -182,7 +182,7 @@ func (e *ToolExecutor) executeContinueProcess(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/continue", payload, "continue_process", resolveAccountID(execCtx), execCtx.PerToolSoftLimits, started)
+	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/continue", payload, "continue_process", resolveAccountID(execCtx), execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeTerminateProcess(
@@ -203,7 +203,7 @@ func (e *ToolExecutor) executeTerminateProcess(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/terminate", payload, "terminate_process", resolveAccountID(execCtx), execCtx.PerToolSoftLimits, started)
+	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/terminate", payload, "terminate_process", resolveAccountID(execCtx), execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeResizeProcess(
@@ -226,7 +226,7 @@ func (e *ToolExecutor) executeResizeProcess(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
-	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/resize", payload, "resize_process", resolveAccountID(execCtx), execCtx.PerToolSoftLimits, started)
+	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/resize", payload, "resize_process", resolveAccountID(execCtx), execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *ToolExecutor) executeProcessRequest(
@@ -235,6 +235,7 @@ func (e *ToolExecutor) executeProcessRequest(
 	payload []byte,
 	toolName string,
 	accountID string,
+	runID string,
 	softLimits tools.PerToolSoftLimits,
 	started time.Time,
 ) tools.ExecutionResult {
@@ -258,15 +259,26 @@ func (e *ToolExecutor) executeProcessRequest(
 
 	stdout := sanitizeShellOutput(result.Stdout)
 	stderr := sanitizeShellOutput(result.Stderr)
+
+	// persist full output before truncation
+	combined := stdout + stderr
+	persistedPath := tools.PersistLargeOutput(runID, combined)
+
+	// tail-truncate
+	stdout, stdoutTrunc := tools.TruncateOutputField(stdout, tools.TruncateMaxChars)
+	stderr, stderrTrunc := tools.TruncateOutputField(stderr, tools.TruncateMaxChars/4)
 	items := make([]map[string]any, 0, len(result.Items))
 	for _, item := range result.Items {
+		text := sanitizeShellOutput(item.Text)
+		text, _ = tools.TruncateOutputField(text, tools.TruncateMaxChars)
 		items = append(items, map[string]any{
 			"seq":    item.Seq,
 			"stream": item.Stream,
-			"text":   sanitizeShellOutput(item.Text),
+			"text":   text,
 		})
 	}
 
+	truncated := result.Truncated || stdoutTrunc || stderrTrunc
 	resultJSON := map[string]any{
 		"status":      result.Status,
 		"stdout":      stdout,
@@ -276,8 +288,11 @@ func (e *ToolExecutor) executeProcessRequest(
 		"next_cursor": result.NextCursor,
 		"items":       items,
 		"has_more":    result.HasMore,
-		"truncated":   result.Truncated,
+		"truncated":   truncated,
 		"duration_ms": durationMs(started),
+	}
+	if persistedPath != "" {
+		resultJSON["full_output_path"] = persistedPath
 	}
 	if ref := strings.TrimSpace(result.ProcessRef); ref != "" {
 		resultJSON["process_ref"] = ref

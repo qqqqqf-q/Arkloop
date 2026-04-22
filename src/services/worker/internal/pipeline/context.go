@@ -181,6 +181,9 @@ type RunContext struct {
 	ToolExecutor *tools.DispatchingExecutor
 	FinalSpecs   []llm.ToolSpec
 
+	// -- ToolLoopDetectionMiddleware 写入 --
+	ToolLoopDetector *ToolLoopDetector
+
 	// -- ChannelContextMiddleware 写入 --
 	ChannelContext *ChannelContext
 	// ChannelToolSurface 与 ChannelContext 同步，供工具 ExecutionContext 使用（避免 tools 依赖 pipeline.ChannelContext）

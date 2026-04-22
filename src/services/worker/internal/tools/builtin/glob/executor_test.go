@@ -49,7 +49,7 @@ func TestGlobFilesLocalFallbackStillWorks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(matches) != 1 || matches[0] != "nested/one.txt" {
+	if len(matches) != 1 || matches[0].Path != "nested/one.txt" {
 		t.Fatalf("unexpected matches: %#v", matches)
 	}
 }

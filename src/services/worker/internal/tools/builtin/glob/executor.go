@@ -15,6 +15,13 @@ import (
 
 const maxResults = 1000
 
+// fileEntry holds a matched file path with optional metadata.
+type fileEntry struct {
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	Mtime string `json:"mtime"` // RFC3339
+}
+
 // skipDirs are directory names skipped during glob fallback walk.
 var skipDirs = map[string]struct{}{
 	".git":         {},
@@ -49,30 +56,30 @@ func (e *Executor) Execute(
 
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
-	matches, truncated, err := globFiles(ctx, backend, pattern, searchPath)
+	entries, truncated, err := globFiles(ctx, backend, pattern, searchPath)
 	if err != nil {
 		return errResult(fmt.Sprintf("glob failed: %s", err.Error()), started)
 	}
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
-			"files":     matches,
-			"count":     len(matches),
+			"files":     entries,
+			"count":     len(entries),
 			"truncated": truncated,
 		},
 		DurationMs: durationMs(started),
 	}
 }
 
-func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]string, bool, error) {
+func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]fileEntry, bool, error) {
 	// ripgrep fast path
-	matches, err := globWithRipgrep(ctx, backend, pattern, searchPath)
+	entries, err := globWithRipgrep(ctx, backend, pattern, searchPath)
 	if err == nil {
-		truncated := len(matches) > maxResults
+		truncated := len(entries) > maxResults
 		if truncated {
-			matches = matches[:maxResults]
+			entries = entries[:maxResults]
 		}
-		return matches, truncated, nil
+		return entries, truncated, nil
 	}
 
 	localBackend, ok := backend.(*fileops.LocalBackend)
@@ -87,7 +94,7 @@ func globFiles(ctx context.Context, backend fileops.Backend, pattern, searchPath
 	return globWalk(localBackend.NormalizePath(searchPath), pattern)
 }
 
-func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]string, error) {
+func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath string) ([]fileEntry, error) {
 	// Avoid --null: PTY sessions may corrupt NUL bytes in the output stream.
 	cmd := fmt.Sprintf("rg --files --glob %s", shellQuote(pattern))
 	if searchPath != "" {
@@ -104,7 +111,7 @@ func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, sear
 	if exitCode != 0 && stdout == "" {
 		return nil, fmt.Errorf("rg exited %d", exitCode)
 	}
-	var matches []string
+	var entries []fileEntry
 	for _, path := range strings.Split(stdout, "\n") {
 		path = strings.TrimSpace(path)
 		if path == "" {
@@ -113,15 +120,20 @@ func globWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, sear
 		if isHiddenPath(path) {
 			continue
 		}
-		matches = append(matches, path)
+		e := fileEntry{Path: path}
+		if info, statErr := os.Stat(path); statErr == nil {
+			e.Size = info.Size()
+			e.Mtime = info.ModTime().UTC().Format(time.RFC3339)
+		}
+		entries = append(entries, e)
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		return len(matches[i]) < len(matches[j])
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Mtime > entries[j].Mtime
 	})
-	return matches, nil
+	return entries, nil
 }
 
-func globWalk(root, pattern string) ([]string, bool, error) {
+func globWalk(root, pattern string) ([]fileEntry, bool, error) {
 	if root == "" {
 		root = "."
 	}
@@ -130,7 +142,7 @@ func globWalk(root, pattern string) ([]string, bool, error) {
 		pattern = "**/" + pattern
 	}
 
-	var matches []string
+	var entries []fileEntry
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -157,21 +169,24 @@ func globWalk(root, pattern string) ([]string, bool, error) {
 			}
 		}
 		if matched {
-			matches = append(matches, filepath.ToSlash(filepath.Clean(rel)))
+			e := fileEntry{Path: filepath.ToSlash(filepath.Clean(rel))}
+			e.Size = info.Size()
+			e.Mtime = info.ModTime().UTC().Format(time.RFC3339)
+			entries = append(entries, e)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, false, err
 	}
-	sort.Slice(matches, func(i, j int) bool {
-		return len(matches[i]) < len(matches[j])
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Mtime > entries[j].Mtime
 	})
-	truncated := len(matches) > maxResults
+	truncated := len(entries) > maxResults
 	if truncated {
-		matches = matches[:maxResults]
+		entries = entries[:maxResults]
 	}
-	return matches, truncated, nil
+	return entries, truncated, nil
 }
 
 func isHiddenPath(path string) bool {

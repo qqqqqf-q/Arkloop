@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
@@ -25,14 +26,7 @@ func (f failingBackend) Exec(context.Context, string) (string, string, int, erro
 func (f failingBackend) NormalizePath(path string) string { return path }
 
 func TestSearchFilesStructuredDoesNotFallbackOutsideBackend(t *testing.T) {
-	_, _, err := searchFilesStructured(context.Background(), failingBackend{}, "hello", ".", "")
-	if err == nil {
-		t.Fatal("expected ripgrep error to be returned for non-local backend")
-	}
-}
-
-func TestSearchFilesContextDoesNotFallbackOutsideBackend(t *testing.T) {
-	_, _, _, err := searchFiles(context.Background(), failingBackend{}, "hello", ".", "", 2)
+	_, _, err := searchFilesStructured(context.Background(), failingBackend{}, "hello", ".", "", defaultLimit)
 	if err == nil {
 		t.Fatal("expected ripgrep error to be returned for non-local backend")
 	}
@@ -45,11 +39,52 @@ func TestSearchFilesLocalFallbackStillWorks(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	matches, _, _, err := searchFiles(context.Background(), &fileops.LocalBackend{WorkDir: root}, "hello", ".", "", 0)
+	matches, _, err := searchFilesStructured(context.Background(), &fileops.LocalBackend{WorkDir: root}, "hello", ".", "", defaultLimit)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(matches) != 1 || matches[0].file != "notes.txt" {
 		t.Fatalf("unexpected matches: %#v", matches)
+	}
+}
+
+func TestAutoContextLines(t *testing.T) {
+	tests := []struct {
+		count    int
+		expected int
+	}{
+		{1, 30},
+		{2, 10},
+		{3, 10},
+		{5, 3},
+		{10, 3},
+		{11, 0},
+		{100, 0},
+	}
+	for _, tt := range tests {
+		got := autoContextLines(tt.count)
+		if got != tt.expected {
+			t.Errorf("autoContextLines(%d) = %d, want %d", tt.count, got, tt.expected)
+		}
+	}
+}
+
+func TestPaginatedResult(t *testing.T) {
+	started := time.Now()
+	result := paginatedResult("a\nb\nc", 3, true, 10, 3, 0, started)
+	json := result.ResultJSON
+	if json["truncated"] != true {
+		t.Fatal("expected truncated=true")
+	}
+	hint, ok := json["pagination_hint"].(string)
+	if !ok || hint == "" {
+		t.Fatal("expected pagination_hint")
+	}
+}
+
+func TestSplitNonEmpty(t *testing.T) {
+	lines := splitNonEmpty("a\n\nb\n  \nc\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %v", len(lines), lines)
 	}
 }

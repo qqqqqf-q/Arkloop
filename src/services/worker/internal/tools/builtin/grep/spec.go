@@ -34,7 +34,20 @@ var LlmSpec = llm.ToolSpec{
 			},
 			"context_lines": map[string]any{
 				"type":        "integer",
-				"description": "number of context lines to show before and after each match (0-10, default 0)",
+				"description": "number of context lines before and after each match (0-10). When omitted and output_mode=content, auto-context is applied based on match count",
+			},
+			"output_mode": map[string]any{
+				"type":        "string",
+				"enum":        []string{"content", "files_with_matches", "count"},
+				"description": "output mode: files_with_matches (default, file paths only), content (matching lines with context), count (match counts per file)",
+			},
+			"limit": map[string]any{
+				"type":        "integer",
+				"description": "max results to return (default 200, max 1000). Use with offset for pagination",
+			},
+			"offset": map[string]any{
+				"type":        "integer",
+				"description": "number of results to skip for pagination (default 0)",
 			},
 		},
 		"required":             []string{"pattern"},

@@ -445,6 +445,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if err := recoverOrphanRuns(ctx, db); err != nil {
 		slog.WarnContext(ctx, "desktop: orphan run recovery failed", "err", err.Error())
 	}
+	tools.CleanupStaleOutputDirs(1 * time.Hour)
 
 	return &DesktopEngine{
 		db:                     db,
@@ -743,6 +744,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		pipeline.NewHeartbeatPrepareMiddleware(),
 		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolBuildMiddleware(),
+		pipeline.NewToolLoopDetectionMiddleware(),
 		pipeline.NewResultSummarizerMiddleware(nil, e.auxGateway, e.emitDebugEvents, 0, e.routingLoader),
 		pipeline.NewThreadPersistHookMiddleware(),
 		desktopChannelDelivery(e.db, e.messageAttachmentStore),

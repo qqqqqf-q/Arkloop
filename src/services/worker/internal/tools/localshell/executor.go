@@ -132,7 +132,7 @@ func (e *Executor) executeExecCommand(
 	if runErr != nil {
 		return mapLocalProcessError(runErr, started)
 	}
-	return buildProcessResult(resp, ExecCommandAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ExecCommandAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeContinueProcess(args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
@@ -155,7 +155,7 @@ func (e *Executor) executeContinueProcess(args map[string]any, execCtx tools.Exe
 	if runErr != nil {
 		return mapLocalProcessError(runErr, started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeTerminateProcess(args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
@@ -167,7 +167,7 @@ func (e *Executor) executeTerminateProcess(args map[string]any, execCtx tools.Ex
 	if runErr != nil {
 		return mapLocalProcessError(runErr, started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeResizeProcess(args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
@@ -183,7 +183,7 @@ func (e *Executor) executeResizeProcess(args map[string]any, execCtx tools.Execu
 	if runErr != nil {
 		return mapLocalProcessError(runErr, started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 type execCommandArgs struct {
@@ -325,22 +325,34 @@ func parseResizeProcessArgs(args map[string]any) (resizeProcessArgs, error) {
 	return resizeProcessArgs{ProcessRef: processRef, Rows: rows, Cols: cols}, nil
 }
 
-func buildProcessResult(resp *Response, toolName string, limits tools.PerToolSoftLimits, started time.Time) tools.ExecutionResult {
+func buildProcessResult(resp *Response, toolName string, runID string, limits tools.PerToolSoftLimits, started time.Time) tools.ExecutionResult {
 	if resp == nil {
 		return errResult(errorShellError, "process response is empty", started)
 	}
 
 	stdout := sanitizeOutput(resp.Stdout)
 	stderr := sanitizeOutput(resp.Stderr)
+
+	// persist full output before truncation
+	combined := stdout + stderr
+	persistedPath := tools.PersistLargeOutput(runID, combined)
+
+	// tail-truncate
+	stdout, stdoutTrunc := tools.TruncateOutputField(stdout, tools.TruncateMaxChars)
+	stderr, stderrTrunc := tools.TruncateOutputField(stderr, tools.TruncateMaxChars/4)
+
 	items := make([]map[string]any, 0, len(resp.Items))
 	for _, item := range resp.Items {
+		text := sanitizeOutput(item.Text)
+		text, _ = tools.TruncateOutputField(text, tools.TruncateMaxChars)
 		items = append(items, map[string]any{
 			"seq":    item.Seq,
 			"stream": item.Stream,
-			"text":   sanitizeOutput(item.Text),
+			"text":   text,
 		})
 	}
 
+	truncated := resp.Truncated || stdoutTrunc || stderrTrunc
 	resultJSON := map[string]any{
 		"status":      resp.Status,
 		"stdout":      stdout,
@@ -350,8 +362,11 @@ func buildProcessResult(resp *Response, toolName string, limits tools.PerToolSof
 		"next_cursor": resp.NextCursor,
 		"items":       items,
 		"has_more":    resp.HasMore,
-		"truncated":   resp.Truncated,
+		"truncated":   truncated,
 		"duration_ms": durationMs(started),
+	}
+	if persistedPath != "" {
+		resultJSON["full_output_path"] = persistedPath
 	}
 	if strings.TrimSpace(resp.ProcessRef) != "" {
 		resultJSON["process_ref"] = strings.TrimSpace(resp.ProcessRef)

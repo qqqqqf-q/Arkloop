@@ -142,7 +142,7 @@ func (e *Executor) executeExecCommand(
 	if postErr != nil {
 		return errResult(errorSandbox, postErr.Error(), started)
 	}
-	return buildProcessResult(resp, ExecCommandAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ExecCommandAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeContinueProcess(
@@ -180,7 +180,7 @@ func (e *Executor) executeContinueProcess(
 	if postErr != nil {
 		return errResult(errorSandbox, postErr.Error(), started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeTerminateProcess(
@@ -203,7 +203,7 @@ func (e *Executor) executeTerminateProcess(
 	if postErr != nil {
 		return errResult(errorSandbox, postErr.Error(), started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 func (e *Executor) executeResizeProcess(
@@ -228,7 +228,7 @@ func (e *Executor) executeResizeProcess(
 	if postErr != nil {
 		return errResult(errorSandbox, postErr.Error(), started)
 	}
-	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.PerToolSoftLimits, started)
+	return buildProcessResult(resp, ContinueProcessAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 
 type execCommandArgs struct {
@@ -377,9 +377,32 @@ func parseResizeProcessArgs(args map[string]any) (resizeProcessArgs, error) {
 	return resizeProcessArgs{ProcessRef: processRef, Rows: rows, Cols: cols}, nil
 }
 
-func buildProcessResult(resp processResponse, toolName string, limits tools.PerToolSoftLimits, started time.Time) tools.ExecutionResult {
+func buildProcessResult(resp processResponse, toolName string, runID string, limits tools.PerToolSoftLimits, started time.Time) tools.ExecutionResult {
 	stdout := resp.Stdout
 	stderr := resp.Stderr
+
+	// persist full output before truncation
+	combined := stdout + stderr
+	persistedPath := tools.PersistLargeOutput(runID, combined)
+
+	// tail-truncate
+	stdout, stdoutTrunc := tools.TruncateOutputField(stdout, tools.TruncateMaxChars)
+	stderr, stderrTrunc := tools.TruncateOutputField(stderr, tools.TruncateMaxChars/4)
+
+	truncated := resp.Truncated || stdoutTrunc || stderrTrunc
+
+	// per-item truncation (consistent with localshell)
+	items := make([]map[string]any, 0, len(resp.Items))
+	for _, item := range resp.Items {
+		text, _ := item["text"].(string)
+		text, _ = tools.TruncateOutputField(text, tools.TruncateMaxChars)
+		truncItem := make(map[string]any, len(item))
+		for k, v := range item {
+			truncItem[k] = v
+		}
+		truncItem["text"] = text
+		items = append(items, truncItem)
+	}
 
 	resultJSON := map[string]any{
 		"status":      resp.Status,
@@ -388,10 +411,13 @@ func buildProcessResult(resp processResponse, toolName string, limits tools.PerT
 		"running":     resp.Status == statusRunning,
 		"cursor":      resp.Cursor,
 		"next_cursor": resp.NextCursor,
-		"items":       resp.Items,
+		"items":       items,
 		"has_more":    resp.HasMore,
-		"truncated":   resp.Truncated,
+		"truncated":   truncated,
 		"duration_ms": durationMs(started),
+	}
+	if persistedPath != "" {
+		resultJSON["full_output_path"] = persistedPath
 	}
 	if strings.TrimSpace(resp.ProcessRef) != "" {
 		resultJSON["process_ref"] = strings.TrimSpace(resp.ProcessRef)

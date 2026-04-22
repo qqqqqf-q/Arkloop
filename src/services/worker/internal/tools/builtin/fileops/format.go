@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
 	MaxReadSize      = 256 * 1024
 	DefaultReadLimit = 2000
 	MaxLineLength    = 2000
+	MaxOutputChars   = 100 * 1024 // 100K character output cap
 )
 
 // FormatWithLineNumbers prepends right-aligned 6-char line numbers to each line.
@@ -34,7 +36,14 @@ func TruncateLine(line string, maxLen int) string {
 	if len(line) <= maxLen {
 		return line
 	}
-	return line[:maxLen] + "..."
+	s := line[:maxLen]
+	for len(s) > 0 && !utf8.RuneStart(s[len(s)-1]) {
+		s = s[:len(s)-1]
+	}
+	if len(s) > 0 && !utf8.ValidString(s[len(s)-1:]) {
+		s = s[:len(s)-1]
+	}
+	return s + "..."
 }
 
 // ReadLines extracts a range of lines from raw data.

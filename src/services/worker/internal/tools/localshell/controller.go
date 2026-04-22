@@ -21,6 +21,38 @@ import (
 	"github.com/creack/pty"
 )
 
+// safeBuf is a concurrency-safe bytes.Buffer. It implements io.Writer so it
+// can be assigned to cmd.Stdout/cmd.Stderr, while providing safe read access
+// for the drain goroutine.
+type safeBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *safeBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+// snapshot returns the total length and a copy of bytes from offset onwards.
+func (s *safeBuf) snapshot(offset int) (int, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := s.buf.Len()
+	if n <= offset {
+		return n, ""
+	}
+	return n, string(s.buf.Bytes()[offset:n])
+}
+
+// String returns the full buffer content.
+func (s *safeBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
 const (
 	processStartupWait = 150 * time.Millisecond
 	processDrainGrace  = 100 * time.Millisecond
@@ -63,6 +95,12 @@ type managedProcess struct {
 	output            *ItemBuffer
 	updateCh          chan struct{}
 	readerWG          sync.WaitGroup
+
+	// promoted buffered process: safe buffers for final drain
+	promotedStdout    *safeBuf
+	promotedStderr    *safeBuf
+	promotedSeededOut int // stdout bytes already seeded
+	promotedSeededErr int // stderr bytes already seeded
 }
 
 func NewProcessController() *ProcessController {
@@ -255,8 +293,7 @@ func (c *ProcessController) runBuffered(req ExecCommandRequest) (*Response, erro
 	cmd.Env = buildProcessEnv(req.Env, false)
 	cmd.SysProcAttr = procSysProcAttr()
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var stdout, stderr safeBuf
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
@@ -281,23 +318,141 @@ func (c *ProcessController) runBuffered(req ExecCommandRequest) (*Response, erro
 			NextCursor: CursorString(0),
 		}, nil
 	case <-time.After(timeout):
-		_ = terminateProcessTree(cmd, syscall.SIGTERM)
-		select {
-		case <-done:
-		case <-time.After(processKillGrace):
-			_ = terminateProcessTree(cmd, syscall.SIGKILL)
-			<-done
+		// promote to managed background process instead of killing
+		proc, promoteErr := c.promoteToManaged(req, cmd, &stdout, &stderr, done)
+		if promoteErr != nil {
+			// fallback: kill as before
+			_ = terminateProcessTree(cmd, syscall.SIGTERM)
+			select {
+			case <-done:
+			case <-time.After(processKillGrace):
+				_ = terminateProcessTree(cmd, syscall.SIGKILL)
+				<-done
+			}
+			exitCode := 124
+			return &Response{
+				Status:     StatusTimedOut,
+				Stdout:     stdout.String(),
+				Stderr:     stderr.String(),
+				ExitCode:   &exitCode,
+				Cursor:     CursorString(0),
+				NextCursor: CursorString(0),
+			}, nil
 		}
-		exitCode := 124
 		return &Response{
-			Status:     StatusTimedOut,
+			Status:     StatusRunning,
+			ProcessRef: proc.ref,
 			Stdout:     stdout.String(),
 			Stderr:     stderr.String(),
-			ExitCode:   &exitCode,
 			Cursor:     CursorString(0),
-			NextCursor: CursorString(0),
+			NextCursor: CursorString(proc.output.NextSeq()),
 		}, nil
 	}
+}
+
+// promoteToManaged converts a buffered process that timed out into a managed
+// background process, allowing the agent to poll it via continue_process.
+func (c *ProcessController) promoteToManaged(
+	req ExecCommandRequest,
+	cmd *exec.Cmd,
+	stdout *safeBuf,
+	stderr *safeBuf,
+	done <-chan error,
+) (*managedProcess, error) {
+	ref, err := newProcessRef()
+	if err != nil {
+		return nil, err
+	}
+
+	proc := &managedProcess{
+		ref:               ref,
+		runID:             strings.TrimSpace(req.RunID),
+		mode:              ModeFollow,
+		cmd:               cmd,
+		allowStdin:        false,
+		status:            StatusRunning,
+		acceptedInputSeqs: map[int64]struct{}{},
+		output:            NewItemBuffer(processRingBytes),
+		updateCh:          make(chan struct{}),
+	}
+
+	// seed buffer with output captured so far
+	_, seededOutStr := stdout.snapshot(0)
+	_, seededErrStr := stderr.snapshot(0)
+	seededOut := len(seededOutStr)
+	seededErr := len(seededErrStr)
+	if seededOut > 0 {
+		proc.output.Append(StreamStdout, seededOutStr)
+	}
+	if seededErr > 0 {
+		proc.output.Append(StreamStderr, seededErrStr)
+	}
+	proc.promotedStdout = stdout
+	proc.promotedStderr = stderr
+	proc.promotedSeededOut = seededOut
+	proc.promotedSeededErr = seededErr
+
+	// monitor exit in background; periodically drain buffer content while running
+	go func() {
+		ticker := time.NewTicker(200 * time.Millisecond)
+		defer ticker.Stop()
+
+		lastOut := seededOut
+		lastErr := seededErr
+
+		// drainIncrement flushes new bytes from the promoted buffers into ItemBuffer.
+		// Returns true if any content was flushed.
+		drainIncrement := func() bool {
+			flushed := false
+			if proc.promotedStdout != nil {
+				n, data := proc.promotedStdout.snapshot(lastOut)
+				if n > lastOut {
+					proc.output.Append(StreamStdout, data)
+					lastOut = n
+					flushed = true
+				}
+			}
+			if proc.promotedStderr != nil {
+				n, data := proc.promotedStderr.snapshot(lastErr)
+				if n > lastErr {
+					proc.output.Append(StreamStderr, data)
+					lastErr = n
+					flushed = true
+				}
+			}
+			return flushed
+		}
+
+		// periodic drain while process is running
+		for {
+			select {
+			case <-ticker.C:
+				proc.mu.Lock()
+				if drainIncrement() {
+					notifyLocked(proc)
+				}
+				proc.mu.Unlock()
+			case exitErr := <-done:
+				// final drain after process exit; writer goroutines are done
+				proc.mu.Lock()
+				drainIncrement()
+				proc.promotedStdout = nil
+				proc.promotedStderr = nil
+				code := exitCodeFromError(exitErr)
+				proc.exitCode = &code
+				proc.status = StatusExited
+				notifyLocked(proc)
+				proc.mu.Unlock()
+				return
+			}
+		}
+	}()
+
+	c.mu.Lock()
+	c.processes[ref] = proc
+	c.mu.Unlock()
+
+	return proc, nil
 }
 
 func (c *ProcessController) startManaged(req ExecCommandRequest) (*managedProcess, error) {

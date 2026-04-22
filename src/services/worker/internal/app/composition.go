@@ -395,6 +395,8 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		chQQ = &pgQQOneBotConfigLoader{pool: pool}
 	}
 
+	tools.CleanupStaleOutputDirs(1 * time.Hour)
+
 	return runengine.NewEngineV1(runengine.EngineV1Deps{
 		Router:                       router,
 		DBPool:                       pool,

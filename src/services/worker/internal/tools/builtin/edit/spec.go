@@ -32,6 +32,10 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "string",
 				"description": "replacement text",
 			},
+			"replace_all": map[string]any{
+				"type":        "boolean",
+				"description": "if true, replace all occurrences of old_string (default false)",
+			},
 		},
 		"required":             []string{"file_path", "old_string", "new_string"},
 		"additionalProperties": false,

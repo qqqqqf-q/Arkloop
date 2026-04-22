@@ -41,7 +41,9 @@ func (e *Executor) Execute(
 	}
 
 	if e.Tracker != nil {
-		e.Tracker.RecordWriteForRun(execCtx.RunID.String(), backend.NormalizePath(filePath))
+		normPath := backend.NormalizePath(filePath)
+		e.Tracker.RecordWriteForRun(execCtx.RunID.String(), normPath)
+		e.Tracker.InvalidateReadState(execCtx.RunID.String(), normPath)
 	}
 
 	result := map[string]any{

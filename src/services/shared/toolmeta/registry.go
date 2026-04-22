@@ -216,11 +216,12 @@ var registry = []ToolMeta{
 		Group:     GroupFilesystem,
 		Label:     "Grep files",
 		ShortDesc: "search file contents by regex pattern",
-		LLMDescription: "search file contents for a regex pattern and return matching lines with file:line:content format. " +
-			"Uses ripgrep when available; falls back to Go regex walk. " +
-			"Use include to restrict to specific file types (e.g. *.go). Maximum 200 matches. " +
-			"Results are sorted by file modification time (newest first) in fallback mode. " +
-			"Use context_lines (0-10) to include surrounding lines with each match.",
+		LLMDescription: "search file contents for a regex pattern. Three output modes: " +
+			"files_with_matches (default, returns file paths), content (matching lines with context), count (match counts per file). " +
+			"Uses ripgrep when available; falls back to Go regex walk. Results sorted by modification time (newest first). " +
+			"Use include to restrict to specific file types (e.g. *.go). " +
+			"Supports pagination via limit (default 200, max 1000) and offset. " +
+			"In content mode, context_lines (0-10) adds surrounding lines; when omitted, auto-context is applied based on match count.",
 	},
 	// ── memory ──
 	{

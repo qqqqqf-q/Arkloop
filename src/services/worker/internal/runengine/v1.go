@@ -512,6 +512,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		go sandbox.CleanupSession(runtimeSnapshot.SandboxBaseURL, runtimeSnapshot.SandboxAuthToken, run.ID.String(), accountID)
 	}
 	go tools.CleanupPersistedToolOutputs(run.ThreadID.String())
+	tools.CleanupRunDisk(run.ID.String())
 
 	return err
 }
@@ -983,6 +984,7 @@ func buildToolFinalizeLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewPlatformMiddleware(deps.PlatformToolExecutor),
 		pipeline.NewToolBuildMiddleware(),
+		pipeline.NewToolLoopDetectionMiddleware(),
 		pipeline.NewResultSummarizerMiddleware(deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, 0, deps.RoutingConfigLoader),
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	sharedoutbound "arkloop/services/shared/outboundurl"
 	"arkloop/services/shared/toolruntime"
@@ -178,15 +179,35 @@ func (e *Executor) executeFilePath(
 	info, err := backend.Stat(ctx, filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fileErrorResult(fmt.Sprintf("file not found: %s", filePath), started)
+			return fileNotFoundResult(filePath, execCtx.WorkDir, started)
 		}
 		return fileErrorResult(fmt.Sprintf("stat failed: %s", err.Error()), started)
 	}
 	if info.IsDir {
 		return fileErrorResult(fmt.Sprintf("path is a directory: %s", filePath), started)
 	}
+
+	normPath := backend.NormalizePath(filePath)
+	runID := execCtx.RunID.String()
+	mtimeNano := info.ModTime.UnixNano()
+
 	if info.Size > int64(fileops.MaxReadSize) {
 		return fileErrorResult(fmt.Sprintf("file too large (%d bytes, max %d)", info.Size, fileops.MaxReadSize), started)
+	}
+
+	// dedup: check before reading to skip file IO when content unchanged
+	if e.Tracker != nil {
+		estimatedEnd := parsed.Offset + parsed.Limit - 1
+		if e.Tracker.CheckReadDedup(runID, normPath, mtimeNano, parsed.Offset, estimatedEnd) {
+			return tools.ExecutionResult{
+				ResultJSON: map[string]any{
+					"file_path": filePath,
+					"status":    "file_unchanged",
+					"message":   "文件自上次读取后未发生变化",
+				},
+				DurationMs: durationMs(started),
+			}
+		}
 	}
 
 	data, err := backend.ReadFile(ctx, filePath)
@@ -195,15 +216,32 @@ func (e *Executor) executeFilePath(
 	}
 
 	content, totalLines, truncated := fileops.ReadLines(data, parsed.Offset-1, parsed.Limit)
+
+	actualEnd := parsed.Offset + parsed.Limit - 1
+	if actualEnd > totalLines {
+		actualEnd = totalLines
+	}
+
 	numbered := fileops.FormatWithLineNumbers(content, parsed.Offset)
 
+	// 100K character cap
+	if len(numbered) > fileops.MaxOutputChars {
+		numbered = truncateUTF8(numbered, fileops.MaxOutputChars)
+		truncated = true
+		// recalculate actualEnd based on lines actually present after truncation
+		actualEnd = parsed.Offset + strings.Count(numbered, "\n")
+	}
+
 	if e.Tracker != nil {
-		e.Tracker.RecordReadForRun(execCtx.RunID.String(), backend.NormalizePath(filePath))
+		e.Tracker.RecordReadForRun(runID, normPath)
+		e.Tracker.RecordReadState(runID, normPath, mtimeNano, parsed.Offset, actualEnd)
 	}
 
 	result := numbered
 	if truncated {
-		result += fmt.Sprintf("\n\n(showing lines %d-%d of %d; use offset to read further)", parsed.Offset, parsed.Offset+parsed.Limit-1, totalLines)
+		nextOffset := actualEnd + 1
+		result += fmt.Sprintf("\n\n[文件已截断] 显示第 %d-%d 行，共 %d 行。使用 offset=%d 继续读取。",
+			parsed.Offset, actualEnd, totalLines, nextOffset)
 	}
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
@@ -819,6 +857,24 @@ func fileErrorResult(message string, started time.Time) tools.ExecutionResult {
 	}
 }
 
+func fileNotFoundResult(filePath, workDir string, started time.Time) tools.ExecutionResult {
+	msg := fmt.Sprintf("file not found: %s", filePath)
+	suggestions := fileops.SuggestSimilarPaths(filePath, workDir)
+	if len(suggestions) > 0 {
+		msg += "\n\n相似路径建议:\n"
+		for _, s := range suggestions {
+			msg += "  - " + s + "\n"
+		}
+	}
+	return tools.ExecutionResult{
+		Error: &tools.ExecutionError{
+			ErrorClass: "tool.file_error",
+			Message:    msg,
+		},
+		DurationMs: durationMs(started),
+	}
+}
+
 func resolveAccountID(execCtx tools.ExecutionContext) string {
 	if execCtx.AccountID == nil {
 		return ""
@@ -832,4 +888,20 @@ func durationMs(started time.Time) int {
 		return 0
 	}
 	return int(elapsed / time.Millisecond)
+}
+
+// truncateUTF8 truncates s to at most maxBytes, backing off to the nearest valid UTF-8 boundary.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	s = s[:maxBytes]
+	for len(s) > 0 && !utf8.RuneStart(s[len(s)-1]) {
+		s = s[:len(s)-1]
+	}
+	// drop the incomplete leading byte if still invalid
+	if len(s) > 0 && !utf8.ValidString(s[len(s)-1:]) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
