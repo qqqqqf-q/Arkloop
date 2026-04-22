@@ -168,6 +168,11 @@ func TestListUpstreamModelsGeminiUsesModelsList(t *testing.T) {
       "displayName": "Text Embedding 004",
       "inputTokenLimit": 2048,
       "supportedGenerationMethods": ["embedContent"]
+    },
+    {
+      "name": "models/imagen-4.0-generate-001",
+      "displayName": "Imagen 4",
+      "supportedGenerationMethods": ["predict"]
     }
   ]
 }`))
@@ -186,7 +191,7 @@ func TestListUpstreamModelsGeminiUsesModelsList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listUpstreamModels: %v", err)
 	}
-	if len(models) != 2 {
+	if len(models) != 3 {
 		t.Fatalf("unexpected models: %#v", models)
 	}
 	if models[0].ID != "gemini-2.0-flash" || models[0].Type != "chat" {
@@ -198,8 +203,15 @@ func TestListUpstreamModelsGeminiUsesModelsList(t *testing.T) {
 	if models[0].MaxOutputTokens == nil || *models[0].MaxOutputTokens != 8192 {
 		t.Fatalf("unexpected max output tokens: %#v", models[0])
 	}
-	if models[1].ID != "text-embedding-004" || models[1].Type != "embedding" {
-		t.Fatalf("unexpected embedding model: %#v", models[1])
+	modelsByID := make(map[string]AvailableModel, len(models))
+	for _, model := range models {
+		modelsByID[model.ID] = model
+	}
+	if model, ok := modelsByID["text-embedding-004"]; !ok || model.Type != "embedding" {
+		t.Fatalf("unexpected embedding model: %#v", model)
+	}
+	if model, ok := modelsByID["imagen-4.0-generate-001"]; !ok || model.Type != "image" {
+		t.Fatalf("unexpected image model: %#v", model)
 	}
 }
 

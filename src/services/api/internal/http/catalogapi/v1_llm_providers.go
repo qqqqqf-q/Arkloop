@@ -826,6 +826,8 @@ func runLlmProviderModelTest(ctx context.Context, cfg llmproviders.ProviderModel
 	switch determineModelTestType(cfg.Model) {
 	case "embedding":
 		return testEmbeddingModel(testCtx, protocolConfig, baseURL, cfg.APIKey, cfg.Model.Model)
+	case "image":
+		return testImageModel(testCtx, protocolConfig, baseURL, cfg.APIKey, cfg.Model.Model)
 	default:
 		return testChatModel(testCtx, protocolConfig, baseURL, cfg.APIKey, cfg.Model.Model)
 	}
@@ -833,16 +835,50 @@ func runLlmProviderModelTest(ctx context.Context, cfg llmproviders.ProviderModel
 
 func determineModelTestType(model data.LlmRoute) string {
 	for _, tag := range model.Tags {
-		if strings.EqualFold(strings.TrimSpace(tag), "embedding") {
+		switch strings.ToLower(strings.TrimSpace(tag)) {
+		case "embedding":
 			return "embedding"
+		case "image":
+			return "image"
 		}
 	}
 	if rawCatalog, ok := model.AdvancedJSON[llmproviders.AvailableCatalogAdvancedKey].(map[string]any); ok {
 		if modelType, ok := rawCatalog["type"].(string); ok && strings.EqualFold(strings.TrimSpace(modelType), "embedding") {
 			return "embedding"
 		}
+		if modelType, ok := rawCatalog["type"].(string); ok && strings.EqualFold(strings.TrimSpace(modelType), "image") {
+			return "image"
+		}
+		for _, value := range normalizeCatalogStrings(rawCatalog["output_modalities"]) {
+			switch value {
+			case "embedding":
+				return "embedding"
+			case "image":
+				return "image"
+			}
+		}
 	}
 	return "chat"
+}
+
+func normalizeCatalogStrings(raw any) []string {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		value, ok := item.(string)
+		if !ok {
+			continue
+		}
+		cleaned := strings.ToLower(strings.TrimSpace(value))
+		if cleaned == "" {
+			continue
+		}
+		values = append(values, cleaned)
+	}
+	return values
 }
 
 func testChatModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
@@ -864,6 +900,15 @@ func testEmbeddingModel(ctx context.Context, cfg llmproviders.CatalogProtocolCon
 		return testGeminiEmbedding(ctx, baseURL, apiKey, model)
 	default:
 		return testOpenAIEmbedding(ctx, baseURL, apiKey, model)
+	}
+}
+
+func testImageModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
+	switch cfg.Kind {
+	case llmproviders.ProtocolKindGeminiGenerateContent:
+		return testGeminiImage(ctx, baseURL, apiKey, model)
+	default:
+		return testOpenAIImage(ctx, baseURL, apiKey, model)
 	}
 }
 
@@ -893,6 +938,14 @@ func testOpenAIEmbedding(ctx context.Context, baseURL, apiKey, model string) err
 		"input": "ping",
 	}
 	return doTestHTTPPost(ctx, baseURL+"/embeddings", apiKey, "Bearer", payload)
+}
+
+func testOpenAIImage(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"model":  model,
+		"prompt": "ping",
+	}
+	return doTestHTTPPost(ctx, baseURL+"/images/generations", apiKey, "Bearer", payload)
 }
 
 func testAnthropicChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
@@ -954,6 +1007,25 @@ func testGeminiEmbedding(ctx context.Context, baseURL, apiKey, model string) err
 		},
 	}
 	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, geminiTestEndpoint(baseURL, model, ":embedContent"), bytes.NewReader(mustJSON(payload)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("x-goog-api-key", apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	return doTestRequest(req)
+}
+
+func testGeminiImage(ctx context.Context, baseURL, apiKey, model string) error {
+	payload := map[string]any{
+		"instances": []map[string]string{
+			{"prompt": "ping"},
+		},
+		"parameters": map[string]any{
+			"sampleCount": 1,
+		},
+	}
+	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodPost, geminiTestEndpoint(baseURL, model, ":predict"), bytes.NewReader(mustJSON(payload)))
 	if err != nil {
 		return err
 	}

@@ -140,8 +140,8 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
     vision: inputModalities.includes('image'),
     imageOutput: outputModalities.includes('image'),
     embedding: modelType === 'embedding',
-    toolCalling: modelType === 'chat' ? catalog?.tool_calling !== false : false,
-    reasoning: modelType === 'chat' ? catalog?.reasoning === true : false,
+    toolCalling: catalog?.tool_calling !== false,
+    reasoning: catalog?.reasoning === true,
     contextWindow: contextLength,
     maxOutputTokens: typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : '',
     defaultTemperature: typeof catalog?.default_temperature === 'number' ? String(catalog.default_temperature) : '',
@@ -177,19 +177,14 @@ function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string
       : [],
   )
 
-  if (draft.modelType === 'chat') {
-    if (draft.vision) inputModalities.add('image')
-    else inputModalities.delete('image')
-    if (draft.imageOutput) outputModalities.add('image')
-    else outputModalities.delete('image')
-    if (inputModalities.size > 0) nextCatalog.input_modalities = [...inputModalities]
-    else delete nextCatalog.input_modalities
-    if (outputModalities.size > 0) nextCatalog.output_modalities = [...outputModalities]
-    else delete nextCatalog.output_modalities
-  } else if (draft.modelType === 'embedding') {
-    nextCatalog.input_modalities = ['text']
-    nextCatalog.output_modalities = ['embedding']
-  }
+  if (draft.vision) inputModalities.add('image')
+  else inputModalities.delete('image')
+  if (draft.imageOutput) outputModalities.add('image')
+  else outputModalities.delete('image')
+  if (inputModalities.size > 0) nextCatalog.input_modalities = [...inputModalities]
+  else delete nextCatalog.input_modalities
+  if (outputModalities.size > 0) nextCatalog.output_modalities = [...outputModalities]
+  else delete nextCatalog.output_modalities
 
   if (draft.contextWindow.trim() !== '') {
     nextCatalog.context_length_override = Number.parseInt(draft.contextWindow.trim(), 10)
@@ -201,19 +196,18 @@ function buildCatalog(model: LlmProviderModel, draft: DraftState): Record<string
   } else {
     delete nextCatalog.max_output_tokens
   }
-  if (draft.modelType === 'chat' && draft.defaultTemperature.trim() !== '') {
+  if (draft.defaultTemperature.trim() !== '') {
     nextCatalog.default_temperature = Number.parseFloat(draft.defaultTemperature.trim())
   } else {
     delete nextCatalog.default_temperature
   }
 
-  if (draft.modelType === 'embedding') nextCatalog.type = 'embedding'
-  else if (draft.modelType !== 'chat') nextCatalog.type = draft.modelType
+  if (draft.modelType !== 'chat') nextCatalog.type = draft.modelType
   else delete nextCatalog.type
 
-  if (draft.modelType === 'chat' && draft.toolCalling) nextCatalog.tool_calling = true
+  if (draft.toolCalling) nextCatalog.tool_calling = true
   else delete nextCatalog.tool_calling
-  if (draft.modelType === 'chat' && draft.reasoning) nextCatalog.reasoning = true
+  if (draft.reasoning) nextCatalog.reasoning = true
   else delete nextCatalog.reasoning
 
   return Object.keys(nextCatalog).length > 0 ? nextCatalog : null
@@ -277,8 +271,8 @@ export function ModelOptionsModal({
         : nextDraft.modelType
       nextDraft.embedding = nextDraft.modelType === 'embedding'
       nextDraft.defaultTemperature = typeof autoCatalog.default_temperature === 'number' ? String(autoCatalog.default_temperature) : ''
-      nextDraft.toolCalling = nextDraft.modelType === 'chat' ? autoCatalog.tool_calling !== false : false
-      nextDraft.reasoning = nextDraft.modelType === 'chat' ? autoCatalog.reasoning === true : false
+      nextDraft.toolCalling = autoCatalog.tool_calling !== false
+      nextDraft.reasoning = autoCatalog.reasoning === true
     }
     if (availableModels) {
       const matched = availableModels.find(
@@ -328,8 +322,6 @@ export function ModelOptionsModal({
       ...draft,
       modelType: nextType,
       embedding: nextType === 'embedding',
-      toolCalling: nextType === 'chat' ? draft.toolCalling : false,
-      reasoning: nextType === 'chat' ? draft.reasoning : false,
       contextWindow,
       maxOutputTokens,
       defaultTemperature,
@@ -348,11 +340,10 @@ export function ModelOptionsModal({
       if (nextDraft.imageOutput) catalog.output_modalities = ['image']
       if (nextDraft.contextWindow) catalog.context_length_override = Number.parseInt(nextDraft.contextWindow, 10)
       if (nextDraft.maxOutputTokens) catalog.max_output_tokens = Number.parseInt(nextDraft.maxOutputTokens, 10)
-      if (nextDraft.modelType === 'embedding') catalog.type = 'embedding'
-      else if (nextDraft.modelType !== 'chat') catalog.type = nextDraft.modelType
+      if (nextDraft.modelType !== 'chat') catalog.type = nextDraft.modelType
       if (nextDraft.defaultTemperature) catalog.default_temperature = Number.parseFloat(nextDraft.defaultTemperature)
-      if (nextDraft.modelType === 'chat' && nextDraft.toolCalling) catalog.tool_calling = true
-      if (nextDraft.modelType === 'chat' && nextDraft.reasoning) catalog.reasoning = true
+      if (nextDraft.toolCalling) catalog.tool_calling = true
+      if (nextDraft.reasoning) catalog.reasoning = true
 
       const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
       const tags = nextDraft.embedding ? ['embedding'] : []
@@ -452,11 +443,6 @@ export function ModelOptionsModal({
                       ...prev,
                       modelType: next,
                       embedding: next === 'embedding',
-                      vision: next === 'chat' ? prev.vision : false,
-                      imageOutput: next === 'chat' ? prev.imageOutput : false,
-                      toolCalling: next === 'chat' ? prev.toolCalling : false,
-                      reasoning: next === 'chat' ? prev.reasoning : false,
-                      defaultTemperature: next === 'chat' ? prev.defaultTemperature : '',
                     }))
                   }}
                 />
@@ -467,28 +453,24 @@ export function ModelOptionsModal({
                   icon={<Eye size={18} />}
                   label={labels.vision}
                   checked={draft.vision}
-                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, vision: next }))}
                 />
                 <CapabilityTile
                   icon={<ImageIcon size={18} />}
                   label={labels.imageOutput}
                   checked={draft.imageOutput}
-                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, imageOutput: next }))}
                 />
                 <CapabilityTile
                   icon={<Wrench size={18} />}
                   label={labels.toolCalling ?? 'Tool Calling'}
                   checked={draft.toolCalling}
-                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, toolCalling: next }))}
                 />
                 <CapabilityTile
                   icon={<Brain size={18} />}
                   label={labels.reasoning ?? 'Reasoning'}
                   checked={draft.reasoning}
-                  disabled={draft.modelType !== 'chat'}
                   onChange={(next) => setDraft((prev) => ({ ...prev, reasoning: next }))}
                 />
               </div>
@@ -521,7 +503,6 @@ export function ModelOptionsModal({
                     placeholder="e.g. 0.7"
                     className="w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-2 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-text-muted)] transition-colors duration-150 focus:border-[var(--c-border)]"
                     inputMode="decimal"
-                    disabled={draft.modelType !== 'chat'}
                   />
                 </FormField>
               </div>

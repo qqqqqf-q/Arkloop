@@ -10,6 +10,7 @@ import (
 const availableCatalogAdvancedKey = "available_catalog"
 
 type ModelCapabilities struct {
+	ModelType          string
 	ContextLength      int
 	MaxOutputTokens    int
 	InputModalities    []string
@@ -23,6 +24,7 @@ func RouteModelCapabilities(rule ProviderRouteRule) ModelCapabilities {
 		return inferModelCapabilities(rule.Model)
 	}
 	caps := ModelCapabilities{
+		ModelType:          normalizedString(rawCatalog["type"]),
 		ContextLength:      resolveContextLength(rawCatalog),
 		MaxOutputTokens:    normalizedPositiveInt(rawCatalog["max_output_tokens"]),
 		InputModalities:    normalizeStringSlice(rawCatalog["input_modalities"]),
@@ -142,6 +144,14 @@ func normalizedPositiveInt(raw any) int {
 		return 0
 	}
 	return n
+}
+
+func normalizedString(raw any) string {
+	value, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func normalizeStringSlice(raw any) []string {

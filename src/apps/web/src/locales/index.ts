@@ -328,6 +328,7 @@ export interface LocaleStrings {
   thisThreadIsIncognito: string;
   toggleIncognito: string;
   componentUpdatesAvailable: string;
+  goToDownload: string;
   incognitoForkDivider: string;
   // mode switch
   modeChat: string;
@@ -547,6 +548,9 @@ export interface LocaleStrings {
     spawnProfilePlatformDefault: string
     spawnProfileExplore: string
     spawnProfileExploreDesc: string
+    imageGenerativeTitle: string
+    imageGenerativeDesc: string
+    imageGenerativeUnset: string
     spawnProfileTask: string
     spawnProfileTaskDesc: string
     spawnProfileStrong: string

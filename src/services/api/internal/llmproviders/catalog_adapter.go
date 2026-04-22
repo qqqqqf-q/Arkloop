@@ -414,11 +414,16 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 			am.MaxOutputTokens = &mot
 		}
 
-		if geminiModelIsEmbedding(id, item.SupportedGenerationMethods) {
+		switch geminiModelType(id, item.SupportedGenerationMethods) {
+		case "embedding":
 			am.Type = "embedding"
 			am.InputModalities = []string{"text"}
 			am.OutputModalities = []string{"embedding"}
-		} else {
+		case "image":
+			am.Type = "image"
+			am.InputModalities = []string{"text"}
+			am.OutputModalities = []string{"image"}
+		default:
 			toolCalling := true
 			am.ToolCalling = &toolCalling
 			am.InputModalities = []string{"text"}
@@ -435,18 +440,17 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 	return models, nil
 }
 
-func geminiModelIsEmbedding(id string, methods []string) bool {
-	lowerID := strings.ToLower(strings.TrimSpace(id))
-	if strings.Contains(lowerID, "embed") || strings.Contains(lowerID, "embedding") {
-		return true
-	}
+func geminiModelType(id string, methods []string) string {
 	for _, method := range methods {
 		lowerMethod := strings.ToLower(strings.TrimSpace(method))
-		if lowerMethod == "embedcontent" || lowerMethod == "batchembedcontents" {
-			return true
+		switch lowerMethod {
+		case "embedcontent", "batchembedcontents":
+			return "embedding"
+		case "predict", "predictlongrunning":
+			return "image"
 		}
 	}
-	return false
+	return "chat"
 }
 
 var reasoningPrefixes = []string{

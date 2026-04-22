@@ -272,6 +272,46 @@ func TestToolBuildMiddleware_FiltersUnavailableRuntimeManagedTools(t *testing.T)
 	}
 }
 
+type accountScopedUnavailableExecutor struct{}
+
+func (accountScopedUnavailableExecutor) Execute(context.Context, string, map[string]any, tools.ExecutionContext, string) tools.ExecutionResult {
+	return tools.ExecutionResult{}
+}
+
+func (accountScopedUnavailableExecutor) IsAvailableForAccount(context.Context, uuid.UUID) bool {
+	return false
+}
+
+func TestToolBuildMiddleware_FiltersAccountUnavailableImageGenerate(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(tools.AgentToolSpec{Name: "image_generate", Version: "1", Description: "image_generate", RiskLevel: tools.RiskLevelLow}); err != nil {
+		t.Fatalf("register image_generate: %v", err)
+	}
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+		},
+		Emitter:       events.NewEmitter("test"),
+		ToolRegistry:  registry,
+		ToolExecutors: map[string]tools.Executor{"image_generate": accountScopedUnavailableExecutor{}},
+		AllowlistSet:  map[string]struct{}{"image_generate": {}},
+		ToolSpecs:     []llm.ToolSpec{{Name: "image_generate"}},
+		Runtime:       &sharedtoolruntime.RuntimeSnapshot{},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if len(rc.FinalSpecs) != 0 {
+			t.Fatalf("expected image_generate spec to be filtered, got %d", len(rc.FinalSpecs))
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestToolBuildMiddleware_KeepsUserProviderTool(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(readtool.AgentSpec); err != nil {

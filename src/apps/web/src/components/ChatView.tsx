@@ -29,6 +29,7 @@ import { MessageList } from './MessageList'
 import { ContextCompactBar } from './ContextCompactBar'
 import { IncognitoDivider } from './IncognitoDivider'
 import {
+  buildMessageArtifactsFromRunEvents,
   buildMessageCodeExecutionsFromRunEvents,
   buildMessageWidgetsFromRunEvents,
   findAssistantMessageForRun,
@@ -106,6 +107,7 @@ import {
   clearThreadRunHandoff,
   readMessageSources,
   readMessageArtifacts,
+  writeMessageArtifacts,
   readMessageCodeExecutions,
   writeMessageCodeExecutions,
   readMessageBrowserActions,
@@ -1095,6 +1097,13 @@ export function ChatView() {
               failedError = failedErrorFromRunEvents(replayEvents, t.failedRunRetryTitle)
               if (failedError && lastAssistant) {
                 failedErrorMap.set(lastAssistant.id, failedError)
+              }
+            }
+            if (lastAssistant && !artifactsMap.has(lastAssistant.id)) {
+              const replayArtifacts = buildMessageArtifactsFromRunEvents(replayEvents)
+              if (replayArtifacts.length > 0) {
+                artifactsMap.set(lastAssistant.id, replayArtifacts)
+                writeMessageArtifacts(lastAssistant.id, replayArtifacts)
               }
             }
             if (lastAssistant && replayWidgetsNeeded) {

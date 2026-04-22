@@ -119,6 +119,12 @@ type NotConfiguredChecker interface {
 	IsNotConfigured() bool
 }
 
+// AccountAvailabilityChecker is implemented by executors whose availability
+// depends on the current account context.
+type AccountAvailabilityChecker interface {
+	IsAvailableForAccount(ctx context.Context, accountID uuid.UUID) bool
+}
+
 // ToolActivator allows dynamic tool activation during agent loop execution.
 // load_tools executor calls Activate to mark tools for injection;
 // the agent loop calls DrainActivated to collect and append them to request.Tools.

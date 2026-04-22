@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ACP_DELEGATE_LAYER } from '@arkloop/shared'
 import {
+  buildMessageArtifactsFromRunEvents,
   buildMessageFileOpsFromRunEvents,
   buildMessageCodeExecutionsFromRunEvents,
   buildMessageSubAgentsFromRunEvents,
@@ -134,6 +135,62 @@ describe('selectFreshRunEvents', () => {
 
     expect(result.fresh.map((item) => item.seq)).toEqual([1, 2])
     expect(result.nextProcessedCount).toBe(2)
+  })
+})
+
+describe('buildMessageArtifactsFromRunEvents', () => {
+  it('应从任意 tool.result 中提取并去重 artifacts，而不是依赖工具白名单', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool.result',
+        data: {
+          tool_name: 'image_generate',
+          result: {
+            artifacts: [
+              {
+                key: 'acc/run/generated-image.png',
+                filename: 'generated-image.png',
+                size: 123,
+                mime_type: 'image/png',
+                title: 'generated-image',
+                display: 'inline',
+              },
+            ],
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool.result',
+        data: {
+          tool_name: 'image_generate',
+          result: {
+            artifacts: [
+              {
+                key: 'acc/run/generated-image.png',
+                filename: 'generated-image.png',
+                size: 123,
+                mime_type: 'image/png',
+              },
+            ],
+          },
+        },
+      }),
+    ]
+
+    expect(buildMessageArtifactsFromRunEvents(events)).toEqual([
+      {
+        key: 'acc/run/generated-image.png',
+        filename: 'generated-image.png',
+        size: 123,
+        mime_type: 'image/png',
+        title: 'generated-image',
+        display: 'inline',
+      },
+    ])
   })
 })
 

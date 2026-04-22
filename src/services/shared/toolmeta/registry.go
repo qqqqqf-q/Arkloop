@@ -451,6 +451,19 @@ var registry = []ToolMeta{
 			"IMPORTANT: after calling this tool, you MUST reference the artifact in your response using [title](artifact:<key>) where <key> is from the tool result. " +
 			"The document will NOT be visible to the user unless you include this reference.",
 	},
+	{
+		Name:      "image_generate",
+		Group:     GroupDocument,
+		Label:     "Generate image",
+		ShortDesc: "generate an image and save it as an artifact",
+		LLMDescription: "generate an image from a text prompt using the configured image model and save it as an artifact. " +
+			"You may optionally provide input_images as artifact references plus simple output options such as size, quality, background, and output_format when the user asks for them. " +
+			"Use when the user explicitly asks for image generation or a visual asset. " +
+			"After this tool succeeds, you MUST render the result in your final response with Markdown image syntax: ![short alt text](artifact:<key>). " +
+			"If the user also wants the generated file sent to Telegram or another tool that accepts artifacts, reuse the exact artifact key returned by this tool instead of inventing a URL or path. " +
+			"Do not mention raw storage paths. Do not invent artifact keys. " +
+			"If the tool fails, explain the failure plainly instead of pretending the image exists.",
+	},
 	// ── orchestration ──
 	{
 		Name:      "acp_agent",

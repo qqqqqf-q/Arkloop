@@ -418,6 +418,13 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	if err := enableRepo.Set(ctx, accountID, profileRef, workspaceRef, install.ID, &user.ID, true); err != nil {
 		t.Fatalf("enable workspace mcp install: %v", err)
 	}
+	settingsRepo, err := data.NewPlatformSettingsRepository(pool)
+	if err != nil {
+		t.Fatalf("platform settings repo: %v", err)
+	}
+	if _, err := settingsRepo.Set(ctx, "image_generative.model", "openai^gpt-image-1"); err != nil {
+		t.Fatalf("set image generative model: %v", err)
+	}
 	listenerCtx, cancelListener := context.WithCancel(ctx)
 	t.Cleanup(cancelListener)
 
@@ -440,6 +447,7 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	catalog := decodeJSONBody[toolCatalogResponse](t, resp.Body.Bytes())
 	for _, toolName := range []struct{ group, name string }{
 		{group: "sandbox", name: "exec_command"},
+		{group: "document", name: "image_generate"},
 		{group: "memory", name: "memory_search"},
 		{group: "document", name: "document_write"},
 		{group: "mcp", name: "mcp__env_demo__tools_list_tool"},
@@ -512,6 +520,30 @@ func TestBuildEffectiveToolCatalogOmitsStoredArtifactsWithoutArtifactStore(t *te
 	}
 	if _, ok := findCatalogTool(catalog, "document", "document_write"); ok {
 		t.Fatal("document_write should be absent without artifact store")
+	}
+	if _, ok := findCatalogTool(catalog, "document", "image_generate"); ok {
+		t.Fatal("image_generate should be absent without artifact store")
+	}
+}
+
+func TestBuildEffectiveToolCatalogOmitsImageGenerateWithoutImageModel(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_tool_catalog_effective_without_image_model")
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 8, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	catalog, err := buildEffectiveToolCatalog(ctx, uuid.Nil, uuid.Nil, uuid.Nil, nil, pool, nil, true)
+	if err != nil {
+		t.Fatalf("build effective tool catalog: %v", err)
+	}
+	if _, ok := findCatalogTool(catalog, "document", "document_write"); !ok {
+		t.Fatal("document_write should remain available with artifact store")
+	}
+	if _, ok := findCatalogTool(catalog, "document", "image_generate"); ok {
+		t.Fatal("image_generate should be absent without configured image model")
 	}
 }
 

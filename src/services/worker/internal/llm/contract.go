@@ -117,6 +117,10 @@ type GatewayError struct {
 	Details    map[string]any
 }
 
+func (e GatewayError) Error() string {
+	return e.Message
+}
+
 func (e GatewayError) ToJSON() map[string]any {
 	payload := map[string]any{
 		"error_class": e.ErrorClass,
@@ -398,13 +402,13 @@ type MessageCachePlan struct {
 
 func (p MessageCachePlan) ToJSON() map[string]any {
 	payload := map[string]any{
-		"enabled":                       p.Enabled,
-		"marker_message_index":          p.MarkerMessageIndex,
-		"stable_marker_enabled":         p.StableMarkerEnabled,
-		"stable_marker_message_index":   p.StableMarkerMessageIndex,
-		"tool_result_cache_cut_index":   p.ToolResultCacheCutIndex,
-		"skip_cache_write":              p.SkipCacheWrite,
-		"tool_result_cache_references":  p.ToolResultCacheReferences,
+		"enabled":                      p.Enabled,
+		"marker_message_index":         p.MarkerMessageIndex,
+		"stable_marker_enabled":        p.StableMarkerEnabled,
+		"stable_marker_message_index":  p.StableMarkerMessageIndex,
+		"tool_result_cache_cut_index":  p.ToolResultCacheCutIndex,
+		"skip_cache_write":             p.SkipCacheWrite,
+		"tool_result_cache_references": p.ToolResultCacheReferences,
 	}
 	if len(p.PinnedCacheEdits) > 0 {
 		blocks := make([]map[string]any, 0, len(p.PinnedCacheEdits))

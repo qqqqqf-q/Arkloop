@@ -109,6 +109,7 @@ type EngineV1Deps struct {
 	MemoryProviderFactory  *workerruntime.MemoryProviderFactory
 	RoutingConfigLoader    *routing.ConfigLoader
 	MessageAttachmentStore pipeline.MessageAttachmentStore
+	ArtifactStore          objectstore.Store
 	RolloutBlobStore       objectstore.BlobStore // 用于创建 RolloutRecorder，非 desktop 模式下可选
 
 	// PlatformToolExecutor: platform_manage 的执行器，nil 时跳过注入
@@ -359,24 +360,24 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		promptCacheDebugEnabled = debugEnabled
 	}
 	rc := &pipeline.RunContext{
-		Run:                 run,
-		DB:                  pool,
-		RunStatusDB:         data.RunsRepository{},
-		Pool:                pool,
-		MemoryServiceDB:     pool,
-		MemorySnapshotStore: pipeline.NewPgxMemorySnapshotStore(pool),
-		DirectPool:          directPool,
-		BroadcastRDB:        e.broadcastRDB,
-		TraceID:             traceID,
-		Tracer:              tracer,
-		Emitter:             events.NewEmitter(traceID),
-		Router:              e.router,
-		Runtime:             &runtimeSnapshot,
-		HookRuntime:         e.hookRuntime,
-		HookRegistry:        e.hookRegistry,
-		UserID:              run.CreatedByUserID,
-		JobPayload:          cloneMap(input.JobPayload),
-		ProfileRef:          derefString(run.ProfileRef),
+		Run:                     run,
+		DB:                      pool,
+		RunStatusDB:             data.RunsRepository{},
+		Pool:                    pool,
+		MemoryServiceDB:         pool,
+		MemorySnapshotStore:     pipeline.NewPgxMemorySnapshotStore(pool),
+		DirectPool:              directPool,
+		BroadcastRDB:            e.broadcastRDB,
+		TraceID:                 traceID,
+		Tracer:                  tracer,
+		Emitter:                 events.NewEmitter(traceID),
+		Router:                  e.router,
+		Runtime:                 &runtimeSnapshot,
+		HookRuntime:             e.hookRuntime,
+		HookRegistry:            e.hookRegistry,
+		UserID:                  run.CreatedByUserID,
+		JobPayload:              cloneMap(input.JobPayload),
+		ProfileRef:              derefString(run.ProfileRef),
 		WorkspaceRef:            derefString(run.WorkspaceRef),
 		ExecutorBuilder:         e.executorRegistry,
 		MemoryProvider:          nil,
@@ -882,6 +883,7 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
 		pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
 			TokenLoader:        deps.ChannelTelegramLoader,
+			ArtifactStore:      deps.ArtifactStore,
 			GroupSearchExec:    deps.GroupSearchExecutor,
 			GroupSearchLlmSpec: conversationtool.GroupSearchLlmSpec,
 		}),

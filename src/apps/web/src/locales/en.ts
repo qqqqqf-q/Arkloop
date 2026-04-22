@@ -326,6 +326,7 @@ export const en: LocaleStrings = {
   thisThreadIsIncognito: "This thread is incognito",
   toggleIncognito: "Toggle incognito",
   componentUpdatesAvailable: "Component updates available",
+  goToDownload: "Go to download",
   incognitoForkDivider:
     "From this point on, messages will not be saved and will be permanently deleted within 24 hours.",
   modeChat: "Chat",
@@ -549,6 +550,9 @@ export const en: LocaleStrings = {
     spawnProfileFollowCurrentChat: 'Follow Current Chat',
     spawnProfileExplore: 'Explore',
     spawnProfileExploreDesc: 'Lightweight search and file exploration',
+    imageGenerativeTitle: 'Image Generative',
+    imageGenerativeDesc: 'Choose the model used by the image generation tool.',
+    imageGenerativeUnset: 'Not Set',
     spawnProfileTask: 'Task',
     spawnProfileTaskDesc: 'General-purpose task execution',
     spawnProfileStrong: 'Strong',

@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/tools"
 
@@ -17,10 +20,39 @@ import (
 
 type fixedToken struct{ token string }
 
+type testArtifactStore struct {
+	data        []byte
+	contentType string
+}
+
 func (f fixedToken) BotToken(ctx context.Context, channelID uuid.UUID) (string, error) {
 	_ = ctx
 	_ = channelID
 	return f.token, nil
+}
+
+func (s testArtifactStore) PutObject(context.Context, string, []byte, objectstore.PutOptions) error {
+	return nil
+}
+
+func (s testArtifactStore) Put(context.Context, string, []byte) error { return nil }
+
+func (s testArtifactStore) Get(_ context.Context, _ string) ([]byte, error) {
+	return append([]byte(nil), s.data...), nil
+}
+
+func (s testArtifactStore) GetWithContentType(_ context.Context, _ string) ([]byte, string, error) {
+	return append([]byte(nil), s.data...), s.contentType, nil
+}
+
+func (s testArtifactStore) Head(_ context.Context, _ string) (objectstore.ObjectInfo, error) {
+	return objectstore.ObjectInfo{ContentType: s.contentType, Size: int64(len(s.data))}, nil
+}
+
+func (s testArtifactStore) Delete(context.Context, string) error { return nil }
+
+func (s testArtifactStore) ListPrefix(context.Context, string) ([]objectstore.ObjectInfo, error) {
+	return nil, nil
 }
 
 func TestCoerceTelegramMessageID(t *testing.T) {
@@ -59,7 +91,7 @@ func TestExecutorReact(t *testing.T) {
 	defer srv.Close()
 
 	chID := uuid.New()
-	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:        chID,
 		ChannelType:      "telegram",
@@ -84,7 +116,7 @@ func TestExecutorReact_UsesReactionKey(t *testing.T) {
 	defer srv.Close()
 
 	chID := uuid.New()
-	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:        chID,
 		ChannelType:      "telegram",
@@ -108,7 +140,7 @@ func TestExecutorReact_UsesNumericMessageIDArg(t *testing.T) {
 	defer srv.Close()
 
 	chID := uuid.New()
-	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "TEST"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:        chID,
 		ChannelType:      "telegram",
@@ -116,7 +148,7 @@ func TestExecutorReact_UsesNumericMessageIDArg(t *testing.T) {
 		InboundMessageID: "55",
 	}
 	res := exec.Execute(context.Background(), ToolReact, map[string]any{
-		"emoji":       "❤️",
+		"emoji":      "❤️",
 		"message_id": float64(2002),
 	}, tools.ExecutionContext{Channel: surface}, "")
 	if res.Error != nil {
@@ -134,7 +166,7 @@ func TestExecutorReply(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:       uuid.New(),
 		ChannelType:     "telegram",
@@ -165,7 +197,7 @@ func TestExecutorReply_RejectsEmptyMessageID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:      uuid.New(),
 		ChannelType:    "telegram",
@@ -183,7 +215,7 @@ func TestExecutorReply_NumericMessageID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()))
+	exec := NewExecutor(fixedToken{token: "T2"}, telegrambot.NewClient(srv.URL, srv.Client()), nil)
 	surface := &tools.ChannelToolSurface{
 		ChannelID:      uuid.New(),
 		ChannelType:    "telegram",
@@ -200,8 +232,72 @@ func TestExecutorReply_NumericMessageID(t *testing.T) {
 	}
 }
 
+func TestExecutorSendFile_ArtifactRefUploadsMultipart(t *testing.T) {
+	var (
+		gotMethod   string
+		gotFilename string
+		gotBytes    []byte
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = strings.TrimPrefix(r.URL.Path, "/botTEST/")
+		mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("parse media type: %v", err)
+		}
+		if mediaType != "multipart/form-data" {
+			t.Fatalf("unexpected content type: %s", mediaType)
+		}
+		reader := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("next part: %v", err)
+			}
+			if part.FormName() == "photo" {
+				gotFilename = part.FileName()
+				gotBytes, _ = io.ReadAll(part)
+			}
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+	defer srv.Close()
+
+	exec := NewExecutor(
+		fixedToken{token: "TEST"},
+		telegrambot.NewClient(srv.URL, srv.Client()),
+		testArtifactStore{
+			data:        []byte("png-bytes"),
+			contentType: "image/png",
+		},
+	)
+	surface := &tools.ChannelToolSurface{
+		ChannelID:      uuid.New(),
+		ChannelType:    "telegram",
+		PlatformChatID: "1001",
+	}
+	res := exec.Execute(context.Background(), ToolSendFile, map[string]any{
+		"file_url": "artifact:acc/run/generated-image.png",
+		"kind":     "photo",
+	}, tools.ExecutionContext{Channel: surface}, "")
+	if res.Error != nil {
+		t.Fatalf("send file: %v", res.Error)
+	}
+	if gotMethod != "sendPhoto" {
+		t.Fatalf("method: %s", gotMethod)
+	}
+	if gotFilename != "generated-image.png" {
+		t.Fatalf("filename: %s", gotFilename)
+	}
+	if string(gotBytes) != "png-bytes" {
+		t.Fatalf("unexpected bytes: %q", gotBytes)
+	}
+}
+
 func TestExecutorRejectsNonTelegramSurface(t *testing.T) {
-	exec := NewExecutor(fixedToken{token: "T"}, telegrambot.NewClient("", nil))
+	exec := NewExecutor(fixedToken{token: "T"}, telegrambot.NewClient("", nil), nil)
 	res := exec.Execute(context.Background(), ToolReact, map[string]any{"emoji": "x"}, tools.ExecutionContext{
 		Channel: &tools.ChannelToolSurface{ChannelType: "slack"},
 	}, "")

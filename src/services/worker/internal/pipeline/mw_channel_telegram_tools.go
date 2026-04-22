@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
@@ -15,6 +16,7 @@ import (
 type ChannelTelegramToolsDeps struct {
 	TokenLoader        channel_telegram.TokenLoader
 	TelegramClient     *telegrambot.Client
+	ArtifactStore      objectstore.Store
 	GroupSearchExec    tools.Executor
 	GroupSearchLlmSpec llm.ToolSpec
 }
@@ -46,7 +48,7 @@ func NewChannelTelegramToolsMiddleware(loader channel_telegram.TokenLoader, tele
 			}
 		}
 
-		exec := channel_telegram.NewExecutor(dep.TokenLoader, dep.TelegramClient)
+		exec := channel_telegram.NewExecutor(dep.TokenLoader, dep.TelegramClient, dep.ArtifactStore)
 		var extraSpecs []tools.AgentToolSpec
 		if _, blocked := deny[channel_telegram.ToolReact]; !blocked {
 			rc.ToolExecutors[channel_telegram.ToolReact] = exec

@@ -103,7 +103,7 @@ export function ArtifactImage({ artifact, accessToken, pathPrefix = '/v1/artifac
       <div
         style={{
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: 'min(60%, 480px)',
           height: '200px',
           borderRadius: '10px',
           background: 'var(--c-bg-sub)',
@@ -124,6 +124,7 @@ export function ArtifactImage({ artifact, accessToken, pathPrefix = '/v1/artifac
       <div
         style={{
           display: 'inline-block',
+          maxWidth: 'min(60%, 520px)',
           border: '0.5px solid var(--c-border-subtle)',
           borderRadius: '12px',
           padding: '8px',
@@ -136,6 +137,7 @@ export function ArtifactImage({ artifact, accessToken, pathPrefix = '/v1/artifac
           onClick={openLightbox}
           style={{
             maxWidth: '100%',
+            width: '100%',
             display: 'block',
             borderRadius: '6px',
             cursor: 'default',

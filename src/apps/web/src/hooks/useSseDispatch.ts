@@ -23,6 +23,7 @@ import {
   applyTerminalDelta,
   applyWebFetchToolCall,
   applyWebFetchToolResult,
+  extractArtifacts,
   findAssistantMessageForRun,
   patchCodeExecutionList,
   selectFreshRunEvents,
@@ -39,7 +40,6 @@ import {
   isTerminalRunEventType,
 } from '../lib/chat-helpers'
 import { extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
-import type { ArtifactRef } from '../storage'
 import { getInjectionBlockMessage, shouldSuppressLiveRunEventAfterInjectionBlock } from '../liveRunSecurity'
 import { isACPDelegateEventData } from '@arkloop/shared'
 import { isWebFetchToolName } from '../runEventProcessing'
@@ -500,34 +500,23 @@ export function useSseDispatch(params: {
           }
         }
 
-        if (resultToolName === 'python_execute' || resultToolName === 'exec_command' || resultToolName === 'continue_process' || resultToolName === 'terminate_process' || resultToolName === 'document_write' || resultToolName === 'create_artifact' || resultToolName === 'browser' || isWebFetchToolName(resultToolName)) {
-          const result = obj.result as { artifacts?: unknown[] } | undefined
-          if (Array.isArray(result?.artifacts)) {
-            const newArtifacts: ArtifactRef[] = result.artifacts
-              .filter((a): a is Record<string, unknown> => a != null && typeof a === 'object')
-              .filter((a) => typeof a.key === 'string' && typeof a.filename === 'string')
-              .map((a) => ({
-                key: a.key as string,
-                filename: a.filename as string,
-                size: typeof a.size === 'number' ? a.size : 0,
-                mime_type: typeof a.mime_type === 'string' ? a.mime_type : '',
-                title: typeof a.title === 'string' ? a.title : undefined,
-                display: a.display === 'inline' || a.display === 'panel' ? a.display as 'inline' | 'panel' : undefined,
-              }))
-            if (newArtifacts.length > 0) {
-              meta.currentRunArtifactsRef.current = [...meta.currentRunArtifactsRef.current, ...newArtifacts]
-              if (resultToolName === 'create_artifact') {
-                const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
-                for (const art of newArtifacts) {
-                  const entry = callId
-                    ? stream.streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
-                    : undefined
-                  if (entry) entry.artifactRef = art
-                }
-                stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
-              }
+        const result = obj.result as { artifacts?: unknown[] } | undefined
+        const newArtifacts = extractArtifacts(result)
+        if (newArtifacts.length > 0) {
+          meta.currentRunArtifactsRef.current = [...meta.currentRunArtifactsRef.current, ...newArtifacts]
+          if (resultToolName === 'create_artifact') {
+            const callId = typeof obj.tool_call_id === 'string' ? obj.tool_call_id : undefined
+            for (const art of newArtifacts) {
+              const entry = callId
+                ? stream.streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+                : undefined
+              if (entry) entry.artifactRef = art
             }
+            stream.setStreamingArtifacts([...stream.streamingArtifactsRef.current])
           }
+        }
+
+        if (resultToolName === 'python_execute' || resultToolName === 'exec_command' || resultToolName === 'continue_process' || resultToolName === 'terminate_process' || resultToolName === 'document_write' || resultToolName === 'create_artifact' || resultToolName === 'browser' || isWebFetchToolName(resultToolName)) {
 
           const codeExecResult = applyCodeExecutionToolResult(meta.currentRunCodeExecutionsRef.current, event)
           if (codeExecResult.updated) {

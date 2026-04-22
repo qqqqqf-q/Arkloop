@@ -115,6 +115,7 @@ type DesktopEngine struct {
 	runtimeSnapshot        *sharedtoolruntime.RuntimeSnapshot
 	jobQueue               queue.JobQueue
 	routingLoader          *routing.ConfigLoader
+	artifactStore          objectstore.Store
 	messageAttachmentStore objectstore.Store
 	rolloutStore           objectstore.BlobStore
 	promptInjection        securitycap.Runtime
@@ -365,6 +366,12 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		desktopImpStore,
 		newDesktopImpressionRefresh(db, jobQueue),
 	))
+	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
+		func(ctx context.Context) (routing.ProviderRoutingConfig, error) {
+			return loadDesktopRoutingConfig(ctx, db)
+		},
+		routing.DefaultRoutingConfig(),
+	)
 
 	// Use localshell specs for LLM; DynamicShellExecutor routes to correct backend at runtime
 	shellLlmSpecs := localshell.LlmSpecs()
@@ -377,12 +384,12 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if useOV && memProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 	}
-	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore)
+	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, promptInjection.Resolver, routingLoader)
 	if err != nil {
 		return nil, fmt.Errorf("register desktop artifact tools: %w", err)
 	}
 	if artifactToolsRegistered {
-		slog.InfoContext(ctx, "desktop: stored artifact tools registered", "tools", []string{"create_artifact", "document_write"})
+		slog.InfoContext(ctx, "desktop: stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate"})
 	}
 
 	envSnap, err := sharedtoolruntime.BuildRuntimeSnapshot(ctx, sharedtoolruntime.SnapshotInput{
@@ -429,13 +436,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	// 尝试从 personas 目录加载
 	personaGetter := loadPersonaRegistryFromFS()
 
-	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
-		func(ctx context.Context) (routing.ProviderRoutingConfig, error) {
-			return loadDesktopRoutingConfig(ctx, db)
-		},
-		routing.DefaultRoutingConfig(),
-	)
-
 	mcpPool := mcp.NewPool()
 	mcpDiscoveryCache := mcp.NewDiscoveryCache(30*time.Second, mcpPool)
 
@@ -466,6 +466,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		runtimeSnapshot:        runtimeSnapshot,
 		jobQueue:               jobQueue,
 		routingLoader:          routingLoader,
+		artifactStore:          artifactStore,
 		messageAttachmentStore: messageAttachmentStore,
 		rolloutStore:           rolloutStore,
 		promptInjection:        promptInjection,
@@ -705,6 +706,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopObservedStage("channel_group_user_merge", eventsRepo, pipeline.NewChannelTelegramGroupUserMergeMiddleware()),
 		desktopObservedStage("channel_telegram_tools", eventsRepo, pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
 			TokenLoader:        &desktopTelegramTokenLoader{db: e.db},
+			ArtifactStore:      e.artifactStore,
 			GroupSearchExec:    e.groupSearchExec,
 			GroupSearchLlmSpec: conversationtool.GroupSearchLlmSpec,
 		})),

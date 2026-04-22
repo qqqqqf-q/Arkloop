@@ -90,7 +90,8 @@ var SendFileAgentSpec = tools.AgentToolSpec{
 var SendFileLlmSpec = llm.ToolSpec{
 	Name: ToolSendFile,
 	Description: sp(
-		"Send a media file to the current Telegram chat. The file_url can be either a publicly accessible URL (S3, CDN) OR a local file path on the bot's filesystem (e.g., /Users/x/Downloads/file.pdf). " +
+		"Send a media file to the current Telegram chat. The file_url can be either a publicly accessible URL (S3, CDN), a local file path on the bot's filesystem (e.g., /Users/x/Downloads/file.pdf), or an artifact reference like artifact:account/run/generated-image.png. " +
+			"If a previous tool result returned an artifacts array, you may pass one of those artifact keys directly here as file_url using artifact:<key>; this is the preferred way to send a freshly generated image or document. " +
 			"Use kind to specify the media type: photo, document, audio, video, voice, or animation.",
 	),
 	JSONSchema: map[string]any{
@@ -98,7 +99,7 @@ var SendFileLlmSpec = llm.ToolSpec{
 		"properties": map[string]any{
 			"file_url": map[string]any{
 				"type":        "string",
-				"description": "URL to the file (https://...) or local file path (/Users/x/Downloads/...)",
+				"description": "URL to the file (https://...), local file path (/Users/x/Downloads/...), or artifact reference (artifact:...). Prefer passing artifact:<key> from an earlier tool result when available.",
 			},
 			"kind": map[string]any{
 				"type":        "string",

@@ -203,7 +203,7 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 		t.Fatalf("compose desktop engine: %v", err)
 	}
 
-	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write"} {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate"} {
 		if _, ok := engine.toolRegistry.Get(toolName); !ok {
 			t.Fatalf("expected tool %s to be registered", toolName)
 		}
@@ -216,7 +216,7 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 	for _, spec := range engine.allLlmSpecs {
 		specNames[spec.Name] = struct{}{}
 	}
-	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write"} {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate"} {
 		if _, ok := specNames[toolName]; !ok {
 			t.Fatalf("expected tool spec %s in desktop llm specs", toolName)
 		}

@@ -20,6 +20,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/mcp"
+	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
@@ -32,10 +33,9 @@ import (
 	"arkloop/services/worker/internal/tools/builtin/channel_qq"
 	"arkloop/services/worker/internal/tools/builtin/channel_telegram"
 	"arkloop/services/worker/internal/tools/builtin/platform"
-	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	"arkloop/services/worker/internal/tools/builtin/read"
+	sandboxtool "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
-	notebookprovider "arkloop/services/worker/internal/memory/notebook"
 	memorytool "arkloop/services/worker/internal/tools/memory"
 
 	"github.com/google/uuid"
@@ -250,10 +250,10 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	runtimeManager := workerruntime.NewManager(runtimeSnapshotTTL, func(loadCtx context.Context) (sharedtoolruntime.RuntimeSnapshot, error) {
 		return sharedtoolruntime.BuildRuntimeSnapshot(loadCtx, sharedtoolruntime.SnapshotInput{
-			ConfigResolver:          configResolver,
-			HasConversationSearch:   pool != nil,
-			HasGroupHistorySearch:   pool != nil,
-			ArtifactStoreAvailable:  artifactStore != nil,
+			ConfigResolver:         configResolver,
+			HasConversationSearch:  pool != nil,
+			HasGroupHistorySearch:  pool != nil,
+			ArtifactStoreAvailable: artifactStore != nil,
 			LoadPlatformProviders: func(innerCtx context.Context) ([]sharedtoolruntime.ProviderConfig, error) {
 				providers, err := toolProviderCache.GetPlatform(innerCtx, pool)
 				if err != nil {
@@ -319,12 +319,12 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		allLlmSpecs = append(allLlmSpecs, conversationtool.GroupSearchLlmSpec)
 	}
 
-	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore)
+	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, pool, configResolver, routingLoader)
 	if err != nil {
 		return nil, err
 	}
 	if artifactToolsRegistered {
-		slog.InfoContext(ctx, "stored artifact tools registered", "tools", []string{"create_artifact", "document_write"})
+		slog.InfoContext(ctx, "stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate"})
 	}
 
 	var toolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
@@ -421,6 +421,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		MemoryProviderFactory:        memoryProviderFactory,
 		RoutingConfigLoader:          routingLoader,
 		MessageAttachmentStore:       messageAttachmentStore,
+		ArtifactStore:                artifactStore,
 		RolloutBlobStore:             rolloutStore,
 		PlatformToolExecutor:         platformExec,
 		ChannelTelegramLoader:        chTelegram,

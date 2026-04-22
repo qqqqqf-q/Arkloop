@@ -26,6 +26,9 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["document_write"]; ok {
 		t.Fatal("document_write should be absent without artifact store")
 	}
+	if _, ok := resolved.ToolNameSet()["image_generate"]; ok {
+		t.Fatal("image_generate should be absent without artifact store")
+	}
 
 	resolved = ResolveBuiltin(ResolveInput{ArtifactStoreAvailable: true})
 	if _, ok := resolved.ToolNameSet()["create_artifact"]; !ok {
@@ -33,6 +36,9 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	}
 	if _, ok := resolved.ToolNameSet()["document_write"]; !ok {
 		t.Fatal("document_write should be present with artifact store")
+	}
+	if _, ok := resolved.ToolNameSet()["image_generate"]; !ok {
+		t.Fatal("image_generate should be present with artifact store")
 	}
 }
 
@@ -118,6 +124,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"exec_command",
 		"glob",
 		"grep",
+		"image_generate",
 		"interrupt_agent",
 		"memory_edit",
 		"memory_forget",

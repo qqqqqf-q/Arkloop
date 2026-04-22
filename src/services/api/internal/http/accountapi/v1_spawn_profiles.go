@@ -17,9 +17,19 @@ import (
 
 var allowedProfiles = map[string]struct{}{
 	"explore": {},
+	"image":   {},
 	"task":    {},
 	"strong":  {},
 	"tool":    {},
+}
+
+func profileConfigKey(name string) string {
+	switch strings.TrimSpace(name) {
+	case "image":
+		return "image_generative.model"
+	default:
+		return "spawn.profile." + name
+	}
 }
 
 type spawnProfileResponse struct {
@@ -71,7 +81,7 @@ func spawnProfileEntry(
 			return
 		}
 		if _, ok := allowedProfiles[name]; !ok {
-			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, task, strong, tool", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, image, task, strong, tool", traceID, nil)
 			return
 		}
 
@@ -102,11 +112,11 @@ func listSpawnProfiles(
 		return
 	}
 
-	profiles := []string{"explore", "task", "strong", "tool"}
+	profiles := []string{"explore", "image", "task", "strong", "tool"}
 	result := make([]spawnProfileResponse, 0, len(profiles))
 
 	for _, name := range profiles {
-		key := "spawn.profile." + name
+		key := profileConfigKey(name)
 		hasOverride := false
 		resolvedModel := ""
 
@@ -181,7 +191,7 @@ func setSpawnProfile(
 		return
 	}
 
-	key := "spawn.profile." + name
+	key := profileConfigKey(name)
 	_, err := entitlementsRepo.CreateOverride(
 		r.Context(), actor.AccountID, key, body.Model, "string",
 		nil, nil, actor.UserID,
@@ -216,7 +226,7 @@ func deleteSpawnProfile(
 		return
 	}
 
-	key := "spawn.profile." + name
+	key := profileConfigKey(name)
 	existing, err := entitlementsRepo.GetOverrideByAccountAndKey(r.Context(), actor.AccountID, key)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)

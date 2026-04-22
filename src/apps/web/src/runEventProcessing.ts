@@ -43,6 +43,38 @@ function pickToolCallId(event: RunEvent): string {
   return typeof raw === 'string' && raw.trim() !== '' ? raw : event.event_id
 }
 
+export function extractArtifacts(result: unknown): ArtifactRef[] {
+  if (!result || typeof result !== 'object') return []
+  const artifacts = (result as { artifacts?: unknown[] }).artifacts
+  if (!Array.isArray(artifacts)) return []
+  return artifacts
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+    .filter((item) => typeof item.key === 'string' && typeof item.filename === 'string')
+    .map((item) => ({
+      key: item.key as string,
+      filename: item.filename as string,
+      size: typeof item.size === 'number' ? item.size : 0,
+      mime_type: typeof item.mime_type === 'string' ? item.mime_type : '',
+      title: typeof item.title === 'string' ? item.title : undefined,
+      display: item.display === 'inline' || item.display === 'panel' ? item.display as 'inline' | 'panel' : undefined,
+    }))
+}
+
+export function buildMessageArtifactsFromRunEvents(events: RunEvent[]): ArtifactRef[] {
+  const artifacts: ArtifactRef[] = []
+  const seen = new Set<string>()
+  for (const event of events) {
+    if (event.type !== 'tool.result' || isACPDelegateEventData(event.data)) continue
+    const obj = event.data as { result?: unknown }
+    for (const artifact of extractArtifacts(obj.result)) {
+      if (seen.has(artifact.key)) continue
+      seen.add(artifact.key)
+      artifacts.push(artifact)
+    }
+  }
+  return artifacts
+}
+
 export function isWebFetchToolName(toolName: string): boolean {
   const t = canonicalToolName(toolName)
   if (!t) return false

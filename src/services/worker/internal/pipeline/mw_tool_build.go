@@ -10,6 +10,8 @@ import (
 	"arkloop/services/worker/internal/tools"
 	loadtools "arkloop/services/worker/internal/tools/builtin/load_tools"
 	"arkloop/services/worker/internal/tools/builtin/read"
+
+	"github.com/google/uuid"
 )
 
 var runtimeManagedToolNames = map[string]struct{}{
@@ -96,6 +98,7 @@ func NewToolBuildMiddleware() RunMiddleware {
 		}
 
 		filteredAllowlist = filterNotConfiguredExecutors(filteredAllowlist, rc.ToolExecutors)
+		filteredAllowlist = filterAccountScopedAvailability(ctx, filteredAllowlist, rc.Run.AccountID, rc.ToolExecutors)
 
 		executor, err := BuildDispatchExecutor(rc.ToolRegistry, rc.ToolExecutors, filteredAllowlist)
 		if err != nil {
@@ -237,6 +240,20 @@ func filterNotConfiguredExecutors(allowlistSet map[string]struct{}, executors ma
 			if nc, ok := exec.(tools.NotConfiguredChecker); ok && nc.IsNotConfigured() {
 				delete(out, name)
 			}
+		}
+	}
+	return out
+}
+
+func filterAccountScopedAvailability(ctx context.Context, allowlistSet map[string]struct{}, accountID uuid.UUID, executors map[string]tools.Executor) map[string]struct{} {
+	out := CopyStringSet(allowlistSet)
+	if accountID == uuid.Nil {
+		delete(out, "image_generate")
+		return out
+	}
+	if exec, ok := executors["image_generate"]; ok {
+		if checker, ok := exec.(tools.AccountAvailabilityChecker); ok && !checker.IsAvailableForAccount(ctx, accountID) {
+			delete(out, "image_generate")
 		}
 	}
 	return out

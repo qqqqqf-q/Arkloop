@@ -379,6 +379,8 @@ export const zhCN: LocaleStrings = {
     sectionCredits: '积分',
     titleSummarizer: '标题摘要模型',
     titleSummarizerHint: '用于自动生成对话标题',
+    imageGenerativeModel: 'Image Generative 模型',
+    imageGenerativeModelHint: '仅显示支持图片输出的已配置模型',
     spawnProfileLabel: 'Sub-agent 模型',
     spawnProfileExplore: 'explore',
     spawnProfileTask: 'task',

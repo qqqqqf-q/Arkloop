@@ -177,9 +177,9 @@ function getSidecarBinaryCandidates(): string[] {
     return [getSidecarPath(), getBundledSidecarPath()]
   }
   return [
-    getSidecarPath(),
     getDevBuiltSidecarPath(),
     getDevPackagedSidecarPath(),
+    getSidecarPath(),
     getBundledSidecarPath(),
   ]
 }

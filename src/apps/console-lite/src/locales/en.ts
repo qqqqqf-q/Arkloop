@@ -379,6 +379,8 @@ export const en: LocaleStrings = {
     sectionCredits: 'Credits',
     titleSummarizer: 'Title Summarizer Model',
     titleSummarizerHint: 'Used to auto-generate conversation titles',
+    imageGenerativeModel: 'Image Generative Model',
+    imageGenerativeModelHint: 'Only configured models with image output are shown',
     spawnProfileLabel: 'Sub-agent Models',
     spawnProfileExplore: 'explore',
     spawnProfileTask: 'task',

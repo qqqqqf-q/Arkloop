@@ -7,6 +7,7 @@ import { FormField } from '../components/FormField'
 import { Modal } from '../components/Modal'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useToast } from '@arkloop/shared'
+import { getAvailableCatalogFromAdvancedJson } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { useLocale } from '../contexts/LocaleContext'
 import type { LocaleStrings } from '../locales'
 import {
@@ -44,6 +45,13 @@ const SANDBOX_PROVIDER_MAP: Record<(typeof SANDBOX_PROVIDERS)[number], string> =
 
 const CREDITS_ENABLED_POLICY = '{"tiers":[{"up_to_tokens":2000,"multiplier":0},{"multiplier":1}]}'
 const CREDITS_DISABLED_POLICY = '{"tiers":[{"multiplier":0}]}'
+const IMAGE_GENERATIVE_MODEL_KEY = 'image_generative.model'
+
+type ModelOption = {
+  value: string
+  label: string
+  model: string
+}
 
 function isCreditsEnabled(policyValue: string): boolean {
   if (!policyValue) return true
@@ -72,6 +80,51 @@ function sandboxProviderValue(provider: ToolProviderItem | null): string {
 async function saveSetting(key: string, value: string, accessToken: string) {
   if (value.trim() === '') return
   await updatePlatformSetting(key, value, accessToken)
+}
+
+function buildModelOption(provider: LlmProvider, model: LlmProvider['models'][number]): ModelOption {
+  return {
+    value: `${provider.name}^${model.model}`,
+    label: `${provider.name} · ${model.model}`,
+    model: model.model,
+  }
+}
+
+function resolveModelValue(value: string, options: ModelOption[]): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  if (options.some((option) => option.value === trimmed)) return trimmed
+  const matches = options.filter((option) => option.model === trimmed)
+  return matches.length === 1 ? matches[0].value : trimmed
+}
+
+function mergeCurrentOption(value: string, options: ModelOption[]): ModelOption[] {
+  const trimmed = value.trim()
+  if (!trimmed || options.some((option) => option.value === trimmed)) return options
+  return [{ value: trimmed, label: trimmed, model: trimmed }, ...options]
+}
+
+function buildAllModelOptions(providers: LlmProvider[]): ModelOption[] {
+  const result: ModelOption[] = []
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      result.push(buildModelOption(provider, model))
+    }
+  }
+  return result
+}
+
+function buildImageGenerativeOptions(providers: LlmProvider[]): ModelOption[] {
+  const result: ModelOption[] = []
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      const catalog = getAvailableCatalogFromAdvancedJson(model.advanced_json)
+      const outputModalities = Array.isArray(catalog?.output_modalities) ? catalog.output_modalities : []
+      if (!outputModalities.includes('image')) continue
+      result.push(buildModelOption(provider, model))
+    }
+  }
+  return result
 }
 
 const inputCls =
@@ -120,6 +173,7 @@ export function SettingsPage() {
 
   // General
   const [titleModel, setTitleModel] = useState('')
+  const [imageGenerativeModel, setImageGenerativeModel] = useState('')
   const [spawnExplore, setSpawnExplore] = useState('')
   const [spawnTask, setSpawnTask] = useState('')
   const [spawnStrong, setSpawnStrong] = useState('')
@@ -156,15 +210,8 @@ export function SettingsPage() {
   const [savingSkills, setSavingSkills] = useState(false)
   const [savingCredits, setSavingCredits] = useState(false)
 
-  const allModels = useMemo(() => {
-    const result: { id: string; label: string }[] = []
-    for (const p of llmProviders) {
-      for (const m of p.models) {
-        result.push({ id: m.model, label: `${m.model} (${p.name})` })
-      }
-    }
-    return result
-  }, [llmProviders])
+  const allModels = useMemo(() => buildAllModelOptions(llmProviders), [llmProviders])
+  const imageGenerativeOptions = useMemo(() => buildImageGenerativeOptions(llmProviders), [llmProviders])
 
   const selectedSmtp = useMemo(
     () => smtpList.find((s) => s.id === selectedSmtpId) ?? null,
@@ -183,15 +230,18 @@ export function SettingsPage() {
       for (const s of settings) map[s.key] = s.value
       const sandboxGroup = toolProviders.providerGroups.find((group) => group.group_name === 'sandbox')
       const activeSandbox = sandboxGroup?.providers.find((provider) => provider.is_active) ?? null
+      const allModelOptions = buildAllModelOptions(providers)
+      const imageOutputOptions = buildImageGenerativeOptions(providers)
 
       setLlmProviders(providers)
       setSmtpList(smtp)
       setSandboxProviders(sandboxGroup?.providers ?? [])
 
-      setTitleModel(map['title_summarizer.model'] ?? '')
-      setSpawnExplore(map['spawn.profile.explore'] ?? '')
-      setSpawnTask(map['spawn.profile.task'] ?? '')
-      setSpawnStrong(map['spawn.profile.strong'] ?? '')
+      setTitleModel(resolveModelValue(map['title_summarizer.model'] ?? '', allModelOptions))
+      setImageGenerativeModel(resolveModelValue(map[IMAGE_GENERATIVE_MODEL_KEY] ?? '', imageOutputOptions))
+      setSpawnExplore(resolveModelValue(map['spawn.profile.explore'] ?? '', allModelOptions))
+      setSpawnTask(resolveModelValue(map['spawn.profile.task'] ?? '', allModelOptions))
+      setSpawnStrong(resolveModelValue(map['spawn.profile.strong'] ?? '', allModelOptions))
       setSandboxProvider(sandboxProviderValue(activeSandbox))
       setSandboxBaseUrl(activeSandbox?.base_url ?? '')
       setSandboxDockerImage(map['sandbox.docker_image'] ?? '')
@@ -236,6 +286,7 @@ export function SettingsPage() {
     try {
       await Promise.all([
         saveSetting('title_summarizer.model', titleModel, accessToken),
+        saveSetting(IMAGE_GENERATIVE_MODEL_KEY, imageGenerativeModel, accessToken),
         saveSetting('spawn.profile.explore', spawnExplore, accessToken),
         saveSetting('spawn.profile.task', spawnTask, accessToken),
         saveSetting('spawn.profile.strong', spawnStrong, accessToken),
@@ -246,7 +297,7 @@ export function SettingsPage() {
     } finally {
       setSavingGeneral(false)
     }
-  }, [titleModel, spawnExplore, spawnTask, spawnStrong, accessToken, addToast, tc])
+  }, [titleModel, imageGenerativeModel, spawnExplore, spawnTask, spawnStrong, accessToken, addToast, tc])
 
   const handleSaveSandbox = useCallback(async () => {
     setSavingSandbox(true)
@@ -510,6 +561,8 @@ export function SettingsPage() {
                   <GeneralSection
                     titleModel={titleModel}
                     setTitleModel={setTitleModel}
+                    imageGenerativeModel={imageGenerativeModel}
+                    setImageGenerativeModel={setImageGenerativeModel}
                     spawnExplore={spawnExplore}
                     setSpawnExplore={setSpawnExplore}
                     spawnTask={spawnTask}
@@ -517,6 +570,7 @@ export function SettingsPage() {
                     spawnStrong={spawnStrong}
                     setSpawnStrong={setSpawnStrong}
                     allModels={allModels}
+                    imageGenerativeOptions={imageGenerativeOptions}
                     saving={savingGeneral}
                     onSave={saveGeneral}
                     tc={tc}
@@ -785,6 +839,8 @@ function SmtpDetailPanel({
 function GeneralSection({
   titleModel,
   setTitleModel,
+  imageGenerativeModel,
+  setImageGenerativeModel,
   spawnExplore,
   setSpawnExplore,
   spawnTask,
@@ -792,6 +848,7 @@ function GeneralSection({
   spawnStrong,
   setSpawnStrong,
   allModels,
+  imageGenerativeOptions,
   saving,
   onSave,
   tc,
@@ -799,25 +856,28 @@ function GeneralSection({
 }: {
   titleModel: string
   setTitleModel: (v: string) => void
+  imageGenerativeModel: string
+  setImageGenerativeModel: (v: string) => void
   spawnExplore: string
   setSpawnExplore: (v: string) => void
   spawnTask: string
   setSpawnTask: (v: string) => void
   spawnStrong: string
   setSpawnStrong: (v: string) => void
-  allModels: { id: string; label: string }[]
+  allModels: ModelOption[]
+  imageGenerativeOptions: ModelOption[]
   saving: boolean
   onSave: () => void
   tc: SettingsLocale
   tCommon: CommonLocale
 }) {
-  const profileSelect = (value: string, onChange: (v: string) => void, label: string) => (
+  const renderModelSelect = (value: string, onChange: (v: string) => void, options: ModelOption[], label: string) => (
     <FormField label={label}>
       <div className="relative">
         <select value={value} onChange={(e) => onChange(e.target.value)} className={selectCls}>
           <option value="">--</option>
-          {allModels.map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
+          {mergeCurrentOption(value, options).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
         <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
@@ -831,9 +891,9 @@ function GeneralSection({
         <div className="relative">
           <select value={titleModel} onChange={(e) => setTitleModel(e.target.value)} className={selectCls}>
             <option value="">--</option>
-            {allModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
+            {mergeCurrentOption(titleModel, allModels).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -841,12 +901,30 @@ function GeneralSection({
         </div>
         <p className="text-xs text-[var(--c-text-muted)]">{tc.titleSummarizerHint}</p>
       </FormField>
+      <FormField label={tc.imageGenerativeModel}>
+        <div className="relative">
+          <select
+            value={imageGenerativeModel}
+            onChange={(e) => setImageGenerativeModel(e.target.value)}
+            className={selectCls}
+          >
+            <option value="">--</option>
+            {mergeCurrentOption(imageGenerativeModel, imageGenerativeOptions).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)]" />
+        </div>
+        <p className="text-xs text-[var(--c-text-muted)]">{tc.imageGenerativeModelHint}</p>
+      </FormField>
       <div className="mt-4">
         <p className="mb-3 text-sm font-medium text-[var(--c-text-primary)]">{tc.spawnProfileLabel}</p>
         <div className="space-y-3">
-          {profileSelect(spawnExplore, setSpawnExplore, tc.spawnProfileExplore)}
-          {profileSelect(spawnTask, setSpawnTask, tc.spawnProfileTask)}
-          {profileSelect(spawnStrong, setSpawnStrong, tc.spawnProfileStrong)}
+          {renderModelSelect(spawnExplore, setSpawnExplore, allModels, tc.spawnProfileExplore)}
+          {renderModelSelect(spawnTask, setSpawnTask, allModels, tc.spawnProfileTask)}
+          {renderModelSelect(spawnStrong, setSpawnStrong, allModels, tc.spawnProfileStrong)}
         </div>
       </div>
       <div className="flex justify-end">

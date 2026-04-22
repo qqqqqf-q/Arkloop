@@ -3,11 +3,13 @@ package catalogapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
+	"strings"
 	"time"
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
+	sharedconfig "arkloop/services/shared/config"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 
 	"github.com/google/uuid"
@@ -71,6 +73,9 @@ func buildEffectiveToolCatalog(
 	artifactStoreAvailable bool,
 ) (toolCatalogResponse, error) {
 	available := buildEffectiveBuiltinToolNameSet(ctx, pool, userID, artifactStoreAvailable)
+	if !effectiveImageGenerateConfigured(ctx, pool, accountID) {
+		delete(available, "image_generate")
+	}
 	platformByName, projectByName := loadEffectiveToolDescriptionOverrides(ctx, overridesRepo, projectID)
 	platformDisabledByName, projectDisabledByName := loadEffectiveToolDisabledOverrides(ctx, overridesRepo, projectID)
 	mcpTools := []toolCatalogItem{}
@@ -125,6 +130,29 @@ func buildEffectiveToolCatalog(
 		groups = append(groups, toolCatalogGroup{Group: effectiveToolCatalogMCPGroup, Tools: mcpTools})
 	}
 	return toolCatalogResponse{Groups: groups}, nil
+}
+
+func effectiveImageGenerateConfigured(ctx context.Context, pool data.DB, accountID uuid.UUID) bool {
+	if !effectiveCatalogPoolReady(pool) {
+		return false
+	}
+	if accountID != uuid.Nil {
+		repo, err := data.NewEntitlementsRepository(pool)
+		if err == nil {
+			override, err := repo.GetOverride(ctx, accountID, "image_generative.model")
+			if err == nil && override != nil && strings.TrimSpace(override.Value) != "" {
+				return true
+			}
+		}
+	}
+	resolver, _ := sharedconfig.NewResolver(
+		sharedconfig.DefaultRegistry(),
+		sharedconfig.NewPGXStoreQuerier(pool),
+		nil,
+		0,
+	)
+	value, err := resolver.Resolve(ctx, "image_generative.model", sharedconfig.Scope{})
+	return err == nil && strings.TrimSpace(value) != ""
 }
 
 func loadEffectiveToolDescriptionOverrides(

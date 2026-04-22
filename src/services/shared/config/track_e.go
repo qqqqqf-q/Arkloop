@@ -132,6 +132,14 @@ func RegisterTrackE(r *Registry) error {
 			Sensitive:   false,
 			Scope:       ScopeBoth,
 		},
+		{
+			Key:         "image_generative.model",
+			Type:        TypeString,
+			Default:     "",
+			Description: "默认图片生成模型，格式 provider^model",
+			Sensitive:   false,
+			Scope:       ScopeBoth,
+		},
 	}
 
 	for _, e := range entries {

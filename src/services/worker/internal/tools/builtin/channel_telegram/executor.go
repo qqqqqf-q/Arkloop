@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"mime"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/tools"
 
@@ -71,6 +74,33 @@ func firstNonEmptyArgString(args map[string]any, keys ...string) string {
 	return ""
 }
 
+func normalizeArtifactRef(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.HasPrefix(raw, "artifact:") {
+		return ""
+	}
+	return strings.TrimPrefix(raw, "artifact:")
+}
+
+func tempFileExt(key, contentType string) string {
+	if ext := strings.TrimSpace(filepath.Ext(key)); ext != "" {
+		return ext
+	}
+	exts, err := mime.ExtensionsByType(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	if err == nil && len(exts) > 0 {
+		return exts[0]
+	}
+	return ""
+}
+
+func tempArtifactFilename(key, contentType string) string {
+	name := strings.TrimSpace(filepath.Base(key))
+	if name != "" && name != "." && name != string(filepath.Separator) {
+		return name
+	}
+	return "artifact" + tempFileExt(key, contentType)
+}
+
 // TokenLoader resolves the bot token for a channel (Server PG or Desktop SQLite).
 type TokenLoader interface {
 	BotToken(ctx context.Context, channelID uuid.UUID) (string, error)
@@ -80,14 +110,15 @@ type TokenLoader interface {
 type Executor struct {
 	tokens TokenLoader
 	tg     *telegrambot.Client
+	store  objectstore.Store
 }
 
 // NewExecutor builds an executor; tg nil uses default API base URL from env.
-func NewExecutor(loader TokenLoader, tg *telegrambot.Client) *Executor {
+func NewExecutor(loader TokenLoader, tg *telegrambot.Client, store objectstore.Store) *Executor {
 	if tg == nil {
 		tg = telegrambot.NewClient(os.Getenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL"), nil)
 	}
-	return &Executor{tokens: loader, tg: tg}
+	return &Executor{tokens: loader, tg: tg, store: store}
 }
 
 func (e *Executor) Execute(ctx context.Context, toolName string, args map[string]any, execCtx tools.ExecutionContext, _ string) tools.ExecutionResult {
@@ -251,6 +282,56 @@ func (e *Executor) sendFile(
 			DurationMs: ms(),
 		}
 	}
+	cleanup := func() {}
+	if artifactKey := normalizeArtifactRef(fileURL); artifactKey != "" {
+		if e.store == nil {
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "artifact storage is not configured"},
+				DurationMs: ms(),
+			}
+		}
+		data, contentType, err := e.store.GetWithContentType(ctx, artifactKey)
+		if err != nil {
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("artifact not found: %s", artifactKey)},
+				DurationMs: ms(),
+			}
+		}
+		tmpDir, err := os.MkdirTemp("", "arkloop-telegram-*")
+		if err != nil {
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("create temp directory failed: %s", err.Error())},
+				DurationMs: ms(),
+			}
+		}
+		tmpPath := filepath.Join(tmpDir, tempArtifactFilename(artifactKey, contentType))
+		tmp, err := os.Create(tmpPath)
+		if err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("create temp file failed: %s", err.Error())},
+				DurationMs: ms(),
+			}
+		}
+		if _, err := tmp.Write(data); err != nil {
+			_ = tmp.Close()
+			_ = os.RemoveAll(tmpDir)
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("write temp file failed: %s", err.Error())},
+				DurationMs: ms(),
+			}
+		}
+		if err := tmp.Close(); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return tools.ExecutionResult{
+				Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: fmt.Sprintf("close temp file failed: %s", err.Error())},
+				DurationMs: ms(),
+			}
+		}
+		fileURL = tmp.Name()
+		cleanup = func() { _ = os.RemoveAll(tmpDir) }
+	}
+	defer cleanup()
 
 	kind := strings.ToLower(strings.TrimSpace(firstNonEmptyArgString(args, "kind", "type")))
 	if kind == "" {
@@ -316,4 +397,3 @@ func (e *Executor) sendFile(
 		DurationMs: ms(),
 	}
 }
-

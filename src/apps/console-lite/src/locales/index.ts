@@ -335,6 +335,8 @@ export interface LocaleStrings {
     sectionCredits: string
     titleSummarizer: string
     titleSummarizerHint: string
+    imageGenerativeModel: string
+    imageGenerativeModelHint: string
     spawnProfileLabel: string
     spawnProfileExplore: string
     spawnProfileTask: string

@@ -499,6 +499,11 @@ func TestLlmProvidersAvailableModelsGeminiUsesModelsList(t *testing.T) {
 					"inputTokenLimit":            2048,
 					"supportedGenerationMethods": []string{"embedContent"},
 				},
+				{
+					"name":                       "models/imagen-4.0-generate-001",
+					"displayName":                "Imagen 4",
+					"supportedGenerationMethods": []string{"predict"},
+				},
 			},
 		})
 	}))
@@ -520,14 +525,21 @@ func TestLlmProvidersAvailableModelsGeminiUsesModelsList(t *testing.T) {
 		t.Fatalf("available models: %d %s", resp.Code, resp.Body.String())
 	}
 	payload := decodeJSONBody[llmProviderAvailableModelsResponse](t, resp.Body.Bytes())
-	if len(payload.Models) != 2 {
+	if len(payload.Models) != 3 {
 		t.Fatalf("unexpected gemini models payload: %#v", payload)
 	}
-	if payload.Models[0].ID != "gemini-2.0-flash" || payload.Models[0].Type != "chat" {
-		t.Fatalf("unexpected first model: %#v", payload.Models[0])
+	modelsByID := make(map[string]llmProviderAvailableModel, len(payload.Models))
+	for _, model := range payload.Models {
+		modelsByID[model.ID] = model
 	}
-	if payload.Models[1].ID != "text-embedding-004" || payload.Models[1].Type != "embedding" {
-		t.Fatalf("unexpected second model: %#v", payload.Models[1])
+	if model := modelsByID["gemini-2.0-flash"]; model.Type != "chat" {
+		t.Fatalf("unexpected chat model: %#v", model)
+	}
+	if model := modelsByID["text-embedding-004"]; model.Type != "embedding" {
+		t.Fatalf("unexpected embedding model: %#v", model)
+	}
+	if model := modelsByID["imagen-4.0-generate-001"]; model.Type != "image" {
+		t.Fatalf("unexpected image model: %#v", model)
 	}
 }
 
