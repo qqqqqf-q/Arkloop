@@ -44,7 +44,13 @@ var ResizeProcessAgentSpec = tools.AgentToolSpec{
 
 var ExecCommandLlmSpec = llm.ToolSpec{
 	Name:        "exec_command",
-	Description: llmStringPtr(sharedtoolmeta.Must("exec_command").LLMDescription),
+	Description: llmStringPtr(
+		"run a shell command on the user's local machine. Default mode is buffered, which executes one command to completion with stdin closed. " +
+			"Use follow for long-running output-only processes, stdin for non-PTY processes that need later input, and pty only for real terminal-style interaction. " +
+			"The backend returns a process_ref only for follow/stdin/pty modes. Continue those processes with continue_process, terminate them with terminate_process, and resize only pty processes with resize_process. " +
+			"When you only need to change directories, prefer the cwd parameter instead of prefixing the command with cd &&. " +
+			"Do not use for file operations — use read/write_file/edit/grep instead.",
+	),
 	JSONSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{

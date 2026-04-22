@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -50,8 +51,15 @@ func buildRuntimeContextBlock(ctx context.Context, rc *RunContext) string {
 	loc := loadRuntimeLocation(timeZone)
 	localDate := time.Now().UTC().In(loc).Format("2006-01-02")
 
-	return "User Timezone: " + timeZone + "\n" +
-		"User Local Date: " + localDate
+	var sb strings.Builder
+	sb.WriteString("User Timezone: " + timeZone + "\n")
+	sb.WriteString("User Local Date: " + localDate + "\n")
+	sb.WriteString("Host Mode: " + hostMode + "\n")
+	sb.WriteString("Platform: " + runtime.GOOS + "/" + runtime.GOARCH)
+	if hostMode == "desktop" {
+		sb.WriteString("\nExecution Environment: local machine (commands run directly on the user's device, not in a cloud sandbox)")
+	}
+	return sb.String()
 }
 
 func formatBotIdentity(cc *ChannelContext) string {
