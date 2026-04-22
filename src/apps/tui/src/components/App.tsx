@@ -1,6 +1,5 @@
 import { onMount, Show } from "solid-js"
 import { ChatView } from "./ChatView"
-import { ToolConfirm } from "./ToolConfirm"
 import { ModelSelect } from "./ModelSelect"
 import { SessionList } from "./SessionList"
 import { EffortSelect } from "./EffortSelect"
@@ -49,9 +48,6 @@ export function App(props: Props) {
       }}
     >
       <ChatView onSubmit={submitInput} />
-      <Show when={overlay() === "tool"}>
-        <ToolConfirm client={props.client} />
-      </Show>
       <Show when={overlay() === "model"}>
         <ModelSelect client={props.client} />
       </Show>

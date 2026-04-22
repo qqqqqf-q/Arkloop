@@ -26,9 +26,9 @@ export function StartupCard() {
   const directoryText = () => workingDirectory() || "."
   const versionText = () => `v${appVersion()}`
 
-  function renderInfoRow(label: string, value: () => string) {
+  function renderInfoRow(label: string, value: () => string, paddingTop = 0, paddingBottom = 0) {
     return (
-      <box flexDirection="row" width="100%">
+      <box flexDirection="row" width="100%" paddingLeft={2} paddingRight={2} paddingTop={paddingTop} paddingBottom={paddingBottom}>
         <box width={11}>
           <text content={label} fg={tuiTheme.textMuted} />
         </box>
@@ -42,15 +42,15 @@ export function StartupCard() {
   return (
     <box width="100%" paddingLeft={CHAT_CONTENT_GUTTER} paddingRight={1} paddingTop={1} paddingBottom={1}>
       <box
-        width="100%"
-        maxWidth={84}
+        width={84}
+        maxWidth="100%"
         flexDirection="column"
         borderStyle="rounded"
         border={["top", "right", "bottom", "left"]}
         borderColor={tuiTheme.border}
-        shouldFill={false}
       >
         <box
+          width="100%"
           flexDirection="row"
           justifyContent="space-between"
           paddingLeft={2}
@@ -69,11 +69,9 @@ export function StartupCard() {
             <text content={`@${currentUsername()}`} fg={tuiTheme.info} />
           </Show>
         </box>
-        <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-          {renderInfoRow("model", modelText)}
-          {renderInfoRow("persona", personaText)}
-          {renderInfoRow("directory", directoryText)}
-        </box>
+        {renderInfoRow("model", modelText, 1, 0)}
+        {renderInfoRow("persona", personaText, 0, 0)}
+        {renderInfoRow("directory", directoryText, 0, 1)}
       </box>
     </box>
   )

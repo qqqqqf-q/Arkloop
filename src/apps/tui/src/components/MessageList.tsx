@@ -1,24 +1,16 @@
 import { For, Index, Show, type Accessor } from "solid-js"
-import { error, historyTurns, liveAssistantTurn, pendingUserInput, setError, streaming } from "../store/chat"
+import { error, historyTurns, liveAssistantTurn, pendingUserInput, streaming } from "../store/chat"
 import type { AssistantTurnUi, CopBlockItem } from "../lib/assistantTurn"
 import { MessageBubble } from "./MessageBubble"
-import { StartupCard } from "./StartupCard"
 import { compressTurnSegments, summarizeLiveToolCall } from "../lib/toolSummary"
-import { tuiTheme } from "../lib/theme"
 import type { LlmTurn } from "../lib/runTurns"
 
 type RenderEntry =
   | { kind: "history"; turn: LlmTurn }
   | { kind: "live"; input: string | null; turn: AssistantTurnUi | null }
+  | { kind: "error"; message: string }
 
 export function MessageList() {
-  const showStartupCard = () => (
-    historyTurns.length === 0
-    && pendingUserInput() === null
-    && liveAssistantTurn() === null
-    && !error()
-  )
-
   function renderTurn(turn: LlmTurn, isLive: boolean) {
     const segments = compressTurnSegments(turn.segments)
     return (
@@ -104,30 +96,28 @@ export function MessageList() {
     if (input !== null || turn !== null) {
       entries.push({ kind: "live", input, turn })
     }
+    const currentError = error()
+    if (currentError) {
+      entries.push({ kind: "error", message: currentError })
+    }
     return entries
   }
 
   return (
     <scrollbox stickyScroll={true} stickyStart="bottom" flexGrow={1} width="100%">
       <box flexDirection="column" width="100%" minHeight="100%">
-        <Show when={showStartupCard()} fallback={<box flexGrow={1} width="100%" />}>
-          <StartupCard />
-        </Show>
+        <box flexGrow={1} width="100%" />
         <For each={renderEntries()}>
           {(entry) => {
             if (entry.kind === "history") {
               return renderTurn(entry.turn, false)
             }
+            if (entry.kind === "error") {
+              return <MessageBubble role="tool" toolName="error" toolStatus="error" toolError={entry.message} />
+            }
             return renderLiveTail(entry.input, entry.turn)
           }}
         </For>
-        <Show when={error()}>
-          <box width="100%" paddingBottom={1} flexDirection="row" gap={1}>
-            <text content="error" fg={tuiTheme.error} />
-            <text content={error() ?? ""} fg={tuiTheme.textMuted} />
-            <text content="dismiss" fg={tuiTheme.textMuted} onMouseUp={() => setError(null)} />
-          </box>
-        </Show>
       </box>
     </scrollbox>
   )

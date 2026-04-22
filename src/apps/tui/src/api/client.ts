@@ -69,13 +69,6 @@ export class ApiClient {
     return this.request("GET", `/v1/runs/${runId}`)
   }
 
-  async respondTool(runId: string, toolCallId: string, action: string): Promise<void> {
-    await this.request("POST", `/v1/runs/${runId}/tool-response`, {
-      tool_call_id: toolCallId,
-      action,
-    })
-  }
-
   /** Returns a ReadableStream of SSE events */
   async streamEvents(runId: string, afterSeq = 0): Promise<Response> {
     const url = `${this.config.host}/v1/runs/${runId}/events?follow=true&after_seq=${afterSeq}`

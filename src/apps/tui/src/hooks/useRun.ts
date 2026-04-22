@@ -4,14 +4,13 @@ import type { SSEEvent } from "../api/types"
 import {
   commitLiveTurns,
   setStreaming,
-  setPendingToolCall,
   setError,
   setDebugInfo,
   startLiveTurn,
   appendRunEvent,
   liveAssistantTurn,
 } from "../store/chat"
-import { currentEffort, currentModel, currentPersona, setCurrentThreadId, setTokenUsage, setOverlay, currentThreadId } from "../store/app"
+import { currentEffort, currentModel, currentPersona, setCurrentThreadId, setTokenUsage, currentThreadId } from "../store/app"
 import { writeThreadMode } from "../lib/threadMode"
 
 export function createRunHandler(client: ApiClient) {
@@ -46,16 +45,6 @@ export function createRunHandler(client: ApiClient) {
         switch (event.type) {
           case "llm.turn.completed": {
             updateUsage(event)
-            break
-          }
-          case "tool.call": {
-            setOverlay("tool")
-            setPendingToolCall({
-              runId: run.run_id,
-              toolCallId: (event.data.tool_call_id as string) ?? "",
-              toolName: event.toolName ?? (event.data.name as string) ?? "unknown",
-              args: (event.data.arguments as Record<string, unknown>) ?? {},
-            })
             break
           }
           case "run.completed": {

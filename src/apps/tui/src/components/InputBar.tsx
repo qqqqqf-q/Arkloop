@@ -1,14 +1,13 @@
 import type { KeyEvent, TextareaRenderable } from "@opentui/core"
-import { useTerminalDimensions } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { effortSymbol, formatEffort } from "../lib/effort"
 import { streaming } from "../store/chat"
+import { CHAT_CONTENT_GUTTER, CHAT_PREFIX_WIDTH } from "../lib/chatLayout"
 import { tuiTheme } from "../lib/theme"
 import {
   connected,
   currentEffort,
   currentModelLabel,
-  currentModelContextLength,
   currentModelSupportsReasoning,
   currentPersonaLabel,
   registerInputFocus,
@@ -42,7 +41,6 @@ const slashCommands: SlashCommand[] = [
 
 export function InputBar(props: Props) {
   let input: TextareaRenderable
-  const terminal = useTerminalDimensions()
   const [text, setText] = createSignal("")
   const [selectedIndex, setSelectedIndex] = createSignal(0)
 
@@ -54,18 +52,18 @@ export function InputBar(props: Props) {
   })
 
   const activeSuggestion = createMemo(() => suggestions()[selectedIndex()] ?? suggestions()[0])
-  const contextText = () => {
-    const usage = tokenUsage()
-    const limit = currentModelContextLength()
-    if (!limit || usage.context <= 0) return "context --/--"
-    const remaining = Math.max(0, limit - usage.context)
-    return `context ${usage.context}/${limit} · left ${remaining}`
-  }
   const connectionText = () => connected() ? "connected" : "offline"
   const connectionColor = () => connected() ? tuiTheme.success : tuiTheme.error
-  const lineText = () => {
-    const width = Math.max(12, terminal().width - 4)
-    return "─".repeat(width)
+  const usageText = () => {
+    const usage = tokenUsage()
+    const parts: string[] = []
+    if (usage.input > 0 || usage.output > 0) {
+      parts.push(`tokens ${usage.input}/${usage.output}`)
+    }
+    if (usage.context > 0) {
+      parts.push(`ctx ${usage.context}`)
+    }
+    return parts.length > 0 ? parts.join(" · ") : null
   }
 
   function submit() {
@@ -140,24 +138,38 @@ export function InputBar(props: Props) {
   }
 
   return (
-    <box flexDirection="column" width="100%" paddingTop={1}>
-      <box position="relative" width="100%" flexDirection="column">
+    <box
+      position="absolute"
+      left={0}
+      right={0}
+      bottom={0}
+      zIndex={40}
+      width="100%"
+      flexDirection="column"
+      backgroundColor={tuiTheme.background}
+    >
+      <box
+        position="relative"
+        width="100%"
+        flexDirection="column"
+        border={["top", "bottom"]}
+        borderColor={tuiTheme.borderSubtle}
+        backgroundColor={tuiTheme.background}
+        onMouseOver={() => input?.focus()}
+        onMouseDown={() => input?.focus()}
+      >
         <Show when={suggestions().length > 0}>
           <box
             position="absolute"
             bottom="100%"
             left={0}
             right={0}
-            zIndex={20}
+            zIndex={60}
             width="100%"
-            paddingLeft={1}
+            paddingLeft={CHAT_CONTENT_GUTTER + CHAT_PREFIX_WIDTH}
             paddingRight={1}
           >
-            <box
-              flexDirection="column"
-              width="100%"
-              backgroundColor={tuiTheme.panel}
-            >
+            <box flexDirection="column" width="100%" backgroundColor={tuiTheme.panel}>
               <For each={suggestions()}>
                 {(item, index) => {
                   const active = () => index() === selectedIndex()
@@ -179,51 +191,38 @@ export function InputBar(props: Props) {
           </box>
         </Show>
         <box
-          flexDirection="column"
           width="100%"
-          backgroundColor={tuiTheme.background}
-          onMouseOver={() => input?.focus()}
-          onMouseDown={() => input?.focus()}
+          flexDirection="row"
+          alignItems="flex-start"
+          paddingLeft={CHAT_CONTENT_GUTTER}
+          paddingRight={1}
         >
-          <box width="100%" paddingLeft={1}>
-            <text content={lineText()} fg={tuiTheme.borderSubtle} wrapMode="none" />
-          </box>
-          <box
-            width="100%"
-            flexDirection="row"
-            alignItems="center"
-            paddingLeft={1}
-            paddingRight={1}
-            backgroundColor={tuiTheme.background}
-          >
+          <box width={CHAT_PREFIX_WIDTH} justifyContent="center">
             <text content="❯" fg={streaming() ? tuiTheme.primary : tuiTheme.text} />
-            <box flexGrow={1} paddingLeft={1}>
-              <textarea
-                ref={(r: TextareaRenderable) => {
-                  input = r
-                }}
-                onSubmit={() => {
-                  setTimeout(() => setTimeout(() => submit(), 0), 0)
-                }}
-                onContentChange={() => {
-                  setText(input?.plainText ?? "")
-                }}
-                onKeyDown={handleKeyDown}
-                keyBindings={keyBindings}
-                placeholder={streaming() ? "Waiting for response..." : "Type a message or / for commands..."}
-                placeholderColor={tuiTheme.textMuted}
-                textColor={tuiTheme.text}
-                focusedTextColor={tuiTheme.text}
-                focusedBackgroundColor={tuiTheme.background}
-                cursorColor={tuiTheme.primary}
-                width="100%"
-                minHeight={1}
-                maxHeight={4}
-              />
-            </box>
           </box>
-          <box width="100%" paddingLeft={1}>
-            <text content={lineText()} fg={tuiTheme.borderSubtle} wrapMode="none" />
+          <box flexGrow={1}>
+            <textarea
+              ref={(r: TextareaRenderable) => {
+                input = r
+              }}
+              onSubmit={() => {
+                setTimeout(() => setTimeout(() => submit(), 0), 0)
+              }}
+              onContentChange={() => {
+                setText(input?.plainText ?? "")
+              }}
+              onKeyDown={handleKeyDown}
+              keyBindings={keyBindings}
+              placeholder={streaming() ? "Waiting for response..." : "Type a message or / for commands..."}
+              placeholderColor={tuiTheme.textMuted}
+              textColor={tuiTheme.text}
+              focusedTextColor={tuiTheme.text}
+              focusedBackgroundColor={tuiTheme.background}
+              cursorColor={tuiTheme.primary}
+              width="100%"
+              minHeight={1}
+              maxHeight={4}
+            />
           </box>
         </box>
       </box>
@@ -231,10 +230,8 @@ export function InputBar(props: Props) {
         flexDirection="row"
         justifyContent="space-between"
         width="100%"
-        paddingLeft={3}
-        paddingRight={3}
-        paddingTop={1}
-        paddingBottom={1}
+        paddingLeft={CHAT_CONTENT_GUTTER + CHAT_PREFIX_WIDTH}
+        paddingRight={1}
       >
         <box flexDirection="row" gap={1}>
           <text content={currentPersonaLabel() || "Work"} fg={tuiTheme.textMuted} />
@@ -250,13 +247,16 @@ export function InputBar(props: Props) {
           </Show>
         </box>
         <box flexDirection="row" gap={1}>
-          <text content={contextText()} fg={tuiTheme.textMuted} />
-          <text content="·" fg={tuiTheme.border} />
+          <Show when={usageText()}>
+            <text content={usageText() ?? ""} fg={tuiTheme.textMuted} />
+            <text content="·" fg={tuiTheme.border} />
+          </Show>
           <text content={connectionText()} fg={connectionColor()} />
           <text content="·" fg={tuiTheme.border} />
           <text content={suggestions().length > 0 ? "tab 补全" : "/ 命令"} fg={tuiTheme.textMuted} />
         </box>
       </box>
+      <box width="100%" height={1} backgroundColor={tuiTheme.background} />
     </box>
   )
 }
