@@ -547,6 +547,49 @@ func TestToAnthropicMessages_AssistantThinkingBlocksPreserved(t *testing.T) {
 	}
 }
 
+func TestToAnthropicMessages_AssistantUnsignedThinkingDropped(t *testing.T) {
+	system, messages, err := toAnthropicMessages([]Message{
+		{
+			Role: "assistant",
+			Content: []ContentPart{
+				{Type: "thinking", Text: "deliberating"},
+			},
+			ToolCalls: []ToolCall{
+				{
+					ToolCallID:    "call_1",
+					ToolName:      "web_search",
+					ArgumentsJSON: map[string]any{"query": "hello"},
+				},
+			},
+		},
+		{
+			Role: "tool",
+			Content: []TextPart{{
+				Text: `{"tool_call_id":"call_1","tool_name":"web_search","result":{"ok":true}}`,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("toAnthropicMessages failed: %v", err)
+	}
+	if len(system) != 0 {
+		t.Fatalf("unexpected system blocks: %#v", system)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("unexpected messages len: %d", len(messages))
+	}
+	blocks, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("unexpected assistant blocks: %#v", messages[0]["content"])
+	}
+	if blocks[0]["type"] != "tool_use" {
+		t.Fatalf("expected unsigned thinking to be dropped, got %#v", blocks[0])
+	}
+	if _, ok := blocks[0]["signature"]; ok {
+		t.Fatalf("tool_use block should not carry signature: %#v", blocks[0])
+	}
+}
+
 func TestParseAnthropicMessage_ToolUse(t *testing.T) {
 	body := []byte(`{
   "id":"msg_test",

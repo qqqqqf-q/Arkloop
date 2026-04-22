@@ -907,12 +907,17 @@ func anthropicContentBlocks(parts []ContentPart) ([]map[string]any, error) {
 			}
 			blocks = append(blocks, block)
 		case "thinking":
+			signature := strings.TrimSpace(part.Signature)
+			if signature == "" {
+				if strings.TrimSpace(part.Text) != "" {
+					slog.Warn("anthropic: dropping unsigned thinking block from replay")
+				}
+				continue
+			}
 			block := map[string]any{
 				"type":     "thinking",
 				"thinking": part.Text,
-			}
-			if strings.TrimSpace(part.Signature) != "" {
-				block["signature"] = strings.TrimSpace(part.Signature)
+				"signature": signature,
 			}
 			blocks = append(blocks, block)
 		case "redacted_thinking":
