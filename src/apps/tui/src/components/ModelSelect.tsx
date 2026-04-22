@@ -55,6 +55,15 @@ export function ModelSelect(props: Props) {
       map.set(item.provider, next)
       groups.push(next)
     })
+    // 把当前选中模型的分组移到最前面
+    const current = currentModel()
+    if (current) {
+      const idx = groups.findIndex((g) => g.items.some((item) => item.id === current))
+      if (idx > 0) {
+        const [group] = groups.splice(idx, 1)
+        groups.unshift(group)
+      }
+    }
     return groups
   })
 
@@ -77,18 +86,22 @@ export function ModelSelect(props: Props) {
   ))
 
   createEffect(() => {
-    const selected = visibleModels()[selectedIndex()]
+    const idx = selectedIndex()
+    const selected = visibleModels()[idx]
     if (!selected || !scroll) return
-    const row = scroll.getChildren().find((child) => child.id === selected.id)
-    if (!row) return
-    const relativeTop = row.y - scroll.y
-    if (relativeTop < 0) {
-      scroll.scrollBy(relativeTop)
-      return
-    }
-    if (relativeTop >= scroll.height) {
-      scroll.scrollBy(relativeTop - scroll.height + 1)
-    }
+    setTimeout(() => {
+      if (!scroll) return
+      const row = scroll.getChildren().find((child) => child.id === selected.id)
+      if (!row) return
+      const relativeTop = row.y - scroll.y
+      if (relativeTop < 0) {
+        scroll.scrollBy(relativeTop)
+        return
+      }
+      if (relativeTop >= scroll.height) {
+        scroll.scrollBy(relativeTop - scroll.height + 1)
+      }
+    }, 0)
   })
 
   createEffect(() => {

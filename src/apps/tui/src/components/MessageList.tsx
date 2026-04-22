@@ -1,7 +1,8 @@
-import { For, Index, Show, type Accessor } from "solid-js"
+import { Index, Show, type Accessor } from "solid-js"
 import { error, historyTurns, liveAssistantTurn, pendingUserInput, streaming } from "../store/chat"
 import type { AssistantTurnUi, CopBlockItem } from "../lib/assistantTurn"
 import { MessageBubble } from "./MessageBubble"
+import { StartupCard } from "./StartupCard"
 import { compressTurnSegments, summarizeLiveToolCall } from "../lib/toolSummary"
 import type { LlmTurn } from "../lib/runTurns"
 
@@ -103,21 +104,31 @@ export function MessageList() {
     return entries
   }
 
+  function renderEntry(entry: Accessor<RenderEntry>) {
+    return (
+      <>
+        {() => {
+          const current = entry()
+          if (current.kind === "history") {
+            return renderTurn(current.turn, false)
+          }
+          if (current.kind === "error") {
+            return <MessageBubble role="tool" toolName="error" toolStatus="error" toolError={current.message} />
+          }
+          return renderLiveTail(current.input, current.turn)
+        }}
+      </>
+    )
+  }
+
   return (
     <scrollbox stickyScroll={true} stickyStart="bottom" flexGrow={1} width="100%">
       <box flexDirection="column" width="100%" minHeight="100%">
+        <StartupCard />
         <box flexGrow={1} width="100%" />
-        <For each={renderEntries()}>
-          {(entry) => {
-            if (entry.kind === "history") {
-              return renderTurn(entry.turn, false)
-            }
-            if (entry.kind === "error") {
-              return <MessageBubble role="tool" toolName="error" toolStatus="error" toolError={entry.message} />
-            }
-            return renderLiveTail(entry.input, entry.turn)
-          }}
-        </For>
+        <Index each={renderEntries()}>
+          {(entry) => renderEntry(entry)}
+        </Index>
       </box>
     </scrollbox>
   )

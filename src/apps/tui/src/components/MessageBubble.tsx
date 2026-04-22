@@ -31,10 +31,9 @@ export function MessageBubble(props: Props) {
     <box flexDirection="column" width="100%" paddingBottom={1}>
       {!isUser() && props.role === "tool" ? (
         <box flexDirection="row" width="100%" paddingLeft={CHAT_CONTENT_GUTTER} paddingRight={1}>
-          <box width={CHAT_LEAD_GUTTER_WIDTH}>
+          <box width={CHAT_PREFIX_WIDTH}>
             <text content="•" fg={roleFg()} />
           </box>
-          <box width={CHAT_PREFIX_WIDTH} />
           <box flexGrow={1} flexDirection="column" gap={0}>
             <text content={toolLineText()} fg={tuiTheme.textMuted} wrapMode="word" />
             <Show when={props.toolStatus === "error" && props.toolError}>
@@ -45,10 +44,7 @@ export function MessageBubble(props: Props) {
       ) : null}
       {isUser() ? (
         <box flexDirection="row" width="100%" paddingLeft={CHAT_CONTENT_GUTTER} paddingRight={1}>
-          <box width={CHAT_LEAD_GUTTER_WIDTH}>
-            <text content="•" fg={tuiTheme.textMuted} />
-          </box>
-          <box flexGrow={1} backgroundColor={tuiTheme.userPromptBg} paddingLeft={1} paddingRight={1}>
+          <box flexGrow={1} backgroundColor={tuiTheme.userPromptBg} paddingRight={1}>
             <box flexDirection="row" alignItems="flex-start">
               <box width={CHAT_PREFIX_WIDTH}>
                 <text content="❯" fg={tuiTheme.primary} />
@@ -61,8 +57,9 @@ export function MessageBubble(props: Props) {
         </box>
       ) : props.role === "assistant" ? (
         <box flexDirection="row" width="100%" paddingLeft={CHAT_CONTENT_GUTTER} paddingRight={1}>
-          <box width={CHAT_LEAD_GUTTER_WIDTH} />
-          <box width={CHAT_PREFIX_WIDTH} />
+          <box width={CHAT_PREFIX_WIDTH}>
+            <text content="•" fg={roleFg()} />
+          </box>
           <box flexGrow={1}>
             <markdown content={props.content ?? ""} syntaxStyle={markdownSyntaxStyle} streaming={props.streaming} />
           </box>
