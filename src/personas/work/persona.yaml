@@ -19,6 +19,10 @@ core_tools:
     - document_write
     - memory_search
     - notebook_write
+    - grep
+    - glob
+    - edit
+    - write_file
 budgets:
     reasoning_iterations: 99999
     temperature: 0.8
