@@ -598,6 +598,13 @@ export function useSseDispatch(params: {
 
       // ── run.input_requested ───────────────────────────────────────────────
       if (event.type === 'run.input_requested') {
+        // SSE 重连时会重放历史事件，只有 run 实际继续执行的事件才能证明 input 已被回答
+        const hasRunContinued = run.sse.events.some(
+          (e) => e.run_id === event.run_id && e.seq > event.seq
+            && (e.type === 'tool.result' || isTerminalRunEventType(e.type)),
+        )
+        if (hasRunContinued) continue
+
         const data = event.data as Record<string, unknown> | undefined
         const message = data?.message as string | undefined
         const schema = data?.requestedSchema as RequestedSchema | undefined
