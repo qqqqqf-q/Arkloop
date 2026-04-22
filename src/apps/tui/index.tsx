@@ -3,12 +3,17 @@ import { render } from "@opentui/solid"
 import { parseFlags, resolveConfig } from "./src/lib/config"
 import { ApiClient } from "./src/api/client"
 import { App } from "./src/components/App"
-import { applyStartupContext, setConnected } from "./src/store/app"
+import { applyStartupContext, setConnected, setCurrentThreadId } from "./src/store/app"
 
 const flags = parseFlags(process.argv.slice(2))
 const config = resolveConfig(flags)
 const client = new ApiClient(config)
 const appVersion = readVersion()
+
+// Resume existing thread if --resume flag provided
+if (flags.resume) {
+  setCurrentThreadId(flags.resume)
+}
 
 // Verify connection
 try {
@@ -26,7 +31,7 @@ try {
   process.exit(1)
 }
 
-render(() => <App client={client} />)
+render(() => <App client={client} />, { exitOnCtrlC: false })
 
 function readVersion(): string {
   for (const path of ["../desktop/package.json", "./package.json"]) {

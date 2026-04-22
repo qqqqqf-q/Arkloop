@@ -1,6 +1,8 @@
 import type { KeyEvent, TextareaRenderable } from "@opentui/core"
+import { useRenderer } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { effortSymbol, formatEffort } from "../lib/effort"
+import { addEntry, historyDown, historyUp, loadHistory, saveHistory } from "../lib/history"
 import { streaming } from "../store/chat"
 import { CHAT_CONTENT_GUTTER, CHAT_PREFIX_WIDTH } from "../lib/chatLayout"
 import { tuiTheme } from "../lib/theme"
@@ -10,7 +12,10 @@ import {
   currentModelLabel,
   currentModelSupportsReasoning,
   currentPersonaLabel,
+  currentThreadId,
+  exitConfirmPending,
   registerInputFocus,
+  setExitConfirmPending,
   setOverlay,
   tokenUsage,
 } from "../store/app"
@@ -41,8 +46,15 @@ const slashCommands: SlashCommand[] = [
 
 export function InputBar(props: Props) {
   let input: TextareaRenderable
+  const renderer = useRenderer()
   const [text, setText] = createSignal("")
   const [selectedIndex, setSelectedIndex] = createSignal(0)
+
+  // input history
+  let history = loadHistory()
+  let historyCursor = -1
+  let draft = ""
+  let exitConfirmTimer: ReturnType<typeof setTimeout> | null = null
 
   const suggestions = createMemo(() => {
     const value = text().trimStart()
@@ -71,6 +83,10 @@ export function InputBar(props: Props) {
     const value = (input.plainText ?? "").trim()
     if (!value) return
     props.onSubmit(value)
+    history = addEntry(history, value)
+    saveHistory(history)
+    historyCursor = -1
+    draft = ""
     input.clear()
     setText("")
   }
@@ -106,34 +122,106 @@ export function InputBar(props: Props) {
   }
 
   function handleKeyDown(event: KeyEvent) {
-    if (suggestions().length === 0) return
-
-    if (event.name === "up") {
+    // Ctrl+C three-tier logic
+    if (event.ctrl && event.name === "c") {
       event.preventDefault()
-      setSelectedIndex((prev) => (prev <= 0 ? suggestions().length - 1 : prev - 1))
+      const value = (input?.plainText ?? "").trim()
+
+      // tier 1: input has content — clear and save to history
+      if (value) {
+        history = addEntry(history, value)
+        saveHistory(history)
+        historyCursor = -1
+        draft = ""
+        input?.clear()
+        setText("")
+        setExitConfirmPending(false)
+        if (exitConfirmTimer) clearTimeout(exitConfirmTimer)
+        exitConfirmTimer = null
+        return
+      }
+
+      // tier 2: input empty, not confirming — enter confirm state
+      if (!exitConfirmPending()) {
+        setExitConfirmPending(true)
+        exitConfirmTimer = setTimeout(() => {
+          setExitConfirmPending(false)
+          exitConfirmTimer = null
+        }, 3000)
+        return
+      }
+
+      // tier 3: already confirming — exit
+      if (exitConfirmTimer) clearTimeout(exitConfirmTimer)
+      renderer.destroy()
+      const threadId = currentThreadId()
+      if (threadId) {
+        process.stderr.write(`\nTo resume this session:\n  ark --resume ${threadId}\n`)
+      }
+      process.exit(0)
+    }
+
+    // any other key resets exit confirm
+    if (exitConfirmPending()) {
+      setExitConfirmPending(false)
+      if (exitConfirmTimer) clearTimeout(exitConfirmTimer)
+      exitConfirmTimer = null
+    }
+
+    // slash command suggestions take priority
+    if (suggestions().length > 0) {
+      if (event.name === "up") {
+        event.preventDefault()
+        setSelectedIndex((prev) => (prev <= 0 ? suggestions().length - 1 : prev - 1))
+        return
+      }
+
+      if (event.name === "down") {
+        event.preventDefault()
+        setSelectedIndex((prev) => (prev >= suggestions().length - 1 ? 0 : prev + 1))
+        return
+      }
+
+      if (event.name === "tab") {
+        event.preventDefault()
+        const next = activeSuggestion()
+        if (!next) return
+        replaceWithSuggestion(next.insert)
+        return
+      }
+
+      if (event.name === "return") {
+        const value = (input?.plainText ?? "").trim()
+        if (value.startsWith("/") && !slashCommands.some((item) => item.command === value) && activeSuggestion()) {
+          event.preventDefault()
+          replaceWithSuggestion(activeSuggestion()!.insert)
+        }
+      }
+      return
+    }
+
+    // history navigation (no suggestions active)
+    if (event.name === "up") {
+      const current = (input?.plainText ?? "")
+      if (historyCursor < 0) draft = current
+      const [next, value] = historyUp(history, historyCursor, draft)
+      if (next !== historyCursor) {
+        event.preventDefault()
+        historyCursor = next
+        input?.setText(value)
+        setText(value)
+      }
       return
     }
 
     if (event.name === "down") {
+      if (historyCursor < 0) return
+      const [next, value] = historyDown(history, historyCursor, draft)
       event.preventDefault()
-      setSelectedIndex((prev) => (prev >= suggestions().length - 1 ? 0 : prev + 1))
+      historyCursor = next
+      input?.setText(value)
+      setText(value)
       return
-    }
-
-    if (event.name === "tab") {
-      event.preventDefault()
-      const next = activeSuggestion()
-      if (!next) return
-      replaceWithSuggestion(next.insert)
-      return
-    }
-
-    if (event.name === "return") {
-      const value = (input?.plainText ?? "").trim()
-      if (value.startsWith("/") && !slashCommands.some((item) => item.command === value) && activeSuggestion()) {
-        event.preventDefault()
-        replaceWithSuggestion(activeSuggestion()!.insert)
-      }
     }
   }
 
@@ -247,13 +335,19 @@ export function InputBar(props: Props) {
           </Show>
         </box>
         <box flexDirection="row" gap={1}>
-          <Show when={usageText()}>
-            <text content={usageText() ?? ""} fg={tuiTheme.textMuted} />
-            <text content="·" fg={tuiTheme.border} />
+          <Show when={exitConfirmPending()} fallback={
+            <>
+              <Show when={usageText()}>
+                <text content={usageText() ?? ""} fg={tuiTheme.textMuted} />
+                <text content="·" fg={tuiTheme.border} />
+              </Show>
+              <text content={connectionText()} fg={connectionColor()} />
+              <text content="·" fg={tuiTheme.border} />
+              <text content={suggestions().length > 0 ? "tab 补全" : "/ 命令"} fg={tuiTheme.textMuted} />
+            </>
+          }>
+            <text content="Press Ctrl+C again to exit" fg={tuiTheme.warning ?? tuiTheme.error} />
           </Show>
-          <text content={connectionText()} fg={connectionColor()} />
-          <text content="·" fg={tuiTheme.border} />
-          <text content={suggestions().length > 0 ? "tab 补全" : "/ 命令"} fg={tuiTheme.textMuted} />
         </box>
       </box>
       <box width="100%" height={1} backgroundColor={tuiTheme.background} />
