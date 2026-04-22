@@ -18,6 +18,9 @@ import (
 // ErrHeartbeatIdentityGone 表示 scheduled_triggers 中的 channel_identity 已不存在，应删除该触发器。
 var ErrHeartbeatIdentityGone = errors.New("channel_identity not found, heartbeat trigger is stale")
 
+// ErrHeartbeatSnapshotStale 表示 heartbeat 执行期间有新消息到达，快照保护阻止了冷却更新。
+var ErrHeartbeatSnapshotStale = errors.New("heartbeat snapshot stale")
+
 // ScheduledTriggerRow 是 scheduled_triggers 表的一行。
 type ScheduledTriggerRow struct {
 	ID                uuid.UUID
@@ -43,6 +46,10 @@ func normalizeHeartbeatInterval(intervalMin int) int {
 		return runkind.DefaultHeartbeatIntervalMinutes
 	}
 	return intervalMin
+}
+
+func formatSQLiteTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05.999999999")
 }
 
 // HeartbeatThreadContext 保存心跳 run 所需的线程/渠道上下文。
@@ -87,11 +94,15 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
 		ON CONFLICT (channel_id, channel_identity_id) DO UPDATE
-		    SET persona_key   = excluded.persona_key,
-		        account_id    = excluded.account_id,
-		        model         = excluded.model,
-		        interval_min  = excluded.interval_min,
-		        updated_at    = excluded.updated_at`,
+		    SET persona_key     = excluded.persona_key,
+		        account_id      = excluded.account_id,
+		        model           = excluded.model,
+		        interval_min    = excluded.interval_min,
+		        next_fire_at    = excluded.next_fire_at,
+		        cooldown_level  = 0,
+		        last_user_msg_at = NULL,
+		        burst_start_at  = NULL,
+		        updated_at      = excluded.updated_at`,
 		id, channelID, channelIdentityID, personaKey, accountID, model, intervalMin,
 		nextFire.Format(time.RFC3339Nano),
 		now.Format(time.RFC3339Nano),
@@ -277,7 +288,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 
 	var out []ScheduledTriggerRow
 	for i, r := range pending {
-		next := advanceHeartbeatNextFireAt(r.NextFireAt, now, r.IntervalMin)
+		next := advanceHeartbeatNextFireAt(r.NextFireAt, now, idleIntervalForLevel(r.CooldownLevel))
 		tag, err := db.Exec(ctx,
 			`UPDATE scheduled_triggers
 			    SET next_fire_at = $1,
@@ -323,17 +334,17 @@ func (ScheduledTriggersRepository) ResetCooldownForMessage(
 	}
 	now := time.Now().UTC()
 	_, err := db.Exec(ctx, `
-		UPDATE scheduled_triggers
-		   SET cooldown_level = 0,
-		       next_fire_at = $1,
-		       last_user_msg_at = $2,
+			UPDATE scheduled_triggers
+			   SET cooldown_level = 0,
+			       next_fire_at = $1,
+			       last_user_msg_at = $2,
 		       burst_start_at = $3,
 		       updated_at = $4
 		 WHERE channel_id = $5
 		   AND channel_identity_id = $6`,
 		nextFireAt.Format(time.RFC3339Nano),
-		lastUserMsgAt.Format(time.RFC3339Nano),
-		burstStartAt.Format(time.RFC3339Nano),
+		formatSQLiteTimestamp(lastUserMsgAt),
+		formatSQLiteTimestamp(burstStartAt),
 		now.Format(time.RFC3339Nano),
 		channelID.String(),
 		channelIdentityID.String(),
@@ -349,6 +360,7 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 	channelIdentityID uuid.UUID,
 	newCooldownLevel int,
 	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
 ) error {
 	if channelID == uuid.Nil {
 		return fmt.Errorf("channel_id must not be empty")
@@ -356,20 +368,32 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 	if channelIdentityID == uuid.Nil {
 		return fmt.Errorf("channel_identity_id must not be empty")
 	}
-	_, err := db.Exec(ctx, `
+	var snapshotVal any
+	if lastUserMsgSnapshot != nil {
+		snapshotVal = formatSQLiteTimestamp(*lastUserMsgSnapshot)
+	}
+	tag, err := db.Exec(ctx, `
 		UPDATE scheduled_triggers
 		   SET cooldown_level = $1,
 		       next_fire_at = $2,
 		       updated_at = $3
 		 WHERE channel_id = $4
-		   AND channel_identity_id = $5`,
+		   AND channel_identity_id = $5
+		   AND (last_user_msg_at IS $6 OR last_user_msg_at = $6)`,
 		newCooldownLevel,
 		nextFireAt.Format(time.RFC3339Nano),
 		time.Now().UTC().Format(time.RFC3339Nano),
 		channelID.String(),
 		channelIdentityID.String(),
+		snapshotVal,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrHeartbeatSnapshotStale
+	}
+	return nil
 }
 
 // GetEarliestDue returns the earliest scheduled next_fire_at.
@@ -437,15 +461,26 @@ func (ScheduledTriggersRepository) UpdateTriggerNextFire(
 	return err
 }
 
-func advanceHeartbeatNextFireAt(oldNextFireAt, now time.Time, intervalMin int) time.Time {
-	intervalMin = normalizeHeartbeatInterval(intervalMin)
-	step := time.Duration(intervalMin) * time.Minute
+func idleIntervalForLevel(level int) time.Duration {
+	switch level {
+	case 0:
+		return 1 * time.Minute
+	case 1:
+		return 15 * time.Minute
+	case 2:
+		return 60 * time.Minute
+	default:
+		return 60 * time.Minute
+	}
+}
+
+func advanceHeartbeatNextFireAt(oldNextFireAt, now time.Time, interval time.Duration) time.Time {
 	next := oldNextFireAt.UTC()
 	if next.IsZero() {
 		next = now.UTC()
 	}
 	for !next.After(now) {
-		next = next.Add(step)
+		next = next.Add(interval)
 	}
 	return next
 }

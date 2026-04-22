@@ -14,6 +14,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// ErrHeartbeatSnapshotStale 表示 heartbeat 执行期间有新消息到达，快照保护阻止了冷却更新。
+var ErrHeartbeatSnapshotStale = errors.New("heartbeat snapshot stale")
+
 // ScheduledTriggerRow 是 scheduled_triggers 表的一行。
 type ScheduledTriggerRow struct {
 	ID                uuid.UUID
@@ -155,6 +158,7 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 	channelIdentityID uuid.UUID,
 	newCooldownLevel int,
 	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
 ) error {
 	if channelID == uuid.Nil {
 		return errors.New("channel_id must not be empty")
@@ -168,8 +172,9 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 		       next_fire_at = $2,
 		       updated_at = now()
 		 WHERE channel_id = $3
-		   AND channel_identity_id = $4`,
-		newCooldownLevel, nextFireAt, channelID, channelIdentityID,
+		   AND channel_identity_id = $4
+		   AND (last_user_msg_at IS NOT DISTINCT FROM $5)`,
+		newCooldownLevel, nextFireAt, channelID, channelIdentityID, lastUserMsgSnapshot,
 	)
 	return err
 }

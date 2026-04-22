@@ -155,6 +155,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		channelGroupThreadsRepo: deps.ChannelGroupThreadsRepo,
 		channelReceiptsRepo:     deps.ChannelReceiptsRepo,
 		channelLedgerRepo:       channelLedgerRepo,
+		scheduledTriggersRepo:   &data.ScheduledTriggersRepository{},
 		personasRepo:            deps.PersonasRepo,
 		usersRepo:               deps.UsersRepo,
 		accountRepo:             deps.AccountRepo,
@@ -170,6 +171,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		telegramClient:          telegramForConnector,
 		attachmentStore:         deps.MessageAttachmentStore,
 		inputNotify:             busInputNotify,
+		bus:                     deps.Bus,
 	}
 
 	pollHTTP := &http.Client{Timeout: time.Duration(telegramLongPollSeconds+15) * time.Second}

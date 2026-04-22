@@ -79,11 +79,15 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
 		ON CONFLICT (channel_id, channel_identity_id) DO UPDATE
-		    SET persona_key   = excluded.persona_key,
-		        account_id    = excluded.account_id,
-		        model         = excluded.model,
-		        interval_min  = excluded.interval_min,
-		        updated_at    = now()`,
+		    SET persona_key     = excluded.persona_key,
+		        account_id      = excluded.account_id,
+		        model           = excluded.model,
+		        interval_min    = excluded.interval_min,
+		        cooldown_level  = 0,
+		        next_fire_at    = excluded.next_fire_at,
+		        last_user_msg_at = NULL,
+		        burst_start_at  = NULL,
+		        updated_at      = now()`,
 		triggerID, channelID, channelIdentityID, personaKey, accountID, model, intervalMin, nextFire,
 	)
 	return err
@@ -285,6 +289,8 @@ func (ScheduledTriggersRepository) ResetCooldownForMessage(
 }
 
 // UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
+// lastUserMsgSnapshot is the last_user_msg_at value observed when the heartbeat started;
+// the update is skipped if a new message arrived in the meantime.
 func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 	ctx context.Context,
 	db Querier,
@@ -292,6 +298,7 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 	channelIdentityID uuid.UUID,
 	newCooldownLevel int,
 	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
 ) error {
 	if channelID == uuid.Nil {
 		return errors.New("channel_id must not be empty")
@@ -305,8 +312,9 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 		       next_fire_at = $2,
 		       updated_at = now()
 		 WHERE channel_id = $3
-		   AND channel_identity_id = $4`,
-		newCooldownLevel, nextFireAt, channelID, channelIdentityID,
+		   AND channel_identity_id = $4
+		   AND (last_user_msg_at IS NOT DISTINCT FROM $5)`,
+		newCooldownLevel, nextFireAt, channelID, channelIdentityID, lastUserMsgSnapshot,
 	)
 	return err
 }
@@ -352,7 +360,16 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
                     model,
                     interval_min,
                     next_fire_at,
-                    GREATEST(interval_min, 1) AS effective_interval
+                    CASE
+                        WHEN trigger_kind = 'heartbeat' THEN
+                            CASE
+                                WHEN cooldown_level = 0 THEN 1
+                                WHEN cooldown_level = 1 THEN 15
+                                WHEN cooldown_level >= 2 THEN 60
+                                ELSE GREATEST(interval_min, 1)
+                            END
+                        ELSE GREATEST(interval_min, 1)
+                    END AS effective_interval
                FROM scheduled_triggers
               WHERE next_fire_at <= now()
               ORDER BY next_fire_at ASC
@@ -360,7 +377,10 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
               FOR UPDATE SKIP LOCKED
         )
         UPDATE scheduled_triggers
-           SET next_fire_at = due.next_fire_at + (due.effective_interval * interval '1 minute'),
+           SET next_fire_at = GREATEST(
+                   due.next_fire_at + (due.effective_interval * interval '1 minute'),
+                   now() + (due.effective_interval * interval '1 minute')
+               ),
                updated_at   = now()
           FROM due
          WHERE scheduled_triggers.id = due.id

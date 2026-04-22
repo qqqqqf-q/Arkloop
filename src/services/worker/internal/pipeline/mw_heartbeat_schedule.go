@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -201,6 +202,8 @@ func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, re
 		return nil
 	}
 
+	snapshotLastUserMsg := existing.LastUserMsgAt
+
 	now := time.Now().UTC()
 	var newLevel int
 	var nextFire time.Time
@@ -210,13 +213,17 @@ func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, re
 		nextFire = now.Add(1 * time.Minute)
 	} else {
 		newLevel = existing.CooldownLevel + 1
-		if newLevel > 4 {
-			newLevel = 4
+		if newLevel > 2 {
+			newLevel = 2
 		}
 		nextFire = now.Add(idleIntervalForLevel(newLevel))
 	}
 
-	if err := repo.UpdateCooldownAfterHeartbeat(ctx, db, channelID, identityID, newLevel, nextFire); err != nil {
+	if err := repo.UpdateCooldownAfterHeartbeat(ctx, db, channelID, identityID, newLevel, nextFire, snapshotLastUserMsg); err != nil {
+		if errors.Is(err, data.ErrHeartbeatSnapshotStale) {
+			slog.DebugContext(ctx, "heartbeat_schedule: skip cooldown update due to stale snapshot", "channel_id", channelID, "identity_id", identityID)
+			return nil
+		}
 		slog.WarnContext(ctx, "heartbeat_schedule: update cooldown failed", "error", err)
 		return nil
 	}
@@ -230,12 +237,8 @@ func idleIntervalForLevel(level int) time.Duration {
 	case 0:
 		return 1 * time.Minute
 	case 1:
-		return 5 * time.Minute
-	case 2:
 		return 15 * time.Minute
-	case 3:
-		return 30 * time.Minute
-	case 4:
+	case 2:
 		return 60 * time.Minute
 	default:
 		return 60 * time.Minute

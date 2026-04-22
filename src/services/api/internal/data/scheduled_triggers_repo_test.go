@@ -139,6 +139,34 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 }
 
+func TestScheduledTriggersRepositoryClaimDueTriggersUsesThreeStageHeartbeatIntervals(t *testing.T) {
+	repo, pool, ctx := setupScheduledTriggersRepo(t)
+	triggerID := uuid.New()
+	channelID := uuid.New()
+	account := uuid.New()
+	identity := uuid.New()
+	now := time.Now().UTC()
+	originalNextFire := now.Add(-20 * time.Second)
+
+	insertScheduledTrigger(t, ctx, pool, triggerID, channelID, identity, "persona", account, "model", 1, originalNextFire)
+	if _, err := pool.Exec(ctx, `UPDATE scheduled_triggers SET cooldown_level = 1 WHERE id = $1`, triggerID); err != nil {
+		t.Fatalf("set cooldown_level: %v", err)
+	}
+
+	rows, err := repo.ClaimDueTriggers(ctx, pool, 1)
+	if err != nil {
+		t.Fatalf("claim due heartbeats: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one claimed row, got %d", len(rows))
+	}
+
+	expectedNextFire := originalNextFire.Add(15 * time.Minute)
+	if d := rows[0].NextFireAt.Sub(expectedNextFire); d < -time.Second || d > time.Second {
+		t.Fatalf("expected level 1 heartbeat to advance by 15 minutes, got=%s want=%s", rows[0].NextFireAt, expectedNextFire)
+	}
+}
+
 func TestScheduledTriggersRepositoryGetEarliestDue(t *testing.T) {
 	repo, pool, ctx := setupScheduledTriggersRepo(t)
 	channelA := uuid.New()

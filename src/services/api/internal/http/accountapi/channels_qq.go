@@ -124,6 +124,7 @@ type qqConnector struct {
 	attachmentStore          MessageAttachmentPutStore
 	inputNotify              func(ctx context.Context, runID uuid.UUID)
 	bus                      eventbus.EventBus
+	scheduledTriggersRepo    *data.ScheduledTriggersRepository
 }
 
 // HandleEvent 处理来自 OneBot11 的入站事件
@@ -222,13 +223,21 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	committed := false
+	commitTx := func() error {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
 
 	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, platformChatID, incoming.PlatformMsgID)
 	if err != nil {
 		return err
 	}
 	if !accepted {
-		return tx.Commit(ctx)
+		return commitTx()
 	}
 
 	displayName := event.SenderDisplayName()
@@ -241,9 +250,56 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	// 群聊 upsert group identity（heartbeat 依赖）
+	var groupIdentity *data.ChannelIdentity
 	if !isPrivate {
-		if _, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil); err != nil {
+		gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
+		if err != nil {
 			return err
+		}
+		groupIdentity = &gi
+	}
+
+	now := time.Now().UTC()
+	var pendingHeartbeatNotify bool
+	defer func() {
+		if committed && pendingHeartbeatNotify && c.bus != nil {
+			_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+		}
+	}()
+	if !isPrivate && groupIdentity != nil && c.scheduledTriggersRepo != nil {
+		existing, _ := c.scheduledTriggersRepo.GetHeartbeat(ctx, tx, ch.ID, groupIdentity.ID)
+
+		burstStart := now
+		if existing != nil && existing.LastUserMsgAt != nil {
+			if now.Sub(*existing.LastUserMsgAt) <= 30*time.Second {
+				if existing.BurstStartAt != nil {
+					burstStart = *existing.BurstStartAt
+				}
+			}
+		}
+
+		timeInBurst := now.Sub(burstStart)
+		delaySec := 15.0 - timeInBurst.Seconds()/2
+		if delaySec < 3 {
+			delaySec = 3
+		}
+		nextFire := now.Add(time.Duration(delaySec) * time.Second)
+		if existing != nil && existing.NextFireAt.After(now) && existing.NextFireAt.Before(nextFire) {
+			nextFire = existing.NextFireAt
+		}
+
+		if resetErr := c.scheduledTriggersRepo.ResetCooldownForMessage(
+			ctx, tx,
+			ch.ID, groupIdentity.ID,
+			nextFire, now, burstStart,
+		); resetErr != nil {
+			slog.WarnContext(ctx, "heartbeat_cooldown_reset_failed", "error", resetErr, "channel_id", ch.ID, "identity_id", groupIdentity.ID)
+		} else {
+			if c.bus != nil {
+				pendingHeartbeatNotify = true
+			} else {
+				_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
+			}
 		}
 	}
 
@@ -256,7 +312,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				return err
 			}
 			if !hasLink {
-				if err := tx.Commit(ctx); err != nil {
+				if err := commitTx(); err != nil {
 					return err
 				}
 				c.sendQQReply(ctx, cfg, "private", platformChatID, "当前账号未关联此接入。请使用 /bind <code> 关联。")
@@ -280,7 +336,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		); err != nil {
 			return err
 		} else if handled {
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return err
 			}
 			if replyText != "" {
@@ -297,7 +353,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 			switch {
 			case cmd == "/new":
 				replyText := c.handleQQGroupNew(ctx, tx, ch, cfg, identity, platformChatID)
-				if err := tx.Commit(ctx); err != nil {
+				if err := commitTx(); err != nil {
 					return err
 				}
 				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
@@ -305,7 +361,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 
 			case cmd == "/stop":
 				replyText, cancelRunID := c.handleQQGroupStop(ctx, tx, ch, cfg, identity, platformChatID, traceID)
-				if err := tx.Commit(ctx); err != nil {
+				if err := commitTx(); err != nil {
 					return err
 				}
 				if cancelRunID != uuid.Nil {
@@ -350,9 +406,10 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 						_, _ = c.resolveQQThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, false, platformChatID, "")
 					}
 				}
-				if err := tx.Commit(ctx); err != nil {
+				if err := commitTx(); err != nil {
 					return err
 				}
+				pendingHeartbeatNotify = false
 				if c.bus != nil {
 					_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
 				}
@@ -374,7 +431,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		if err := c.persistQQGroupPassiveMessage(ctx, tx, ch, persona, identity, incoming, displayName, event.Time); err != nil {
 			return err
 		}
-		return tx.Commit(ctx)
+		return commitTx()
 	}
 
 	// --- Active 路径（创建/复用 Run）---
@@ -462,7 +519,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 			return err
 		}
 		if delivered {
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return err
 			}
 			slog.InfoContext(ctx, "qq_inbound_processed",
@@ -475,7 +532,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	if !channelAgentTriggerConsume(ch.ID) {
-		return tx.Commit(ctx)
+		return commitTx()
 	}
 
 	runData := map[string]any{"persona_id": personaRef}
@@ -517,7 +574,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		"channel_id", ch.ID, "run_id", run.ID, "thread_id", threadID,
 	)
 
-	return tx.Commit(ctx)
+	return commitTx()
 }
 
 // --- reply detection ---
@@ -1126,6 +1183,7 @@ func qqOneBotCallbackHandler(
 		jobRepo:                  jobRepo,
 		pool:                     pool,
 		attachmentStore:          attachmentStore,
+		scheduledTriggersRepo:    &data.ScheduledTriggersRepository{},
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
 				slog.Warn("qq_active_run_notify_failed", "run_id", runID, "error", err)

@@ -53,6 +53,14 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		return nil, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	committed := false
+	commitTx := func() error {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		committed = true
+		return nil
+	}
 
 	identity, err := upsertTelegramIdentity(ctx, c.channelIdentitiesRepo.WithTx(tx), update.Message.From)
 	if err != nil {
@@ -78,7 +86,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 	}
 
 	if !incoming.HasContent() {
-		if err := tx.Commit(ctx); err != nil {
+		if err := commitTx(); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -89,13 +97,19 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		return nil, err
 	}
 	if !claimed {
-		if err := tx.Commit(ctx); err != nil {
+		if err := commitTx(); err != nil {
 			return nil, err
 		}
 		return stageResult, nil
 	}
 
 	// 消息到达 -> 递减 delay 重置 heartbeat cooldown（仅群聊）
+	var pendingHeartbeatNotify bool
+	defer func() {
+		if committed && pendingHeartbeatNotify && c.bus != nil {
+			_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+		}
+	}()
 	if !incoming.IsPrivate() && groupIdentity != nil && c.scheduledTriggersRepo != nil {
 		existing, _ := c.scheduledTriggersRepo.GetHeartbeat(ctx, tx, ch.ID, groupIdentity.ID)
 
@@ -114,7 +128,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			delaySec = 3
 		}
 		nextFire := now.Add(time.Duration(delaySec) * time.Second)
-		if existing != nil && existing.NextFireAt.Before(nextFire) {
+		if existing != nil && existing.NextFireAt.After(now) && existing.NextFireAt.Before(nextFire) {
 			nextFire = existing.NextFireAt
 		}
 
@@ -125,7 +139,11 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		); resetErr != nil {
 			slog.WarnContext(ctx, "heartbeat_cooldown_reset_failed", "error", resetErr, "channel_id", ch.ID, "identity_id", groupIdentity.ID)
 		} else {
-			_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
+			if c.bus != nil {
+				pendingHeartbeatNotify = true
+			} else {
+				_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
+			}
 		}
 	}
 
@@ -139,7 +157,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateIgnoredUnlinked, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{finalState: inboundStateIgnoredUnlinked}, nil
@@ -166,7 +184,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{
@@ -203,7 +221,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: replyText}, nil
@@ -232,7 +250,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &heartbeatIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: replyText}, nil
@@ -281,7 +299,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{
@@ -304,7 +322,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &modelIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: replyText}, nil
@@ -318,7 +336,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return nil, err
 		}
 		if finalState == inboundStatePendingDispatch {
-			if err := tx.Commit(ctx); err != nil {
+			if err := commitTx(); err != nil {
 				return nil, err
 			}
 			return &telegramInboundStageAResult{finalState: inboundStatePendingDispatch}, nil
@@ -333,7 +351,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			"mentions_bot", incoming.MentionsBot,
 			"is_reply_to_bot", incoming.IsReplyToBot,
 		)
-		if err := tx.Commit(ctx); err != nil {
+		if err := commitTx(); err != nil {
 			return nil, err
 		}
 		return &telegramInboundStageAResult{finalState: finalState}, nil
@@ -408,7 +426,7 @@ createRun:
 	if err := extendPendingInboundBurstWindowTx(ctx, ledgerRepoTx, ch.ID, threadID, now); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if err := commitTx(); err != nil {
 		return nil, err
 	}
 	return &telegramInboundStageAResult{finalState: inboundStatePendingDispatch}, nil

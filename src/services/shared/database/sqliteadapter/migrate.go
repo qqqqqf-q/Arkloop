@@ -111,6 +111,9 @@ func Up(ctx context.Context, db *sql.DB) ([]*goose.MigrationResult, error) {
 	if err := checkForeignKeys(ctx, db); err != nil {
 		return nil, fmt.Errorf("sqliteadapter: post-migration fk check: %w", err)
 	}
+	if err := repairMissingColumns(ctx, db); err != nil {
+		return nil, fmt.Errorf("sqliteadapter: repair missing columns: %w", err)
+	}
 	return results, nil
 }
 

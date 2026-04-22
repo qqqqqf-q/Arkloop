@@ -242,11 +242,7 @@ func (s *TriggerScheduler) fireHeartbeat(ctx context.Context, row data.Scheduled
 	)
 	if err != nil {
 		if errors.Is(err, data.ErrThreadBusy) {
-			delayMin := row.IntervalMin
-			if delayMin <= 0 {
-				delayMin = runkind.DefaultHeartbeatIntervalMinutes
-			}
-			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, time.Duration(delayMin)*time.Minute)
+			_ = s.triggers.PostponeTrigger(ctx, s.pool, row.ID, idleIntervalForCooldown(row.CooldownLevel))
 			return
 		}
 		slog.ErrorContext(ctx, "trigger_scheduler_create_run_failed", "error", err)
@@ -542,4 +538,17 @@ func derefTime(t *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *t
+}
+
+func idleIntervalForCooldown(level int) time.Duration {
+	switch level {
+	case 0:
+		return 1 * time.Minute
+	case 1:
+		return 15 * time.Minute
+	case 2:
+		return 60 * time.Minute
+	default:
+		return 60 * time.Minute
+	}
 }

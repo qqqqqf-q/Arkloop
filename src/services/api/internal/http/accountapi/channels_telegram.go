@@ -19,6 +19,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
@@ -946,6 +947,7 @@ type telegramConnector struct {
 	telegramClient           *telegrambot.Client
 	attachmentStore          MessageAttachmentPutStore
 	inputNotify              func(ctx context.Context, runID uuid.UUID)
+	bus                      eventbus.EventBus
 }
 
 func (c telegramConnector) refreshTelegramBotProfile(ctx context.Context, token string, ch *data.Channel) {
