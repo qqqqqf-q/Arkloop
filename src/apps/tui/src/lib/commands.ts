@@ -1,6 +1,6 @@
 import type { ApiClient } from "../api/client"
 import { clearChat, setError } from "../store/chat"
-import { setCurrentThreadId, setOverlay, applyCurrentEffort, applyCurrentModel, currentModelSupportsReasoning } from "../store/app"
+import { setCurrentThreadId, setOverlay, applyCurrentEffort, applyCurrentModel, currentModelSupportsReasoning, setTokenUsage } from "../store/app"
 import { parseEffort } from "./effort"
 import { findModel, listFlatModels } from "./models"
 
@@ -34,6 +34,7 @@ export async function handleSlashCommand(client: ApiClient, input: string): Prom
     if (trimmed === "/new") {
       clearChat()
       setCurrentThreadId(null)
+      setTokenUsage({ input: 0, output: 0, context: 0 })
       setError(null)
       return true
     }

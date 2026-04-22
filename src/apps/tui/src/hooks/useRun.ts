@@ -10,7 +10,7 @@ import {
   appendRunEvent,
   liveAssistantTurn,
 } from "../store/chat"
-import { currentEffort, currentModel, currentPersona, setCurrentThreadId, setTokenUsage, currentThreadId } from "../store/app"
+import { currentEffort, currentModel, currentPersona, setCurrentThreadId, setTokenUsage, tokenUsage, currentThreadId } from "../store/app"
 import { writeThreadMode } from "../lib/threadMode"
 
 export function createRunHandler(client: ApiClient) {
@@ -95,9 +95,10 @@ function updateUsage(event: SSEEvent) {
   const input = usage.input_tokens ?? 0
   const cacheRead = usage.cache_read_input_tokens ?? 0
   const realPrompt = event.data.last_real_prompt_tokens as number | undefined
+  const prev = tokenUsage()
   setTokenUsage({
-    input,
-    output: usage.output_tokens ?? 0,
+    input: prev.input + input,
+    output: prev.output + (usage.output_tokens ?? 0),
     context: realPrompt ?? (input + cacheRead),
   })
 }

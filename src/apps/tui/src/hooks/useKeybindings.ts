@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/solid"
-import { overlay, setOverlay, setCurrentThreadId } from "../store/app"
+import { overlay, setOverlay, setCurrentThreadId, setTokenUsage } from "../store/app"
 import { clearChat } from "../store/chat"
 
 export function useKeybindings() {
@@ -14,6 +14,7 @@ export function useKeybindings() {
     } else if (key.ctrl && key.name === "n") {
       clearChat()
       setCurrentThreadId(null)
+      setTokenUsage({ input: 0, output: 0, context: 0 })
     }
   })
 }

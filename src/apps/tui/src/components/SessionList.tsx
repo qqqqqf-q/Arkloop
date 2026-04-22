@@ -1,5 +1,5 @@
 import { createResource } from "solid-js"
-import { currentThreadId, setOverlay, setCurrentThreadId } from "../store/app"
+import { currentThreadId, setOverlay, setCurrentThreadId, setTokenUsage } from "../store/app"
 import { clearChat } from "../store/chat"
 import type { ApiClient } from "../api/client"
 import { PickerOverlay } from "./PickerOverlay"
@@ -19,6 +19,7 @@ export function SessionList(props: Props) {
     } else {
       setCurrentThreadId(value)
     }
+    setTokenUsage({ input: 0, output: 0, context: 0 })
     setOverlay(null)
   }
 
