@@ -11,6 +11,7 @@ import (
 
 	"arkloop/services/shared/desktop"
 	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin/fileops"
 	"arkloop/services/worker/internal/tools/localshell"
 	"arkloop/services/worker/internal/tools/sandboxshell"
 )
@@ -23,14 +24,16 @@ type DynamicShellExecutor struct {
 	vmToken       string
 	processOwners map[string]string
 	processRuns   map[string]string
+	fileTracker   *fileops.FileTracker
 }
 
-func NewDynamicShellExecutor(vmAddr, vmToken string) *DynamicShellExecutor {
+func NewDynamicShellExecutor(vmAddr, vmToken string, ft *fileops.FileTracker) *DynamicShellExecutor {
 	return &DynamicShellExecutor{
 		vmAddr:        strings.TrimSpace(vmAddr),
 		vmToken:       vmToken,
 		processOwners: map[string]string{},
 		processRuns:   map[string]string{},
+		fileTracker:   ft,
 	}
 }
 
@@ -90,6 +93,16 @@ func (e *DynamicShellExecutor) Execute(
 	}
 
 	e.reconcileProcessOwner(toolName, backend, execCtx, args, result)
+
+	// invalidate FileTracker read state for files the command may have modified
+	if e.fileTracker != nil && toolName == localshell.ExecCommandAgentSpec.Name && backend == "local" {
+		command, _ := args["command"].(string)
+		cwd := execCtx.WorkDir
+		for _, p := range localshell.DetectModifiedFiles(command, cwd) {
+			e.fileTracker.InvalidateReadState(execCtx.RunID.String(), p)
+		}
+	}
+
 	return result
 }
 

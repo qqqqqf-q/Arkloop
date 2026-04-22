@@ -185,7 +185,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if err != nil {
 		slog.WarnContext(ctx, "desktop: skill store init failed", "err", err.Error())
 	}
-	executors := builtin.Executors(nil, nil, nil, skillStore)
+	executors, fileTracker := builtin.Executors(nil, nil, nil, skillStore)
 	for _, name := range []string{
 		acptool.AgentSpec.Name,
 		acptool.SpawnACPAgentSpec.Name,
@@ -198,7 +198,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	sandboxAddr := desktop.GetSandboxAddr()
 	authToken := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN"))
 	slog.Debug("composition_desktop", "sandboxAddr", sandboxAddr, "authToken", authToken)
-	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken)
+	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken, fileTracker)
 
 	// 已有持久化或用户已选模式时不覆盖；否则按当前 sandbox 可用性设默认。
 	cur := strings.TrimSpace(desktop.GetExecutionMode())

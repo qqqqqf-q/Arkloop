@@ -26,7 +26,7 @@ func (f failingBackend) Exec(context.Context, string) (string, string, int, erro
 func (f failingBackend) NormalizePath(path string) string { return path }
 
 func TestSearchFilesStructuredDoesNotFallbackOutsideBackend(t *testing.T) {
-	_, _, err := searchFilesStructured(context.Background(), failingBackend{}, "hello", ".", "", defaultLimit)
+	_, _, err := searchFilesStructured(context.Background(), failingBackend{}, "hello", ".", "", "", defaultLimit)
 	if err == nil {
 		t.Fatal("expected ripgrep error to be returned for non-local backend")
 	}
@@ -39,7 +39,7 @@ func TestSearchFilesLocalFallbackStillWorks(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 
-	matches, _, err := searchFilesStructured(context.Background(), &fileops.LocalBackend{WorkDir: root}, "hello", ".", "", defaultLimit)
+	matches, _, err := searchFilesStructured(context.Background(), &fileops.LocalBackend{WorkDir: root}, "hello", ".", "", "", defaultLimit)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

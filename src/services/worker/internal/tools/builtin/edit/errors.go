@@ -17,6 +17,7 @@ const (
 	ErrCodeStale      = "EDIT_STALE"         // file modified since last read
 	ErrCodeTooLarge   = "EDIT_TOO_LARGE"     // file exceeds size limit
 	ErrCodeFileNotFnd = "EDIT_FILE_NOT_FOUND" // file does not exist
+	ErrCodeOmission   = "EDIT_OMISSION_DETECTED" // placeholder in new_string
 )
 
 const maxEditFileSize = 5 * 1024 * 1024 // 5 MB
@@ -90,36 +91,53 @@ func errAmbiguous(filePath string, count int) *editError {
 	}
 }
 
-// errNotFound builds EDIT_NOT_FOUND with a nearby snippet for guidance.
+// snippetMatch holds a closest-match result with line location.
+type snippetMatch struct {
+	startLine int    // 1-based inclusive
+	endLine   int    // 1-based inclusive
+	text      string // snippet with line numbers
+}
+
+// errNotFound builds EDIT_NOT_FOUND with structured guidance for self-correction.
 func errNotFound(filePath, content, oldString string) *editError {
-	hint := "Verify exact text including whitespace and indentation. Use read to check the current file content."
-	snippet := findClosestSnippet(content, oldString, 10)
-	if snippet != "" {
-		hint += "\n\nClosest match found:\n" + snippet
+	totalLines := strings.Count(content, "\n") + 1
+	m := findClosestMatch(content, oldString, 4)
+	if m == nil {
+		return &editError{
+			Code:    ErrCodeNotFound,
+			Message: fmt.Sprintf("old_string not found in %s", filePath),
+			Hint: fmt.Sprintf(
+				"No close match found. The file has %d lines. Re-read the file to verify the content you want to edit.",
+				totalLines,
+			),
+		}
 	}
 	return &editError{
 		Code:    ErrCodeNotFound,
 		Message: fmt.Sprintf("old_string not found in %s", filePath),
-		Hint:    hint,
+		Hint: fmt.Sprintf(
+			"The closest match was found at lines %d-%d. Re-read those lines and adjust your old_string.\n\n%s",
+			m.startLine, m.endLine, m.text,
+		),
 	}
 }
 
-// findClosestSnippet finds the region with the smallest edit distance to needle
-// and returns ±contextLines around it with line numbers.
-func findClosestSnippet(content, needle string, contextLines int) string {
+// findClosestMatch finds the region with the smallest edit distance to needle
+// and returns line range + snippet with ±contextLines of surrounding context.
+func findClosestMatch(content, needle string, contextLines int) *snippetMatch {
 	if content == "" || needle == "" {
-		return ""
+		return nil
 	}
 	lines := strings.Split(content, "\n")
 	needleLines := strings.Split(needle, "\n")
 	needleLen := len(needleLines)
 	if needleLen == 0 || len(lines) == 0 {
-		return ""
+		return nil
 	}
 
 	// limit search for performance
 	if len(lines) > 10000 || needleLen > 500 {
-		return ""
+		return nil
 	}
 
 	bestDist := -1
@@ -140,14 +158,17 @@ func findClosestSnippet(content, needle string, contextLines int) string {
 
 	// only show if reasonably close (< 40% of needle length)
 	if bestDist < 0 || bestDist > utf8.RuneCountInString(strings.Join(needleLines, "\n"))*4/10 {
-		return ""
+		return nil
 	}
 
-	start := bestStart - contextLines
+	matchStart := bestStart            // 0-based
+	matchEnd := bestStart + needleLen - 1 // 0-based inclusive
+
+	start := matchStart - contextLines
 	if start < 0 {
 		start = 0
 	}
-	end := bestStart + needleLen + contextLines
+	end := matchEnd + contextLines + 1
 	if end > len(lines) {
 		end = len(lines)
 	}
@@ -156,7 +177,11 @@ func findClosestSnippet(content, needle string, contextLines int) string {
 	for i := start; i < end; i++ {
 		fmt.Fprintf(&sb, "%6d|%s\n", i+1, lines[i])
 	}
-	return sb.String()
+	return &snippetMatch{
+		startLine: matchStart + 1,
+		endLine:   matchEnd + 1,
+		text:      sb.String(),
+	}
 }
 
 func trimAllLines(lines []string) string {

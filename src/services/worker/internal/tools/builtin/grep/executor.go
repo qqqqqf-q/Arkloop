@@ -14,6 +14,7 @@ import (
 
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
+	"arkloop/services/worker/internal/tools/coerce"
 )
 
 const (
@@ -59,8 +60,15 @@ func (e *Executor) Execute(
 	searchPath, _ := args["path"].(string)
 	include, _ := args["include"].(string)
 
-	contextLinesRaw, hasContextLines := args["context_lines"].(float64)
-	contextLines := int(contextLinesRaw)
+	var contextLines int
+	var hasContextLines bool
+	if raw, ok := args["context_lines"]; ok {
+		v, err := coerce.Int(raw)
+		if err == nil {
+			contextLines = v
+			hasContextLines = true
+		}
+	}
 	if contextLines < 0 {
 		contextLines = 0
 	}
@@ -73,8 +81,8 @@ func (e *Executor) Execute(
 		outputMode = "files_with_matches"
 	}
 
-	limitRaw, _ := args["limit"].(float64)
-	limit := int(limitRaw)
+	limitVal, _ := coerce.Int(args["limit"])
+	limit := limitVal
 	if limit <= 0 {
 		limit = defaultLimit
 	}
@@ -82,30 +90,71 @@ func (e *Executor) Execute(
 		limit = maxLimit
 	}
 
-	offsetRaw, _ := args["offset"].(float64)
-	offset := int(offsetRaw)
+	offsetVal, _ := coerce.Int(args["offset"])
+	offset := offsetVal
 	if offset < 0 {
 		offset = 0
 	}
 
+	caseSensitive := true
+	if raw, ok := args["case_sensitive"]; ok {
+		v, err := coerce.Bool(raw)
+		if err != nil {
+			return errResult("case_sensitive must be a boolean", started)
+		}
+		caseSensitive = v
+	}
+	var multiline bool
+	if raw, ok := args["multiline"]; ok {
+		v, err := coerce.Bool(raw)
+		if err != nil {
+			return errResult("multiline must be a boolean", started)
+		}
+		multiline = v
+	}
+	fileType, _ := args["file_type"].(string)
+
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+
+	rgExtra := buildRgExtraFlags(caseSensitive, multiline, fileType)
 
 	switch outputMode {
 	case "files_with_matches":
-		return executeFilesWithMatches(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeFilesWithMatches(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	case "count":
-		return executeCount(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeCount(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	case "content":
-		return executeContent(ctx, backend, pattern, searchPath, include, contextLines, hasContextLines, limit, offset, started)
+		return executeContent(ctx, backend, pattern, searchPath, include, rgExtra, caseSensitive, contextLines, hasContextLines, limit, offset, started)
 	default:
 		return errResult(fmt.Sprintf("unknown output_mode: %s", outputMode), started)
 	}
 }
 
+// buildRgExtraFlags returns additional ripgrep flags for case sensitivity, multiline, and file type.
+func buildRgExtraFlags(caseSensitive, multiline bool, fileType string) string {
+	var parts []string
+	if !caseSensitive {
+		parts = append(parts, "-i")
+	}
+	if multiline {
+		parts = append(parts, "-U", "--multiline-dotall")
+	}
+	for _, ft := range strings.Split(fileType, ",") {
+		ft = strings.TrimSpace(ft)
+		if ft != "" {
+			parts = append(parts, "-t", ft)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // executeFilesWithMatches returns file paths sorted by mtime (newest first).
-func executeFilesWithMatches(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, limit, offset int, started time.Time) tools.ExecutionResult {
+func executeFilesWithMatches(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, limit, offset int, started time.Time) tools.ExecutionResult {
 	// use rg -l for efficiency
 	cmd := fmt.Sprintf("rg -l --sortr=modified %s", shellQuote(pattern))
+	if rgExtra != "" {
+		cmd += " " + rgExtra
+	}
 	if include != "" {
 		cmd += fmt.Sprintf(" -g %s", shellQuote(include))
 	}
@@ -115,8 +164,7 @@ func executeFilesWithMatches(ctx context.Context, backend fileops.Backend, patte
 
 	stdout, _, exitCode, err := backend.Exec(ctx, cmd)
 	if err != nil {
-		// fallback to structured search then extract unique files
-		return executeFilesWithMatchesFallback(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeFilesWithMatchesFallback(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	}
 	if exitCode == 1 {
 		return tools.ExecutionResult{
@@ -126,7 +174,7 @@ func executeFilesWithMatches(ctx context.Context, backend fileops.Backend, patte
 	}
 	if exitCode != 0 && stdout == "" {
 		// rg --sortr may not be supported, fallback
-		return executeFilesWithMatchesFallback(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeFilesWithMatchesFallback(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	}
 
 	lines := splitNonEmpty(stdout)
@@ -147,8 +195,8 @@ func executeFilesWithMatches(ctx context.Context, backend fileops.Backend, patte
 	return paginatedResult(result, len(lines), truncated, total, limit, offset, started)
 }
 
-func executeFilesWithMatchesFallback(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, limit, offset int, started time.Time) tools.ExecutionResult {
-	matches, _, err := searchFilesStructured(ctx, backend, pattern, searchPath, include, maxLimit)
+func executeFilesWithMatchesFallback(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, limit, offset int, started time.Time) tools.ExecutionResult {
+	matches, _, err := searchFilesStructured(ctx, backend, pattern, searchPath, include, rgExtra, maxLimit)
 	if err != nil {
 		return errResult(fmt.Sprintf("grep failed: %s", err.Error()), started)
 	}
@@ -179,8 +227,11 @@ func executeFilesWithMatchesFallback(ctx context.Context, backend fileops.Backen
 }
 
 // executeCount returns match counts per file.
-func executeCount(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, limit, offset int, started time.Time) tools.ExecutionResult {
+func executeCount(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, limit, offset int, started time.Time) tools.ExecutionResult {
 	cmd := fmt.Sprintf("rg -c --sortr=modified %s", shellQuote(pattern))
+	if rgExtra != "" {
+		cmd += " " + rgExtra
+	}
 	if include != "" {
 		cmd += fmt.Sprintf(" -g %s", shellQuote(include))
 	}
@@ -190,7 +241,7 @@ func executeCount(ctx context.Context, backend fileops.Backend, pattern, searchP
 
 	stdout, _, exitCode, err := backend.Exec(ctx, cmd)
 	if err != nil {
-		return executeCountFallback(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeCountFallback(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	}
 	if exitCode == 1 {
 		return tools.ExecutionResult{
@@ -199,14 +250,14 @@ func executeCount(ctx context.Context, backend fileops.Backend, pattern, searchP
 		}
 	}
 	if exitCode != 0 && stdout == "" {
-		return executeCountFallback(ctx, backend, pattern, searchPath, include, limit, offset, started)
+		return executeCountFallback(ctx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)
 	}
 
 	return buildCountResult(splitNonEmpty(stdout), limit, offset, started)
 }
 
-func executeCountFallback(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, limit, offset int, started time.Time) tools.ExecutionResult {
-	matches, _, err := searchFilesStructured(ctx, backend, pattern, searchPath, include, maxLimit)
+func executeCountFallback(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, limit, offset int, started time.Time) tools.ExecutionResult {
+	matches, _, err := searchFilesStructured(ctx, backend, pattern, searchPath, include, rgExtra, maxLimit)
 	if err != nil {
 		return errResult(fmt.Sprintf("grep count failed: %s", err.Error()), started)
 	}
@@ -277,15 +328,15 @@ func buildCountResult(lines []string, limit, offset int, started time.Time) tool
 }
 
 // executeContent returns matching lines with optional context.
-func executeContent(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int, hasContextLines bool, limit, offset int, started time.Time) tools.ExecutionResult {
+func executeContent(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, caseSensitive bool, contextLines int, hasContextLines bool, limit, offset int, started time.Time) tools.ExecutionResult {
 	// first do a quick structured search to count matches for auto-context
 	if !hasContextLines {
-		quickMatches, _, _ := searchFilesStructured(ctx, backend, pattern, searchPath, include, 20)
+		quickMatches, _, _ := searchFilesStructured(ctx, backend, pattern, searchPath, include, rgExtra, 20)
 		contextLines = autoContextLines(len(quickMatches))
 	}
 
 	if contextLines > 0 {
-		raw, rErr := searchWithRipgrepRaw(ctx, backend, pattern, searchPath, include, contextLines)
+		raw, rErr := searchWithRipgrepRaw(ctx, backend, pattern, searchPath, include, rgExtra, contextLines)
 		if rErr == nil {
 			return paginateByBlocks(raw, limit, offset, started)
 		}
@@ -298,7 +349,7 @@ func executeContent(ctx context.Context, backend fileops.Backend, pattern, searc
 		if _, resolveErr := localBackend.ResolvePath(searchPath); resolveErr != nil {
 			return errResult(fmt.Sprintf("grep failed: %s", resolveErr.Error()), started)
 		}
-		raw, rErr = searchWithContextFallback(localBackend.NormalizePath(searchPath), pattern, include, contextLines)
+		raw, rErr = searchWithContextFallback(localBackend.NormalizePath(searchPath), pattern, include, caseSensitive, contextLines)
 		if rErr != nil {
 			return errResult(fmt.Sprintf("grep failed: %s", rErr.Error()), started)
 		}
@@ -306,7 +357,7 @@ func executeContent(ctx context.Context, backend fileops.Backend, pattern, searc
 	}
 
 	// contextLines == 0: structured path
-	matches, truncated, sErr := searchFilesStructured(ctx, backend, pattern, searchPath, include, limit+offset)
+	matches, truncated, sErr := searchFilesStructured(ctx, backend, pattern, searchPath, include, rgExtra, limit+offset)
 	if sErr != nil {
 		return errResult(fmt.Sprintf("grep failed: %s", sErr.Error()), started)
 	}
@@ -401,8 +452,8 @@ func splitNonEmpty(s string) []string {
 	return out
 }
 
-func searchFilesStructured(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, maxMatches int) ([]grepMatch, bool, error) {
-	m, err := searchWithRipgrep(ctx, backend, pattern, searchPath, include)
+func searchFilesStructured(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, maxMatches int) ([]grepMatch, bool, error) {
+	m, err := searchWithRipgrep(ctx, backend, pattern, searchPath, include, rgExtra)
 	if err == nil {
 		// sort by mtime desc
 		sortMatchesByMtime(m)
@@ -428,8 +479,11 @@ func sortMatchesByMtime(matches []grepMatch) {
 	})
 }
 
-func searchWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string) ([]grepMatch, error) {
+func searchWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string) ([]grepMatch, error) {
 	cmd := fmt.Sprintf("rg -H -n -a --max-count 1000 --sortr=modified %s", shellQuote(pattern))
+	if rgExtra != "" {
+		cmd += " " + rgExtra
+	}
 	if include != "" {
 		cmd += fmt.Sprintf(" -g %s", shellQuote(include))
 	}
@@ -477,8 +531,11 @@ func searchWithRipgrep(ctx context.Context, backend fileops.Backend, pattern, se
 	return matches, nil
 }
 
-func searchWithRipgrepRaw(ctx context.Context, backend fileops.Backend, pattern, searchPath, include string, contextLines int) (string, error) {
+func searchWithRipgrepRaw(ctx context.Context, backend fileops.Backend, pattern, searchPath, include, rgExtra string, contextLines int) (string, error) {
 	cmd := fmt.Sprintf("rg -H -n -a --max-count 1000 --sortr=modified -C %d %s", contextLines, shellQuote(pattern))
+	if rgExtra != "" {
+		cmd += " " + rgExtra
+	}
 	if include != "" {
 		cmd += fmt.Sprintf(" -g %s", shellQuote(include))
 	}
@@ -498,11 +555,17 @@ func searchWithRipgrepRaw(ctx context.Context, backend fileops.Backend, pattern,
 	return stdout, nil
 }
 
-func searchWithContextFallback(root, pattern, include string, contextLines int) (string, error) {
+func searchWithContextFallback(root, pattern, include string, caseSensitive bool, contextLines int) (string, error) {
 	if root == "" {
 		root = "."
 	}
-	re, err := regexp.Compile(pattern)
+	var re *regexp.Regexp
+	var err error
+	if caseSensitive {
+		re, err = regexp.Compile(pattern)
+	} else {
+		re, err = regexp.Compile("(?i)" + pattern)
+	}
 	if err != nil {
 		return "", fmt.Errorf("invalid regex: %w", err)
 	}

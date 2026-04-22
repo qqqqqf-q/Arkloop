@@ -17,6 +17,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
+	"arkloop/services/worker/internal/tools/coerce"
 )
 
 const (
@@ -728,8 +729,8 @@ func intArg(args map[string]any, key string, defaultVal int) int {
 	if !exists {
 		return defaultVal
 	}
-	value, ok := intOnlyArg(raw)
-	if !ok {
+	value, err := coerce.Int(raw)
+	if err != nil {
 		return defaultVal
 	}
 	return value

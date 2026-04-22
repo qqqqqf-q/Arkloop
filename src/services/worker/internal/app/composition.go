@@ -158,7 +158,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	if err != nil {
 		return nil, fmt.Errorf("open skill store: %w", err)
 	}
-	executors := builtin.Executors(pool, rdb, configResolver, skillStore)
+	executors, _ := builtin.Executors(pool, rdb, configResolver, skillStore)
 	allLlmSpecs := builtin.LlmSpecs()
 
 	// platform_manage executor (通过 PlatformToolsMiddleware 按需注入，不全局注册)

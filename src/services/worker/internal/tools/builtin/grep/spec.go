@@ -49,6 +49,18 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "integer",
 				"description": "number of results to skip for pagination (default 0)",
 			},
+			"case_sensitive": map[string]any{
+				"type":        "boolean",
+				"description": "if false, perform case-insensitive matching",
+			},
+			"multiline": map[string]any{
+				"type":        "boolean",
+				"description": "if true, allow patterns to match across line boundaries",
+			},
+			"file_type": map[string]any{
+				"type":        "string",
+				"description": "comma-separated file types to search (e.g. 'go,ts')",
+			},
 		},
 		"required":             []string{"pattern"},
 		"additionalProperties": false,

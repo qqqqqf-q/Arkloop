@@ -11,7 +11,7 @@ func TestErrNotFound_WithClosestMatch(t *testing.T) {
 	if e.Code != ErrCodeNotFound {
 		t.Fatalf("expected %s, got %s", ErrCodeNotFound, e.Code)
 	}
-	if !strings.Contains(e.Hint, "Closest match found") {
+	if !strings.Contains(e.Hint, "closest match was found at lines") {
 		t.Fatalf("expected closest match hint, got: %s", e.Hint)
 	}
 }
@@ -38,9 +38,9 @@ func TestLevenshteinLines_Different(t *testing.T) {
 	}
 }
 
-func TestFindClosestSnippet_Empty(t *testing.T) {
-	if s := findClosestSnippet("", "needle", 5); s != "" {
-		t.Fatalf("expected empty, got %s", s)
+func TestFindClosestMatch_Empty(t *testing.T) {
+	if m := findClosestMatch("", "needle", 5); m != nil {
+		t.Fatalf("expected nil, got %+v", m)
 	}
 }
 

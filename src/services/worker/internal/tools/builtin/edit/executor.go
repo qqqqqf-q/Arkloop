@@ -10,6 +10,7 @@ import (
 
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/fileops"
+	"arkloop/services/worker/internal/tools/coerce"
 )
 
 type Executor struct {
@@ -31,7 +32,14 @@ func (e *Executor) Execute(
 	}
 	oldString, _ := args["old_string"].(string)
 	newString, _ := args["new_string"].(string)
-	replaceAll, _ := args["replace_all"].(bool)
+	var replaceAll bool
+	if raw, ok := args["replace_all"]; ok {
+		v, err := coerce.Bool(raw)
+		if err != nil {
+			return errResult("replace_all must be a boolean", started)
+		}
+		replaceAll = v
+	}
 
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
@@ -94,6 +102,11 @@ func (e *Executor) Execute(
 		content = strings.ReplaceAll(content, "\r\n", "\n")
 		oldString = strings.ReplaceAll(oldString, "\r\n", "\n")
 		newString = strings.ReplaceAll(newString, "\r\n", "\n")
+	}
+
+	// omission placeholder check
+	if omErr := DetectOmissionPlaceholders(oldString, newString); omErr != nil {
+		return editErrResult(omErr, started)
 	}
 
 	// 3-layer progressive matching

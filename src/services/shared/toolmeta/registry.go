@@ -198,6 +198,7 @@ var registry = []ToolMeta{
 		ShortDesc: "replace a unique string in a file (str_replace semantics)",
 		LLMDescription: "replace one occurrence of old_string with new_string in the specified file. " +
 			"old_string must match exactly once — include enough surrounding context (3-5 lines before and after) to ensure uniqueness. " +
+			"Set replace_all=true to replace all occurrences of old_string instead of requiring uniqueness. " +
 			"To create a new file: set old_string to empty. To delete content: set new_string to empty. " +
 			"You must call read with source.kind=file_path before editing an existing file (old_string non-empty); omitting it will return an error.",
 	},
@@ -221,7 +222,9 @@ var registry = []ToolMeta{
 			"Uses ripgrep when available; falls back to Go regex walk. Results sorted by modification time (newest first). " +
 			"Use include to restrict to specific file types (e.g. *.go). " +
 			"Supports pagination via limit (default 200, max 1000) and offset. " +
-			"In content mode, context_lines (0-10) adds surrounding lines; when omitted, auto-context is applied based on match count.",
+			"In content mode, context_lines (0-10) adds surrounding lines; when omitted, auto-context is applied based on match count. " +
+			"Set case_sensitive=false for case-insensitive matching. Set multiline=true for cross-line pattern matching. " +
+			"Use file_type to filter by ripgrep file types (comma-separated, e.g. 'go,ts').",
 	},
 	// ── memory ──
 	{

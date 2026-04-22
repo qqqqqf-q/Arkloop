@@ -99,7 +99,7 @@ func LlmSpecs() []llm.ToolSpec {
 
 // Executors 返回所有内置工具的 Executor 实例。
 // rdb 可选；非 nil 时用于跨实例通知推送。
-func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Resolver, skillStore objectstore.Store) map[string]tools.Executor {
+func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Resolver, skillStore objectstore.Store) (map[string]tools.Executor, *fileops.FileTracker) {
 	tracker := fileops.NewFileTracker()
 	return map[string]tools.Executor{
 		TimelineTitleAgentSpec.Name:        TimelineTitleExecutor{},
@@ -131,5 +131,5 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		acptool.CloseACPAgentSpec.Name:     acptool.ToolExecutor{ConfigResolver: resolver},
 		showwidget.AgentSpec.Name:          showwidget.NewToolExecutor(),
 		todowrite.AgentSpec.Name:           &todowrite.Executor{},
-	}
+	}, tracker
 }

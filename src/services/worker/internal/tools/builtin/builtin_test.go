@@ -17,7 +17,8 @@ func TestHeartbeatDecisionNotInGlobalToolSets(t *testing.T) {
 		}
 	}
 
-	for name := range Executors(nil, nil, nil, nil) {
+	execs, _ := Executors(nil, nil, nil, nil)
+	for name := range execs {
 		if name == toolName {
 			t.Fatalf("heartbeat tool should not be globally bound in executors")
 		}

@@ -17,7 +17,7 @@ type matchResult struct {
 	actuals []string
 }
 
-// match runs 3-layer progressive matching against content for oldString.
+// match runs 4-layer progressive matching against content for oldString.
 // Returns nil if no match at any layer.
 func match(content, oldString string) *matchResult {
 	// Layer 1: exact match
@@ -30,6 +30,10 @@ func match(content, oldString string) *matchResult {
 	}
 	// Layer 3: regex token match
 	if r := matchRegex(content, oldString); r != nil {
+		return r
+	}
+	// Layer 4: fuzzy Levenshtein match
+	if r := matchFuzzy(content, oldString); r != nil {
 		return r
 	}
 	return nil
