@@ -9,7 +9,6 @@ type Props = {
 
 const base = 'min-w-0 rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] p-5'
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const settingsSectionCls = `${base} overflow-hidden`
 
 export function SettingsSection({ title, children, className, overflow = 'hidden' }: Props) {

@@ -248,7 +248,7 @@ export function RunsPage() {
     } finally {
       setCancelling(false)
     }
-  }, [cancelTarget, accessToken, fetchRunEventsOnce, fetchRuns, appliedFilters, offset, addToast, rt.toastCancelFailed])
+  }, [cancelTarget, accessToken, deriveVisibleLastSeq, fetchRuns, appliedFilters, offset, addToast, rt.toastCancelFailed])
 
   const columns: Column<GlobalRun>[] = [
     {

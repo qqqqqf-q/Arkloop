@@ -1356,7 +1356,6 @@ export function ChatView() {
       disposed = true
     }
   // 只在 threadId 变化时重新加载，避免依赖 locationState 导致重复触发
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, threadId, loadFromStorage, setMetaBatch])
 
   // 切换 thread 时清理 SSE 和排队消息，并重置 pendingIncognito
@@ -1398,7 +1397,6 @@ export function ChatView() {
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, clearCompletedTitleTail, resetAssistantTurnLive])
 
   // 连接 SSE
@@ -1436,14 +1434,12 @@ export function ChatView() {
     streamingArtifactsRef.current = []
     setStreamingArtifacts([])
     setCancelSubmitting(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId, baseUrl, clearCompletedTitleTail, resetAssistantTurnLive, threadId])
 
   useEffect(() => {
     if (!sseRunId) return
     sse.connect()
     return () => { sse.disconnect() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sseRunId, baseUrl])
 
   useEffect(() => {
@@ -1489,7 +1485,7 @@ export function ChatView() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [sseRunId, sse.state, sse.reconnect]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sseRunId, sse.state, sse.reconnect])
 
   const chatInputRef = useRef<ChatInputHandle>(null)
   const attachmentsRef = useRef(attachments)

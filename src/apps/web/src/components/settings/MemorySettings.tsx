@@ -614,6 +614,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [healthLabel, setHealthLabel] = useState('')
 
   const api = getDesktopApi()
+  const memoryApi = api?.memory
 
   const probeHealth = useCallback(async (cfg: MemoryConfig | null) => {
     if (!cfg?.enabled) {
@@ -627,9 +628,9 @@ export function MemorySettings({ accessToken }: Props) {
       return
     }
     // Prefer runtime status from the semantic memory API. UI config fields are not a health signal.
-    if (api?.memory?.getStatus) {
+    if (memoryApi?.getStatus) {
       try {
-        const status = await api.memory.getStatus()
+        const status = await memoryApi.getStatus()
         if (!status?.configured) {
           setHealth('error')
           setHealthLabel(ds.memoryNotConfiguredHint)
@@ -678,9 +679,9 @@ export function MemorySettings({ accessToken }: Props) {
       }
       if (ov.status === 'running') {
         // Module can be running while the API is not reachable/healthy.
-        if (api?.memory?.getStatus) {
+        if (memoryApi?.getStatus) {
           try {
-            const status = await api.memory.getStatus()
+            const status = await memoryApi.getStatus()
             if (status?.healthy) {
               setHealth('ok')
               setHealthLabel(ds.memoryModuleRunning)
@@ -706,13 +707,13 @@ export function MemorySettings({ accessToken }: Props) {
       setHealth('error')
       setHealthLabel('Bridge Offline')
     }
-  }, [ds])
+  }, [ds, memoryApi])
 
   const loadData = useCallback(async (quiet = false) => {
-    if (!api?.memory) { setLoading(false); return }
+    if (!memoryApi) { setLoading(false); return }
     if (!quiet) setLoading(true)
     try {
-      const cfg = await api.memory.getConfig()
+      const cfg = await memoryApi.getConfig()
       setMemConfigState(cfg)
       // viewTab 跟随激活后端
       if (cfg.provider === 'openviking' || cfg.provider === 'nowledge') {
@@ -732,7 +733,7 @@ export function MemorySettings({ accessToken }: Props) {
         : Boolean(cfg?.openviking?.vlmModel && cfg?.openviking?.embeddingModel)
       if (cfg.enabled && hasSemanticBackend) {
         setSnapshotLoading(true)
-        void api.memory.getSnapshot()
+        void memoryApi.getSnapshot()
           .then((snap) => {
             setSnapshot(snap.memory_block ?? '')
             setHits(snap.hits ?? [])
@@ -745,9 +746,9 @@ export function MemorySettings({ accessToken }: Props) {
         setSnapshotLoading(false)
       }
       if (cfg.enabled) {
-        if (api.memory.getImpression) {
+        if (memoryApi.getImpression) {
           setImpressionLoading(true)
-          void api.memory.getImpression()
+          void memoryApi.getImpression()
             .then((imp) => {
               setImpression(imp.impression ?? '')
               setImpressionUpdatedAt(imp.updated_at)
@@ -770,31 +771,31 @@ export function MemorySettings({ accessToken }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [api, probeHealth, accessToken])
+  }, [memoryApi, probeHealth, accessToken])
 
   const rebuildSnapshot = useCallback(async () => {
-    if (!api?.memory?.rebuildSnapshot) return
+    if (!memoryApi?.rebuildSnapshot) return
     memoryUiActionState.rebuildingSnapshot = true
     setRebuilding(true)
     try {
-      const snap = await api.memory.rebuildSnapshot()
+      const snap = await memoryApi.rebuildSnapshot()
       setSnapshot(snap.memory_block ?? '')
       setHits(snap.hits ?? [])
     } catch (err) { console.error('rebuildSnapshot failed', err) } finally {
       memoryUiActionState.rebuildingSnapshot = false
       setRebuilding(false)
     }
-  }, [api])
+  }, [memoryApi])
 
   const rebuildImpression = useCallback(async () => {
-    if (!api?.memory?.rebuildImpression) return
+    if (!memoryApi?.rebuildImpression) return
     memoryUiActionState.rebuildingImpression = true
     setRebuildingImpression(true)
     try {
-      const resp = await api.memory.rebuildImpression()
-      if (api.memory.getImpression) {
+      const resp = await memoryApi.rebuildImpression()
+      if (memoryApi.getImpression) {
         try {
-          const imp = await api.memory.getImpression()
+          const imp = await memoryApi.getImpression()
           setImpression(imp.impression ?? '')
           setImpressionUpdatedAt(imp.updated_at ?? resp.updated_at)
         } catch (err) { console.error('getImpression after rebuild failed', err) }
@@ -805,23 +806,23 @@ export function MemorySettings({ accessToken }: Props) {
       memoryUiActionState.rebuildingImpression = false
       setRebuildingImpression(false)
     }
-  }, [api])
+  }, [memoryApi])
 
   useEffect(() => { void loadData() }, [loadData])
 
   const saveConfig = useCallback(async (next: MemoryConfig) => {
-    if (!api?.memory) return
-    await api.memory.setConfig(next)
+    if (!memoryApi) return
+    await memoryApi.setConfig(next)
     setMemConfigState(next)
     void probeHealth(next)
     void loadData(true)
-  }, [api, loadData, probeHealth])
+  }, [loadData, memoryApi, probeHealth])
 
   const loadContent = useCallback(async (uri: string, layer: 'overview' | 'read'): Promise<string> => {
-    if (!api?.memory?.getContent) return ''
-    const resp = await api.memory.getContent(uri, layer)
+    if (!memoryApi?.getContent) return ''
+    const resp = await memoryApi.getContent(uri, layer)
     return resp.content ?? ''
-  }, [api])
+  }, [memoryApi])
 
   const [enableCardHovered, setEnableCardHovered] = useState(false)
   const [summarizeCardHovered, setSummarizeCardHovered] = useState(false)
@@ -837,7 +838,7 @@ export function MemorySettings({ accessToken }: Props) {
     )
   }
 
-  if (!api?.memory) {
+  if (!memoryApi) {
     return (
       <div className="flex flex-col gap-4">
         <SettingsSectionHeader title={ds.memorySettingsTitle} description={ds.memorySettingsDesc} />

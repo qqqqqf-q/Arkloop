@@ -256,7 +256,7 @@ export function RunDetailPanel({ run, agentName, accessToken, onClose }: Props) 
       failedAt: formatAbsoluteTime(detail?.failed_at ?? run.failed_at, fallback),
       threadId: detail?.thread_id ?? run.thread_id,
     }
-  }, [agentName, detail, fallback, locale, run])
+  }, [agentName, detail, fallback, run])
 
   if (!run || !overview) return null
 

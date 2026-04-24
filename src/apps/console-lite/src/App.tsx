@@ -85,7 +85,7 @@ function App() {
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [addToast, t.sessionExpired])
 
   const handleLoggedIn = useCallback((token: string) => {
     writeAccessTokenToStorage(token)
