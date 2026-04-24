@@ -68,6 +68,69 @@ type continueThreadRequest struct {
 	RunID string `json:"run_id"`
 }
 
+func inheritContinueRunExecutionData(startedData map[string]any, jobData map[string]any, parentStartedData map[string]any, parentRun *data.Run) {
+	copyString := func(key string) {
+		if parentStartedData == nil {
+			return
+		}
+		value, ok := parentStartedData[key].(string)
+		if !ok {
+			return
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		startedData[key] = value
+		jobData[key] = value
+	}
+
+	for _, key := range []string{
+		"route_id",
+		"persona_id",
+		"role",
+		"output_route_id",
+		"output_model_key",
+		"model",
+		"work_dir",
+		"reasoning_mode",
+	} {
+		copyString(key)
+	}
+
+	if parentStartedData != nil {
+		if value, ok := parentStartedData["timeout_seconds"]; ok {
+			switch n := value.(type) {
+			case int:
+				if n > 0 {
+					startedData["timeout_seconds"] = n
+					jobData["timeout_seconds"] = n
+				}
+			case float64:
+				if int(n) > 0 {
+					startedData["timeout_seconds"] = int(n)
+					jobData["timeout_seconds"] = int(n)
+				}
+			}
+		}
+	}
+
+	if _, ok := startedData["model"]; !ok && parentRun != nil && parentRun.Model != nil {
+		model := strings.TrimSpace(*parentRun.Model)
+		if model != "" {
+			startedData["model"] = model
+			jobData["model"] = model
+		}
+	}
+	if _, ok := startedData["persona_id"]; !ok && parentRun != nil && parentRun.PersonaID != nil {
+		personaID := strings.TrimSpace(*parentRun.PersonaID)
+		if personaID != "" {
+			startedData["persona_id"] = personaID
+			jobData["persona_id"] = personaID
+		}
+	}
+}
+
 func editThreadMessage(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
@@ -448,7 +511,7 @@ func continueThread(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "runs.not_found", "run not found", traceID, nil)
 			return
 		}
-		if parentRun.ParentRunID != nil || (parentRun.Status != "cancelled" && parentRun.Status != "interrupted") {
+		if parentRun.ParentRunID != nil || (parentRun.Status != "cancelled" && parentRun.Status != "interrupted" && parentRun.Status != "failed") {
 			httpkit.WriteError(w, nethttp.StatusBadRequest, "runs.invalid_state", "run cannot continue", traceID, nil)
 			return
 		}
@@ -463,18 +526,42 @@ func continueThread(
 			return
 		}
 
+		parentStartedData, err := runRepo.FirstRunStartedData(r.Context(), parentRun.ID)
+		if err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
+		startedData := map[string]any{"source": "continue"}
+		jobData := map[string]any{"source": "continue"}
+		inheritContinueRunExecutionData(startedData, jobData, parentStartedData, parentRun)
+
 		run, _, err := runRepo.CreateRootRunWithResume(
 			r.Context(),
 			thread.AccountID,
 			thread.ID,
-			&actor.UserID,
+			parentRun.CreatedByUserID,
 			"run.started",
-			map[string]any{"source": "continue"},
+			startedData,
 			parentRun.ID,
 		)
 		if err != nil {
 			writeThreadRunBusyOrInternal(w, traceID, err)
 			return
+		}
+		if parentRun.ProfileRef != nil || parentRun.WorkspaceRef != nil {
+			if _, err := tx.Exec(
+				r.Context(),
+				`UPDATE runs
+				    SET profile_ref = $2,
+				        workspace_ref = $3
+				  WHERE id = $1`,
+				run.ID,
+				parentRun.ProfileRef,
+				parentRun.WorkspaceRef,
+			); err != nil {
+				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+				return
+			}
 		}
 
 		_, err = jobRepo.WithTx(tx).EnqueueRun(
@@ -483,7 +570,7 @@ func continueThread(
 			run.ID,
 			traceID,
 			data.RunExecuteJobType,
-			map[string]any{"source": "continue"},
+			jobData,
 			nil,
 		)
 		if err != nil {

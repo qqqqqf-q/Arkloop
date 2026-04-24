@@ -259,7 +259,7 @@ func pollTelegramDesktopOnce(
 		for _, update := range updates {
 			err := connector.HandleUpdateForPoll(ctx, observability.NewTraceID(), ch, strings.TrimSpace(*token), update)
 			if err != nil {
-				if !errors.Is(err, conversationapi.ErrUnsupportedAttachmentType) {
+				if !errors.Is(err, conversationapi.ErrUnsupportedAttachmentType) && !errors.Is(err, telegrambot.ErrFileExceedsMaxBytes) {
 					slog.Warn("telegram_poll_handle_update", "channel_id", ch.ID.String(), "err", err.Error())
 					lastErr = err
 					break

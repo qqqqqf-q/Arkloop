@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 export interface Config {
   host: string
   token: string
+  debugSSE: boolean
 }
 
 function arkloopDir(): string {
@@ -52,10 +53,21 @@ function resolveToken(flagToken?: string): string {
   return ""
 }
 
+function resolveDebugSSE(flagDebugSSE?: boolean): boolean {
+  if (flagDebugSSE) return true
+
+  const raw = process.env.ARKLOOP_DEBUG_SSE
+  if (!raw) return false
+
+  const value = raw.trim().toLowerCase()
+  return value === "1" || value === "true" || value === "yes"
+}
+
 export interface CLIFlags {
   host?: string
   token?: string
   resume?: string
+  debugSSE?: boolean
 }
 
 export function parseFlags(argv: string[]): CLIFlags {
@@ -67,6 +79,8 @@ export function parseFlags(argv: string[]): CLIFlags {
       flags.token = argv[++i]
     } else if (argv[i] === "--resume" && argv[i + 1]) {
       flags.resume = argv[++i]
+    } else if (argv[i] === "--debug-sse") {
+      flags.debugSSE = true
     }
   }
   return flags
@@ -76,5 +90,6 @@ export function resolveConfig(flags: CLIFlags): Config {
   return {
     host: resolveHost(flags.host),
     token: resolveToken(flags.token),
+    debugSSE: resolveDebugSSE(flags.debugSSE),
   }
 }

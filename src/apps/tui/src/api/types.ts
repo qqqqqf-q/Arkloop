@@ -42,10 +42,51 @@ export interface Thread {
   is_private: boolean
 }
 
+export interface MessageAttachmentRef {
+  key: string
+  filename: string
+  mime_type: string
+  size: number
+}
+
+export type MessageContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; attachment: MessageAttachmentRef }
+
+export interface MessageContent {
+  parts: MessageContentPart[]
+}
+
+export interface CreateMessageRequest {
+  content?: string
+  content_json?: MessageContent
+}
+
+export interface UploadedThreadAttachment {
+  key: string
+  filename: string
+  mime_type: string
+  size: number
+  kind: "image" | "file"
+}
+
+export interface PendingImageAttachment {
+  filename: string
+  mimeType: string
+  size: number
+  bytes: Uint8Array
+}
+
+export interface MessageComposePayload {
+  text: string
+  images: PendingImageAttachment[]
+}
+
 export interface ThreadMessage {
   id: string
   role: string
   content: string
+  content_json?: MessageContent
   created_at: string
   run_id?: string | null
 }

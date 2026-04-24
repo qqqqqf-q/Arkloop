@@ -415,6 +415,16 @@ func (r *RunEventRepository) firstEventData(ctx context.Context, run *Run) (map[
 	return parsed, nil
 }
 
+func (r *RunEventRepository) FirstRunStartedData(ctx context.Context, runID uuid.UUID) (map[string]any, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if runID == uuid.Nil {
+		return nil, fmt.Errorf("run_id must not be empty")
+	}
+	return r.firstEventData(ctx, &Run{ID: runID})
+}
+
 func (r *RunEventRepository) GetRun(ctx context.Context, runID uuid.UUID) (*Run, error) {
 	if ctx == nil {
 		ctx = context.Background()

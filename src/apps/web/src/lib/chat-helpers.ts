@@ -129,6 +129,29 @@ export function assistantTurnHasVisibleOutput(turn: AssistantTurnUi | null | und
   return assistantTurnPlainText(turn).trim() !== ''
 }
 
+export function hasRecoverableRunOutput(params: {
+  text?: string | null
+  assistantTurn?: AssistantTurnUi | null
+  searchSteps?: ReadonlyArray<unknown> | null
+  widgets?: ReadonlyArray<unknown> | null
+  codeExecutions?: ReadonlyArray<unknown> | null
+  subAgents?: ReadonlyArray<unknown> | null
+  fileOps?: ReadonlyArray<unknown> | null
+  webFetches?: ReadonlyArray<unknown> | null
+  streamingArtifacts?: ReadonlyArray<unknown> | null
+}): boolean {
+  if (params.text?.trim()) return true
+  if ((params.assistantTurn?.segments.length ?? 0) > 0) return true
+  if ((params.searchSteps?.length ?? 0) > 0) return true
+  if ((params.widgets?.length ?? 0) > 0) return true
+  if ((params.codeExecutions?.length ?? 0) > 0) return true
+  if ((params.subAgents?.length ?? 0) > 0) return true
+  if ((params.fileOps?.length ?? 0) > 0) return true
+  if ((params.webFetches?.length ?? 0) > 0) return true
+  if ((params.streamingArtifacts?.length ?? 0) > 0) return true
+  return false
+}
+
 function finalizeBlockSteps(steps: WebSearchPhaseStep[]): MessageSearchStepRef[] {
   if (steps.length === 0) return []
   return steps.map((step) => ({

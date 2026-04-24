@@ -11,6 +11,7 @@ import { defaultModel, listFlatModels } from "../lib/models"
 import { tuiTheme } from "../lib/theme"
 import { handleSlashCommand } from "../lib/commands"
 import { readLastModel } from "../lib/threadMode"
+import type { MessageComposePayload } from "../api/types"
 
 interface Props {
   client: ApiClient
@@ -32,9 +33,9 @@ export function App(props: Props) {
     applyCurrentModel(model.id, model.label, model.supportsReasoning, model.contextLength)
   })
 
-  async function submitInput(text: string) {
-    if (await handleSlashCommand(props.client, text)) return
-    await sendMessage(text)
+  async function submitInput(payload: MessageComposePayload) {
+    if (payload.images.length === 0 && payload.text && await handleSlashCommand(props.client, payload.text)) return
+    await sendMessage(payload)
   }
 
   return (

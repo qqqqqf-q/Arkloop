@@ -89,9 +89,10 @@ type createRunResponse struct {
 }
 
 type threadRunResponse struct {
-	RunID     string `json:"run_id"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
+	RunID           string  `json:"run_id"`
+	Status          string  `json:"status"`
+	CreatedAt       string  `json:"created_at"`
+	ResumeFromRunID *string `json:"resume_from_run_id,omitempty"`
 }
 
 type runResponse struct {
@@ -113,6 +114,14 @@ type cancelRunResponse struct {
 type cancelRunRequest struct {
 	LastSeenSeq       *int64  `json:"last_seen_seq"`
 	ClientCancelledAt *string `json:"client_cancelled_at"`
+}
+
+func formatUUIDPtr(value *uuid.UUID) *string {
+	if value == nil || *value == uuid.Nil {
+		return nil
+	}
+	formatted := value.String()
+	return &formatted
 }
 
 type submitInputResponse struct {
@@ -627,9 +636,10 @@ func listThreadRuns(
 				status = deriveRunStatus(terminal)
 			}
 			resp = append(resp, threadRunResponse{
-				RunID:     run.ID.String(),
-				Status:    status,
-				CreatedAt: run.CreatedAt.UTC().Format(time.RFC3339Nano),
+				RunID:           run.ID.String(),
+				Status:          status,
+				CreatedAt:       run.CreatedAt.UTC().Format(time.RFC3339Nano),
+				ResumeFromRunID: formatUUIDPtr(run.ResumeFromRunID),
 			})
 		}
 

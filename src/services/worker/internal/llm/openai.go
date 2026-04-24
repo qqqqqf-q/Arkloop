@@ -533,7 +533,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 
 func errorClassFromStatus(status int) string {
 	switch status {
-	case 408, 425, 429:
+	case 400, 408, 425, 429:
 		return ErrorClassProviderRetryable
 	default:
 		if status >= 500 && status <= 599 {

@@ -252,10 +252,23 @@ function extractResultContent(result: unknown): { content: string; lineCount: nu
     if (inner) return inner
   }
   const text =
-    record["stdout"] ?? record["output"] ?? record["content"] ?? record["text"] ?? record["message"]
+    record["stdout"] ?? record["output"] ?? record["content"] ?? record["text"] ?? record["message"] ?? record["matches"]
   if (typeof text === "string" && text.trim()) {
     const lines = text.split("\n")
     return { content: text, lineCount: lines.length }
+  }
+  // structured arrays: files/entries/results → extract names/paths
+  for (const key of ["files", "entries", "results", "items", "paths"]) {
+    const arr = record[key]
+    if (!Array.isArray(arr) || arr.length === 0) continue
+    const lines = arr.map((item: unknown) => {
+      if (typeof item === "string") return item
+      const r = asRecord(item)
+      if (!r) return String(item)
+      return (r["path"] ?? r["name"] ?? r["title"] ?? r["file"]) as string | undefined ?? JSON.stringify(r)
+    })
+    const joined = lines.join("\n")
+    if (joined.trim()) return { content: joined, lineCount: lines.length }
   }
   // fallback: stderr when stdout is absent
   if (typeof record["stderr"] === "string" && record["stderr"].trim() && record["stdout"] == null) {

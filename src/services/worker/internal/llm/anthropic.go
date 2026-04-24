@@ -299,7 +299,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 		return yield(StreamRunFailed{
 			LlmCallID: llmCallID,
 			Error: GatewayError{
-				ErrorClass: errorClassFromStatus(status),
+				ErrorClass: anthropicHTTPErrorClass(status, details),
 				Message:    message,
 				Details:    details,
 			},
@@ -1259,6 +1259,18 @@ func anthropicErrorMessageAndDetails(body []byte, status int) (string, map[strin
 	}
 	details["raw_body"] = string(body)
 	return fmt.Sprintf("Anthropic request failed: status=%d body=%q", status, string(body)), details
+}
+
+func anthropicHTTPErrorClass(status int, details map[string]any) string {
+	if value, ok := details["anthropic_error_type"].(string); ok {
+		switch strings.TrimSpace(value) {
+		case "overloaded_error", "rate_limit_error":
+			return ErrorClassProviderRetryable
+		case "authentication_error", "invalid_request_error", "not_found_error", "permission_error":
+			return ErrorClassProviderNonRetryable
+		}
+	}
+	return errorClassFromStatus(status)
 }
 
 func parseAnthropicUsage(body []byte) *Usage {
