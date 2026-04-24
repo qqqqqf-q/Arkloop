@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -400,26 +401,38 @@ func NewGatewayFromResolvedConfig(cfg ResolvedGatewayConfig) (Gateway, error) {
 		if cfg.OpenAI == nil {
 			return nil, fmt.Errorf("missing openai protocol config")
 		}
-		return NewOpenAIGateway(OpenAIGatewayConfig{
+		gatewayCfg := OpenAIGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.OpenAI,
-		}), nil
+		}
+		if os.Getenv("ARKLOOP_OPENAI_SDK_ENABLED") == "1" {
+			return NewOpenAIGatewaySDK(gatewayCfg), nil
+		}
+		return NewOpenAIGateway(gatewayCfg), nil
 	case ProtocolKindAnthropicMessages:
 		if cfg.Anthropic == nil {
 			return nil, fmt.Errorf("missing anthropic protocol config")
 		}
-		return NewAnthropicGateway(AnthropicGatewayConfig{
+		gatewayCfg := AnthropicGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.Anthropic,
-		}), nil
+		}
+		if os.Getenv("ARKLOOP_ANTHROPIC_SDK_ENABLED") == "1" {
+			return NewAnthropicGatewaySDK(gatewayCfg), nil
+		}
+		return NewAnthropicGateway(gatewayCfg), nil
 	case ProtocolKindGeminiGenerateContent:
 		if cfg.Gemini == nil {
 			return nil, fmt.Errorf("missing gemini protocol config")
 		}
-		return NewGeminiGateway(GeminiGatewayConfig{
+		gatewayCfg := GeminiGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.Gemini,
-		}), nil
+		}
+		if os.Getenv("ARKLOOP_GEMINI_SDK_ENABLED") == "1" {
+			return NewGeminiGatewaySDK(gatewayCfg), nil
+		}
+		return NewGeminiGateway(gatewayCfg), nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol kind: %s", cfg.ProtocolKind)
 	}

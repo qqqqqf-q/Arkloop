@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -531,18 +530,6 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 	return yield(StreamRunCompleted{LlmCallID: llmCallID, Usage: usage, Cost: cost})
 }
 
-func errorClassFromStatus(status int) string {
-	switch status {
-	case 400, 408, 425, 429:
-		return ErrorClassProviderRetryable
-	default:
-		if status >= 500 && status <= 599 {
-			return ErrorClassProviderRetryable
-		}
-		return ErrorClassProviderNonRetryable
-	}
-}
-
 func openAIReasoningEffort(mode string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "enabled":
@@ -573,7 +560,7 @@ func applyOpenAIChatReasoningMode(payload map[string]any, mode string) {
 		return
 	}
 	if openAIReasoningDisabled(mode) {
-		payload["reasoning_effort"] = "none"
+		delete(payload, "reasoning_effort")
 	}
 }
 
@@ -2658,16 +2645,6 @@ func parseResponsesCost(usageObj map[string]any) *Cost {
 		return costFromFloat64(&parsed)
 	default:
 		return nil
-	}
-}
-
-func costFromFloat64(value *float64) *Cost {
-	if value == nil || *value <= 0 {
-		return nil
-	}
-	return &Cost{
-		Currency:     "USD",
-		AmountMicros: int(math.Round(*value * 1_000_000)),
 	}
 }
 
