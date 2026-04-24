@@ -76,7 +76,7 @@ func TestNewApplicationLogsWhenJWTSecretMissing(t *testing.T) {
 func TestLoadDynamicConfigOverridesEffectiveValues(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	cfg := DefaultConfig()
 	cfg.IPMode = IPModeDirect
@@ -128,7 +128,7 @@ func TestLoadDynamicConfigOverridesEffectiveValues(t *testing.T) {
 func TestLoadDynamicConfigAllowsZeroRiskThreshold(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	cfg := DefaultConfig()
 	cfg.RiskRejectThreshold = 30
@@ -156,7 +156,7 @@ func TestLoadDynamicConfigAllowsZeroRiskThreshold(t *testing.T) {
 func TestLoadDynamicConfigWithoutRiskThresholdFallsBackToConfig(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	cfg := DefaultConfig()
 	cfg.RiskRejectThreshold = 30
@@ -184,7 +184,7 @@ func TestLoadDynamicConfigWithoutRiskThresholdFallsBackToConfig(t *testing.T) {
 func TestDynamicConfigConcurrentAccess(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	app, err := NewApplication(DefaultConfig(), slog.New(slog.NewJSONHandler(io.Discard, nil)))
 	if err != nil {

@@ -345,7 +345,7 @@ func (h *Handler) moduleUpgrade(w http.ResponseWriter, r *http.Request) {
 			opErr = err
 			return
 		}
-		defer os.Remove(overrideFile)
+		defer func() { _ = os.Remove(overrideFile) }()
 
 		args := []string{"compose", "-f", "compose.yaml", "-f", "compose.override.yaml", "up", "-d"}
 		if def.ComposeProfile != "" {
@@ -618,7 +618,9 @@ func (h *Handler) streamOperation(w http.ResponseWriter, r *http.Request) {
 		// Drain any new log lines.
 		lines := op.Lines(offset)
 		for _, line := range lines {
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventLog, line)
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventLog, line); err != nil {
+				return
+			}
 		}
 		offset += len(lines)
 
@@ -633,11 +635,15 @@ func (h *Handler) streamOperation(w http.ResponseWriter, r *http.Request) {
 			// Drain final lines after completion.
 			final := op.Lines(offset)
 			for _, line := range final {
-				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventLog, line)
+				if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventLog, line); err != nil {
+					return
+				}
 			}
 
 			statusPayload := statusJSON(op)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventStatus, statusPayload)
+			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", sseEventStatus, statusPayload); err != nil {
+				return
+			}
 			flusher.Flush()
 			return
 		case <-ticker.C:
@@ -888,7 +894,7 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 		}
 		resp, err := client.Do(req)
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}

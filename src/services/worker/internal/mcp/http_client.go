@@ -191,7 +191,7 @@ func (c *HTTPClient) doRequest(ctx context.Context, method string, params map[st
 		}
 		return nil, DisconnectedError{Message: "MCP HTTP request failed: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		return nil, RpcError{

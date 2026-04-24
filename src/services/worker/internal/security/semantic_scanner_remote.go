@@ -132,7 +132,7 @@ func (s *RemoteSemanticScanner) Classify(ctx context.Context, text string) (Sema
 	if err != nil {
 		return SemanticResult{}, fmt.Errorf("remote semantic scanner request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRemoteSemanticResponseBytes))
 	if err != nil {

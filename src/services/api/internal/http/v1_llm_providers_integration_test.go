@@ -358,7 +358,7 @@ func TestLlmProvidersAvailableModelsOpenAI(t *testing.T) {
 	if len(payload.Models) != 2 {
 		t.Fatalf("unexpected available models payload: %#v", payload)
 	}
-	var configured map[string]bool = map[string]bool{}
+	configured := map[string]bool{}
 	for _, item := range payload.Models {
 		configured[item.ID] = item.Configured
 	}

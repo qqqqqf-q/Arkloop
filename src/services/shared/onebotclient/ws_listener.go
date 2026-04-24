@@ -55,7 +55,7 @@ func (l *WSListener) Stop() {
 		l.cancel = nil
 	}
 	if l.conn != nil {
-		l.conn.Close()
+		_ = l.conn.Close()
 		l.conn = nil
 	}
 }
@@ -108,7 +108,7 @@ func (l *WSListener) connectAndRead(ctx context.Context) error {
 	l.mu.Unlock()
 
 	defer func() {
-		conn.Close()
+		_ = conn.Close()
 		l.mu.Lock()
 		if l.conn == conn {
 			l.conn = nil

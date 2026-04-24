@@ -305,7 +305,7 @@ func (m *Manager) invoke(ctx context.Context, entry *managedSession, req AgentRe
 	if err != nil {
 		return nil, fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {

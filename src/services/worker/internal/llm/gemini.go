@@ -186,7 +186,7 @@ func (g *GeminiGateway) Stream(ctx context.Context, request Request, yield func(
 			Message:    "Gemini network error",
 		}})
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	status := resp.StatusCode
 	if status < 200 || status >= 300 {

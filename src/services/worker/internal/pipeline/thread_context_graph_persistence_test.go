@@ -18,7 +18,7 @@ func TestEnsureCanonicalThreadGraphPersisted_ReorderShrinkKeepsGraphAligned(t *t
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	threadID := uuid.New()
@@ -81,7 +81,7 @@ func TestEnsureCanonicalThreadGraphPersisted_RemovesSupersessionEdgesBeforeDelet
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	threadID := uuid.New()

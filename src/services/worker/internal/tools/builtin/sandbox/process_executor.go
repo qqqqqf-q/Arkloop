@@ -243,7 +243,7 @@ func (e *ToolExecutor) executeProcessRequest(
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {

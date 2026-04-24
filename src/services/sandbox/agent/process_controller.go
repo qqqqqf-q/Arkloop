@@ -418,7 +418,7 @@ func (c *ProcessController) waitForSnapshot(proc *managedProcess, cursor uint64,
 
 func (c *ProcessController) readStream(proc *managedProcess, stream string, reader io.ReadCloser) {
 	defer proc.readerWG.Done()
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	buf := make([]byte, 4096)
 	for {
 		n, err := reader.Read(buf)

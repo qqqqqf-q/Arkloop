@@ -621,7 +621,7 @@ func (p clawHubProvider) loadBytes(ctx context.Context, requestURL string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
 		return nil, fmt.Errorf("registry request failed: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))

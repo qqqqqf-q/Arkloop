@@ -296,7 +296,7 @@ func (m *Manager) download(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("napcat: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -338,7 +338,7 @@ func (m *Manager) download(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("napcat download: %w", err)
 	}
-	defer dlResp.Body.Close()
+	defer func() { _ = dlResp.Body.Close() }()
 
 	if assetSize == 0 && dlResp.ContentLength > 0 {
 		m.setupTotal.Store(dlResp.ContentLength)
@@ -349,14 +349,16 @@ func (m *Manager) download(ctx context.Context) error {
 		return err
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	pr := &progressReader{r: dlResp.Body, progress: &m.setupProgress}
 	if _, err := io.Copy(tmpFile, pr); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fmt.Errorf("napcat save: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("napcat close temp file: %w", err)
+	}
 
 	m.setupPhase.Store(SetupPhaseExtracting)
 	m.appendLog("extracting...")
@@ -910,7 +912,7 @@ func (m *Manager) webuiGetRaw(url, credential string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
@@ -932,7 +934,7 @@ func (m *Manager) webuiPost(url, credential string, body any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
@@ -1004,7 +1006,7 @@ func unzip(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		fpath := filepath.Join(dest, f.Name)
@@ -1026,14 +1028,20 @@ func unzip(src, dest string) error {
 		}
 		rc, err := f.Open()
 		if err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return err
 		}
 		_, err = io.Copy(outFile, rc)
-		rc.Close()
-		outFile.Close()
+		rcErr := rc.Close()
+		outErr := outFile.Close()
 		if err != nil {
 			return err
+		}
+		if rcErr != nil {
+			return rcErr
+		}
+		if outErr != nil {
+			return outErr
 		}
 	}
 	return nil

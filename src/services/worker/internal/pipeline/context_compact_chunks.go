@@ -316,12 +316,12 @@ func serializeCompactChunksForLLM(chunks []compactChunk) string {
 	}
 	var b strings.Builder
 	for _, chunk := range chunks {
-		b.WriteString(fmt.Sprintf("[chunk #%d atom=%d type=%s role=%s]\n",
+		_, _ = fmt.Fprintf(&b, "[chunk #%d atom=%d type=%s role=%s]\n",
 			chunk.ContextSeq,
 			chunk.AtomSeq,
 			chunk.AtomType,
 			strings.TrimSpace(chunk.Role),
-		))
+		)
 		b.WriteString(strings.TrimSpace(chunk.Text))
 		b.WriteString("\n\n")
 	}

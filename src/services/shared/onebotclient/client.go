@@ -54,7 +54,7 @@ func (c *Client) callJSON(ctx context.Context, action string, body any, out any)
 	if err != nil {
 		return fmt.Errorf("onebot call %s: %w", action, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -175,7 +175,7 @@ func (c *Client) DownloadURL(ctx context.Context, url string, maxBytes int64) (d
 	if err != nil {
 		return nil, "", fmt.Errorf("onebot download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, "", fmt.Errorf("onebot download: status %d", resp.StatusCode)
 	}

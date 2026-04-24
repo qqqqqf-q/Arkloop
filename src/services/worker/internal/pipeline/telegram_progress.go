@@ -394,7 +394,7 @@ func (t *TelegramProgressTracker) formatProgressLocked(finalize bool) string {
 		segments = segments[hidden:]
 	}
 	if hidden > 0 {
-		b.WriteString(fmt.Sprintf("... earlier %d segment(s)\n", hidden))
+		_, _ = fmt.Fprintf(&b, "... earlier %d segment(s)\n", hidden)
 	}
 
 	for idx, seg := range segments {

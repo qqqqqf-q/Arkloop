@@ -40,7 +40,7 @@ func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	if err != nil {
 		t.Fatalf("connect admin database failed: %v", err)
 	}
-	defer adminConn.Close(context.Background())
+	defer func() { _ = adminConn.Close(context.Background()) }()
 
 	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+sharedtestutil.QuoteIdentifier(databaseName)); err != nil {
 		t.Fatalf("create database failed: %v", err)

@@ -387,7 +387,7 @@ func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerCon
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
 	}
@@ -410,7 +410,7 @@ func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerCon
 
 func listEffectiveMCPStdioTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
 	client := newEffectiveMCPStdioClient(server)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	return client.ListTools(ctx)
 }
 
@@ -626,7 +626,7 @@ func (c *effectiveMCPStdioClient) readLoop(stdout io.Reader) {
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			c.Close()
+			_ = c.Close()
 			return
 		}
 		trimmed := strings.TrimSpace(line)

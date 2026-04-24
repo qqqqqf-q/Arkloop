@@ -710,7 +710,7 @@ func (m *Manager) invokeDebugSnapshot(ctx context.Context, entry *managedSession
 	if err != nil {
 		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	req := AgentRequest{Action: "shell_debug_snapshot"}
@@ -752,7 +752,7 @@ func (m *Manager) invokeReadOutputDeltas(ctx context.Context, entry *managedSess
 	if err != nil {
 		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	req := AgentRequest{Action: "exec_read_output"}
@@ -798,7 +798,7 @@ func (m *Manager) invokeSession(ctx context.Context, entry *managedSession, payl
 	if err != nil {
 		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	if err := json.NewEncoder(conn).Encode(payload); err != nil {
@@ -845,7 +845,7 @@ func (m *Manager) invokeState(ctx context.Context, entry *managedSession, action
 	if err != nil {
 		return nil, &transportError{err: fmt.Errorf("connect to agent: %w", err)}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	req := AgentRequest{Action: action, State: &stateReq}

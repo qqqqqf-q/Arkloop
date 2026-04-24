@@ -199,7 +199,7 @@ func fetchCatalogJSON(ctx context.Context, url string, decorate func(*nethttp.Re
 	if err != nil {
 		return nil, 0, upstreamNetworkError(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, availableModelsRespBytes))
 	if err != nil {
@@ -261,7 +261,7 @@ func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtoc
 	if err != nil {
 		return nil, upstreamNetworkError(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, availableModelsRespBytes))
 	if err != nil {
@@ -365,7 +365,7 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 	if err != nil {
 		return nil, upstreamNetworkError(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, availableModelsRespBytes))
 	if err != nil {

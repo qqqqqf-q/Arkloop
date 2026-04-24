@@ -87,7 +87,7 @@ func AdvanceOutboxProgress(
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	if err := outboxRepo.UpdateProgress(ctx, tx, outboxID, segmentsSent); err != nil {
 		return err

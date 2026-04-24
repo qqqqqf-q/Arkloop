@@ -26,7 +26,7 @@ func fakeDialer(handler func(net.Conn)) session.Dialer {
 // writes it back, then closes the connection.
 func fakeACPAgent(responses map[string]agentResponse) func(net.Conn) {
 	return func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		var req agentRequest
 		if err := json.NewDecoder(conn).Decode(&req); err != nil {
 			return
@@ -280,7 +280,7 @@ func TestManager_GetEntry_NotFound(t *testing.T) {
 func TestManager_GetEntry_AccountMismatch(t *testing.T) {
 	m := newTestManager()
 	m.sessions["s1"] = &managedACPSession{
-		compute:   newFakeSession(func(c net.Conn) { c.Close() }),
+		compute:   newFakeSession(func(c net.Conn) { _ = c.Close() }),
 		accountID: "acct-1",
 		processID: "pid-1",
 	}
@@ -305,7 +305,7 @@ func TestManager_GetEntry_AccountMismatch(t *testing.T) {
 func TestManager_Close(t *testing.T) {
 	stopCalled := make(chan struct{}, 1)
 	handler := func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		var req agentRequest
 		if err := json.NewDecoder(conn).Decode(&req); err != nil {
 			return
@@ -362,7 +362,7 @@ func TestManager_Close_NoSession(t *testing.T) {
 func TestManager_Close_AccountMismatch(t *testing.T) {
 	m := newTestManager()
 	m.sessions["s1"] = &managedACPSession{
-		compute:   newFakeSession(func(c net.Conn) { c.Close() }),
+		compute:   newFakeSession(func(c net.Conn) { _ = c.Close() }),
 		accountID: "acct-1",
 		processID: "pid-1",
 	}
@@ -499,7 +499,7 @@ func TestManager_InvokeACPAction_InvalidJSON(t *testing.T) {
 	m := newTestManager()
 
 	handler := func(conn net.Conn) {
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		// read the JSON request so the writer unblocks
 		var req agentRequest
 		_ = json.NewDecoder(conn).Decode(&req)
@@ -537,7 +537,7 @@ func TestManager_InvokeACPAction_InvalidJSON(t *testing.T) {
 func TestManager_GetEntry_EmptyAccountID(t *testing.T) {
 	m := newTestManager()
 	m.sessions["s1"] = &managedACPSession{
-		compute:   newFakeSession(func(c net.Conn) { c.Close() }),
+		compute:   newFakeSession(func(c net.Conn) { _ = c.Close() }),
 		accountID: "acct-1",
 		processID: "pid-1",
 	}

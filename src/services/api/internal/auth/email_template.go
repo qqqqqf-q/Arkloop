@@ -41,91 +41,91 @@ func buildEmailHTML(p emailParams) string {
 	b.WriteString(`<!DOCTYPE html><html lang="en"><head>`)
 	b.WriteString(`<meta charset="UTF-8">`)
 	b.WriteString(`<meta name="viewport" content="width=device-width,initial-scale=1.0">`)
-	b.WriteString(fmt.Sprintf(`<title>%s</title>`, html.EscapeString(p.Title)))
+	_, _ = fmt.Fprintf(&b, `<title>%s</title>`, html.EscapeString(p.Title))
 	b.WriteString(`</head>`)
 
 	// -- body --
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<body style="margin:0;padding:0;background:%s;font-family:%s;-webkit-font-smoothing:antialiased;">`,
 		colorPageBg, fontStack,
-	))
+	)
 
 	// 外层居中容器
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="background:%s;">`,
 		colorPageBg,
-	))
+	)
 	b.WriteString(`<tr><td align="center" style="padding:52px 20px 40px;">`)
 
 	// 品牌 wordmark
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<p style="margin:0 0 28px;font-size:15px;font-weight:600;letter-spacing:-0.2px;color:%s;">Arkloop</p>`,
 		colorPrimary,
-	))
+	)
 
 	// 卡片
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<table width="100%%" cellpadding="0" cellspacing="0" role="presentation" `+
 			`style="max-width:480px;background:%s;border:1px solid %s;border-radius:16px;`+
 			`box-shadow:0 4px 24px rgba(0,0,0,0.07);">`,
 		colorCardBg, colorBorder,
-	))
+	)
 	b.WriteString(`<tr><td style="padding:40px 40px 36px;">`)
 
 	// 标题
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<h1 style="margin:0 0 8px;font-size:20px;font-weight:600;letter-spacing:-0.3px;color:%s;">%s</h1>`,
 		colorPrimary, html.EscapeString(p.Title),
-	))
+	)
 
 	// 问候语
 	if p.Greeting != "" {
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<p style="margin:0 0 24px;font-size:14px;line-height:1.65;color:%s;">%s</p>`,
 			colorSecondary, html.EscapeString(p.Greeting),
-		))
+		)
 	}
 
 	// 正文段落
 	for _, line := range p.BodyLines {
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:%s;">%s</p>`,
 			colorSecondary, html.EscapeString(line),
-		))
+		)
 	}
 
 	// 验证码区块
 	if p.Code != "" {
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<table width="100%%" cellpadding="0" cellspacing="0" role="presentation" `+
 				`style="margin-bottom:16px;">`,
-		))
+		)
 		b.WriteString(`<tr><td align="center" style="` +
 			fmt.Sprintf(`background:%s;border:1px solid %s;`, colorCodeBg, colorBorder) +
 			`border-radius:12px;padding:28px 20px;">`)
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<span style="font-size:36px;font-weight:700;letter-spacing:12px;color:%s;`+
 				`font-variant-numeric:tabular-nums;display:inline-block;">%s</span>`,
 			colorPrimary, html.EscapeString(p.Code),
-		))
+		)
 		b.WriteString(`</td></tr></table>`)
 	}
 
 	// 验证码下方提示
 	if p.Notice != "" {
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<p style="margin:0 0 28px;font-size:12px;color:%s;text-align:center;line-height:1.6;">%s</p>`,
 			colorMuted, html.EscapeString(p.Notice),
-		))
+		)
 	}
 
 	// CTA 按钮（可选）
 	if p.LinkURL != "" && p.LinkLabel != "" {
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<table width="100%%" cellpadding="0" cellspacing="0" role="presentation">`,
-		))
+		)
 		b.WriteString(`<tr><td align="center">`)
-		b.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&b,
 			`<a href="%s" target="_blank" style="`+
 				`display:inline-block;padding:11px 28px;`+
 				`background:%s;color:%s;`+
@@ -134,7 +134,7 @@ func buildEmailHTML(p emailParams) string {
 				`font-family:%s;">%s</a>`,
 			html.EscapeString(p.LinkURL), colorBtnBg, colorBtnText,
 			fontStack, html.EscapeString(p.LinkLabel),
-		))
+		)
 		b.WriteString(`</td></tr></table>`)
 	}
 
@@ -142,18 +142,18 @@ func buildEmailHTML(p emailParams) string {
 	b.WriteString(`</td></tr></table>`)
 
 	// 分割线
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<table width="100%%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:480px;margin-top:0;">`,
-	))
+	)
 	b.WriteString(`<tr><td style="padding:0 40px;">`)
-	b.WriteString(fmt.Sprintf(`<hr style="border:none;border-top:1px solid %s;margin:0;">`, colorBorder))
+	_, _ = fmt.Fprintf(&b, `<hr style="border:none;border-top:1px solid %s;margin:0;">`, colorBorder)
 	b.WriteString(`</td></tr></table>`)
 
 	// 页脚
-	b.WriteString(fmt.Sprintf(
+	_, _ = fmt.Fprintf(&b,
 		`<p style="margin:20px 0 0;font-size:12px;color:%s;text-align:center;line-height:1.7;">`,
 		colorMuted,
-	))
+	)
 	b.WriteString(`Arkloop &nbsp;·&nbsp; This email was sent automatically, please do not reply.</p>`)
 
 	b.WriteString(`</td></tr></table>`)

@@ -45,7 +45,7 @@ func (p *BasicProvider) Fetch(ctx context.Context, targetURL string, maxLength i
 	if err != nil {
 		return Result{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return Result{}, HttpError{StatusCode: resp.StatusCode}

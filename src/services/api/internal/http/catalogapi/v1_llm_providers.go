@@ -949,9 +949,7 @@ func testOpenAIImage(ctx context.Context, baseURL, apiKey, model string) error {
 }
 
 func testAnthropicChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
-	if strings.HasSuffix(baseURL, "/v1") {
-		baseURL = strings.TrimSuffix(baseURL, "/v1")
-	}
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
 	payload := map[string]any{
 		"model":      model,
 		"max_tokens": 32,
@@ -1060,7 +1058,7 @@ func doTestRequest(req *nethttp.Request) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if readErr != nil {

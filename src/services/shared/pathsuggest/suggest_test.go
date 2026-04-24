@@ -8,8 +8,12 @@ import (
 
 func TestSuggestSimilarPaths_CaseInsensitive(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
-	os.WriteFile(filepath.Join(dir, "src", "README.md"), []byte("hi"), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "README.md"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	results := SuggestSimilarPaths(filepath.Join(dir, "src", "readme.md"), dir)
 	if len(results) == 0 {
@@ -22,8 +26,12 @@ func TestSuggestSimilarPaths_CaseInsensitive(t *testing.T) {
 
 func TestSuggestSimilarPaths_SynonymMatch(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "utils"), 0o755)
-	os.WriteFile(filepath.Join(dir, "utils", "helper.go"), []byte(""), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "utils"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "utils", "helper.go"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	results := SuggestSimilarPaths(filepath.Join(dir, "util", "helper.go"), dir)
 	if len(results) == 0 {
@@ -33,8 +41,12 @@ func TestSuggestSimilarPaths_SynonymMatch(t *testing.T) {
 
 func TestSuggestSimilarPaths_MissingLayer(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "src", "services", "worker"), 0o755)
-	os.WriteFile(filepath.Join(dir, "src", "services", "worker", "main.go"), []byte(""), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "src", "services", "worker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "services", "worker", "main.go"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// target missing "services" layer
 	results := SuggestSimilarPaths(filepath.Join(dir, "src", "worker", "main.go"), dir)
@@ -53,7 +65,9 @@ func TestSuggestSimilarPaths_Empty(t *testing.T) {
 func TestSuggestSimilarPaths_MaxResults(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"filea.go", "fileb.go", "filec.go", "filed.go"} {
-		os.WriteFile(filepath.Join(dir, name), []byte(""), 0o644)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	results := SuggestSimilarPaths(filepath.Join(dir, "filex.go"), dir)
 	if len(results) > maxResults {
@@ -63,8 +77,12 @@ func TestSuggestSimilarPaths_MaxResults(t *testing.T) {
 
 func TestSuggestSimilarPaths_SkipsNodeModules(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755)
-	os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "index.js"), []byte(""), 0o644)
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "index.js"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	results := SuggestSimilarPaths(filepath.Join(dir, "pkg", "index.js"), dir)
 	for _, r := range results {

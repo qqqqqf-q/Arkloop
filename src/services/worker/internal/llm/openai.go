@@ -257,7 +257,7 @@ func (g *OpenAIGateway) chatCompletions(ctx context.Context, request Request, yi
 		}
 		return yield(failed)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	status := resp.StatusCode
 	if status < 200 || status >= 300 {
@@ -455,7 +455,7 @@ func (g *OpenAIGateway) responses(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	status := resp.StatusCode
 
@@ -2548,7 +2548,7 @@ func openAIErrorMessageAndDetails(body []byte, status int, fallback string) (str
 		if sb.Len() > 0 {
 			sb.WriteString(": ")
 		}
-		sb.WriteString(fmt.Sprintf("%v", c))
+		_, _ = fmt.Fprintf(&sb, "%v", c)
 	}
 	if p, ok := details["openai_error_param"].(string); ok && strings.TrimSpace(p) != "" {
 		if sb.Len() > 0 {

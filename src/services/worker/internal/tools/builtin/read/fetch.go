@@ -61,7 +61,7 @@ func fetchRemoteImage(ctx context.Context, targetURL string, maxBytes int) (fetc
 	if err != nil {
 		return fetchedImage{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fetchedImage{}, httpStatusError{StatusCode: resp.StatusCode}

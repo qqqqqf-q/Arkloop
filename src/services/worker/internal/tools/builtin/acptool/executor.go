@@ -557,7 +557,9 @@ func (e ToolExecutor) executeWaitACP(
 				DurationMs: int(time.Since(started) / time.Millisecond),
 			}
 		case acpStatusClosed:
-			emitCachedEvents()
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
+			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "closed"},
 				DurationMs: int(time.Since(started) / time.Millisecond),
@@ -571,7 +573,9 @@ func (e ToolExecutor) executeWaitACP(
 		case <-ctx.Done():
 			return errResult("tool.cancelled", "wait_acp cancelled", started)
 		case <-deadlineCh:
-			emitCachedEvents()
+			if err := emitCachedEvents(); err != nil {
+				return errResult("tool.execution_failed", err.Error(), started)
+			}
 			return tools.ExecutionResult{
 				ResultJSON: map[string]any{"handle_id": handleID, "status": "running", "timeout": true},
 				DurationMs: int(time.Since(started) / time.Millisecond),

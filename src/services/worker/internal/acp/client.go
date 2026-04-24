@@ -187,7 +187,7 @@ func (c *Client) post(ctx context.Context, path string, reqBody any, respBody an
 		}
 		return &ClientError{Code: "transport_error", Message: fmt.Sprintf("request failed: %s", err), StatusCode: 0}
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {

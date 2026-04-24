@@ -190,7 +190,7 @@ func (c *Client) callJSON(ctx context.Context, token string, method string, path
 	if err != nil {
 		return fmt.Errorf("discordbot: do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {

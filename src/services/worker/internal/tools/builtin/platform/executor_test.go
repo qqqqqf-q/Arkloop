@@ -52,7 +52,9 @@ func TestExecutor_GetSettings(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"name": "test"})
+		if err := json.NewEncoder(w).Encode(map[string]any{"name": "test"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	result := exec(e, "get_settings", nil)
 	if result.Error != nil {
@@ -69,7 +71,9 @@ func TestExecutor_ListProviders(t *testing.T) {
 		capturedPath = r.URL.Path
 		capturedMethod = r.Method
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]any{map[string]any{"id": "p1"}})
+		if err := json.NewEncoder(w).Encode([]any{map[string]any{"id": "p1"}}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	result := exec(e, "list_providers", nil)
 	if result.Error != nil {
@@ -136,7 +140,9 @@ func TestExecutor_RequireGet_EmptyID(t *testing.T) {
 func TestExecutor_ParamsFlattening_NoMutation(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		if err := json.NewEncoder(w).Encode(map[string]any{"ok": true}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	innerParams := map[string]any{"key": "site_name", "value": "Test"}
 	originalArgs := map[string]any{
@@ -165,7 +171,7 @@ func TestExecutor_Unauthorized(t *testing.T) {
 func TestExecutor_ServerError(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	}))
 	result := exec(e, "list_providers", nil)
 	if result.Error == nil || result.Error.ErrorClass != errHTTP {
@@ -189,7 +195,9 @@ func TestExecutor_NoContent(t *testing.T) {
 func TestExecutor_ArrayResponse(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]any{"a", "b"})
+		if err := json.NewEncoder(w).Encode([]any{"a", "b"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	result := exec(e, "list_providers", nil)
 	if result.Error != nil {
@@ -208,7 +216,9 @@ func TestExecutor_SetsAuthHeader(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{})
+		if err := json.NewEncoder(w).Encode(map[string]any{}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	exec(e, "get_settings", nil)
 	if capturedAuth == "" || capturedAuth[:7] != "Bearer " {
@@ -223,7 +233,9 @@ func TestExecutor_ListAgents(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]any{})
+		if err := json.NewEncoder(w).Encode([]any{}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	exec(e, "list_agents", nil)
 	if path != "/v1/personas" {
@@ -236,7 +248,9 @@ func TestExecutor_ListSkills(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]any{})
+		if err := json.NewEncoder(w).Encode([]any{}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	exec(e, "list_skills", nil)
 	if path != "/v1/skill-packages" {
@@ -249,7 +263,9 @@ func TestExecutor_ListIPRules(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]any{})
+		if err := json.NewEncoder(w).Encode([]any{}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	exec(e, "list_ip_rules", nil)
 	if path != "/v1/ip-rules" {
@@ -262,7 +278,9 @@ func TestExecutor_ListIPRules(t *testing.T) {
 func TestExecutor_DurationMsPositive(t *testing.T) {
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{})
+		if err := json.NewEncoder(w).Encode(map[string]any{}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	result := exec(e, "get_settings", nil)
 	if result.DurationMs < 0 {

@@ -133,7 +133,7 @@ func (c *client) doJSONWith(ctx context.Context, hc *http.Client, method, path s
 	if err != nil {
 		return fmt.Errorf("openviking %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

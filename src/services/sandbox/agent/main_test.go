@@ -174,7 +174,7 @@ func TestHandleV2EnvironmentFilesCollectAndApply(t *testing.T) {
 func invokeAgentRequest(t *testing.T, req AgentRequest) AgentResponse {
 	t.Helper()
 	server, client := net.Pipe()
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	go handleV2(server, req)
 	var resp AgentResponse
 	if err := json.NewDecoder(client).Decode(&resp); err != nil {

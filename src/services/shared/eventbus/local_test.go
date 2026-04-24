@@ -9,13 +9,13 @@ import (
 
 func TestLocalEventBus_PublishSubscribe(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	sub, err := bus.Subscribe(context.Background(), "topic1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 
 	if err := bus.Publish(context.Background(), "topic1", "hello"); err != nil {
 		t.Fatal(err)
@@ -36,12 +36,12 @@ func TestLocalEventBus_PublishSubscribe(t *testing.T) {
 
 func TestLocalEventBus_MultipleSubscribers(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	sub1, _ := bus.Subscribe(context.Background(), "topic1")
-	defer sub1.Close()
+	defer func() { _ = sub1.Close() }()
 	sub2, _ := bus.Subscribe(context.Background(), "topic1")
-	defer sub2.Close()
+	defer func() { _ = sub2.Close() }()
 
 	if err := bus.Publish(context.Background(), "topic1", "broadcast"); err != nil {
 		t.Fatal(err)
@@ -61,12 +61,12 @@ func TestLocalEventBus_MultipleSubscribers(t *testing.T) {
 
 func TestLocalEventBus_TopicIsolation(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	sub1, _ := bus.Subscribe(context.Background(), "topicA")
-	defer sub1.Close()
+	defer func() { _ = sub1.Close() }()
 	sub2, _ := bus.Subscribe(context.Background(), "topicB")
-	defer sub2.Close()
+	defer func() { _ = sub2.Close() }()
 
 	if err := bus.Publish(context.Background(), "topicA", "only-A"); err != nil {
 		t.Fatal(err)
@@ -91,10 +91,10 @@ func TestLocalEventBus_TopicIsolation(t *testing.T) {
 
 func TestLocalEventBus_Unsubscribe(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	sub, _ := bus.Subscribe(context.Background(), "topic1")
-	sub.Close()
+	_ = sub.Close()
 
 	// Channel should be closed after unsubscribe
 	_, ok := <-sub.Channel()
@@ -114,7 +114,7 @@ func TestLocalEventBus_CloseAll(t *testing.T) {
 	sub1, _ := bus.Subscribe(context.Background(), "topic1")
 	sub2, _ := bus.Subscribe(context.Background(), "topic2")
 
-	bus.Close()
+	_ = bus.Close()
 
 	// All subscription channels should be closed
 	if _, ok := <-sub1.Channel(); ok {
@@ -132,7 +132,7 @@ func TestLocalEventBus_CloseAll(t *testing.T) {
 
 func TestLocalEventBus_ConcurrentAccess(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	var wg sync.WaitGroup
 	const goroutines = 50
@@ -171,7 +171,7 @@ func TestLocalEventBus_ConcurrentAccess(t *testing.T) {
 			wg.Add(1)
 			go func(s Subscription) {
 				defer wg.Done()
-				s.Close()
+				_ = s.Close()
 			}(subs[i])
 		}
 	}
@@ -180,18 +180,18 @@ func TestLocalEventBus_ConcurrentAccess(t *testing.T) {
 
 func TestLocalEventBus_DoubleClose(t *testing.T) {
 	bus := NewLocalEventBus()
-	defer bus.Close()
+	defer func() { _ = bus.Close() }()
 
 	sub, _ := bus.Subscribe(context.Background(), "topic1")
 
 	// Double close should not panic
-	sub.Close()
-	sub.Close()
+	_ = sub.Close()
+	_ = sub.Close()
 }
 
 func TestLocalEventBus_SubscribeAfterClose(t *testing.T) {
 	bus := NewLocalEventBus()
-	bus.Close()
+	_ = bus.Close()
 
 	sub, err := bus.Subscribe(context.Background(), "topic1")
 	if err != nil {

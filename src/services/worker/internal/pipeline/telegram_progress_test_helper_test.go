@@ -66,7 +66,7 @@ func (f *fakeTelegramServer) handler(w http.ResponseWriter, r *http.Request) {
 			f.onEvent(fmt.Sprintf("send:%s", f.lastSendText))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d}}`, messageID)))
+		_, _ = fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, messageID)
 		return
 	}
 	if strings.HasSuffix(r.URL.Path, "/editMessageText") {

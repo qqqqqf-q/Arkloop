@@ -30,7 +30,7 @@ func singleResponseDialer(resp agentResponse) Dialer {
 	return func(ctx context.Context) (net.Conn, error) {
 		server, client := net.Pipe()
 		go func() {
-			defer server.Close()
+			defer func() { _ = server.Close() }()
 			var req agentRequest
 			_ = json.NewDecoder(server).Decode(&req)
 			_ = json.NewEncoder(server).Encode(resp)

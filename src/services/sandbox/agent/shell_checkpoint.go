@@ -74,7 +74,7 @@ func (c *ShellController) captureShellStateFromFiles() (string, map[string]strin
 	if err != nil {
 		return "", nil, fmt.Errorf("create shell state temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	cwdPath := filepath.Join(tempDir, "cwd")
 	envPath := filepath.Join(tempDir, "env")

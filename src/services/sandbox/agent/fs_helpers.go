@@ -59,13 +59,13 @@ func restoreRegularFile(reader io.Reader, targetPath string, mode int64) error {
 		return fmt.Errorf("create restore temp file %s: %w", targetPath, err)
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
+	defer func() { _ = os.Remove(tempPath) }()
 	if _, err := io.Copy(tempFile, reader); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("write restore file %s: %w", targetPath, err)
 	}
 	if err := tempFile.Chmod(fileModeOrDefault(mode, 0o644)); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return fmt.Errorf("chmod restore file %s: %w", targetPath, err)
 	}
 	if err := tempFile.Close(); err != nil {

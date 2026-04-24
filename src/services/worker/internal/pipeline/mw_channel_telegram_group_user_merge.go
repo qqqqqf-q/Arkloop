@@ -161,9 +161,7 @@ func mergeUserBurstContent(tail []llm.Message) []llm.ContentPart {
 		if i > 0 {
 			parts = append(parts, llm.ContentPart{Type: messagecontent.PartTypeText, Text: sep})
 		}
-		for _, p := range tail[i].Content {
-			parts = append(parts, p)
-		}
+		parts = append(parts, tail[i].Content...)
 	}
 	if len(parts) == 0 {
 		return []llm.ContentPart{{Type: messagecontent.PartTypeText, Text: ""}}
@@ -686,9 +684,7 @@ func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []str
 	}
 	lines := make([]string, 0, len(details)+1)
 	lines = append(lines, header+" "+details[0])
-	for _, detail := range details[1:] {
-		lines = append(lines, detail)
-	}
+	lines = append(lines, details[1:]...)
 	return lines
 }
 

@@ -97,11 +97,11 @@ func renderHotStickerPrompt(items []data.AccountSticker) string {
 	var sb strings.Builder
 	sb.WriteString("<stickers>\n")
 	for _, item := range items {
-		sb.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&sb,
 			"  <sticker id=\"%s\" short=\"%s\" />\n",
 			xmlEscapeAttr(strings.TrimSpace(item.ContentHash)),
 			xmlEscapeAttr(strings.TrimSpace(item.ShortTags)),
-		))
+		)
 	}
 	sb.WriteString("</stickers>")
 	return sb.String()

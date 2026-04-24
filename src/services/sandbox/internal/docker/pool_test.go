@@ -98,8 +98,8 @@ func TestBuildCreatePlan_BrowserUsesBrowserImageAndEgress(t *testing.T) {
 	if plan.hostCfg.NetworkMode != container.NetworkMode(defaultAgentEgressNetworkName) {
 		t.Fatalf("expected browser network mode %q, got %q", defaultAgentEgressNetworkName, plan.hostCfg.NetworkMode)
 	}
-	if plan.hostCfg.Resources.Memory != 512*1024*1024 {
-		t.Fatalf("unexpected browser memory limit: %d", plan.hostCfg.Resources.Memory)
+	if plan.hostCfg.Memory != 512*1024*1024 {
+		t.Fatalf("unexpected browser memory limit: %d", plan.hostCfg.Memory)
 	}
 	if len(plan.hostCfg.PortBindings) != 0 {
 		t.Fatalf("expected browser port bindings empty, got %v", plan.hostCfg.PortBindings)

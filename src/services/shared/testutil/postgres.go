@@ -43,7 +43,7 @@ func DropTemporaryDatabase(t *testing.T, adminDSN string, databaseName string) {
 	if err != nil {
 		t.Fatalf("connect admin database failed: %v", err)
 	}
-	defer adminConn.Close(context.Background())
+	defer func() { _ = adminConn.Close(context.Background()) }()
 
 	_, _ = adminConn.Exec(
 		context.Background(),
@@ -55,6 +55,6 @@ func DropTemporaryDatabase(t *testing.T, adminDSN string, databaseName string) {
 	)
 
 	if _, err := adminConn.Exec(context.Background(), "DROP DATABASE IF EXISTS "+QuoteIdentifier(databaseName)); err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("drop database %s failed: %v\n", databaseName, err))
+		_, _ = fmt.Fprintf(os.Stderr, "drop database %s failed: %v\n", databaseName, err)
 	}
 }

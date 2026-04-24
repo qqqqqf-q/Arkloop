@@ -71,11 +71,11 @@ function getCachedOffsets(value: Date): Map<string, string> {
 }
 
 function scheduleIdleWork(callback: (deadline?: IdleDeadlineLike) => void): void {
-  if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback((deadline) => callback(deadline))
+  if (typeof globalThis.requestIdleCallback === 'function') {
+    globalThis.requestIdleCallback((deadline) => callback(deadline))
     return
   }
-  window.setTimeout(() => callback(), PRELOAD_FALLBACK_DELAY_MS)
+  globalThis.setTimeout(() => callback(), PRELOAD_FALLBACK_DELAY_MS)
 }
 
 function preloadOffsets(value: Date): Promise<void> {

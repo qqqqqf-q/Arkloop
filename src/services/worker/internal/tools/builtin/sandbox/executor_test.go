@@ -196,13 +196,15 @@ func TestPythonExecute_Success(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{
+		if err := json.NewEncoder(w).Encode(execResponse{
 			SessionID:  body.SessionID,
 			Stdout:     "hello\n",
 			Stderr:     "",
 			ExitCode:   0,
 			DurationMs: 42,
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -258,11 +260,13 @@ func TestExecCommand_UsesExecEndpoint(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{
+		if err := json.NewEncoder(w).Encode(execSessionResponse{
 			SessionID: body.SessionID,
 			Status:    "idle",
 			Cwd:       "/workspace",
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -311,14 +315,16 @@ func TestExecCommand_UsesDefaultSessionID(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{
+		if err := json.NewEncoder(w).Encode(execSessionResponse{
 			SessionID: body.SessionID,
 			Status:    "idle",
 			Cwd:       "/workspace",
 			Output:    "total 0\n",
 			Running:   false,
 			TimedOut:  false,
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -366,7 +372,9 @@ func TestContinueProcess_UsesContinueEndpoint(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: body.ProcessRef, Cursor: "7", NextCursor: "8"})
+		if err := json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: body.ProcessRef, Cursor: "7", NextCursor: "8"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -409,7 +417,7 @@ func TestContinueProcess_UsesInputPayload(t *testing.T) {
 			t.Fatal("expected close_stdin=true")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(processResponse{
+		if err := json.NewEncoder(w).Encode(processResponse{
 			Status:           "exited",
 			ProcessRef:       body.ProcessRef,
 			Stdout:           "arkloop\n",
@@ -417,7 +425,9 @@ func TestContinueProcess_UsesInputPayload(t *testing.T) {
 			NextCursor:       "1",
 			AcceptedInputSeq: body.InputSeq,
 			ExitCode:         intPtr(0),
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -450,7 +460,9 @@ func TestExecCommandAndContinueProcess_UseReturnedProcessRefAcrossCalls(t *testi
 			}
 			got = append(got, body.SessionID)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: "proc-run", Cursor: "0", NextCursor: "1"})
+			if err := json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: "proc-run", Cursor: "0", NextCursor: "1"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 			return
 		}
 		var body continueProcessRequest
@@ -459,7 +471,9 @@ func TestExecCommandAndContinueProcess_UseReturnedProcessRefAcrossCalls(t *testi
 		}
 		got = append(got, body.ProcessRef)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(processResponse{Status: "exited", ProcessRef: body.ProcessRef, Cursor: body.Cursor, NextCursor: "2", ExitCode: intPtr(0)})
+		if err := json.NewEncoder(w).Encode(processResponse{Status: "exited", ProcessRef: body.ProcessRef, Cursor: body.Cursor, NextCursor: "2", ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -551,10 +565,12 @@ func TestHTTPError_ServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"code":    "sandbox.exec_error",
 			"message": "VM crashed",
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -597,10 +613,12 @@ func TestHTTPError_Timeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusGatewayTimeout)
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"code":    "timeout",
 			"message": "execution timed out",
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -620,12 +638,14 @@ func TestHTTPError_Timeout(t *testing.T) {
 func TestNonZeroExitCode_NotError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{
+		if err := json.NewEncoder(w).Encode(execResponse{
 			Stdout:     "",
 			Stderr:     "error: division by zero\n",
 			ExitCode:   1,
 			DurationMs: 5,
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -654,12 +674,14 @@ func TestOutputNotTruncatedAtExecutor(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{
+		if err := json.NewEncoder(w).Encode(execResponse{
 			Stdout:     largeOutput,
 			Stderr:     "",
 			ExitCode:   0,
 			DurationMs: 100,
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -685,10 +707,14 @@ func TestPythonExecute_UsesLiteTierByDefault(t *testing.T) {
 	var receivedTier string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTier = body.Tier
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -713,10 +739,14 @@ func TestExecCommand_UsesProTierByDefault(t *testing.T) {
 	var receivedTier string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execCommandRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTier = body.Tier
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -741,10 +771,14 @@ func TestTierFromSandboxProfilesToolOverride(t *testing.T) {
 	var receivedTier string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTier = body.Tier
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -772,10 +806,14 @@ func TestTierFromSandboxProfilesWorkloadOverride(t *testing.T) {
 	var receivedTier string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execCommandRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTier = body.Tier
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -803,10 +841,14 @@ func TestLegacySandboxTierIsIgnored(t *testing.T) {
 	var receivedTier string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTier = body.Tier
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -834,10 +876,14 @@ func TestTimeoutMs_Propagation(t *testing.T) {
 	var receivedTimeout int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedTimeout = body.TimeoutMs
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -870,7 +916,9 @@ func TestContinueProcess_ClampsWaitMsBySoftLimit(t *testing.T) {
 		}
 		receivedWait = body.WaitMs
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: body.ProcessRef, Cursor: body.Cursor, NextCursor: "9"})
+		if err := json.NewEncoder(w).Encode(processResponse{Status: "running", ProcessRef: body.ProcessRef, Cursor: body.Cursor, NextCursor: "9"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -902,11 +950,13 @@ func TestExecCommand_DoesNotTruncateAtExecutor(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(processResponse{
+		if err := json.NewEncoder(w).Encode(processResponse{
 			Status:   "exited",
 			Stdout:   strings.Repeat("x", 200),
 			ExitCode: intPtr(0),
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -968,10 +1018,14 @@ func TestAccountID_Propagation(t *testing.T) {
 	var receivedAccountID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body execRequest
-		json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
 		receivedAccountID = body.AccountID
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -998,7 +1052,9 @@ func TestNoAuthHeader_WhenTokenEmpty(t *testing.T) {
 			t.Errorf("expected no Authorization header, got %s", auth)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execResponse{ExitCode: 0})
+		if err := json.NewEncoder(w).Encode(execResponse{ExitCode: 0}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1046,7 +1102,9 @@ func TestExecCommand_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
 		}
 		sessionIDs = append(sessionIDs, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1097,7 +1155,9 @@ func TestExecCommand_ResolvesMissingEnvironmentBindingsFromRunContext(t *testing
 			t.Fatalf("unexpected workspace_ref: %s", body.WorkspaceRef)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1150,7 +1210,9 @@ func TestExecCommand_UsesCreateOpenModeForNewSession(t *testing.T) {
 			t.Fatalf("expected open_mode=%s, got %s", openModeCreate, body.OpenMode)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1194,7 +1256,9 @@ func TestExecCommand_ResumeWithoutLiveOrRestoreFails(t *testing.T) {
 			t.Fatalf("expected attach_or_restore, got %s", body.OpenMode)
 		}
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"})
+		if err := json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1253,10 +1317,14 @@ func TestExecCommand_AutoFallsBackAfterStaleThreadDefault(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		if body.SessionID == "shref_old" {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"})
+			if err := json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1330,10 +1398,14 @@ func TestExecCommand_AutoFallsBackAfterStaleWorkspaceDefaultKeepsWorkspaceScope(
 		w.Header().Set("Content-Type", "application/json")
 		if body.SessionID == "shref_workspace_old" {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"})
+			if err := json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.session_not_found", "message": "session not found"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1376,7 +1448,9 @@ func TestExecCommand_WorkspaceDefaultUpdatesWorkspaceRegistry(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1492,7 +1566,9 @@ func TestExecCommand_NewSessionPersistsRequestedShareScope(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1630,7 +1706,9 @@ func TestExecCommand_ResumeOrgScopeAllowedForAdmin(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1683,7 +1761,9 @@ func TestExecCommand_ResumeOrgScopePreservesSourceWorkspaceIdentity(t *testing.T
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1780,7 +1860,9 @@ func TestExecCommand_AutoSkipsUnauthorizedCandidateAndCreatesNew(t *testing.T) {
 		}
 		sessionIDs = append(sessionIDs, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1831,13 +1913,17 @@ func TestExecCommand_ForkInheritsShareScope(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/sessions/fork":
-			json.NewEncoder(w).Encode(forkSessionResponse{RestoreRevision: "rev-2"})
+			if err := json.NewEncoder(w).Encode(forkSessionResponse{RestoreRevision: "rev-2"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/exec_command":
 			var body execCommandRequest
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -1890,14 +1976,18 @@ func TestExecCommandAndWriteStdin_SameRunKeepsWriterLease(t *testing.T) {
 				t.Fatalf("decode exec body: %v", err)
 			}
 			calls = append(calls, "exec:"+body.SessionID)
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/write_stdin":
 			var body writeStdinRequest
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode write body: %v", err)
 			}
 			calls = append(calls, "write:"+body.SessionID)
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -1952,7 +2042,9 @@ func TestWriteStdin_SameRunDifferentToolCallIDRejected(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode exec body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/write_stdin":
 			t.Fatalf("write_stdin should be rejected before sandbox")
 		default:
@@ -2068,7 +2160,9 @@ func TestWriteStdin_PollAllowedButCrossRunInputRejected(t *testing.T) {
 			t.Fatalf("decode write body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Running: false})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Running: false}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2134,7 +2228,9 @@ func TestExecCommand_ExpiredLeaseCanBeTakenOver(t *testing.T) {
 			t.Fatalf("decode exec body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Running: true}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2204,7 +2300,9 @@ func TestBrowser_UsesBrowserTierAndAgentBrowserCommand(t *testing.T) {
 				MimeType: "image/png",
 			}}
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2266,12 +2364,14 @@ func TestBrowser_ForwardsYieldTimeMs(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 			"https://example.com",
 			"Example Domain",
 			"- heading \"Example Domain\" [ref=e1]",
 			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
-		), ExitCode: intPtr(0)})
+		), ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2305,7 +2405,9 @@ func TestBrowser_AutoScreenshotCommandRaisesTinyYieldTime(t *testing.T) {
 			t.Fatalf("decode body: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", ExitCode: intPtr(0)})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: seen.SessionID, Status: "idle", Cwd: "/workspace", ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2343,20 +2445,26 @@ func TestBrowser_AutoPollsRunningResultBeforeScreenshot(t *testing.T) {
 				t.Fatalf("decode exec body: %v", err)
 			}
 			if len(paths) == 1 {
-				json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "loading", Running: true})
+				if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "loading", Running: true}); err != nil {
+					t.Fatalf("encode response: %v", err)
+				}
 				return
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0), Artifacts: []artifactRef{{
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: "ok", ExitCode: intPtr(0), Artifacts: []artifactRef{{
 				Key:      "org/browser/3/browser-screenshot.png",
 				Filename: "browser-screenshot.png",
 				Size:     1024,
 				MimeType: "image/png",
-			}}})
+			}}}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/write_stdin":
 			if err := json.NewDecoder(r.Body).Decode(&pollSeen); err != nil {
 				t.Fatalf("decode poll body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "Example Domain", ExitCode: intPtr(0)})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "Example Domain", ExitCode: intPtr(0)}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -2406,14 +2514,18 @@ func TestBrowser_DoesNotAutoScreenshotWhileRunning(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode exec body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/write_stdin":
 			pollCalls++
 			var body writeStdinRequest
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode poll body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "running", Cwd: "/workspace", Output: "ok", Running: true}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -2472,7 +2584,9 @@ func TestBrowser_AutoSessionDoesNotReuseShellSession(t *testing.T) {
 				map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
 			)
 		}
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: output, ExitCode: intPtr(0)})
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: output, ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2544,12 +2658,14 @@ func TestBrowser_AutoReusesThreadDefaultAcrossRunsWithPool(t *testing.T) {
 		}
 		sessionIDs = append(sessionIDs, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 			"https://example.com",
 			"Example Domain",
 			"- heading \"Example Domain\" [ref=e1]",
 			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
-		), ExitCode: intPtr(0)})
+		), ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2609,12 +2725,14 @@ func TestBrowser_AutoReusesWorkspaceDefaultAcrossThreads(t *testing.T) {
 		}
 		sessionIDs = append(sessionIDs, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 			"https://example.com",
 			"Example Domain",
 			"- heading \"Example Domain\" [ref=e1]",
 			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
-		), ExitCode: intPtr(0)})
+		), ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2672,12 +2790,14 @@ func TestBrowser_AutoDoesNotReuseAcrossWorkspaces(t *testing.T) {
 		}
 		sessionIDs = append(sessionIDs, body.SessionID)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 			"https://example.com",
 			"Example Domain",
 			"- heading \"Example Domain\" [ref=e1]",
 			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
-		), ExitCode: intPtr(0)})
+		), ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2747,16 +2867,20 @@ func TestBrowser_AutoFallsBackAfterDisconnectedThreadDefault(t *testing.T) {
 		if body.SessionID == "brref_old" {
 			statuses = append(statuses, http.StatusInternalServerError)
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.shell_error", "message": "prepare environment: connect to agent: dial tcp 172.24.0.4:8080: connect: no route to host"})
+			if err := json.NewEncoder(w).Encode(map[string]any{"code": "sandbox.shell_error", "message": "prepare environment: connect to agent: dial tcp 172.24.0.4:8080: connect: no route to host"}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 			return
 		}
 		statuses = append(statuses, http.StatusOK)
-		json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+		if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 			"https://example.com",
 			"Example Domain",
 			"- heading \"Example Domain\" [ref=e1]",
 			map[string]any{"e1": map[string]any{"role": "heading", "text": "Example Domain"}},
-		), ExitCode: intPtr(0)})
+		), ExitCode: intPtr(0)}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -2812,10 +2936,12 @@ func TestBrowser_RetriesAfterSessionBusy(t *testing.T) {
 			}
 			if len(paths) == 1 {
 				w.WriteHeader(http.StatusConflict)
-				json.NewEncoder(w).Encode(map[string]any{"code": "shell.session_busy", "message": "shell session is busy"})
+				if err := json.NewEncoder(w).Encode(map[string]any{"code": "shell.session_busy", "message": "shell session is busy"}); err != nil {
+					t.Fatalf("encode response: %v", err)
+				}
 				return
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: body.SessionID, Status: "idle", Cwd: "/workspace", Output: browserSnapshotJSON(
 				"https://example.com",
 				"Example Domain",
 				"- heading \"Example Domain\" [ref=e1]\n- link \"More information\" [ref=e2]",
@@ -2823,12 +2949,16 @@ func TestBrowser_RetriesAfterSessionBusy(t *testing.T) {
 					"e1": map[string]any{"role": "heading", "text": "Example Domain"},
 					"e2": map[string]any{"role": "link", "text": "More information"},
 				},
-			), ExitCode: intPtr(0)})
+			), ExitCode: intPtr(0)}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		case "/v1/write_stdin":
 			if err := json.NewDecoder(r.Body).Decode(&pollSeen); err != nil {
 				t.Fatalf("decode poll body: %v", err)
 			}
-			json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "previous command done", ExitCode: intPtr(0)})
+			if err := json.NewEncoder(w).Encode(execSessionResponse{SessionID: pollSeen.SessionID, Status: "idle", Cwd: "/workspace", Output: "previous command done", ExitCode: intPtr(0)}); err != nil {
+				t.Fatalf("encode response: %v", err)
+			}
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}

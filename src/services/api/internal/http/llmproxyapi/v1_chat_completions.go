@@ -223,7 +223,7 @@ func proxyJSON(w nethttp.ResponseWriter, ctx context.Context, upstream *upstream
 			"upstream provider request failed", traceID, nil)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -245,7 +245,7 @@ func proxySSE(w nethttp.ResponseWriter, ctx context.Context, upstream *upstreamC
 			"upstream provider request failed", traceID, nil)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Forward non-200 error responses as-is.
 	if resp.StatusCode != nethttp.StatusOK {

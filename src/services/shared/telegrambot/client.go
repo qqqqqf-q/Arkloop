@@ -235,7 +235,7 @@ func (c *Client) sendMediaMultipart(ctx context.Context, token, method, fieldNam
 	if err != nil {
 		return nil, fmt.Errorf("telegrambot: open file %q: %w", filePath, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -283,7 +283,7 @@ func (c *Client) sendMediaMultipart(ctx context.Context, token, method, fieldNam
 	if err != nil {
 		return nil, fmt.Errorf("telegrambot: multipart upload: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	return c.parseSentMessageResp(resp)
 }
@@ -491,7 +491,7 @@ func (c *Client) SendStickerBytes(ctx context.Context, token string, chatID stri
 	if err != nil {
 		return nil, fmt.Errorf("telegrambot: sendSticker request failed: %s", redactToken(err.Error(), token))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 		return nil, fmt.Errorf("telegrambot: sendSticker returned %d: %s", resp.StatusCode, redactToken(string(payload), token))
@@ -531,7 +531,7 @@ func (c *Client) callJSON(ctx context.Context, token string, method string, body
 	if err != nil {
 		return fmt.Errorf("telegrambot: call %s: %s", method, redactToken(err.Error(), token))
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {

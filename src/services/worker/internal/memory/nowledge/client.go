@@ -1005,7 +1005,7 @@ func (c *Client) doJSON(ctx context.Context, ident memory.MemoryIdentity, method
 	if err != nil {
 		return fmt.Errorf("nowledge %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return &httpError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw)), Method: method, Path: path}

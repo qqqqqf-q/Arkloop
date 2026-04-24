@@ -56,12 +56,12 @@ func (r *REPL) Run(ctx context.Context) error {
 	}
 
 	for {
-		fmt.Fprint(r.stderr, "> ")
+		_, _ = fmt.Fprint(r.stderr, "> ")
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				fmt.Fprintln(r.stderr)
+				_, _ = fmt.Fprintln(r.stderr)
 				r.printResumeHint()
 				return nil
 			}
@@ -80,7 +80,7 @@ func (r *REPL) Run(ctx context.Context) error {
 				return nil
 			}
 			if err != nil {
-				fmt.Fprintf(r.stderr, "error: %v\n", err)
+				_, _ = fmt.Fprintf(r.stderr, "error: %v\n", err)
 			}
 			if handled {
 				continue
@@ -90,7 +90,7 @@ func (r *REPL) Run(ctx context.Context) error {
 		if r.threadID == "" {
 			tid, err := r.client.CreateThread(ctx, "")
 			if err != nil {
-				fmt.Fprintf(r.stderr, "error: %v\n", err)
+				_, _ = fmt.Fprintf(r.stderr, "error: %v\n", err)
 				continue
 			}
 			r.threadID = tid
@@ -103,7 +103,7 @@ func (r *REPL) Run(ctx context.Context) error {
 		r.renderer.Flush()
 
 		if execErr != nil && !errors.Is(execErr, context.Canceled) && !errors.Is(execErr, context.DeadlineExceeded) {
-			fmt.Fprintf(r.stderr, "error: %v\n", execErr)
+			_, _ = fmt.Fprintf(r.stderr, "error: %v\n", execErr)
 		}
 
 		if ctx.Err() != nil {
@@ -220,6 +220,6 @@ func timeoutDisplay(timeout time.Duration) string {
 
 func (r *REPL) printResumeHint() {
 	if strings.TrimSpace(r.threadID) != "" {
-		fmt.Fprintf(r.stderr, "\nTo resume this session:\n  ark sessions resume %s\n", r.threadID)
+		_, _ = fmt.Fprintf(r.stderr, "\nTo resume this session:\n  ark sessions resume %s\n", r.threadID)
 	}
 }

@@ -97,7 +97,11 @@ export function DesktopTelegramSettingsPanel({
     setEnabled(channel?.is_active ?? false)
     setPersonaID(resolvePersonaID(personas, channel?.persona_id))
 
-    const nextPrivate = readStringArrayConfig(channel, 'private_allowed_user_ids')
+    const nextPrivate = (() => {
+      const scoped = readStringArrayConfig(channel, 'private_allowed_user_ids')
+      if (scoped.length > 0) return scoped
+      return readStringArrayConfig(channel, 'allowed_user_ids')
+    })()
     setPrivateRestrict(nextPrivate.length > 0)
     setPrivateIDs(nextPrivate)
     setPrivateInput('')

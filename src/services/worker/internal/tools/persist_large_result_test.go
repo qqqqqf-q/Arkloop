@@ -173,7 +173,7 @@ func TestPersistLargeResult_FallbackOnWriteFailure(t *testing.T) {
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Skip("cannot make directory read-only on this platform")
 	}
-	defer os.Chmod(dir, 0o755)
+	defer func() { _ = os.Chmod(dir, 0o755) }()
 
 	t.Setenv("ARKLOOP_TOOL_OUTPUT_DIR", dir)
 

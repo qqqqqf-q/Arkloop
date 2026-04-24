@@ -303,7 +303,7 @@ func resolveGitHubArchiveURL(ctx context.Context, repositoryURL string, ref stri
 		if err == nil {
 			apiReq.Header.Set("User-Agent", "Arkloop/skills-import")
 			if resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(15 * time.Second).Do(apiReq); err == nil {
-				defer resp.Body.Close()
+				defer func() { _ = resp.Body.Close() }()
 				var payload struct {
 					DefaultBranch string `json:"default_branch"`
 				}
@@ -329,7 +329,7 @@ func downloadGitHubArchive(ctx context.Context, archiveURL string) (map[string][
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		return nil, skillImportError{status: nethttp.StatusBadGateway, code: "skills.import_not_found", msg: "skill archive not found"}
 	}
@@ -359,7 +359,9 @@ func unzipEntries(body []byte) (map[string][]byte, error) {
 			return nil, err
 		}
 		content, readErr := io.ReadAll(rc)
-		rc.Close()
+		if closeErr := rc.Close(); closeErr != nil {
+			return nil, closeErr
+		}
 		if readErr != nil {
 			return nil, readErr
 		}

@@ -585,11 +585,12 @@ func updateChannel(
 	if req.ConfigJSON != nil {
 		var normalizedConfig json.RawMessage
 		var err error
-		if ch.ChannelType == "telegram" {
+		switch ch.ChannelType {
+		case "telegram":
 			normalizedConfig, err = mergeTelegramChannelConfigJSONPatch(ch.ConfigJSON, *req.ConfigJSON)
-		} else if ch.ChannelType == "discord" {
+		case "discord":
 			normalizedConfig, err = mergeDiscordChannelConfigJSONPatch(ch.ConfigJSON, *req.ConfigJSON)
-		} else {
+		default:
 			normalizedConfig, _, err = normalizeChannelConfigJSON(ch.ChannelType, *req.ConfigJSON)
 		}
 		if err != nil {

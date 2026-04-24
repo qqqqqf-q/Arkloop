@@ -130,7 +130,7 @@ func (h *DeliveryHandler) Handle(ctx context.Context, lease queue.JobLease) erro
 		h.logger.Error("webhook http post failed", "job_id", jobID, "account_id", accountID, "url", ep.URL, "error", err.Error())
 		return h.handleFailure(ctx, p, lease, jobID, accountID, nil, err.Error())
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if readErr != nil {
@@ -259,8 +259,8 @@ func sanitizeWebhookResponseBody(body []byte) string {
 // computeHMAC 计算带时间戳的 HMAC-SHA256 签名，格式为 HMAC(secret, "timestamp.payload")。
 func computeHMAC(timestamp int64, payload []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "%d.", timestamp)
-	mac.Write(payload)
+	_, _ = fmt.Fprintf(mac, "%d.", timestamp)
+	_, _ = mac.Write(payload)
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

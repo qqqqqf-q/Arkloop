@@ -72,7 +72,7 @@ func stagingAttachmentUpload(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, map[string]any{"reason": "file is required"})
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		filename := sanitizeAttachmentFilenameImpl(header.Filename)
 		if filename == "" {
