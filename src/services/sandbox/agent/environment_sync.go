@@ -284,7 +284,7 @@ func digestFile(path string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hasher := sha256.New()
 	size, err := io.Copy(hasher, file)
 	if err != nil {

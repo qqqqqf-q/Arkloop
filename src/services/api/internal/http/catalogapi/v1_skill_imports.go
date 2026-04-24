@@ -103,7 +103,7 @@ func uploadSkillImportEntry(
 				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "files are required", traceID, nil)
 				return
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 			payload, readErr := io.ReadAll(io.LimitReader(file, 64<<20))
 			if readErr != nil {
 				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "read file failed", traceID, nil)
@@ -125,7 +125,10 @@ func uploadSkillImportEntry(
 				return
 			}
 			payload, readErr := io.ReadAll(io.LimitReader(file, 8<<20))
-			file.Close()
+			if closeErr := file.Close(); closeErr != nil {
+				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "read file failed", traceID, nil)
+				return
+			}
 			if readErr != nil {
 				httpkit.WriteError(w, nethttp.StatusBadRequest, "skills.invalid_request", "read file failed", traceID, nil)
 				return

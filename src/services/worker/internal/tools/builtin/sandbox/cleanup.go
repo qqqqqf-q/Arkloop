@@ -56,5 +56,5 @@ func deleteSession(baseURL, authToken, sessionID, accountID string) {
 		slog.Warn("sandbox cleanup: request failed", "session_id", sessionID, "error", err)
 		return
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }

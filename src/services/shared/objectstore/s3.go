@@ -179,7 +179,7 @@ func (o *S3Store) Get(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get object %q: %w", key, err)
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 
 	data, err := io.ReadAll(out.Body)
 	if err != nil {
@@ -196,7 +196,7 @@ func (o *S3Store) GetWithContentType(ctx context.Context, key string) ([]byte, s
 	if err != nil {
 		return nil, "", fmt.Errorf("get object %q: %w", key, err)
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 
 	contentType := aws.ToString(out.ContentType)
 	data, err := io.ReadAll(out.Body)

@@ -202,7 +202,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if redisErr != nil {
 			return fmt.Errorf("redis: %w", redisErr)
 		}
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 
 		// 启动时加载动态配置
 		a.loadDynamicConfig(ctx, rdb)

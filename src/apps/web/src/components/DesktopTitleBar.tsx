@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Glasses, ArrowUp } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
 import type { AppUpdaterState } from '@arkloop/shared/desktop'
@@ -48,10 +48,19 @@ export function DesktopTitleBar({
   const updateBtnRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
   const [updatePopoverOpen, setUpdatePopoverOpen] = useState(false)
+  const [updatePopoverPosition, setUpdatePopoverPosition] = useState<{ top: number; right: number }>({ top: 50, right: 12 })
 
   const togglePopover = useCallback(() => {
     setUpdatePopoverOpen((prev) => {
-      if (!prev) onCheckAppUpdate?.()
+      if (!prev) {
+        const rect = updateBtnRef.current?.getBoundingClientRect()
+        setUpdatePopoverPosition(
+          rect
+            ? { top: rect.bottom + 6, right: window.innerWidth - rect.right }
+            : { top: 50, right: 12 },
+        )
+        onCheckAppUpdate?.()
+      }
       return !prev
     })
   }, [onCheckAppUpdate])
@@ -172,7 +181,7 @@ export function DesktopTitleBar({
         )}
         {updatePopoverOpen && <UpdatePopover
           ref={popoverRef}
-          btnRef={updateBtnRef}
+          position={updatePopoverPosition}
           state={appUpdateState ?? null}
           onDownload={onDownloadApp}
           onInstall={onInstallApp}
@@ -185,26 +194,19 @@ export function DesktopTitleBar({
 const GITHUB_RELEASES_URL = 'https://github.com/qqqqqf-q/Arkloop/releases/latest'
 
 type UpdatePopoverProps = {
-  btnRef: React.RefObject<HTMLButtonElement | null>
+  position: { top: number; right: number }
   state: AppUpdaterState | null
   onDownload?: () => void
   onInstall?: () => void
 }
 
-import { forwardRef } from 'react'
-
 const UpdatePopover = forwardRef<HTMLDivElement, UpdatePopoverProps>(function UpdatePopover(
-  { btnRef, state, onDownload, onInstall },
+  { position, state, onDownload, onInstall },
   ref,
 ) {
   const { t } = useLocale()
   const ds = (t as unknown as Record<string, unknown>).desktopSettings as Record<string, string> | undefined
   const isMac = navigator.platform.toLowerCase().includes('mac')
-
-  // position from button rect
-  const rect = btnRef.current?.getBoundingClientRect()
-  const top = rect ? rect.bottom + 6 : 50
-  const right = rect ? window.innerWidth - rect.right : 12
 
   const phase = state?.phase ?? 'idle'
 
@@ -295,8 +297,8 @@ const UpdatePopover = forwardRef<HTMLDivElement, UpdatePopoverProps>(function Up
       ref={ref}
       style={{
         position: 'fixed',
-        top: `${top}px`,
-        right: `${right}px`,
+        top: `${position.top}px`,
+        right: `${position.right}px`,
         width: 280,
         zIndex: 1000,
         background: 'var(--c-bg-page)',

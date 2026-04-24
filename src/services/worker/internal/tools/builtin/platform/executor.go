@@ -732,7 +732,7 @@ func (e *Executor) doAPI(req *http.Request, t time.Time) tools.ExecutionResult {
 	if err != nil {
 		return apiErr(req.Method+" "+req.URL.Path, err, t)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return parseResponse(resp, t)
 }
 
@@ -749,7 +749,7 @@ func (e *Executor) bridgeGet(ctx context.Context, path string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("bridge %s returned %d: %s", path, resp.StatusCode, string(body))
@@ -774,7 +774,7 @@ func (e *Executor) doBridge(req *http.Request, t time.Time) tools.ExecutionResul
 	if err != nil {
 		return degraded("bridge unreachable", t)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
 		return tools.ExecutionResult{

@@ -219,7 +219,7 @@ func (s *Session) Exec(ctx context.Context, job ExecJob) (*ExecResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	deadline := time.Now().Add(timeout + 5*time.Second)
 	_ = conn.SetDeadline(deadline)
@@ -244,7 +244,7 @@ func (s *Session) FetchArtifacts(ctx context.Context) (*FetchArtifactsResult, er
 	if err != nil {
 		return nil, fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
@@ -274,7 +274,7 @@ func (s *Session) ConfigureGuestNetwork(ctx context.Context, req GuestNetworkReq
 	if err != nil {
 		return fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 
@@ -344,7 +344,7 @@ func (s *Session) callEnvironment(ctx context.Context, action string, payload En
 	if err != nil {
 		return nil, fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Minute))
 	if err := json.NewEncoder(conn).Encode(agentRequest{Action: action, Environment: &payload}); err != nil {
@@ -420,7 +420,7 @@ func (s *Session) fetchCapabilities(ctx context.Context) (*AgentCapabilities, er
 	if err != nil {
 		return nil, fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_ = conn.SetDeadline(time.Now().Add(15 * time.Second))
 	if err := json.NewEncoder(conn).Encode(agentRequest{Action: "agent_capabilities"}); err != nil {
@@ -463,18 +463,18 @@ func NewVsockDialer(vsockPath string, agentPort uint32) Dialer {
 		}
 
 		if _, err := fmt.Fprintf(conn, "CONNECT %d\n", agentPort); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("vsock handshake write: %w", err)
 		}
 
 		reader := bufio.NewReaderSize(conn, 64)
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("vsock handshake read: %w", err)
 		}
 		if !strings.HasPrefix(strings.TrimSpace(line), "OK") {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("vsock handshake failed: %q", line)
 		}
 
@@ -511,7 +511,7 @@ func (s *Session) ApplySkillOverlay(ctx context.Context, req sandboxskills.Apply
 	if err != nil {
 		return fmt.Errorf("connect to agent: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	items := make([]SkillOverlayItem, 0, len(req.Skills))
 	for _, item := range req.Skills {

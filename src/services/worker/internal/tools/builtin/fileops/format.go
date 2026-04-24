@@ -75,7 +75,7 @@ func ReadLinesFromFile(path string, offset, limit int) (string, int, bool, error
 	if err != nil {
 		return "", 0, false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	var contentLines []string

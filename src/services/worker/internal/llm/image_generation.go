@@ -151,7 +151,7 @@ func (g *OpenAIGateway) generateImageWithResponsesAPI(ctx context.Context, model
 			Message:    "OpenAI image network error",
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _, _ := readAllWithLimit(resp.Body, openAIMaxErrorBodyBytes)
@@ -209,7 +209,7 @@ func (g *OpenAIGateway) generateImageWithImagesAPI(ctx context.Context, model st
 			Message:    "OpenAI image network error",
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _, _ := readAllWithLimit(resp.Body, openAIMaxErrorBodyBytes)
@@ -280,7 +280,7 @@ func (g *OpenAIGateway) generateImageWithEditsAPI(ctx context.Context, model str
 			Message:    "OpenAI image network error",
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _, _ := readAllWithLimit(resp.Body, openAIMaxErrorBodyBytes)
@@ -370,7 +370,7 @@ func (g *GeminiGateway) GenerateImage(ctx context.Context, model string, req Ima
 			Message:    "Gemini image network error",
 		}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, bodyTruncated, _ := readAllWithLimit(resp.Body, geminiMaxErrorBodyBytes)

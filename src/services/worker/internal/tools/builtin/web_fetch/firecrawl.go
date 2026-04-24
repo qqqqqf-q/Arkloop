@@ -70,7 +70,7 @@ func (p *FirecrawlProvider) Fetch(ctx context.Context, targetURL string, maxLeng
 	if err != nil {
 		return Result{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return Result{}, HttpError{StatusCode: resp.StatusCode}

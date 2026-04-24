@@ -114,9 +114,9 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 		// 构建 runtime tail：保持控制面提示独立，避免污染会话历史与 prompt-cache snapshot。
 		var sb strings.Builder
 		sb.WriteString("[SYSTEM_HEARTBEAT_CHECK]\n")
-		sb.WriteString(fmt.Sprintf("time_utc: %s\n", time.Now().UTC().Format(time.RFC3339)))
-		sb.WriteString(fmt.Sprintf("interval_minutes: %d\n", interval))
-		sb.WriteString(fmt.Sprintf("new_user_messages: %d\n", newUserMessages))
+		_, _ = fmt.Fprintf(&sb, "time_utc: %s\n", time.Now().UTC().Format(time.RFC3339))
+		_, _ = fmt.Fprintf(&sb, "interval_minutes: %d\n", interval)
+		_, _ = fmt.Fprintf(&sb, "new_user_messages: %d\n", newUserMessages)
 		if rc.PersonaDefinition != nil && strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD) != "" {
 			sb.WriteString("\n")
 			sb.WriteString(strings.TrimSpace(rc.PersonaDefinition.HeartbeatMD))

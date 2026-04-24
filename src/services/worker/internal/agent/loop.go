@@ -2797,10 +2797,7 @@ func heartbeatDecisionFinalized(runCtx RunContext) bool {
 		return false
 	}
 	outcome := runCtx.PipelineRC.HeartbeatToolOutcome
-	if outcome == nil {
-		return false
-	}
-	return true
+	return outcome != nil
 }
 
 func shouldSuppressToolResultReplay(runCtx RunContext, toolName string, success bool) bool {

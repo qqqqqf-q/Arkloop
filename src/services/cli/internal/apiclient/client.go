@@ -257,7 +257,7 @@ func (c *Client) OpenEventStream(ctx context.Context, runID string, afterSeq int
 		return nil, fmt.Errorf("open event stream: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("open event stream: unexpected status %d", resp.StatusCode)
 	}
 	return resp.Body, nil
@@ -287,7 +287,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, in any, out an
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)

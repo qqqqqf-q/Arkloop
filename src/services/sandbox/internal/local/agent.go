@@ -179,7 +179,7 @@ func (a *Agent) serve() {
 }
 
 func (a *Agent) handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var req agentRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {

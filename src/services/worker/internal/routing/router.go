@@ -150,7 +150,7 @@ func (r *ProviderRouter) pickFirstMatchingRoute(inputJSON map[string]any, platfo
 	}
 	if strings.TrimSpace(r.config.DefaultRouteID) != "" {
 		route, _ := r.config.GetRoute(r.config.DefaultRouteID)
-		if !(platformOnly && route.AccountScoped) {
+		if !platformOnly || !route.AccountScoped {
 			return route
 		}
 	}

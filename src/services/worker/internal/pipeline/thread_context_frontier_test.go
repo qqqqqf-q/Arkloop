@@ -18,7 +18,7 @@ func TestBuildThreadContextFrontierUsesSupersessionEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	threadID := uuid.New()
@@ -140,7 +140,7 @@ func TestBuildCanonicalThreadContextReindexesFrontierForTrimmedMessages(t *testi
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	projectID := uuid.New()
@@ -229,7 +229,7 @@ func TestBuildCanonicalThreadContextKeepsVisibleTailWhenRawGraphHasHiddenGap(t *
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	projectID := uuid.New()
@@ -312,7 +312,7 @@ func TestEnsureCanonicalThreadGraphPersisted_ClearsStaleTailEdgesWithoutBreaking
 	if err != nil {
 		t.Fatalf("connect db: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	accountID := uuid.New()
 	threadID := uuid.New()

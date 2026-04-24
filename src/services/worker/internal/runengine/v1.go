@@ -393,7 +393,7 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		recorder.Start(ctx)
 		rc.RolloutRecorder = recorder
 		rc.ResponseDraftStore = e.rolloutBlobStore
-		defer recorder.Close(context.Background())
+		defer func() { _ = recorder.Close(context.Background()) }()
 	}
 
 	registry := sharedconfig.DefaultRegistry()
@@ -941,9 +941,7 @@ func traceMemoryInjectionMiddleware(inner pipeline.RunMiddleware) pipeline.RunMi
 		err := inner(ctx, rc, next)
 		if rc != nil && rc.Tracer != nil {
 			delta := rc.MaterializedSystemPrompt()
-			if strings.HasPrefix(delta, before) {
-				delta = delta[len(before):]
-			}
+			delta = strings.TrimPrefix(delta, before)
 			rc.Tracer.Event("memory_injection", "memory_injection.completed", map[string]any{
 				"memory_injected":   strings.Contains(delta, "<memory>"),
 				"notebook_injected": strings.Contains(delta, "<notebook>"),

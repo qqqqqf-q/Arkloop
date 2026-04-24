@@ -45,7 +45,7 @@ func SetupPostgresDatabase(t *testing.T, prefix string) *PostgresDatabase {
 	if err != nil {
 		t.Fatalf("connect admin database failed: %v", err)
 	}
-	defer adminConn.Close(context.Background())
+	defer func() { _ = adminConn.Close(context.Background()) }()
 
 	if _, err := adminConn.Exec(context.Background(), "CREATE DATABASE "+sharedtestutil.QuoteIdentifier(databaseName)); err != nil {
 		t.Fatalf("create database failed: %v", err)
@@ -112,7 +112,7 @@ func initJobsSchema(t *testing.T, dsn string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	statements := []string{
 		`CREATE EXTENSION IF NOT EXISTS pgcrypto`,
@@ -150,7 +150,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = conn.Close(context.Background()) }()
 
 	statements := []string{
 		`CREATE SEQUENCE run_events_seq_global START 1`,
@@ -764,7 +764,7 @@ func loadDotenvIfEnabled(t *testing.T) {
 		if _, exists := os.LookupEnv(key); exists {
 			continue
 		}
-		os.Setenv(key, value)
+		_ = os.Setenv(key, value)
 	}
 }
 

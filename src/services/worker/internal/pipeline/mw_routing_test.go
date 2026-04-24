@@ -273,8 +273,10 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_NotFound(t *testing.T) {
 
 func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 	const envKey = "ARKLOOP_TEST_OPENAI_KEY"
-	os.Setenv(envKey, "sk-test-12345")
-	defer os.Unsetenv(envKey)
+	if err := os.Setenv(envKey, "sk-test-12345"); err != nil {
+		t.Fatalf("setenv: %v", err)
+	}
+	defer func() { _ = os.Unsetenv(envKey) }()
 
 	cfg := routing.ProviderRoutingConfig{
 		DefaultRouteID: "route-openai",

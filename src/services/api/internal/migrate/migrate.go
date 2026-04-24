@@ -107,7 +107,7 @@ func Up(ctx context.Context, dsn string) ([]*goose.MigrationResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	provider, err := newProvider(db)
 	if err != nil {
@@ -125,7 +125,7 @@ func DownOne(ctx context.Context, dsn string) (*goose.MigrationResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	provider, err := newProvider(db)
 	if err != nil {
@@ -143,7 +143,7 @@ func DownAll(ctx context.Context, dsn string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	provider, err := newProvider(db)
 	if err != nil {
@@ -172,7 +172,7 @@ func CurrentVersion(ctx context.Context, dsn string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	provider, err := newProvider(db)
 	if err != nil {

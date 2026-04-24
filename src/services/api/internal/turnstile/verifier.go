@@ -66,7 +66,7 @@ func Verify(ctx context.Context, client *http.Client, req VerifyRequest) error {
 	if err != nil {
 		return fmt.Errorf("turnstile: siteverify: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result siteverifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

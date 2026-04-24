@@ -14,8 +14,8 @@ func Encode(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create zstd writer: %w", err)
 	}
+	defer func() { _ = encoder.Close() }()
 	if _, err := encoder.Write(data); err != nil {
-		encoder.Close()
 		return nil, fmt.Errorf("compress workspace blob: %w", err)
 	}
 	if err := encoder.Close(); err != nil {

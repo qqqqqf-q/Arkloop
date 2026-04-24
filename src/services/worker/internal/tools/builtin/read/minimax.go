@@ -81,7 +81,7 @@ func (p *MiniMaxProvider) DescribeImage(ctx context.Context, req DescribeImageRe
 	if err != nil {
 		return DescribeImageResponse{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	traceID := strings.TrimSpace(resp.Header.Get("Trace-Id"))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

@@ -298,7 +298,7 @@ func (m *Manager) invokeACPActionWithTimeout(ctx context.Context, sn *session.Se
 	if err != nil {
 		return nil, newError(CodeTransportError, fmt.Sprintf("connect to agent: %v", err), http.StatusBadGateway)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	if err := json.NewEncoder(conn).Encode(payload); err != nil {

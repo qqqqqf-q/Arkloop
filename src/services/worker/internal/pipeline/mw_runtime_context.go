@@ -297,7 +297,7 @@ func runtimeDirTreeRecurse(sb *strings.Builder, charCount *int, dir, prefix stri
 		return false
 	}
 	entries, err := f.Readdir(-1)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		return false
 	}

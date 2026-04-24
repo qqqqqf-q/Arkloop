@@ -612,7 +612,7 @@ func TestOpenAIGateway_Stream_Responses_RequestBody_MultiTurnWithToolHistory(t *
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
@@ -2713,7 +2713,7 @@ func TestOpenAIGateway_StreamChatCompletionsSSE_CtxCanceled_YieldsRunFailed(t *t
 	cancel()
 
 	pr, pw := io.Pipe()
-	defer pw.Close()
+	defer func() { _ = pw.Close() }()
 
 	gateway := &OpenAIGateway{cfg: OpenAIGatewayConfig{}}
 	var events []StreamEvent

@@ -112,7 +112,7 @@ func cmdBaseline(ctx context.Context, dsn string) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// 1. Verify alembic_version table exists.
 	var hasAlembic bool

@@ -171,7 +171,7 @@ func TestTablesExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	expectedTables := []string{
 		"orgs",
@@ -220,7 +220,7 @@ func TestUpgradeChannelHeartbeatScopeMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	for _, stmt := range []string{
 		`CREATE TABLE goose_db_version (
@@ -384,7 +384,7 @@ func TestUpgradeChannelHeartbeatScopeMigrationDedupesGroupPersonaHistory(t *test
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	for _, stmt := range []string{
 		`CREATE TABLE goose_db_version (
@@ -540,7 +540,7 @@ func TestReasoningIterationsBudgetMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	provider, err := newProvider(sqlDB)
 	if err != nil {
@@ -623,7 +623,7 @@ func TestLlmRoutesProviderModelsMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer sqlDB.Close()
+	defer func() { _ = sqlDB.Close() }()
 
 	provider, err := newProvider(sqlDB)
 	if err != nil {

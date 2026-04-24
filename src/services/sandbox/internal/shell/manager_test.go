@@ -533,7 +533,7 @@ type fakeAgent struct {
 func (a *fakeAgent) Dial(_ context.Context) (net.Conn, error) {
 	client, server := net.Pipe()
 	go func() {
-		defer server.Close()
+		defer func() { _ = server.Close() }()
 		var envelope map[string]json.RawMessage
 		if err := json.NewDecoder(server).Decode(&envelope); err != nil {
 			return

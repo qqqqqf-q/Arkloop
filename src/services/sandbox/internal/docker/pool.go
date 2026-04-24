@@ -96,7 +96,7 @@ func New(cfg Config) (*Pool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := cli.Ping(ctx); err != nil {
-		cli.Close()
+		_ = cli.Close()
 		return nil, fmt.Errorf("docker daemon unreachable: %w", err)
 	}
 
@@ -105,15 +105,15 @@ func New(cfg Config) (*Pool, error) {
 	ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer ensureCancel()
 	if err := ensureNetworkExists(ensureCtx, cli, egressNetworkName, false); err != nil {
-		cli.Close()
+		_ = cli.Close()
 		return nil, err
 	}
 	if err := ensureNetworkExists(ensureCtx, cli, internalNetworkName, true); err != nil {
-		cli.Close()
+		_ = cli.Close()
 		return nil, err
 	}
 	if err := cleanupStaleContainers(ensureCtx, cli); err != nil {
-		cli.Close()
+		_ = cli.Close()
 		return nil, err
 	}
 
@@ -537,7 +537,7 @@ func (p *Pool) ensureSingleImage(ctx context.Context, imageName string) error {
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", imageName, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	_, _ = io.Copy(io.Discard, reader)
 	return nil
 }

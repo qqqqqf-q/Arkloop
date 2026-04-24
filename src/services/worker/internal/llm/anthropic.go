@@ -273,7 +273,7 @@ func (g *AnthropicGateway) Stream(ctx context.Context, request Request, yield fu
 			},
 		})
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	status := resp.StatusCode
 
