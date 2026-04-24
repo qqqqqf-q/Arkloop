@@ -51,6 +51,7 @@ const EPHEMERAL_CACHE_MAX_ITEMS = 900
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
+export const WORK_PERSONA_KEY = 'work'
 export const LEARNING_PERSONA_KEY = 'stem-tutor'
 
 export type AppMode = 'chat' | 'work'

@@ -8,6 +8,7 @@ import type { SettingsTab } from './SettingsModal'
 import {
   DEFAULT_PERSONA_KEY,
   SEARCH_PERSONA_KEY,
+  WORK_PERSONA_KEY,
   type InputDraftScope,
   readSelectedPersonaKeyFromStorage,
   writeSelectedPersonaKeyToStorage,
@@ -259,7 +260,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     writeSelectedReasoningMode(mode)
   }, [workThreadId])
 
-  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
+  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY && selectedPersonaKey !== WORK_PERSONA_KEY
   const showSendButton = draft.trim().length > 0 || attachments.length > 0
 
   useEffect(() => {
@@ -320,6 +321,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     })
     return () => cancelAnimationFrame(id)
   }, [persistSelectedPersona, searchMode, selectedPersonaKey])
+
+  // sync persona when appMode changes
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      if (appMode === 'work' && selectedPersonaKey !== WORK_PERSONA_KEY) {
+        persistSelectedPersona(WORK_PERSONA_KEY)
+      } else if (appMode !== 'work' && selectedPersonaKey === WORK_PERSONA_KEY) {
+        persistSelectedPersona(DEFAULT_PERSONA_KEY)
+      }
+    })
+    return () => cancelAnimationFrame(id)
+  }, [persistSelectedPersona, appMode, selectedPersonaKey])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

@@ -856,6 +856,103 @@ describe('ChatPage loading state', () => {
     container.remove()
   })
 
+  it('重新进入 thread 时若 failed run 尚未落库 assistant 消息也应恢复 handoff 并显示继续', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-failed-handoff',
+        status: 'failed',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-failed-handoff',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '先想一下',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-failed-handoff',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.failed',
+        data: {
+          message: 'upstream exploded',
+          error_class: 'provider.non_retryable',
+        },
+      },
+    ] as never)
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+
+    await act(async () => {
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('先想一下')
+    expect(container.querySelector('.failed-run-retry-button')?.textContent).toBe('继续')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
   it('run.interrupted 后应把排队输入还原到输入框', async () => {
     mockedListThreadRuns.mockResolvedValue([
       {
@@ -1688,7 +1785,7 @@ describe('ChatPage loading state', () => {
     mathRandomSpy.mockRestore()
   })
 
-  it('failed 重试应带上当前选择的 model', async () => {
+  it('failed 且有可恢复输出时应显示继续并调用 continue 接口', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     mockedReadMessageTerminalStatus.mockReturnValue('failed')
     mockedListMessages.mockResolvedValue([
@@ -1704,7 +1801,100 @@ describe('ChatPage loading state', () => {
       {
         id: 'msg-2',
         role: 'assistant',
-        content: 'failed answer',
+        content: '半截输出',
+        run_id: 'run-failed-output',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('search')
+    mockedReadSelectedModelFromStorage.mockReturnValue('openai^gpt-5')
+    mockedReadThreadWorkFolder.mockReturnValue('/workspace/demo')
+    mockedReadThreadThinkingEnabled.mockReturnValue('high')
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const actionButton = container.querySelector('.failed-run-retry-button')
+    expect(actionButton?.textContent).toBe('继续')
+
+    await act(async () => {
+      actionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('Finding the right words')
+    expect(mockedContinueThread).toHaveBeenCalledWith(
+      'token',
+      'thread-1',
+      'run-failed-output',
+    )
+    expect(mockedRetryThread).not.toHaveBeenCalled()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    mathRandomSpy.mockRestore()
+  })
+
+  it('failed 且无可恢复输出时重试应带上当前选择的 model', async () => {
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    mockedReadMessageTerminalStatus.mockReturnValue('failed')
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-failed-empty',
         account_id: 'acc-1',
         thread_id: 'thread-1',
         created_by_user_id: 'user-1',

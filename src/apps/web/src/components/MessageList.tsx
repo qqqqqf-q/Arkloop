@@ -25,7 +25,7 @@ import { readMessageTerminalStatus, readMessageWidgets, type ArtifactRef, type M
 import { useLocation } from 'react-router-dom'
 import type { CodeExecution } from './CodeExecutionCard'
 import {
-  assistantTurnHasVisibleOutput,
+  hasRecoverableRunOutput,
   turnHasCopThinkingItems,
   thinkingRowsForCop,
   copInlineTextRowsForCop,
@@ -325,21 +325,6 @@ export const MessageList = memo(function MessageList({
     const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
     const historicalTurn = msgMeta?.assistantTurn
     const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
-    const hasTerminalOutput =
-      msg.role === 'assistant' &&
-      (
-        !!msg.content.trim() ||
-        assistantTurnHasVisibleOutput(historicalTurn)
-      )
-    const terminalActionLabel = actionLabelForTerminalRun({
-      status: effectiveTerminalStatus,
-      hasOutput: hasTerminalOutput,
-    })
-    const terminalActionHandler = actionHandlerForTerminalRun({
-      runId: msg.run_id,
-      status: effectiveTerminalStatus,
-      hasOutput: hasTerminalOutput,
-    })
     const historicalSegments = historicalTurn?.segments ?? []
     const msgWidgetsRaw = msg.role === 'assistant'
       ? (msgMeta?.widgets ?? readMessageWidgets(msg.id) ?? undefined)
@@ -361,6 +346,25 @@ export const MessageList = memo(function MessageList({
     const messageFileOps = msg.role === 'assistant' ? msgMeta?.fileOps : undefined
     const messageWebFetches = msg.role === 'assistant' ? msgMeta?.webFetches : undefined
     const msgThinking = msg.role === 'assistant' ? msgMeta?.thinking : undefined
+    const hasTerminalOutput = msg.role === 'assistant' && hasRecoverableRunOutput({
+      text: msg.content,
+      assistantTurn: historicalTurn,
+      searchSteps: timelineSteps,
+      widgets: msgWidgetsRaw,
+      codeExecutions: messageCodeExecutions,
+      subAgents: messageSubAgents,
+      fileOps: messageFileOps,
+      webFetches: messageWebFetches,
+    })
+    const terminalActionLabel = actionLabelForTerminalRun({
+      status: effectiveTerminalStatus,
+      hasOutput: hasTerminalOutput,
+    })
+    const terminalActionHandler = actionHandlerForTerminalRun({
+      runId: msg.run_id,
+      status: effectiveTerminalStatus,
+      hasOutput: hasTerminalOutput,
+    })
 
     return (
       <div

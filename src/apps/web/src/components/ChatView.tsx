@@ -71,7 +71,7 @@ import {
   normalizeError,
   interruptedErrorFromRunEvents,
   failedErrorFromRunEvents,
-  assistantTurnHasVisibleOutput,
+  hasRecoverableRunOutput,
   finalizeSearchSteps,
   patchLegacySearchSteps,
   liveTurnHasThinkingSegment,
@@ -1075,6 +1075,7 @@ export function ChatView() {
           (
             latest.status === 'interrupted' ||
             latest.status === 'failed' ||
+            latest.status === 'cancelled' ||
             (lastAssistant != null && (
               replayWidgetsNeeded ||
               replayCodeExecNeeded ||
@@ -1087,9 +1088,21 @@ export function ChatView() {
               true // always replay to restore todos
             ))
           )
+        let replayThreadHandoff: ReturnType<typeof readThreadRunHandoff> = null
         if (shouldReplayLatestRun && latest) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
+            const replayArtifacts = buildMessageArtifactsFromRunEvents(replayEvents)
+            const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
+            const replayExecs = buildMessageCodeExecutionsFromRunEvents(replayEvents)
+            const replayBrowserActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
+            const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
+            const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
+            const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
+            const replaySearchSteps = finalizeSearchSteps(
+              replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
+            )
+            const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
@@ -1100,66 +1113,83 @@ export function ChatView() {
               }
             }
             if (lastAssistant && !artifactsMap.has(lastAssistant.id)) {
-              const replayArtifacts = buildMessageArtifactsFromRunEvents(replayEvents)
               if (replayArtifacts.length > 0) {
                 artifactsMap.set(lastAssistant.id, replayArtifacts)
                 writeMessageArtifacts(lastAssistant.id, replayArtifacts)
               }
             }
             if (lastAssistant && replayWidgetsNeeded) {
-              const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
               if (replayWidgets.length > 0) {
                 widgetsMap.set(lastAssistant.id, replayWidgets)
                 writeMessageWidgets(lastAssistant.id, replayWidgets)
               }
             }
             if (lastAssistant && replayCodeExecNeeded) {
-              const replayExecs = buildMessageCodeExecutionsFromRunEvents(replayEvents)
               codeExecMap.set(lastAssistant.id, replayExecs)
               writeMessageCodeExecutions(lastAssistant.id, replayExecs)
             }
             if (lastAssistant && replayBrowserActionsNeeded) {
-              const replayActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
-              if (replayActions.length > 0) {
-                browserActionsMap.set(lastAssistant.id, replayActions)
-                writeMessageBrowserActions(lastAssistant.id, replayActions)
+              if (replayBrowserActions.length > 0) {
+                browserActionsMap.set(lastAssistant.id, replayBrowserActions)
+                writeMessageBrowserActions(lastAssistant.id, replayBrowserActions)
               }
             }
             if (lastAssistant && replaySubAgentsNeeded) {
-              const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
               if (replayAgents.length > 0) {
                 subAgentsMap.set(lastAssistant.id, replayAgents)
                 writeMessageSubAgents(lastAssistant.id, replayAgents)
               }
             }
             if (lastAssistant && replayFileOpsNeeded) {
-              const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
               if (replayFileOps.length > 0) {
                 fileOpsMap.set(lastAssistant.id, replayFileOps)
                 writeMessageFileOps(lastAssistant.id, replayFileOps)
               }
             }
             if (lastAssistant && replayWebFetchesNeeded) {
-              const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
               if (replayWebFetches.length > 0) {
                 webFetchesMap.set(lastAssistant.id, replayWebFetches)
                 writeMessageWebFetches(lastAssistant.id, replayWebFetches)
               }
             }
             if (lastAssistant && !searchStepsMap.has(lastAssistant.id)) {
-              const replaySearchSteps = finalizeSearchSteps(
-                replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
-              )
               if (replaySearchSteps.length > 0) {
                 searchStepsMap.set(lastAssistant.id, replaySearchSteps)
                 writeMessageSearchSteps(lastAssistant.id, replaySearchSteps)
               }
             }
             if (lastAssistant && replayAssistantTurnNeeded) {
-              const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
+              }
+            }
+            if (
+              latest.run_id &&
+              !lastAssistant &&
+              hasRecoverableRunOutput({
+                assistantTurn: replayTurn,
+                searchSteps: replaySearchSteps,
+                widgets: replayWidgets,
+                codeExecutions: replayExecs,
+                subAgents: replayAgents,
+                fileOps: replayFileOps,
+                webFetches: replayWebFetches,
+              })
+            ) {
+              replayThreadHandoff = {
+                runId: latest.run_id,
+                status: latest.status === 'cancelled' ? 'cancelled' : latest.status === 'interrupted' ? 'interrupted' : 'failed',
+                assistantTurn: replayTurn.segments.length > 0 ? replayTurn : null,
+                sources: [],
+                artifacts: replayArtifacts,
+                widgets: replayWidgets,
+                codeExecutions: replayExecs,
+                browserActions: replayBrowserActions,
+                subAgents: replayAgents,
+                fileOps: replayFileOps,
+                webFetches: replayWebFetches,
+                searchSteps: replaySearchSteps,
               }
             }
             const replayedTodos = buildTodosFromRunEvents(replayEvents)
@@ -1211,6 +1241,29 @@ export function ChatView() {
           setTerminalRunHandoffStatus('failed')
         }
 
+        const restoreThreadHandoffUi = (handoff: NonNullable<ReturnType<typeof readThreadRunHandoff>>) => {
+          setPreserveLiveRunUi(true)
+          setTerminalRunDisplayId(handoff.runId)
+          setTerminalRunHandoffStatus(handoff.status)
+          setLiveAssistantTurn(handoff.assistantTurn ?? null)
+          currentRunSourcesRef.current = [...handoff.sources]
+          currentRunArtifactsRef.current = [...handoff.artifacts]
+          currentRunCodeExecutionsRef.current = [...handoff.codeExecutions]
+          currentRunBrowserActionsRef.current = [...handoff.browserActions]
+          currentRunSubAgentsRef.current = [...handoff.subAgents]
+          currentRunFileOpsRef.current = [...handoff.fileOps]
+          currentRunWebFetchesRef.current = [...handoff.webFetches]
+          setTopLevelCodeExecutions(handoff.codeExecutions)
+          setTopLevelSubAgents(handoff.subAgents)
+          setTopLevelFileOps(handoff.fileOps)
+          setTopLevelWebFetches(handoff.webFetches)
+          const restoredStreamingArtifacts = buildStreamingArtifactsFromHandoff(handoff)
+          streamingArtifactsRef.current = restoredStreamingArtifacts
+          setStreamingArtifacts(restoredStreamingArtifacts)
+          searchStepsRef.current = handoff.searchSteps
+          setSearchSteps(handoff.searchSteps)
+        }
+
         const cachedThreadHandoff = readThreadRunHandoff(threadId)
         const shouldRestoreThreadHandoff =
           !!cachedThreadHandoff &&
@@ -1220,26 +1273,12 @@ export function ChatView() {
           cachedThreadHandoff &&
           shouldRestoreThreadHandoff
         ) {
-          setPreserveLiveRunUi(true)
-          setTerminalRunDisplayId(cachedThreadHandoff.runId)
-          setTerminalRunHandoffStatus(cachedThreadHandoff.status)
-          setLiveAssistantTurn(cachedThreadHandoff.assistantTurn ?? null)
-          currentRunSourcesRef.current = [...cachedThreadHandoff.sources]
-          currentRunArtifactsRef.current = [...cachedThreadHandoff.artifacts]
-          currentRunCodeExecutionsRef.current = [...cachedThreadHandoff.codeExecutions]
-          currentRunBrowserActionsRef.current = [...cachedThreadHandoff.browserActions]
-          currentRunSubAgentsRef.current = [...cachedThreadHandoff.subAgents]
-          currentRunFileOpsRef.current = [...cachedThreadHandoff.fileOps]
-          currentRunWebFetchesRef.current = [...cachedThreadHandoff.webFetches]
-          setTopLevelCodeExecutions(cachedThreadHandoff.codeExecutions)
-          setTopLevelSubAgents(cachedThreadHandoff.subAgents)
-          setTopLevelFileOps(cachedThreadHandoff.fileOps)
-          setTopLevelWebFetches(cachedThreadHandoff.webFetches)
-          const restoredStreamingArtifacts = buildStreamingArtifactsFromHandoff(cachedThreadHandoff)
-          streamingArtifactsRef.current = restoredStreamingArtifacts
-          setStreamingArtifacts(restoredStreamingArtifacts)
-          searchStepsRef.current = cachedThreadHandoff.searchSteps
-          setSearchSteps(cachedThreadHandoff.searchSteps)
+          restoreThreadHandoffUi(cachedThreadHandoff)
+        } else if (
+          replayThreadHandoff &&
+          (!latest || latest.run_id === replayThreadHandoff.runId)
+        ) {
+          restoreThreadHandoffUi(replayThreadHandoff)
         } else if (threadId) {
           clearThreadRunHandoff(threadId)
         }
@@ -1639,11 +1678,8 @@ export function ChatView() {
     hasOutput: boolean
   }) => {
     if (isStreaming || sending) return undefined
-    if (params.status === 'cancelled' || params.status === 'interrupted') {
+    if (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') {
       return params.hasOutput ? t.continueBtn : t.retryAction
-    }
-    if (params.status === 'failed') {
-      return t.retryAction
     }
     return undefined
   }, [isStreaming, sending, t.continueBtn, t.retryAction])
@@ -1654,7 +1690,11 @@ export function ChatView() {
     hasOutput: boolean
   }) => {
     if (isStreaming || sending) return undefined
-    if ((params.status === 'cancelled' || params.status === 'interrupted') && params.hasOutput && params.runId) {
+    if (
+      (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') &&
+      params.hasOutput &&
+      params.runId
+    ) {
       return () => void handleContinue(params.runId!)
     }
     if (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') {
@@ -1874,11 +1914,27 @@ export function ChatView() {
     return allStreamItems.filter((e) => !copTimelineStreamHiddenIds.has(e.id))
   }, [allStreamItems, copTimelineStreamHiddenIds])
   const terminalRunHasOutput = useMemo(() => {
-    if ((liveAssistantTurn?.segments.length ?? 0) > 0 && assistantTurnHasVisibleOutput(liveAssistantTurn)) {
+    if (segmentsRef.current.some((segment) => segment.content.trim() !== '')) {
       return true
     }
-    return segmentsRef.current.some((segment) => segment.content.trim() !== '')
-  }, [liveAssistantTurn])
+    return hasRecoverableRunOutput({
+      assistantTurn: liveAssistantTurn,
+      searchSteps,
+      streamingArtifacts,
+      codeExecutions: topLevelCodeExecutions,
+      subAgents: topLevelSubAgents,
+      fileOps: topLevelFileOps,
+      webFetches: topLevelWebFetches,
+    })
+  }, [
+    liveAssistantTurn,
+    searchSteps,
+    streamingArtifacts,
+    topLevelCodeExecutions,
+    topLevelSubAgents,
+    topLevelFileOps,
+    topLevelWebFetches,
+  ])
 
   const shareModalEl = useMemo(() => {
     if (!threadId) return null
