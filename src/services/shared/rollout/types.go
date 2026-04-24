@@ -29,8 +29,9 @@ type TurnStart struct {
 }
 
 type AssistantMessage struct {
-	Content   string          `json:"content,omitempty"`
-	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+	Content     string          `json:"content,omitempty"`
+	ContentJSON json.RawMessage `json:"content_json,omitempty"`
+	ToolCalls   json.RawMessage `json:"tool_calls,omitempty"`
 }
 
 type ToolCall struct {

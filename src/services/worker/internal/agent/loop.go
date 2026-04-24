@@ -795,10 +795,14 @@ func (l *Loop) executePendingToolCalls(
 	}
 
 	if l.shouldSerializeToolBatch(runCtx, pending, regularIndexes) {
-		for _, idx := range regularIndexes {
+		for pos, idx := range regularIndexes {
 			call := pending[idx]
 			result := l.executeToolCall(ctx, runCtx, call, emitter, yield)
 			results[idx] = pendingToolExecution{Call: call, Result: result}
+			if result.Error != nil {
+				markSkippedToolCalls(results, pending, regularIndexes, pos+1)
+				break
+			}
 		}
 		for _, idx := range regularIndexes {
 			updateContinuationTracking(continuation, results[idx].Call, results[idx].Result)
@@ -1900,6 +1904,7 @@ func (l *Loop) runSingleTurn(
 			}
 			// Rollout: 写入 AssistantMessage
 			if runCtx.RolloutRecorder != nil {
+				rolloutMessage := assistantMessageOrFallback(assistantMessage, assistantChunks)
 				var tcJSON json.RawMessage
 				if len(toolCalls) > 0 {
 					var marshalErr error
@@ -1908,7 +1913,11 @@ func (l *Loop) runSingleTurn(
 						slog.WarnContext(ctx, "rollout: failed to marshal assistant tool_calls", "err", marshalErr)
 					}
 				}
-				appendRollout(ctx, runCtx.RolloutRecorder, MakeAssistantMessage(llm.VisibleMessageText(assistantMessageOrFallback(assistantMessage, assistantChunks)), tcJSON))
+				contentJSON, marshalErr := llm.BuildAssistantThreadContentJSON(rolloutMessage)
+				if marshalErr != nil {
+					slog.WarnContext(ctx, "rollout: failed to marshal assistant content", "err", marshalErr)
+				}
+				appendRollout(ctx, runCtx.RolloutRecorder, MakeAssistantMessage(llm.VisibleMessageText(rolloutMessage), contentJSON, tcJSON))
 			}
 			return stopErr
 		default:

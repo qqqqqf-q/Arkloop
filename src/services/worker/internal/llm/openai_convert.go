@@ -75,6 +75,23 @@ func openAIToolChoice(tc *ToolChoice) any {
 	}
 }
 
+func openAIResponsesToolChoice(tc *ToolChoice) any {
+	if tc == nil {
+		return "auto"
+	}
+	switch tc.Mode {
+	case "required":
+		return "required"
+	case "specific":
+		return map[string]any{
+			"type": "function",
+			"name": CanonicalToolName(tc.ToolName),
+		}
+	default:
+		return "auto"
+	}
+}
+
 func toOpenAITools(specs []ToolSpec) []map[string]any {
 	out := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {

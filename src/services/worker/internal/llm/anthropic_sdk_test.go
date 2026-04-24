@@ -256,3 +256,48 @@ func TestAnthropicSDKGateway_ProviderOversizeDetails(t *testing.T) {
 		t.Fatalf("missing oversize details: %#v", failed.Error.Details)
 	}
 }
+
+func TestAnthropicSDKGateway_RequestPreservesCacheReferences(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSDKSSEBody([]string{
+			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	defer server.Close()
+
+	gateway := NewAnthropicGatewaySDK(AnthropicGatewayConfig{Transport: TransportConfig{APIKey: "test-key", BaseURL: server.URL}, Protocol: AnthropicProtocolConfig{Version: "2023-06-01"}})
+	request := Request{
+		Model: "claude-test",
+		Messages: []Message{
+			{Role: "user", Content: []ContentPart{{Text: "run tool"}}},
+			{Role: "assistant", ToolCalls: []ToolCall{{ToolCallID: "toolu_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}}}},
+			{Role: "tool", Content: []ContentPart{{Text: `{"tool_call_id":"toolu_1","tool_name":"echo","result":"ok"}`}}},
+			{Role: "user", Content: []ContentPart{{Text: "continue"}}},
+		},
+		PromptPlan: &PromptPlan{MessageCache: MessageCachePlan{Enabled: true, MarkerMessageIndex: 3, ToolResultCacheReferences: true, ToolResultCacheCutIndex: 3}},
+	}
+	if err := gateway.Stream(context.Background(), request, func(event StreamEvent) error { return nil }); err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	messages := captured["messages"].([]any)
+	var found bool
+	for _, item := range messages {
+		blocks, _ := item.(map[string]any)["content"].([]any)
+		for _, rawBlock := range blocks {
+			block, _ := rawBlock.(map[string]any)
+			if block["type"] == "tool_result" && block["cache_reference"] == "toolu_1" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cache_reference missing from provider request: %#v", captured)
+	}
+}

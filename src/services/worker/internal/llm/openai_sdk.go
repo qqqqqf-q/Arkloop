@@ -84,22 +84,22 @@ func (g *openAISDKGateway) Stream(ctx context.Context, request Request, yield fu
 	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "OpenAI base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
-	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	ctx, stopTimeout, markActivity := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
 	defer stopTimeout()
 
 	switch g.protocol.PrimaryKind {
 	case ProtocolKindOpenAIChatCompletions:
-		return g.chatCompletions(ctx, request, yield)
+		return g.chatCompletions(ctx, request, yield, markActivity)
 	case ProtocolKindOpenAIResponses:
 		allowFallback := g.protocol.FallbackKind != nil && *g.protocol.FallbackKind == ProtocolKindOpenAIChatCompletions
-		if err := g.responses(ctx, request, yield, allowFallback); err != nil {
+		if err := g.responses(ctx, request, yield, allowFallback, markActivity); err != nil {
 			var fallback *openAIResponsesNotSupportedError
 			if errors.As(err, &fallback) && allowFallback {
 				status := fallback.StatusCode
 				if emitErr := yield(StreamProviderFallback{ProviderKind: "openai", FromAPIMode: "responses", ToAPIMode: "chat_completions", Reason: "responses_not_supported", StatusCode: &status}); emitErr != nil {
 					return emitErr
 				}
-				return g.chatCompletions(ctx, request, yield)
+				return g.chatCompletions(ctx, request, yield, markActivity)
 			}
 			return err
 		}
@@ -109,7 +109,7 @@ func (g *openAISDKGateway) Stream(ctx context.Context, request Request, yield fu
 	}
 }
 
-func (g *openAISDKGateway) chatCompletions(ctx context.Context, request Request, yield func(StreamEvent) error) error {
+func (g *openAISDKGateway) chatCompletions(ctx context.Context, request Request, yield func(StreamEvent) error, markActivity func()) error {
 	llmCallID := uuid.NewString()
 	payload, payloadBytes, requestEvent, err := g.chatPayload(request, llmCallID)
 	if err != nil {
@@ -131,17 +131,27 @@ func (g *openAISDKGateway) chatCompletions(ctx context.Context, request Request,
 	defer stream.Close()
 	state := newOpenAISDKChatState(llmCallID, yield)
 	for stream.Next() {
-		if err := state.handle(stream.Current()); err != nil {
+		if markActivity != nil {
+			markActivity()
+		}
+		chunk := stream.Current()
+		if err := g.emitDebugChunk(llmCallID, "chat_completions", chunk.RawJSON(), nil, yield); err != nil {
+			return err
+		}
+		if err := state.handle(chunk); err != nil {
 			return err
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return state.fail(openAISDKErrorToGateway(err, "OpenAI request failed"))
+		if emitErr := g.emitDebugErrorChunk(llmCallID, "chat_completions", err, yield); emitErr != nil {
+			return emitErr
+		}
+		return state.fail(openAISDKErrorToGateway(err, "OpenAI request failed", payloadBytes))
 	}
 	return state.complete()
 }
 
-func (g *openAISDKGateway) responses(ctx context.Context, request Request, yield func(StreamEvent) error, allowFallback bool) error {
+func (g *openAISDKGateway) responses(ctx context.Context, request Request, yield func(StreamEvent) error, allowFallback bool, markActivity func()) error {
 	llmCallID := uuid.NewString()
 	payload, payloadBytes, requestEvent, err := g.responsesPayload(request, llmCallID)
 	if err != nil {
@@ -163,7 +173,14 @@ func (g *openAISDKGateway) responses(ctx context.Context, request Request, yield
 	defer stream.Close()
 	state := newOpenAISDKResponsesState(llmCallID, yield)
 	for stream.Next() {
-		if err := state.handle(stream.Current()); err != nil {
+		if markActivity != nil {
+			markActivity()
+		}
+		event := stream.Current()
+		if err := g.emitDebugChunk(llmCallID, "responses", event.RawJSON(), nil, yield); err != nil {
+			return err
+		}
+		if err := state.handle(event); err != nil {
 			return err
 		}
 	}
@@ -171,7 +188,10 @@ func (g *openAISDKGateway) responses(ctx context.Context, request Request, yield
 		if unsupported, ok := openAISDKUnsupportedResponsesError(err, allowFallback); ok {
 			return &unsupported
 		}
-		return state.fail(openAISDKErrorToGateway(err, "OpenAI responses request failed"))
+		if emitErr := g.emitDebugErrorChunk(llmCallID, "responses", err, yield); emitErr != nil {
+			return emitErr
+		}
+		return state.fail(openAISDKErrorToGateway(err, "OpenAI responses request failed", payloadBytes))
 	}
 	return state.complete()
 }
@@ -202,11 +222,15 @@ func (g *openAISDKGateway) chatPayload(request Request, llmCallID string) (map[s
 }
 
 func (g *openAISDKGateway) responsesPayload(request Request, llmCallID string) (map[string]any, int, StreamLlmRequest, error) {
-	input, err := toOpenAIResponsesInput(request.Messages)
+	instructions, inputMessages := splitOpenAIResponsesInstructions(request.Messages)
+	input, err := toOpenAIResponsesInput(inputMessages)
 	if err != nil {
 		return nil, 0, StreamLlmRequest{}, err
 	}
 	payload := map[string]any{"model": request.Model, "input": input, "stream": true}
+	if instructions != "" {
+		payload["instructions"] = instructions
+	}
 	if request.Temperature != nil {
 		payload["temperature"] = *request.Temperature
 	}
@@ -214,8 +238,8 @@ func (g *openAISDKGateway) responsesPayload(request Request, llmCallID string) (
 		payload["max_output_tokens"] = *request.MaxOutputTokens
 	}
 	if len(request.Tools) > 0 {
-		payload["tools"] = toOpenAITools(request.Tools)
-		payload["tool_choice"] = openAIToolChoice(request.ToolChoice)
+		payload["tools"] = toOpenAIResponsesTools(request.Tools)
+		payload["tool_choice"] = openAIResponsesToolChoice(request.ToolChoice)
 	}
 	for k, v := range g.protocol.AdvancedPayloadJSON {
 		if _, exists := payload[k]; !exists {
@@ -236,6 +260,25 @@ func (g *openAISDKGateway) providerRequest(request Request, llmCallID string, ap
 	stats := ComputeRequestStats(request)
 	networkAttempted := false
 	return payload, len(encoded), StreamLlmRequest{LlmCallID: llmCallID, ProviderKind: "openai", APIMode: apiMode, BaseURL: &baseURL, Path: &path, InputJSON: request.ToJSON(), PayloadJSON: debugPayload, RedactedHints: redactedHints, SystemBytes: stats.SystemBytes, ToolsBytes: stats.ToolsBytes, MessagesBytes: stats.MessagesBytes, AbstractRequestBytes: stats.AbstractRequestBytes, ProviderPayloadBytes: len(encoded), ImagePartCount: stats.ImagePartCount, Base64ImageBytes: stats.Base64ImageBytes, NetworkAttempted: &networkAttempted, RoleBytes: stats.RoleBytes, ToolSchemaBytesMap: stats.ToolSchemaBytesMap, StablePrefixHash: stats.StablePrefixHash, SessionPrefixHash: stats.SessionPrefixHash, VolatileTailHash: stats.VolatileTailHash, ToolSchemaHash: stats.ToolSchemaHash, StablePrefixBytes: stats.StablePrefixBytes, SessionPrefixBytes: stats.SessionPrefixBytes, VolatileTailBytes: stats.VolatileTailBytes, CacheCandidateBytes: stats.CacheCandidateBytes}, nil
+}
+
+func (g *openAISDKGateway) emitDebugChunk(llmCallID string, apiMode string, raw string, statusCode *int, yield func(StreamEvent) error) error {
+	if !g.transport.cfg.EmitDebugEvents || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	truncatedRaw, rawTruncated := truncateUTF8(raw, openAIMaxDebugChunkBytes)
+	var chunkJSON any
+	_ = json.Unmarshal([]byte(raw), &chunkJSON)
+	return yield(StreamLlmResponseChunk{LlmCallID: llmCallID, ProviderKind: "openai", APIMode: apiMode, Raw: truncatedRaw, ChunkJSON: chunkJSON, StatusCode: statusCode, Truncated: rawTruncated})
+}
+
+func (g *openAISDKGateway) emitDebugErrorChunk(llmCallID string, apiMode string, err error, yield func(StreamEvent) error) error {
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) {
+		return nil
+	}
+	status := apiErr.StatusCode
+	return g.emitDebugChunk(llmCallID, apiMode, string(apiErr.DumpResponse(true)), &status, yield)
 }
 
 func openAISDKPayloadOptions(payload map[string]any) []option.RequestOption {
@@ -358,14 +401,14 @@ func (s *openAISDKChatState) fail(g GatewayError) error {
 	return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: g, Usage: s.usage, Cost: s.cost})
 }
 func (s *openAISDKChatState) complete() error {
-	if err := s.drainTools(); err != nil {
-		return err
-	}
 	if s.contentFiltered {
 		return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: GatewayError{ErrorClass: ErrorClassPolicyDenied, Message: "OpenAI content filtered"}, Usage: s.usage, Cost: s.cost})
 	}
 	if !s.finished {
 		return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: RetryableStreamEndedError(), Usage: s.usage, Cost: s.cost})
+	}
+	if err := s.drainTools(); err != nil {
+		return err
 	}
 	if !s.emittedMain && !s.emittedTool {
 		if s.emittedAny {
@@ -377,26 +420,37 @@ func (s *openAISDKChatState) complete() error {
 }
 
 type openAISDKResponsesState struct {
-	llmCallID string
-	yield     func(StreamEvent) error
-	completed bool
+	llmCallID          string
+	yield              func(StreamEvent) error
+	completed          bool
+	emittedVisibleText bool
+	toolBuffers        map[int]*openAIResponsesToolBuffer
+	toolBufferByItemID map[string]*openAIResponsesToolBuffer
 }
 
 func newOpenAISDKResponsesState(id string, yield func(StreamEvent) error) *openAISDKResponsesState {
-	return &openAISDKResponsesState{llmCallID: id, yield: yield}
+	return &openAISDKResponsesState{llmCallID: id, yield: yield, toolBuffers: map[int]*openAIResponsesToolBuffer{}, toolBufferByItemID: map[string]*openAIResponsesToolBuffer{}}
 }
 func (s *openAISDKResponsesState) handle(event responses.ResponseStreamEventUnion) error {
 	var root map[string]any
 	_ = json.Unmarshal([]byte(event.RawJSON()), &root)
 	typ, _ := root["type"].(string)
+	if delta := openAIResponsesToolArgumentsDelta(root, s.toolBuffers, s.toolBufferByItemID); delta != nil {
+		if err := s.yield(*delta); err != nil {
+			return err
+		}
+	}
 	if delta := openAIResponsesDeltaText(root); delta != "" {
 		ch := "thinking"
 		if openAIResponsesIsReasoningDelta(typ) {
 			if err := s.yield(StreamMessageDelta{ContentDelta: delta, Role: "assistant", Channel: &ch}); err != nil {
 				return err
 			}
-		} else if err := s.yield(StreamMessageDelta{ContentDelta: delta, Role: "assistant"}); err != nil {
-			return err
+		} else {
+			s.emittedVisibleText = true
+			if err := s.yield(StreamMessageDelta{ContentDelta: delta, Role: "assistant"}); err != nil {
+				return err
+			}
 		}
 	}
 	if typ == "response.completed" {
@@ -404,6 +458,20 @@ func (s *openAISDKResponsesState) handle(event responses.ResponseStreamEventUnio
 		assistantMessage, toolCalls, usage, cost, err := parseOpenAIResponsesAssistantResponse(respObj)
 		if err != nil {
 			return s.yield(openAIParseFailure(err, "OpenAI responses response parse failed", "OpenAI responses tool_call arguments parse failed", s.llmCallID))
+		}
+		if len(toolCalls) == 0 && len(s.toolBuffers) > 0 {
+			toolCalls, err = openAIResponsesBufferedToolCalls(s.toolBuffers)
+			if err != nil {
+				return s.yield(openAIParseFailure(err, "OpenAI responses response parse failed", "OpenAI responses tool_call arguments parse failed", s.llmCallID))
+			}
+		}
+		if !s.emittedVisibleText {
+			if text := VisibleMessageText(assistantMessage); text != "" {
+				s.emittedVisibleText = true
+				if err := s.yield(StreamMessageDelta{ContentDelta: text, Role: "assistant"}); err != nil {
+					return err
+				}
+			}
 		}
 		for _, call := range toolCalls {
 			if err := s.yield(call); err != nil {
@@ -413,12 +481,14 @@ func (s *openAISDKResponsesState) handle(event responses.ResponseStreamEventUnio
 		s.completed = true
 		return s.yield(StreamRunCompleted{LlmCallID: s.llmCallID, Usage: usage, Cost: cost, AssistantMessage: &assistantMessage})
 	}
-	if typ == "response.failed" || typ == "response.error" {
+	if typ == "response.failed" || typ == "response.error" || typ == "error" {
 		message := "OpenAI responses failed"
 		if errObj, ok := root["error"].(map[string]any); ok {
 			if msg, ok := errObj["message"].(string); ok && strings.TrimSpace(msg) != "" {
 				message = strings.TrimSpace(msg)
 			}
+		} else if msg, ok := root["message"].(string); ok && strings.TrimSpace(msg) != "" {
+			message = strings.TrimSpace(msg)
 		}
 		s.completed = true
 		return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: GatewayError{ErrorClass: ErrorClassProviderNonRetryable, Message: message}})
@@ -476,10 +546,14 @@ func nestedAny(root map[string]any, key string, child string) any {
 	}
 	return obj[child]
 }
-func openAISDKErrorToGateway(err error, fallback string) GatewayError {
+func openAISDKErrorToGateway(err error, fallback string, payloadBytes int) GatewayError {
 	var apiErr *openai.Error
 	if errors.As(err, &apiErr) {
 		message, details := openAIErrorMessageAndDetails(apiErr.DumpResponse(true), apiErr.StatusCode, fallback)
+		if apiErr.StatusCode == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
+			details = OversizeFailureDetails(payloadBytes, OversizePhaseProvider, details)
+		}
 		return GatewayError{ErrorClass: classifyHTTPStatus(apiErr.StatusCode), Message: message, Details: details}
 	}
 	return GatewayError{ErrorClass: ErrorClassProviderRetryable, Message: "OpenAI network error", Details: map[string]any{"reason": err.Error()}}
@@ -604,7 +678,7 @@ func openAIImageFilename(idx int, mimeType string) string {
 }
 
 func openAIImageSDKError(err error) GatewayError {
-	gatewayErr := openAISDKErrorToGateway(err, "OpenAI image request failed")
+	gatewayErr := openAISDKErrorToGateway(err, "OpenAI image request failed", 0)
 	if gatewayErr.Message == "OpenAI network error" {
 		gatewayErr.Message = "OpenAI image network error"
 	}

@@ -1856,3 +1856,30 @@ func marshalRolloutJSONL(t *testing.T, items ...map[string]any) []byte {
 	}
 	return out
 }
+
+func TestBuildReplayMessagesPreservesAssistantContentJSON(t *testing.T) {
+	phase := "commentary"
+	contentJSON, err := llm.BuildAssistantThreadContentJSON(llm.Message{
+		Role:  "assistant",
+		Phase: &phase,
+		Content: []llm.ContentPart{
+			{Type: "thinking", Text: "pondering", Signature: "sig_1"},
+			{Type: "text", Text: "visible"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildAssistantThreadContentJSON: %v", err)
+	}
+	state := &rollout.ReconstructedState{ReplayMessages: []rollout.ReplayMessage{{Role: "assistant", Assistant: &rollout.AssistantMessage{Content: "visible", ContentJSON: contentJSON}}}}
+	messages, err := buildReplayMessages(state)
+	if err != nil {
+		t.Fatalf("buildReplayMessages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %#v", messages)
+	}
+	msg := messages[0]
+	if msg.Phase == nil || *msg.Phase != "commentary" || len(msg.Content) != 2 || msg.Content[0].Kind() != "thinking" || msg.Content[0].Signature != "sig_1" {
+		t.Fatalf("assistant content_json was not preserved: %#v", msg)
+	}
+}

@@ -47,6 +47,7 @@ func NewGeminiGatewaySDK(cfg GeminiGatewayConfig) Gateway {
 	if strings.TrimSpace(protocol.APIVersion) == "" {
 		protocol.APIVersion = "v1beta"
 	}
+	transport.BaseURL = normalizeGeminiBaseURL(transport.BaseURL)
 
 	normalizedTransport := newProtocolTransport(transport, "https://generativelanguage.googleapis.com", nil)
 	cfg.Transport = normalizedTransport.cfg
@@ -86,7 +87,7 @@ func (g *geminiSDKGateway) Stream(ctx context.Context, request Request, yield fu
 	if g.transport.baseURLErr != nil {
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Gemini base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
-	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	ctx, stopTimeout, markActivity := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
 	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
@@ -118,7 +119,14 @@ func (g *geminiSDKGateway) Stream(ctx context.Context, request Request, yield fu
 	state := newGeminiSDKStreamState(llmCallID, yield)
 	for response, err := range g.client.Models.GenerateContentStream(ctx, request.Model, contents, config) {
 		if err != nil {
+			if emitErr := g.emitDebugErrorChunk(llmCallID, err, yield); emitErr != nil {
+				return emitErr
+			}
 			return state.fail(geminiSDKErrorToGateway(err, payloadBytes))
+		}
+		markActivity()
+		if err := g.emitDebugChunk(llmCallID, response, nil, yield); err != nil {
+			return err
 		}
 		if err := state.handle(response); err != nil {
 			return err
@@ -235,10 +243,19 @@ func geminiSDKPart(raw map[string]any) (*genai.Part, error) {
 	if fr, ok := raw["functionResponse"].(map[string]any); ok {
 		id, _ := fr["id"].(string)
 		name, _ := fr["name"].(string)
-		response, _ := fr["response"].(map[string]any)
-		return &genai.Part{FunctionResponse: &genai.FunctionResponse{ID: strings.TrimSpace(id), Name: name, Response: mapOrEmpty(response)}}, nil
+		return &genai.Part{FunctionResponse: &genai.FunctionResponse{ID: strings.TrimSpace(id), Name: name, Response: geminiSDKFunctionResponseMap(fr["response"])}}, nil
 	}
 	return &genai.Part{Text: ""}, nil
+}
+
+func geminiSDKFunctionResponseMap(response any) map[string]any {
+	if obj, ok := response.(map[string]any); ok {
+		return mapOrEmpty(obj)
+	}
+	if response == nil {
+		return map[string]any{}
+	}
+	return map[string]any{"output": response}
 }
 
 func geminiSDKTools(rawTools []map[string]any) ([]*genai.Tool, error) {
@@ -287,21 +304,29 @@ func base64StdDecode(data string) ([]byte, error) {
 }
 
 type geminiSDKStreamState struct {
-	llmCallID string
-	yield     func(StreamEvent) error
-	usage     *Usage
-	emitted   bool
-	completed bool
+	llmCallID   string
+	yield       func(StreamEvent) error
+	usage       *Usage
+	emitted     bool
+	completed   bool
+	toolBuffers map[string]ToolCall
+	toolOrder   []string
 }
 
 func newGeminiSDKStreamState(id string, yield func(StreamEvent) error) *geminiSDKStreamState {
-	return &geminiSDKStreamState{llmCallID: id, yield: yield}
+	return &geminiSDKStreamState{llmCallID: id, yield: yield, toolBuffers: map[string]ToolCall{}}
 }
 func (s *geminiSDKStreamState) handle(response *genai.GenerateContentResponse) error {
 	if response == nil {
 		return nil
 	}
 	s.usage = geminiSDKUsage(response.UsageMetadata)
+	if len(response.Candidates) == 0 {
+		if failure := geminiPromptFeedbackFailure(response.PromptFeedback); failure != nil {
+			return s.fail(*failure)
+		}
+		return nil
+	}
 	for _, candidate := range response.Candidates {
 		if failure := geminiFinishReasonFailure(string(candidate.FinishReason)); failure != nil {
 			return s.fail(*failure)
@@ -309,7 +334,7 @@ func (s *geminiSDKStreamState) handle(response *genai.GenerateContentResponse) e
 		if candidate.Content == nil {
 			continue
 		}
-		for _, part := range candidate.Content.Parts {
+		for partIndex, part := range candidate.Content.Parts {
 			if part == nil {
 				continue
 			}
@@ -328,19 +353,54 @@ func (s *geminiSDKStreamState) handle(response *genai.GenerateContentResponse) e
 			}
 			if part.FunctionCall != nil {
 				s.emitted = true
-				if err := s.yield(ToolCall{ToolCallID: strings.TrimSpace(part.FunctionCall.ID), ToolName: CanonicalToolName(part.FunctionCall.Name), ArgumentsJSON: mapOrEmpty(part.FunctionCall.Args)}); err != nil {
-					return err
-				}
+				s.bufferToolCall(part.FunctionCall, partIndex)
 			}
 		}
+		if isGeminiTerminalFinishReason(string(candidate.FinishReason)) {
+			if err := s.flushToolCalls(); err != nil {
+				return err
+			}
+			s.completed = true
+		}
 	}
-	s.completed = true
 	return nil
 }
+
+func (s *geminiSDKStreamState) bufferToolCall(functionCall *genai.FunctionCall, partIndex int) {
+	toolCallID := strings.TrimSpace(functionCall.ID)
+	if toolCallID == "" {
+		toolCallID = fmt.Sprintf("%s:%d", s.llmCallID, partIndex)
+	}
+	if _, exists := s.toolBuffers[toolCallID]; !exists {
+		s.toolOrder = append(s.toolOrder, toolCallID)
+	}
+	s.toolBuffers[toolCallID] = ToolCall{ToolCallID: toolCallID, ToolName: CanonicalToolName(functionCall.Name), ArgumentsJSON: mapOrEmpty(functionCall.Args)}
+}
+
+func (s *geminiSDKStreamState) flushToolCalls() error {
+	for _, toolCallID := range s.toolOrder {
+		call := s.toolBuffers[toolCallID]
+		if err := s.yield(call); err != nil {
+			return err
+		}
+	}
+	s.toolBuffers = map[string]ToolCall{}
+	s.toolOrder = nil
+	return nil
+}
+
+func isGeminiTerminalFinishReason(finishReason string) bool {
+	reason := strings.TrimSpace(finishReason)
+	return reason == "STOP" || reason == "MAX_TOKENS"
+}
+
 func (s *geminiSDKStreamState) fail(g GatewayError) error {
 	return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: g, Usage: s.usage})
 }
 func (s *geminiSDKStreamState) complete() error {
+	if len(s.toolOrder) > 0 {
+		return s.fail(GatewayError{ErrorClass: ErrorClassProviderRetryable, Message: "Gemini stream ended before tool call completion"})
+	}
 	if s.completed || s.emitted || s.usage != nil {
 		return s.yield(StreamRunCompleted{LlmCallID: s.llmCallID, Usage: s.usage})
 	}
@@ -352,6 +412,50 @@ func geminiSDKUsage(meta *genai.GenerateContentResponseUsageMetadata) *Usage {
 	}
 	return parseGeminiUsage(&geminiUsageMetadata{PromptTokenCount: int(meta.PromptTokenCount), CandidatesTokenCount: int(meta.CandidatesTokenCount), TotalTokenCount: int(meta.TotalTokenCount), CachedContentTokenCount: int(meta.CachedContentTokenCount)})
 }
+
+func (g *geminiSDKGateway) emitDebugChunk(llmCallID string, response *genai.GenerateContentResponse, statusCode *int, yield func(StreamEvent) error) error {
+	if !g.transport.cfg.EmitDebugEvents || response == nil {
+		return nil
+	}
+	rawBytes, err := json.Marshal(response)
+	if err != nil {
+		return err
+	}
+	raw, truncated := truncateUTF8(string(rawBytes), geminiMaxDebugChunkBytes)
+	var chunkJSON any
+	_ = json.Unmarshal([]byte(raw), &chunkJSON)
+	return yield(StreamLlmResponseChunk{LlmCallID: llmCallID, ProviderKind: "gemini", APIMode: "generate_content", Raw: raw, ChunkJSON: chunkJSON, StatusCode: statusCode, Truncated: truncated})
+}
+
+func (g *geminiSDKGateway) emitDebugErrorChunk(llmCallID string, err error, yield func(StreamEvent) error) error {
+	var apiErr genai.APIError
+	if !errors.As(err, &apiErr) {
+		return nil
+	}
+	status := apiErr.Code
+	raw := apiErr.Message
+	if raw == "" {
+		raw = err.Error()
+	}
+	truncatedRaw, truncated := truncateUTF8(raw, geminiMaxDebugChunkBytes)
+	return yield(StreamLlmResponseChunk{LlmCallID: llmCallID, ProviderKind: "gemini", APIMode: "generate_content", Raw: truncatedRaw, StatusCode: &status, Truncated: truncated})
+}
+
+func geminiSDKGenerateImageConfig(advancedJSON map[string]any) (*genai.GenerateContentConfig, error) {
+	payload := copyAnyMap(advancedJSON)
+	generationConfig := map[string]any{"responseModalities": []any{"IMAGE"}}
+	if raw, ok := payload["generationConfig"].(map[string]any); ok {
+		for key, value := range raw {
+			if key == "responseModalities" {
+				continue
+			}
+			generationConfig[key] = value
+		}
+	}
+	payload["generationConfig"] = generationConfig
+	return geminiSDKGenerateContentConfig(payload)
+}
+
 func geminiSDKErrorToGateway(err error, payloadBytes int) GatewayError {
 	var apiErr genai.APIError
 	if errors.As(err, &apiErr) {
@@ -390,15 +494,9 @@ func (g *geminiSDKGateway) GenerateImage(ctx context.Context, model string, req 
 	if err != nil {
 		return GeneratedImage{}, GatewayError{ErrorClass: ErrorClassConfigInvalid, Message: "image input encoding failed", Details: map[string]any{"reason": err.Error()}}
 	}
-	config := &genai.GenerateContentConfig{ResponseModalities: []string{"IMAGE"}, HTTPOptions: &genai.HTTPOptions{ExtraBody: copyAnyMap(g.protocol.AdvancedPayloadJSON)}}
-	if generationConfig, ok := config.HTTPOptions.ExtraBody["generationConfig"].(map[string]any); ok {
-		for key, value := range generationConfig {
-			if key == "responseModalities" {
-				continue
-			}
-			config.HTTPOptions.ExtraBody[key] = value
-		}
-		delete(config.HTTPOptions.ExtraBody, "generationConfig")
+	config, err := geminiSDKGenerateImageConfig(g.protocol.AdvancedPayloadJSON)
+	if err != nil {
+		return GeneratedImage{}, GatewayError{ErrorClass: ErrorClassConfigInvalid, Message: "Gemini image config construction failed", Details: map[string]any{"reason": err.Error()}}
 	}
 	response, err := g.client.Models.GenerateContent(ctx, strings.TrimSpace(model), []*genai.Content{content}, config)
 	if err != nil {

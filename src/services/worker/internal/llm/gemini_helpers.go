@@ -3,6 +3,8 @@ package llm
 import (
 	"fmt"
 	"strings"
+
+	"google.golang.org/genai"
 )
 
 func normalizeGeminiThinkingConfig(genConfig map[string]any, reasoningMode string) {
@@ -33,6 +35,22 @@ func normalizeGeminiThinkingConfig(genConfig map[string]any, reasoningMode strin
 			thinkingConfig["includeThoughts"] = anyToInt(thinkingConfig["thinkingBudget"]) > 0
 		}
 		genConfig["thinkingConfig"] = thinkingConfig
+	}
+}
+
+func geminiPromptFeedbackFailure(feedback *genai.GenerateContentResponsePromptFeedback) *GatewayError {
+	if feedback == nil || strings.TrimSpace(string(feedback.BlockReason)) == "" {
+		return nil
+	}
+	reason := strings.TrimSpace(string(feedback.BlockReason))
+	message := strings.TrimSpace(feedback.BlockReasonMessage)
+	if message == "" {
+		message = fmt.Sprintf("Gemini prompt blocked: %s", reason)
+	}
+	return &GatewayError{
+		ErrorClass: ErrorClassPolicyDenied,
+		Message:    message,
+		Details:    map[string]any{"block_reason": reason},
 	}
 }
 

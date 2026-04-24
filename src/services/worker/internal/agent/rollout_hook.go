@@ -38,10 +38,11 @@ func MakeTurnStart(turnIndex int, model string) rollout.RolloutItem {
 }
 
 // MakeAssistantMessage 创建 AssistantMessage RolloutItem
-func MakeAssistantMessage(content string, toolCalls json.RawMessage) rollout.RolloutItem {
+func MakeAssistantMessage(content string, contentJSON json.RawMessage, toolCalls json.RawMessage) rollout.RolloutItem {
 	payload := rollout.AssistantMessage{
-		Content:   content,
-		ToolCalls: toolCalls,
+		Content:     content,
+		ContentJSON: contentJSON,
+		ToolCalls:   toolCalls,
 	}
 	data, _ := json.Marshal(payload)
 	return rollout.RolloutItem{

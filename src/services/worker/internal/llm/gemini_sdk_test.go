@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"google.golang.org/genai"
 )
 
 func geminiSDKSSE(chunks []string) string {
@@ -118,5 +120,129 @@ func TestGeminiSDKGateway_GenerateImageUsesSDKGatePath(t *testing.T) {
 	}
 	if image.ProviderKind != "gemini" || image.MimeType != "image/png" || len(image.Bytes) == 0 {
 		t.Fatalf("unexpected image: %#v", image)
+	}
+}
+
+func TestGeminiSDKGateway_StreamFunctionCallIDFallback(t *testing.T) {
+	state := newGeminiSDKStreamState("llm_1", func(event StreamEvent) error { return nil })
+	var tool ToolCall
+	state.yield = func(event StreamEvent) error {
+		if ev, ok := event.(ToolCall); ok {
+			tool = ev
+		}
+		return nil
+	}
+	err := state.handle(&genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "echo", Args: map[string]any{"text": "hi"}}}}}, FinishReason: genai.FinishReasonStop}}})
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if tool.ToolCallID != "llm_1:0" || tool.ToolName != "echo" || tool.ArgumentsJSON["text"] != "hi" {
+		t.Fatalf("unexpected tool: %#v", tool)
+	}
+}
+
+func TestGeminiSDKGenerateImageConfigUsesTypedGenerationConfig(t *testing.T) {
+	config, err := geminiSDKGenerateImageConfig(map[string]any{
+		"generationConfig": map[string]any{"temperature": 0.2, "maxOutputTokens": 64, "responseModalities": []any{"TEXT"}},
+		"safetySettings":   []any{map[string]any{"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}},
+	})
+	if err != nil {
+		t.Fatalf("geminiSDKGenerateImageConfig: %v", err)
+	}
+	if config.ResponseModalities == nil || len(config.ResponseModalities) != 1 || config.ResponseModalities[0] != "IMAGE" {
+		t.Fatalf("response modalities not typed: %#v", config.ResponseModalities)
+	}
+	if config.Temperature == nil || *config.Temperature != float32(0.2) || config.MaxOutputTokens != 64 {
+		t.Fatalf("generation config not typed: %#v", config)
+	}
+	if config.HTTPOptions == nil || config.HTTPOptions.ExtraBody["generationConfig"] != nil || config.HTTPOptions.ExtraBody["safetySettings"] == nil {
+		t.Fatalf("unexpected extra body: %#v", config.HTTPOptions)
+	}
+}
+
+func TestGeminiSDKGateway_NormalizesVersionedBaseURL(t *testing.T) {
+	gateway := NewGeminiGatewaySDK(GeminiGatewayConfig{Transport: TransportConfig{APIKey: "key", BaseURL: "https://generativelanguage.googleapis.com/v1"}}).(*geminiSDKGateway)
+	if gateway.transport.cfg.BaseURL != "https://generativelanguage.googleapis.com" {
+		t.Fatalf("unexpected base url: %q", gateway.transport.cfg.BaseURL)
+	}
+	if gateway.protocol.APIVersion != "v1" {
+		t.Fatalf("unexpected api version: %q", gateway.protocol.APIVersion)
+	}
+}
+
+func TestGeminiSDKStreamState_PromptFeedbackFailsRun(t *testing.T) {
+	var failed *StreamRunFailed
+	state := newGeminiSDKStreamState("llm_1", func(event StreamEvent) error {
+		if ev, ok := event.(StreamRunFailed); ok {
+			failed = &ev
+		}
+		return nil
+	})
+	if err := state.handle(&genai.GenerateContentResponse{PromptFeedback: &genai.GenerateContentResponsePromptFeedback{BlockReason: genai.BlockedReasonSafety}}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if failed == nil || failed.Error.ErrorClass != ErrorClassPolicyDenied {
+		t.Fatalf("unexpected failure: %#v", failed)
+	}
+}
+
+func TestGeminiSDKStreamState_BuffersToolCallsUntilTerminalFinish(t *testing.T) {
+	var tools []ToolCall
+	state := newGeminiSDKStreamState("llm_1", func(event StreamEvent) error {
+		if ev, ok := event.(ToolCall); ok {
+			tools = append(tools, ev)
+		}
+		return nil
+	})
+	if err := state.handle(&genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "echo", Args: map[string]any{"text": "partial"}}}}}}}}); err != nil {
+		t.Fatalf("handle partial: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("tool emitted before terminal finish: %#v", tools)
+	}
+	if err := state.handle(&genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "echo", Args: map[string]any{"text": "final"}}}}}, FinishReason: genai.FinishReasonStop}}}); err != nil {
+		t.Fatalf("handle terminal: %v", err)
+	}
+	if len(tools) != 1 || tools[0].ToolCallID != "llm_1:0" || tools[0].ArgumentsJSON["text"] != "final" {
+		t.Fatalf("unexpected buffered tool: %#v", tools)
+	}
+}
+
+func TestGeminiSDKStreamState_UnfinishedToolCallFailsRun(t *testing.T) {
+	var failed *StreamRunFailed
+	state := newGeminiSDKStreamState("llm_1", func(event StreamEvent) error {
+		if ev, ok := event.(StreamRunFailed); ok {
+			failed = &ev
+		}
+		return nil
+	})
+	if err := state.handle(&genai.GenerateContentResponse{Candidates: []*genai.Candidate{{Content: &genai.Content{Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: "echo", Args: map[string]any{"text": "partial"}}}}}}}}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if err := state.complete(); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if failed == nil || failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected failure: %#v", failed)
+	}
+}
+
+func TestGeminiSDKPart_FunctionResponseWrapsScalarResult(t *testing.T) {
+	part, err := geminiSDKPart(map[string]any{"functionResponse": map[string]any{"id": "call_1", "name": "echo", "response": "ok"}})
+	if err != nil {
+		t.Fatalf("geminiSDKPart: %v", err)
+	}
+	if part.FunctionResponse == nil || part.FunctionResponse.ID != "call_1" || part.FunctionResponse.Response["output"] != "ok" {
+		t.Fatalf("unexpected function response: %#v", part.FunctionResponse)
+	}
+}
+
+func TestGeminiSDKPart_FunctionResponseKeepsObjectResult(t *testing.T) {
+	part, err := geminiSDKPart(map[string]any{"functionResponse": map[string]any{"id": "call_1", "name": "echo", "response": map[string]any{"ok": true}}})
+	if err != nil {
+		t.Fatalf("geminiSDKPart: %v", err)
+	}
+	if part.FunctionResponse == nil || part.FunctionResponse.Response["ok"] != true || part.FunctionResponse.Response["output"] != nil {
+		t.Fatalf("unexpected function response: %#v", part.FunctionResponse)
 	}
 }

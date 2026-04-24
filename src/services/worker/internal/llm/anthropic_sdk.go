@@ -106,7 +106,7 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 		return yield(StreamRunFailed{Error: GatewayError{ErrorClass: ErrorClassInternalError, Message: "Anthropic base_url blocked", Details: map[string]any{"reason": g.transport.baseURLErr.Error()}}})
 	}
 
-	ctx, stopTimeout, _ := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
+	ctx, stopTimeout, markActivity := withStreamIdleTimeout(ctx, g.transport.cfg.TotalTimeout)
 	defer stopTimeout()
 	llmCallID := uuid.NewString()
 
@@ -168,7 +168,7 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 	}
 
 	opts := make([]option.RequestOption, 0, len(g.protocol.AdvancedPayloadJSON)+1)
-	if anthropicSDKMessagesContainCacheEdits(payload) {
+	if anthropicSDKMessagesRequireRawJSON(payload) {
 		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
 	}
 	for key, value := range g.protocol.AdvancedPayloadJSON {
@@ -179,7 +179,14 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 
 	state := newAnthropicSDKStreamState(llmCallID, yield)
 	for stream.Next() {
-		if err := state.handle(stream.Current()); err != nil {
+		if markActivity != nil {
+			markActivity()
+		}
+		event := stream.Current()
+		if err := g.emitDebugChunk(llmCallID, event.RawJSON(), nil, yield); err != nil {
+			return err
+		}
+		if err := state.handle(event); err != nil {
 			if errors.Is(err, errAnthropicStreamTerminated) {
 				return nil
 			}
@@ -187,12 +194,34 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 		}
 	}
 	if err := stream.Err(); err != nil {
+		if emitErr := g.emitDebugErrorChunk(llmCallID, err, yield); emitErr != nil {
+			return emitErr
+		}
 		if failErr := state.fail(anthropicSDKErrorToGateway(err, providerPayloadBytes)); failErr != nil && !errors.Is(failErr, errAnthropicStreamTerminated) {
 			return failErr
 		}
 		return nil
 	}
 	return state.complete()
+}
+
+func (g *anthropicSDKGateway) emitDebugChunk(llmCallID string, raw string, statusCode *int, yield func(StreamEvent) error) error {
+	if !g.transport.cfg.EmitDebugEvents || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	truncatedRaw, rawTruncated := truncateUTF8(raw, anthropicMaxDebugChunkBytes)
+	var chunkJSON any
+	_ = json.Unmarshal([]byte(raw), &chunkJSON)
+	return yield(StreamLlmResponseChunk{LlmCallID: llmCallID, ProviderKind: "anthropic", APIMode: "messages", Raw: truncatedRaw, ChunkJSON: chunkJSON, StatusCode: statusCode, Truncated: rawTruncated})
+}
+
+func (g *anthropicSDKGateway) emitDebugErrorChunk(llmCallID string, err error, yield func(StreamEvent) error) error {
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		return nil
+	}
+	status := apiErr.StatusCode
+	return g.emitDebugChunk(llmCallID, string(apiErr.DumpResponse(true)), &status, yield)
 }
 
 func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageNewParams, map[string]any, int, error) {
@@ -267,7 +296,7 @@ func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageN
 	return params, payload, len(encoded), nil
 }
 
-func anthropicSDKMessagesContainCacheEdits(payload map[string]any) bool {
+func anthropicSDKMessagesRequireRawJSON(payload map[string]any) bool {
 	messages, ok := payload["messages"].([]map[string]any)
 	if !ok {
 		return false
@@ -279,6 +308,9 @@ func anthropicSDKMessagesContainCacheEdits(payload map[string]any) bool {
 		}
 		for _, block := range content {
 			if typ, _ := block["type"].(string); typ == "cache_edits" {
+				return true
+			}
+			if _, ok := block["cache_reference"]; ok {
 				return true
 			}
 		}

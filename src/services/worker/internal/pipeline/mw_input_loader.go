@@ -840,6 +840,14 @@ func replayAssistantMessage(msg rollout.AssistantMessage) llm.Message {
 		}
 	}
 	toolCalls = llm.CanonicalToolCalls(toolCalls)
+	if len(msg.ContentJSON) > 0 {
+		if restored, err := llm.AssistantMessageFromThreadContentJSON(msg.ContentJSON); err == nil && restored != nil {
+			restored.ToolCalls = toolCalls
+			return *restored
+		} else if err != nil {
+			slog.Warn("rollout: failed to parse assistant content_json", "err", err)
+		}
+	}
 	content := []llm.ContentPart(nil)
 	text := sanitizeStoredAssistantText(msg.Content)
 	if strings.TrimSpace(text) != "" {
