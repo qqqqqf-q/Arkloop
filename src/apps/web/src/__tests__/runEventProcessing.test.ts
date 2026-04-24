@@ -268,6 +268,33 @@ describe('web fetch processing', () => {
       { id: 'wf_legacy', url: 'https://example.com/legacy', title: 'Legacy', statusCode: 200, status: 'done', seq: 1 },
     ])
   })
+
+  it('失败时保留错误摘要', () => {
+    const call = makeRunEvent({
+      runId: 'run_1',
+      seq: 1,
+      type: 'tool.call',
+      data: { tool_name: 'web_fetch', tool_call_id: 'wf_fail', arguments: { url: 'https://bad.test' } },
+    })
+    const result = makeRunEvent({
+      runId: 'run_1',
+      seq: 2,
+      type: 'tool.result',
+      errorClass: 'fetch_failed',
+      data: {
+        tool_name: 'web_fetch',
+        tool_call_id: 'wf_fail',
+        error: { error_class: 'fetch_failed', message: 'timeout' },
+        result: { status_code: 504 },
+      },
+    })
+
+    const afterCall = applyWebFetchToolCall([], call)
+    const afterResult = applyWebFetchToolResult(afterCall.nextFetches, result)
+    expect(afterResult.nextFetches).toEqual([
+      { id: 'wf_fail', url: 'https://bad.test', statusCode: 504, status: 'failed', errorMessage: 'timeout', seq: 1 },
+    ])
+  })
 })
 
 describe('runEventDismissesAssistantPlaceholder', () => {
@@ -415,6 +442,38 @@ describe('read tool provider mapping', () => {
         status: 'success',
         seq: 1,
         output: 'hello',
+      },
+    ])
+  })
+
+  it('read 工具结果缺少 content 时应写入语义空输出文案', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'r1',
+        seq: 1,
+        type: 'tool.call',
+        data: {
+          tool_name: 'read_file',
+          tool_call_id: 'c_empty',
+          arguments: { file_path: '/tmp/empty.txt' },
+        },
+      }),
+      makeRunEvent({
+        runId: 'r1',
+        seq: 2,
+        type: 'tool.result',
+        data: { tool_name: 'read_file', tool_call_id: 'c_empty', result: {} },
+      }),
+    ]
+
+    expect(buildMessageFileOpsFromRunEvents(events)).toEqual([
+      {
+        id: 'c_empty',
+        toolName: 'read_file',
+        label: 'Read empty.txt',
+        status: 'success',
+        seq: 1,
+        emptyLabel: 'Read completed; no displayable content returned',
       },
     ])
   })
@@ -1190,6 +1249,23 @@ describe('applyCodeExecutionToolResult', () => {
       output: 'done',
       status: 'success',
     })
+  })
+
+  it('成功 shell 无 stdout/stderr 时写入语义空输出文案', () => {
+    const executions = [{ id: 'call_exec', language: 'shell' as const, code: 'true', status: 'running' as const }]
+    const event = makeRunEvent({
+      runId: 'run_1',
+      seq: 2,
+      type: 'tool.result',
+      data: { tool_name: 'exec_command', tool_call_id: 'call_exec', result: { exit_code: 0 } },
+    })
+
+    const result = applyCodeExecutionToolResult(executions, event)
+    expect(result.nextExecutions[0]).toMatchObject({
+      status: 'success',
+      emptyLabel: 'Command completed with no stdout/stderr',
+    })
+    expect(result.nextExecutions[0]?.output).toBeUndefined()
   })
 })
 

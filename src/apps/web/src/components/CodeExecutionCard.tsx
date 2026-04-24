@@ -4,17 +4,18 @@ import { codeExecutionAccentColor } from '../codeExecutionStatus'
 
 export type CodeExecution = CodeExecutionRef
 
-export function CodeExecutionCard({ language, code, output, errorMessage, status, onOpen, isActive }: {
+export function CodeExecutionCard({ language, code, output, emptyLabel, errorMessage, status, onOpen, isActive }: {
   language: 'python' | 'shell'
   code?: string
   output?: string
+  emptyLabel?: string
   errorMessage?: string
   status: CodeExecution['status']
   onOpen?: () => void
   isActive?: boolean
 }) {
   const isPython = language === 'python'
-  const hasDetail = !!(code || output || errorMessage)
+  const hasDetail = !!(code || output || emptyLabel || errorMessage)
   const clickable = hasDetail && !!onOpen
   const accentColor = codeExecutionAccentColor(status)
 

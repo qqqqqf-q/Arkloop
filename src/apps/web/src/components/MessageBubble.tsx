@@ -1,7 +1,7 @@
 import type { MessageResponse } from '../api'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../storage'
 import { MarkdownRenderer } from './MarkdownRenderer'
-import { BrowserScreenshotCard } from './BrowserScreenshotCard'
+import { BrowserScreenshotCard, BrowserActionSummaryCard } from './BrowserScreenshotCard'
 import { UserMessage } from './messagebubble/UserMessage'
 import { AssistantMessage } from './messagebubble/AssistantMessage'
 import type { ArtifactAction } from './ArtifactIframe'
@@ -75,20 +75,24 @@ export function MessageBubble({ message, streamAssistantMarkdown, animateUserEnt
 }
 
 function renderBrowserScreenshots(browserActions?: BrowserActionRef[], accessToken?: string) {
-  if (!browserActions || browserActions.length === 0 || !accessToken) return null
-  const withScreenshot = browserActions.filter((action) => action.screenshotArtifact)
-  if (withScreenshot.length === 0) return null
+  if (!browserActions || browserActions.length === 0) return null
+  const visibleActions = browserActions.filter((action) => action.screenshotArtifact || action.output || action.url || action.command)
+  if (visibleActions.length === 0) return null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
-      {withScreenshot.map((action) => (
-        <BrowserScreenshotCard
-          key={action.id}
-          artifact={action.screenshotArtifact!}
-          accessToken={accessToken}
-          command={action.command}
-          url={action.url}
-        />
+      {visibleActions.map((action) => (
+        action.screenshotArtifact && accessToken ? (
+          <BrowserScreenshotCard
+            key={action.id}
+            artifact={action.screenshotArtifact}
+            accessToken={accessToken}
+            command={action.command}
+            url={action.url}
+          />
+        ) : (
+          <BrowserActionSummaryCard key={action.id} command={action.command} url={action.url} output={action.output} exitCode={action.exitCode} />
+        )
       ))}
     </div>
   )

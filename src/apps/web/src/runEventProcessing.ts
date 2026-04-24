@@ -28,6 +28,12 @@ type CodeExecutionErrorDetails = {
   errorMessage?: string
 }
 
+type ToolOutputFormat = {
+  output?: string
+  emptyLabel?: string
+  errorMessage?: string
+}
+
 type CodeExecutionDeltaPatch = {
   nextExecutions: CodeExecutionRef[]
   updated?: CodeExecutionRef
@@ -99,6 +105,11 @@ function sanitizeTerminalOutput(value: string): string {
   return value.replace(TERMINAL_CONTROL_SEQUENCE_PATTERN, '')
 }
 
+function truncateForToolPreview(value: string, max = 1600): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}\n… truncated ${value.length - max} chars`
+}
+
 function pickExecCommandMode(args: Record<string, unknown> | undefined): CodeExecutionRef['mode'] {
   const raw = typeof args?.mode === 'string' ? args.mode.trim() : ''
   switch (raw) {
@@ -164,6 +175,16 @@ function extractCodeExecutionOutput(result: unknown): { output?: string; exitCod
     output: rawOutput || undefined,
     exitCode,
   }
+}
+
+function codeExecutionEmptyLabel(language: CodeExecutionRef['language'] | null, toolName: string, status: CodeExecutionRef['status']): string | undefined {
+  if (status === 'running') return undefined
+  if (status === 'failed') return undefined
+  if (language === 'python' || toolName === 'python_execute') return 'Execution completed with no output'
+  if (language === 'shell' || toolName === 'exec_command' || toolName === 'continue_process' || toolName === 'terminate_process') {
+    return 'Command completed with no stdout/stderr'
+  }
+  return 'Completed with no output'
 }
 
 function extractCodeExecutionError(event: RunEvent): CodeExecutionErrorDetails {
@@ -271,6 +292,7 @@ function patchExecution(
     nextCursor?: string
     processStatus?: CodeExecutionRef['processStatus']
     output?: string
+    emptyLabel?: string
     exitCode?: number
     status: CodeExecutionRef['status']
     errorClass?: string
@@ -293,6 +315,9 @@ function patchExecution(
   const mergedOutput = mergeExecutionOutput(execution.output, params.output)
   if (mergedOutput) {
     next.output = mergedOutput
+  }
+  if (params.emptyLabel) {
+    next.emptyLabel = params.emptyLabel
   }
   if (params.exitCode != null) {
     next.exitCode = params.exitCode
@@ -440,12 +465,14 @@ export function applyCodeExecutionToolResult(
   })
 
   if (targetIndex >= 0) {
+    const language = executions[targetIndex].language
     const updated = patchExecution(executions[targetIndex], {
       processRef,
       cursor,
       nextCursor,
       processStatus,
       output: outputPatch.output,
+      emptyLabel: outputPatch.output ? undefined : codeExecutionEmptyLabel(language, toolName, status),
       exitCode: outputPatch.exitCode,
       status,
       errorClass: error.errorClass,
@@ -489,6 +516,7 @@ export function applyCodeExecutionToolResult(
     nextCursor,
     processStatus,
     output: outputPatch.output,
+    emptyLabel: outputPatch.output ? undefined : codeExecutionEmptyLabel(language, toolName, status),
     exitCode: outputPatch.exitCode,
     status,
     errorClass: error.errorClass,
@@ -1280,55 +1308,84 @@ function memorySearchHitsToOutput(list: unknown[]): string {
 }
 
 export function fileOpOutputFromResult(toolName: string, result: unknown): string | undefined {
+  return formatFileOpResult(toolName, result).output
+}
+
+export function formatFileOpResult(toolName: string, result: unknown): ToolOutputFormat {
   toolName = normalizeFileOpToolName(toolName)
-  if (!result || typeof result !== 'object') return undefined
+  if (!result || typeof result !== 'object') {
+    switch (toolName) {
+      case 'read_file': return { emptyLabel: 'Read completed; no displayable content returned' }
+      case 'grep': return { emptyLabel: 'Search completed; no match data returned' }
+      case 'glob': return { emptyLabel: 'Glob completed; no file list returned' }
+      default: return { emptyLabel: 'Completed; no displayable output returned' }
+    }
+  }
   const r = result as Record<string, unknown>
 
   switch (toolName) {
     case 'grep': {
-      const count = typeof r.count === 'number' ? r.count : 0
-      const matches = typeof r.matches === 'string' ? r.matches.trim() : ''
-      if (count === 0) return '(no matches)'
-      return `${count} match${count === 1 ? '' : 'es'}\n${matches}`
+      const matches = Array.isArray(r.matches)
+        ? (r.matches as unknown[]).map((item) => {
+            if (typeof item === 'string') return item
+            if (item && typeof item === 'object') {
+              const o = item as Record<string, unknown>
+              const path = typeof o.path === 'string' ? o.path : typeof o.file === 'string' ? o.file : ''
+              const line = typeof o.line === 'number' ? `${o.line}:` : ''
+              const text = typeof o.text === 'string' ? o.text : typeof o.line_text === 'string' ? o.line_text : ''
+              return [path, line, text].filter(Boolean).join(path && (line || text) ? ':' : ' ')
+            }
+            return ''
+          }).filter(Boolean).join('\n')
+        : typeof r.matches === 'string' ? r.matches.trim() : ''
+      const count = typeof r.count === 'number' ? r.count : matches ? matches.split('\n').filter(Boolean).length : 0
+      if (count === 0) return { output: '(no matches)' }
+      return { output: `${count} match${count === 1 ? '' : 'es'}${matches ? '\n' + matches : ''}` }
     }
     case 'glob': {
       const files = Array.isArray(r.files) ? (r.files as unknown[]).filter((f): f is string => typeof f === 'string') : []
       const count = typeof r.count === 'number' ? r.count : files.length
-      if (count === 0) return '(no files)'
-      return `${count} file${count === 1 ? '' : 's'}\n${files.join('\n')}`
+      if (count === 0) return { output: '(no files)' }
+      return { output: `${count} file${count === 1 ? '' : 's'}${files.length > 0 ? '\n' + files.join('\n') : ''}` }
     }
     case 'read_file': {
-      const content = typeof r.content === 'string' ? r.content.trim() : ''
-      return content || undefined
+      if (typeof r.content === 'string') {
+        const content = r.content.trim()
+        return content ? { output: truncateForToolPreview(content) } : { emptyLabel: 'Read completed; file is empty' }
+      }
+      const bytes = typeof r.bytes === 'number' ? r.bytes : typeof r.size === 'number' ? r.size : undefined
+      const lines = typeof r.lines === 'number' ? r.lines : undefined
+      const suffix = [typeof lines === 'number' ? `${lines} lines` : '', typeof bytes === 'number' ? `${bytes} bytes` : ''].filter(Boolean).join(', ')
+      return { emptyLabel: suffix ? `Read completed; ${suffix}; no displayable content returned` : 'Read completed; no displayable content returned' }
     }
     case 'write_file': {
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
-      return filePath ? `written: ${filePath}` : 'written'
+      return { output: filePath ? `written: ${filePath}` : 'written' }
     }
     case 'edit':
     case 'edit_file': {
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
-      return filePath ? `edited: ${filePath}` : 'edited'
+      return { output: filePath ? `edited: ${filePath}` : 'edited' }
     }
     case 'load_tools': {
       const matched = Array.isArray(r.matched) ? r.matched as unknown[] : []
       const count = typeof r.count === 'number' ? r.count : matched.length
-      if (count === 0 && matched.length === 0) return '(no matches)'
+      if (count === 0 && matched.length === 0) return { output: '(no matches)' }
       const statusSummary = summarizeLoadToolsResult(r)
-      if (statusSummary) return statusSummary
+      if (statusSummary) return { output: statusSummary }
       const names = matched.slice(0, 5).map((m) => {
         if (typeof m === 'string') return m
         if (m && typeof m === 'object') return String((m as Record<string, unknown>).name ?? '')
         return ''
       }).filter(Boolean)
-      return `${count} match${count === 1 ? '' : 'es'}${names.length > 0 ? ': ' + names.join(', ') : ''}`
+      return { output: `${count} match${count === 1 ? '' : 'es'}${names.length > 0 ? ': ' + names.join(', ') : ''}` }
     }
     case 'memory_write': {
       const stored = typeof r.stored === 'boolean' ? r.stored : true
-      return stored ? 'stored' : 'failed'
+      return { output: stored ? 'stored' : 'failed' }
     }
     case 'memory_edit': {
-      return 'updated'
+      return { output: 'updated' }
     }
     case 'memory_search': {
       const list = Array.isArray(r.hits)
@@ -1337,31 +1394,31 @@ export function fileOpOutputFromResult(toolName: string, result: unknown): strin
           ? (r.results as unknown[])
           : []
       const count = list.length
-      if (count === 0) return '(no results)'
-      return memorySearchHitsToOutput(list)
+      if (count === 0) return { output: '(no results)' }
+      return { output: memorySearchHitsToOutput(list) }
     }
     case 'memory_read': {
       const content = typeof r.content === 'string' ? r.content.trim() : ''
-      return content ? content.slice(0, 80) + (content.length > 80 ? '…' : '') : 'read'
+      return content ? { output: content.slice(0, 80) + (content.length > 80 ? '…' : '') } : { output: 'read', emptyLabel: 'Memory read completed; no text returned' }
     }
     case 'memory_forget': {
-      return 'forgotten'
+      return { output: 'forgotten' }
     }
     case 'notebook_write': {
-      return 'saved'
+      return { output: 'saved' }
     }
     case 'notebook_edit': {
-      return 'updated'
+      return { output: 'updated' }
     }
     case 'notebook_read': {
       const content = typeof r.content === 'string' ? r.content.trim() : ''
-      return content ? content.slice(0, 80) + (content.length > 80 ? '…' : '') : 'read'
+      return content ? { output: content.slice(0, 80) + (content.length > 80 ? '…' : '') } : { output: 'read', emptyLabel: 'Notebook read completed; no text returned' }
     }
     case 'notebook_forget': {
-      return 'deleted'
+      return { output: 'deleted' }
     }
     default:
-      return undefined
+      return { emptyLabel: 'Completed; no displayable output returned' }
   }
 }
 
@@ -1482,11 +1539,13 @@ export function applyFileOpToolResult(
   const targetIdx = ops.findIndex((o) => o.id === toolCallId)
   if (targetIdx < 0) return { nextOps: ops }
 
+  const formatted = hasError ? {} : formatFileOpResult(toolName, result)
   const updated: FileOpRef = {
     ...ops[targetIdx],
     status: hasError ? 'failed' : 'success',
-    output: hasError ? undefined : fileOpOutputFromResult(toolName, result),
-    errorMessage: hasError ? (error.errorMessage ?? error.errorClass) : undefined,
+    ...(formatted.output ? { output: formatted.output } : {}),
+    ...(formatted.emptyLabel ? { emptyLabel: formatted.emptyLabel } : {}),
+    ...(hasError ? { errorMessage: error.errorMessage ?? error.errorClass } : {}),
   }
   return {
     updated,
@@ -1554,7 +1613,8 @@ export function applyWebFetchToolResult(
     ? event.data as { result?: unknown }
     : undefined
   const result = data?.result as Record<string, unknown> | undefined
-  const hasError = !!(event.error_class)
+  const error = extractCodeExecutionError(event)
+  const hasError = !!(event.error_class || error.errorClass || error.errorMessage)
   const title = typeof result?.title === 'string' ? result.title : undefined
   const statusCode = typeof result?.status_code === 'number' ? result.status_code : undefined
 
@@ -1566,6 +1626,7 @@ export function applyWebFetchToolResult(
     title,
     statusCode,
     status: hasError ? 'failed' : 'done',
+    ...(hasError ? { errorMessage: error.errorMessage ?? error.errorClass ?? event.error_class } : {}),
   }
   return {
     updated,

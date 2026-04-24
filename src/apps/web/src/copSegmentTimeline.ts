@@ -23,6 +23,7 @@ export type GenericToolCallRef = {
   toolName: string
   label: string
   output?: string
+  emptyLabel?: string
   status: 'running' | 'success' | 'failed'
   errorMessage?: string
   seq?: number
@@ -60,6 +61,25 @@ function isKnownTimelineTool(toolName: string): boolean {
     isWebSearchToolName(toolName) ||
     isWebFetchToolName(toolName)
   )
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function summarizeGenericResult(result: unknown): { output?: string; emptyLabel?: string } {
+  if (result == null) return { emptyLabel: 'Completed; no displayable output returned' }
+  if (typeof result === 'string') {
+    const trimmed = result.trim()
+    return trimmed
+      ? { output: `returned text · ${pluralize(Array.from(trimmed).length, 'char')}` }
+      : { emptyLabel: 'Returned empty text' }
+  }
+  if (Array.isArray(result)) return { output: `returned array · ${pluralize(result.length, 'item')}` }
+  if (typeof result === 'object') return { output: `returned object · ${pluralize(Object.keys(result as Record<string, unknown>).length, 'key')}` }
+  if (typeof result === 'boolean') return { output: `returned boolean · ${result ? 'true' : 'false'}` }
+  if (typeof result === 'number') return { output: `returned number · ${result}` }
+  return { output: 'returned value' }
 }
 
 type WebSearchPhaseStepLike = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources'>
@@ -208,11 +228,7 @@ export function copTimelinePayloadForSegment(
       .map((item): GenericToolCallRef => {
         const call = item.call
         const hasError = typeof call.errorClass === 'string' && call.errorClass.trim() !== ''
-        const output = call.result == null
-          ? undefined
-          : typeof call.result === 'string'
-            ? call.result
-            : JSON.stringify(call.result)
+        const resultSummary = summarizeGenericResult(call.result)
         const previewEntries = Object.entries(call.arguments).slice(0, 2)
         const preview = previewEntries.length > 0
           ? `${call.toolName} ${previewEntries.map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`).join(' ')}`
@@ -221,7 +237,8 @@ export function copTimelinePayloadForSegment(
           id: call.toolCallId,
           toolName: call.toolName,
           label: preview,
-          output,
+          output: resultSummary.output,
+          emptyLabel: resultSummary.emptyLabel,
           status: hasError ? 'failed' : call.result === undefined ? 'running' : 'success',
           errorMessage: hasError ? call.errorClass : undefined,
           seq: item.seq,

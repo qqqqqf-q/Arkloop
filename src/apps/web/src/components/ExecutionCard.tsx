@@ -13,6 +13,7 @@ type Props = {
   label?: string
   code?: string
   output?: string
+  emptyLabel?: string
   errorMessage?: string
   status: Status
   /** 仅流式时为 true：逐字平滑；历史/静态为 false 立即展示 */
@@ -96,7 +97,7 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
-export function ExecutionCard({ variant, toolName, label, code, output, errorMessage, status, smooth = false }: Props) {
+export function ExecutionCard({ variant, toolName, label, code, output, emptyLabel, errorMessage, status, smooth = false }: Props) {
   const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [cmdHovered, setCmdHovered] = useState(false)
@@ -337,7 +338,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                   }}
                 >
                   <div style={{ fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
-                    {t.shellNoOutput}
+                    {emptyLabel?.trim() || t.shellNoOutput}
                   </div>
                   <div
                     className="execution-card-status-inline"

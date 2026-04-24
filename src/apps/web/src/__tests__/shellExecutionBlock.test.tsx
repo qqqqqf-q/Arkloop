@@ -213,4 +213,40 @@ describe('ExecutionCard fileop variant', () => {
     })
     container.remove()
   })
+
+  it('无输出时优先显示工具语义空状态', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ExecutionCard
+            variant="fileop"
+            toolName="read_file"
+            label="Read ChatView.tsx"
+            emptyLabel="Read completed; no displayable content returned"
+            status="success"
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = container.querySelector('[role="button"]')
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain('Read completed; no displayable content returned')
+    expect(container.textContent).not.toContain('无输出')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
 })

@@ -503,14 +503,14 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                       )}
                       {entry.kind === 'text' && <TimelineNarrativeBody text={entry.item.text} live={!!live} />}
                       {entry.kind === 'code' && (entry.item.language === 'shell'
-                        ? <ExecutionCard variant="shell" code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
-                        : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
+                        ? <ExecutionCard variant="shell" code={entry.item.code} output={entry.item.output} emptyLabel={entry.item.emptyLabel} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
+                        : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} emptyLabel={entry.item.emptyLabel} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
                       )}
                       {entry.kind === 'agent' && (
                         <SubAgentBlock sourceTool={entry.item.sourceTool} nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={live} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
                       )}
                       {entry.kind === 'fileop' && (
-                        <ExecutionCard variant="fileop" toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
+                        <ExecutionCard variant="fileop" toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} emptyLabel={entry.item.emptyLabel} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
                       )}
                       {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live={!!live} />}
                       {entry.kind === 'generic' && (
@@ -519,6 +519,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                           toolName={entry.item.toolName}
                           label={entry.item.label}
                           output={entry.item.output}
+                          emptyLabel={entry.item.emptyLabel}
                           status={entry.item.status}
                           errorMessage={entry.item.errorMessage}
                           smooth={!!live && entry.item.status === 'running'}

@@ -54,6 +54,7 @@ export function SubAgentBlock({
   const [scrollEdge, setScrollEdge] = useState<ScrollEdge>('none')
 
   const displayOutput = output?.trim() ? output : error?.trim() ? error : undefined
+  const emptyOutputLabel = status === 'completed' ? 'Sub-agent completed without text output' : t.agentNoOutput
   const rawLabel =
     sourceTool === 'acp_agent'
       ? t.agentAcpAgent
@@ -259,7 +260,7 @@ export function SubAgentBlock({
               {/* 无内容 */}
               {!hasCop && !showRawOutput && !isWaiting && (
                 <div style={{ padding: '4px 10px 8px', fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
-                  {t.agentNoOutput}
+                  {emptyOutputLabel}
                 </div>
               )}
 

@@ -14,7 +14,9 @@ export const WebFetchItem = memo(function WebFetchItem({ fetch: f, live: _live }
   const primaryText = f.title || (isHttp ? domain : (f.url || 'Invalid URL'))
   const secondaryText = typeof f.statusCode === 'number'
     ? `${f.statusCode}`
-    : shortName
+    : isFailed && f.errorMessage
+      ? f.errorMessage
+      : shortName
   const content = (
     <>
       <div
