@@ -2,6 +2,7 @@ package telegrambot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	nethttp "net/http"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrFileExceedsMaxBytes is returned when a Telegram file exceeds the configured size limit.
+var ErrFileExceedsMaxBytes = errors.New("file exceeds maxBytes")
 
 const defaultFileDownloadTimeout = 30 * time.Second
 
@@ -81,7 +85,7 @@ func (c *Client) DownloadBotFile(ctx context.Context, token, filePath string, ma
 		return nil, "", fmt.Errorf("telegrambot: read file body: %w", err)
 	}
 	if int64(len(data)) > maxBytes {
-		return nil, "", fmt.Errorf("telegrambot: file exceeds maxBytes")
+		return nil, "", fmt.Errorf("telegrambot: %w", ErrFileExceedsMaxBytes)
 	}
 	if ct == "" || ct == "application/octet-stream" {
 		ct = nethttp.DetectContentType(data)
