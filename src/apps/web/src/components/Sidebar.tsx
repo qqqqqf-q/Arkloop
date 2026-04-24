@@ -227,7 +227,7 @@ export function Sidebar({
       regularThreads: threads.filter((t) => !nextStarredSet.has(t.id)),
     }
     return next
-  }, [appMode, starredIds, threads])
+  }, [starredIds, threads])
 
   // 初始化时从服务端拉取收藏列表
   useEffect(() => {

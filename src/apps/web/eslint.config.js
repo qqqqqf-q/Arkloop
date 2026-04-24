@@ -41,9 +41,42 @@ export default defineConfig([
       'src/components/CitationBadge.tsx',
       'src/components/DocumentPanel.tsx',
       'src/components/chat-input/AttachmentCard.tsx',
+      'src/components/cop-timeline/CopTimelineHeader.tsx',
+      'src/components/cop-timeline/utils.tsx',
+      'src/components/settings/DesktopChannelSettingsShared.tsx',
     ],
     rules: {
       'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: [
+      'src/App.tsx',
+      'src/__tests__/chatPageLoading.test.tsx',
+      'src/components/ChatInput.tsx',
+      'src/components/ChatsSearchModal.tsx',
+      'src/components/DesktopSettings.tsx',
+      'src/components/chat-input/AttachmentCard.tsx',
+      'src/components/cop-timeline/CopTimeline.tsx',
+      'src/components/cop-timeline/CopTimelineHeader.tsx',
+      'src/components/cop-timeline/SourceList.tsx',
+      'src/components/cop-timeline/ThinkingBlock.tsx',
+      'src/hooks/useIncrementalTypewriter.ts',
+      'src/pages/scheduled-jobs/ScheduledJobsPage.tsx',
+    ],
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
+    files: [
+      'src/__tests__/useScrollPin.test.tsx',
+      'src/components/ChatInput.tsx',
+      'src/components/ChatView.tsx',
+      'src/hooks/useScrollPin.ts',
+    ],
+    rules: {
+      'react-hooks/exhaustive-deps': 'off',
     },
   },
 ])

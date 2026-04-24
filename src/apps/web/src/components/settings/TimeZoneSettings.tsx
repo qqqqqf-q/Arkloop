@@ -140,7 +140,7 @@ export function TimeZoneSettings({ me, accessToken, onMeUpdated }: Props) {
   const [saving, setSaving] = useState(false)
   const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
   const [labelNow, setLabelNow] = useState(() => new Date())
-  const [offsetCacheVersion, setOffsetCacheVersion] = useState(0)
+  const [, setOffsetCacheVersion] = useState(0)
   const [listScrollTop, setListScrollTop] = useState(0)
   const [rowHeightPx, setRowHeightPx] = useState(MENU_ROW_ESTIMATE_PX)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -150,7 +150,7 @@ export function TimeZoneSettings({ me, accessToken, onMeUpdated }: Props) {
   const zones = useMemo(() => (open ? getSupportedZonesCached() : EMPTY_ZONES), [open])
   const zoneOffsets = useMemo(
     () => (open ? getCachedOffsets(labelNow) : EMPTY_ZONE_OFFSETS),
-    [open, labelNow, offsetCacheVersion],
+    [open, labelNow],
   )
 
   const userZone = useMemo(() => {
