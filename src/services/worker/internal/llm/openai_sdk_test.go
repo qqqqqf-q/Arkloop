@@ -3,10 +3,13 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"arkloop/services/shared/messagecontent"
 )
 
 func openAISDKSSE(events []string) string {
@@ -92,5 +95,62 @@ func TestOpenAISDKGateway_ResponsesAutoFallback(t *testing.T) {
 	}
 	if !sawFallback || len(paths) != 2 || paths[0] != "/responses" || paths[1] != "/chat/completions" {
 		t.Fatalf("unexpected fallback paths=%v saw=%v", paths, sawFallback)
+	}
+}
+
+func TestOpenAISDKGateway_ChatCompletionsPartialStreamFails(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(openAISDKSSE([]string{`{"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"gpt","choices":[{"index":0,"delta":{"role":"assistant","content":"partial"},"finish_reason":null}]}`})))
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGatewaySDK(OpenAIGatewayConfig{Transport: TransportConfig{APIKey: "key", BaseURL: server.URL}, Protocol: OpenAIProtocolConfig{PrimaryKind: ProtocolKindOpenAIChatCompletions}})
+	var failed *StreamRunFailed
+	var completed *StreamRunCompleted
+	if err := gateway.Stream(context.Background(), Request{Model: "gpt", Messages: []Message{{Role: "user", Content: []ContentPart{{Text: "hello"}}}}}, func(event StreamEvent) error {
+		switch ev := event.(type) {
+		case StreamRunFailed:
+			failed = &ev
+		case StreamRunCompleted:
+			completed = &ev
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	if completed != nil || failed == nil || failed.Error.ErrorClass != ErrorClassProviderRetryable {
+		t.Fatalf("unexpected terminal events failed=%#v completed=%#v", failed, completed)
+	}
+}
+
+func TestOpenAISDKGateway_ImageEditUsesMultipartSDKPath(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/images/edits" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Fatalf("expected multipart request, got %s", r.Header.Get("Content-Type"))
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `name="image"`) || !strings.Contains(string(body), `name="prompt"`) {
+			t.Fatalf("missing multipart fields: %s", string(body))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgppbWFnZQ=="}]}`))
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGatewaySDK(OpenAIGatewayConfig{Transport: TransportConfig{APIKey: "key", BaseURL: server.URL}, Protocol: OpenAIProtocolConfig{PrimaryKind: ProtocolKindOpenAIResponses}}).(interface {
+		GenerateImage(context.Context, string, ImageGenerationRequest) (GeneratedImage, error)
+	})
+	image, err := gateway.GenerateImage(context.Background(), "gpt-image-1", ImageGenerationRequest{Prompt: "edit", InputImages: []ContentPart{{Type: "image", Attachment: &messagecontent.AttachmentRef{MimeType: "image/png"}, Data: []byte("\x89PNG\r\n\x1a\nimage")}}, ForceOpenAIImageAPI: true})
+	if err != nil {
+		t.Fatalf("GenerateImage: %v", err)
+	}
+	if image.ProviderKind != "openai" || image.MimeType != "image/png" || len(image.Bytes) == 0 {
+		t.Fatalf("unexpected image: %#v", image)
 	}
 }

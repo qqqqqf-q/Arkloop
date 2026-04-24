@@ -228,3 +228,31 @@ func TestAnthropicSDKGateway_ErrorClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestAnthropicSDKGateway_ProviderOversizeDetails(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","message":"too large"}}`))
+	}))
+	defer server.Close()
+
+	gateway := NewAnthropicGatewaySDK(AnthropicGatewayConfig{Transport: TransportConfig{APIKey: "test-key", BaseURL: server.URL}, Protocol: AnthropicProtocolConfig{Version: "2023-06-01"}})
+	var failed *StreamRunFailed
+	err := gateway.Stream(context.Background(), Request{Model: "claude-test", Messages: []Message{{Role: "user", Content: []ContentPart{{Text: "hello"}}}}}, func(event StreamEvent) error {
+		if ev, ok := event.(StreamRunFailed); ok {
+			failed = &ev
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Stream returned unexpected error: %v", err)
+	}
+	if failed == nil {
+		t.Fatalf("missing failure")
+	}
+	if failed.Error.Details["status_code"] != http.StatusRequestEntityTooLarge || failed.Error.Details["network_attempted"] != true || failed.Error.Details["oversize_phase"] != OversizePhaseProvider {
+		t.Fatalf("missing oversize details: %#v", failed.Error.Details)
+	}
+}

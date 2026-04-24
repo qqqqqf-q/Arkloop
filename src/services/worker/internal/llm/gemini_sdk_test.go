@@ -46,6 +46,9 @@ func TestGeminiSDKGateway_StreamRequestAndEvents(t *testing.T) {
 	if gen["topK"] != float64(3) {
 		t.Fatalf("missing advanced generation config: %#v", gen)
 	}
+	if _, leaked := captured["generationConfig"].(map[string]any)["tools"]; leaked {
+		t.Fatalf("typed fields leaked into generation config: %#v", gen)
+	}
 	var thinking, text bool
 	var tool *ToolCall
 	var completed *StreamRunCompleted
@@ -68,6 +71,32 @@ func TestGeminiSDKGateway_StreamRequestAndEvents(t *testing.T) {
 	}
 	if completed == nil || completed.Usage == nil || *completed.Usage.TotalTokens != 5 {
 		t.Fatalf("unexpected completion: %#v", completed)
+	}
+}
+
+func TestGeminiSDKGateway_ReplaysToolCallID(t *testing.T) {
+	call := ToolCall{ToolCallID: "call_123", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}}
+	result := Message{Role: "tool", Content: []ContentPart{{Text: `{"tool_call_id":"call_123","tool_name":"echo","result":{"ok":true}}`}}}
+	_, contents, err := toGeminiContents([]Message{{Role: "assistant", ToolCalls: []ToolCall{call}}, result})
+	if err != nil {
+		t.Fatalf("toGeminiContents: %v", err)
+	}
+	if len(contents) != 2 {
+		t.Fatalf("unexpected contents: %#v", contents)
+	}
+	assistant, err := geminiSDKContent(contents[0])
+	if err != nil {
+		t.Fatalf("assistant content: %v", err)
+	}
+	toolResult, err := geminiSDKContent(contents[1])
+	if err != nil {
+		t.Fatalf("tool result content: %v", err)
+	}
+	if got := assistant.Parts[0].FunctionCall.ID; got != "call_123" {
+		t.Fatalf("function call id lost: %q", got)
+	}
+	if got := toolResult.Parts[0].FunctionResponse.ID; got != "call_123" {
+		t.Fatalf("function response id lost: %q", got)
 	}
 }
 

@@ -1,10 +1,13 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -254,6 +257,7 @@ type openAISDKChatState struct {
 	emittedAny      bool
 	contentFiltered bool
 	inThink         bool
+	finished        bool
 }
 
 func newOpenAISDKChatState(id string, yield func(StreamEvent) error) *openAISDKChatState {
@@ -327,6 +331,7 @@ func (s *openAISDKChatState) handle(chunk openai.ChatCompletionChunk) error {
 		}
 	}
 	if choice.FinishReason != "" {
+		s.finished = true
 		if strings.EqualFold(choice.FinishReason, "content_filter") {
 			s.contentFiltered = true
 		}
@@ -358,6 +363,9 @@ func (s *openAISDKChatState) complete() error {
 	}
 	if s.contentFiltered {
 		return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: GatewayError{ErrorClass: ErrorClassPolicyDenied, Message: "OpenAI content filtered"}, Usage: s.usage, Cost: s.cost})
+	}
+	if !s.finished {
+		return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: RetryableStreamEndedError(), Usage: s.usage, Cost: s.cost})
 	}
 	if !s.emittedMain && !s.emittedTool {
 		if s.emittedAny {
@@ -523,31 +531,76 @@ func (g *openAISDKGateway) generateImageWithResponsesAPI(ctx context.Context, mo
 }
 
 func (g *openAISDKGateway) generateImageWithImagesAPI(ctx context.Context, model string, req ImageGenerationRequest) (GeneratedImage, error) {
-	payload := map[string]any{"model": strings.TrimSpace(model), "prompt": req.Prompt, "response_format": "b64_json"}
-	applyOpenAIImageOptions(payload, req)
-	var body []byte
-	if err := g.client.Execute(ctx, http.MethodPost, "images/generations", payload, &body); err != nil {
+	params := openAIImageGenerateParams(model, req)
+	response, err := g.client.Images.Generate(ctx, params)
+	if err != nil {
 		return GeneratedImage{}, openAIImageSDKError(err)
 	}
-	return parseOpenAIImagesAPIResponse(body, model)
+	return parseOpenAIImagesAPIResponse([]byte(response.RawJSON()), model)
 }
 
 func (g *openAISDKGateway) generateImageWithEditsAPI(ctx context.Context, model string, req ImageGenerationRequest) (GeneratedImage, error) {
-	images := make([]map[string]any, 0, len(req.InputImages))
+	images := make([]io.Reader, 0, len(req.InputImages))
 	for idx, image := range req.InputImages {
-		dataURL, err := partDataURL(image)
+		mimeType, data, err := modelInputImage(image)
 		if err != nil {
 			return GeneratedImage{}, GatewayError{ErrorClass: ErrorClassConfigInvalid, Message: "OpenAI image input encoding failed", Details: map[string]any{"index": idx, "reason": err.Error()}}
 		}
-		images = append(images, map[string]any{"image_url": dataURL})
+		images = append(images, openai.File(bytes.NewReader(data), openAIImageFilename(idx, mimeType), mimeType))
 	}
-	payload := map[string]any{"model": strings.TrimSpace(model), "prompt": req.Prompt, "images": images, "response_format": "b64_json"}
-	applyOpenAIImageOptions(payload, req)
-	var body []byte
-	if err := g.client.Execute(ctx, http.MethodPost, "images/edits", payload, &body); err != nil {
+	params := openAIImageEditParams(model, req, images)
+	response, err := g.client.Images.Edit(ctx, params)
+	if err != nil {
 		return GeneratedImage{}, openAIImageSDKError(err)
 	}
-	return parseOpenAIImagesAPIResponse(body, model)
+	return parseOpenAIImagesAPIResponse([]byte(response.RawJSON()), model)
+}
+
+func openAIImageGenerateParams(model string, req ImageGenerationRequest) openai.ImageGenerateParams {
+	params := openai.ImageGenerateParams{Model: openai.ImageModel(strings.TrimSpace(model)), Prompt: req.Prompt, ResponseFormat: openai.ImageGenerateParamsResponseFormatB64JSON}
+	if req.Size != "" {
+		params.Size = openai.ImageGenerateParamsSize(req.Size)
+	}
+	if req.Quality != "" {
+		params.Quality = openai.ImageGenerateParamsQuality(req.Quality)
+	}
+	if req.Background != "" {
+		params.Background = openai.ImageGenerateParamsBackground(req.Background)
+	}
+	if req.OutputFormat != "" {
+		params.OutputFormat = openai.ImageGenerateParamsOutputFormat(req.OutputFormat)
+	}
+	return params
+}
+
+func openAIImageEditParams(model string, req ImageGenerationRequest, images []io.Reader) openai.ImageEditParams {
+	params := openai.ImageEditParams{Model: openai.ImageModel(strings.TrimSpace(model)), Prompt: req.Prompt, ResponseFormat: openai.ImageEditParamsResponseFormatB64JSON}
+	if len(images) == 1 {
+		params.Image = openai.ImageEditParamsImageUnion{OfFile: images[0]}
+	} else {
+		params.Image = openai.ImageEditParamsImageUnion{OfFileArray: images}
+	}
+	if req.Size != "" {
+		params.Size = openai.ImageEditParamsSize(req.Size)
+	}
+	if req.Quality != "" {
+		params.Quality = openai.ImageEditParamsQuality(req.Quality)
+	}
+	if req.Background != "" {
+		params.Background = openai.ImageEditParamsBackground(req.Background)
+	}
+	if req.OutputFormat != "" {
+		params.OutputFormat = openai.ImageEditParamsOutputFormat(req.OutputFormat)
+	}
+	return params
+}
+
+func openAIImageFilename(idx int, mimeType string) string {
+	extensions, err := mime.ExtensionsByType(mimeType)
+	if err == nil && len(extensions) > 0 {
+		return fmt.Sprintf("image_%d%s", idx, extensions[0])
+	}
+	return fmt.Sprintf("image_%d", idx)
 }
 
 func openAIImageSDKError(err error) GatewayError {

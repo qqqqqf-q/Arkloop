@@ -144,13 +144,45 @@ func geminiSDKRequest(payload map[string]any) ([]*genai.Content, *genai.Generate
 	if err != nil {
 		return nil, nil, err
 	}
-	config := &genai.GenerateContentConfig{HTTPOptions: &genai.HTTPOptions{ExtraBody: copyAnyMap(payload)}}
+	config, err := geminiSDKGenerateContentConfig(payload)
+	if err != nil {
+		return nil, nil, err
+	}
 	if system, ok := payload["systemInstruction"].(map[string]any); ok {
 		config.SystemInstruction, _ = geminiSDKContent(system)
 	}
-	delete(config.HTTPOptions.ExtraBody, "contents")
-	delete(config.HTTPOptions.ExtraBody, "systemInstruction")
 	return contents, config, nil
+}
+
+func geminiSDKGenerateContentConfig(payload map[string]any) (*genai.GenerateContentConfig, error) {
+	config := &genai.GenerateContentConfig{}
+	extraBody := copyAnyMap(payload)
+	for _, key := range []string{"contents", "systemInstruction", "generationConfig", "tools", "toolConfig"} {
+		delete(extraBody, key)
+	}
+	if len(extraBody) > 0 {
+		config.HTTPOptions = &genai.HTTPOptions{ExtraBody: extraBody}
+	}
+	if generationConfig, ok := payload["generationConfig"].(map[string]any); ok {
+		if err := genai.InternalMapToStruct(generationConfig, config); err != nil {
+			return nil, err
+		}
+	}
+	if rawTools, ok := payload["tools"].([]map[string]any); ok {
+		tools, err := geminiSDKTools(rawTools)
+		if err != nil {
+			return nil, err
+		}
+		config.Tools = tools
+	}
+	if rawToolConfig, ok := payload["toolConfig"].(map[string]any); ok {
+		toolConfig, err := geminiSDKToolConfig(rawToolConfig)
+		if err != nil {
+			return nil, err
+		}
+		config.ToolConfig = toolConfig
+	}
+	return config, nil
 }
 
 func geminiSDKContents(raw any) ([]*genai.Content, error) {
@@ -195,16 +227,52 @@ func geminiSDKPart(raw map[string]any) (*genai.Part, error) {
 		return &genai.Part{InlineData: &genai.Blob{MIMEType: mime, Data: decoded}}, nil
 	}
 	if fc, ok := raw["functionCall"].(map[string]any); ok {
+		id, _ := fc["id"].(string)
 		name, _ := fc["name"].(string)
 		args, _ := fc["args"].(map[string]any)
-		return &genai.Part{FunctionCall: &genai.FunctionCall{Name: name, Args: mapOrEmpty(args)}}, nil
+		return &genai.Part{FunctionCall: &genai.FunctionCall{ID: strings.TrimSpace(id), Name: name, Args: mapOrEmpty(args)}}, nil
 	}
 	if fr, ok := raw["functionResponse"].(map[string]any); ok {
+		id, _ := fr["id"].(string)
 		name, _ := fr["name"].(string)
 		response, _ := fr["response"].(map[string]any)
-		return &genai.Part{FunctionResponse: &genai.FunctionResponse{Name: name, Response: mapOrEmpty(response)}}, nil
+		return &genai.Part{FunctionResponse: &genai.FunctionResponse{ID: strings.TrimSpace(id), Name: name, Response: mapOrEmpty(response)}}, nil
 	}
 	return &genai.Part{Text: ""}, nil
+}
+
+func geminiSDKTools(rawTools []map[string]any) ([]*genai.Tool, error) {
+	tools := make([]*genai.Tool, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		rawDecls, _ := rawTool["functionDeclarations"].([]map[string]any)
+		if len(rawDecls) == 0 {
+			continue
+		}
+		tool := &genai.Tool{FunctionDeclarations: make([]*genai.FunctionDeclaration, 0, len(rawDecls))}
+		for _, rawDecl := range rawDecls {
+			decl := &genai.FunctionDeclaration{}
+			if name, _ := rawDecl["name"].(string); strings.TrimSpace(name) != "" {
+				decl.Name = strings.TrimSpace(name)
+			}
+			if description, _ := rawDecl["description"].(string); strings.TrimSpace(description) != "" {
+				decl.Description = description
+			}
+			if schema, ok := rawDecl["parametersJsonSchema"].(map[string]any); ok && len(schema) > 0 {
+				decl.ParametersJsonSchema = schema
+			}
+			tool.FunctionDeclarations = append(tool.FunctionDeclarations, decl)
+		}
+		tools = append(tools, tool)
+	}
+	return tools, nil
+}
+
+func geminiSDKToolConfig(raw map[string]any) (*genai.ToolConfig, error) {
+	config := &genai.ToolConfig{}
+	if err := genai.InternalMapToStruct(raw, config); err != nil {
+		return nil, err
+	}
+	return config, nil
 }
 
 func decodeBase64String(data string) ([]byte, error) {
@@ -345,6 +413,9 @@ func (g *geminiSDKGateway) GenerateImage(ctx context.Context, model string, req 
 				mimeType := strings.TrimSpace(part.InlineData.MIMEType)
 				if mimeType == "" {
 					mimeType = detectGeneratedImageMime(part.InlineData.Data)
+				}
+				if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
+					return GeneratedImage{}, GatewayError{ErrorClass: ErrorClassProviderNonRetryable, Message: "Gemini returned non-image content for image generation", Details: map[string]any{"mime_type": mimeType}}
 				}
 				return GeneratedImage{Bytes: part.InlineData.Data, MimeType: mimeType, ProviderKind: "gemini", Model: model}, nil
 			}

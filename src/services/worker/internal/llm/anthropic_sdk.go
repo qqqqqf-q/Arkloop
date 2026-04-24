@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -186,7 +187,7 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 		}
 	}
 	if err := stream.Err(); err != nil {
-		if failErr := state.fail(anthropicSDKErrorToGateway(err)); failErr != nil && !errors.Is(failErr, errAnthropicStreamTerminated) {
+		if failErr := state.fail(anthropicSDKErrorToGateway(err, providerPayloadBytes)); failErr != nil && !errors.Is(failErr, errAnthropicStreamTerminated) {
 			return failErr
 		}
 		return nil
@@ -772,7 +773,7 @@ func anthropicSDKCostFromRaw(raw string) *Cost {
 	return parseResponsesCost(root)
 }
 
-func anthropicSDKErrorToGateway(err error) GatewayError {
+func anthropicSDKErrorToGateway(err error, payloadBytes int) GatewayError {
 	if errors.Is(err, errAnthropicStreamTerminated) {
 		return GatewayError{ErrorClass: ErrorClassInternalStreamEnded, Message: err.Error()}
 	}
@@ -784,6 +785,10 @@ func anthropicSDKErrorToGateway(err error) GatewayError {
 		}
 		if errorType := strings.TrimSpace(string(apiErr.Type())); errorType != "" {
 			details["anthropic_error_type"] = errorType
+		}
+		if apiErr.StatusCode == http.StatusRequestEntityTooLarge {
+			details["network_attempted"] = true
+			details = OversizeFailureDetails(payloadBytes, OversizePhaseProvider, details)
 		}
 		return GatewayError{ErrorClass: anthropicSDKErrorClass(apiErr), Message: message, Details: details}
 	}

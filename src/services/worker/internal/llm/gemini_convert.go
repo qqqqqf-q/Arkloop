@@ -139,6 +139,7 @@ func toGeminiContents(messages []Message) (systemInstruction map[string]any, con
 				call = CanonicalToolCall(call)
 				parts = append(parts, map[string]any{
 					"functionCall": map[string]any{
+						"id":   call.ToolCallID,
 						"name": call.ToolName,
 						"args": mapOrEmpty(call.ArgumentsJSON),
 					},
@@ -206,6 +207,7 @@ func geminiToolResponsePart(text string) (map[string]any, error) {
 	}
 	toolName, _ := envelope["tool_name"].(string)
 	toolName = CanonicalToolName(toolName)
+	toolCallID, _ := envelope["tool_call_id"].(string)
 	if toolName == "" {
 		// 降级：从 tool_call_id 中能读到名字的情况
 		toolName = "unknown"
@@ -223,6 +225,7 @@ func geminiToolResponsePart(text string) (map[string]any, error) {
 
 	return map[string]any{
 		"functionResponse": map[string]any{
+			"id":       strings.TrimSpace(toolCallID),
 			"name":     toolName,
 			"response": response,
 		},
