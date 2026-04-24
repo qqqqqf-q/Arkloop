@@ -4,6 +4,7 @@ package lsp
 
 import (
 	"context"
+	"time"
 
 	"arkloop/services/worker/internal/pipeline"
 )
@@ -17,6 +18,9 @@ func NewDiagnosticMiddleware(manager *Manager) pipeline.RunMiddleware {
 		}
 		if rc.WorkDir != "" && rc.WorkDir != manager.RootDir() {
 			manager.SetRootDir(rc.WorkDir)
+		}
+		if manager.DiagRegistry().HasRecentEdits() {
+			time.Sleep(ActiveWaitDelay)
 		}
 		diags := manager.GetDiagnostics()
 		if diags != "" {
