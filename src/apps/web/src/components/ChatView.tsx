@@ -161,64 +161,6 @@ function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope)
     && !!left.searchMode === !!right.searchMode
 }
 
-function buildAssistantTurnFromReplayData(
-  events: MsgRunEvent[],
-  searchSteps: MessageSearchStepRef[],
-  widgets: WidgetRef[],
-  codeExecutions: CodeExecutionRef[],
-): AssistantTurnUi {
-  const turn = buildAssistantTurnFromRunEvents(events)
-  if (turn.segments.length > 0) return turn
-
-  const copItems: Extract<AssistantTurnSegment, { type: 'cop' }>['items'] = []
-
-  for (const step of searchSteps) {
-    if (step.kind !== 'searching') continue
-    copItems.push({
-      kind: 'call',
-      call: {
-        toolCallId: step.id,
-        toolName: 'web_search',
-        arguments: step.queries?.length ? { query: step.queries[0] } : {},
-        result: step.sources?.length ? { results: step.sources } : undefined,
-      },
-      seq: step.seq ?? 0,
-    })
-  }
-
-  for (const widget of widgets) {
-    copItems.push({
-      kind: 'call',
-      call: {
-        toolCallId: widget.id,
-        toolName: 'show_widget',
-        arguments: { title: widget.title, widget_code: widget.html },
-      },
-      seq: 0,
-    })
-  }
-
-  for (const execution of codeExecutions) {
-    copItems.push({
-      kind: 'call',
-      call: {
-        toolCallId: execution.id,
-        toolName: execution.language === 'python' ? 'python_execute' : 'exec_command',
-        arguments: execution.language === 'python' ? { code: execution.code } : { command: execution.code },
-        result: execution.output
-          ? { stdout: execution.output, exit_code: execution.status === 'success' ? 0 : 1 }
-          : undefined,
-        errorClass: execution.status === 'failed' ? execution.errorMessage : undefined,
-      },
-      seq: execution.seq ?? 0,
-    })
-  }
-
-  if (copItems.length === 0) return turn
-
-  return { segments: [{ type: 'cop', title: null, items: copItems }] }
-}
-
 function FailedRunRetryCard({
   title,
   actionLabel,
@@ -1182,7 +1124,7 @@ export function ChatView() {
             const replaySearchSteps = finalizeSearchSteps(
               replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
             )
-            let replayTurn = buildAssistantTurnFromReplayData(replayEvents, replaySearchSteps, replayWidgets, replayExecs)
+            let replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
@@ -1239,12 +1181,7 @@ export function ChatView() {
               }
             }
             if (lastAssistant && replayAssistantTurnNeeded) {
-              replayTurn = buildAssistantTurnFromReplayData(
-                replayEvents,
-                searchStepsMap.get(lastAssistant.id) ?? replaySearchSteps,
-                widgetsMap.get(lastAssistant.id) ?? replayWidgets,
-                codeExecMap.get(lastAssistant.id) ?? replayExecs,
-              )
+              replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
