@@ -83,7 +83,6 @@ func TestGeminiSDKGateway_GenerateImageUsesSDKGatePath(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := ResolvedGatewayConfig{ProtocolKind: ProtocolKindGeminiGenerateContent, Model: "gemini-image", Transport: TransportConfig{APIKey: "key", BaseURL: server.URL}, Gemini: &GeminiProtocolConfig{APIVersion: "v1beta"}}
-	t.Setenv("ARKLOOP_GEMINI_SDK_ENABLED", "1")
 	image, err := GenerateImageWithResolvedConfig(context.Background(), cfg, ImageGenerationRequest{Prompt: "draw"})
 	if err != nil {
 		t.Fatalf("GenerateImageWithResolvedConfig: %v", err)
