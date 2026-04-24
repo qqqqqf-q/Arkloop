@@ -136,14 +136,36 @@ describe('copTimelinePayloadForSegment', () => {
       { sources: [] },
     )
     expect(r.genericTools).toEqual([
-      {
+      expect.objectContaining({
         id: 'tool_1',
         toolName: 'fetch_url',
         label: 'fetch_url',
         status: 'running',
         seq: 1,
+      }),
+    ])
+  })
+
+  it('generic fallback 只显示结果摘要，不裸露 raw JSON', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [{ kind: 'call', call: { toolCallId: 'tool_1', toolName: 'fetch_url', arguments: {}, result: { a: 1, b: 2 } }, seq: 1 }],
+      },
+      { sources: [] },
+    )
+    expect(r.genericTools).toEqual([
+      {
+        id: 'tool_1',
+        toolName: 'fetch_url',
+        label: 'fetch_url',
+        output: 'returned object · 2 keys',
+        status: 'success',
+        seq: 1,
       },
     ])
+    expect(r.genericTools?.[0]?.output).not.toContain('{"a"')
   })
 
   it('show_widget、create_artifact、browser 不进入 generic fallback', () => {

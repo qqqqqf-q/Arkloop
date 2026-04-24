@@ -12,6 +12,62 @@ type Props = {
   url?: string
 }
 
+type SummaryProps = {
+  command?: string
+  url?: string
+  output?: string
+  exitCode?: number
+}
+
+export function BrowserActionSummaryCard({ command, url, output, exitCode }: SummaryProps) {
+  const displayUrl = url || extractUrlFromCommand(command)
+  const failed = typeof exitCode === 'number' && exitCode !== 0
+  const statusText = typeof exitCode === 'number'
+    ? failed ? `failed · exit ${exitCode}` : `completed · exit ${exitCode}`
+    : 'completed'
+  const outputText = output?.trim()
+  return (
+    <div style={{
+      borderRadius: '10px',
+      border: '0.5px solid var(--c-border-subtle)',
+      background: 'var(--c-bg-page)',
+      maxWidth: '560px',
+      width: '100%',
+      overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '8px 10px',
+        background: 'var(--c-bg-sub)',
+      }}>
+        <Globe size={12} style={{ color: failed ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-muted)', flexShrink: 0 }} />
+        <span style={{ fontSize: '12px', color: 'var(--c-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {displayUrl || command || 'browser action'}
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: '11px', color: failed ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-muted)', flexShrink: 0 }}>
+          {statusText}
+        </span>
+      </div>
+      {outputText && (
+        <pre style={{
+          margin: 0,
+          padding: '8px 10px 10px',
+          color: failed ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)',
+          fontSize: '11px',
+          lineHeight: 1.45,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          fontFamily: 'var(--font-mono, monospace)',
+        }}>
+          {outputText}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export function BrowserScreenshotCard({ artifact, accessToken, command, url }: Props) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState(false)

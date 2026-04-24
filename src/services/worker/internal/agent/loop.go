@@ -795,10 +795,14 @@ func (l *Loop) executePendingToolCalls(
 	}
 
 	if l.shouldSerializeToolBatch(runCtx, pending, regularIndexes) {
-		for _, idx := range regularIndexes {
+		for pos, idx := range regularIndexes {
 			call := pending[idx]
 			result := l.executeToolCall(ctx, runCtx, call, emitter, yield)
 			results[idx] = pendingToolExecution{Call: call, Result: result}
+			if result.Error != nil {
+				markSkippedToolCalls(results, pending, regularIndexes, pos+1)
+				break
+			}
 		}
 		for _, idx := range regularIndexes {
 			updateContinuationTracking(continuation, results[idx].Call, results[idx].Result)

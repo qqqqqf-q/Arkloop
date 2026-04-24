@@ -70,9 +70,9 @@ func TestNewGatewayFromResolvedConfig_AnthropicUsesExplicitPathBase(t *testing.T
 		t.Fatalf("NewGatewayFromResolvedConfig returned error: %v", err)
 	}
 
-	anthropicGateway, ok := gateway.(*AnthropicGateway)
+	anthropicGateway, ok := gateway.(*anthropicSDKGateway)
 	if !ok {
-		t.Fatalf("expected AnthropicGateway, got %T", gateway)
+		t.Fatalf("expected anthropicSDKGateway, got %T", gateway)
 	}
 	if anthropicGateway.ProtocolKind() != ProtocolKindAnthropicMessages {
 		t.Fatalf("unexpected protocol kind: %s", anthropicGateway.ProtocolKind())

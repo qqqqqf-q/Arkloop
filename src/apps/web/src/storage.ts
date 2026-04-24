@@ -708,6 +708,7 @@ export type CodeExecutionRef = {
   mode?: 'buffered' | 'follow' | 'stdin' | 'pty'
   code?: string
   output?: string
+  emptyLabel?: string
   exitCode?: number
   processRef?: string
   cursor?: string
@@ -732,6 +733,7 @@ function isCodeExecutionRef(value: unknown): value is CodeExecutionRef {
   if (!isCodeExecutionStatus(item.status)) return false
   if (item.code != null && typeof item.code !== 'string') return false
   if (item.output != null && typeof item.output !== 'string') return false
+  if (item.emptyLabel != null && typeof item.emptyLabel !== 'string') return false
   if (item.exitCode != null && typeof item.exitCode !== 'number') return false
   if (item.processRef != null && typeof item.processRef !== 'string') return false
   if (item.cursor != null && typeof item.cursor !== 'string') return false
@@ -1212,6 +1214,7 @@ export type FileOpRef = {
   toolName: string
   label: string
   output?: string
+  emptyLabel?: string
   status: 'running' | 'success' | 'failed'
   errorMessage?: string
   seq?: number
@@ -1341,6 +1344,7 @@ export type WebFetchRef = {
   title?: string
   status: 'fetching' | 'done' | 'failed'
   statusCode?: number
+  errorMessage?: string
   seq?: number
 }
 

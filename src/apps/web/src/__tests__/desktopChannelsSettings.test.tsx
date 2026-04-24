@@ -285,7 +285,7 @@ describe('DesktopChannelsSettings', () => {
 
     expect(container.textContent).toContain('Telegram')
     expect(container.textContent).toContain('Discord')
-    expect(container.textContent).toContain('允许的 Telegram 用户')
+    expect(container.textContent).toContain('私聊访问控制')
 
     const discordTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Discord'))
     expect(discordTab).toBeTruthy()

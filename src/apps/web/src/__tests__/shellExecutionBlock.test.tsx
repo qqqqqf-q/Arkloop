@@ -38,6 +38,7 @@ describe('ExecutionCard shell variant', () => {
   beforeEach(() => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     const storage = createMemoryStorage()
+    storage.setItem('arkloop:web:locale', 'zh')
     Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true })
     Object.defineProperty(window, 'localStorage', { value: storage, configurable: true })
     Object.defineProperty(window, 'scrollTo', { value: vi.fn(), configurable: true })
@@ -159,6 +160,7 @@ describe('ExecutionCard fileop variant', () => {
   beforeEach(() => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     const storage = createMemoryStorage()
+    storage.setItem('arkloop:web:locale', 'zh')
     Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true })
     Object.defineProperty(window, 'localStorage', { value: storage, configurable: true })
     Object.defineProperty(window, 'scrollTo', { value: vi.fn(), configurable: true })
@@ -207,6 +209,42 @@ describe('ExecutionCard fileop variant', () => {
     expect(container.textContent).toContain('(no matches)')
     expect(container.querySelector('.execution-card-status-inline')).not.toBeNull()
     expect(container.querySelector('.execution-card-status-footer')).toBeNull()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('无输出时优先显示工具语义空状态', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ExecutionCard
+            variant="fileop"
+            toolName="read_file"
+            label="Read ChatView.tsx"
+            emptyLabel="Read completed; no displayable content returned"
+            status="success"
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    const trigger = container.querySelector('[role="button"]')
+    expect(trigger).not.toBeNull()
+    if (!trigger) return
+
+    await act(async () => {
+      trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain('Read completed; no displayable content returned')
+    expect(container.textContent).not.toContain('无输出')
 
     act(() => {
       root.unmount()
