@@ -66,6 +66,10 @@ linux:
     - from: sidecar-bin/desktop-linux-${arch}
       to: sidecar/desktop
 
+rpm:
+  fpm:
+    - --rpm-rpmbuild-define=_build_id_links none
+
 win:
   artifactName: "${productName}-win-${arch}.${ext}"
   target:
