@@ -1819,6 +1819,37 @@ func (l *Loop) runSingleTurn(
 		}.ToDataJSON(), nil, nil))
 	}
 
+	appendAssistantRollout := func() {
+		if runCtx.RolloutRecorder == nil || !turnHasRecoverableProgressData(strings.Join(assistantChunks, ""), assistantMessage, toolCalls, toolResults) {
+			return
+		}
+		var contentPartsJSON json.RawMessage
+		if assistant := assistantMessageOrFallback(assistantMessage, assistantChunks); len(assistant.Content) > 0 {
+			contentParts := make([]map[string]any, 0, len(assistant.Content))
+			for _, part := range assistant.Content {
+				contentParts = append(contentParts, part.ToJSON())
+			}
+			var marshalErr error
+			contentPartsJSON, marshalErr = json.Marshal(contentParts)
+			if marshalErr != nil {
+				slog.WarnContext(ctx, "rollout: failed to marshal assistant content parts", "err", marshalErr)
+			}
+		}
+		var tcJSON json.RawMessage
+		if len(toolCalls) > 0 {
+			var marshalErr error
+			tcJSON, marshalErr = json.Marshal(toolCalls)
+			if marshalErr != nil {
+				slog.WarnContext(ctx, "rollout: failed to marshal assistant tool_calls", "err", marshalErr)
+			}
+		}
+		appendRollout(ctx, runCtx.RolloutRecorder, MakeAssistantMessage(
+			llm.VisibleMessageText(assistantMessageOrFallback(assistantMessage, assistantChunks)),
+			contentPartsJSON,
+			tcJSON,
+		))
+	}
+
 	err := l.gateway.Stream(ctx, request, func(item llm.StreamEvent) error {
 		if cancelled(runCtx) {
 			cancelledEarly = true
@@ -1906,37 +1937,6 @@ func (l *Loop) runSingleTurn(
 	})
 	if err != nil && err != stopErr {
 		return turnResult{}, err
-	}
-
-	appendAssistantRollout := func() {
-		if runCtx.RolloutRecorder == nil || !turnHasRecoverableProgressData(strings.Join(assistantChunks, ""), assistantMessage, toolCalls, toolResults) {
-			return
-		}
-		var contentPartsJSON json.RawMessage
-		if assistant := assistantMessageOrFallback(assistantMessage, assistantChunks); len(assistant.Content) > 0 {
-			contentParts := make([]map[string]any, 0, len(assistant.Content))
-			for _, part := range assistant.Content {
-				contentParts = append(contentParts, part.ToJSON())
-			}
-			var marshalErr error
-			contentPartsJSON, marshalErr = json.Marshal(contentParts)
-			if marshalErr != nil {
-				slog.WarnContext(ctx, "rollout: failed to marshal assistant content parts", "err", marshalErr)
-			}
-		}
-		var tcJSON json.RawMessage
-		if len(toolCalls) > 0 {
-			var marshalErr error
-			tcJSON, marshalErr = json.Marshal(toolCalls)
-			if marshalErr != nil {
-				slog.WarnContext(ctx, "rollout: failed to marshal assistant tool_calls", "err", marshalErr)
-			}
-		}
-		appendRollout(ctx, runCtx.RolloutRecorder, MakeAssistantMessage(
-			llm.VisibleMessageText(assistantMessageOrFallback(assistantMessage, assistantChunks)),
-			contentPartsJSON,
-			tcJSON,
-		))
 	}
 
 	if cancelledEarly {
