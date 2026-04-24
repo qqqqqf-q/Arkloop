@@ -72,7 +72,7 @@ function fallbackWebSearchStepsForSegment(
   const fallbackSteps: WebSearchPhaseStep[] = []
   let lastSearchStepId: string | null = null
   let lastSearchStepSeq: number | undefined
-  let hasReviewingStep = false
+  let hasScopedSources = false
 
   for (const item of segment.items) {
     if (item.kind !== 'call') continue
@@ -90,24 +90,17 @@ function fallbackWebSearchStepsForSegment(
       status: searchStatus,
       queries: webSearchQueriesFromArguments(call.arguments),
       seq,
+      ...(resultSources ? { sources: resultSources } : {}),
     })
     lastSearchStepId = call.toolCallId
     lastSearchStepSeq = seq
 
     if (resultSources && resultSources.length > 0) {
-      fallbackSteps.push({
-        id: `${call.toolCallId}::reviewing`,
-        kind: 'reviewing',
-        label: 'Reviewing sources',
-        status: searchStatus,
-        sources: resultSources,
-        seq: typeof seq === 'number' ? seq + 0.5 : undefined,
-      })
-      hasReviewingStep = true
+      hasScopedSources = true
     }
   }
 
-  if (!hasReviewingStep && globalSources.length > 0 && lastSearchStepId) {
+  if (!hasScopedSources && globalSources.length > 0 && lastSearchStepId) {
     fallbackSteps.push({
       id: `${lastSearchStepId}::reviewing`,
       kind: 'reviewing',
