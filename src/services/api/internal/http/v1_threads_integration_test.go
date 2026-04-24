@@ -345,6 +345,30 @@ func TestThreadContinueCreatesResumedRun(t *testing.T) {
 	}
 	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
 	runID := uuid.MustParse(runPayload.RunID)
+	parentModel := "provider^previous-model"
+	parentPersonaID := "resume-persona@1"
+	parentRole := "worker"
+	parentWorkDir := "/workspace/project"
+	parentReasoningMode := "high"
+	if _, err := pool.Exec(ctx,
+		`UPDATE run_events
+		    SET data_json = data_json || jsonb_build_object(
+		        'model', $2,
+		        'persona_id', $3,
+		        'role', $4,
+		        'work_dir', $5,
+		        'reasoning_mode', $6
+		    )
+		  WHERE run_id = $1 AND type = 'run.started'`,
+		runID,
+		parentModel,
+		parentPersonaID,
+		parentRole,
+		parentWorkDir,
+		parentReasoningMode,
+	); err != nil {
+		t.Fatalf("patch parent started event: %v", err)
+	}
 	cancelledAt := time.Now().UTC()
 
 	if _, err := pool.Exec(ctx,
@@ -401,6 +425,200 @@ func TestThreadContinueCreatesResumedRun(t *testing.T) {
 	}
 	if got, _ := startedData["continuation_source"].(string); got != "user_followup" {
 		t.Fatalf("unexpected continuation_source: %#v", startedData["continuation_source"])
+	}
+	if got, _ := startedData["model"].(string); got != parentModel {
+		t.Fatalf("unexpected continue model in started event: %#v", startedData["model"])
+	}
+	if got, _ := startedData["persona_id"].(string); got != parentPersonaID {
+		t.Fatalf("unexpected continue persona_id in started event: %#v", startedData["persona_id"])
+	}
+	if got, _ := startedData["role"].(string); got != parentRole {
+		t.Fatalf("unexpected continue role in started event: %#v", startedData["role"])
+	}
+	if got, _ := startedData["work_dir"].(string); got != parentWorkDir {
+		t.Fatalf("unexpected continue work_dir in started event: %#v", startedData["work_dir"])
+	}
+	if got, _ := startedData["reasoning_mode"].(string); got != parentReasoningMode {
+		t.Fatalf("unexpected continue reasoning_mode in started event: %#v", startedData["reasoning_mode"])
+	}
+
+	var jobPayload []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT payload_json FROM jobs WHERE payload_json->>'run_id' = $1 LIMIT 1`,
+		continuePayload.RunID,
+	).Scan(&jobPayload); err != nil {
+		t.Fatalf("load continue job payload: %v", err)
+	}
+	var jobJSON map[string]any
+	if err := json.Unmarshal(jobPayload, &jobJSON); err != nil {
+		t.Fatalf("decode continue job payload: %v raw=%s", err, string(jobPayload))
+	}
+	payloadObj, ok := jobJSON["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected continue job payload shape: %#v", jobJSON["payload"])
+	}
+	if got, _ := payloadObj["model"].(string); got != parentModel {
+		t.Fatalf("unexpected continue model in job payload: %#v", payloadObj["model"])
+	}
+	if got, _ := payloadObj["persona_id"].(string); got != parentPersonaID {
+		t.Fatalf("unexpected continue persona_id in job payload: %#v", payloadObj["persona_id"])
+	}
+	if got, _ := payloadObj["role"].(string); got != parentRole {
+		t.Fatalf("unexpected continue role in job payload: %#v", payloadObj["role"])
+	}
+	if got, _ := payloadObj["work_dir"].(string); got != parentWorkDir {
+		t.Fatalf("unexpected continue work_dir in job payload: %#v", payloadObj["work_dir"])
+	}
+	if got, _ := payloadObj["reasoning_mode"].(string); got != parentReasoningMode {
+		t.Fatalf("unexpected continue reasoning_mode in job payload: %#v", payloadObj["reasoning_mode"])
+	}
+}
+
+func TestThreadContinueCreatesResumedRunFromFailedRunWithOutput(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_continue_failed")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	messageRepo, _ := data.NewMessageRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		MessageRepo:           messageRepo,
+		RunEventRepo:          runRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	registerResp := doJSON(
+		handler,
+		nethttp.MethodPost,
+		"/v1/auth/register",
+		map[string]any{"login": "alice_continue_failed", "password": "pwd12345", "email": "alice_continue_failed@test.com"},
+		nil,
+	)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "continue failed"}, headers)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden)
+		 VALUES ($1, $2, $3, $4, 'user', $5, '{}'::jsonb, false)`,
+		uuid.New(),
+		accountID,
+		threadID,
+		userID,
+		"hello continue failed",
+	); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+
+	runResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, headers)
+	if runResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create run: %d body=%s", runResp.Code, runResp.Body.String())
+	}
+	runPayload := decodeJSONBody[createRunResponse](t, runResp.Body.Bytes())
+	runID := uuid.MustParse(runPayload.RunID)
+	failedAt := time.Now().UTC()
+	parentModel := "provider^persisted-model"
+
+	if _, err := pool.Exec(ctx,
+		`UPDATE runs
+		    SET status = 'failed',
+		        status_updated_at = $2,
+		        failed_at = $2,
+		        model = $3
+		  WHERE id = $1`,
+		runID,
+		failedAt,
+		parentModel,
+	); err != nil {
+		t.Fatalf("mark run failed: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO run_events (run_id, seq, type, data_json, ts)
+		 VALUES ($1, 2, 'message.delta', '{"role":"assistant","content_delta":"partial"}'::jsonb, $2),
+		        ($1, 3, 'run.failed', '{"error_class":"provider.non_retryable"}'::jsonb, $2)`,
+		runID,
+		failedAt,
+	); err != nil {
+		t.Fatalf("insert failed continue events: %v", err)
+	}
+
+	continueResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+":continue", map[string]any{"run_id": runID.String()}, headers)
+	if continueResp.Code != nethttp.StatusCreated {
+		t.Fatalf("continue failed run: %d body=%s", continueResp.Code, continueResp.Body.String())
+	}
+	continuePayload := decodeJSONBody[createRunResponse](t, continueResp.Body.Bytes())
+
+	var resumeFromRunID *uuid.UUID
+	if err := pool.QueryRow(ctx,
+		`SELECT resume_from_run_id FROM runs WHERE id = $1`,
+		continuePayload.RunID,
+	).Scan(&resumeFromRunID); err != nil {
+		t.Fatalf("load resumed run: %v", err)
+	}
+	if resumeFromRunID == nil || *resumeFromRunID != runID {
+		t.Fatalf("unexpected resume_from_run_id: %#v want %s", resumeFromRunID, runID)
+	}
+
+	var startedJSON []byte
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json FROM run_events WHERE run_id = $1 AND type = 'run.started' LIMIT 1`,
+		continuePayload.RunID,
+	).Scan(&startedJSON); err != nil {
+		t.Fatalf("load continue started event: %v", err)
+	}
+	var startedData map[string]any
+	if err := json.Unmarshal(startedJSON, &startedData); err != nil {
+		t.Fatalf("decode continue started event: %v", err)
+	}
+	if got, _ := startedData["model"].(string); got != parentModel {
+		t.Fatalf("unexpected continue model in started event: %#v", startedData["model"])
 	}
 }
 
