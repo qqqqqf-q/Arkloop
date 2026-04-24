@@ -8,6 +8,7 @@ import type { SettingsTab } from './SettingsModal'
 import {
   DEFAULT_PERSONA_KEY,
   SEARCH_PERSONA_KEY,
+  WORK_PERSONA_KEY,
   type InputDraftScope,
   readSelectedPersonaKeyFromStorage,
   writeSelectedPersonaKeyToStorage,
@@ -19,6 +20,8 @@ import {
   writeThreadReasoningMode,
   readInputDraftText,
   writeInputDraftText,
+  readInputHistory,
+  appendInputHistory,
 } from '../storage'
 import type { AppMode } from '../storage'
 import {
@@ -138,9 +141,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [draft, setDraft] = useState('')
   const draftRef = useLatest(draft)
 
+  const historyRef = useRef<string[]>([])
+  const historyCursorRef = useRef(-1)
+  const historyDraftRef = useRef('')
+
+  const resetHistoryCursor = useCallback(() => {
+    historyCursorRef.current = -1
+    historyDraftRef.current = ''
+  }, [])
+
   useImperativeHandle(ref, () => ({
-    clear: () => setDraft(''),
-    setValue: (text: string) => setDraft(text),
+    clear: () => {
+      resetHistoryCursor()
+      setDraft('')
+    },
+    setValue: (text: string) => {
+      resetHistoryCursor()
+      setDraft(text)
+    },
     getValue: () => draftRef.current,
   }))
 
@@ -259,7 +277,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     writeSelectedReasoningMode(mode)
   }, [workThreadId])
 
-  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY
+  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY && selectedPersonaKey !== WORK_PERSONA_KEY
   const showSendButton = draft.trim().length > 0 || attachments.length > 0
 
   useEffect(() => {
@@ -276,9 +294,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       writeInputDraftText(draftScope, nextDraft)
     }
     prevDraftScopeRef.current = draftScope
+    historyRef.current = readInputHistory(draftScope)
+    resetHistoryCursor()
     skipDraftPersistRef.current = true
     setDraft(nextDraft)
-  }, [draftScope, draftScopeKey])
+  }, [draftScope, draftScopeKey, resetHistoryCursor])
 
   useEffect(() => {
     if (skipDraftPersistRef.current) {
@@ -321,7 +341,68 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return () => cancelAnimationFrame(id)
   }, [persistSelectedPersona, searchMode, selectedPersonaKey])
 
+  // sync persona when appMode changes
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      if (appMode === 'work' && selectedPersonaKey !== WORK_PERSONA_KEY) {
+        persistSelectedPersona(WORK_PERSONA_KEY)
+      } else if (appMode !== 'work' && selectedPersonaKey === WORK_PERSONA_KEY) {
+        persistSelectedPersona(DEFAULT_PERSONA_KEY)
+      }
+    })
+    return () => cancelAnimationFrame(id)
+  }, [persistSelectedPersona, appMode, selectedPersonaKey])
+
+  const applyHistoryValue = (value: string, cursor: 'start' | 'end') => {
+    skipDraftPersistRef.current = true
+    setDraft(value)
+    requestAnimationFrame(() => {
+      const target = textareaRef.current
+      if (!target) return
+      const position = cursor === 'start' ? 0 : target.value.length
+      target.setSelectionRange(position, position)
+    })
+  }
+
+  const handleHistoryNavigation = (direction: 'up' | 'down', target: HTMLTextAreaElement): boolean => {
+    if (direction === 'up' && target.selectionStart !== 0) return false
+    if (direction === 'down' && target.selectionEnd !== target.value.length) return false
+
+    const history = historyRef.current
+    if (history.length === 0) return false
+
+    if (direction === 'up') {
+      if (historyCursorRef.current < 0) historyDraftRef.current = target.value
+      const nextCursor = historyCursorRef.current < 0
+        ? 0
+        : Math.min(historyCursorRef.current + 1, history.length - 1)
+      if (nextCursor === historyCursorRef.current) return false
+      historyCursorRef.current = nextCursor
+      applyHistoryValue(history[history.length - 1 - nextCursor] ?? '', 'start')
+      return true
+    }
+
+    if (historyCursorRef.current < 0) return false
+    if (historyCursorRef.current === 0) {
+      historyCursorRef.current = -1
+      applyHistoryValue(historyDraftRef.current, 'end')
+      historyDraftRef.current = ''
+      return true
+    }
+    historyCursorRef.current -= 1
+    applyHistoryValue(history[history.length - 1 - historyCursorRef.current] ?? '', 'end')
+    return true
+  }
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!e.nativeEvent.isComposing && e.key === 'ArrowUp' && handleHistoryNavigation('up', e.currentTarget)) {
+      e.preventDefault()
+      return
+    }
+    if (!e.nativeEvent.isComposing && e.key === 'ArrowDown' && handleHistoryNavigation('down', e.currentTarget)) {
+      e.preventDefault()
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       if (!disabled && (draft.trim() || attachments.length > 0)) {
@@ -370,6 +451,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         el.selectionStart = el.selectionEnd = pos
       })
     }
+  }
+
+  const handleDraftChange = (value: string) => {
+    resetHistoryCursor()
+    trackedSetDraft(value)
+  }
+
+  const handleFormSubmit = (e: FormEvent<HTMLFormElement>) => {
+    const text = (textareaRef.current?.value ?? draft).trim()
+    if (text) {
+      appendInputHistory(draftScope, text)
+      historyRef.current = readInputHistory(draftScope)
+      resetHistoryCursor()
+    }
+    onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)
   }
 
   return (
@@ -540,7 +636,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       </div>
       <form
-        onSubmit={(e) => onSubmit(e, selectedPersonaKey, selectedModel ?? undefined)}
+        onSubmit={handleFormSubmit}
         style={{
           padding: variant === 'welcome' ? '10px 14px 14px 22px' : '6px 12px 11px 20px',
         }}
@@ -556,7 +652,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             rows={1}
             className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
             value={draft}
-            onChange={(e) => trackedSetDraft(e.target.value)}
+            onChange={(e) => handleDraftChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handleTextareaPaste}
             onFocus={() => setFocused(true)}

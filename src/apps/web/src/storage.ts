@@ -26,7 +26,9 @@ const CUSTOM_THEMES_KEY = 'arkloop:web:custom-themes'
 const CUSTOM_BODY_FONT_KEY = 'arkloop:web:custom-body-font'
 const INPUT_DRAFT_TEXT_PREFIX = 'arkloop:web:input_draft_text'
 const INPUT_DRAFT_ATTACHMENTS_PREFIX = 'arkloop:web:input_draft_attachments'
+const INPUT_HISTORY_PREFIX = 'arkloop:web:input_history'
 const INPUT_DRAFT_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const INPUT_HISTORY_MAX_ITEMS = 500
 const DRAFT_STORAGE_EVICTION_PREFIXES = [
   'arkloop:web:msg_run_events:',
   'arkloop:web:msg_assistant_turn:',
@@ -51,6 +53,7 @@ const EPHEMERAL_CACHE_MAX_ITEMS = 900
 
 export const DEFAULT_PERSONA_KEY = 'normal'
 export const SEARCH_PERSONA_KEY = 'extended-search'
+export const WORK_PERSONA_KEY = 'work'
 export const LEARNING_PERSONA_KEY = 'stem-tutor'
 
 export type AppMode = 'chat' | 'work'
@@ -276,6 +279,12 @@ function inputDraftBaseKey(scope: InputDraftScope, prefix: string): string | nul
     return `${prefix}:${owner}:thread:${threadId}:${mode}:${search}`
   }
   return `${prefix}:${owner}:welcome:${mode}:${search}`
+}
+
+function inputHistoryKey(scope: InputDraftScope): string | null {
+  const owner = scope.ownerKey?.trim() || 'global'
+  const mode = scope.appMode === 'work' ? 'work' : 'chat'
+  return `${INPUT_HISTORY_PREFIX}:${owner}:${mode}`
 }
 
 function normalizeDraftAttachmentRecord(item: DraftAttachmentRecord): DraftAttachmentRecord | null {
@@ -1370,6 +1379,47 @@ export function writeMessageWebFetches(messageId: string, fetches: WebFetchRef[]
   } catch { /* ignore */ }
 }
 
+// -- Covered continue chain --
+
+function messageCoveredRunIdsKey(messageId: string): string {
+  return `arkloop:web:msg_covered_run_ids:${messageId}`
+}
+
+export function readMessageCoveredRunIds(messageId: string): string[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageCoveredRunIdsKey(messageId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      localStorage.removeItem(messageCoveredRunIdsKey(messageId))
+      return null
+    }
+    const coveredRunIds = parsed
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      .map((value) => value.trim())
+    if (coveredRunIds.length === 0) {
+      localStorage.removeItem(messageCoveredRunIdsKey(messageId))
+      return null
+    }
+    return coveredRunIds
+  } catch {
+    try { localStorage.removeItem(messageCoveredRunIdsKey(messageId)) } catch { /* ignore */ }
+    return null
+  }
+}
+
+export function writeMessageCoveredRunIds(messageId: string, coveredRunIds: string[]): void {
+  if (!canUseLocalStorage() || !messageId || coveredRunIds.length === 0) return
+  try {
+    const normalized = coveredRunIds
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      .map((value) => value.trim())
+    if (normalized.length === 0) return
+    writeEphemeralStorageItem(messageCoveredRunIdsKey(messageId), JSON.stringify(normalized))
+  } catch { /* ignore */ }
+}
+
 // -- Terminal handoff status --
 
 export type MessageTerminalStatusRef = 'completed' | 'cancelled' | 'interrupted' | 'failed'
@@ -1399,7 +1449,8 @@ export function writeMessageTerminalStatus(messageId: string, status: MessageTer
 
 export type ThreadRunHandoffRef = {
   runId: string
-  status: Exclude<MessageTerminalStatusRef, 'completed'>
+  status: 'running' | Exclude<MessageTerminalStatusRef, 'completed'>
+  coveredRunIds: string[]
   assistantTurn?: AssistantTurnUi | null
   sources: WebSource[]
   artifacts: ArtifactRef[]
@@ -1483,7 +1534,10 @@ export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | nu
     const runId = typeof item.runId === 'string' ? item.runId.trim() : ''
     const status = item.status
     if (!runId) return null
-    if (status !== 'cancelled' && status !== 'interrupted' && status !== 'failed') return null
+    if (status !== 'running' && status !== 'cancelled' && status !== 'interrupted' && status !== 'failed') return null
+    const coveredRunIds = Array.isArray(item.coveredRunIds)
+      ? item.coveredRunIds.filter((value): value is string => typeof value === 'string' && value.trim() !== '').map((value) => value.trim())
+      : []
     const assistantTurn = item.assistantTurn == null ? null : parseAssistantTurnData(item.assistantTurn)
     const sources = Array.isArray(item.sources) ? item.sources.filter(isWebSource) : []
     const artifacts = Array.isArray(item.artifacts) ? item.artifacts.filter(isArtifactRef) : []
@@ -1497,6 +1551,7 @@ export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | nu
     return {
       runId,
       status,
+      coveredRunIds,
       assistantTurn,
       sources,
       artifacts,
@@ -1823,6 +1878,39 @@ export function writeInputDraftAttachments(scope: InputDraftScope, attachments: 
   writePersistedAttachmentDraft(scope, attachments)
 }
 
+export function readInputHistory(scope: InputDraftScope): string[] {
+  if (!canUseLocalStorage()) return []
+  const key = inputHistoryKey(scope)
+  if (!key) return []
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+  } catch {
+    try { localStorage.removeItem(key) } catch { /* ignore */ }
+    return []
+  }
+}
+
+export function appendInputHistory(scope: InputDraftScope, text: string): void {
+  if (!canUseLocalStorage()) return
+  const key = inputHistoryKey(scope)
+  const trimmed = text.trim()
+  if (!key || !trimmed) return
+  const current = readInputHistory(scope)
+  const withoutDuplicate = current.filter((item) => item !== trimmed)
+  const next = [...withoutDuplicate, trimmed].slice(-INPUT_HISTORY_MAX_ITEMS)
+  try {
+    tryWriteDraftWithEviction(() => {
+      localStorage.setItem(key, JSON.stringify(next))
+    }, [key])
+  } catch {
+    // 忽略存储失败
+  }
+}
+
 export function clearInputDraft(scope: InputDraftScope): void {
   if (!canUseLocalStorage()) return
   const textKey = inputDraftBaseKey(scope, INPUT_DRAFT_TEXT_PREFIX)
@@ -1878,6 +1966,8 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (copBlocks) writeMessageCopBlocks(new_id, copBlocks)
     const assistantTurn = readMessageAssistantTurn(old_id)
     if (assistantTurn) writeMessageAssistantTurn(new_id, assistantTurn)
+    const coveredRunIds = readMessageCoveredRunIds(old_id)
+    if (coveredRunIds) writeMessageCoveredRunIds(new_id, coveredRunIds)
     const fileOps = readMessageFileOps(old_id)
     if (fileOps) writeMessageFileOps(new_id, fileOps)
     const webFetches = readMessageWebFetches(old_id)

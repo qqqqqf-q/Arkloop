@@ -7,7 +7,6 @@ import { useThreadList } from '../contexts/thread-list'
 import { useChatSession } from '../contexts/chat-session'
 import { useMessageStore } from '../contexts/message-store'
 import { useRunLifecycle } from '../contexts/run-lifecycle'
-import { useMessageMeta } from '../contexts/message-meta'
 import { useStream } from '../contexts/stream'
 import {
   cancelRun,
@@ -34,7 +33,6 @@ import {
   readThreadReasoningMode,
   SEARCH_PERSONA_KEY,
 } from '../storage'
-import { createEmptyAssistantTurnFoldState } from '../assistantTurnSegments'
 import { normalizeError } from '../lib/chat-helpers'
 import type { UserInputResponse } from '../userInputTypes'
 
@@ -71,8 +69,6 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setCheckInDraft,
     checkInSubmitting,
     setCheckInSubmitting,
-    setTerminalRunDisplayId,
-    setTerminalRunHandoffStatus,
     markTerminalRunHistory,
     isStreaming,
     injectionBlockedRunIdRef,
@@ -81,30 +77,16 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     noResponseMsgIdRef,
     replaceOnCancelRef,
     pendingMessageRef,
+    setTerminalRunDisplayId,
+    setTerminalRunHandoffStatus,
+    setTerminalRunCoveredRunIds,
+    terminalRunDisplayId,
+    terminalRunCoveredRunIds,
   } = useRunLifecycle()
   const {
-    currentRunSourcesRef,
-    currentRunArtifactsRef,
-    currentRunCodeExecutionsRef,
-    currentRunBrowserActionsRef,
-    currentRunSubAgentsRef,
-    currentRunFileOpsRef,
-    currentRunWebFetchesRef,
-  } = useMessageMeta()
-  const {
+    resetLiveState,
     setPendingThinking,
     setThinkingHint,
-    setPreserveLiveRunUi,
-    setLiveAssistantTurn,
-    assistantTurnFoldStateRef,
-    streamingArtifactsRef,
-    setStreamingArtifacts,
-    setSegments,
-    activeSegmentIdRef,
-    setTopLevelCodeExecutions,
-    setTopLevelSubAgents,
-    setTopLevelFileOps,
-    setTopLevelWebFetches,
     resetSearchSteps,
   } = useStream()
 
@@ -129,6 +111,11 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
+    clearThreadRunHandoff(threadId)
+    resetLiveState()
+    setTerminalRunDisplayId(null)
+    setTerminalRunHandoffStatus(null)
+    setTerminalRunCoveredRunIds([])
     try {
       const message = await createMessage(accessToken, threadId, buildMessageRequest(normalized, []))
       invalidateMessageSync()
@@ -159,6 +146,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     onLoggedOut,
     onRunStarted,
     pendingMessageRef,
+    resetLiveState,
     resetSearchSteps,
     scrollToBottom,
     sending,
@@ -168,6 +156,9 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setQueuedDraft,
     setMessages,
     setSending,
+    setTerminalRunDisplayId,
+    setTerminalRunHandoffStatus,
+    setTerminalRunCoveredRunIds,
     setUserEnterMessageId,
     threadId,
     injectionBlockedRunIdRef,
@@ -200,6 +191,11 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
+    clearThreadRunHandoff(threadId)
+    resetLiveState()
+    setTerminalRunDisplayId(null)
+    setTerminalRunHandoffStatus(null)
+    setTerminalRunCoveredRunIds([])
     try {
       const nonTextParts = original.content_json?.parts?.filter((part) => part.type !== 'text') ?? []
       const newContentJson: MessageContent | undefined = original.content_json
@@ -234,6 +230,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     isStreaming,
     onLoggedOut,
     onRunStarted,
+    resetLiveState,
     resetSearchSteps,
     scrollToBottom,
     sending,
@@ -242,6 +239,9 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setInjectionBlocked,
     setMessages,
     setSending,
+    setTerminalRunDisplayId,
+    setTerminalRunHandoffStatus,
+    setTerminalRunCoveredRunIds,
     threadId,
   ])
 
@@ -255,15 +255,29 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
     clearThreadRunHandoff(threadId)
+    resetLiveState()
+    setTerminalRunDisplayId(null)
+    setTerminalRunHandoffStatus(null)
+    setTerminalRunCoveredRunIds([])
     try {
       const run = await retryThread(accessToken, threadId, modelOverride)
       invalidateMessageSync()
       setMessages((prev) => {
+        const coveredRunIds = new Set(terminalRunCoveredRunIds)
+        const next = prev.filter((message) => {
+          if (message.role !== 'assistant') return true
+          if (terminalRunDisplayId && message.run_id === terminalRunDisplayId) return false
+          if (message.run_id && coveredRunIds.has(message.run_id)) return false
+          return true
+        })
+        if (next.length !== prev.length) return next
         const lastAssistantIndex = prev.map((message) => message.role).lastIndexOf('assistant')
         if (lastAssistantIndex === -1) return prev
         return prev.filter((_, index) => index !== lastAssistantIndex)
       })
       resetSearchSteps()
+      setPendingThinking(true)
+      setThinkingHint(t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)])
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
       scrollToBottom()
@@ -283,6 +297,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     isStreaming,
     onLoggedOut,
     onRunStarted,
+    resetLiveState,
     resetSearchSteps,
     scrollToBottom,
     sending,
@@ -292,8 +307,13 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setMessages,
     setPendingThinking,
     setSending,
+    setTerminalRunDisplayId,
+    setTerminalRunHandoffStatus,
+    setTerminalRunCoveredRunIds,
     setThinkingHint,
     t.copThinkingHints,
+    terminalRunCoveredRunIds,
+    terminalRunDisplayId,
     threadId,
   ])
 
@@ -307,28 +327,8 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     injectionBlockedRunIdRef.current = null
     try {
       const run = await continueThread(accessToken, threadId, runId)
-      clearThreadRunHandoff(threadId)
-      setPreserveLiveRunUi(false)
-      setLiveAssistantTurn(null)
-      setTerminalRunDisplayId(null)
-      setTerminalRunHandoffStatus(null)
-      streamingArtifactsRef.current = []
-      setStreamingArtifacts([])
-      setSegments([])
-      activeSegmentIdRef.current = null
-      currentRunSourcesRef.current = []
-      currentRunArtifactsRef.current = []
-      currentRunCodeExecutionsRef.current = []
-      currentRunBrowserActionsRef.current = []
-      currentRunSubAgentsRef.current = []
-      currentRunFileOpsRef.current = []
-      currentRunWebFetchesRef.current = []
-      setTopLevelCodeExecutions([])
-      setTopLevelSubAgents([])
-      setTopLevelFileOps([])
-      setTopLevelWebFetches([])
-      assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
-      resetSearchSteps()
+      setTerminalRunDisplayId(run.run_id)
+      setTerminalRunHandoffStatus('running')
       setActiveRunId(run.run_id)
       onRunStarted(threadId)
       scrollToBottom()
@@ -343,39 +343,20 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     }
   }, [
     accessToken,
-    activeSegmentIdRef,
-    assistantTurnFoldStateRef,
-    currentRunArtifactsRef,
-    currentRunBrowserActionsRef,
-    currentRunCodeExecutionsRef,
-    currentRunFileOpsRef,
-    currentRunSourcesRef,
-    currentRunSubAgentsRef,
-    currentRunWebFetchesRef,
     injectionBlockedRunIdRef,
     isStreaming,
     onLoggedOut,
     onRunStarted,
-    resetSearchSteps,
     scrollToBottom,
     sending,
     setActiveRunId,
     setError,
     setInjectionBlocked,
-    setLiveAssistantTurn,
     setPendingThinking,
-    setPreserveLiveRunUi,
-    setSegments,
     setSending,
-    setStreamingArtifacts,
     setTerminalRunDisplayId,
     setTerminalRunHandoffStatus,
     setThinkingHint,
-    setTopLevelCodeExecutions,
-    setTopLevelFileOps,
-    setTopLevelSubAgents,
-    setTopLevelWebFetches,
-    streamingArtifactsRef,
     t.copThinkingHints,
     threadId,
   ])

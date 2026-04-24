@@ -1,9 +1,10 @@
 import { MessageList } from "./MessageList"
 import { InputBar } from "./InputBar"
 import { INPUT_BAR_OVERLAY_HEIGHT } from "../lib/chatLayout"
+import type { MessageComposePayload } from "../api/types"
 
 interface Props {
-  onSubmit: (text: string) => void
+  onSubmit: (payload: MessageComposePayload) => void | Promise<void>
 }
 
 export function ChatView(props: Props) {

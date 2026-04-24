@@ -28,6 +28,7 @@ import {
   readMessageTerminalStatus,
   readMessageAssistantTurn,
   readMessageCodeExecutions,
+  readMessageCoveredRunIds,
   readSelectedModelFromStorage,
   readSelectedPersonaKeyFromStorage,
   readThreadReasoningMode,
@@ -102,6 +103,8 @@ vi.mock('../storage', async () => {
     writeMessageWidgets: vi.fn(),
     readMessageCodeExecutions: vi.fn(() => null),
     writeMessageCodeExecutions: vi.fn(),
+    readMessageCoveredRunIds: vi.fn(() => null),
+    writeMessageCoveredRunIds: vi.fn(),
     readMessageThinking: vi.fn(() => null),
     writeMessageThinking: vi.fn(),
     readMessageSearchSteps: vi.fn(() => null),
@@ -496,6 +499,28 @@ function NavigateButton({ to, label }: { to: string; label: string }) {
   )
 }
 
+function buildOutletContext(): LegacyOutletContext {
+  return {
+    accessToken: 'token',
+    onLoggedOut: vi.fn(),
+    onRunStarted: vi.fn(),
+    onRunEnded: vi.fn(),
+    onThreadCreated: vi.fn(),
+    onThreadTitleUpdated: vi.fn(),
+    refreshCredits: vi.fn(),
+    onOpenNotifications: vi.fn(),
+    notificationVersion: 0,
+    creditsBalance: 0,
+    isPrivateMode: false,
+    onTogglePrivateMode: vi.fn(),
+    privateThreadIds: new Set<string>(),
+    onSetPendingIncognito: vi.fn(),
+    onRightPanelChange: vi.fn(),
+    threads: [],
+    onThreadDeleted: vi.fn(),
+  }
+}
+
 describe('ChatPage loading state', () => {
   const mockedListMessages = vi.mocked(listMessages)
   const mockedListRunEvents = vi.mocked(listRunEvents)
@@ -513,6 +538,7 @@ describe('ChatPage loading state', () => {
   const mockedReadMessageTerminalStatus = vi.mocked(readMessageTerminalStatus)
   const mockedReadMessageAssistantTurn = vi.mocked(readMessageAssistantTurn)
   const mockedReadMessageCodeExecutions = vi.mocked(readMessageCodeExecutions)
+  const mockedReadMessageCoveredRunIds = vi.mocked(readMessageCoveredRunIds)
   const mockedReadSelectedPersonaKeyFromStorage = vi.mocked(readSelectedPersonaKeyFromStorage)
   const mockedReadSelectedModelFromStorage = vi.mocked(readSelectedModelFromStorage)
   const mockedReadThreadWorkFolder = vi.mocked(readThreadWorkFolder)
@@ -533,6 +559,7 @@ describe('ChatPage loading state', () => {
     mockedReadMessageAssistantTurn.mockReturnValue(null)
     mockedReadMessageTerminalStatus.mockReturnValue(null)
     mockedReadMessageCodeExecutions.mockReturnValue(null)
+    mockedReadMessageCoveredRunIds.mockReturnValue(null)
     mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('default')
     mockedReadSelectedModelFromStorage.mockReturnValue(null)
     mockedReadThreadWorkFolder.mockReturnValue(null)
@@ -849,6 +876,579 @@ describe('ChatPage loading state', () => {
     })
 
     expect(container.textContent).toContain('出了点问题，本次运行未能完成')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('重新进入 thread 时若 failed run 尚未落库 assistant 消息也应恢复 handoff 并显示继续', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-failed-handoff',
+        status: 'failed',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-failed-handoff',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '先想一下',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-failed-handoff',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.failed',
+        data: {
+          message: 'upstream exploded',
+          error_class: 'provider.non_retryable',
+        },
+      },
+    ] as never)
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+
+    await act(async () => {
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('先想一下')
+    expect(container.querySelector('.failed-run-retry-button')?.textContent).toBe('继续')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('continue 后应保留当前 handoff 并在同一块中继续追加新输出', async () => {
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-failed-handoff',
+        status: 'failed',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-failed-handoff',
+        seq: 1,
+        ts: '2026-03-10T00:00:00Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '先想一下',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-failed-handoff',
+        seq: 2,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'run.failed',
+        data: {
+          message: 'upstream exploded',
+          error_class: 'provider.non_retryable',
+        },
+      },
+    ] as never)
+    sseMock.state = 'connected'
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+    })
+
+    await act(async () => {
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const actionButton = container.querySelector('.failed-run-retry-button')
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('先想一下')
+    expect(actionButton?.textContent).toBe('继续')
+
+    await act(async () => {
+      actionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(mockedContinueThread).toHaveBeenCalledWith('token', 'thread-1', 'run-failed-handoff')
+    expect(mockedWriteThreadRunHandoff).toHaveBeenCalledWith(
+      'thread-1',
+      expect.objectContaining({
+        runId: 'run-failed-handoff',
+        status: 'failed',
+        coveredRunIds: ['run-failed-handoff'],
+      }),
+    )
+    expect(mockedClearThreadRunHandoff).not.toHaveBeenCalledWith('thread-1')
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('先想一下')
+    expect(container.querySelector('.failed-run-retry-button')).toBeNull()
+
+    sseMock.events = [
+      {
+        event_id: 'evt-3',
+        run_id: 'run-continued',
+        seq: 1,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '继续执行',
+        },
+      },
+    ]
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+      await flushMicrotasks()
+      await flushAnimationFrames(12)
+    })
+
+    const continuedHandoff = container.querySelector('[data-testid="current-run-handoff"]')
+    expect(continuedHandoff).not.toBeNull()
+    const handoffText = continuedHandoff?.textContent ?? ''
+    expect(handoffText).toContain('thinking:先想一下')
+    expect(handoffText).toContain('thinking:继续执行')
+    expect(mockedWriteThreadRunHandoff).toHaveBeenCalledWith(
+      'thread-1',
+      expect.objectContaining({
+        runId: 'run-continued',
+        status: 'running',
+      }),
+    )
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    mathRandomSpy.mockRestore()
+  })
+
+  it('已完成的 continue 链应继续隐藏被接管的旧 assistant message', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: 'old partial',
+        run_id: 'run-old',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+      {
+        id: 'msg-3',
+        role: 'assistant',
+        content: 'final answer',
+        run_id: 'run-new',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:02Z',
+      },
+    ])
+    mockedReadMessageCoveredRunIds.mockImplementation((messageId: string) => (
+      messageId === 'msg-3' ? ['run-old'] : null
+    ))
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={buildOutletContext()} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const text = container.textContent ?? ''
+    expect(text).not.toContain('old partial')
+    expect(text).toContain('final answer')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('continue 请求后 reload 应把旧 handoff 接到新 running run 上', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-continued',
+        status: 'running',
+        created_at: '2026-03-10T00:00:02Z',
+        resume_from_run_id: 'run-old',
+      },
+    ])
+    mockedReadThreadRunHandoff.mockReturnValue({
+      runId: 'run-old',
+      status: 'failed',
+      coveredRunIds: [],
+      assistantTurn: {
+        segments: [
+          {
+            type: 'cop',
+            title: null,
+            items: [{ kind: 'thinking', content: '先想一下', seq: 1 }],
+          },
+        ],
+      },
+      sources: [],
+      artifacts: [],
+      widgets: [],
+      codeExecutions: [],
+      browserActions: [],
+      subAgents: [],
+      fileOps: [],
+      webFetches: [],
+      searchSteps: [],
+    })
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={buildOutletContext()} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('先想一下')
+    expect(mockedWriteThreadRunHandoff).toHaveBeenCalledWith(
+      'thread-1',
+      expect.objectContaining({
+        runId: 'run-continued',
+        status: 'running',
+        coveredRunIds: ['run-old'],
+      }),
+    )
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('reload 时不应把无关的 running run 误接成 continue child', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-fresh',
+        status: 'running',
+        created_at: '2026-03-10T00:00:02Z',
+        resume_from_run_id: null,
+      },
+    ])
+    mockedReadThreadRunHandoff.mockReturnValue({
+      runId: 'run-old',
+      status: 'failed',
+      coveredRunIds: [],
+      assistantTurn: {
+        segments: [
+          {
+            type: 'cop',
+            title: null,
+            items: [{ kind: 'thinking', content: '先想一下', seq: 1 }],
+          },
+        ],
+      },
+      sources: [],
+      artifacts: [],
+      widgets: [],
+      codeExecutions: [],
+      browserActions: [],
+      subAgents: [],
+      fileOps: [],
+      webFetches: [],
+      searchSteps: [],
+    })
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={buildOutletContext()} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
+    expect(container.textContent).not.toContain('先想一下')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('reload 时应优先使用同 run 的 replay 终态而不是过期 running handoff', async () => {
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+    ])
+    mockedListThreadRuns.mockResolvedValue([
+      {
+        run_id: 'run-failed',
+        status: 'failed',
+        created_at: '2026-03-10T00:00:02Z',
+      },
+    ])
+    mockedListRunEvents.mockResolvedValue([
+      {
+        event_id: 'evt-1',
+        run_id: 'run-failed',
+        seq: 1,
+        ts: '2026-03-10T00:00:01Z',
+        type: 'message.delta',
+        data: {
+          role: 'assistant',
+          channel: 'thinking',
+          content_delta: '更新后的思考',
+        },
+      },
+      {
+        event_id: 'evt-2',
+        run_id: 'run-failed',
+        seq: 2,
+        ts: '2026-03-10T00:00:02Z',
+        type: 'run.failed',
+        data: {
+          message: 'boom',
+          error_class: 'provider.non_retryable',
+        },
+      },
+    ] as never)
+    mockedReadThreadRunHandoff.mockReturnValue({
+      runId: 'run-failed',
+      status: 'running',
+      coveredRunIds: [],
+      assistantTurn: {
+        segments: [
+          {
+            type: 'cop',
+            title: null,
+            items: [{ kind: 'thinking', content: '过期内容', seq: 1 }],
+          },
+        ],
+      },
+      sources: [],
+      artifacts: [],
+      widgets: [],
+      codeExecutions: [],
+      browserActions: [],
+      subAgents: [],
+      fileOps: [],
+      webFetches: [],
+      searchSteps: [],
+    })
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={buildOutletContext()} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    expect(container.querySelector('[data-testid="current-run-handoff"]')).not.toBeNull()
+    expect(container.textContent).toContain('更新后的思考')
+    expect(container.textContent).not.toContain('过期内容')
+    expect(container.querySelector('.failed-run-retry-button')?.textContent).toBe('继续')
 
     act(() => {
       root.unmount()
@@ -1688,7 +2288,7 @@ describe('ChatPage loading state', () => {
     mathRandomSpy.mockRestore()
   })
 
-  it('failed 重试应带上当前选择的 model', async () => {
+  it('failed 且有可恢复输出时应显示继续并调用 continue 接口', async () => {
     const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
     mockedReadMessageTerminalStatus.mockReturnValue('failed')
     mockedListMessages.mockResolvedValue([
@@ -1704,7 +2304,100 @@ describe('ChatPage loading state', () => {
       {
         id: 'msg-2',
         role: 'assistant',
-        content: 'failed answer',
+        content: '半截输出',
+        run_id: 'run-failed-output',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+    mockedReadSelectedPersonaKeyFromStorage.mockReturnValue('search')
+    mockedReadSelectedModelFromStorage.mockReturnValue('openai^gpt-5')
+    mockedReadThreadWorkFolder.mockReturnValue('/workspace/demo')
+    mockedReadThreadThinkingEnabled.mockReturnValue('high')
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = {
+      accessToken: 'token',
+      onLoggedOut: vi.fn(),
+      onRunStarted: vi.fn(),
+      onRunEnded: vi.fn(),
+      onThreadCreated: vi.fn(),
+      onThreadTitleUpdated: vi.fn(),
+      refreshCredits: vi.fn(),
+      onOpenNotifications: vi.fn(),
+      notificationVersion: 0,
+      creditsBalance: 0,
+      isPrivateMode: false,
+      onTogglePrivateMode: vi.fn(),
+      privateThreadIds: new Set<string>(),
+      onSetPendingIncognito: vi.fn(),
+      onRightPanelChange: vi.fn(),
+      threads: [],
+      onThreadDeleted: vi.fn(),
+    }
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={outletContext} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const actionButton = container.querySelector('.failed-run-retry-button')
+    expect(actionButton?.textContent).toBe('继续')
+
+    await act(async () => {
+      actionButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('Finding the right words')
+    expect(mockedContinueThread).toHaveBeenCalledWith(
+      'token',
+      'thread-1',
+      'run-failed-output',
+    )
+    expect(mockedRetryThread).not.toHaveBeenCalled()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    mathRandomSpy.mockRestore()
+  })
+
+  it('failed 且无可恢复输出时重试应带上当前选择的 model', async () => {
+    const mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0)
+    mockedReadMessageTerminalStatus.mockReturnValue('failed')
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'hello',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant',
+        content: '',
+        run_id: 'run-failed-empty',
         account_id: 'acc-1',
         thread_id: 'thread-1',
         created_by_user_id: 'user-1',
@@ -2619,6 +3312,7 @@ describe('ChatPage loading state', () => {
     const handoff: NonNullable<ReturnType<typeof readThreadRunHandoff>> = {
       runId: 'run-cancel-restore',
       status: 'cancelled' as const,
+      coveredRunIds: [],
       assistantTurn: {
         segments: [
           {

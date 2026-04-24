@@ -26,6 +26,7 @@ import {
   readMessageAssistantTurn,
   readMessageBrowserActions,
   readMessageCodeExecutions,
+  readMessageCoveredRunIds,
   readMessageFileOps,
   readMessageSearchSteps,
   readMessageSources,
@@ -38,6 +39,7 @@ import {
   writeMessageAssistantTurn,
   writeMessageBrowserActions,
   writeMessageCodeExecutions,
+  writeMessageCoveredRunIds,
   writeMessageFileOps,
   writeMessageSearchSteps,
   writeMessageSources,
@@ -66,6 +68,7 @@ export type MessageMeta = {
   widgets?: WidgetRef[]
   runEvents?: MsgRunEvent[]
   failedError?: AppError
+  coveredRunIds?: string[]
 }
 
 interface MessageMetaContextValue {
@@ -102,6 +105,7 @@ interface MessageMetaContextValue {
       handoffAssistantTurn: AssistantTurnUi
       pendingSearchSteps?: MessageSearchStepRef[] | null
       terminalStatus?: MessageTerminalStatusRef | null
+      coveredRunIds?: string[]
     },
     runEvents: MsgRunEvent[],
     options?: {
@@ -113,7 +117,8 @@ interface MessageMetaContextValue {
     threadId: string,
     runId: string,
     runData: {
-      terminalStatus?: MessageTerminalStatusRef | null
+      terminalStatus?: 'running' | MessageTerminalStatusRef | null
+      coveredRunIds?: string[]
       handoffAssistantTurn: AssistantTurnUi
       runSources: WebSource[]
       runArtifacts: ArtifactRef[]
@@ -184,6 +189,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     if (meta.assistantTurn) writeMessageAssistantTurn(msgId, meta.assistantTurn)
     if (meta.widgets && meta.widgets.length > 0) writeMessageWidgets(msgId, meta.widgets)
     if (meta.runEvents && meta.runEvents.length > 0) writeMsgRunEvents(msgId, meta.runEvents)
+    if (meta.coveredRunIds && meta.coveredRunIds.length > 0) writeMessageCoveredRunIds(msgId, meta.coveredRunIds)
   }, [])
 
   const loadFromStorage = useCallback((msgIds: string[]) => {
@@ -215,6 +221,8 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       if (widgets) meta.widgets = widgets
       const runEvents = readMsgRunEvents(id)
       if (runEvents) meta.runEvents = runEvents
+      const coveredRunIds = readMessageCoveredRunIds(id)
+      if (coveredRunIds) meta.coveredRunIds = coveredRunIds
       if (Object.keys(meta).length > 0) entries.push([id, meta])
     }
     if (entries.length === 0) return
@@ -255,6 +263,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
         handoffAssistantTurn: AssistantTurnUi
         pendingSearchSteps?: MessageSearchStepRef[] | null
         terminalStatus?: MessageTerminalStatusRef | null
+        coveredRunIds?: string[]
       },
       runEvents: MsgRunEvent[],
       options?: {
@@ -280,6 +289,10 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       }
       if (runData.terminalStatus) {
         writeMessageTerminalStatus(messageId, runData.terminalStatus)
+      }
+      if (runData.coveredRunIds && runData.coveredRunIds.length > 0) {
+        writeMessageCoveredRunIds(messageId, runData.coveredRunIds)
+        meta.coveredRunIds = runData.coveredRunIds
       }
       if (runData.runAssistantTurn.segments.length > 0) {
         if (persistAssistantTurn) {
@@ -328,7 +341,8 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       threadId: string,
       runId: string,
       runData: {
-        terminalStatus?: MessageTerminalStatusRef | null
+        terminalStatus?: 'running' | MessageTerminalStatusRef | null
+        coveredRunIds?: string[]
         handoffAssistantTurn: AssistantTurnUi
         runSources: WebSource[]
         runArtifacts: ArtifactRef[]
@@ -344,7 +358,8 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       if (!threadId || !runId) return
       writeThreadRunHandoff(threadId, {
         runId,
-        status: (runData.terminalStatus ?? 'cancelled') as Exclude<MessageTerminalStatusRef, 'completed'>,
+        status: (runData.terminalStatus ?? 'cancelled') as 'running' | Exclude<MessageTerminalStatusRef, 'completed'>,
+        coveredRunIds: [...(runData.coveredRunIds ?? [])],
         assistantTurn: runData.handoffAssistantTurn.segments.length > 0 ? runData.handoffAssistantTurn : null,
         sources: [...runData.runSources],
         artifacts: [...runData.runArtifacts],

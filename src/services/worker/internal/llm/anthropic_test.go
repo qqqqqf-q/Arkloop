@@ -1398,6 +1398,16 @@ func TestAnthropicGateway_Stream_MissingMessageStopAfterTextIsRetryable(t *testi
 	}
 }
 
+func TestAnthropicHTTPErrorClassInvalidRequestIsNonRetryable(t *testing.T) {
+	details := map[string]any{
+		"anthropic_error_type": "invalid_request_error",
+		"status_code":          400,
+	}
+	if got := anthropicHTTPErrorClass(400, details); got != ErrorClassProviderNonRetryable {
+		t.Fatalf("anthropicHTTPErrorClass(400, invalid_request_error) = %q, want %q", got, ErrorClassProviderNonRetryable)
+	}
+}
+
 func TestAnthropicGateway_Stream_RefusalStopsWithoutSuccessTerminal(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

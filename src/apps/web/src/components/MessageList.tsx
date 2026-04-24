@@ -1,4 +1,4 @@
-import { memo, Fragment, type ComponentProps, useState, useRef, useEffect } from 'react'
+import { memo, Fragment, type ComponentProps, useState, useRef, useEffect, useMemo } from 'react'
 import { Info } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { MessageBubble } from './MessageBubble'
@@ -25,7 +25,7 @@ import { readMessageTerminalStatus, readMessageWidgets, type ArtifactRef, type M
 import { useLocation } from 'react-router-dom'
 import type { CodeExecution } from './CodeExecutionCard'
 import {
-  assistantTurnHasVisibleOutput,
+  hasRecoverableRunOutput,
   turnHasCopThinkingItems,
   thinkingRowsForCop,
   copInlineTextRowsForCop,
@@ -40,6 +40,8 @@ type LocationState = {
   forkBaseCount?: number
   userEnterMessageId?: string
 } | null
+
+type LiveRunHandoffStatus = 'running' | MessageTerminalStatusRef | null
 
 function FailedRunRetryCard({
   title,
@@ -227,12 +229,12 @@ export const MessageList = memo(function MessageList({
     handoffStatus?: 'completed' | 'cancelled' | 'interrupted' | 'failed' | null
   }) => string | undefined
   actionLabelForTerminalRun: (params: {
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => string | undefined
   actionHandlerForTerminalRun: (params: {
     runId: string | null | undefined
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => (() => void) | undefined
   clearUserEnterAnimation: () => void
@@ -256,6 +258,7 @@ export const MessageList = memo(function MessageList({
   const sending = run.sending
   const terminalRunDisplayId = run.terminalRunDisplayId
   const terminalRunHandoffStatus = run.terminalRunHandoffStatus
+  const terminalRunCoveredRunIds = run.terminalRunCoveredRunIds
   const terminalRunHistoryExpanded = run.terminalRunHistoryExpanded
   const terminalRunAssistantMessageId = run.terminalRunAssistantMessageId
   const userEnterMessageId = msgs.userEnterMessageId
@@ -272,6 +275,23 @@ export const MessageList = memo(function MessageList({
       stream.topLevelWebFetches.length > 0 ||
       stream.streamingArtifacts.length > 0
     )
+
+  const coveredRunIdsForHistory = useMemo(() => {
+    const covered = new Set<string>()
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue
+      const coveredRunIds = meta.getMeta(msg.id)?.coveredRunIds ?? []
+      for (const runId of coveredRunIds) {
+        if (runId.trim() !== '') covered.add(runId.trim())
+      }
+    }
+    if (hasCurrentRunHandoffUi) {
+      for (const runId of terminalRunCoveredRunIds) {
+        if (runId.trim() !== '') covered.add(runId.trim())
+      }
+    }
+    return covered
+  }, [hasCurrentRunHandoffUi, messages, meta, terminalRunCoveredRunIds])
 
   const resolvedMessageSources = resolveMessageSourcesForRender(messages, (() => {
     const map = new Map<string, WebSource[]>()
@@ -307,9 +327,10 @@ export const MessageList = memo(function MessageList({
   const renderMessage = (msg: import('../api').MessageResponse, idx: number) => {
     const hideTerminalRunMessage =
       msg.role === 'assistant' &&
-      hasCurrentRunHandoffUi &&
-      terminalRunDisplayId != null &&
-      msg.run_id === terminalRunDisplayId
+      (
+        (hasCurrentRunHandoffUi && terminalRunDisplayId != null && msg.run_id === terminalRunDisplayId) ||
+        (msg.run_id != null && coveredRunIdsForHistory.has(msg.run_id))
+      )
     if (hideTerminalRunMessage) return null
 
     const msgMeta = msg.role === 'assistant' ? meta.getMeta(msg.id) : undefined
@@ -322,24 +343,11 @@ export const MessageList = memo(function MessageList({
       msg.role === 'assistant' ? readMessageTerminalStatus(msg.id) : null
     const effectiveTerminalStatus =
       isCurrentTerminalRunMessage ? terminalRunHandoffStatus : persistedTerminalStatus
+    const displayTerminalStatus =
+      effectiveTerminalStatus === 'running' ? null : effectiveTerminalStatus
     const canShowSources = !!(resolvedSources && resolvedSources.length > 0)
     const historicalTurn = msgMeta?.assistantTurn
     const hasAssistantTurn = !!(historicalTurn && historicalTurn.segments.length > 0)
-    const hasTerminalOutput =
-      msg.role === 'assistant' &&
-      (
-        !!msg.content.trim() ||
-        assistantTurnHasVisibleOutput(historicalTurn)
-      )
-    const terminalActionLabel = actionLabelForTerminalRun({
-      status: effectiveTerminalStatus,
-      hasOutput: hasTerminalOutput,
-    })
-    const terminalActionHandler = actionHandlerForTerminalRun({
-      runId: msg.run_id,
-      status: effectiveTerminalStatus,
-      hasOutput: hasTerminalOutput,
-    })
     const historicalSegments = historicalTurn?.segments ?? []
     const msgWidgetsRaw = msg.role === 'assistant'
       ? (msgMeta?.widgets ?? readMessageWidgets(msg.id) ?? undefined)
@@ -361,6 +369,25 @@ export const MessageList = memo(function MessageList({
     const messageFileOps = msg.role === 'assistant' ? msgMeta?.fileOps : undefined
     const messageWebFetches = msg.role === 'assistant' ? msgMeta?.webFetches : undefined
     const msgThinking = msg.role === 'assistant' ? msgMeta?.thinking : undefined
+    const hasTerminalOutput = msg.role === 'assistant' && hasRecoverableRunOutput({
+      text: msg.content,
+      assistantTurn: historicalTurn,
+      searchSteps: timelineSteps,
+      widgets: msgWidgetsRaw,
+      codeExecutions: messageCodeExecutions,
+      subAgents: messageSubAgents,
+      fileOps: messageFileOps,
+      webFetches: messageWebFetches,
+    })
+    const terminalActionLabel = actionLabelForTerminalRun({
+      status: displayTerminalStatus,
+      hasOutput: hasTerminalOutput,
+    })
+    const terminalActionHandler = actionHandlerForTerminalRun({
+      runId: msg.run_id,
+      status: displayTerminalStatus,
+      hasOutput: hasTerminalOutput,
+    })
 
     return (
       <div
@@ -432,10 +459,10 @@ export const MessageList = memo(function MessageList({
                   ) {
                     return null
                   }
-                  const timelineTitleOverride = effectiveTerminalStatus != null
+                  const timelineTitleOverride = displayTerminalStatus != null
                     ? (
                         !isCurrentTerminalRunMessage &&
-                        (effectiveTerminalStatus === 'cancelled' || effectiveTerminalStatus === 'interrupted') &&
+                        (displayTerminalStatus === 'cancelled' || displayTerminalStatus === 'interrupted') &&
                         !seg.title?.trim()
                           ? t.connection.stopped
                           : currentRunCopHeaderOverride({
@@ -447,7 +474,7 @@ export const MessageList = memo(function MessageList({
                               hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
                               hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
                               hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
-                              handoffStatus: effectiveTerminalStatus,
+                              handoffStatus: displayTerminalStatus,
                             })
                       )
                     : seg.title?.trim() || undefined

@@ -1,22 +1,46 @@
 import type { Config } from "../lib/config"
-import type { Me, Persona, LlmProvider, Thread, Run, RunParams, ThreadMessage } from "./types"
+import type {
+  CreateMessageRequest,
+  LlmProvider,
+  Me,
+  Persona,
+  Run,
+  RunParams,
+  Thread,
+  ThreadMessage,
+  UploadedThreadAttachment,
+} from "./types"
 
 export class ApiClient {
   constructor(private config: Config) {}
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  sseTraceEnabled(): boolean {
+    return this.config.debugSSE
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    options?: { body?: unknown; headers?: Record<string, string> },
+  ): Promise<T> {
     const url = `${this.config.host}${path}`
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    }
+    const headers: Record<string, string> = { ...(options?.headers ?? {}) }
     if (this.config.token) {
       headers["Authorization"] = `Bearer ${this.config.token}`
+    }
+
+    let body: RequestInit["body"]
+    if (isRequestBody(options?.body)) {
+      body = options.body
+    } else if (options?.body !== undefined) {
+      headers["Content-Type"] = headers["Content-Type"] ?? "application/json"
+      body = JSON.stringify(options.body)
     }
 
     const res = await fetch(url, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body,
       signal: AbortSignal.timeout(10_000),
     })
 
@@ -45,11 +69,17 @@ export class ApiClient {
   }
 
   async createThread(title?: string): Promise<{ id: string }> {
-    return this.request("POST", "/v1/threads", title ? { title } : {})
+    return this.request("POST", "/v1/threads", { body: title ? { title } : {} })
   }
 
-  async addMessage(threadId: string, content: string): Promise<void> {
-    await this.request("POST", `/v1/threads/${threadId}/messages`, { content })
+  async uploadStagingAttachment(file: File): Promise<UploadedThreadAttachment> {
+    const body = new FormData()
+    body.append("file", file)
+    return this.request("POST", "/v1/attachments/stage", { body })
+  }
+
+  async addMessage(threadId: string, payload: CreateMessageRequest): Promise<void> {
+    await this.request("POST", `/v1/threads/${threadId}/messages`, { body: payload })
   }
 
   async listThreadMessages(threadId: string, limit = 50): Promise<ThreadMessage[]> {
@@ -62,7 +92,7 @@ export class ApiClient {
     if (params?.model) body.model = params.model
     if (params?.work_dir) body.work_dir = params.work_dir
     if (params?.reasoning_mode) body.reasoning_mode = params.reasoning_mode
-    return this.request("POST", `/v1/threads/${threadId}/runs`, body)
+    return this.request("POST", `/v1/threads/${threadId}/runs`, { body })
   }
 
   async getRun(runId: string): Promise<Run> {
@@ -80,4 +110,13 @@ export class ApiClient {
     }
     return fetch(url, { headers })
   }
+}
+
+function isRequestBody(value: unknown): value is Exclude<RequestInit["body"], null | undefined> {
+  return value instanceof FormData ||
+    value instanceof Blob ||
+    typeof value === "string" ||
+    value instanceof URLSearchParams ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value)
 }

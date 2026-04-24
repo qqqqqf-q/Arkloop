@@ -14,10 +14,11 @@ type RenderEntry =
 export function MessageList() {
   function renderTurn(turn: LlmTurn, isLive: boolean) {
     const segments = compressTurnSegments(turn.segments)
+    const userText = decorateUserInput(turn.userInput, turn.imagePartCount)
     return (
       <box flexDirection="column" width="100%">
-        <Show when={turn.userInput}>
-          <MessageBubble role="user" content={turn.userInput ?? ""} />
+        <Show when={userText}>
+          <MessageBubble role="user" content={userText} />
         </Show>
         <Index each={segments}>
           {(segment) => {
@@ -136,4 +137,16 @@ export function MessageList() {
       </box>
     </scrollbox>
   )
+}
+
+function decorateUserInput(text?: string, imagePartCount?: number): string {
+  const lines: string[] = []
+  const value = text?.trim()
+  if (value) {
+    lines.push(value)
+  }
+  if (imagePartCount && imagePartCount > 0) {
+    lines.push(imagePartCount === 1 ? "[图片]" : `[图片 x${imagePartCount}]`)
+  }
+  return lines.join("\n")
 }

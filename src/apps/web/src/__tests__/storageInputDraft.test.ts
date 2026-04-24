@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   clearInputDraft,
+  appendInputHistory,
+  readInputHistory,
   readInputDraftAttachments,
   readInputDraftText,
   writeInputDraftAttachments,
@@ -159,5 +161,25 @@ describe('input draft storage', () => {
 
     expect(readInputDraftText(scope)).toBe('quota draft')
     expect(backing.has('arkloop:web:msg_run_events:old')).toBe(false)
+  })
+
+  it('输入历史按 chat/work 作用域隔离并去重', () => {
+    const welcomeChat: InputDraftScope = { ownerKey: 'user-1', page: 'welcome', appMode: 'chat' }
+    const threadChat: InputDraftScope = { ownerKey: 'user-1', page: 'thread', threadId: 'thread-a', appMode: 'chat' }
+    const searchChat: InputDraftScope = { ownerKey: 'user-1', page: 'welcome', appMode: 'chat', searchMode: true }
+    const welcomeWork: InputDraftScope = { ownerKey: 'user-1', page: 'welcome', appMode: 'work' }
+    const threadWork: InputDraftScope = { ownerKey: 'user-1', page: 'thread', threadId: 'thread-b', appMode: 'work' }
+
+    appendInputHistory(welcomeChat, 'first')
+    appendInputHistory(threadChat, 'second')
+    appendInputHistory(searchChat, 'first')
+    appendInputHistory(welcomeWork, 'work welcome')
+    appendInputHistory(threadWork, 'work thread')
+
+    expect(readInputHistory(welcomeChat)).toEqual(['second', 'first'])
+    expect(readInputHistory(threadChat)).toEqual(['second', 'first'])
+    expect(readInputHistory(searchChat)).toEqual(['second', 'first'])
+    expect(readInputHistory(welcomeWork)).toEqual(['work welcome', 'work thread'])
+    expect(readInputHistory(threadWork)).toEqual(['work welcome', 'work thread'])
   })
 })

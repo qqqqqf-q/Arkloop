@@ -869,6 +869,7 @@ export type ThreadRunResponse = {
   run_id: string
   status: 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
   created_at: string
+  resume_from_run_id?: string | null
 }
 
 export async function listThreadRuns(

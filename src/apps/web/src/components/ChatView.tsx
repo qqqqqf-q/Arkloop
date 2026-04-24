@@ -23,7 +23,6 @@ import { ShareModal } from './ShareModal'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
 import { DocumentPanel } from './DocumentPanel'
-import { WorkRightPanel } from './WorkRightPanel'
 import { ChatTitleMenu } from './ChatTitleMenu'
 import { MessageList } from './MessageList'
 import { ContextCompactBar } from './ContextCompactBar'
@@ -45,6 +44,8 @@ import { getThreadTodos, setThreadTodos, clearThreadTodos } from '../todoDb'
 import {
   buildAssistantTurnFromRunEvents,
   copSegmentCalls,
+  createEmptyAssistantTurnFoldState,
+  snapshotAssistantTurn,
   type AssistantTurnSegment,
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
@@ -71,10 +72,11 @@ import {
   normalizeError,
   interruptedErrorFromRunEvents,
   failedErrorFromRunEvents,
-  assistantTurnHasVisibleOutput,
+  hasRecoverableRunOutput,
   finalizeSearchSteps,
   patchLegacySearchSteps,
   liveTurnHasThinkingSegment,
+  collectCompletedWidgets,
   thinkingRowsForCop,
   copInlineTextRowsForCop,
   buildStreamingArtifactsFromHandoff,
@@ -407,19 +409,19 @@ type LiveRunPaneProps = {
   pendingIncognito: boolean
   incognitoDividerText: string
   onIncognitoDividerComplete: () => void
-  terminalRunHandoffStatus: MessageTerminalStatusRef | null
+  terminalRunHandoffStatus: LiveRunHandoffStatus
   terminalRunDisplayId: string | null
   terminalRunHasOutput: boolean
   failedRunRetryTitle: string
   runInterruptedLabel: string
   runCancelledLabel: string
   actionLabelForTerminalRun: (params: {
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => string | undefined
   actionHandlerForTerminalRun: (params: {
     runId: string | null | undefined
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => (() => void) | undefined
   onOpenDocument: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
@@ -653,6 +655,7 @@ const LiveRunPane = memo(function LiveRunPane({
 })
 
 type CopSegment = Extract<AssistantTurnSegment, { type: 'cop' }>
+type LiveRunHandoffStatus = 'running' | MessageTerminalStatusRef | null
 
 function liveStreamingWidgetEntriesForCop(seg: CopSegment, entries: StreamingArtifactEntry[]): StreamingArtifactEntry[] {
   const out: StreamingArtifactEntry[] = []
@@ -730,7 +733,7 @@ export function ChatView() {
     threads, addThread: onThreadCreated,
     markRunning: onRunStarted, markIdle: onRunEnded,
   } = useThreadList()
-  const { appMode, setAppMode } = useAppModeUI()
+  const { appMode } = useAppModeUI()
   const { openSettings: onOpenSettings } = useSettingsUI()
   const { threadId } = useChatSession()
   const {
@@ -774,6 +777,8 @@ export function ChatView() {
     setTerminalRunDisplayId,
     terminalRunHandoffStatus,
     setTerminalRunHandoffStatus,
+    terminalRunCoveredRunIds,
+    setTerminalRunCoveredRunIds,
     markTerminalRunHistory: markTerminalRunHistoryState,
     clearCompletedTitleTail: clearCompletedTitleTailState,
     sse,
@@ -790,6 +795,7 @@ export function ChatView() {
     seenFirstToolCallInRunRef,
   } = useRunLifecycle()
   const {
+    getMeta,
     loadFromStorage,
     setMetaBatch,
     clearAll: clearAllMeta,
@@ -809,6 +815,7 @@ export function ChatView() {
     searchSteps,
     setSearchSteps,
     searchStepsRef,
+    assistantTurnFoldStateRef,
     resetSearchSteps: resetSearchStepsState,
     streamingArtifacts,
     setStreamingArtifacts,
@@ -828,7 +835,6 @@ export function ChatView() {
     setTopLevelFileOps,
     topLevelWebFetches,
     setTopLevelWebFetches,
-    workTodos,
     setWorkTodos,
   } = useStream()
   const {
@@ -847,7 +853,6 @@ export function ChatView() {
   const navigate = useNavigate()
   const { t } = useLocale()
   const welcomeUserMessage = locationState?.welcomeUserMessage
-  const currentThread = threadId ? threads.find((thread) => thread.id === threadId) : undefined
   const shouldSkipInitialSkeleton = !!(
     welcomeUserMessage &&
     locationState?.userEnterMessageId === welcomeUserMessage.id &&
@@ -860,10 +865,7 @@ export function ChatView() {
     () => locationState?.isSearch === true || isSearchThreadId(threadId ?? ''),
   )
 
-  const {
-    messageSourcesMap,
-    messageFileOpsMap,
-  } = useMessageMetaCompat()
+  const { messageSourcesMap } = useMessageMetaCompat()
 
   const shareModalOpen = shareModal.open
   const sourcePanelMessageId = activePanel?.type === 'source' ? activePanel.messageId : null
@@ -952,7 +954,7 @@ export function ChatView() {
     topLevelCodeExecutionsLength: topLevelCodeExecutions.length,
   })
 
-  const { resetAssistantTurnLive } = useRunTransition()
+  const { resetAssistantTurnLive, captureTerminalRunCache, persistThreadRunHandoff } = useRunTransition()
 
   useThreadSseEffect({
     restoreQueuedDraftToInput,
@@ -967,6 +969,26 @@ export function ChatView() {
     }
     prevActiveRunIdRef.current = activeRunId
   }, [activeRunId, threadId])
+
+  useEffect(() => {
+    if (!threadId || !activeRunId || !preserveLiveRunUi) return
+    if (terminalRunDisplayId !== activeRunId) return
+    persistThreadRunHandoff(activeRunId, captureTerminalRunCache('running'))
+  }, [
+    activeRunId,
+    captureTerminalRunCache,
+    liveAssistantTurn,
+    persistThreadRunHandoff,
+    preserveLiveRunUi,
+    searchSteps,
+    streamingArtifacts,
+    terminalRunDisplayId,
+    threadId,
+    topLevelCodeExecutions,
+    topLevelFileOps,
+    topLevelSubAgents,
+    topLevelWebFetches,
+  ])
 
   useEffect(() => {
     if (messagesLoading) {
@@ -1133,6 +1155,7 @@ export function ChatView() {
           (
             latest.status === 'interrupted' ||
             latest.status === 'failed' ||
+            latest.status === 'cancelled' ||
             (lastAssistant != null && (
               replayWidgetsNeeded ||
               replayCodeExecNeeded ||
@@ -1145,9 +1168,21 @@ export function ChatView() {
               true // always replay to restore todos
             ))
           )
+        let replayThreadHandoff: ReturnType<typeof readThreadRunHandoff> = null
         if (shouldReplayLatestRun && latest) {
           try {
             const replayEvents = await listRunEvents(accessToken, latest.run_id, { follow: false })
+            const replayArtifacts = buildMessageArtifactsFromRunEvents(replayEvents)
+            const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
+            const replayExecs = buildMessageCodeExecutionsFromRunEvents(replayEvents)
+            const replayBrowserActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
+            const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
+            const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
+            const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
+            const replaySearchSteps = finalizeSearchSteps(
+              replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
+            )
+            let replayTurn = buildAssistantTurnFromReplayData(replayEvents, replaySearchSteps, replayWidgets, replayExecs)
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
@@ -1158,71 +1193,90 @@ export function ChatView() {
               }
             }
             if (lastAssistant && !artifactsMap.has(lastAssistant.id)) {
-              const replayArtifacts = buildMessageArtifactsFromRunEvents(replayEvents)
               if (replayArtifacts.length > 0) {
                 artifactsMap.set(lastAssistant.id, replayArtifacts)
                 writeMessageArtifacts(lastAssistant.id, replayArtifacts)
               }
             }
             if (lastAssistant && replayWidgetsNeeded) {
-              const replayWidgets = buildMessageWidgetsFromRunEvents(replayEvents)
               if (replayWidgets.length > 0) {
                 widgetsMap.set(lastAssistant.id, replayWidgets)
                 writeMessageWidgets(lastAssistant.id, replayWidgets)
               }
             }
             if (lastAssistant && replayCodeExecNeeded) {
-              const replayExecs = buildMessageCodeExecutionsFromRunEvents(replayEvents)
               codeExecMap.set(lastAssistant.id, replayExecs)
               writeMessageCodeExecutions(lastAssistant.id, replayExecs)
             }
             if (lastAssistant && replayBrowserActionsNeeded) {
-              const replayActions = buildMessageBrowserActionsFromRunEvents(replayEvents)
-              if (replayActions.length > 0) {
-                browserActionsMap.set(lastAssistant.id, replayActions)
-                writeMessageBrowserActions(lastAssistant.id, replayActions)
+              if (replayBrowserActions.length > 0) {
+                browserActionsMap.set(lastAssistant.id, replayBrowserActions)
+                writeMessageBrowserActions(lastAssistant.id, replayBrowserActions)
               }
             }
             if (lastAssistant && replaySubAgentsNeeded) {
-              const replayAgents = buildMessageSubAgentsFromRunEvents(replayEvents)
               if (replayAgents.length > 0) {
                 subAgentsMap.set(lastAssistant.id, replayAgents)
                 writeMessageSubAgents(lastAssistant.id, replayAgents)
               }
             }
             if (lastAssistant && replayFileOpsNeeded) {
-              const replayFileOps = buildMessageFileOpsFromRunEvents(replayEvents)
               if (replayFileOps.length > 0) {
                 fileOpsMap.set(lastAssistant.id, replayFileOps)
                 writeMessageFileOps(lastAssistant.id, replayFileOps)
               }
             }
             if (lastAssistant && replayWebFetchesNeeded) {
-              const replayWebFetches = buildMessageWebFetchesFromRunEvents(replayEvents)
               if (replayWebFetches.length > 0) {
                 webFetchesMap.set(lastAssistant.id, replayWebFetches)
                 writeMessageWebFetches(lastAssistant.id, replayWebFetches)
               }
             }
             if (lastAssistant && !searchStepsMap.has(lastAssistant.id)) {
-              const replaySearchSteps = finalizeSearchSteps(
-                replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
-              )
               if (replaySearchSteps.length > 0) {
                 searchStepsMap.set(lastAssistant.id, replaySearchSteps)
                 writeMessageSearchSteps(lastAssistant.id, replaySearchSteps)
               }
             }
             if (lastAssistant && replayAssistantTurnNeeded) {
-              const replayTurn = buildAssistantTurnFromReplayData(
+              replayTurn = buildAssistantTurnFromReplayData(
                 replayEvents,
-                searchStepsMap.get(lastAssistant.id) ?? [],
-                widgetsMap.get(lastAssistant.id) ?? [],
-                codeExecMap.get(lastAssistant.id) ?? [],
+                searchStepsMap.get(lastAssistant.id) ?? replaySearchSteps,
+                widgetsMap.get(lastAssistant.id) ?? replayWidgets,
+                codeExecMap.get(lastAssistant.id) ?? replayExecs,
               )
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
+              }
+            }
+            if (
+              latest.run_id &&
+              !lastAssistant &&
+              hasRecoverableRunOutput({
+                assistantTurn: replayTurn,
+                searchSteps: replaySearchSteps,
+                widgets: replayWidgets,
+                codeExecutions: replayExecs,
+                subAgents: replayAgents,
+                fileOps: replayFileOps,
+                webFetches: replayWebFetches,
+              })
+            ) {
+              replayThreadHandoff = {
+                runId: latest.run_id,
+                status: latest.status === 'cancelled' ? 'cancelled' : latest.status === 'interrupted' ? 'interrupted' : 'failed',
+                coveredRunIds: [],
+                assistantTurn: replayTurn.segments.length > 0 ? replayTurn : null,
+                sources: [],
+                artifacts: replayArtifacts,
+                widgets: replayWidgets,
+                codeExecutions: replayExecs,
+                browserActions: replayBrowserActions,
+                subAgents: replayAgents,
+                fileOps: replayFileOps,
+                webFetches: replayWebFetches,
+                searchSteps: replaySearchSteps,
               }
             }
             const replayedTodos = buildTodosFromRunEvents(replayEvents)
@@ -1274,37 +1328,105 @@ export function ChatView() {
           setTerminalRunHandoffStatus('failed')
         }
 
-        const cachedThreadHandoff = readThreadRunHandoff(threadId)
-        const shouldRestoreThreadHandoff =
-          !!cachedThreadHandoff &&
-          (!latest || latest.run_id === cachedThreadHandoff.runId) &&
-          !findAssistantMessageForRun(items, cachedThreadHandoff.runId)
-        if (
-          cachedThreadHandoff &&
-          shouldRestoreThreadHandoff
-        ) {
+        const restoreThreadHandoffUi = (
+          handoff: NonNullable<ReturnType<typeof readThreadRunHandoff>>,
+          options?: { displayRunId?: string; status?: LiveRunHandoffStatus },
+        ) => {
+          const displayRunId = options?.displayRunId ?? handoff.runId
+          const displayStatus = options?.status ?? handoff.status
           setPreserveLiveRunUi(true)
-          setTerminalRunDisplayId(cachedThreadHandoff.runId)
-          setTerminalRunHandoffStatus(cachedThreadHandoff.status)
-          setLiveAssistantTurn(cachedThreadHandoff.assistantTurn ?? null)
-          currentRunSourcesRef.current = [...cachedThreadHandoff.sources]
-          currentRunArtifactsRef.current = [...cachedThreadHandoff.artifacts]
-          currentRunCodeExecutionsRef.current = [...cachedThreadHandoff.codeExecutions]
-          currentRunBrowserActionsRef.current = [...cachedThreadHandoff.browserActions]
-          currentRunSubAgentsRef.current = [...cachedThreadHandoff.subAgents]
-          currentRunFileOpsRef.current = [...cachedThreadHandoff.fileOps]
-          currentRunWebFetchesRef.current = [...cachedThreadHandoff.webFetches]
-          setTopLevelCodeExecutions(cachedThreadHandoff.codeExecutions)
-          setTopLevelSubAgents(cachedThreadHandoff.subAgents)
-          setTopLevelFileOps(cachedThreadHandoff.fileOps)
-          setTopLevelWebFetches(cachedThreadHandoff.webFetches)
-          const restoredStreamingArtifacts = buildStreamingArtifactsFromHandoff(cachedThreadHandoff)
+          setTerminalRunDisplayId(displayRunId)
+          setTerminalRunHandoffStatus(displayStatus)
+          setTerminalRunCoveredRunIds(handoff.coveredRunIds)
+          assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
+          assistantTurnFoldStateRef.current.segments = (handoff.assistantTurn?.segments ?? []).map((segment) => structuredClone(segment))
+          setLiveAssistantTurn(handoff.assistantTurn ?? null)
+          setSegments([])
+          activeSegmentIdRef.current = null
+          currentRunSourcesRef.current = [...handoff.sources]
+          currentRunArtifactsRef.current = [...handoff.artifacts]
+          currentRunCodeExecutionsRef.current = [...handoff.codeExecutions]
+          currentRunBrowserActionsRef.current = [...handoff.browserActions]
+          currentRunSubAgentsRef.current = [...handoff.subAgents]
+          currentRunFileOpsRef.current = [...handoff.fileOps]
+          currentRunWebFetchesRef.current = [...handoff.webFetches]
+          setTopLevelCodeExecutions(handoff.codeExecutions)
+          setTopLevelSubAgents(handoff.subAgents)
+          setTopLevelFileOps(handoff.fileOps)
+          setTopLevelWebFetches(handoff.webFetches)
+          const restoredStreamingArtifacts = buildStreamingArtifactsFromHandoff(handoff)
           streamingArtifactsRef.current = restoredStreamingArtifacts
           setStreamingArtifacts(restoredStreamingArtifacts)
-          searchStepsRef.current = cachedThreadHandoff.searchSteps
-          setSearchSteps(cachedThreadHandoff.searchSteps)
+          searchStepsRef.current = handoff.searchSteps
+          setSearchSteps(handoff.searchSteps)
+        }
+
+        const cachedThreadHandoff = readThreadRunHandoff(threadId)
+        const latestTerminalHandoffStatus =
+          latest?.status === 'failed' || latest?.status === 'cancelled' || latest?.status === 'interrupted'
+            ? latest.status
+            : null
+        const effectiveCachedThreadHandoff =
+          cachedThreadHandoff &&
+          latest &&
+          latest.run_id === cachedThreadHandoff.runId &&
+          latestTerminalHandoffStatus
+            ? {
+                ...cachedThreadHandoff,
+                status: latestTerminalHandoffStatus,
+              }
+            : cachedThreadHandoff
+        const adoptedRunningContinueHandoff =
+          effectiveCachedThreadHandoff &&
+          latest &&
+          effectiveCachedThreadHandoff.status !== 'running' &&
+          effectiveCachedThreadHandoff.runId !== latest.run_id &&
+          latest.resume_from_run_id === effectiveCachedThreadHandoff.runId &&
+          (latest.status === 'running' || latest.status === 'cancelling')
+            ? {
+                ...effectiveCachedThreadHandoff,
+                runId: latest.run_id,
+                status: 'running' as const,
+                coveredRunIds: [...effectiveCachedThreadHandoff.coveredRunIds, effectiveCachedThreadHandoff.runId]
+                  .filter((value, index, arr) => value.trim() !== '' && arr.indexOf(value) === index),
+              }
+            : null
+        const shouldPreferReplayThreadHandoff =
+          !!replayThreadHandoff &&
+          !!latest &&
+          latest.run_id === replayThreadHandoff.runId
+        const shouldRestoreThreadHandoff =
+          !!effectiveCachedThreadHandoff &&
+          (
+            !latest ||
+            latest.run_id === effectiveCachedThreadHandoff.runId ||
+            adoptedRunningContinueHandoff != null
+          )
+        if (
+          adoptedRunningContinueHandoff
+        ) {
+          restoreThreadHandoffUi(adoptedRunningContinueHandoff, {
+            displayRunId: adoptedRunningContinueHandoff.runId,
+            status: 'running',
+          })
+        } else if (
+          shouldPreferReplayThreadHandoff &&
+          replayThreadHandoff
+        ) {
+          restoreThreadHandoffUi(replayThreadHandoff)
+        } else if (
+          effectiveCachedThreadHandoff &&
+          shouldRestoreThreadHandoff
+        ) {
+          restoreThreadHandoffUi(effectiveCachedThreadHandoff)
+        } else if (
+          replayThreadHandoff &&
+          (!latest || latest.run_id === replayThreadHandoff.runId)
+        ) {
+          restoreThreadHandoffUi(replayThreadHandoff)
         } else if (threadId) {
           clearThreadRunHandoff(threadId)
+          setTerminalRunCoveredRunIds([])
         }
 
         // 若 location state 已提供 initialRunId，优先使用（来自 WelcomePage 新建后导航）
@@ -1319,7 +1441,13 @@ export function ChatView() {
           setThinkingHint(hints[Math.floor(Math.random() * hints.length)])
           if (threadId) onRunStarted(threadId)
         } else {
-          const isActiveRun = !shouldRestoreThreadHandoff && (latest?.status === 'running' || latest?.status === 'cancelling')
+          const shouldResumeActiveRunFromHandoff =
+            shouldRestoreThreadHandoff &&
+            (effectiveCachedThreadHandoff?.status === 'running' || adoptedRunningContinueHandoff != null) &&
+            (latest?.status === 'running' || latest?.status === 'cancelling')
+          const isActiveRun =
+            shouldResumeActiveRunFromHandoff ||
+            (!shouldRestoreThreadHandoff && (latest?.status === 'running' || latest?.status === 'cancelling'))
           setActiveRunId(isActiveRun ? latest.run_id : null)
           if (isActiveRun && threadId) onRunStarted(threadId)
           else if (threadId) onRunEnded(threadId)
@@ -1402,13 +1530,9 @@ export function ChatView() {
   // 连接 SSE
   useEffect(() => {
     if (!activeRunId) return
-    if (threadId) {
-      clearThreadRunHandoff(threadId)
-    }
     clearCompletedTitleTail()
     freezeCutoffRef.current = null
     injectionBlockedRunIdRef.current = null
-    setPreserveLiveRunUi(false)
     sseTerminalFallbackRunIdRef.current = activeRunId
     sseTerminalFallbackArmedRef.current = false
     seenFirstToolCallInRunRef.current = false
@@ -1416,23 +1540,32 @@ export function ChatView() {
     sse.connect()
     processedEventCountRef.current = 0
     lastVisibleNonTerminalSeqRef.current = 0
-    setPreserveLiveRunUi(false)
-    currentRunSourcesRef.current = []
-    currentRunArtifactsRef.current = []
-    currentRunCodeExecutionsRef.current = []
-    currentRunBrowserActionsRef.current = []
-    currentRunSubAgentsRef.current = []
-    currentRunFileOpsRef.current = []
-    currentRunWebFetchesRef.current = []
-    resetAssistantTurnLive()
-    setSegments([])
-    activeSegmentIdRef.current = null
-    setTopLevelCodeExecutions([])
-    setTopLevelSubAgents([])
-    setTopLevelFileOps([])
-    setTopLevelWebFetches([])
-    streamingArtifactsRef.current = []
-    setStreamingArtifacts([])
+    const shouldCarryRunningHandoff =
+      preserveLiveRunUi &&
+      terminalRunHandoffStatus === 'running' &&
+      terminalRunDisplayId === activeRunId
+    if (!shouldCarryRunningHandoff && threadId) {
+      clearThreadRunHandoff(threadId)
+    }
+    if (!shouldCarryRunningHandoff) {
+      setPreserveLiveRunUi(false)
+      currentRunSourcesRef.current = []
+      currentRunArtifactsRef.current = []
+      currentRunCodeExecutionsRef.current = []
+      currentRunBrowserActionsRef.current = []
+      currentRunSubAgentsRef.current = []
+      currentRunFileOpsRef.current = []
+      currentRunWebFetchesRef.current = []
+      resetAssistantTurnLive()
+      setSegments([])
+      activeSegmentIdRef.current = null
+      setTopLevelCodeExecutions([])
+      setTopLevelSubAgents([])
+      setTopLevelFileOps([])
+      setTopLevelWebFetches([])
+      streamingArtifactsRef.current = []
+      setStreamingArtifacts([])
+    }
     setCancelSubmitting(false)
   }, [activeRunId, baseUrl, clearCompletedTitleTail, resetAssistantTurnLive, threadId])
 
@@ -1447,9 +1580,16 @@ export function ChatView() {
       lastVisibleNonTerminalSeqRef.current = 0
       return
     }
-    setTerminalRunDisplayId(null)
-    setTerminalRunHandoffStatus(null)
-  }, [activeRunId])
+    const shouldCarryRunningHandoff =
+      preserveLiveRunUi &&
+      terminalRunHandoffStatus === 'running' &&
+      terminalRunDisplayId === activeRunId
+    if (!shouldCarryRunningHandoff) {
+      setTerminalRunDisplayId(null)
+      setTerminalRunHandoffStatus(null)
+      setTerminalRunCoveredRunIds([])
+    }
+  }, [activeRunId, preserveLiveRunUi, setTerminalRunCoveredRunIds, setTerminalRunDisplayId, setTerminalRunHandoffStatus, terminalRunDisplayId, terminalRunHandoffStatus])
 
   useEffect(() => {
     if (!activeRunId) return
@@ -1693,34 +1833,172 @@ export function ChatView() {
     threadId,
   ])
 
+  const promoteHistoricalRunToHandoff = useCallback((runId: string, status: Exclude<MessageTerminalStatusRef, 'completed'>) => {
+    const coveredRunIds = [...terminalRunCoveredRunIds, runId]
+      .filter((value, index, arr) => value.trim() !== '' && arr.indexOf(value) === index)
+    const assistantMessage = [...messages].reverse().find((msg) => msg.role === 'assistant' && msg.run_id === runId)
+    if (!assistantMessage) {
+      setTerminalRunCoveredRunIds(coveredRunIds)
+      if (threadId) {
+        const handoffAssistantTurn = snapshotAssistantTurn(assistantTurnFoldStateRef.current)
+        persistThreadRunHandoff(runId, {
+          terminalStatus: status,
+          coveredRunIds,
+          runAssistantTurn: handoffAssistantTurn,
+          handoffAssistantTurn,
+          runSources: [...currentRunSourcesRef.current],
+          runArtifacts: [...currentRunArtifactsRef.current],
+          runWidgets: collectCompletedWidgets(streamingArtifactsRef.current),
+          runCodeExecs: [...currentRunCodeExecutionsRef.current],
+          runBrowserActions: [...currentRunBrowserActionsRef.current],
+          runSubAgents: [...currentRunSubAgentsRef.current],
+          runFileOps: [...currentRunFileOpsRef.current],
+          runWebFetches: [...currentRunWebFetchesRef.current],
+          pendingSearchSteps: searchStepsRef.current,
+        })
+      }
+      return
+    }
+    const cachedMeta = getMeta(assistantMessage.id)
+    const assistantTurn =
+      cachedMeta?.assistantTurn ??
+      readMessageAssistantTurn(assistantMessage.id) ??
+      (assistantMessage.content.trim() !== ''
+        ? { segments: [{ type: 'text' as const, content: assistantMessage.content }] }
+        : null)
+    const sources = cachedMeta?.sources ?? readMessageSources(assistantMessage.id) ?? []
+    const artifacts = cachedMeta?.artifacts ?? readMessageArtifacts(assistantMessage.id) ?? []
+    const widgets = cachedMeta?.widgets ?? readMessageWidgets(assistantMessage.id) ?? []
+    const codeExecutions = cachedMeta?.codeExecutions ?? readMessageCodeExecutions(assistantMessage.id) ?? []
+    const browserActions = cachedMeta?.browserActions ?? readMessageBrowserActions(assistantMessage.id) ?? []
+    const subAgents = cachedMeta?.subAgents ?? readMessageSubAgents(assistantMessage.id) ?? []
+    const fileOps = cachedMeta?.fileOps ?? readMessageFileOps(assistantMessage.id) ?? []
+    const webFetches = cachedMeta?.webFetches ?? readMessageWebFetches(assistantMessage.id) ?? []
+    const recoveredSearchSteps = cachedMeta?.searchSteps ?? readMessageSearchSteps(assistantMessage.id) ?? []
+
+    setPreserveLiveRunUi(true)
+    setTerminalRunDisplayId(runId)
+    setTerminalRunHandoffStatus(status)
+    setTerminalRunCoveredRunIds(coveredRunIds)
+    assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
+    assistantTurnFoldStateRef.current.segments = (assistantTurn?.segments ?? []).map((segment: AssistantTurnSegment) => structuredClone(segment))
+    setLiveAssistantTurn(assistantTurn)
+    setSegments([])
+    activeSegmentIdRef.current = null
+    currentRunSourcesRef.current = [...sources]
+    currentRunArtifactsRef.current = [...artifacts]
+    currentRunCodeExecutionsRef.current = [...codeExecutions]
+    currentRunBrowserActionsRef.current = [...browserActions]
+    currentRunSubAgentsRef.current = [...subAgents]
+    currentRunFileOpsRef.current = [...fileOps]
+    currentRunWebFetchesRef.current = [...webFetches]
+    setTopLevelCodeExecutions(codeExecutions)
+    setTopLevelSubAgents(subAgents)
+    setTopLevelFileOps(fileOps)
+    setTopLevelWebFetches(webFetches)
+    const streamingEntries = buildStreamingArtifactsFromHandoff({
+      runId,
+      status,
+      coveredRunIds,
+      assistantTurn,
+      sources,
+      artifacts,
+      widgets,
+      codeExecutions,
+      browserActions,
+      subAgents,
+      fileOps,
+      webFetches,
+      searchSteps: recoveredSearchSteps,
+    })
+    streamingArtifactsRef.current = streamingEntries
+    setStreamingArtifacts(streamingEntries)
+    searchStepsRef.current = recoveredSearchSteps
+    setSearchSteps(recoveredSearchSteps)
+    if (threadId) {
+      persistThreadRunHandoff(runId, {
+        terminalStatus: status,
+        coveredRunIds,
+        runAssistantTurn: assistantTurn ?? { segments: [] },
+        handoffAssistantTurn: assistantTurn ?? { segments: [] },
+        runSources: sources,
+        runArtifacts: artifacts,
+        runWidgets: widgets,
+        runCodeExecs: codeExecutions,
+        runBrowserActions: browserActions,
+        runSubAgents: subAgents,
+        runFileOps: fileOps,
+        runWebFetches: webFetches,
+        pendingSearchSteps: recoveredSearchSteps,
+      })
+    }
+  }, [
+    activeSegmentIdRef,
+    assistantTurnFoldStateRef,
+    currentRunArtifactsRef,
+    currentRunBrowserActionsRef,
+    currentRunCodeExecutionsRef,
+    currentRunFileOpsRef,
+    currentRunSourcesRef,
+    currentRunSubAgentsRef,
+    currentRunWebFetchesRef,
+    messages,
+    getMeta,
+    searchStepsRef,
+    setLiveAssistantTurn,
+    setPreserveLiveRunUi,
+    setSearchSteps,
+    setSegments,
+    setStreamingArtifacts,
+    setTerminalRunCoveredRunIds,
+    setTerminalRunDisplayId,
+    setTerminalRunHandoffStatus,
+    setTopLevelCodeExecutions,
+    setTopLevelFileOps,
+    setTopLevelSubAgents,
+    setTopLevelWebFetches,
+    streamingArtifactsRef,
+    terminalRunCoveredRunIds,
+    threadId,
+    persistThreadRunHandoff,
+  ])
+
   const actionLabelForTerminalRun = useCallback((params: {
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => {
     if (isStreaming || sending) return undefined
-    if (params.status === 'cancelled' || params.status === 'interrupted') {
+    if (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') {
       return params.hasOutput ? t.continueBtn : t.retryAction
-    }
-    if (params.status === 'failed') {
-      return t.retryAction
     }
     return undefined
   }, [isStreaming, sending, t.continueBtn, t.retryAction])
 
   const actionHandlerForTerminalRun = useCallback((params: {
     runId: string | null | undefined
-    status: MessageTerminalStatusRef | null
+    status: LiveRunHandoffStatus
     hasOutput: boolean
   }) => {
     if (isStreaming || sending) return undefined
-    if ((params.status === 'cancelled' || params.status === 'interrupted') && params.hasOutput && params.runId) {
-      return () => void handleContinue(params.runId!)
+    if (
+      (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') &&
+      params.hasOutput &&
+      params.runId
+    ) {
+      return () => {
+        const terminalStatus = params.status
+        if (terminalStatus !== 'cancelled' && terminalStatus !== 'interrupted' && terminalStatus !== 'failed') {
+          return
+        }
+        promoteHistoricalRunToHandoff(params.runId!, terminalStatus)
+        void handleContinue(params.runId!)
+      }
     }
     if (params.status === 'cancelled' || params.status === 'interrupted' || params.status === 'failed') {
       return handleRetry
     }
     return undefined
-  }, [isStreaming, sending, handleContinue, handleRetry])
+  }, [isStreaming, sending, handleContinue, handleRetry, promoteHistoricalRunToHandoff])
 
   const terminalSseError = useMemo(() => {
     if (!sse.error) return null
@@ -1767,21 +2045,6 @@ export function ChatView() {
   const isCodePanelOpen = !!codePanelExecution
   const isDocumentPanelOpen = !!documentPanelArtifact
   const isPanelOpen = isSourcePanelOpen || isCodePanelOpen || isDocumentPanelOpen
-
-  const allReadFiles = useMemo(() => {
-    const seen = new Set<string>()
-    const result: string[] = []
-    const addOps = (ops: FileOpRef[]) => {
-      for (const op of ops) {
-        if ((op.toolName === 'read_file' || op.toolName === 'read') && op.status === 'success' && op.label && op.label !== 'read file') {
-          if (!seen.has(op.label)) { seen.add(op.label); result.push(op.label) }
-        }
-      }
-    }
-    for (const ops of messageFileOpsMap.values()) addOps(ops)
-    addOps(topLevelFileOps)
-    return result
-  }, [messageFileOpsMap, topLevelFileOps])
 
   const sourcesPanelContent = useMemo(() => {
     if (!isSourcePanelOpen || !panelDisplaySources || panelDisplaySources.length === 0) return null
@@ -1933,11 +2196,27 @@ export function ChatView() {
     return allStreamItems.filter((e) => !copTimelineStreamHiddenIds.has(e.id))
   }, [allStreamItems, copTimelineStreamHiddenIds])
   const terminalRunHasOutput = useMemo(() => {
-    if ((liveAssistantTurn?.segments.length ?? 0) > 0 && assistantTurnHasVisibleOutput(liveAssistantTurn)) {
+    if (segmentsRef.current.some((segment) => segment.content.trim() !== '')) {
       return true
     }
-    return segmentsRef.current.some((segment) => segment.content.trim() !== '')
-  }, [liveAssistantTurn])
+    return hasRecoverableRunOutput({
+      assistantTurn: liveAssistantTurn,
+      searchSteps,
+      streamingArtifacts,
+      codeExecutions: topLevelCodeExecutions,
+      subAgents: topLevelSubAgents,
+      fileOps: topLevelFileOps,
+      webFetches: topLevelWebFetches,
+    })
+  }, [
+    liveAssistantTurn,
+    searchSteps,
+    streamingArtifacts,
+    topLevelCodeExecutions,
+    topLevelSubAgents,
+    topLevelFileOps,
+    topLevelWebFetches,
+  ])
 
   const shareModalEl = useMemo(() => {
     if (!threadId) return null
@@ -2078,7 +2357,7 @@ export function ChatView() {
             hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
             hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
             hasThinking: thinkingRowsLive.length > 0 || copInlineLive.length > 0,
-            handoffStatus: terminalRunHandoffStatus,
+            handoffStatus: terminalRunHandoffStatus === 'running' ? null : terminalRunHandoffStatus,
           })
         : seg.title?.trim() || undefined
     const trailSeg = si + 1 <= lastSegIdx ? liveSegments[si + 1] : undefined
@@ -2347,28 +2626,7 @@ export function ChatView() {
 
         </div>
         {/* 右侧面板：flex 兄弟节点；chat 模式下用 motion 驱动 width，避免嵌套 flex + CSS transition 偶发不插值 */}
-        {appMode === 'work' ? (
-          <div
-            style={{
-              width: '300px',
-              flexShrink: 0,
-              overflow: 'hidden',
-            }}
-          >
-            <WorkRightPanel
-              accessToken={accessToken}
-              projectId={currentThread?.project_id || undefined}
-              steps={workTodos.map((td) => ({
-                id: td.id,
-                label: td.content,
-                status: td.status === 'completed' ? 'done' : td.status === 'in_progress' ? 'active' : 'pending',
-              }))}
-              onForbidden={() => setAppMode('chat')}
-              readFiles={allReadFiles}
-              threadId={threadId}
-            />
-          </div>
-        ) : (
+        {appMode === 'work' ? null : (
           <motion.div
             className="flex-shrink-0 overflow-hidden"
             initial={false}

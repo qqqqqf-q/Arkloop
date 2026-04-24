@@ -588,9 +588,10 @@ type createRunResponse struct {
 }
 
 type threadRunResponse struct {
-	RunID     string `json:"run_id"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
+	RunID           string  `json:"run_id"`
+	Status          string  `json:"status"`
+	CreatedAt       string  `json:"created_at"`
+	ResumeFromRunID *string `json:"resume_from_run_id,omitempty"`
 }
 
 type runResponse struct {
