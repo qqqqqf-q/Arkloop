@@ -87,6 +87,7 @@ export function CopTimelineSegment({
   useLayoutEffect(() => {
     const el = contentRef.current
     if (!el) return
+    if (typeof ResizeObserver !== 'function') return
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
