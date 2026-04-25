@@ -333,6 +333,11 @@ func anthropicSDKMessagesRequireRawJSON(payload map[string]any) bool {
 			if typ, _ := block["type"].(string); typ == "cache_edits" {
 				return true
 			}
+			if typ, _ := block["type"].(string); typ == "thinking" {
+				if strings.TrimSpace(stringValueFromAny(block["signature"])) == "" {
+					return true
+				}
+			}
 			if _, ok := block["cache_reference"]; ok {
 				return true
 			}

@@ -15,7 +15,7 @@ func sdkBaseURL(t protocolTransport) string {
 
 func classifyHTTPStatus(status int) string {
 	switch status {
-	case 400, 408, 425, 429:
+	case 408, 425, 429:
 		return ErrorClassProviderRetryable
 	default:
 		if status >= 500 && status <= 599 {

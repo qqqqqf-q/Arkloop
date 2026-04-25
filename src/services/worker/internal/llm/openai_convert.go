@@ -11,11 +11,13 @@ func toOpenAIChatMessages(messages []Message) ([]map[string]any, error) {
 		text := joinParts(message.Content)
 
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
-			out = append(out, map[string]any{
+			item := map[string]any{
 				"role":       "assistant",
 				"content":    text,
 				"tool_calls": toOpenAIAssistantToolCalls(message.ToolCalls),
-			})
+			}
+			applyOpenAIReasoningContent(item, message.Content)
+			out = append(out, item)
 			continue
 		}
 
@@ -40,12 +42,41 @@ func toOpenAIChatMessages(messages []Message) ([]map[string]any, error) {
 			return nil, err
 		}
 		if hasStructured {
-			out = append(out, map[string]any{"role": message.Role, "content": contentBlocks})
+			item := map[string]any{"role": message.Role, "content": contentBlocks}
+			if message.Role == "assistant" {
+				applyOpenAIReasoningContent(item, message.Content)
+			}
+			out = append(out, item)
 			continue
 		}
-		out = append(out, map[string]any{"role": message.Role, "content": text})
+		item := map[string]any{"role": message.Role, "content": text}
+		if message.Role == "assistant" {
+			applyOpenAIReasoningContent(item, message.Content)
+		}
+		out = append(out, item)
 	}
 	return out, nil
+}
+
+func openAIReasoningContent(parts []ContentPart) (string, bool) {
+	var builder strings.Builder
+	found := false
+	for _, part := range parts {
+		if part.Kind() != "thinking" {
+			continue
+		}
+		found = true
+		builder.WriteString(part.Text)
+	}
+	return builder.String(), found
+}
+
+func applyOpenAIReasoningContent(item map[string]any, parts []ContentPart) {
+	text, ok := openAIReasoningContent(parts)
+	if !ok {
+		return
+	}
+	item["reasoning_content"] = text
 }
 
 func joinParts(parts []ContentPart) string {
@@ -101,7 +132,7 @@ func toOpenAITools(specs []ToolSpec) []map[string]any {
 		}
 		fn := map[string]any{
 			"name":       name,
-			"parameters": mapOrEmpty(spec.JSONSchema),
+			"parameters": openAIToolParameters(spec.JSONSchema),
 		}
 		if spec.Description != nil {
 			fn["description"] = *spec.Description
@@ -124,12 +155,33 @@ func toOpenAIResponsesTools(specs []ToolSpec) []map[string]any {
 		payload := map[string]any{
 			"type":       "function",
 			"name":       name,
-			"parameters": mapOrEmpty(spec.JSONSchema),
+			"parameters": openAIToolParameters(spec.JSONSchema),
 		}
 		if spec.Description != nil {
 			payload["description"] = *spec.Description
 		}
 		out = append(out, payload)
+	}
+	return out
+}
+
+func openAIToolParameters(schema map[string]any) map[string]any {
+	if schema == nil {
+		return map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		}
+	}
+	if typ, _ := schema["type"].(string); strings.TrimSpace(typ) != "" {
+		return schema
+	}
+	out := make(map[string]any, len(schema)+1)
+	for key, value := range schema {
+		out[key] = value
+	}
+	out["type"] = "object"
+	if _, ok := out["properties"]; !ok {
+		out["properties"] = map[string]any{}
 	}
 	return out
 }

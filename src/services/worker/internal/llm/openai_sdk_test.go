@@ -371,19 +371,76 @@ func TestOpenAISDKGateway_ProviderOversizeDetails(t *testing.T) {
 	}
 }
 
-func TestClassifyOpenAIStatusContextLengthExceeded(t *testing.T) {
-	got := classifyOpenAIStatus(http.StatusBadRequest, map[string]any{
-		"openai_error_code": "context_length_exceeded",
-	})
-	if got != ErrorClassProviderNonRetryable {
-		t.Fatalf("expected context length error to be non-retryable, got %q", got)
+func TestClassifyOpenAIStatusBadRequest(t *testing.T) {
+	cases := []struct {
+		name    string
+		details map[string]any
+		want    string
+	}{
+		{
+			name: "context_length_exceeded",
+			details: map[string]any{
+				"openai_error_code": "context_length_exceeded",
+			},
+			want: ErrorClassProviderNonRetryable,
+		},
+		{
+			name: "invalid_request_error",
+			details: map[string]any{
+				"openai_error_type": "invalid_request_error",
+			},
+			want: ErrorClassProviderNonRetryable,
+		},
+		{
+			name: "rate_limit_code",
+			details: map[string]any{
+				"openai_error_code": "rate_limit_exceeded",
+			},
+			want: ErrorClassProviderRetryable,
+		},
+		{
+			name: "rate_limit_type",
+			details: map[string]any{
+				"openai_error_type": "rate_limit_error",
+			},
+			want: ErrorClassProviderRetryable,
+		},
 	}
 
-	got = classifyOpenAIStatus(http.StatusBadRequest, map[string]any{
-		"openai_error_code": "rate_limit_exceeded",
-	})
-	if got != ErrorClassProviderRetryable {
-		t.Fatalf("expected other 400 errors to keep existing retryable behavior, got %q", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyOpenAIStatus(http.StatusBadRequest, tc.details)
+			if got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestOpenAISDKGateway_BadRequestInvalidRequestIsNonRetryable(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Error from provider (DeepSeek): The reasoning_content in the thinking mode must be passed back to the API.","type":"invalid_request_error"}}`))
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGatewaySDK(OpenAIGatewayConfig{Transport: TransportConfig{APIKey: "key", BaseURL: server.URL}, Protocol: OpenAIProtocolConfig{PrimaryKind: ProtocolKindOpenAIChatCompletions}})
+	var failed *StreamRunFailed
+	if err := gateway.Stream(context.Background(), Request{Model: "deepseek", Messages: []Message{{Role: "user", Content: []ContentPart{{Text: "hello"}}}}}, func(event StreamEvent) error {
+		if ev, ok := event.(StreamRunFailed); ok {
+			failed = &ev
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Stream returned unexpected error: %v", err)
+	}
+	if failed == nil {
+		t.Fatalf("missing failure")
+	}
+	if failed.Error.ErrorClass != ErrorClassProviderNonRetryable {
+		t.Fatalf("expected non-retryable error, got %q", failed.Error.ErrorClass)
 	}
 }
 
@@ -409,5 +466,69 @@ func TestOpenAIResponsesInputUsesResponsesFunctionCallIDForProviderAgnosticToolC
 	id, _ := item["id"].(string)
 	if !strings.HasPrefix(id, "fc_hist_") {
 		t.Fatalf("responses function_call id must be provider-local fc id, got %#v", item)
+	}
+}
+
+func TestOpenAIChatMessagesCarryAssistantThinkingAsReasoningContent(t *testing.T) {
+	messages, err := toOpenAIChatMessages([]Message{{
+		Role: "assistant",
+		Content: []ContentPart{
+			{Type: "thinking", Text: "first"},
+			{Type: "thinking", Text: " second"},
+			{Text: "answer"},
+		},
+		ToolCalls: []ToolCall{{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": "hi"},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("toOpenAIChatMessages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %#v", messages)
+	}
+	if messages[0]["content"] != "answer" || messages[0]["reasoning_content"] != "first second" {
+		t.Fatalf("unexpected assistant message: %#v", messages[0])
+	}
+}
+
+func TestOpenAIResponsesInputCarriesEmptyAssistantThinkingAsReasoningContent(t *testing.T) {
+	input, err := toOpenAIResponsesInput([]Message{{
+		Role:    "assistant",
+		Content: []ContentPart{{Type: "thinking", Text: ""}},
+		ToolCalls: []ToolCall{{
+			ToolCallID:    "call_1",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": "hi"},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("toOpenAIResponsesInput: %v", err)
+	}
+	if len(input) != 2 {
+		t.Fatalf("expected reasoning message plus function call, got %#v", input)
+	}
+	if input[0]["type"] != "message" || input[0]["reasoning_content"] != "" {
+		t.Fatalf("missing empty reasoning_content: %#v", input[0])
+	}
+	if content, ok := input[0]["content"].([]map[string]any); !ok || len(content) != 0 {
+		t.Fatalf("thinking must not leak into response content: %#v", input[0])
+	}
+}
+
+func TestOpenAIToolsNormalizeEmptyParameters(t *testing.T) {
+	chatTools := toOpenAITools([]ToolSpec{{Name: "memory_status"}})
+	chatFunction := chatTools[0]["function"].(map[string]any)
+	chatParams := chatFunction["parameters"].(map[string]any)
+	if chatParams["type"] != "object" || chatParams["properties"] == nil {
+		t.Fatalf("chat tool parameters must be object schema: %#v", chatParams)
+	}
+
+	responsesTools := toOpenAIResponsesTools([]ToolSpec{{Name: "memory_status", JSONSchema: map[string]any{}}})
+	responsesParams := responsesTools[0]["parameters"].(map[string]any)
+	if responsesParams["type"] != "object" || responsesParams["properties"] == nil {
+		t.Fatalf("responses tool parameters must be object schema: %#v", responsesParams)
 	}
 }

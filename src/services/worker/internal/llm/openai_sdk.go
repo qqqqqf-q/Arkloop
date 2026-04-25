@@ -561,9 +561,12 @@ func openAISDKErrorToGateway(err error, fallback string, payloadBytes int) Gatew
 
 func classifyOpenAIStatus(status int, details map[string]any) string {
 	if status == http.StatusBadRequest {
-		if code, _ := details["openai_error_code"].(string); code == "context_length_exceeded" {
-			return ErrorClassProviderNonRetryable
+		code, _ := details["openai_error_code"].(string)
+		errorType, _ := details["openai_error_type"].(string)
+		if code == "rate_limit_exceeded" || errorType == "rate_limit_error" {
+			return ErrorClassProviderRetryable
 		}
+		return ErrorClassProviderNonRetryable
 	}
 	return classifyHTTPStatus(status)
 }

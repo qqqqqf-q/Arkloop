@@ -214,6 +214,33 @@ func TestAnthropicSDKGateway_ReplaysRecoveredThinkingSignature(t *testing.T) {
 	}
 }
 
+func TestAnthropicSDKGateway_ReplaysUnsignedThinkingViaRawMessages(t *testing.T) {
+	_, messages, err := toAnthropicMessagesWithPlan([]Message{{
+		Role: "assistant",
+		Content: []ContentPart{
+			{Type: "thinking", Text: "keep"},
+			{Text: "done"},
+		},
+	}}, nil)
+	if err != nil {
+		t.Fatalf("toAnthropicMessagesWithPlan failed: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("unexpected messages: %#v", messages)
+	}
+	content := messages[0]["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["type"] != "thinking" || content[0]["thinking"] != "keep" {
+		t.Fatalf("thinking not preserved: %#v", messages[0])
+	}
+	if _, exists := content[0]["signature"]; exists {
+		t.Fatalf("unsigned thinking must not invent signature: %#v", content[0])
+	}
+	payload := map[string]any{"messages": messages}
+	if !anthropicSDKMessagesRequireRawJSON(payload) {
+		t.Fatalf("unsigned thinking must force raw message payload")
+	}
+}
+
 func TestAnthropicSDKGateway_ErrorClassification(t *testing.T) {
 	cases := []struct {
 		name      string
