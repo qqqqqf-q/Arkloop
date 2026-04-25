@@ -274,6 +274,20 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
     sealThinkingBeforeLatestCall(targetCop.items, eventTs)
   }
 
+  if (event.type === 'run.segment.start') {
+    flushCop(eventTs)
+    state.thinkingMustBreakBeforeNext = false
+    state.currentCop = currentCop
+    return
+  }
+
+  if (event.type === 'run.segment.end') {
+    flushCop(eventTs)
+    state.thinkingMustBreakBeforeNext = false
+    state.currentCop = currentCop
+    return
+  }
+
   if (event.type === 'message.delta') {
     if (isACPDelegateEventData(event.data)) return
     const obj = event.data as { content_delta?: unknown; role?: unknown; channel?: unknown }

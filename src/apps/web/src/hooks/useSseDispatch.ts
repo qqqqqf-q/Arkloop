@@ -213,6 +213,8 @@ export function useSseDispatch(params: {
         if (!segmentId) continue
         stream.activeSegmentIdRef.current = segmentId
         stream.requestAssistantTurnThinkingBreak()
+        stream.foldAssistantTurnEvent(event)
+        needsBumpSnapshot = true
         if (kind.startsWith('search_')) continue
         stream.setSegments((prev) => [...prev, { segmentId, kind, mode, label, content: '', isStreaming: true, codeExecutions: [] }])
         continue
@@ -226,6 +228,8 @@ export function useSseDispatch(params: {
           stream.activeSegmentIdRef.current = null
         }
         stream.requestAssistantTurnThinkingBreak()
+        stream.foldAssistantTurnEvent(event)
+        needsBumpSnapshot = true
         stream.setSegments((prev) =>
           prev.map((s) => (s.segmentId === segmentId ? { ...s, isStreaming: false } : s)),
         )

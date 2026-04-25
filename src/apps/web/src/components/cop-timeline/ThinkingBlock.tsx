@@ -128,9 +128,9 @@ export function CopThoughtSummaryRow({ markdown, live, thoughtDurationSeconds, s
           />
         </span>
         {expanded ? (
-          <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-tertiary)' }} strokeWidth={2} />
         ) : (
-          <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+          <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-tertiary)' }} strokeWidth={2} />
         )}
       </button>
       <AnimatePresence initial={false}>

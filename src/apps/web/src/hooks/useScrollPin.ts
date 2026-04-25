@@ -665,6 +665,15 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       lastUserScrollTopRef.current = st
       captureViewportAnchor()
     } else {
+      if (currentScrollTop > previousScrollTop + 0.5) {
+        followLiveOutputRef.current = false
+        isAtBottomRef.current = false
+        setIsAtBottom(false)
+        collapseSpacer()
+        captureViewportAnchor()
+        return
+      }
+
       // detect: user scrolled above the anchor turn
       if (st < anchorOffset - 10) {
         userScrolledUpRef.current = true

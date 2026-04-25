@@ -659,49 +659,29 @@ button:not(:disabled) {
   margin-bottom: 0 !important;
 }
 
-/* COP 时间轴根：thinking 预览与工具触发器字重（--c-cop-inline-weight）；工具字色更浅。 */
 .cop-timeline-root {
-  --c-cop-inline-weight: var(--c-fw-275);
-  /* 等宽预览行：多数 mono 无 275，会落到 400，和 thinking 的 sans 275 不对齐 */
-  --c-cop-tool-mono-preview-weight: var(--c-fw-250);
-  /* 默认按本站首段 :root = 深色 */
-  --c-cop-tool-trigger-fg: var(--c-text-tertiary);
-  --c-cop-think-label-size: 11px;
-  --c-cop-think-label-lh: 16px;
-  --c-cop-think-label-fg: var(--c-text-muted);
+  --c-cop-row-fg: color-mix(in srgb, var(--c-text-primary) 68%, var(--c-text-secondary) 32%);
+  --c-cop-row-subtle-fg: color-mix(in srgb, var(--c-text-secondary) 78%, var(--c-text-tertiary) 22%);
+  --c-cop-row-weight: var(--c-fw-400);
+  --c-cop-think-label-size: 13px;
+  --c-cop-think-label-lh: 18px;
   --c-cop-think-card-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .cop-timeline-root {
-    --c-cop-tool-trigger-fg: var(--c-text-muted);
-  }
-}
-:root[data-theme="light"] .cop-timeline-root {
-  --c-cop-tool-trigger-fg: var(--c-text-muted);
 }
 
 .cop-timeline-root .shell-exec-trigger > span:first-of-type {
-  font-weight: var(--c-cop-tool-mono-preview-weight) !important;
-  color: var(--c-cop-tool-trigger-fg) !important;
+  font-weight: var(--c-cop-row-weight) !important;
+  color: var(--c-cop-row-fg) !important;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 .cop-timeline-root .shell-exec-trigger svg {
-  color: var(--c-cop-tool-trigger-fg);
-}
-.cop-timeline-root [data-status] > button > div:last-of-type > span:first-of-type {
-  font-weight: var(--c-cop-inline-weight) !important;
-  color: var(--c-cop-tool-trigger-fg) !important;
-}
-.cop-timeline-root [data-status] > button > div:last-of-type > span:last-of-type {
-  font-weight: var(--c-cop-inline-weight) !important;
-  color: var(--c-cop-tool-trigger-fg) !important;
+  color: var(--c-cop-row-subtle-fg);
 }
 .cop-timeline-root .cop-thinking-preview-placeholder {
   font-size: var(--c-cop-think-label-size);
   line-height: var(--c-cop-think-label-lh);
-  font-weight: var(--c-cop-inline-weight, 275);
-  color: var(--c-cop-think-label-fg);
+  font-weight: var(--c-cop-row-weight);
+  color: var(--c-cop-row-fg);
 }
 .cop-timeline-root .cop-thinking-output-md {
   min-width: 0;
@@ -873,8 +853,8 @@ button:not(:disabled) {
   font-family: var(--c-cop-think-card-mono);
   font-size: var(--c-cop-think-label-size);
   line-height: var(--c-cop-think-label-lh);
-  color: var(--c-cop-think-label-fg);
-  font-weight: var(--c-cop-inline-weight, 275);
+  color: var(--c-cop-row-fg);
+  font-weight: var(--c-cop-row-weight);
 }
 .cop-timeline-root .cop-thinking-preview-trigger {
   display: inline-flex;
@@ -892,8 +872,8 @@ button:not(:disabled) {
   flex-shrink: 0;
   font-size: var(--c-cop-think-label-size);
   line-height: var(--c-cop-think-label-lh);
-  font-weight: var(--c-cop-inline-weight, 275);
-  color: var(--c-cop-think-label-fg);
+  font-weight: var(--c-cop-row-weight);
+  color: var(--c-cop-row-fg);
 }
 .cop-timeline-root .cop-thinking-card-trigger {
   display: inline-flex;
@@ -909,10 +889,10 @@ button:not(:disabled) {
   border: none;
 }
 .cop-timeline-root .cop-thinking-card-trigger-label {
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: var(--c-cop-inline-weight, 275);
-  color: var(--c-text-muted);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+  color: var(--c-cop-row-fg);
 }
 .cop-timeline-root .cop-thinking-card-outer {
   border-radius: 8px;

@@ -52,6 +52,45 @@ function sortBySeq<T extends { seq?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
 }
 
+function resolveGroupStatus(items: FileOpRef[]): ExploreGroupRef['status'] {
+  if (items.some((item) => item.status === 'running')) return 'running'
+  if (items.some((item) => item.status === 'failed')) return 'failed'
+  return 'success'
+}
+
+function groupConsecutiveExploreFileOps(calls: ReturnType<typeof copSegmentCalls>, fileOps: FileOpRef[]): ExploreGroupRef[] {
+  if (fileOps.length === 0) return []
+
+  const fileOpById = new Map(fileOps.map((item) => [item.id, item] as const))
+  const groups: ExploreGroupRef[] = []
+  let currentItems: FileOpRef[] = []
+
+  const flushCurrent = () => {
+    if (currentItems.length === 0) return
+    const status = resolveGroupStatus(currentItems)
+    groups.push({
+      id: `explore:${currentItems.map((item) => item.id).join(':')}`,
+      label: exploreGroupLabel(currentItems, status),
+      status,
+      items: currentItems,
+      seq: currentItems[0]?.seq,
+    })
+    currentItems = []
+  }
+
+  for (const call of calls) {
+    const op = fileOpById.get(call.toolCallId)
+    if (op && isExploreFileOp(op)) {
+      currentItems.push(op)
+    } else {
+      flushCurrent()
+    }
+  }
+  flushCurrent()
+
+  return groups
+}
+
 function isKnownTimelineTool(toolName: string): boolean {
   if (toolName === 'read' || toolName.startsWith('read.')) return true
   return (
@@ -166,15 +205,7 @@ export function copTimelinePayloadForSegment(
   const allFileOps = sortBySeq((pools.fileOps ?? []).filter((x) => ids.has(x.id)))
   const exploreFileOps = allFileOps.filter(isExploreFileOp)
   const fileOps = allFileOps.filter((op) => !isExploreFileOp(op))
-  const exploreGroups: ExploreGroupRef[] = exploreFileOps.length > 0
-    ? [{
-        id: `explore:${exploreFileOps.map((item) => item.id).join(':')}`,
-        label: exploreGroupLabel(exploreFileOps, exploreFileOps.some((item) => item.status === 'running') ? 'running' : exploreFileOps.some((item) => item.status === 'failed') ? 'failed' : 'success'),
-        status: exploreFileOps.some((item) => item.status === 'running') ? 'running' : exploreFileOps.some((item) => item.status === 'failed') ? 'failed' : 'success',
-        items: exploreFileOps,
-        seq: exploreFileOps[0]?.seq,
-      }]
-    : []
+  const exploreGroups = groupConsecutiveExploreFileOps(calls, exploreFileOps)
   const webFetches = sortBySeq((pools.webFetches ?? []).filter((x) => ids.has(x.id)))
   const subAgents = sortBySeq((pools.subAgents ?? []).filter((x) => ids.has(x.id)))
 

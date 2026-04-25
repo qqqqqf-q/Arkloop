@@ -390,15 +390,13 @@ export function resolveCopHeaderOverride(params: {
   if (explicitTitle) {
     return explicitTitle
   }
-  if (params.handoffStatus === 'completed') {
+  if (params.handoffStatus === 'completed' || params.handoffStatus === 'cancelled' || params.handoffStatus === 'interrupted') {
     return undefined
   }
   const statusLabel =
-    params.handoffStatus === 'cancelled' || params.handoffStatus === 'interrupted'
-      ? params.labels.stopped
-      : params.handoffStatus === 'failed'
-        ? params.labels.failed
-        : undefined
+    params.handoffStatus === 'failed'
+      ? params.labels.failed
+      : undefined
   if (params.steps.length > 0) {
     return statusLabel ?? timelineStepDisplayLabel(params.steps[params.steps.length - 1]!) ?? params.labels.liveProgress
   }

@@ -181,21 +181,22 @@ export function ExecutionCard({ variant, toolName, label, code, output, emptyLab
         }}
       >
         <span style={{
-          fontSize: '11px',
-          fontFamily: MONO,
+          fontSize: '13px',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
-          lineHeight: '16px',
-          color: 'var(--c-text-muted)',
+          lineHeight: '18px',
+          color: 'var(--c-cop-row-fg, var(--c-text-secondary))',
+          fontWeight: 'var(--c-cop-row-weight, 400)',
+          opacity: 1,
           transition: 'color 150ms ease',
         }}>
           {smooth ? previewTw : preview}
         </span>
         {expandable && (
           expanded
-            ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
-            : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-muted)' }} strokeWidth={2} />
+            ? <ChevronDown size={12} style={{ flexShrink: 0, color: 'var(--c-text-secondary)' }} strokeWidth={2} />
+            : <ChevronRight size={12} style={{ flexShrink: 0, color: 'var(--c-text-secondary)' }} strokeWidth={2} />
         )}
       </div>
 

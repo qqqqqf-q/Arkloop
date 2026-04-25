@@ -2347,6 +2347,7 @@ export function ChatView() {
     const trailSeg = si + 1 <= lastSegIdx ? liveSegments[si + 1] : undefined
     const trailingAssistantTextPresent =
       trailSeg?.type === 'text' && trailSeg.content.length > 0
+    const segmentLive = copTimelineLive && si === lastSegIdx
     return [
       <CopTimeline
         key={si === 0 ? 'cop-leading-inner' : `live-cop-inner-${si}`}
@@ -2367,6 +2368,7 @@ export function ChatView() {
         copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}
         shimmer={copTimelineLive}
         live={copTimelineLive}
+        segmentLive={segmentLive}
         preserveExpanded={preservingHandoffSegments}
         trailingAssistantTextPresent={trailingAssistantTextPresent}
         thinkingHint={thinkingHint}

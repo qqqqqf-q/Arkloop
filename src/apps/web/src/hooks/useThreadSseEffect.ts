@@ -262,6 +262,8 @@ export function useThreadSseEffect({
         if (!segmentId) continue
         activeSegmentIdRef.current = segmentId
         requestAssistantTurnThinkingBreak(assistantTurnFoldStateRef.current)
+        foldAssistantTurnEvent(assistantTurnFoldStateRef.current, event)
+        bumpAssistantTurnSnapshot()
         if (kind.startsWith('search_')) {
           continue
         }
@@ -331,6 +333,8 @@ export function useThreadSseEffect({
           activeSegmentIdRef.current = null
         }
         requestAssistantTurnThinkingBreak(assistantTurnFoldStateRef.current)
+        foldAssistantTurnEvent(assistantTurnFoldStateRef.current, event)
+        bumpAssistantTurnSnapshot()
         setSegments((prev) =>
           prev.map((s) => (s.segmentId === segmentId ? { ...s, isStreaming: false } : s)),
         )

@@ -463,27 +463,22 @@ export const MessageList = memo(function MessageList({
                     return null
                   }
                   const timelineTitleOverride = displayTerminalStatus != null
-                    ? (
-                        !isCurrentTerminalRunMessage &&
-                        (displayTerminalStatus === 'cancelled' || displayTerminalStatus === 'interrupted') &&
-                        !seg.title?.trim()
-                          ? t.connection.stopped
-                          : currentRunCopHeaderOverride({
-                              title: seg.title,
-                              steps: payload.steps,
-                              hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
-                              hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
-                              hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
-                              hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
-                              hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
-                              hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
-                              handoffStatus: displayTerminalStatus,
-                            })
-                      )
+                    ? currentRunCopHeaderOverride({
+                        title: seg.title,
+                        steps: payload.steps,
+                        hasCodeExecutions: !!(payload.codeExecutions && payload.codeExecutions.length > 0),
+                        hasSubAgents: !!(payload.subAgents && payload.subAgents.length > 0),
+                        hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
+                        hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
+                        hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
+                        hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
+                        handoffStatus: displayTerminalStatus,
+                      })
                     : seg.title?.trim() || undefined
                   const histTrail = historicalSegments[si + 1]
                   const histTrailingText =
                     histTrail?.type === 'text' && histTrail.content.length > 0
+                  const segmentLive = currentRunMessageLive && si === historicalSegments.length - 1
                   return (
                     <Fragment key={`${msg.id}-acw-${si}`}>
                       <CopTimeline
@@ -504,6 +499,7 @@ export const MessageList = memo(function MessageList({
                         preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
                         thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
                         copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
+                        segmentLive={segmentLive}
                         trailingAssistantTextPresent={histTrailingText}
                         accessToken={accessToken}
                         baseUrl={baseUrl}

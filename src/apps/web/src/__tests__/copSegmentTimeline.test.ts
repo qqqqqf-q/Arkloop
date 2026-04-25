@@ -222,6 +222,47 @@ describe('copTimelinePayloadForSegment', () => {
     expect(r.exploreGroups?.[0]?.items.map((item) => item.id)).toEqual(['r1', 'g1', 'l1'])
   })
 
+  it('exec_command 会切断 Explore 聚合，后续 read 进入新的 Explore', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [
+          call('grep_1', 'grep', 1),
+          call('glob_1', 'glob', 2),
+          call('read_1', 'read', 3),
+          call('cmd_1', 'exec_command', 4),
+          call('read_2', 'read', 5),
+          call('read_3', 'read', 6),
+          call('cmd_2', 'exec_command', 7),
+          call('grep_2', 'grep', 8),
+        ],
+      },
+      {
+        codeExecutions: [
+          { id: 'cmd_1', language: 'shell', code: 'ls -la src/apps/web/src/components/cop-timeline/', status: 'success', seq: 4 },
+          { id: 'cmd_2', language: 'shell', code: 'cd src/apps/web && pnpm type-check', status: 'success', seq: 7 },
+        ],
+        fileOps: [
+          { id: 'grep_1', toolName: 'grep', label: 'Searched copTimeline', status: 'success', seq: 1, displayKind: 'grep' },
+          { id: 'glob_1', toolName: 'glob', label: 'Listed cop-timeline', status: 'success', seq: 2, displayKind: 'glob' },
+          { id: 'read_1', toolName: 'read_file', label: 'Read CopTimeline.tsx', status: 'success', seq: 3, filePath: 'CopTimeline.tsx', displayKind: 'read' },
+          { id: 'read_2', toolName: 'read_file', label: 'Read ToolRows.tsx', status: 'success', seq: 5, filePath: 'ToolRows.tsx', displayKind: 'read' },
+          { id: 'read_3', toolName: 'read_file', label: 'Read SourceList.tsx', status: 'success', seq: 6, filePath: 'SourceList.tsx', displayKind: 'read' },
+          { id: 'grep_2', toolName: 'grep', label: 'Searched key symbols', status: 'success', seq: 8, displayKind: 'grep' },
+        ],
+        sources: [],
+      },
+    )
+
+    expect(r.exploreGroups?.map((group) => group.items.map((item) => item.id))).toEqual([
+      ['grep_1', 'glob_1', 'read_1'],
+      ['read_2', 'read_3'],
+      ['grep_2'],
+    ])
+    expect(r.codeExecutions?.map((item) => item.id)).toEqual(['cmd_1', 'cmd_2'])
+  })
+
   it('edit 和 lsp rename 不进入 Explore', () => {
     const r = copTimelinePayloadForSegment(
       {

@@ -346,7 +346,7 @@ describe('useScrollPin', () => {
       readyApi.activateAnchor()
     })
     await act(async () => {
-      await flushAnimationFrames(3)
+      await flushAnimationFrames(15)
     })
 
     expect(anchorScrollBehavior).toBe('smooth')
@@ -494,7 +494,7 @@ describe('useScrollPin', () => {
     expect(scrollContainer.scrollTop).toBe(1000)
 
     await act(async () => {
-      await flushAnimationFrames(3)
+      await flushAnimationFrames(15)
     })
 
     expect(scrollContainer.scrollTop).toBe(552)
@@ -1042,6 +1042,87 @@ describe('useScrollPin', () => {
     })
 
     expect(scrollContainer.scrollTop).toBe(740)
+
+    act(() => {
+      root.unmount()
+    })
+  })
+
+  it('发送后用户向下阅读时，展开上方内容不应跳回用户消息', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let api: ScrollPinResult | null = null
+    let metrics: HarnessMetrics = {
+      clientHeight: 400,
+      scrollHeight: 2200,
+      turnHeight: 980,
+      turnOffset: 600,
+      bottomOffset: 2200,
+      leadingHeight: 260,
+      leadingOffset: 120,
+      headerHeight: 64,
+      headerOffset: 600,
+      collapsibleHeight: 120,
+      collapsibleOffset: 700,
+      anchorHeight: 120,
+      anchorOffset: 1040,
+      tailHeight: 80,
+      tailOffset: 1500,
+    }
+
+    await act(async () => {
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
+          liveRunUiVisible
+          onReady={(value) => { api = value }}
+        />,
+      )
+    })
+
+    const readyApi = requireApi(api)
+    const scrollContainer = requireContainer(readyApi)
+    const contentRoot = requireContentRoot(readyApi)
+    act(() => {
+      readyApi.activateAnchor()
+    })
+    await act(async () => {
+      await flushAnimationFrames(15)
+    })
+    expect(scrollContainer.scrollTop).toBe(552)
+
+    act(() => {
+      scrollContainer.scrollTop = 880
+      readyApi.handleScrollContainerScroll()
+    })
+    expect(scrollContainer.scrollTop).toBe(880)
+    expect(readyApi.isAtBottomRef.current).toBe(false)
+
+    await act(async () => {
+      metrics = {
+        ...metrics,
+        scrollHeight: 2360,
+        turnHeight: 1140,
+        bottomOffset: 2360,
+        collapsibleHeight: 280,
+        anchorOffset: 1200,
+        tailOffset: 1660,
+      }
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
+          liveRunUiVisible
+          onReady={(value) => { api = value }}
+        />,
+      )
+      triggerResize(contentRoot)
+      await flushAnimationFrames(2)
+    })
+
+    expect(scrollContainer.scrollTop).toBe(1040)
 
     act(() => {
       root.unmount()

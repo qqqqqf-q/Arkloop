@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
 import { CodeExecutionCard, type CodeExecution } from '../CodeExecutionCard'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -30,8 +30,9 @@ import { WebFetchItem } from './WebFetchItem'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
 import { ExploreTimelineRow, FileOpToolRow } from './ToolRows'
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, onOpenSubAgent, fileOps, exploreGroups, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, onOpenSubAgent, fileOps, exploreGroups, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, segmentLive, forceCollapsed }: Props) {
   const { t } = useLocale()
+  const reduceMotion = useReducedMotion()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
   const interleavedThinkingLive = thinkingRowList.some((r) => r.live)
@@ -60,11 +61,19 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     if (hasThinkingOnly) return true
     return true
   })
+  const [bodyHeight, setBodyHeight] = useState<number | null>(null)
+  const [bodyTransitioning, setBodyTransitioning] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const collapsedRef = useRef(collapsed)
 
   const userToggledCollapsedRef = useRef(false)
   const prevTimelineIsLiveRef = useRef<boolean | undefined>(undefined)
 
   const prevCompleteRef = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    collapsedRef.current = collapsed
+  }, [collapsed])
+
   useEffect(() => {
     if (preserveExpanded) {
       prevCompleteRef.current = isComplete
@@ -376,7 +385,12 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
         onClick={() => {
           if (!hasContent && isComplete) return
           userToggledCollapsedRef.current = true
-          setCollapsed((p) => !p)
+          const nextCollapsed = !collapsedRef.current
+          const measuredHeight = bodyRef.current?.scrollHeight ?? 0
+          setBodyHeight(measuredHeight)
+          setBodyTransitioning(true)
+          setCollapsed(nextCollapsed)
+          collapsedRef.current = nextCollapsed
         }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -418,16 +432,17 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
         )}
       </button>
 
-      <AnimatePresence initial={!isComplete || !!live || !!shimmer}>
-        {!collapsed && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-            style={{ overflow: 'hidden' }}
-          >
-            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || exploreGroupCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
+      <motion.div
+        initial={false}
+        animate={{ height: collapsed ? 0 : (bodyHeight ?? 'auto'), opacity: collapsed ? 0 : 1 }}
+        transition={bodyTransitioning && !reduceMotion ? { duration: 0.24, ease: [0.4, 0, 0.2, 1] } : { duration: 0 }}
+        onAnimationComplete={() => {
+          setBodyTransitioning(false)
+          if (!collapsed) setBodyHeight(null)
+        }}
+        style={{ overflow: collapsed || bodyTransitioning ? 'hidden' : 'visible' }}
+      >
+            <div ref={bodyRef} style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || exploreGroupCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
 
               <div style={{ display: 'flex', flexDirection: 'column', paddingTop: unifiedEntries.length > 0 ? '0' : undefined }}>
                 <AnimatePresence initial={!isComplete || !!live}>
@@ -535,7 +550,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                         <FileOpToolRow op={entry.item} live={!!live} />
                       )}
                       {entry.kind === 'explore' && (
-                        <ExploreTimelineRow group={entry.item} live={!!live} />
+                        <ExploreTimelineRow group={entry.item} live={!!live} segmentLive={!!segmentLive} />
                       )}
                       {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live={!!live} />}
                       {entry.kind === 'generic' && (
@@ -555,9 +570,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                 </AnimatePresence>
               </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </motion.div>
     </div>
   )
 }

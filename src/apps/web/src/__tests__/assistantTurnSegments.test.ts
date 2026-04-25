@@ -288,6 +288,26 @@ describe('buildAssistantTurnFromRunEvents', () => {
     expect(copSegmentCalls(turn.segments[1])).toHaveLength(5)
   })
 
+  it('run.segment.end 后的新工具不能追加进前一个 cop segment', () => {
+    const turn = buildAssistantTurnFromRunEvents([
+      ev('r1', 1, 'run.segment.start', { segment_id: 'seg_1', kind: 'planning_round' }),
+      ev('r1', 2, 'tool.call', { tool_name: 'grep', tool_call_id: 'grep_1', arguments: { pattern: 'export' } }),
+      ev('r1', 3, 'tool.result', { tool_name: 'grep', tool_call_id: 'grep_1', result: { matches: 2 } }),
+      ev('r1', 4, 'run.segment.end', { segment_id: 'seg_1' }),
+      ev('r1', 5, 'run.segment.start', { segment_id: 'seg_2', kind: 'planning_round' }),
+      ev('r1', 6, 'tool.call', { tool_name: 'read', tool_call_id: 'read_1', arguments: { path: 'ExportPanel.tsx' } }),
+      ev('r1', 7, 'tool.result', { tool_name: 'read', tool_call_id: 'read_1', result: { content: 'export function ExportPanel() {}' } }),
+      ev('r1', 8, 'run.segment.end', { segment_id: 'seg_2' }),
+    ])
+
+    expect(turn.segments).toHaveLength(2)
+    expect(turn.segments[0]?.type).toBe('cop')
+    expect(turn.segments[1]?.type).toBe('cop')
+    if (turn.segments[0]?.type !== 'cop' || turn.segments[1]?.type !== 'cop') throw new Error('expected cop segments')
+    expect(copSegmentCalls(turn.segments[0]).map((call) => call.toolCallId)).toEqual(['grep_1'])
+    expect(copSegmentCalls(turn.segments[1]).map((call) => call.toolCallId)).toEqual(['read_1'])
+  })
+
   it('timeline_title 仅设置 cop.title，不进入 items', () => {
     const turn = buildAssistantTurnFromRunEvents([
       ev('r1', 1, 'tool.call', {

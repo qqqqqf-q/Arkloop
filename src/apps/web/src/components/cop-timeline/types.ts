@@ -53,6 +53,7 @@ export type Props = {
   trailingAssistantTextPresent?: boolean
   /** thinking 流式阶段 COP header 使用的随机提示句（不含 ...） */
   thinkingHint?: string
+  segmentLive?: boolean
   forceCollapsed?: boolean
   debugMeta?: Record<string, unknown>
 }

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { FileOpRef } from '../../storage'
 import type { ExploreGroupRef } from '../../toolPresentation'
@@ -7,6 +7,13 @@ import { COP_TIMELINE_CONTENT_PADDING_LEFT_PX, TypewriterText } from './utils'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
+const EXPLORE_VIEWPORT_BOTTOM_PAD = 10
+const TIMELINE_ROW_TITLE_STYLE = {
+  color: 'var(--c-cop-row-fg, var(--c-text-secondary))',
+  fontSize: 13,
+  fontWeight: 400,
+  lineHeight: '18px',
+} as const
 
 function basename(path: string): string {
   return path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? path
@@ -18,14 +25,25 @@ function previewLines(text: string | undefined, limit = 18): string[] {
 }
 
 function statusColor(status: FileOpRef['status']): string {
-  if (status === 'failed') return 'var(--c-status-error-text, #ef4444)'
-  if (status === 'running') return 'var(--c-text-secondary)'
-  return 'var(--c-text-tertiary)'
+  if (status === 'running') return 'var(--c-cop-row-fg, var(--c-text-secondary))'
+  return 'var(--c-cop-row-fg, var(--c-text-secondary))'
 }
 
 function ToolTitle({ title, live, status }: { title: string; live?: boolean; status?: FileOpRef['status'] }) {
   return (
-    <span style={{ color: status ? statusColor(status) : 'var(--c-text-tertiary)' }}>
+    <span
+      style={{
+        ...TIMELINE_ROW_TITLE_STYLE,
+        color: status ? statusColor(status) : TIMELINE_ROW_TITLE_STYLE.color,
+        display: 'block',
+        minWidth: 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        paddingBlock: 1,
+        marginBlock: -1,
+      }}
+    >
       <TypewriterText text={title} live={live} className={live ? 'thinking-shimmer-dim' : undefined} />
     </span>
   )
@@ -41,7 +59,7 @@ export function FileOpToolRow({ op, live }: { op: FileOpRef; live?: boolean }) {
   const expandable = !!(filePath || lines.length > 0 || op.pattern || op.operation)
 
   return (
-    <div style={{ maxWidth: 'min(100%, 760px)' }}>
+    <div style={{ maxWidth: 'min(100%, 760px)', minWidth: 0 }}>
       <button
         type="button"
         onClick={() => expandable && setExpanded((value) => !value)}
@@ -49,20 +67,20 @@ export function FileOpToolRow({ op, live }: { op: FileOpRef; live?: boolean }) {
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
+          maxWidth: '100%',
+          minWidth: 0,
           border: 'none',
           padding: 0,
           background: 'transparent',
           cursor: expandable ? 'pointer' : 'default',
-          fontSize: 13,
-          lineHeight: '18px',
-          color: 'var(--c-text-tertiary)',
+          ...TIMELINE_ROW_TITLE_STYLE,
         }}
       >
         <ToolTitle title={title} live={live && op.status === 'running'} status={op.status} />
         {op.displaySubject && !title.includes(op.displaySubject) && (
-          <span style={{ color: 'var(--c-text-muted)', fontSize: 12 }}>{op.displaySubject}</span>
+          <span style={{ color: 'var(--c-text-muted)', fontSize: 12, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{op.displaySubject}</span>
         )}
-        {expandable && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+        {expandable && (expanded ? <ChevronDown size={12} style={{ flexShrink: 0 }} /> : <ChevronRight size={12} style={{ flexShrink: 0 }} />)}
       </button>
 
       <AnimatePresence initial={false}>
@@ -98,26 +116,63 @@ export function FileOpToolRow({ op, live }: { op: FileOpRef; live?: boolean }) {
   )
 }
 
-function ExploreActivity({ op, live }: { op: FileOpRef; live?: boolean }) {
-  return (
-    <div style={{ fontSize: 13, lineHeight: '18px', color: statusColor(op.status), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-      <TypewriterText text={op.displayDescription || op.label || op.toolName} live={live && op.status === 'running'} className={live && op.status === 'running' ? 'thinking-shimmer-dim' : undefined} />
-    </div>
-  )
-}
-
-export function ExploreTimelineRow({ group, live }: { group: ExploreGroupRef; live?: boolean }) {
+export function ExploreTimelineRow({ group, live, segmentLive }: { group: ExploreGroupRef; live?: boolean; segmentLive?: boolean }) {
+  const reduceMotion = useReducedMotion()
   const [expanded, setExpanded] = useState(false)
-  const visibleItems = useMemo(() => expanded ? group.items : group.items.slice(-2), [expanded, group.items])
-  const hasExpandableItems = group.items.length > 0
+  const [metrics, setMetrics] = useState({ fullHeight: 0, previewHeight: 0, previewOffset: 0 })
+  const [viewportAnimating, setViewportAnimating] = useState(false)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const itemRefs = useRef(new Map<string, HTMLDivElement>())
+  const hasItems = group.items.length > 0
+  const hasPreviewItems = group.items.length > 2
+
+  const measureMetrics = useCallback(() => {
+    const content = contentRef.current
+    if (!content) return
+    const firstPreviewItem = group.items.at(-2)
+    const firstPreviewNode = firstPreviewItem ? itemRefs.current.get(firstPreviewItem.id) : undefined
+    const fullHeight = content.scrollHeight
+    const previewOffset = hasPreviewItems && firstPreviewNode ? firstPreviewNode.offsetTop : 0
+    const previewHeight = hasPreviewItems ? Math.max(0, fullHeight - previewOffset) : fullHeight
+    setMetrics((current) => (
+      current.fullHeight === fullHeight && current.previewHeight === previewHeight && current.previewOffset === previewOffset
+        ? current
+        : { fullHeight, previewHeight, previewOffset }
+    ))
+  }, [group.items, hasPreviewItems])
+
+  useLayoutEffect(() => {
+    measureMetrics()
+  }, [measureMetrics])
+
+  useLayoutEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const resizeObserver = new ResizeObserver(measureMetrics)
+    resizeObserver.observe(content)
+    return () => resizeObserver.disconnect()
+  }, [measureMetrics])
+
+  const displayMode: 'full' | 'preview' | 'closed' = expanded ? 'full' : segmentLive ? 'preview' : 'closed'
+  const viewportHeight = displayMode === 'full'
+    ? metrics.fullHeight
+    : displayMode === 'preview'
+      ? metrics.previewHeight
+      : 0
+  const viewportTargetHeight = displayMode === 'full' && !viewportAnimating ? 'auto' : viewportHeight
+  const contentY = displayMode === 'preview' ? -metrics.previewOffset : 0
+  const viewportTransition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.24, ease: [0.4, 0, 0.2, 1] as const }
 
   const toggleExpanded = () => {
-    if (!hasExpandableItems) return
+    if (!hasItems) return
+    setViewportAnimating(true)
     setExpanded((value) => !value)
   }
 
   return (
-    <div style={{ maxWidth: 'min(100%, 760px)' }}>
+    <div style={{ maxWidth: 'min(100%, 760px)', minWidth: 0 }}>
       <button
         type="button"
         onClick={toggleExpanded}
@@ -125,53 +180,63 @@ export function ExploreTimelineRow({ group, live }: { group: ExploreGroupRef; li
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
+          maxWidth: '100%',
+          minWidth: 0,
           border: 'none',
           padding: 0,
           background: 'transparent',
-          cursor: hasExpandableItems ? 'pointer' : 'default',
-          fontSize: 13,
-          lineHeight: '18px',
-          color: 'var(--c-text-tertiary)',
+          cursor: hasItems ? 'pointer' : 'default',
+          ...TIMELINE_ROW_TITLE_STYLE,
         }}
       >
         <ToolTitle title={group.label} live={live && group.status === 'running'} status={group.status} />
-        {hasExpandableItems && (expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />)}
+        {hasItems && (expanded ? <ChevronDown size={12} style={{ flexShrink: 0 }} /> : <ChevronRight size={12} style={{ flexShrink: 0 }} />)}
       </button>
 
       <motion.div
-        layout
-        transition={{ layout: { duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
+        initial={false}
+        animate={{ height: viewportTargetHeight, opacity: displayMode === 'closed' ? 0 : 1 }}
+        transition={viewportTransition}
+        onAnimationStart={() => setViewportAnimating(true)}
+        onAnimationComplete={() => setViewportAnimating(false)}
         style={{
-          position: 'relative',
-          marginTop: 6,
-          overflow: 'hidden',
-          paddingLeft: COP_TIMELINE_CONTENT_PADDING_LEFT_PX,
+          overflow: displayMode === 'full' && !viewportAnimating ? 'visible' : 'hidden',
         }}
       >
-        <AnimatePresence initial={false} mode="popLayout">
-          {visibleItems.map((op, index) => (
-            <motion.div
+        <motion.div
+          ref={contentRef}
+          initial={false}
+          animate={{ y: contentY }}
+          transition={viewportTransition}
+          style={{
+            position: 'relative',
+            paddingTop: 6,
+            paddingLeft: COP_TIMELINE_CONTENT_PADDING_LEFT_PX,
+            paddingBottom: EXPLORE_VIEWPORT_BOTTOM_PAD,
+          }}
+        >
+          {group.items.map((op, index) => (
+            <div
               key={op.id}
-              layout
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.22, ease: 'easeOut' }}
+              ref={(node) => {
+                if (node) itemRefs.current.set(op.id, node)
+                else itemRefs.current.delete(op.id)
+              }}
               style={{ position: 'relative' }}
             >
               <CopTimelineUnifiedRow
                 isFirst={index === 0}
-                isLast={index === visibleItems.length - 1}
-                multiItems={visibleItems.length >= 2}
+                isLast={index === group.items.length - 1}
+                multiItems={group.items.length >= 2}
                 dotColor={statusColor(op.status)}
-                paddingBottom={expanded ? 8 : 4}
+                paddingBottom={8}
                 horizontalMotion={false}
               >
-                {expanded ? <FileOpToolRow op={op} live={live} /> : <ExploreActivity op={op} live={live} />}
+                <FileOpToolRow op={op} live={live} />
               </CopTimelineUnifiedRow>
-            </motion.div>
+            </div>
           ))}
-        </AnimatePresence>
+        </motion.div>
       </motion.div>
     </div>
   )
