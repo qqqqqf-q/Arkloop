@@ -274,6 +274,7 @@ func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageN
 		}
 	}
 	applyAnthropicReasoningMode(payload, g.anthropicReasoningMode(request.ReasoningMode))
+	enforceAnthropicCacheControlLimit(payload)
 
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(request.Model),
@@ -297,6 +298,12 @@ func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageN
 		params.Tools, err = anthropicSDKTools(request.Tools)
 		if err != nil {
 			return anthropic.MessageNewParams{}, nil, 0, err
+		}
+		if payloadTools, ok := payload["tools"].([]map[string]any); ok {
+			params.Tools, err = anthropicSDKToolsFromPayload(payloadTools)
+			if err != nil {
+				return anthropic.MessageNewParams{}, nil, 0, err
+			}
 		}
 		params.ToolChoice = anthropicSDKToolChoice(request.ToolChoice)
 	}
@@ -553,6 +560,26 @@ func anthropicSDKTools(specs []ToolSpec) ([]anthropic.ToolUnionParam, error) {
 			tool.Description = anthropic.String(*spec.Description)
 		}
 		if cc := anthropicCacheControlFromHints(spec.CacheHint, nil); cc != nil && anthropicSDKCacheControl(cc) {
+			tool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		}
+		out = append(out, anthropic.ToolUnionParam{OfTool: &tool})
+	}
+	return out, nil
+}
+
+func anthropicSDKToolsFromPayload(tools []map[string]any) ([]anthropic.ToolUnionParam, error) {
+	out := make([]anthropic.ToolUnionParam, 0, len(tools))
+	for _, payload := range tools {
+		name, _ := payload["name"].(string)
+		inputSchema, _ := payload["input_schema"].(map[string]any)
+		tool := anthropic.ToolParam{
+			Name:        strings.TrimSpace(name),
+			InputSchema: anthropic.ToolInputSchemaParam{ExtraFields: mapOrEmpty(inputSchema)},
+		}
+		if description, _ := payload["description"].(string); strings.TrimSpace(description) != "" {
+			tool.Description = anthropic.String(description)
+		}
+		if cc, ok := payload["cache_control"].(map[string]any); ok && anthropicSDKCacheControl(cc) {
 			tool.CacheControl = anthropic.NewCacheControlEphemeralParam()
 		}
 		out = append(out, anthropic.ToolUnionParam{OfTool: &tool})
@@ -851,6 +878,7 @@ func anthropicSDKErrorClass(err *anthropic.Error, details map[string]any) string
 		if errorType, _ := details["anthropic_error_type"].(string); errorType == "context_length_exceeded" || errorType == "invalid_value" {
 			return ErrorClassProviderNonRetryable
 		}
+		return ErrorClassProviderNonRetryable
 	}
 	switch err.Type() {
 	case anthropic.ErrorTypeOverloadedError, anthropic.ErrorTypeRateLimitError, anthropic.ErrorTypeTimeoutError, anthropic.ErrorTypeAPIError:

@@ -9,6 +9,7 @@ const defaultAnthropicVersion = "2023-06-01"
 const defaultAnthropicMaxResponseBytes = 16 * 1024
 const anthropicMaxDebugChunkBytes = 8192
 const defaultAnthropicMaxTokens = 32768
+const anthropicMaxCacheControlBlocks = 4
 
 var errAnthropicToolUseInput = errors.New("anthropic_tool_use_input")
 var errAnthropicStreamTerminated = errors.New("anthropic_stream_terminated")

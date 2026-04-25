@@ -226,6 +226,7 @@ func TestAnthropicSDKGateway_ErrorClassification(t *testing.T) {
 		{name: "auth", status: http.StatusUnauthorized, typeName: "authentication_error", wantClass: ErrorClassProviderNonRetryable},
 		{name: "context_length", status: http.StatusBadRequest, typeName: "context_length_exceeded", wantClass: ErrorClassProviderNonRetryable},
 		{name: "invalid_value", status: http.StatusBadRequest, typeName: "invalid_value", wantClass: ErrorClassProviderNonRetryable},
+		{name: "bad_request_nil_type", status: http.StatusBadRequest, typeName: "<nil>", wantClass: ErrorClassProviderNonRetryable},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,7 +283,7 @@ func TestAnthropicSDKGateway_ProviderOversizeDetails(t *testing.T) {
 	}
 }
 
-func TestAnthropicSDKGateway_RequestPreservesCacheReferences(t *testing.T) {
+func TestAnthropicSDKGateway_RequestOmitsToolResultCacheReferences(t *testing.T) {
 	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +323,92 @@ func TestAnthropicSDKGateway_RequestPreservesCacheReferences(t *testing.T) {
 			}
 		}
 	}
-	if !found {
-		t.Fatalf("cache_reference missing from provider request: %#v", captured)
+	if found {
+		t.Fatalf("tool_result cache_reference must not be sent to Anthropic: %#v", captured)
 	}
+}
+
+func TestAnthropicSDKGateway_LimitsCacheControlBlocks(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSDKSSEBody([]string{
+			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	defer server.Close()
+
+	gateway := NewAnthropicGatewaySDK(AnthropicGatewayConfig{Transport: TransportConfig{APIKey: "test-key", BaseURL: server.URL}, Protocol: AnthropicProtocolConfig{Version: "2023-06-01"}})
+	cacheControl := "ephemeral"
+	desc := "cached tool"
+	request := Request{
+		Model: "claude-test",
+		Messages: []Message{
+			{Role: "system", Content: []ContentPart{{Text: "legacy system", CacheControl: &cacheControl}}},
+			{Role: "user", Content: []ContentPart{{Text: "hello"}}},
+			{Role: "assistant", ToolCalls: []ToolCall{{ToolCallID: "toolu_1", ToolName: "echo", ArgumentsJSON: map[string]any{"text": "hi"}}}},
+			{Role: "tool", Content: []ContentPart{{Text: `{"tool_call_id":"toolu_1","tool_name":"echo","result":"ok"}`}}},
+			{Role: "user", Content: []ContentPart{{Text: "continue"}}},
+		},
+		Tools: []ToolSpec{{
+			Name:        "echo",
+			Description: &desc,
+			JSONSchema:  map[string]any{"type": "object"},
+			CacheHint:   &CacheHint{Action: CacheHintActionWrite},
+		}},
+		PromptPlan: &PromptPlan{
+			SystemBlocks: []PromptPlanBlock{
+				{Text: "stable one", Stability: CacheStabilityStablePrefix, CacheEligible: true},
+				{Text: "session two", Stability: CacheStabilitySessionPrefix, CacheEligible: true},
+				{Text: "stable three", Stability: CacheStabilityStablePrefix, CacheEligible: true},
+				{Text: "session four", Stability: CacheStabilitySessionPrefix, CacheEligible: true},
+				{Text: "stable five", Stability: CacheStabilityStablePrefix, CacheEligible: true},
+			},
+			MessageCache: MessageCachePlan{Enabled: true, MarkerMessageIndex: 4},
+		},
+	}
+	if err := gateway.Stream(context.Background(), request, func(event StreamEvent) error { return nil }); err != nil {
+		t.Fatalf("Stream failed: %v", err)
+	}
+	if count := countAnthropicCacheControlBlocks(captured); count != anthropicMaxCacheControlBlocks {
+		t.Fatalf("expected %d cache_control blocks, got %d in %#v", anthropicMaxCacheControlBlocks, count, captured)
+	}
+}
+
+func countAnthropicCacheControlBlocks(payload map[string]any) int {
+	count := 0
+	if system, _ := payload["system"].([]any); len(system) > 0 {
+		for _, raw := range system {
+			block, _ := raw.(map[string]any)
+			if _, ok := block["cache_control"]; ok {
+				count++
+			}
+		}
+	}
+	if messages, _ := payload["messages"].([]any); len(messages) > 0 {
+		for _, rawMessage := range messages {
+			message, _ := rawMessage.(map[string]any)
+			content, _ := message["content"].([]any)
+			for _, rawBlock := range content {
+				block, _ := rawBlock.(map[string]any)
+				if _, ok := block["cache_control"]; ok {
+					count++
+				}
+			}
+		}
+	}
+	if tools, _ := payload["tools"].([]any); len(tools) > 0 {
+		for _, raw := range tools {
+			tool, _ := raw.(map[string]any)
+			if _, ok := tool["cache_control"]; ok {
+				count++
+			}
+		}
+	}
+	return count
 }

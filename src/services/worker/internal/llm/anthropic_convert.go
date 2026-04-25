@@ -333,6 +333,45 @@ func anthropicCacheControlFromHints(hint *CacheHint, legacyCacheControl *string)
 	return nil
 }
 
+func enforceAnthropicCacheControlLimit(payload map[string]any) {
+	remaining := anthropicMaxCacheControlBlocks
+	consume := func(block map[string]any) {
+		if block == nil {
+			return
+		}
+		if _, ok := block["cache_control"]; !ok {
+			return
+		}
+		if remaining > 0 {
+			remaining--
+			return
+		}
+		delete(block, "cache_control")
+	}
+
+	if system, ok := payload["system"].([]map[string]any); ok {
+		for _, block := range system {
+			consume(block)
+		}
+	}
+	if messages, ok := payload["messages"].([]map[string]any); ok {
+		for _, message := range messages {
+			content, ok := message["content"].([]map[string]any)
+			if !ok {
+				continue
+			}
+			for _, block := range content {
+				consume(block)
+			}
+		}
+	}
+	if tools, ok := payload["tools"].([]map[string]any); ok {
+		for _, tool := range tools {
+			consume(tool)
+		}
+	}
+}
+
 func applyAnthropicMessageCachePlan(out []map[string]any, sourceToOut map[int]int, userSourceToOut map[int]int, plan MessageCachePlan) {
 	if len(out) == 0 {
 		return
@@ -350,10 +389,6 @@ func applyAnthropicMessageCachePlan(out []map[string]any, sourceToOut map[int]in
 			if stableOutIdx >= 0 && stableOutIdx < markerOutIdx {
 				applySingleMessageCacheMarker(out, stableOutIdx)
 			}
-		}
-		if plan.ToolResultCacheReferences {
-			cutOutIdx := resolveToolResultCacheCutIndex(plan.ToolResultCacheCutIndex, sourceToOut, markerOutIdx)
-			applyToolResultCacheReferences(out, cutOutIdx)
 		}
 	}
 
@@ -428,38 +463,6 @@ func anthropicCacheMarkerBlockType(blockType string) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func applyToolResultCacheReferences(messages []map[string]any, cutOutIdx int) {
-	if cutOutIdx <= 0 {
-		return
-	}
-	for i := 0; i < cutOutIdx && i < len(messages); i++ {
-		msg := messages[i]
-		role, _ := msg["role"].(string)
-		if role != "user" {
-			continue
-		}
-		content, ok := msg["content"].([]map[string]any)
-		if !ok {
-			continue
-		}
-		for _, block := range content {
-			blockType, _ := block["type"].(string)
-			if blockType != "tool_result" {
-				continue
-			}
-			if _, exists := block["cache_reference"]; exists {
-				continue
-			}
-			toolUseID, _ := block["tool_use_id"].(string)
-			toolUseID = strings.TrimSpace(toolUseID)
-			if toolUseID == "" {
-				continue
-			}
-			block["cache_reference"] = toolUseID
-		}
 	}
 }
 

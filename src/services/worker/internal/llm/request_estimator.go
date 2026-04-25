@@ -146,6 +146,7 @@ func buildAnthropicMessagesPayloadForEstimate(cfg *AnthropicProtocolConfig, requ
 		}
 	}
 	applyAnthropicReasoningMode(payload, request.ReasoningMode)
+	enforceAnthropicCacheControlLimit(payload)
 	return payload, nil
 }
 
