@@ -540,15 +540,6 @@ func derefTime(t *time.Time) time.Time {
 	return *t
 }
 
-func idleIntervalForCooldown(level int) time.Duration {
-	switch level {
-	case 0:
-		return 1 * time.Minute
-	case 1:
-		return 15 * time.Minute
-	case 2:
-		return 60 * time.Minute
-	default:
-		return 60 * time.Minute
-	}
+func idleIntervalForCooldown(_ int) time.Duration {
+	return time.Minute
 }

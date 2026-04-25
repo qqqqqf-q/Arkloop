@@ -360,16 +360,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
                     model,
                     interval_min,
                     next_fire_at,
-                    CASE
-                        WHEN trigger_kind = 'heartbeat' THEN
-                            CASE
-                                WHEN cooldown_level = 0 THEN 1
-                                WHEN cooldown_level = 1 THEN 15
-                                WHEN cooldown_level >= 2 THEN 60
-                                ELSE GREATEST(interval_min, 1)
-                            END
-                        ELSE GREATEST(interval_min, 1)
-                    END AS effective_interval
+                    GREATEST(interval_min, 1) AS effective_interval
                FROM scheduled_triggers
               WHERE next_fire_at <= now()
               ORDER BY next_fire_at ASC

@@ -491,7 +491,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 }
 
-func TestScheduledTriggersRepositoryClaimDueTriggersUsesThreeStageHeartbeatIntervals(t *testing.T) {
+func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneMinute(t *testing.T) {
 	ctx := context.Background()
 
 	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
@@ -535,9 +535,57 @@ func TestScheduledTriggersRepositoryClaimDueTriggersUsesThreeStageHeartbeatInter
 	}
 
 	updatedNextFire := mustReadDesktopNextFireAt(t, ctx, db, channelID, identityID)
-	expected := originalNextFire.Add(15 * time.Minute)
+	expected := originalNextFire.Add(time.Minute)
 	if !updatedNextFire.Equal(expected) {
-		t.Fatalf("expected level 1 heartbeat to advance by 15 minutes, got=%s want=%s", updatedNextFire, expected)
+		t.Fatalf("expected level 1 heartbeat to advance by one minute, got=%s want=%s", updatedNextFire, expected)
+	}
+}
+
+func TestScheduledTriggersRepositoryUpdateCooldownAfterHeartbeatCanSuspendHeartbeat(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	repo := ScheduledTriggersRepository{}
+	accountID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	now := time.Now().UTC()
+	originalNextFire := now.Add(-20 * time.Second)
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO scheduled_triggers
+		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $9)`,
+		uuid.New().String(),
+		channelID.String(),
+		identityID.String(),
+		"persona-a",
+		accountID.String(),
+		"model-a",
+		1,
+		originalNextFire.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
+	); err != nil {
+		t.Fatalf("insert scheduled trigger: %v", err)
+	}
+
+	suspendedUntil := now.AddDate(1, 0, 0)
+	if err := repo.UpdateCooldownAfterHeartbeat(ctx, db, channelID, identityID, 2, suspendedUntil, nil); err != nil {
+		t.Fatalf("suspend heartbeat: %v", err)
+	}
+
+	rows, err := repo.ClaimDueTriggers(ctx, db, 8)
+	if err != nil {
+		t.Fatalf("claim due triggers: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected suspended heartbeat not to be claimed, got %d", len(rows))
 	}
 }
 

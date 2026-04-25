@@ -139,7 +139,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 }
 
-func TestScheduledTriggersRepositoryClaimDueTriggersUsesThreeStageHeartbeatIntervals(t *testing.T) {
+func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneMinute(t *testing.T) {
 	repo, pool, ctx := setupScheduledTriggersRepo(t)
 	triggerID := uuid.New()
 	channelID := uuid.New()
@@ -161,9 +161,33 @@ func TestScheduledTriggersRepositoryClaimDueTriggersUsesThreeStageHeartbeatInter
 		t.Fatalf("expected one claimed row, got %d", len(rows))
 	}
 
-	expectedNextFire := originalNextFire.Add(15 * time.Minute)
+	expectedNextFire := originalNextFire.Add(time.Minute)
 	if d := rows[0].NextFireAt.Sub(expectedNextFire); d < -time.Second || d > time.Second {
-		t.Fatalf("expected level 1 heartbeat to advance by 15 minutes, got=%s want=%s", rows[0].NextFireAt, expectedNextFire)
+		t.Fatalf("expected level 1 heartbeat to advance by one minute, got=%s want=%s", rows[0].NextFireAt, expectedNextFire)
+	}
+}
+
+func TestScheduledTriggersRepositoryUpdateCooldownAfterHeartbeatCanSuspendHeartbeat(t *testing.T) {
+	repo, pool, ctx := setupScheduledTriggersRepo(t)
+	channelID := uuid.New()
+	identity := uuid.New()
+	account := uuid.New()
+	now := time.Now().UTC()
+	originalNextFire := now.Add(-20 * time.Second)
+
+	insertScheduledTrigger(t, ctx, pool, uuid.New(), channelID, identity, "persona", account, "model", 1, originalNextFire)
+
+	suspendedUntil := now.Add(365 * 24 * time.Hour)
+	if err := repo.UpdateCooldownAfterHeartbeat(ctx, pool, channelID, identity, 2, suspendedUntil, nil); err != nil {
+		t.Fatalf("suspend heartbeat: %v", err)
+	}
+
+	rows, err := repo.ClaimDueTriggers(ctx, pool, 1)
+	if err != nil {
+		t.Fatalf("claim due heartbeats: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("expected suspended heartbeat not to be claimed, got %d", len(rows))
 	}
 }
 

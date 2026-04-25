@@ -208,15 +208,12 @@ func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, re
 	var newLevel int
 	var nextFire time.Time
 
-	if rc.HeartbeatToolOutcome != nil && rc.HeartbeatToolOutcome.Reply {
-		newLevel = 0
-		nextFire = now.Add(1 * time.Minute)
+	if existing.CooldownLevel == 0 {
+		newLevel = existing.CooldownLevel + 1
+		nextFire = now.Add(time.Minute)
 	} else {
 		newLevel = existing.CooldownLevel + 1
-		if newLevel > 2 {
-			newLevel = 2
-		}
-		nextFire = now.Add(idleIntervalForLevel(newLevel))
+		nextFire = suspendHeartbeatUntilNextMessage(now)
 	}
 
 	if err := repo.UpdateCooldownAfterHeartbeat(ctx, db, channelID, identityID, newLevel, nextFire, snapshotLastUserMsg); err != nil {
@@ -232,17 +229,8 @@ func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, re
 	return nil
 }
 
-func idleIntervalForLevel(level int) time.Duration {
-	switch level {
-	case 0:
-		return 1 * time.Minute
-	case 1:
-		return 15 * time.Minute
-	case 2:
-		return 60 * time.Minute
-	default:
-		return 60 * time.Minute
-	}
+func suspendHeartbeatUntilNextMessage(now time.Time) time.Time {
+	return now.AddDate(1, 0, 0)
 }
 
 func notifyHeartbeatScheduler(ctx context.Context, rc *RunContext) {
