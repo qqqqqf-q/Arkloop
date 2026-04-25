@@ -1036,7 +1036,7 @@ func openAIErrorMessageAndDetails(body []byte, status int, fallback string) (str
 		if sb.Len() > 0 {
 			sb.WriteString(": ")
 		}
-		sb.WriteString(fmt.Sprintf("%v", c))
+		fmt.Fprintf(&sb, "%v", c)
 	}
 	if p, ok := details["openai_error_param"].(string); ok && strings.TrimSpace(p) != "" {
 		if sb.Len() > 0 {
