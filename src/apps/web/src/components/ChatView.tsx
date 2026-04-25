@@ -1144,7 +1144,7 @@ export function ChatView() {
               replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
             )
             const replayThinking = buildMessageThinkingFromRunEvents(replayEvents)
-            const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
+            let replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
@@ -1201,6 +1201,7 @@ export function ChatView() {
               }
             }
             if (lastAssistant && !sourcesMap.has(lastAssistant.id)) {
+              const replaySources = replaySearchSteps.flatMap((step) => step.sources ?? [])
               if (replaySources.length > 0) {
                 sourcesMap.set(lastAssistant.id, replaySources)
                 writeMessageSources(lastAssistant.id, replaySources)
@@ -1236,7 +1237,7 @@ export function ChatView() {
                 status: latest.status === 'cancelled' ? 'cancelled' : latest.status === 'interrupted' ? 'interrupted' : 'failed',
                 coveredRunIds: [],
                 assistantTurn: replayTurn.segments.length > 0 ? replayTurn : null,
-                sources: replaySources,
+                sources: replaySearchSteps.flatMap((step) => step.sources ?? []),
                 artifacts: replayArtifacts,
                 widgets: replayWidgets,
                 codeExecutions: replayExecs,
