@@ -328,7 +328,7 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: config.window.width,
     height: config.window.height,
-    minWidth: 900,
+    minWidth: 760,
     minHeight: 600,
     title: 'Arkloop',
     show: false,

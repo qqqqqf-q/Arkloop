@@ -157,6 +157,36 @@ func TestEventWriterPendingTelegramFlushChunkFromAssistantMessage(t *testing.T) 
 	}
 }
 
+func TestEventWriterKeepsCompletedAssistantThinkingState(t *testing.T) {
+	w := &eventWriter{}
+	message := llm.Message{Role: "assistant", Content: []llm.ContentPart{
+		{Type: "thinking", Text: "reason", Signature: "sig_1"},
+		{Type: "text", Text: "answer"},
+	}}
+
+	assistantMessage, ok := assistantMessageFromEventData(llm.StreamRunCompleted{AssistantMessage: &message}.ToDataJSON())
+	if !ok {
+		t.Fatalf("expected assistant message from completion data")
+	}
+	w.assistantMessage = &assistantMessage
+	w.assistantMessageFresh = true
+
+	contentJSON, err := llm.BuildAssistantThreadContentJSON(w.finalAssistantMessage())
+	if err != nil {
+		t.Fatalf("BuildAssistantThreadContentJSON failed: %v", err)
+	}
+	restored, err := llm.AssistantMessageFromThreadContentJSON(contentJSON)
+	if err != nil {
+		t.Fatalf("AssistantMessageFromThreadContentJSON failed: %v", err)
+	}
+	if restored == nil || len(restored.Content) != 2 || restored.Content[0].Kind() != "thinking" {
+		t.Fatalf("expected thinking state preserved, got %#v", restored)
+	}
+	if restored.Content[0].Signature != "sig_1" || restored.Content[0].Text != "reason" {
+		t.Fatalf("unexpected thinking part: %#v", restored.Content[0])
+	}
+}
+
 func TestEventWriterPendingTelegramFlushChunkSkipsStickerPlaceholder(t *testing.T) {
 	w := &eventWriter{
 		assistantOutputs:          []string{"先发一段", "[sticker:hash]"},

@@ -1007,6 +1007,17 @@ func contentPartsFromJSON(raw any) ([]ContentPart, error) {
 	if raw == nil {
 		return nil, nil
 	}
+	if typedParts, ok := raw.([]map[string]any); ok {
+		parts := make([]ContentPart, 0, len(typedParts))
+		for _, partObj := range typedParts {
+			part, err := contentPartFromJSONMap(partObj)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+		}
+		return parts, nil
+	}
 	rawParts, ok := raw.([]any)
 	if !ok {
 		return nil, fmt.Errorf("message content is not an array")

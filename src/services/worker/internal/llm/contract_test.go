@@ -56,3 +56,21 @@ func TestBuildAssistantThreadContentJSON_RoundTripPreservesContinuityState(t *te
 		t.Fatalf("expected assistant_state envelope in %s", string(raw))
 	}
 }
+
+func TestMessageFromJSONMapAcceptsTypedContentParts(t *testing.T) {
+	message := Message{Role: "assistant", Content: []ContentPart{
+		{Type: "thinking", Text: "deliberating", Signature: "sig_1"},
+		{Type: messagecontent.PartTypeText, Text: "done"},
+	}}
+
+	restored, err := MessageFromJSONMap(message.ToJSON())
+	if err != nil {
+		t.Fatalf("MessageFromJSONMap failed: %v", err)
+	}
+	if len(restored.Content) != 2 {
+		t.Fatalf("unexpected content len: %#v", restored.Content)
+	}
+	if restored.Content[0].Kind() != "thinking" || restored.Content[0].Signature != "sig_1" || restored.Content[0].Text != "deliberating" {
+		t.Fatalf("unexpected thinking part: %#v", restored.Content[0])
+	}
+}
