@@ -103,6 +103,29 @@ func TestAnthropicSDKGateway_RequestIncludesThinkingSignatureCacheAndAdvancedJSO
 	}
 }
 
+func TestAnthropicSDKGateway_DeepSeekAutoDisablesThinking(t *testing.T) {
+	gateway := NewAnthropicGatewaySDK(AnthropicGatewayConfig{
+		Transport: TransportConfig{APIKey: "test-key", BaseURL: "https://api.deepseek.com/anthropic"},
+		Protocol:  AnthropicProtocolConfig{Version: "2023-06-01"},
+	})
+	_, payload, _, err := gateway.(*anthropicSDKGateway).messageParams(Request{
+		Model:         "deepseek-v4-flash",
+		ReasoningMode: "auto",
+		Messages: []Message{
+			{Role: "user", Content: []ContentPart{{Text: "hello"}}},
+			{Role: "assistant", Content: []ContentPart{{Text: "old answer"}}},
+			{Role: "user", Content: []ContentPart{{Text: "next"}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("messageParams failed: %v", err)
+	}
+	thinking := payload["thinking"].(map[string]any)
+	if thinking["type"] != "disabled" {
+		t.Fatalf("expected thinking disabled, got %#v", thinking)
+	}
+}
+
 func TestAnthropicSDKGateway_ThinkingAndToolUseAccumulators(t *testing.T) {
 	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

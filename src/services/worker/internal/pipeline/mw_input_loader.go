@@ -1041,6 +1041,9 @@ func canonicalizeToolMessageParts(parts []llm.ContentPart) []llm.ContentPart {
 func BuildMessageParts(ctx context.Context, store MessageAttachmentStore, msg data.ThreadMessage) ([]llm.ContentPart, error) {
 	fallbackContent := msg.Content
 	if msg.Role == "assistant" {
+		if restored, err := llm.AssistantMessageFromThreadContentJSON(msg.ContentJSON); err == nil && restored != nil {
+			return restored.Content, nil
+		}
 		fallbackContent = sanitizeStoredAssistantText(fallbackContent)
 	}
 	if len(msg.ContentJSON) == 0 {

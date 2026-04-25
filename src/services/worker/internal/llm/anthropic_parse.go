@@ -161,6 +161,7 @@ func anthropicThinkingDisabled(mode string) bool {
 }
 
 func applyAnthropicReasoningMode(payload map[string]any, mode string) {
+	mode = strings.TrimSpace(mode)
 	if budget, ok := anthropicThinkingBudget(mode); ok {
 		payload["thinking"] = map[string]any{
 			"type":          "enabled",
@@ -170,7 +171,7 @@ func applyAnthropicReasoningMode(payload map[string]any, mode string) {
 		return
 	}
 	if anthropicThinkingDisabled(mode) {
-		delete(payload, "thinking")
+		payload["thinking"] = map[string]any{"type": "disabled"}
 		return
 	}
 	if tObj, ok := payload["thinking"].(map[string]any); ok {

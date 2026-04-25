@@ -125,6 +125,87 @@ func TestChannelDeliveryDrainerSendsPendingOutbox(t *testing.T) {
 	}
 }
 
+func TestChannelDeliveryDrainerMarksEmptyPayloadDead(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "channel_delivery_drain_empty_payload")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+
+	createChannelDeliveryTables(t, pool, `CREATE TABLE channel_message_ledger (
+		channel_id UUID NOT NULL,
+		channel_type TEXT NOT NULL,
+		direction TEXT NOT NULL,
+		thread_id UUID NULL,
+		run_id UUID NULL,
+		platform_conversation_id TEXT NOT NULL,
+		platform_message_id TEXT NOT NULL,
+		platform_parent_message_id TEXT NULL,
+		platform_thread_id TEXT NULL,
+		sender_channel_identity_id UUID NULL,
+		metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+		UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+	)`)
+
+	keyBytes := make([]byte, 32)
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 1)
+	}
+	t.Setenv("ARKLOOP_ENCRYPTION_KEY", hex.EncodeToString(keyBytes))
+
+	var sent bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":901,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+	outboxID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+	if _, err := pool.Exec(ctx, `INSERT INTO secrets (id, encrypted_value, key_version) VALUES ($1, $2, 1)`, secretID, encryptChannelToken(t, keyBytes, "bot-token")); err != nil {
+		t.Fatalf("insert secret: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, channel_type, credentials_id, is_active) VALUES ($1, 'telegram', $2, TRUE)`, channelID, secretID); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+
+	payloadJSON, _ := json.Marshal(data.OutboxPayload{AccountID: accountID, RunID: runID, ThreadID: &threadID, PlatformChatID: "10001"})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO channel_delivery_outbox (
+			id, run_id, thread_id, channel_id, channel_type, status, payload_json, segments_sent, attempts, last_error, next_retry_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'telegram', 'pending', $5, 0, 4, NULL, $6, $6, $6)
+	`, outboxID, runID, threadID, channelID, payloadJSON, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("insert outbox: %v", err)
+	}
+
+	drainer := NewChannelDeliveryDrainer(pool, ChannelDeliveryDrainOptions{Telegram: telegrambot.NewClient(server.URL, server.Client())})
+	drainer.Start(ctx)
+	time.Sleep(2 * time.Second)
+	drainer.Stop()
+
+	if sent {
+		t.Fatal("expected no telegram send for empty payload")
+	}
+	var status, lastError string
+	if err := pool.QueryRow(ctx, `SELECT status, COALESCE(last_error, '') FROM channel_delivery_outbox WHERE id = $1`, outboxID).Scan(&status, &lastError); err != nil {
+		t.Fatalf("query outbox: %v", err)
+	}
+	if status != "dead" || !strings.Contains(lastError, "no deliverable content") {
+		t.Fatalf("expected empty payload dead, got status=%q last_error=%q", status, lastError)
+	}
+}
+
 func TestChannelDeliveryDrainerRetriesAndMarksDead(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "channel_delivery_drain_dead")
@@ -215,7 +296,6 @@ func TestChannelDeliveryDrainerRetriesAndMarksDead(t *testing.T) {
 		t.Fatalf("expected outbox status dead after max attempts, got %q", status)
 	}
 }
-
 
 func TestChannelDeliveryDrainerOffset(t *testing.T) {
 	ctx := context.Background()

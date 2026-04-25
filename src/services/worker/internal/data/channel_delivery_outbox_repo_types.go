@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -99,6 +100,9 @@ func (ChannelDeliveryOutboxRepository) InsertPending(ctx context.Context, db Cha
 	if db == nil {
 		return nil, fmt.Errorf("db must not be nil")
 	}
+	if !payload.HasDeliverableContent() {
+		return nil, fmt.Errorf("channel_delivery_outbox: payload has no deliverable content")
+	}
 	if kind == "" {
 		kind = OutboxKindMessage
 	}
@@ -143,6 +147,27 @@ func (ChannelDeliveryOutboxRepository) InsertPending(ctx context.Context, db Cha
 		return lookupPendingOutboxByRunIDAndKind(ctx, db, runID, kind)
 	}
 	return nil, fmt.Errorf("channel_delivery_outbox.InsertPending: %w", err)
+}
+
+func (p OutboxPayload) HasDeliverableContent() bool {
+	for _, segment := range p.Segments {
+		switch segment.Kind {
+		case "sticker":
+			if strings.TrimSpace(segment.StickerID) != "" {
+				return true
+			}
+		default:
+			if strings.TrimSpace(segment.Text) != "" {
+				return true
+			}
+		}
+	}
+	for _, output := range p.Outputs {
+		if strings.TrimSpace(output) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func lookupPendingOutboxByRunIDAndKind(ctx context.Context, db ChannelDeliveryOutboxExecer, runID uuid.UUID, kind string) (*ChannelDeliveryOutboxRecord, error) {

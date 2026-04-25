@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/data"
@@ -20,6 +21,22 @@ const (
 	// outboxDeadRetention 死信行保留时长。
 	outboxDeadRetention = 30 * 24 * time.Hour
 )
+
+var errOutboxPayloadEmpty = errors.New("channel delivery outbox payload has no deliverable content")
+
+func validateOutboxPayload(payload data.OutboxPayload) error {
+	if payload.HasDeliverableContent() {
+		return nil
+	}
+	return errOutboxPayloadEmpty
+}
+
+func isDeliverableSegment(segment data.OutboxSegment) bool {
+	if segment.Kind == "sticker" {
+		return strings.TrimSpace(segment.StickerID) != ""
+	}
+	return strings.TrimSpace(segment.Text) != ""
+}
 
 func handleInlineOutboxFailure(
 	ctx context.Context,

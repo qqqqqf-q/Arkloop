@@ -137,6 +137,9 @@ func (d *ChannelDeliveryDrainer) drain(ctx context.Context) {
 }
 
 func (d *ChannelDeliveryDrainer) drainRecord(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
+	if err := validateOutboxPayload(payload); err != nil {
+		return d.handleFailure(ctx, row, err, outboxRepo)
+	}
 	switch row.ChannelType {
 	case "telegram":
 		return d.drainTelegram(ctx, row, payload, channel, outboxRepo)

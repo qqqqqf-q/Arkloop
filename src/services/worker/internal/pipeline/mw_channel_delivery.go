@@ -335,6 +335,9 @@ func inlineDeliverTelegramOutbox(
 		Get(ctx context.Context, key string) ([]byte, error)
 	},
 ) error {
+	if err := validateOutboxPayload(payload); err != nil {
+		return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+	}
 	sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
 	replyTo := telegramReplyReference(ctx, pool, rc)
 
@@ -444,6 +447,9 @@ func inlineDeliverDiscordOutbox(
 	ledgerRepo data.ChannelMessageLedgerRepository,
 	messagesRepo data.MessagesRepository,
 ) error {
+	if err := validateOutboxPayload(payload); err != nil {
+		return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+	}
 	sender := NewDiscordChannelSenderWithClient(client, baseURL, channel.Token, resolveSegmentDelay())
 	replyTo := discordReplyReference(rc)
 
@@ -497,6 +503,9 @@ func inlineDeliverOneBotOutbox(
 	ledgerRepo data.ChannelMessageLedgerRepository,
 	messagesRepo data.MessagesRepository,
 ) error {
+	if err := validateOutboxPayload(payload); err != nil {
+		return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
+	}
 	obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
 	if obBaseURL == "" {
 		obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))

@@ -224,6 +224,22 @@ func (g *anthropicSDKGateway) emitDebugErrorChunk(llmCallID string, err error, y
 	return g.emitDebugChunk(llmCallID, string(apiErr.DumpResponse(true)), &status, yield)
 }
 
+func (g *anthropicSDKGateway) anthropicReasoningMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode != "" && !strings.EqualFold(mode, "auto") {
+		return mode
+	}
+	if isDeepSeekAnthropicBaseURL(g.transport.cfg.BaseURL) {
+		return "disabled"
+	}
+	return mode
+}
+
+func isDeepSeekAnthropicBaseURL(baseURL string) bool {
+	baseURL = strings.ToLower(strings.TrimSpace(baseURL))
+	return strings.Contains(baseURL, "api.deepseek.com")
+}
+
 func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageNewParams, map[string]any, int, error) {
 	systemMaps, messageMaps, err := toAnthropicMessagesWithPlan(request.Messages, request.PromptPlan)
 	if err != nil {
@@ -257,7 +273,7 @@ func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageN
 			payload[key] = value
 		}
 	}
-	applyAnthropicReasoningMode(payload, request.ReasoningMode)
+	applyAnthropicReasoningMode(payload, g.anthropicReasoningMode(request.ReasoningMode))
 
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(request.Model),

@@ -57,6 +57,28 @@ func TestLoadRunInputsIncludesRoleFromFirstEvent(t *testing.T) {
 	}
 }
 
+func TestBuildMessagePartsRestoresAssistantThinkingState(t *testing.T) {
+	message := llm.Message{Role: "assistant", Content: []llm.ContentPart{
+		{Type: "thinking", Text: "reason", Signature: "sig_1"},
+		{Text: "answer"},
+	}}
+	contentJSON, err := llm.BuildAssistantThreadContentJSON(message)
+	if err != nil {
+		t.Fatalf("BuildAssistantThreadContentJSON failed: %v", err)
+	}
+	parts, err := BuildMessageParts(context.Background(), nil, data.ThreadMessage{
+		Role:        "assistant",
+		Content:     "answer",
+		ContentJSON: contentJSON,
+	})
+	if err != nil {
+		t.Fatalf("BuildMessageParts failed: %v", err)
+	}
+	if len(parts) != 2 || parts[0].Kind() != "thinking" || parts[0].Signature != "sig_1" {
+		t.Fatalf("expected assistant thinking state restored, got %#v", parts)
+	}
+}
+
 func TestLoadRunInputsBoundsFreshChannelHistoryAtThreadTail(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_bounded_channel_history")
