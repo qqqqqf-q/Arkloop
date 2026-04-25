@@ -430,7 +430,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
     setFormBaseUrl(provider.base_url ?? '')
     setErr('')
     setConfirmDelete(false)
-  }, [provider.id])
+  }, [provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
 
   const handleSave = async () => {
     setSaving(true)

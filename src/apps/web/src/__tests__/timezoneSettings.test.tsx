@@ -10,6 +10,15 @@ vi.mock('../api', async () => {
   }
 })
 
+vi.mock('../storage', async () => {
+  const actual = await vi.importActual<typeof import('../storage')>('../storage')
+  return {
+    ...actual,
+    readLocaleFromStorage: vi.fn(() => 'zh'),
+    writeLocaleToStorage: vi.fn(),
+  }
+})
+
 vi.mock('@arkloop/shared', async () => {
   const actual = await vi.importActual<typeof import('@arkloop/shared')>('@arkloop/shared')
   return {

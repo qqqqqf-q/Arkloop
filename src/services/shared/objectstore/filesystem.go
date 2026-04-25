@@ -352,13 +352,13 @@ func atomicWriteFile(path string, data []byte, perm fs.FileMode) error {
 		return err
 	}
 	tempPath := tempFile.Name()
-	defer os.Remove(tempPath)
+	defer func() { _ = os.Remove(tempPath) }()
 	if _, err := tempFile.Write(data); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return err
 	}
 	if err := tempFile.Chmod(perm); err != nil {
-		tempFile.Close()
+		_ = tempFile.Close()
 		return err
 	}
 	if err := tempFile.Close(); err != nil {
@@ -377,7 +377,7 @@ func fileETag(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, file); err != nil {
 		return "", err

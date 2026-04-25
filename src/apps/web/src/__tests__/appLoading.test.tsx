@@ -36,6 +36,15 @@ vi.mock('@arkloop/shared/api', () => ({
   setClientApp,
 }))
 
+vi.mock('../storage', async () => {
+  const actual = await vi.importActual<typeof import('../storage')>('../storage')
+  return {
+    ...actual,
+    readLocaleFromStorage: vi.fn(() => 'zh'),
+    writeLocaleToStorage: vi.fn(),
+  }
+})
+
 describe('App loading state', () => {
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT

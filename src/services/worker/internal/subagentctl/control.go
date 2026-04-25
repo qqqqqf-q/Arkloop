@@ -349,7 +349,7 @@ func (s *Service) waitOne(waitCtx context.Context, timeout time.Duration, subAge
 func (s *Service) waitOneByRedis(waitCtx context.Context, timeout time.Duration, subAgentID uuid.UUID, lastSnapshot StatusSnapshot) (StatusSnapshot, error) {
 	ch := fmt.Sprintf("run.child.%s.done", lastSnapshot.CurrentRunID.String())
 	sub := s.rdb.Subscribe(waitCtx, ch)
-	defer sub.Close()
+	defer func() { _ = sub.Close() }()
 
 	// Subscribe 后立即重检，防止事件遗漏
 	snapshot, err := s.GetStatus(waitCtx, subAgentID)

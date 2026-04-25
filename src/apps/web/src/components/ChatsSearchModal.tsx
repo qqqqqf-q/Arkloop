@@ -146,7 +146,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
       cancelAnimationFrame(unlockId)
       cancelAnimationFrame(frameId)
     }
-  }, [])
+  }, [threads.length])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -226,7 +226,7 @@ export function ChatsSearchModal({ threads, accessToken, onClose }: Props) {
   const groups = useMemo(() => {
     const next = groupByDate(visibleThreads, dateLabels, timeZone)
     return next
-  }, [dateLabels, displayThreads.length, query.length, searching, timeZone, visibleThreads])
+  }, [dateLabels, timeZone, visibleThreads])
 
   const handleThreadClick = useCallback(
     (threadId: string) => {

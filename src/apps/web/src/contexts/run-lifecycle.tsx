@@ -267,7 +267,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [sseRunId, sse.state, sse.reconnect])
+  }, [sse, sseRunId, sse.state, sse.reconnect])
 
   // 切换 thread 时重置 run 状态
   useEffect(() => {

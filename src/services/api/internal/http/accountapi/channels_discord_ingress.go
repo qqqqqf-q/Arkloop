@@ -330,7 +330,7 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 	if err := session.Open(); err != nil {
 		return err
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	<-ctx.Done()
 	return ctx.Err()
 }

@@ -1744,22 +1744,22 @@ func handleTelegramCommand(
 		return false, "", nil
 	}
 	command := strings.TrimSpace(parts[0])
-	switch {
-	case command == "/help":
+	switch command {
+	case "/help":
 		return true, "/start — 查看连接状态\n/bind <code> — 绑定你的账号\n/new — 开启新会话\n/stop — 停止当前任务\n/model [name] — View or switch model\n/think [level] — View or set thinking intensity\n/help — 显示此帮助", nil
-	case command == "/start":
+	case "/start":
 		if len(parts) > 1 && strings.HasPrefix(parts[1], "bind_") {
 			replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, strings.TrimPrefix(parts[1], "bind_"), channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 			return true, replyText, err
 		}
 		return true, "已连接 Arkloop\n\n使用 /bind <code> 绑定账号\n私聊直接发消息开始对话，/new 开启新会话\n群内 @bot 触发对话，管理员可用 /new 重置会话", nil
-	case command == "/bind":
+	case "/bind":
 		if len(parts) < 2 {
 			return true, "用法：/bind <code>", nil
 		}
 		replyText, err := bindTelegramIdentity(ctx, tx, channel, identity, parts[1], channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 		return true, replyText, err
-	case command == "/new":
+	case "/new":
 		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
 			return true, "当前会话未配置 persona。", nil
 		}
@@ -1767,7 +1767,7 @@ func handleTelegramCommand(
 			return true, "", err
 		}
 		return true, "已开启新会话。", nil
-	case command == "/stop":
+	case "/stop":
 		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
 			return true, "当前没有运行中的任务。", nil
 		}
@@ -1790,7 +1790,7 @@ func handleTelegramCommand(
 		}
 		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
 		return true, "已请求停止当前任务。", nil
-	case command == "/model":
+	case "/model":
 		allowUserScoped, err := resolveTelegramByokEnabled(ctx, entSvc, accountID)
 		if err != nil {
 			return true, "", err
@@ -1836,7 +1836,7 @@ func handleTelegramCommand(
 			return true, "", err
 		}
 		return true, "model → " + newModel, nil
-	case command == "/think":
+	case "/think":
 		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
 		if err != nil {
 			return true, "", err
@@ -2223,8 +2223,8 @@ func handleTelegramPreferenceCommand(
 		return "", nil
 	}
 	cmd, _ := telegramCommandBase(rawText, "")
-	switch {
-	case cmd == "/model":
+	switch cmd {
+	case "/model":
 		allowUserScoped, err := resolveTelegramByokEnabled(ctx, entSvc, accountID)
 		if err != nil {
 			return "", err
@@ -2270,7 +2270,7 @@ func handleTelegramPreferenceCommand(
 			return "", err
 		}
 		return "model → " + newModel, nil
-	case cmd == "/think":
+	case "/think":
 		_, reasoningMode, err := channelIdentitiesRepo.WithTx(tx).GetPreferenceConfig(ctx, identity.ID)
 		if err != nil {
 			return "", err

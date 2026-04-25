@@ -24,3 +24,24 @@ if (typeof HTMLCanvasElement !== 'undefined') {
     }),
   })
 }
+
+if (typeof window !== 'undefined' && typeof window.scrollTo !== 'function') {
+  Object.defineProperty(window, 'scrollTo', {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  })
+}
+
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: ResizeObserver,
+  })
+}

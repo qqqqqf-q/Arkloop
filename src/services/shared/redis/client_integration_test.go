@@ -19,7 +19,7 @@ func TestNewClientPing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new redis client: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if err := client.Ping(context.Background()).Err(); err != nil {
 		t.Fatalf("redis ping: %v", err)

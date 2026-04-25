@@ -101,7 +101,7 @@ func asrTranscribeEntry(
 			writeErrStr(nethttp.StatusUnprocessableEntity, "validation.error", "FormFile: "+err.Error())
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		limited := io.LimitReader(file, asrMaxUploadBytes+1)
 
@@ -136,7 +136,10 @@ func asrTranscribeEntry(
 				return
 			}
 		}
-		mw.Close()
+		if err := mw.Close(); err != nil {
+			writeErrStr(nethttp.StatusInternalServerError, "internal.error", "Close multipart writer: "+err.Error())
+			return
+		}
 
 		upstreamURL := resolveAsrBaseURL(cred) + "/audio/transcriptions"
 		if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(upstreamURL); err != nil {
@@ -162,7 +165,7 @@ func asrTranscribeEntry(
 			writeErrStr(nethttp.StatusBadGateway, "asr.upstream_error", "upstream request failed: "+err.Error())
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		body, err := io.ReadAll(io.LimitReader(resp.Body, asrMaxResponseBytes))
 		if err != nil {

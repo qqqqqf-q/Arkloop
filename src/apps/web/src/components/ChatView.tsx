@@ -110,6 +110,7 @@ import {
   readThreadRunHandoff,
   clearThreadRunHandoff,
   readMessageSources,
+  writeMessageSources,
   readMessageArtifacts,
   writeMessageArtifacts,
   readMessageCodeExecutions,
@@ -138,11 +139,13 @@ import {
   readMessageTerminalStatus,
   writeMessageTerminalStatus,
   type MessageTerminalStatusRef,
+  readMessageCoveredRunIds,
   readMessageWidgets,
   writeMessageWidgets,
   type WidgetRef,
   migrateMessageMetadata,
   readMsgRunEvents,
+  writeMsgRunEvents,
   type MsgRunEvent,
   readInputDraftAttachments,
   readThreadWorkFolder,
@@ -696,7 +699,6 @@ export function ChatView() {
     beginMessageSync,
     isMessageSyncCurrent,
     invalidateMessageSync,
-    readConsistentMessages,
   } = useMessageStore()
   const {
     activeRunId,
@@ -743,8 +745,8 @@ export function ChatView() {
   } = useRunLifecycle()
   const {
     getMeta,
-    loadFromStorage,
     setMetaBatch,
+    primeMetaBatch,
     clearAll: clearAllMeta,
     currentRunSourcesRef,
     currentRunArtifactsRef,
@@ -997,9 +999,13 @@ export function ChatView() {
         if (disposed || !isMessageSyncCurrent(syncVersion)) return
 
         const latest = runs[0]
-        const items = shouldRefetchCompletedRunMessages({ messages: initialItems, latestRun: latest })
-          ? await readConsistentMessages(latest.run_id)
-          : initialItems
+        let items = initialItems
+        if (shouldRefetchCompletedRunMessages({ messages: initialItems, latestRun: latest })) {
+          const refreshedItems = await listMessages(accessToken, threadId)
+          items = findAssistantMessageForRun(refreshedItems, latest.run_id) != null
+            ? refreshedItems
+            : initialItems
+        }
         if (disposed || !isMessageSyncCurrent(syncVersion)) return
 
         loadedItems = items
@@ -1027,6 +1033,7 @@ export function ChatView() {
 
         const runEventsMap = new Map<string, MsgRunEvent[]>()
         const assistantTurnMap = new Map<string, AssistantTurnUi>()
+        const metaEntries = new Map<string, Partial<MessageMeta>>()
         for (const msg of items) {
           if (msg.role !== 'assistant') continue
 
@@ -1055,6 +1062,10 @@ export function ChatView() {
           const cachedTerminalStatus = readMessageTerminalStatus(msg.id)
           if (cachedTerminalStatus) {
             terminalStatusMap.set(msg.id, cachedTerminalStatus)
+          }
+          const cachedCoveredRunIds = readMessageCoveredRunIds(msg.id)
+          if (cachedCoveredRunIds && cachedCoveredRunIds.length > 0) {
+            metaEntries.set(msg.id, { coveredRunIds: cachedCoveredRunIds })
           }
 
           const cachedRunEvents = readMsgRunEvents(msg.id)
@@ -1133,7 +1144,7 @@ export function ChatView() {
               replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyRunEventToWebSearchSteps(acc, event), []),
             )
             const replayThinking = buildMessageThinkingFromRunEvents(replayEvents)
-            const replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
+            let replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
             if (latest.status === 'interrupted') {
               interruptedError = interruptedErrorFromRunEvents(replayEvents, t.runInterrupted)
             }
@@ -1189,7 +1200,19 @@ export function ChatView() {
                 writeMessageSearchSteps(lastAssistant.id, replaySearchSteps)
               }
             }
+            if (lastAssistant && !sourcesMap.has(lastAssistant.id)) {
+              const replaySources = replaySearchSteps.flatMap((step) => step.sources ?? [])
+              if (replaySources.length > 0) {
+                sourcesMap.set(lastAssistant.id, replaySources)
+                writeMessageSources(lastAssistant.id, replaySources)
+              }
+            }
+            if (lastAssistant) {
+              runEventsMap.set(lastAssistant.id, replayEvents)
+              writeMsgRunEvents(lastAssistant.id, replayEvents)
+            }
             if (lastAssistant && replayAssistantTurnNeeded) {
+              replayTurn = buildAssistantTurnFromRunEvents(replayEvents)
               if (replayTurn.segments.length > 0) {
                 assistantTurnMap.set(lastAssistant.id, replayTurn)
                 writeMessageAssistantTurn(lastAssistant.id, replayTurn)
@@ -1214,7 +1237,7 @@ export function ChatView() {
                 status: latest.status === 'cancelled' ? 'cancelled' : latest.status === 'interrupted' ? 'interrupted' : 'failed',
                 coveredRunIds: [],
                 assistantTurn: replayTurn.segments.length > 0 ? replayTurn : null,
-                sources: [],
+                sources: replaySearchSteps.flatMap((step) => step.sources ?? []),
                 artifacts: replayArtifacts,
                 widgets: replayWidgets,
                 codeExecutions: replayExecs,
@@ -1243,7 +1266,6 @@ export function ChatView() {
           }
         }
 
-        const metaEntries = new Map<string, Partial<MessageMeta>>()
         const mergeMeta = (id: string, partial: Partial<MessageMeta>) => {
           const prev = metaEntries.get(id) ?? {}
           metaEntries.set(id, { ...prev, ...partial })
@@ -1261,8 +1283,12 @@ export function ChatView() {
         assistantTurnMap.forEach((assistantTurn, id) => mergeMeta(id, { assistantTurn }))
         runEventsMap.forEach((runEvents, id) => mergeMeta(id, { runEvents }))
         failedErrorMap.forEach((failedError, id) => mergeMeta(id, { failedError }))
-        loadFromStorage(items.filter((msg) => msg.role === 'assistant').map((msg) => msg.id))
-        setMetaBatch(Array.from(metaEntries.entries()))
+        const metaBatch = Array.from(metaEntries.entries())
+        primeMetaBatch(metaBatch)
+        setMetaBatch(metaBatch)
+        if (metaBatch.length > 0) {
+          queueMicrotask(() => setMessages((prev) => [...prev]))
+        }
         if (interruptedError) {
           setError(interruptedError)
         }
@@ -1430,8 +1456,7 @@ export function ChatView() {
       disposed = true
     }
   // 只在 threadId 变化时重新加载，避免依赖 locationState 导致重复触发
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, threadId, loadFromStorage, setMetaBatch])
+  }, [accessToken, threadId, setMetaBatch])
 
   // 切换 thread 时清理 SSE 和排队消息，并重置 pendingIncognito
   useEffect(() => {
@@ -1472,7 +1497,6 @@ export function ChatView() {
     // 同一 effects 阶段内事件处理 effect 会重放旧事件导致串线。
     // activeRunId effect 在新 run 启动时负责归零。
     setPendingIncognito(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, clearCompletedTitleTail, resetAssistantTurnLive])
 
   // 连接 SSE
@@ -1515,14 +1539,12 @@ export function ChatView() {
       setStreamingArtifacts([])
     }
     setCancelSubmitting(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeRunId, baseUrl, clearCompletedTitleTail, resetAssistantTurnLive, threadId])
 
   useEffect(() => {
     if (!sseRunId) return
     sse.connect()
     return () => { sse.disconnect() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sseRunId, baseUrl])
 
   useEffect(() => {
@@ -1575,7 +1597,7 @@ export function ChatView() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-  }, [sseRunId, sse.state, sse.reconnect]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sseRunId, sse.state, sse.reconnect])
 
   const chatInputRef = useRef<ChatInputHandle>(null)
   const attachmentsRef = useRef(attachments)

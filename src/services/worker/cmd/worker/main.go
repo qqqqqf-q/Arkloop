@@ -44,6 +44,6 @@ return parsed.String()
 if strings.HasPrefix(parsed.Scheme, "postgresql") || parsed.Scheme == "postgres" {
 return parsed.String()
 }
-_, _ = os.Stderr.WriteString(fmt.Sprintf("warning: unknown postgres scheme %q, keep original dsn\n", parsed.Scheme))
+_, _ = fmt.Fprintf(os.Stderr, "warning: unknown postgres scheme %q, keep original dsn\n", parsed.Scheme)
 return raw
 }

@@ -800,7 +800,7 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
     } finally {
       setConfiguring(false)
     }
-  }, [api, ds.memoryConfigureError, memConfig, nowledgeDraft, onConfigSaved, providerDraft])
+  }, [api, ds.memoryConfigureError, ds.memoryNowledgeMissingBaseUrl, memConfig, nowledgeDraft, onConfigSaved, providerDraft])
 
   return (
     <Modal open={open} onClose={onClose} title={ds.memoryConfigureModalTitle} width="520px">

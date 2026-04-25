@@ -54,21 +54,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sourceCount === 0
   const mixedSegmentWithThinking = hasAnyThinking && !hasThinkingOnly
   const timelineIsLive = !!live || anyThinkingLive
-  const timelinePerfSample = {
-    steps: visibleSteps.length,
-    narratives: textEntries.length,
-    thinkingRows: thinkingRowList.length,
-    inlineRows: copInlineList.length,
-    sources: sourceCount,
-    codes: codeExecCount,
-    subAgents: subAgentCount,
-    fileOps: fileOpCount,
-    exploreGroups: exploreGroupCount,
-    webFetches: webFetchCount,
-    genericTools: genericToolCount,
-    live: !!live,
-  }
-
   const [collapsed, setCollapsed] = useState(() => {
     if (preserveExpanded) return false
     if (!isComplete) return timelineIsLive ? hasThinkingOnly : false
@@ -341,13 +326,41 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   }, [headerLabel])
 
   useEffect(() => {
+    const timelinePerfSample = {
+      steps: visibleSteps.length,
+      narratives: textEntries.length,
+      thinkingRows: thinkingRowList.length,
+      inlineRows: copInlineList.length,
+      sources: sourceCount,
+      codes: codeExecCount,
+      subAgents: subAgentCount,
+      fileOps: fileOpCount,
+      webFetches: webFetchCount,
+      genericTools: genericToolCount,
+      live: !!live,
+    }
     recordPerfCount('cop_timeline_render', 1, timelinePerfSample)
     recordPerfValue('cop_timeline_visible_nodes', unifiedEntries.length, 'nodes', {
       collapsed,
       live: !!live,
       unified: useUnified,
     })
-  }, [collapsed, live, timelinePerfSample, unifiedEntries.length, useUnified])
+  }, [
+    collapsed,
+    codeExecCount,
+    copInlineList.length,
+    fileOpCount,
+    genericToolCount,
+    live,
+    sourceCount,
+    subAgentCount,
+    textEntries.length,
+    thinkingRowList.length,
+    unifiedEntries.length,
+    useUnified,
+    visibleSteps.length,
+    webFetchCount,
+  ])
 
   if (!shouldRender) return null
 

@@ -22,18 +22,18 @@ func main() {
 
 	abs, err := filepath.Abs(target)
 	if err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("invalid -out: %v\n", err))
+		_, _ = fmt.Fprintf(os.Stderr, "invalid -out: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("mkdir failed: %v\n", err))
+		_, _ = fmt.Fprintf(os.Stderr, "mkdir failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	content := sharedconfig.RenderConfigurationMarkdown(sharedconfig.DefaultRegistry())
 	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-		_, _ = os.Stderr.WriteString(fmt.Sprintf("write failed: %v\n", err))
+		_, _ = fmt.Fprintf(os.Stderr, "write failed: %v\n", err)
 		os.Exit(1)
 	}
 }

@@ -25,7 +25,7 @@ func TestMcpServerProcess(t *testing.T) {
 func runTestMcpServer() {
 	reader := bufio.NewScanner(os.Stdin)
 	writer := bufio.NewWriter(os.Stdout)
-	defer writer.Flush()
+	defer func() { _ = writer.Flush() }()
 
 	for reader.Scan() {
 		line := reader.Bytes()

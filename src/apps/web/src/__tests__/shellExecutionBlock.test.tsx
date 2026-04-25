@@ -5,6 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExecutionCard } from '../components/ExecutionCard'
 import { LocaleProvider } from '../contexts/LocaleContext'
 
+vi.mock('../storage', async () => {
+  const actual = await vi.importActual<typeof import('../storage')>('../storage')
+  return {
+    ...actual,
+    readLocaleFromStorage: vi.fn(() => 'zh'),
+    writeLocaleToStorage: vi.fn(),
+  }
+})
+
 function createMemoryStorage(): Storage {
   const store = new Map<string, string>()
   return {

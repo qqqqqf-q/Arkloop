@@ -640,7 +640,7 @@ func buildContextOutput(path string, displayPath string, re *regexp.Regexp, cont
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if strings.TrimSpace(displayPath) == "" {
 		displayPath = filepath.ToSlash(path)
 	}
@@ -695,9 +695,9 @@ func buildContextOutput(path string, displayPath string, re *regexp.Regexp, cont
 		for i := iv.start; i <= iv.end; i++ {
 			lineNum := i + 1
 			if matchSet[i] {
-				sb.WriteString(fmt.Sprintf("%s:%d:%s\n", displayPath, lineNum, allLines[i]))
+				_, _ = fmt.Fprintf(&sb, "%s:%d:%s\n", displayPath, lineNum, allLines[i])
 			} else {
-				sb.WriteString(fmt.Sprintf("%s-%d-%s\n", displayPath, lineNum, allLines[i]))
+				_, _ = fmt.Fprintf(&sb, "%s-%d-%s\n", displayPath, lineNum, allLines[i])
 			}
 		}
 	}
@@ -787,7 +787,7 @@ func searchInFile(path string, displayPath string, re *regexp.Regexp, modTime ti
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if strings.TrimSpace(displayPath) == "" {
 		displayPath = filepath.ToSlash(path)
 	}

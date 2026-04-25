@@ -233,7 +233,7 @@ func (e *ToolExecutor) executePython(
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
@@ -769,7 +769,7 @@ func (e *ToolExecutor) forkSessionCheckpoint(
 	if reqErr != nil {
 		return "", &tools.ExecutionError{ErrorClass: reqErr.errorClass, Message: reqErr.message}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", &tools.ExecutionError{ErrorClass: errorSandboxError, Message: "read fork response body failed"}
@@ -804,7 +804,7 @@ func (e *ToolExecutor) executeExecSessionRequest(
 	if reqErr != nil {
 		return errResult(reqErr.errorClass, reqErr.message, started)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, readErr := io.ReadAll(resp.Body)
 	if readErr != nil {
@@ -912,13 +912,13 @@ func (e *ToolExecutor) pollOutputDeltas(
 		if reqErr != nil {
 			return
 		}
-		resp.Body.Close()
-
 		if resp.StatusCode != http.StatusOK {
+			_ = resp.Body.Close()
 			return
 		}
 
 		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
 		if readErr != nil {
 			return
 		}

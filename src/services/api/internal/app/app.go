@@ -139,7 +139,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("redis: %w", err)
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 		redisClient = rc
 		a.logger.Info("redis connected")
 	}
@@ -152,7 +152,7 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("gateway redis: %w", err)
 		}
-		defer rc.Close()
+		defer func() { _ = rc.Close() }()
 		gatewayRedisClient = rc
 		a.logger.Info("gateway redis connected")
 	}

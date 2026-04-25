@@ -135,7 +135,7 @@ func (u *Updater) download() error {
 		}
 		return fmt.Errorf("http get: %s", msg)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("http status %d", resp.StatusCode)
@@ -146,7 +146,7 @@ func (u *Updater) download() error {
 	if err != nil {
 		return fmt.Errorf("gzip: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -168,14 +168,17 @@ func (u *Updater) download() error {
 			return fmt.Errorf("create tmp: %w", err)
 		}
 		if _, err := io.Copy(f, tr); err != nil {
-			f.Close()
-			os.Remove(tmpPath)
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
 			return fmt.Errorf("copy: %w", err)
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return fmt.Errorf("close tmp: %w", err)
+		}
 
 		if err := os.Rename(tmpPath, u.dbPath); err != nil {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 			return fmt.Errorf("rename: %w", err)
 		}
 		return nil

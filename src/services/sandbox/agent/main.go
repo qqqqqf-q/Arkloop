@@ -244,7 +244,7 @@ func run() error {
 		}
 		slog.Info("sandbox-agent: listening", "proto", "vsock", "port", listenPort)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	for {
 		conn, err := l.Accept()
@@ -257,7 +257,7 @@ func run() error {
 }
 
 func handleConn(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 读取原始 JSON 以判断协议版本
 	var raw json.RawMessage
@@ -748,7 +748,7 @@ func readFileLimited(path string, limit int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return io.ReadAll(io.LimitReader(f, limit+1))
 }
 

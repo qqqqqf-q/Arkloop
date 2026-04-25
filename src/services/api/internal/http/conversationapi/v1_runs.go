@@ -1091,7 +1091,7 @@ func streamRunEvents(
 			ch := make(chan struct{}, 1)
 			redisCh = ch
 			go func() {
-				defer sub.Close()
+				defer func() { _ = sub.Close() }()
 				for {
 					select {
 					case <-r.Context().Done():
@@ -1118,7 +1118,7 @@ func streamRunEvents(
 				ch := make(chan struct{}, 1)
 				busCh = ch
 				go func() {
-					defer sub.Close()
+					defer func() { _ = sub.Close() }()
 					msgCh := sub.Channel()
 					for {
 						select {

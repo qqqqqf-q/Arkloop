@@ -57,7 +57,7 @@ function App() {
       .getStatus()
       .then((s) => setOnboardingDone(s.completed))
       .catch(() => setOnboardingDone(true))
-  }, [])
+  }, [addToast, t.sessionExpired])
 
   // Desktop: 检查 sidecar 启动错误
   useEffect(() => {
@@ -179,7 +179,7 @@ function App() {
     return () => {
       controller.abort()
     }
-  }, [])
+  }, [addToast, t.sessionExpired])
 
   const handleLoggedIn = useCallback((token: string) => {
     clearActiveThreadIdInStorage()

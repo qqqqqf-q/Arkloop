@@ -69,7 +69,7 @@ func (c *Client) DownloadBotFile(ctx context.Context, token, filePath string, ma
 	if err != nil {
 		return nil, "", fmt.Errorf("telegrambot: file download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != nethttp.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return nil, "", fmt.Errorf("telegrambot: file download status %d", resp.StatusCode)

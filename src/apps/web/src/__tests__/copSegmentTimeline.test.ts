@@ -93,10 +93,10 @@ describe('copTimelinePayloadForSegment', () => {
         label: 'Reviewing sources',
         status: 'done',
         sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
-        seq: 3,
+        seq: 3.5,
       },
     ])
-    expect(r.sources).toEqual([{ title: 'u', url: 'https://u.test' }])
+    expect(r.sources).toEqual([{ title: 'u', url: 'https://u.test', snippet: undefined }])
   })
 
   it('reviewing 按 resultSeq 排序，不抢到其他工具前面', () => {

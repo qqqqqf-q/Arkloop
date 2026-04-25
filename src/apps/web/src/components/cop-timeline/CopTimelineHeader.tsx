@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useLocale } from '../../contexts/LocaleContext'
 import { useIncrementalTypewriter } from '../../hooks/useIncrementalTypewriter'
 
 export function useThinkingElapsedSeconds(active: boolean, startedAtMs?: number): number {
-  const readElapsed = () => {
+  const readElapsed = useCallback(() => {
     if (!active || !startedAtMs) return 0
     return Math.max(1, Math.round((Date.now() - startedAtMs) / 1000))
-  }
+  }, [active, startedAtMs])
   const [elapsed, setElapsed] = useState(readElapsed)
 
   useEffect(() => {
@@ -19,7 +19,7 @@ export function useThinkingElapsedSeconds(active: boolean, startedAtMs?: number)
       setElapsed(readElapsed())
     }, 1000)
     return () => clearInterval(id)
-  }, [active, startedAtMs])
+  }, [active, readElapsed, startedAtMs])
 
   return elapsed
 }

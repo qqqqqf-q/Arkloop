@@ -20,7 +20,7 @@ func sendACPRequest(t *testing.T, addr string, req agentRequest) agentResponse {
 	if err != nil {
 		t.Fatalf("connect to %s: %v", addr, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		t.Fatalf("encode request: %v", err)
@@ -118,7 +118,7 @@ func TestPoolAcquireAndDestroy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	p.DestroyVM(nil, sess.SocketDir)
 }
@@ -191,7 +191,7 @@ func TestAgentStartProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	pid := startEcho(t, agent.Addr())
 	if pid == "" {
@@ -209,7 +209,7 @@ func TestAgentWriteAndRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	// Start cat to echo stdin to stdout.
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
@@ -255,7 +255,7 @@ func TestAgentStopProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	// Start a long-running process.
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
@@ -296,7 +296,7 @@ func TestAgentWaitProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	// Start a process that exits with code 42.
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
@@ -336,7 +336,7 @@ func TestAgentWaitTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	// Start a long-running process.
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
@@ -380,7 +380,7 @@ func TestAgentProcessNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	bogusID := "nonexistent-process-id"
 
@@ -429,7 +429,7 @@ func TestAgentUnknownAction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "bogus_action",
@@ -447,7 +447,7 @@ func TestAgentStartMissingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -463,7 +463,7 @@ func TestAgentConcurrentSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	const n = 5
 	pids := make([]string, n)
@@ -504,7 +504,7 @@ func TestAgentWaitWithStdoutCapture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -543,7 +543,7 @@ func TestAgentWaitWithStderrCapture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -576,7 +576,7 @@ func TestAgentStopAlreadyExited(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	// Start a process that exits immediately.
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
@@ -614,7 +614,7 @@ func TestAgentReadExitedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -657,7 +657,7 @@ func TestAgentStartWithCwd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -690,7 +690,7 @@ func TestAgentStartWithEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -721,7 +721,7 @@ func TestAgentStartEmptyCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	resp := sendACPRequest(t, agent.Addr(), agentRequest{
 		Action: "acp_start",
@@ -830,7 +830,7 @@ func TestACPStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgent: %v", err)
 	}
-	defer agent.Close()
+	defer func() { _ = agent.Close() }()
 
 	addr := agent.Addr()
 	pid := startEcho(t, addr)

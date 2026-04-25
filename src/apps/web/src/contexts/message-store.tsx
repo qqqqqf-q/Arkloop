@@ -93,7 +93,7 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
       const retriedItems = await listMessages(accessToken, threadId)
       if (
         findAssistantMessageForRun(retriedItems, requiredCompletedRunId) ||
-        retriedItems.length >= items.length
+        retriedItems.length > items.length
       ) {
         items = retriedItems
       }

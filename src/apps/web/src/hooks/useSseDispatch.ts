@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { canonicalToolName, pickLogicalToolName } from '@arkloop/shared'
 import { setThreadTodos } from '../todoDb'
 import { useAuth } from '../contexts/auth'
@@ -71,12 +71,12 @@ export function useSseDispatch(params: {
   // Timer for contextCompactBar auto-hide
   const contextCompactHideTimerRef = useRef<number | null>(null)
 
-  const clearContextCompactHideTimer = () => {
+  const clearContextCompactHideTimer = useCallback(() => {
     if (contextCompactHideTimerRef.current != null) {
       clearTimeout(contextCompactHideTimerRef.current)
       contextCompactHideTimerRef.current = null
     }
-  }
+  }, [])
 
   // ── helpers ─────────────────────────────────���──────────────────────────────
 
@@ -915,6 +915,5 @@ export function useSseDispatch(params: {
   // cleanup on unmount
   useEffect(() => {
     return () => { clearContextCompactHideTimer() }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [clearContextCompactHideTimer])
 }

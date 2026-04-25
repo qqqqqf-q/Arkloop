@@ -216,8 +216,8 @@ instruction_path: SKILL.md
 func TestMarketSkillsUsesRegistryConfigAndExposesScanFields(t *testing.T) {
 	env := buildSkillsEnv(t)
 	marketServer := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/search":
+		switch r.URL.Path {
+		case "/api/v1/search":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"results": []map[string]any{{
 					"slug":        "calendar",
@@ -226,7 +226,7 @@ func TestMarketSkillsUsesRegistryConfigAndExposesScanFields(t *testing.T) {
 					"updatedAt":   1772065535894,
 				}},
 			})
-		case r.URL.Path == "/api/v1/skills/calendar":
+		case "/api/v1/skills/calendar":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"skill": map[string]any{
 					"slug":        "calendar",
@@ -240,7 +240,7 @@ func TestMarketSkillsUsesRegistryConfigAndExposesScanFields(t *testing.T) {
 				"owner":         map[string]any{"handle": "NDCCCCCC", "userId": "user_1"},
 				"moderation":    map[string]any{"verdict": "clean", "summary": "reviewed"},
 			})
-		case r.URL.Path == "/api/v1/skills/calendar/versions/1.0.0":
+		case "/api/v1/skills/calendar/versions/1.0.0":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"skill": map[string]any{"slug": "calendar", "displayName": "Calendar"},
 				"version": map[string]any{
@@ -300,8 +300,8 @@ func TestMarketImportFromRegistryPersistsMetadata(t *testing.T) {
 	env := buildSkillsEnv(t)
 	zipPayload := buildRegistrySkillZip(t, "calendar", "1.0.0", "Calendar")
 	marketServer := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/skills/calendar":
+		switch r.URL.Path {
+		case "/api/v1/skills/calendar":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"skill": map[string]any{
 					"slug":        "calendar",
@@ -315,7 +315,7 @@ func TestMarketImportFromRegistryPersistsMetadata(t *testing.T) {
 				"owner":         map[string]any{"handle": "NDCCCCCC", "userId": "user_1"},
 				"moderation":    map[string]any{"verdict": "clean", "summary": "reviewed"},
 			})
-		case r.URL.Path == "/api/v1/skills/calendar/versions/1.0.0":
+		case "/api/v1/skills/calendar/versions/1.0.0":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"skill": map[string]any{"slug": "calendar", "displayName": "Calendar"},
 				"version": map[string]any{
@@ -330,7 +330,7 @@ func TestMarketImportFromRegistryPersistsMetadata(t *testing.T) {
 					},
 				},
 			})
-		case r.URL.Path == "/api/v1/download":
+		case "/api/v1/download":
 			w.Header().Set("Content-Type", "application/zip")
 			_, _ = w.Write(zipPayload)
 		default:

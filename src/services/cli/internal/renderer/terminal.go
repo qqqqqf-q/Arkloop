@@ -26,42 +26,42 @@ func (r *Renderer) OnEvent(e sse.Event) {
 		if s == "" {
 			return
 		}
-		fmt.Fprint(r.out, s)
+		_, _ = fmt.Fprint(r.out, s)
 		r.started = true
 
 	case "tool.call":
 		if r.started {
-			fmt.Fprintln(r.out)
+			_, _ = fmt.Fprintln(r.out)
 		}
-		fmt.Fprintf(r.out, "[tool: %s]\n", e.ToolName)
+		_, _ = fmt.Fprintf(r.out, "[tool: %s]\n", e.ToolName)
 		r.started = false
 
 	case "tool.result":
-		fmt.Fprintf(r.out, "[result: %s]\n", e.ToolName)
+		_, _ = fmt.Fprintf(r.out, "[result: %s]\n", e.ToolName)
 		r.started = false
 
 	case "run.completed":
 		if r.started {
-			fmt.Fprintln(r.out)
+			_, _ = fmt.Fprintln(r.out)
 		}
 		r.started = false
 
 	case "run.failed":
 		if r.started {
-			fmt.Fprintln(r.out)
+			_, _ = fmt.Fprintln(r.out)
 		}
 		msg, _ := e.Data["error"].(string)
 		if msg == "" {
 			msg = "unknown error"
 		}
-		fmt.Fprintf(r.out, "error: %s\n", msg)
+		_, _ = fmt.Fprintf(r.out, "error: %s\n", msg)
 		r.started = false
 
 	case "run.cancelled":
 		if r.started {
-			fmt.Fprintln(r.out)
+			_, _ = fmt.Fprintln(r.out)
 		}
-		fmt.Fprintln(r.out, "cancelled")
+		_, _ = fmt.Fprintln(r.out, "cancelled")
 		r.started = false
 	}
 }
@@ -69,7 +69,7 @@ func (r *Renderer) OnEvent(e sse.Event) {
 // Flush 确保终端光标在新行。
 func (r *Renderer) Flush() {
 	if r.started {
-		fmt.Fprintln(r.out)
+		_, _ = fmt.Fprintln(r.out)
 		r.started = false
 	}
 }

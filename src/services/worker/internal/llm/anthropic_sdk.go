@@ -175,7 +175,7 @@ func (g *anthropicSDKGateway) Stream(ctx context.Context, request Request, yield
 		opts = append(opts, option.WithJSONSet(key, value))
 	}
 	stream := g.client.Messages.NewStreaming(ctx, params, opts...)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	state := newAnthropicSDKStreamState(llmCallID, yield)
 	for stream.Next() {
@@ -291,7 +291,7 @@ func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageN
 
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return anthropic.MessageNewParams{}, nil, 0, fmt.Errorf("Anthropic request serialization failed")
+		return anthropic.MessageNewParams{}, nil, 0, fmt.Errorf("anthropic request serialization failed: %w", err)
 	}
 	return params, payload, len(encoded), nil
 }

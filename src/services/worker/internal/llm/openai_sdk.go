@@ -128,7 +128,7 @@ func (g *openAISDKGateway) chatCompletions(ctx context.Context, request Request,
 
 	params := openai.ChatCompletionNewParams{Model: openai.ChatModel(request.Model)}
 	stream := g.client.Chat.Completions.NewStreaming(ctx, params, openAISDKPayloadOptions(payload)...)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	state := newOpenAISDKChatState(llmCallID, yield)
 	for stream.Next() {
 		if markActivity != nil {
@@ -170,7 +170,7 @@ func (g *openAISDKGateway) responses(ctx context.Context, request Request, yield
 
 	params := responses.ResponseNewParams{Model: responses.ResponsesModel(request.Model)}
 	stream := g.client.Responses.NewStreaming(ctx, params, openAISDKPayloadOptions(payload)...)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	state := newOpenAISDKResponsesState(llmCallID, yield)
 	for stream.Next() {
 		if markActivity != nil {
