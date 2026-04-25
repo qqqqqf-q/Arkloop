@@ -29,4 +29,20 @@ describe('CodeExecutionPanel', () => {
     expect(html).not.toMatch(/<img\\b/i)
     expect(html).toContain('&lt;img')
   })
+
+  it('执行完成但无输出时显示语义空状态', () => {
+    const execution: CodeExecution = {
+      id: '1',
+      language: 'python',
+      code: 'print() ',
+      status: 'success',
+      emptyLabel: 'Execution completed with no output',
+    }
+
+    const html = renderToStaticMarkup(
+      <CodeExecutionPanel execution={execution} onClose={() => {}} />,
+    )
+
+    expect(html).toContain('Execution completed with no output')
+  })
 })

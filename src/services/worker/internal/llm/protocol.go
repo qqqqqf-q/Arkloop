@@ -400,26 +400,29 @@ func NewGatewayFromResolvedConfig(cfg ResolvedGatewayConfig) (Gateway, error) {
 		if cfg.OpenAI == nil {
 			return nil, fmt.Errorf("missing openai protocol config")
 		}
-		return NewOpenAIGateway(OpenAIGatewayConfig{
+		gatewayCfg := OpenAIGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.OpenAI,
-		}), nil
+		}
+		return NewOpenAIGatewaySDK(gatewayCfg), nil
 	case ProtocolKindAnthropicMessages:
 		if cfg.Anthropic == nil {
 			return nil, fmt.Errorf("missing anthropic protocol config")
 		}
-		return NewAnthropicGateway(AnthropicGatewayConfig{
+		gatewayCfg := AnthropicGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.Anthropic,
-		}), nil
+		}
+		return NewAnthropicGatewaySDK(gatewayCfg), nil
 	case ProtocolKindGeminiGenerateContent:
 		if cfg.Gemini == nil {
 			return nil, fmt.Errorf("missing gemini protocol config")
 		}
-		return NewGeminiGateway(GeminiGatewayConfig{
+		gatewayCfg := GeminiGatewayConfig{
 			Transport: cfg.Transport,
 			Protocol:  *cfg.Gemini,
-		}), nil
+		}
+		return NewGeminiGatewaySDK(gatewayCfg), nil
 	default:
 		return nil, fmt.Errorf("unsupported protocol kind: %s", cfg.ProtocolKind)
 	}

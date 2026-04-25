@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Glasses } from 'lucide-react'
+import type { LocaleStrings } from '../locales'
 import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
@@ -58,6 +59,8 @@ type GreetingParts = {
   minute: number
 }
 
+type WelcomeGreetingTexts = LocaleStrings['welcomeGreeting']
+
 function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope): boolean {
   if (!left) return false
   return left.page === right.page
@@ -96,55 +99,37 @@ function getGreetingParts(now: Date, timeZone: string): GreetingParts {
   }
 }
 
-function buildGreeting(name: string | null, now: GreetingParts): string {
+function buildGreeting(strings: WelcomeGreetingTexts, name: string | null, now: GreetingParts): string {
   const { hour, month, day, weekday, minute } = now
 
   const first = name ? name.split(/[\s_]+/)[0] : null
-  const hi = first ? `，${first}` : ''
 
   // 节日优先
-  if (month === 11 && day >= 24 && day <= 26) return `圣诞快乐${hi}`
-  if (month === 0 && day === 1) return `新年快乐${hi}`
-  if (month === 1 && day >= 9 && day <= 15) return `新春快乐${hi}`
+  if (month === 11 && day >= 24 && day <= 26) return strings.merryChristmas(first)
+  if (month === 0 && day === 1) return strings.happyNewYear(first)
+  if (month === 1 && day >= 9 && day <= 15) return strings.happyLunarNewYear(first)
 
   // 周一激励
   if (weekday === 1 && hour >= 8 && hour < 12) {
-    return first ? `新的一周，${first}，冲` : '新的一周，冲'
+    return strings.mondayMorning(first)
   }
 
   // 周五
   if (weekday === 5 && hour >= 15) {
-    return `周五了${hi}，收工前还有什么要做的？`
+    return strings.fridayAfternoon(first)
   }
 
   // 深夜
   if (hour >= 0 && hour < 5) {
-    return first ? `还没睡，${first}？` : '还没睡？'
+    return strings.lateNight(first)
   }
 
   // 时段问候池，每个时段多条随机，避免每次一样
   const pools: Record<string, string[]> = {
-    morning: [
-      `早上好${hi}`,
-      `早${hi}，今天有什么计划？`,
-      first ? `${first}，早，喝咖啡了吗？` : '早，喝咖啡了吗？',
-    ],
-    afternoon: [
-      `下午好${hi}`,
-      `下午了，有什么需要帮忙的？`,
-      first ? `${first}，下午好，进展顺利吗？` : '下午好，进展顺利吗？',
-    ],
-    evening: [
-      `晚上好${hi}`,
-      `晚上了，还在忙？`,
-      first ? `${first}，晚上好，有什么我能做的？` : '晚上好，有什么我能做的？',
-    ],
-    generic: [
-      first ? `你好，${first}，有什么我能做的？` : '有什么我能做的？',
-      `欢迎回来${hi}`,
-      first ? `${first}，在这里，说吧` : '在这里，说吧',
-      `今天想做什么${hi ? hi.slice(1) + '？' : '？'}`,
-    ],
+    morning: strings.morning(first),
+    afternoon: strings.afternoon(first),
+    evening: strings.evening(first),
+    generic: strings.generic(first),
   }
 
   let pool: string[]
@@ -182,8 +167,8 @@ export function WelcomePage() {
   const { t } = useLocale()
 
   const greeting = useMemo(
-    () => buildGreeting(me?.username ?? null, getGreetingParts(new Date(), timeZone)),
-    [me?.username, timeZone],
+    () => buildGreeting(t.welcomeGreeting, me?.username ?? null, getGreetingParts(new Date(), timeZone)),
+    [me?.username, t.welcomeGreeting, timeZone],
   )
   const draftScope = useMemo<InputDraftScope>(() => ({
     ownerKey: me?.id,

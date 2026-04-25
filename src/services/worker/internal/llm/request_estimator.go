@@ -98,7 +98,7 @@ func buildOpenAIResponsesPayloadForEstimate(cfg *OpenAIProtocolConfig, request R
 	}
 	if len(request.Tools) > 0 {
 		payload["tools"] = toOpenAIResponsesTools(request.Tools)
-		payload["tool_choice"] = openAIToolChoice(request.ToolChoice)
+		payload["tool_choice"] = openAIResponsesToolChoice(request.ToolChoice)
 	}
 	for key, value := range cfg.AdvancedPayloadJSON {
 		if _, exists := payload[key]; !exists {

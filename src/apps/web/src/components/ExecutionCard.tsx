@@ -13,6 +13,7 @@ type Props = {
   label?: string
   code?: string
   output?: string
+  emptyLabel?: string
   errorMessage?: string
   status: Status
   /** 仅流式时为 true：逐字平滑；历史/静态为 false 立即展示 */
@@ -96,7 +97,7 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
-export function ExecutionCard({ variant, toolName, label, code, output, errorMessage, status, smooth = false }: Props) {
+export function ExecutionCard({ variant, toolName, label, code, output, emptyLabel, errorMessage, status, smooth = false }: Props) {
   const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [cmdHovered, setCmdHovered] = useState(false)
@@ -143,6 +144,9 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
     el.addEventListener('scroll', update, { passive: true })
     // Framer Motion 展开动画期间容器高度从 0 渐变到实际值，
     // scroll 事件不会触发，需要 ResizeObserver 在尺寸稳定后重算
+    if (typeof ResizeObserver !== 'function') {
+      return () => { el.removeEventListener('scroll', update) }
+    }
     const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => {
@@ -337,7 +341,7 @@ export function ExecutionCard({ variant, toolName, label, code, output, errorMes
                   }}
                 >
                   <div style={{ fontSize: '10.5px', color: 'var(--c-text-muted)', fontStyle: 'italic', fontFamily: MONO }}>
-                    {t.shellNoOutput}
+                    {emptyLabel?.trim() || t.shellNoOutput}
                   </div>
                   <div
                     className="execution-card-status-inline"

@@ -15,6 +15,7 @@ export function CopTimelineUnifiedRow({
   dotTop = COP_TIMELINE_DOT_TOP,
   dotColor,
   paddingBottom = 7,
+  horizontalMotion = true,
   children,
 }: {
   isFirst: boolean
@@ -23,11 +24,12 @@ export function CopTimelineUnifiedRow({
   dotTop?: number
   dotColor: string
   paddingBottom?: number
+  horizontalMotion?: boolean
   children: ReactNode
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: -8 }}
+      initial={{ opacity: 0, x: horizontalMotion ? -8 : 0 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}

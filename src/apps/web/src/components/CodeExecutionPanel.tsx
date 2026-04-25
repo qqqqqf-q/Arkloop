@@ -40,6 +40,9 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
     : execution.errorMessage && execution.errorMessage.trim()
       ? execution.errorMessage
       : undefined
+  const emptyOutputText = !outputText && execution.status !== 'running'
+    ? execution.emptyLabel?.trim() || 'Execution completed with no output'
+    : undefined
 
   const highlightedCode = useMemo(() => {
     if (!execution.code) return ''
@@ -128,7 +131,7 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
           </pre>
         )}
 
-        {outputText && (
+        {(outputText || emptyOutputText) && (
           <div style={{ padding: '0 20px 16px', marginTop: execution.code ? '4px' : '0' }}>
             <div style={{ fontSize: '11px', color: 'var(--c-text-muted)', marginBottom: '6px', fontWeight: 500 }}>
               output
@@ -139,7 +142,8 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
                 padding: '10px 12px',
                 borderRadius: '8px',
                 background: 'var(--c-code-panel-output-bg)',
-                color: failed ? '#ef4444' : 'var(--c-text-secondary)',
+                color: failed ? '#ef4444' : outputText ? 'var(--c-text-secondary)' : 'var(--c-text-muted)',
+                fontStyle: outputText ? 'normal' : 'italic',
                 fontSize: '12px',
                 lineHeight: '1.5',
                 whiteSpace: 'pre-wrap',
@@ -147,7 +151,7 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
                 overflow: 'auto',
               }}
             >
-              {outputText.trimEnd()}
+              {(outputText ?? emptyOutputText ?? '').trimEnd()}
             </pre>
           </div>
         )}

@@ -1,5 +1,6 @@
 import type { WebSource } from '../../storage'
 import type { SubAgentRef, FileOpRef, WebFetchRef } from '../../storage'
+import type { ExploreGroupRef } from '../../toolPresentation'
 import type { CodeExecution } from '../CodeExecutionCard'
 import { codeExecutionAccentColor } from '../../codeExecutionStatus'
 
@@ -29,9 +30,11 @@ export type Props = {
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   subAgents?: SubAgentRef[]
+  onOpenSubAgent?: (agent: SubAgentRef) => void
   fileOps?: FileOpRef[]
+  exploreGroups?: ExploreGroupRef[]
   webFetches?: WebFetchRef[]
-  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
+  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   headerOverride?: string
   shimmer?: boolean
   live?: boolean
@@ -65,6 +68,7 @@ export type UEntry =
   | { kind: 'code'; id: string; seq: number; item: CodeExecution }
   | { kind: 'agent'; id: string; seq: number; item: SubAgentRef }
   | { kind: 'fileop'; id: string; seq: number; item: FileOpRef }
+  | { kind: 'explore'; id: string; seq: number; item: ExploreGroupRef }
   | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
   | { kind: 'generic'; id: string; seq: number; item: NonNullable<Props['genericTools']>[number] }
 
@@ -103,6 +107,12 @@ const DOT_COLOR_MAP: Record<UEntry['kind'], (entry: UEntry) => string> = {
   },
   fileop: (e) => {
     const item = (e as Extract<UEntry, { kind: 'fileop' }>).item
+    return item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)'
+      : item.status === 'running' ? 'var(--c-text-secondary)'
+      : 'var(--c-text-muted)'
+  },
+  explore: (e) => {
+    const item = (e as Extract<UEntry, { kind: 'explore' }>).item
     return item.status === 'failed' ? 'var(--c-status-error-text, #ef4444)'
       : item.status === 'running' ? 'var(--c-text-secondary)'
       : 'var(--c-text-muted)'
@@ -193,6 +203,7 @@ export const ENTRY_SORT_PRIORITY: Record<UEntry['kind'], number> = {
   code: 3,
   agent: 4,
   fileop: 5,
+  explore: 5,
   fetch: 6,
   generic: 7,
 }

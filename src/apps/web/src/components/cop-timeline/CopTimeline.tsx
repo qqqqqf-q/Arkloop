@@ -28,8 +28,9 @@ import { AssistantThinkingMarkdown, CopThoughtSummaryRow, TimelineNarrativeBody 
 import { SourceListCard } from './SourceList'
 import { WebFetchItem } from './WebFetchItem'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
+import { ExploreTimelineRow, FileOpToolRow } from './ToolRows'
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, fileOps, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed }: Props) {
+export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, onOpenSubAgent, fileOps, exploreGroups, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, forceCollapsed }: Props) {
   const { t } = useLocale()
   const thinkingRowList = thinkingRows ?? []
   const copInlineList = copInlineTextRows ?? []
@@ -45,10 +46,11 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const codeExecCount = codeExecutions?.length ?? 0
   const subAgentCount = subAgents?.length ?? 0
   const fileOpCount = fileOps?.length ?? 0
+  const exploreGroupCount = exploreGroups?.length ?? 0
   const webFetchCount = webFetches?.length ?? 0
   const genericToolCount = genericTools?.length ?? 0
   const sourceCount = sources.length
-  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + webFetchCount + genericToolCount)
+  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + exploreGroupCount + webFetchCount + genericToolCount)
   const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sourceCount === 0
   const mixedSegmentWithThinking = hasAnyThinking && !hasThinkingOnly
   const timelineIsLive = !!live || anyThinkingLive
@@ -138,6 +140,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     codeExecCount +
     subAgentCount +
     fileOpCount +
+    exploreGroupCount +
     webFetchCount +
     genericToolCount +
     thinkingRowList.length +
@@ -156,6 +159,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     codeExecCount === 0 &&
     subAgentCount === 0 &&
     fileOpCount === 0 &&
+    exploreGroupCount === 0 &&
     webFetchCount === 0 &&
     genericToolCount === 0 &&
     !headerOverride &&
@@ -189,6 +193,9 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   }
   for (const op of (fileOps ?? [])) {
     allUnified.push({ kind: 'fileop', id: op.id, seq: nextSeq(op.seq), item: op })
+  }
+  for (const group of (exploreGroups ?? [])) {
+    allUnified.push({ kind: 'explore', id: group.id, seq: nextSeq(group.seq), item: group })
   }
   for (const wf of (webFetches ?? [])) {
     allUnified.push({ kind: 'fetch', id: wf.id, seq: nextSeq(wf.seq), item: wf })
@@ -235,6 +242,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     codeExecCount +
     subAgentCount +
     fileOpCount +
+    exploreGroupCount +
     webFetchCount +
     genericToolCount +
     thinkingRowList.length +
@@ -419,7 +427,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
             transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: 'hidden' }}
           >
-            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
+            <div style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || exploreGroupCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
 
               <div style={{ display: 'flex', flexDirection: 'column', paddingTop: unifiedEntries.length > 0 ? '0' : undefined }}>
                 <AnimatePresence initial={!isComplete || !!live}>
@@ -521,10 +529,13 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                         : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
                       )}
                       {entry.kind === 'agent' && (
-                        <SubAgentBlock sourceTool={entry.item.sourceTool} nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={live} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} />
+                        <SubAgentBlock sourceTool={entry.item.sourceTool} nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={live} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} onOpenPanel={onOpenSubAgent ? () => onOpenSubAgent(entry.item) : undefined} />
                       )}
                       {entry.kind === 'fileop' && (
-                        <ExecutionCard variant="fileop" toolName={entry.item.toolName} label={entry.item.label} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
+                        <FileOpToolRow op={entry.item} live={!!live} />
+                      )}
+                      {entry.kind === 'explore' && (
+                        <ExploreTimelineRow group={entry.item} live={!!live} />
                       )}
                       {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live={!!live} />}
                       {entry.kind === 'generic' && (

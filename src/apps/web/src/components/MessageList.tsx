@@ -21,7 +21,7 @@ import { copTimelinePayloadForSegment } from '../copSegmentTimeline'
 import { copSegmentCalls, assistantTurnPlainText } from '../assistantTurnSegments'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { createThreadShare } from '../api'
-import { readMessageTerminalStatus, readMessageWidgets, type ArtifactRef, type MessageTerminalStatusRef, type WebSource } from '../storage'
+import { readMessageTerminalStatus, readMessageWidgets, type ArtifactRef, type MessageTerminalStatusRef, type SubAgentRef, type WebSource } from '../storage'
 import { useLocation } from 'react-router-dom'
 import type { CodeExecution } from './CodeExecutionCard'
 import {
@@ -195,6 +195,7 @@ export const MessageList = memo(function MessageList({
   handleArtifactAction,
   openDocumentPanel,
   openCodePanel,
+  openAgentPanel,
   showRunEvents,
   sourcePanelMessageId,
   setRunDetailPanelRunId,
@@ -214,6 +215,7 @@ export const MessageList = memo(function MessageList({
   handleArtifactAction: ComponentProps<typeof WidgetBlock>['onAction']
   openDocumentPanel: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   openCodePanel: (ce: CodeExecution) => void
+  openAgentPanel: (agent: SubAgentRef) => void
   showRunEvents: boolean
   sourcePanelMessageId: string | null
   setRunDetailPanelRunId: (runId: string | null) => void
@@ -490,9 +492,11 @@ export const MessageList = memo(function MessageList({
                         live={currentRunMessageLive}
                         codeExecutions={payload.codeExecutions}
                         onOpenCodeExecution={openCodePanel}
+                        onOpenSubAgent={openAgentPanel}
                         activeCodeExecutionId={codePanelExecutionId ?? undefined}
                         subAgents={payload.subAgents}
                         fileOps={payload.fileOps}
+                        exploreGroups={payload.exploreGroups}
                         webFetches={payload.webFetches}
                         genericTools={payload.genericTools}
                         headerOverride={timelineTitleOverride}
@@ -531,6 +535,7 @@ export const MessageList = memo(function MessageList({
                 onOpenCodeExecution={openCodePanel}
                 activeCodeExecutionId={codePanelExecutionId ?? undefined}
                 subAgents={messageSubAgents}
+                onOpenSubAgent={openAgentPanel}
                 fileOps={messageFileOps}
                 webFetches={messageWebFetches}
                 accessToken={accessToken}
@@ -546,6 +551,7 @@ export const MessageList = memo(function MessageList({
                 onOpenCodeExecution={openCodePanel}
                 activeCodeExecutionId={codePanelExecutionId ?? undefined}
                 subAgents={messageSubAgents}
+                onOpenSubAgent={openAgentPanel}
                 fileOps={messageFileOps}
                 webFetches={messageWebFetches}
                 accessToken={accessToken}

@@ -297,6 +297,18 @@ export interface LocaleStrings {
   emailNotVerifiedHint: string;
   newChatTitle: string;
   chatPlaceholder: string;
+  welcomeGreeting: {
+    merryChristmas: (name: string | null) => string;
+    happyNewYear: (name: string | null) => string;
+    happyLunarNewYear: (name: string | null) => string;
+    mondayMorning: (name: string | null) => string;
+    fridayAfternoon: (name: string | null) => string;
+    lateNight: (name: string | null) => string;
+    morning: (name: string | null) => string[];
+    afternoon: (name: string | null) => string[];
+    evening: (name: string | null) => string[];
+    generic: (name: string | null) => string[];
+  };
   // notifications
   notificationsTitle: string;
   notificationsEmpty: string;

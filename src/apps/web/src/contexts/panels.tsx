@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { CodeExecution } from '../components/CodeExecutionCard'
-import type { ArtifactRef } from '../storage'
+import type { ArtifactRef, SubAgentRef } from '../storage'
 import { useSidebarUI } from './app-ui'
 
 export type DocumentPanelState = {
@@ -21,6 +21,7 @@ type ActivePanel =
   | { type: 'source'; messageId: string }
   | { type: 'code'; execution: CodeExecution }
   | { type: 'document'; artifact: DocumentPanelState }
+  | { type: 'agent'; agent: SubAgentRef }
   | null
 
 type ShareModalState = {
@@ -35,6 +36,7 @@ type PanelContextValue = {
   openSourcePanel: (messageId: string) => void
   openCodePanel: (execution: CodeExecution) => void
   openDocumentPanel: (state: DocumentPanelState) => void
+  openAgentPanel: (agent: SubAgentRef) => void
   closePanel: () => void
   openShareModal: (messageId?: string) => void
   closeShareModal: () => void
@@ -71,6 +73,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     setActivePanel({ type: 'document', artifact: state })
   }, [])
 
+  const openAgentPanel = useCallback((agent: SubAgentRef) => {
+    setActivePanel({ type: 'agent', agent })
+  }, [])
+
   const closePanel = useCallback(() => {
     setActivePanel(null)
   }, [])
@@ -105,6 +111,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       openSourcePanel,
       openCodePanel,
       openDocumentPanel,
+      openAgentPanel,
       closePanel,
       openShareModal,
       closeShareModal,
@@ -116,6 +123,7 @@ export function PanelProvider({ children }: { children: ReactNode }) {
       openSourcePanel,
       openCodePanel,
       openDocumentPanel,
+      openAgentPanel,
       closePanel,
       openShareModal,
       closeShareModal,

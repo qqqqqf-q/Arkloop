@@ -92,7 +92,7 @@ function renderTimeline(params: {
   subAgents?: SubAgentRef[]
   fileOps?: Array<{ id: string; toolName: string; label: string; status: 'running' | 'success' | 'failed'; seq?: number }>
   webFetches?: Array<{ id: string; url: string; title?: string; status: 'fetching' | 'done' | 'failed'; statusCode?: number; seq?: number }>
-  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
+  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   thinkingRows?: Array<{ id: string; markdown: string; live?: boolean; seq: number; durationSec?: number; startedAtMs?: number }>
   thinkingStartedAt?: number
   trailingAssistantTextPresent?: boolean

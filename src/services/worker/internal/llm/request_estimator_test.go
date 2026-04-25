@@ -108,6 +108,34 @@ func TestEstimateProviderPayloadBytes_OpenAIChatIncludesSystemAndTools(t *testin
 	}
 }
 
+func TestBuildOpenAIResponsesPayloadForEstimateUsesResponsesToolChoice(t *testing.T) {
+	payload, err := buildOpenAIResponsesPayloadForEstimate(&OpenAIProtocolConfig{}, Request{
+		Model: "gpt-5",
+		Messages: []Message{
+			{Role: "system", Content: []TextPart{{Text: "policy"}}},
+			{Role: "user", Content: []TextPart{{Text: "hello"}}},
+		},
+		Tools: []ToolSpec{{
+			Name:       "echo",
+			JSONSchema: map[string]any{"type": "object"},
+		}},
+		ToolChoice: &ToolChoice{Mode: "specific", ToolName: "echo"},
+	})
+	if err != nil {
+		t.Fatalf("buildOpenAIResponsesPayloadForEstimate: %v", err)
+	}
+	choice, ok := payload["tool_choice"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map tool_choice, got %#v", payload["tool_choice"])
+	}
+	if choice["type"] != "function" || choice["name"] != "echo" || choice["function"] != nil {
+		t.Fatalf("unexpected responses tool_choice: %#v", choice)
+	}
+	if payload["instructions"] != "policy" {
+		t.Fatalf("expected system instructions, got %#v", payload["instructions"])
+	}
+}
+
 func strPtr(v string) *string { return &v }
 
 func TestEstimateProviderPayloadBytes_AnthropicIncludesPromptPlanSystemBlocks(t *testing.T) {
