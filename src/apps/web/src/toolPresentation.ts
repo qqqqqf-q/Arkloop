@@ -193,7 +193,7 @@ export function exploreGroupLabel(items: FileOpRef[], status: ExploreGroupRef['s
   const hasGlob = items.some((item) => normalizeToolName(item.toolName) === 'glob')
   const parts: string[] = []
   if (hasSearch) parts.push('Searched code')
-  if (hasGlob) parts.push('listed files')
-  if (reads.size > 0) parts.push(`read ${reads.size === 1 ? 'a file' : `${reads.size} files`}`)
+  if (hasGlob) parts.push('Listed files')
+  if (reads.size > 0) parts.push(`Read ${reads.size === 1 ? 'a file' : 'files'}`)
   return parts.length > 0 ? parts.join(', ') : 'Explored code'
 }

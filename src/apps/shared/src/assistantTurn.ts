@@ -174,6 +174,26 @@ function flushCopToSegments(
   }
 }
 
+
+function lastSegmentHasCalls(segments: AssistantTurnSegment[]): boolean {
+  const last = segments[segments.length - 1]
+  return !!(last?.type === 'cop' && last.items.some((item) => item.kind === 'call'))
+}
+
+function appendThinkingToPreviousToolCop(segments: AssistantTurnSegment[], delta: string, seq: number, startedAtMs: number): boolean {
+  const last = segments[segments.length - 1]
+  if (last?.type !== 'cop') return false
+  if (!last.items.some((item) => item.kind === 'call')) return false
+  const tail = last.items[last.items.length - 1]
+  if (tail?.kind === 'thinking') {
+    tail.content += delta
+    if (tail.startedAtMs == null) tail.startedAtMs = startedAtMs
+  } else {
+    last.items.push({ kind: 'thinking', content: delta, seq, startedAtMs })
+  }
+  return true
+}
+
 function attachResultToItems(
   items: CopBlockItem[],
   toolCallId: string,
@@ -301,13 +321,17 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
       return
     }
     if (obj.channel === 'thinking') {
-      ensureCop()
-      const items = currentCop!.items
-      const last = items[items.length - 1]
       const forceNew = state.thinkingMustBreakBeforeNext
       if (forceNew) {
         state.thinkingMustBreakBeforeNext = false
       }
+      if (currentCop == null && forceNew && appendThinkingToPreviousToolCop(segments, delta, event.seq, eventTs)) {
+        state.currentCop = currentCop
+        return
+      }
+      ensureCop()
+      const items = currentCop!.items
+      const last = items[items.length - 1]
       if (!forceNew && last?.kind === 'thinking') {
         last.content += delta
         if (last.startedAtMs == null) last.startedAtMs = eventTs
@@ -319,8 +343,14 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
     }
 
     const hasCallsInOpenCop = currentCop != null && currentCop.items.some((i) => i.kind === 'call')
+    const previousToolCopHasTrailingThinking = currentCop == null && lastSegmentHasCalls(segments)
 
     if (delta.trim() === '') {
+      if (previousToolCopHasTrailingThinking) {
+        appendThinkingToPreviousToolCop(segments, delta, event.seq, eventTs)
+        state.currentCop = currentCop
+        return
+      }
       if (currentCop != null && !hasCallsInOpenCop) {
         const lastItem = currentCop.items[currentCop.items.length - 1]
         if (lastItem?.kind === 'thinking') {

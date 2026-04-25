@@ -304,6 +304,73 @@ describe('copTimelinePayloadForSegment', () => {
     ])
   })
 
+  it('promotedCopTimelineEntries 将 timeline body 按提升 segment 切片', () => {
+    const payload = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [
+          call('cmd_1', 'exec_command', 1),
+          call('glob_1', 'glob', 2),
+          call('read_1', 'read', 3),
+          call('cmd_2', 'exec_command', 4),
+        ],
+      },
+      {
+        codeExecutions: [
+          { id: 'cmd_1', language: 'shell', code: 'ls -la', status: 'success', seq: 1 },
+          { id: 'cmd_2', language: 'shell', code: 'cat a.txt', status: 'success', seq: 4 },
+        ],
+        fileOps: [
+          { id: 'glob_1', toolName: 'glob', label: 'Listed files', status: 'failed', seq: 2, displayKind: 'glob' },
+          { id: 'read_1', toolName: 'read_file', label: 'Read a.txt', status: 'success', seq: 3, filePath: 'a.txt', displayKind: 'read' },
+        ],
+        sources: [],
+      },
+    )
+
+    expect(promotedCopTimelineEntries({
+      payload,
+      hasTimelineBody: true,
+      bodyFileOps: [],
+    }).map((entry) => entry.kind === 'timeline' ? `${entry.kind}:${entry.slice.codeExecutions?.map((item) => item.id).join(',')}` : `${entry.kind}:${entry.id}`)).toEqual([
+      'timeline:cmd_1',
+      `explore:${payload.exploreGroups?.[0]?.id}`,
+      'timeline:cmd_2',
+    ])
+  })
+
+  it('promotedCopTimelineEntries 将 barrier 后的 thinking 附着到 barrier', () => {
+    const payload = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [
+          call('grep_1', 'grep', 1),
+          { kind: 'thinking', content: 'next thought', seq: 2 },
+        ],
+      },
+      {
+        fileOps: [
+          { id: 'grep_1', toolName: 'grep', label: 'Searched code', status: 'success', seq: 1, displayKind: 'grep' },
+        ],
+        sources: [],
+      },
+    )
+
+    const entries = promotedCopTimelineEntries({
+      payload,
+      hasTimelineBody: true,
+      bodyFileOps: [],
+      thinkingRows: [{ id: 'think-0-1-2', seq: 2 }],
+    })
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.kind).toBe('explore')
+    if (entries[0]?.kind !== 'explore') throw new Error('expected explore')
+    expect(entries[0].attachedSlice?.thinkingRows?.map((row) => row.id)).toEqual(['think-0-1-2'])
+  })
+
   it('edit 和 lsp rename 不进入 Explore', () => {
     const r = copTimelinePayloadForSegment(
       {

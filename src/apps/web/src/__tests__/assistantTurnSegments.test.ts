@@ -288,6 +288,22 @@ describe('buildAssistantTurnFromRunEvents', () => {
     expect(copSegmentCalls(turn.segments[1])).toHaveLength(5)
   })
 
+  it('工具段后的 thinking 归入前一个 cop segment', () => {
+    const turn = buildAssistantTurnFromRunEvents([
+      ev('r1', 1, 'message.delta', { role: 'assistant', content_delta: '先搜索：' }),
+      ev('r1', 2, 'tool.call', { tool_name: 'grep', tool_call_id: 'grep_1', arguments: { pattern: 'platform' } }),
+      ev('r1', 3, 'tool.result', { tool_name: 'grep', tool_call_id: 'grep_1', result: { matches: 'a.ts' } }),
+      ev('r1', 4, 'message.delta', { role: 'assistant', channel: 'thinking', content_delta: '需要继续判断。' }),
+      ev('r1', 5, 'message.delta', { role: 'assistant', content_delta: '结果是：' }),
+    ])
+
+    expect(turn.segments).toHaveLength(3)
+    expect(turn.segments[1]?.type).toBe('cop')
+    if (turn.segments[1]?.type !== 'cop') throw new Error('expected cop')
+    expect(turn.segments[1].items.map((item) => item.kind)).toEqual(['call', 'thinking'])
+    expect(turn.segments[2]).toEqual({ type: 'text', content: '结果是：' })
+  })
+
   it('run.segment.end 后的新工具不能追加进前一个 cop segment', () => {
     const turn = buildAssistantTurnFromRunEvents([
       ev('r1', 1, 'run.segment.start', { segment_id: 'seg_1', kind: 'planning_round' }),

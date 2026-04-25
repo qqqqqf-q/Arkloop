@@ -216,7 +216,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const usesHashRouting = window.location.protocol === 'file:'
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
-  const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 900)
+  const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 560)
   const autoCollapsedByWidthRef = useRef(window.innerWidth < 1200)
   const manualSidebarCollapsedRef = useRef<boolean | null>(null)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
@@ -423,7 +423,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         const width = window.innerWidth
-        const hidden = width < 900
+        const hidden = width < 560
         setSidebarHiddenByWidth((prev) => (prev === hidden ? prev : hidden))
         const narrow = width < 1200
         if (manualSidebarCollapsedRef.current !== null) {

@@ -6,7 +6,7 @@ import { useTypewriter } from '../../hooks/useTypewriter'
 export const COP_TIMELINE_DOT_NUDGE_Y = 1
 export const COP_TIMELINE_DOT_TOP = 5 + COP_TIMELINE_DOT_NUDGE_Y
 export const COP_TIMELINE_DOT_SIZE = 8
-export const COP_TIMELINE_SHELL_DOT_TOP = 9 + COP_TIMELINE_DOT_NUDGE_Y
+export const COP_TIMELINE_SHELL_DOT_TOP = 5 + COP_TIMELINE_DOT_NUDGE_Y
 export const COP_TIMELINE_PYTHON_DOT_TOP = 16 + COP_TIMELINE_DOT_NUDGE_Y
 export const COP_TIMELINE_LINE_LEFT_PX = -16
 export const COP_TIMELINE_DOT_LEFT_PX = -19

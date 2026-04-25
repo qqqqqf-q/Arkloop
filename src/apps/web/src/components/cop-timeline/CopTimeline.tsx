@@ -161,7 +161,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
   const activeThinkingElapsed = useThinkingElapsedSeconds(thinkingTimerActive, segmentThinkingStartedAtMs)
   const thinkingLiveHeaderLabel = formatThinkingHeaderLabel(thinkingHint, activeThinkingElapsed, t)
 
-  const [hovered, setHovered] = useState(false)
   const shouldRender = !(
     visibleSteps.length === 0 &&
     textEntries.length === 0 &&
@@ -272,6 +271,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
       ? t.copTimelineThoughtForSeconds(aggregatedDurationSec)
       : t.copTimelineThinkingDoneNoDuration
   const showPendingThinkingHeader = pendingShowThinkingHeader
+  const [hovered, setHovered] = useState(false)
 
   const thinkingOnlyCompletedPlain =
     thinkingOnlyUnified && isComplete && !anyThinkingLive && hasThinkingOnly
@@ -382,6 +382,8 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     >
       <button
         type="button"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         onClick={() => {
           if (!hasContent && isComplete) return
           userToggledCollapsedRef.current = true
@@ -392,8 +394,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           setCollapsed(nextCollapsed)
           collapsedRef.current = nextCollapsed
         }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -402,11 +402,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           background: 'none',
           border: 'none',
           cursor: (!hasContent && isComplete) ? 'default' : 'pointer',
-          color: hovered
-            ? 'var(--c-text-primary)'
-            : isComplete && collapsed
-              ? 'var(--c-text-tertiary)'
-              : 'var(--c-text-secondary)',
+          color: hovered ? 'var(--c-cop-row-hover-fg)' : 'var(--c-cop-row-fg)',
           fontSize: '13px',
           fontWeight: 400,
           transition: 'color 0.15s ease',
@@ -468,7 +464,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                           <div
                             style={{
                               fontSize: '13px',
-                              color: 'var(--c-text-tertiary)',
+                              color: 'var(--c-cop-row-fg)',
                               lineHeight: '18px',
                               display: 'flex',
                               alignItems: 'center',
@@ -531,7 +527,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
                         <div
                           style={{
                             fontSize: '13px',
-                            color: 'var(--c-text-tertiary)',
+                            color: 'var(--c-cop-row-fg)',
                             lineHeight: '18px',
                           }}
                         >

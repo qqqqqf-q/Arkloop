@@ -63,6 +63,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   const forceInstantBottomScrollRef = useRef(false)
   const wasLoadingRef = useRef(false)
   const documentPanelScrollFrameRef = useRef<number | null>(null)
+  const localExpansionActiveUntilRef = useRef(0)
   const isAtBottomRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
 
@@ -112,6 +113,8 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     if (!container) return
     syncBottomState(container)
   }, [syncBottomState])
+
+  const isLocalExpansionActive = useCallback(() => performance.now() < localExpansionActiveUntilRef.current, [])
 
   const scrollViewportToBottom = useCallback((behavior: ScrollBehavior) => {
     const container = scrollContainerRef.current
@@ -699,6 +702,8 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       : null
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
     const startedAt = performance.now()
+    localExpansionActiveUntilRef.current = startedAt + 420
+    followLiveOutputRef.current = false
 
     const step = () => {
       const currentContainer = scrollContainerRef.current
@@ -848,6 +853,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
         return
       }
 
+      if (isLocalExpansionActive()) return
       if (followLiveOutputRef.current || isAtBottomRef.current) {
         scrollViewportToBottom('instant')
         return
@@ -858,7 +864,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     })
     ro.observe(turn)
     return () => ro.disconnect()
-  }, [messages, liveAssistantTurn, preserveViewportAnchor, recalcSpacer, scrollToAnchor, scrollViewportToBottom, shouldPreserveViewport, syncBottomState])
+  }, [messages, liveAssistantTurn, preserveViewportAnchor, recalcSpacer, scrollToAnchor, scrollViewportToBottom, shouldPreserveViewport, syncBottomState, isLocalExpansionActive])
 
   useEffect(() => {
     const root = contentRoot()
@@ -877,6 +883,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
         return
       }
 
+      if (isLocalExpansionActive()) return
       if (followLiveOutputRef.current || isAtBottomRef.current) {
         scrollViewportToBottom('instant')
         return
@@ -887,7 +894,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     })
     ro.observe(root)
     return () => ro.disconnect()
-  }, [contentRoot, preserveViewportAnchor, recalcSpacer, scrollToAnchor, scrollViewportToBottom, shouldPreserveViewport, syncBottomState])
+  }, [contentRoot, preserveViewportAnchor, recalcSpacer, scrollToAnchor, scrollViewportToBottom, shouldPreserveViewport, syncBottomState, isLocalExpansionActive])
 
   useEffect(() => {
     const el = copCodeExecScrollRef.current

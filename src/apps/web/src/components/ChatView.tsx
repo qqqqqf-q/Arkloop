@@ -2297,7 +2297,6 @@ export function ChatView() {
       terminalRunHandoffStatus !== 'completed'
     const copClosedByFollowingSeg = si < lastSegIdx
     const copTimelineLive = liveRunUiActive && !copClosedByFollowingSeg
-    const copTimelineComplete = !copTimelineLive
     const payload = copTimelinePayloadForSegment(seg, {
       codeExecutions: dedupedTopLevelCodeExecutions,
       fileOps: topLevelFileOps,
@@ -2310,14 +2309,14 @@ export function ChatView() {
     const liveArts = liveInlineArtifactEntriesForCop(seg, streamingArtifacts)
     const thinkingRowsLive = !isSearchThread
       ? thinkingRowsForCop(seg, {
-          live: liveRunUiActive,
+          live: copTimelineLive,
           segmentIndex: si,
           lastSegmentIndex: lastSegIdx,
         })
       : []
     const copInlineLive = !isSearchThread
       ? copInlineTextRowsForCop(seg, {
-          live: liveRunUiActive,
+          live: copTimelineLive,
           segmentIndex: si,
           lastSegmentIndex: lastSegIdx,
         })
@@ -2355,41 +2354,9 @@ export function ChatView() {
     const trailSeg = si + 1 <= lastSegIdx ? liveSegments[si + 1] : undefined
     const trailingAssistantTextPresent =
       trailSeg?.type === 'text' && trailSeg.content.length > 0
-    const segmentLive = copTimelineLive && si === lastSegIdx
-    const timelineNode = hasTimelineBody ? (
-      <CopTimeline
-        key={si === 0 ? 'cop-leading-inner' : `live-cop-inner-${si}`}
-        steps={payload.steps}
-        sources={payload.sources}
-        isComplete={copTimelineComplete}
-        codeExecutions={payload.codeExecutions}
-        onOpenCodeExecution={openCodePanel}
-        onOpenSubAgent={openAgentPanelState}
-        activeCodeExecutionId={codePanelExecution?.id}
-        subAgents={payload.subAgents}
-        fileOps={bodyFileOps}
-        webFetches={payload.webFetches}
-        genericTools={payload.genericTools}
-        headerOverride={timelineTitleOverride}
-        thinkingRows={thinkingRowsLive.length > 0 ? thinkingRowsLive : undefined}
-        copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}
-        shimmer={copTimelineLive}
-        live={copTimelineLive}
-        preserveExpanded={preservingHandoffSegments}
-        trailingAssistantTextPresent={trailingAssistantTextPresent}
-        thinkingHint={thinkingHint}
-        accessToken={accessToken}
-        baseUrl={baseUrl}
-      />
-    ) : null
-    const exploreNodes = new Map(peerExploreGroups.map((group) => [
-      group.id,
-      <ExploreTimelineSegment key={`live-explore-${si}-${group.id}`} group={group} live={copTimelineLive} segmentLive={segmentLive} />,
-    ] as const))
-    const editNodes = new Map(peerEditOps.map((op) => [
-      op.id,
-      <EditTimelineSegment key={`live-edit-${si}-${op.id}`} op={op} live={copTimelineLive} />,
-    ] as const))
+    const attachedThinkingRowsForSlice = (slice: { thinkingRows?: Array<{ id: string }> } | undefined) => (
+      slice?.thinkingRows?.flatMap((row) => thinkingRowsLive.find((item) => item.id === row.id) ?? [])
+    )
     const promotedEntries = promotedCopTimelineEntries({
       payload,
       hasTimelineBody,
@@ -2397,10 +2364,53 @@ export function ChatView() {
       thinkingRows: thinkingRowsLive,
       copInlineTextRows: copInlineLive,
     })
-    const promotedNodes = promotedEntries.flatMap((entry) => {
-      if (entry.kind === 'timeline') return timelineNode ? [timelineNode] : []
-      if (entry.kind === 'explore') return exploreNodes.get(entry.id) ?? []
-      return editNodes.get(entry.id) ?? []
+    const promotedNodes = promotedEntries.flatMap((entry, entryIndex) => {
+      const entryLive = copTimelineLive && entryIndex === promotedEntries.length - 1
+      const entryComplete = !entryLive
+      if (entry.kind === 'timeline') {
+        const sliceThinkingRows = entry.slice.thinkingRows?.flatMap((row) => {
+          const item = thinkingRowsLive.find((candidate) => candidate.id === row.id)
+          return item ? [{ ...item, live: entryLive && item.live }] : []
+        })
+        const sliceInlineRows = entry.slice.copInlineTextRows?.flatMap((row) => {
+          const item = copInlineLive.find((candidate) => candidate.id === row.id)
+          return item ? [{ ...item, live: entryLive && item.live }] : []
+        })
+        return [(
+          <CopTimeline
+            key={`live-cop-inner-${si}-${entry.id}`}
+            steps={entry.slice.steps}
+            sources={entry.slice.sources}
+            isComplete={entryComplete}
+            codeExecutions={entry.slice.codeExecutions}
+            onOpenCodeExecution={openCodePanel}
+            onOpenSubAgent={openAgentPanelState}
+            activeCodeExecutionId={codePanelExecution?.id}
+            subAgents={entry.slice.subAgents}
+            fileOps={entry.slice.fileOps}
+            webFetches={entry.slice.webFetches}
+            genericTools={entry.slice.genericTools}
+            headerOverride={timelineTitleOverride}
+            thinkingRows={sliceThinkingRows && sliceThinkingRows.length > 0 ? sliceThinkingRows : undefined}
+            copInlineTextRows={sliceInlineRows && sliceInlineRows.length > 0 ? sliceInlineRows : undefined}
+            shimmer={entryLive}
+            live={entryLive}
+            preserveExpanded={preservingHandoffSegments && entryLive}
+            trailingAssistantTextPresent={trailingAssistantTextPresent}
+            thinkingHint={thinkingHint}
+            accessToken={accessToken}
+            baseUrl={baseUrl}
+          />
+        )]
+      }
+      if (entry.kind === 'explore') {
+        const group = peerExploreGroups.find((item) => item.id === entry.id)
+        const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
+        return group ? [<ExploreTimelineSegment key={`live-explore-${si}-${group.id}`} group={group} live={entryLive} segmentLive={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
+      }
+      const op = peerEditOps.find((item) => item.id === entry.id)
+      const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
+      return op ? [<EditTimelineSegment key={`live-edit-${si}-${op.id}`} op={op} live={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
     })
 
     return [

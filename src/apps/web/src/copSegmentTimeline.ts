@@ -326,16 +326,31 @@ export type CopTimelinePayload = ReturnType<typeof copTimelinePayloadForSegment>
 export type CopTimelineBodySeqInput = {
   payload: CopTimelinePayload
   bodyFileOps?: FileOpRef[] | null
-  thinkingRows?: Array<{ seq: number }> | null
-  copInlineTextRows?: Array<{ seq: number }> | null
+  thinkingRows?: Array<{ id: string; seq: number }> | null
+  copInlineTextRows?: Array<{ id: string; seq: number }> | null
 }
 
-export type PromotedCopTimelineEntryKind = 'timeline' | 'explore' | 'edit'
-
-export type PromotedCopTimelineEntry = {
-  kind: PromotedCopTimelineEntryKind
+export type CopTimelineBodySlice = {
   id: string
   seq: number
+  steps: WebSearchPhaseStep[]
+  sources: WebSource[]
+  codeExecutions?: CodeExecutionRef[]
+  fileOps?: FileOpRef[]
+  webFetches?: WebFetchRef[]
+  genericTools?: GenericToolCallRef[]
+  subAgents?: SubAgentRef[]
+  thinkingRows?: Array<{ id: string; seq: number }>
+  copInlineTextRows?: Array<{ id: string; seq: number }>
+}
+
+export type PromotedCopTimelineEntry =
+  | { kind: 'timeline'; id: string; seq: number; slice: CopTimelineBodySlice }
+  | { kind: 'explore'; id: string; seq: number; attachedSlice?: CopTimelineBodySlice }
+  | { kind: 'edit'; id: string; seq: number; attachedSlice?: CopTimelineBodySlice }
+
+function itemSeq(item: { seq?: number }): number {
+  return typeof item.seq === 'number' ? item.seq : Number.MAX_SAFE_INTEGER
 }
 
 function minSeq(items: Array<{ seq?: number } | undefined | null>): number | undefined {
@@ -358,28 +373,94 @@ export function copTimelineBodySeq({ payload, bodyFileOps, thinkingRows, copInli
   ]) ?? Number.MAX_SAFE_INTEGER
 }
 
+type BodyBucket =
+  | { kind: 'step'; item: WebSearchPhaseStep }
+  | { kind: 'code'; item: CodeExecutionRef }
+  | { kind: 'file'; item: FileOpRef }
+  | { kind: 'fetch'; item: WebFetchRef }
+  | { kind: 'generic'; item: GenericToolCallRef }
+  | { kind: 'agent'; item: SubAgentRef }
+  | { kind: 'thinking'; item: { id: string; seq: number } }
+  | { kind: 'inline'; item: { id: string; seq: number } }
+
+function makeBodySlice(id: string, buckets: BodyBucket[], sources: WebSource[]): CopTimelineBodySlice {
+  const steps = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'step' }> => entry.kind === 'step').map((entry) => entry.item)
+  const codeExecutions = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'code' }> => entry.kind === 'code').map((entry) => entry.item)
+  const fileOps = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'file' }> => entry.kind === 'file').map((entry) => entry.item)
+  const webFetches = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'fetch' }> => entry.kind === 'fetch').map((entry) => entry.item)
+  const genericTools = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'generic' }> => entry.kind === 'generic').map((entry) => entry.item)
+  const subAgents = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'agent' }> => entry.kind === 'agent').map((entry) => entry.item)
+  const thinkingRows = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'thinking' }> => entry.kind === 'thinking').map((entry) => entry.item)
+  const copInlineTextRows = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'inline' }> => entry.kind === 'inline').map((entry) => entry.item)
+  return {
+    id,
+    seq: buckets[0] ? itemSeq(buckets[0].item) : Number.MAX_SAFE_INTEGER,
+    steps,
+    sources: steps.length > 0 ? sources : [],
+    ...(codeExecutions.length > 0 ? { codeExecutions } : {}),
+    ...(fileOps.length > 0 ? { fileOps } : {}),
+    ...(webFetches.length > 0 ? { webFetches } : {}),
+    ...(genericTools.length > 0 ? { genericTools } : {}),
+    ...(subAgents.length > 0 ? { subAgents } : {}),
+    ...(thinkingRows.length > 0 ? { thinkingRows } : {}),
+    ...(copInlineTextRows.length > 0 ? { copInlineTextRows } : {}),
+  }
+}
+
 export function promotedCopTimelineEntries(params: {
   payload: CopTimelinePayload
   hasTimelineBody: boolean
   bodyFileOps?: FileOpRef[] | null
-  thinkingRows?: Array<{ seq: number }> | null
-  copInlineTextRows?: Array<{ seq: number }> | null
+  thinkingRows?: Array<{ id: string; seq: number }> | null
+  copInlineTextRows?: Array<{ id: string; seq: number }> | null
 }): PromotedCopTimelineEntry[] {
+  const barriers = [
+    ...(params.payload.exploreGroups ?? []).map((group) => ({ kind: 'explore' as const, id: group.id, seq: group.seq ?? Number.MAX_SAFE_INTEGER })),
+    ...(params.payload.fileOps ?? [])
+      .filter((op) => op.displayKind === 'edit')
+      .map((op) => ({ kind: 'edit' as const, id: op.id, seq: op.seq ?? Number.MAX_SAFE_INTEGER })),
+  ].sort((left, right) => left.seq - right.seq || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
+
+  const bodyBuckets: BodyBucket[] = params.hasTimelineBody ? [
+    ...params.payload.steps.map((item) => ({ kind: 'step' as const, item })),
+    ...(params.payload.codeExecutions ?? []).map((item) => ({ kind: 'code' as const, item })),
+    ...(params.bodyFileOps ?? []).map((item) => ({ kind: 'file' as const, item })),
+    ...(params.payload.webFetches ?? []).map((item) => ({ kind: 'fetch' as const, item })),
+    ...(params.payload.genericTools ?? []).map((item) => ({ kind: 'generic' as const, item })),
+    ...(params.payload.subAgents ?? []).map((item) => ({ kind: 'agent' as const, item })),
+    ...(params.thinkingRows ?? []).map((item) => ({ kind: 'thinking' as const, item })),
+    ...(params.copInlineTextRows ?? []).map((item) => ({ kind: 'inline' as const, item })),
+  ].sort((left, right) => itemSeq(left.item) - itemSeq(right.item) || left.kind.localeCompare(right.kind)) : []
+
   const entries: PromotedCopTimelineEntry[] = []
-  if (params.hasTimelineBody) {
-    entries.push({
-      kind: 'timeline',
-      id: 'timeline',
-      seq: copTimelineBodySeq(params),
-    })
+  let bucketIndex = 0
+  let sliceIndex = 0
+  const flushUntil = (maxSeq: number) => {
+    const sliceBuckets: BodyBucket[] = []
+    while (bucketIndex < bodyBuckets.length && itemSeq(bodyBuckets[bucketIndex]!.item) < maxSeq) {
+      sliceBuckets.push(bodyBuckets[bucketIndex]!)
+      bucketIndex += 1
+    }
+    if (sliceBuckets.length === 0) return
+    const slice = makeBodySlice(`timeline-${sliceIndex}`, sliceBuckets, params.payload.sources)
+    sliceIndex += 1
+    entries.push({ kind: 'timeline', id: slice.id, seq: slice.seq, slice })
   }
-  for (const group of params.payload.exploreGroups ?? []) {
-    entries.push({ kind: 'explore', id: group.id, seq: group.seq ?? Number.MAX_SAFE_INTEGER })
+
+  for (const barrier of barriers) {
+    flushUntil(barrier.seq)
+    const attachedBuckets: BodyBucket[] = []
+    while (bucketIndex < bodyBuckets.length && bodyBuckets[bucketIndex]!.kind === 'thinking') {
+      attachedBuckets.push(bodyBuckets[bucketIndex]!)
+      bucketIndex += 1
+    }
+    const attachedSlice = attachedBuckets.length > 0
+      ? makeBodySlice(`${barrier.kind}-${barrier.id}-attached`, attachedBuckets, params.payload.sources)
+      : undefined
+    entries.push(attachedSlice ? { ...barrier, attachedSlice } : barrier)
   }
-  for (const op of params.payload.fileOps ?? []) {
-    if (op.displayKind !== 'edit') continue
-    entries.push({ kind: 'edit', id: op.id, seq: op.seq ?? Number.MAX_SAFE_INTEGER })
-  }
+  flushUntil(Number.POSITIVE_INFINITY)
+
   return entries.sort((left, right) => left.seq - right.seq || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
 }
 

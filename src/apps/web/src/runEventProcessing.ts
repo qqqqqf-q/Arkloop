@@ -111,6 +111,14 @@ function truncateForToolPreview(value: string, max = 1600): string {
   return `${value.slice(0, max)}\n… truncated ${value.length - max} chars`
 }
 
+function pickStringField(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value
+  }
+  return ''
+}
+
 function pickExecCommandMode(args: Record<string, unknown> | undefined): CodeExecutionRef['mode'] {
   const raw = typeof args?.mode === 'string' ? args.mode.trim() : ''
   switch (raw) {
@@ -1308,6 +1316,24 @@ function memorySearchHitsToOutput(list: unknown[]): string {
   return `${head}\n${lines.join('\n')}${tail}`
 }
 
+
+function compactToolOutputLines(lines: string[], maxLines = 80): string {
+  const normalized = lines.map((line) => line.trim()).filter(Boolean)
+  if (normalized.length <= maxLines) return normalized.join('\n')
+  return `${normalized.slice(0, maxLines).join('\n')}\n… ${normalized.length - maxLines} more`
+}
+
+function globFilesOutput(files: unknown[]): string {
+  return compactToolOutputLines(files.map((file) => {
+    if (typeof file === 'string') return file
+    if (file && typeof file === 'object') {
+      const path = (file as Record<string, unknown>).path
+      return typeof path === 'string' ? path : ''
+    }
+    return ''
+  }))
+}
+
 export function fileOpOutputFromResult(toolName: string, result: unknown): string | undefined {
   return formatFileOpResult(toolName, result).output
 }
@@ -1341,13 +1367,15 @@ export function formatFileOpResult(toolName: string, result: unknown): ToolOutpu
         : typeof r.matches === 'string' ? r.matches.trim() : ''
       const count = typeof r.count === 'number' ? r.count : matches ? matches.split('\n').filter(Boolean).length : 0
       if (count === 0) return { output: '(no matches)' }
-      return { output: `${count} match${count === 1 ? '' : 'es'}${matches ? '\n' + matches : ''}` }
+      const body = matches ? compactToolOutputLines(matches.split('\n')) : ''
+      return { output: `${count} match${count === 1 ? '' : 'es'}${body ? '\n' + body : ''}` }
     }
     case 'glob': {
-      const files = Array.isArray(r.files) ? (r.files as unknown[]).filter((f): f is string => typeof f === 'string') : []
+      const files = Array.isArray(r.files) ? r.files as unknown[] : []
       const count = typeof r.count === 'number' ? r.count : files.length
       if (count === 0) return { output: '(no files)' }
-      return { output: `${count} file${count === 1 ? '' : 's'}${files.length > 0 ? '\n' + files.join('\n') : ''}` }
+      const body = globFilesOutput(files)
+      return { output: `${count} file${count === 1 ? '' : 's'}${body ? '\n' + body : ''}` }
     }
     case 'read_file': {
       if (typeof r.content === 'string') {
@@ -1365,6 +1393,8 @@ export function formatFileOpResult(toolName: string, result: unknown): ToolOutpu
     }
     case 'edit':
     case 'edit_file': {
+      const diff = pickStringField(r, ['diff', 'patch', 'unified_diff'])
+      if (diff) return { output: truncateForToolPreview(diff, 4000) }
       const filePath = typeof r.file_path === 'string' ? r.file_path : ''
       return { output: filePath ? `edited: ${filePath}` : 'edited' }
     }

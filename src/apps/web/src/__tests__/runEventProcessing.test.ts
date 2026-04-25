@@ -1524,6 +1524,29 @@ describe('buildMessageThinkingFromRunEvents', () => {
   })
 })
 
+describe('file operation result formatting', () => {
+  it('glob file output accepts structured backend entries', () => {
+    expect(
+      fileOpOutputFromResult('glob', {
+        count: 2,
+        files: [
+          { path: 'src/services/worker/internal/tools/a.go', size: 10, mtime: '2026-01-01T00:00:00Z' },
+          { path: 'src/apps/web/src/toolPresentation.ts', size: 20, mtime: '2026-01-01T00:00:00Z' },
+        ],
+      }),
+    ).toBe('2 files\nsrc/services/worker/internal/tools/a.go\nsrc/apps/web/src/toolPresentation.ts')
+  })
+
+  it('grep output keeps matches but caps long lists', () => {
+    expect(
+      fileOpOutputFromResult('grep', {
+        count: 2,
+        matches: 'a.ts:1:ProviderGroup\nb.ts:2:web_search',
+      }),
+    ).toBe('2 matches\na.ts:1:ProviderGroup\nb.ts:2:web_search')
+  })
+})
+
 describe('load_tools summary', () => {
   it('returns state-aware description when statuses exist', () => {
     const result = fileOpOutputFromResult('load_tools', {

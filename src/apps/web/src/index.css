@@ -660,8 +660,9 @@ button:not(:disabled) {
 }
 
 .cop-timeline-root {
-  --c-cop-row-fg: color-mix(in srgb, var(--c-text-primary) 68%, var(--c-text-secondary) 32%);
-  --c-cop-row-subtle-fg: color-mix(in srgb, var(--c-text-secondary) 78%, var(--c-text-tertiary) 22%);
+  --c-cop-row-fg: var(--c-text-tertiary);
+  --c-cop-row-hover-fg: var(--c-text-primary);
+  --c-cop-row-subtle-fg: var(--c-text-tertiary);
   --c-cop-row-weight: var(--c-fw-400);
   --c-cop-think-label-size: 13px;
   --c-cop-think-label-lh: 18px;
@@ -893,6 +894,12 @@ button:not(:disabled) {
   line-height: 18px;
   font-weight: 400;
   color: var(--c-cop-row-fg);
+}
+.cop-timeline-root .cop-diff-added {
+  color: var(--c-status-success-text);
+}
+.cop-timeline-root .cop-diff-removed {
+  color: var(--c-status-error-text);
 }
 .cop-timeline-root .cop-thinking-card-outer {
   border-radius: 8px;
