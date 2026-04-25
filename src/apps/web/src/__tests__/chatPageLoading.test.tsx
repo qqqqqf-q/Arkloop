@@ -124,6 +124,8 @@ vi.mock('../storage', async () => {
     readMessageBrowserActions: vi.fn(() => null),
     writeMessageBrowserActions: vi.fn(),
     migrateMessageMetadata: vi.fn(),
+    readLocaleFromStorage: vi.fn(() => 'zh'),
+    writeLocaleToStorage: vi.fn(),
   }
 })
 
@@ -555,6 +557,7 @@ describe('ChatPage loading state', () => {
   beforeEach(() => {
     vi.useRealTimers()
     vi.clearAllMocks()
+    localStorage.clear()
     chatInputDraftStore.clear()
     mockedReadMessageAssistantTurn.mockReturnValue(null)
     mockedReadMessageTerminalStatus.mockReturnValue(null)

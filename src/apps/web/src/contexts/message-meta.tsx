@@ -87,6 +87,7 @@ interface MessageMetaContextValue {
   getMeta: (msgId: string) => MessageMeta | undefined
   setMeta: (msgId: string, partial: Partial<MessageMeta>) => void
   setMetaBatch: (entries: Array<[string, Partial<MessageMeta>]>) => void
+  primeMetaBatch: (entries: Array<[string, Partial<MessageMeta>]>) => void
   persistToStorage: (msgId: string, meta: MessageMeta) => void
   loadFromStorage: (msgIds: string[]) => void
   clearAll: () => void
@@ -142,6 +143,7 @@ function mergePartial(prev: MessageMeta | undefined, partial: Partial<MessageMet
 
 export function MessageMetaProvider({ children }: { children: ReactNode }) {
   const [metaMap, setMetaMap] = useState<Map<string, MessageMeta>>(new Map())
+  const metaMapRef = useRef(metaMap)
 
   const currentRunSourcesRef = useRef<WebSource[]>([])
   const currentRunArtifactsRef = useRef<ArtifactRef[]>([])
@@ -153,14 +155,15 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
   const pendingSearchStepsRef = useRef<MessageSearchStepRef[] | null>(null)
 
   const getMeta = useCallback(
-    (msgId: string): MessageMeta | undefined => metaMap.get(msgId),
-    [metaMap],
+    (msgId: string): MessageMeta | undefined => metaMapRef.current.get(msgId),
+    [],
   )
 
   const setMeta = useCallback((msgId: string, partial: Partial<MessageMeta>) => {
     setMetaMap((prev) => {
       const next = new Map(prev)
       next.set(msgId, mergePartial(prev.get(msgId), partial))
+      metaMapRef.current = next
       return next
     })
   }, [])
@@ -170,10 +173,20 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     setMetaMap((prev) => {
       const next = new Map(prev)
       for (const [msgId, partial] of entries) {
-        next.set(msgId, mergePartial(prev.get(msgId), partial))
+        next.set(msgId, mergePartial(next.get(msgId), partial))
       }
+      metaMapRef.current = next
       return next
     })
+  }, [])
+
+  const primeMetaBatch = useCallback((entries: Array<[string, Partial<MessageMeta>]>) => {
+    if (entries.length === 0) return
+    const next = new Map(metaMapRef.current)
+    for (const [msgId, partial] of entries) {
+      next.set(msgId, mergePartial(next.get(msgId), partial))
+    }
+    metaMapRef.current = next
   }, [])
 
   const persistToStorage = useCallback((msgId: string, meta: MessageMeta) => {
@@ -229,14 +242,16 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     setMetaMap((prev) => {
       const next = new Map(prev)
       for (const [id, meta] of entries) {
-        next.set(id, mergePartial(prev.get(id), meta))
+        next.set(id, mergePartial(next.get(id), meta))
       }
+      metaMapRef.current = next
       return next
     })
   }, [])
 
   const clearAll = useCallback(() => {
     setMetaMap(new Map())
+    metaMapRef.current = new Map()
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
     currentRunCodeExecutionsRef.current = []
@@ -399,6 +414,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     getMeta,
     setMeta,
     setMetaBatch,
+    primeMetaBatch,
     persistToStorage,
     loadFromStorage,
     clearAll,
@@ -410,6 +426,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     getMeta,
     setMeta,
     setMetaBatch,
+    primeMetaBatch,
     persistToStorage,
     loadFromStorage,
     clearAll,

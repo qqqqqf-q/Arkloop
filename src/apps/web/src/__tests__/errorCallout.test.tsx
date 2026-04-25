@@ -1,8 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { ReactElement } from 'react'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { ErrorCallout } from '../components/ErrorCallout'
+
+vi.mock('../storage', async () => {
+  const actual = await vi.importActual<typeof import('../storage')>('../storage')
+  return {
+    ...actual,
+    readLocaleFromStorage: vi.fn(() => 'zh'),
+    writeLocaleToStorage: vi.fn(),
+  }
+})
 
 function renderWithLocale(ui: ReactElement): string {
   return renderToStaticMarkup(<LocaleProvider>{ui}</LocaleProvider>)

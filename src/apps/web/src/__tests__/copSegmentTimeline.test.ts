@@ -84,6 +84,7 @@ describe('copTimelinePayloadForSegment', () => {
         label: 'Search completed',
         status: 'done',
         queries: ['Claude Desktop 更新'],
+        sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
         seq: 3,
       },
       {
@@ -91,11 +92,11 @@ describe('copTimelinePayloadForSegment', () => {
         kind: 'reviewing',
         label: 'Reviewing sources',
         status: 'done',
-        sources: [{ title: 'u', url: 'https://u.test' }],
+        sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
         seq: 3.5,
       },
     ])
-    expect(r.sources).toEqual([{ title: 'u', url: 'https://u.test' }])
+    expect(r.sources).toEqual([{ title: 'u', url: 'https://u.test', snippet: undefined }])
   })
 
   it('reviewing 按 resultSeq 排序，不抢到其他工具前面', () => {

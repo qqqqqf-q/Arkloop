@@ -177,7 +177,7 @@ export function copTimelinePayloadForSegment(
     if (step.kind !== 'searching') return [step]
     const scopedSources = sourcesById.get(step.id)
     if (!scopedSources || scopedSources.length === 0) return [step]
-    const reviewingSeq = step.resultSeq ?? step.seq ?? 0
+    const reviewingSeq = step.resultSeq ?? (typeof step.seq === 'number' ? step.seq + 0.5 : 0)
     return [
       step,
       {
