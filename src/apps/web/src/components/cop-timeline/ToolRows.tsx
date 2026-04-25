@@ -30,7 +30,7 @@ function useStabilizeLocalExpansionScroll() {
   return useContext(LocalExpansionScrollContext)
 }
 
-function summarizeDiff(text: string | undefined): { added: number; removed: number } | null {
+export function summarizeDiff(text: string | undefined): { added: number; removed: number } | null {
   if (!text) return null
   let added = 0
   let removed = 0
@@ -62,13 +62,10 @@ function ToolTitle({ title, live, status }: { title: string; live?: boolean; sta
       style={{
         ...TIMELINE_ROW_TITLE_STYLE,
         color: status ? statusColor(status) : TIMELINE_ROW_TITLE_STYLE.color,
-        display: 'block',
         minWidth: 0,
         overflow: 'hidden',
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap',
-        paddingBlock: 1,
-        marginBlock: -1,
       }}
     >
       <TypewriterText text={title} live={live} className={live ? 'thinking-shimmer-dim' : undefined} />
@@ -76,7 +73,7 @@ function ToolTitle({ title, live, status }: { title: string; live?: boolean; sta
   )
 }
 
-function FileOpToolCard({ op }: { op: FileOpRef }) {
+export function FileOpToolCard({ op }: { op: FileOpRef }) {
   const title = op.displayDescription || op.label || op.toolName
   const filePath = op.filePath || op.displayDetail || ''
   const lines = previewLines(op.output || op.errorMessage)
@@ -92,8 +89,19 @@ function FileOpToolCard({ op }: { op: FileOpRef }) {
         </div>
       )}
       {lines.length > 0 ? (
-        <pre style={{ margin: 0, padding: '9px 10px', maxHeight: 280, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: '18px', color: op.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {lines.map((line, index) => `${String(index + 1).padStart(3, ' ')}  ${line}`).join('\n')}
+        <pre style={{ margin: 0, padding: '9px 0', maxHeight: 280, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: '18px', color: 'var(--c-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          {lines
+            .filter((line) => !line.startsWith('--- ') && !line.startsWith('+++ ') && line !== '---' && line !== '+++')
+            .map((line, lineIndex) => {
+              let bg: string | undefined
+              if (line.startsWith('+')) bg = 'rgba(34,197,94,0.12)'
+              else if (line.startsWith('-')) bg = 'rgba(239,68,68,0.12)'
+              return (
+                <div key={lineIndex} style={{ padding: '0 10px', background: bg }}>
+                  {`${String(lineIndex + 1).padStart(3, ' ')}  ${line}`}
+                </div>
+              )
+            })}
         </pre>
       ) : (
         <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--c-text-muted)' }}>
@@ -130,7 +138,7 @@ export function FileOpToolRow({ op, live }: { op: FileOpRef; live?: boolean }) {
           setExpanded((value) => !value)
         }}
         style={{
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
           gap: 6,
           maxWidth: '100%',
@@ -252,7 +260,7 @@ export function ExploreTimelineRow({ group, live, segmentLive, headerVariant = '
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
-          display: 'inline-flex',
+          display: 'flex',
           alignItems: 'center',
           gap: 6,
           maxWidth: '100%',
@@ -385,7 +393,7 @@ export function EditTimelineSegment({ op, attachedThinkingRows }: { op: FileOpRe
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           style={{
-            display: 'inline-flex',
+            display: 'flex',
             alignItems: 'center',
             gap: 6,
             maxWidth: '100%',

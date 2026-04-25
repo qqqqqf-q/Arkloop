@@ -2,8 +2,7 @@ import { memo, Fragment, type ComponentProps, useState, useRef, useEffect, useMe
 import { Info } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { MessageBubble } from './MessageBubble'
-import { CopTimeline, type WebSearchPhaseStep } from './CopTimeline'
-import { EditTimelineSegment, ExploreTimelineSegment } from './cop-timeline/ToolRows'
+import { CopTimeline, type WebSearchPhaseStep } from './cop-timeline/CopTimeline'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { WidgetBlock } from './WidgetBlock'
 import { IncognitoDivider } from './IncognitoDivider'
@@ -18,7 +17,8 @@ import { usePanels } from '../contexts/panels'
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
 import { apiBaseUrl } from '@arkloop/shared/api'
-import { copTimelinePayloadForSegment, promotedCopTimelineEntries } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment } from '../copSegmentTimeline'
+import { buildSubSegments, buildResolvedPool, buildThinkingOnlyFromItems, segmentLiveTitle, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
 import { assistantTurnPlainText } from '../assistantTurnSegments'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { createThreadShare } from '../api'
@@ -28,8 +28,6 @@ import type { CodeExecution } from './CodeExecutionCard'
 import {
   hasRecoverableRunOutput,
   turnHasCopThinkingItems,
-  thinkingRowsForCop,
-  copInlineTextRowsForCop,
   widgetToolCallIdsPlacedInTurn,
   historicWidgetsForCop,
 } from '../lib/chat-helpers'
@@ -262,8 +260,6 @@ export const MessageList = memo(function MessageList({
   const terminalRunDisplayId = run.terminalRunDisplayId
   const terminalRunHandoffStatus = run.terminalRunHandoffStatus
   const terminalRunCoveredRunIds = run.terminalRunCoveredRunIds
-  const terminalRunHistoryExpanded = run.terminalRunHistoryExpanded
-  const terminalRunAssistantMessageId = run.terminalRunAssistantMessageId
   const userEnterMessageId = msgs.userEnterMessageId
   const privateThreadIds = threadList.privateThreadIds
 
@@ -407,10 +403,10 @@ export const MessageList = memo(function MessageList({
               !turnHasCopThinkingItems(historicalTurn!) && (
               <CopTimeline
                 key={`${msg.id}-legacy-thinking`}
-                steps={[]}
-                sources={[]}
+                segments={[]}
+                pool={EMPTY_POOL}
                 isComplete
-                assistantThinking={{ markdown: msgThinking.thinkingText, live: false }}
+                thinkingOnly={{ markdown: msgThinking.thinkingText, live: false, durationSec: 0 }}
                 accessToken={accessToken}
                 baseUrl={baseUrl}
               />
@@ -440,37 +436,30 @@ export const MessageList = memo(function MessageList({
                     searchSteps: messageSearchSteps ?? [],
                     sources: resolvedSources ?? [],
                   })
+                  const pool = buildResolvedPool(payload)
                   const histWidgets = historicWidgetsForCop(seg, msgWidgetsRaw)
-                  const thinkingRowsHist = !isSearchThread
-                    ? thinkingRowsForCop(seg, {
-                        live: currentRunMessageLive,
-                        segmentIndex: si,
-                        lastSegmentIndex: historicalTurn!.segments.length - 1,
-                      })
-                    : []
-                  const copInlineHist = !isSearchThread
-                    ? copInlineTextRowsForCop(seg, {
-                        live: currentRunMessageLive,
-                        segmentIndex: si,
-                        lastSegmentIndex: historicalSegments.length - 1,
-                      })
-                    : []
-                  const peerExploreGroups = payload.exploreGroups ?? []
-                  const peerEditOps = payload.fileOps?.filter((op) => op.displayKind === 'edit') ?? []
-                  const bodyFileOps = payload.fileOps?.filter((op) => op.displayKind !== 'edit')
+
+                  const subSegments = buildSubSegments(seg.items)
+                  const segmentLive = currentRunMessageLive && si === historicalSegments.length - 1
+                  if (subSegments.length > 0 && segmentLive) {
+                    const lastSeg = subSegments[subSegments.length - 1]!
+                    lastSeg.status = 'open'
+                    lastSeg.title = segmentLiveTitle(lastSeg.category)
+                  }
+
                   const hasTimelineBody =
+                    subSegments.length > 0 ||
                     payload.steps.length > 0 ||
-                    payload.sources.length > 0 ||
                     !!payload.codeExecutions?.length ||
-                    !!bodyFileOps?.length ||
+                    !!payload.fileOps?.length ||
                     !!payload.webFetches?.length ||
                     !!payload.genericTools?.length ||
-                    !!payload.subAgents?.length ||
-                    thinkingRowsHist.length > 0 ||
-                    copInlineHist.length > 0
-                  if (!hasTimelineBody && peerExploreGroups.length === 0 && peerEditOps.length === 0 && histWidgets.length === 0) {
+                    !!payload.subAgents?.length
+
+                  if (!hasTimelineBody && histWidgets.length === 0) {
                     return null
                   }
+
                   const timelineTitleOverride = displayTerminalStatus != null
                     ? currentRunCopHeaderOverride({
                         title: seg.title,
@@ -480,70 +469,32 @@ export const MessageList = memo(function MessageList({
                         hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
                         hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
                         hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
-                        hasThinking: thinkingRowsHist.length > 0 || copInlineHist.length > 0,
+                        hasThinking: subSegments.some((s) => s.items.some((i) => i.kind === 'thinking')),
                         handoffStatus: displayTerminalStatus,
                       })
                     : seg.title?.trim() || undefined
-                  const histTrail = historicalSegments[si + 1]
-                  const histTrailingText =
-                    histTrail?.type === 'text' && histTrail.content.length > 0
-                  const segmentLive = currentRunMessageLive && si === historicalSegments.length - 1
-                  const attachedThinkingRowsForSlice = (slice: { thinkingRows?: Array<{ id: string }> } | undefined) => (
-                    slice?.thinkingRows?.flatMap((row) => thinkingRowsHist.find((item) => item.id === row.id) ?? [])
-                  )
-                  const promotedEntries = promotedCopTimelineEntries({
-                    payload,
-                    hasTimelineBody,
-                    bodyFileOps,
-                    thinkingRows: thinkingRowsHist,
-                    copInlineTextRows: copInlineHist,
-                  })
-                  const promotedNodes = promotedEntries.flatMap((entry, entryIndex) => {
-                    const entryLive = segmentLive && entryIndex === promotedEntries.length - 1
-                    const entryComplete = !entryLive
-                    if (entry.kind === 'timeline') {
-                      const sliceThinkingRows = entry.slice.thinkingRows?.flatMap((row) => {
-                        const item = thinkingRowsHist.find((candidate) => candidate.id === row.id)
-                        return item ? [{ ...item, live: entryLive && item.live }] : []
-                      })
-                      const sliceInlineRows = entry.slice.copInlineTextRows?.flatMap((row) => {
-                        const item = copInlineHist.find((candidate) => candidate.id === row.id)
-                        return item ? [{ ...item, live: entryLive && item.live }] : []
-                      })
-                      return [(
-                        <CopTimeline
-                          key={`${msg.id}-timeline-${si}-${entry.id}`}
-                          steps={entry.slice.steps}
-                          sources={entry.slice.sources}
-                          isComplete={entryComplete}
-                          live={entryLive}
-                          codeExecutions={entry.slice.codeExecutions}
-                          onOpenCodeExecution={openCodePanel}
-                          onOpenSubAgent={openAgentPanel}
-                          activeCodeExecutionId={codePanelExecutionId ?? undefined}
-                          subAgents={entry.slice.subAgents}
-                          fileOps={entry.slice.fileOps}
-                          webFetches={entry.slice.webFetches}
-                          genericTools={entry.slice.genericTools}
-                          headerOverride={timelineTitleOverride}
-                          preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id && entryLive}
-                          thinkingRows={sliceThinkingRows && sliceThinkingRows.length > 0 ? sliceThinkingRows : undefined}
-                          copInlineTextRows={sliceInlineRows && sliceInlineRows.length > 0 ? sliceInlineRows : undefined}
-                          trailingAssistantTextPresent={histTrailingText}
-                          accessToken={accessToken}
-                          baseUrl={baseUrl}
-                        />
-                      )]
-                    }
-                    if (entry.kind === 'explore') {
-                      const group = peerExploreGroups.find((item) => item.id === entry.id)
-                      const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
-                      return group ? [<ExploreTimelineSegment key={`${msg.id}-explore-${group.id}`} group={group} live={entryLive} segmentLive={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
-                    }
-                    const op = peerEditOps.find((item) => item.id === entry.id)
-                    const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
-                    return op ? [<EditTimelineSegment key={`${msg.id}-edit-${op.id}`} op={op} live={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
-                  })
+
+                  const thinkingOnlyData = subSegments.length === 0 && !payload.codeExecutions?.length && !payload.subAgents?.length && !payload.fileOps?.length && !payload.webFetches?.length && !payload.genericTools?.length
+                    ? buildThinkingOnlyFromItems(seg.items)
+                    : null
+
+                  const entryComplete = !segmentLive
+                  const promotedNodes = [(
+                    <CopTimeline
+                      key={`${msg.id}-timeline-${si}`}
+                      segments={subSegments}
+                      pool={pool}
+                      thinkingOnly={thinkingOnlyData}
+                      isComplete={entryComplete}
+                      live={segmentLive}
+                      headerOverride={timelineTitleOverride}
+                      onOpenCodeExecution={openCodePanel}
+                      onOpenSubAgent={openAgentPanel}
+                      activeCodeExecutionId={codePanelExecutionId ?? undefined}
+                      accessToken={accessToken}
+                      baseUrl={baseUrl}
+                    />
+                  )]
 
                   return (
                     <Fragment key={`${msg.id}-acw-${si}`}>
@@ -567,38 +518,28 @@ export const MessageList = memo(function MessageList({
         )}
         {msg.role === 'assistant' && !hasAssistantTurn && (timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
           <div style={{ marginBottom: '12px' }}>
-            {timelineSteps.length > 0 && (
-              <CopTimeline
-                steps={timelineSteps}
-                sources={resolvedSources ?? []}
-                isComplete
-                codeExecutions={messageCodeExecutions}
-                onOpenCodeExecution={openCodePanel}
-                activeCodeExecutionId={codePanelExecutionId ?? undefined}
-                subAgents={messageSubAgents}
-                onOpenSubAgent={openAgentPanel}
-                fileOps={messageFileOps}
-                webFetches={messageWebFetches}
-                accessToken={accessToken}
-                baseUrl={baseUrl}
-              />
-            )}
-            {timelineSteps.length === 0 && (hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
-              <CopTimeline
-                steps={[]}
-                sources={[]}
-                isComplete
-                codeExecutions={messageCodeExecutions}
-                onOpenCodeExecution={openCodePanel}
-                activeCodeExecutionId={codePanelExecutionId ?? undefined}
-                subAgents={messageSubAgents}
-                onOpenSubAgent={openAgentPanel}
-                fileOps={messageFileOps}
-                webFetches={messageWebFetches}
-                accessToken={accessToken}
-                baseUrl={baseUrl}
-              />
-            )}
+            <CopTimeline
+              segments={buildFallbackSegments({
+                codeExecutions: messageCodeExecutions,
+                subAgents: messageSubAgents,
+                fileOps: messageFileOps,
+                webFetches: messageWebFetches,
+              })}
+              pool={buildResolvedPool({
+                steps: timelineSteps,
+                sources: resolvedSources ?? [],
+                codeExecutions: messageCodeExecutions,
+                subAgents: messageSubAgents,
+                fileOps: messageFileOps,
+                webFetches: messageWebFetches,
+              })}
+              isComplete
+              onOpenCodeExecution={openCodePanel}
+              activeCodeExecutionId={codePanelExecutionId ?? undefined}
+              onOpenSubAgent={openAgentPanel}
+              accessToken={accessToken}
+              baseUrl={baseUrl}
+            />
           </div>
         )}
         <MessageBubble

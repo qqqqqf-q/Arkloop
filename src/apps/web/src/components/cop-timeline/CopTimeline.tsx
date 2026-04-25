@@ -1,297 +1,117 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { useState, useEffect, useRef } from 'react'
+import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
-import { CodeExecutionCard, type CodeExecution } from '../CodeExecutionCard'
+import type { CodeExecution } from '../CodeExecutionCard'
+import type { SubAgentRef } from '../../storage'
 import { useLocale } from '../../contexts/LocaleContext'
-import { ExecutionCard } from '../ExecutionCard'
-import { SubAgentBlock } from '../SubAgentBlock'
+import type { CopSubSegment, ResolvedPool } from '../../copSubSegment'
 import { recordPerfCount, recordPerfValue } from '../../perfDebug'
-import type { Props, UEntry } from './types'
-import { dotColor, autoLabel, ENTRY_SORT_PRIORITY, timelineStepDisplayLabel } from './types'
 import {
+  COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX,
   COP_TIMELINE_DOT_TOP,
   COP_TIMELINE_DOT_SIZE,
-  COP_TIMELINE_PYTHON_DOT_TOP,
-  COP_TIMELINE_CONTENT_PADDING_LEFT_PX,
-  COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX,
-  TypewriterText,
-  QueryPill,
-  initialThinkingElapsedSec,
-  firstThinkingStartMs,
 } from './utils'
 import {
   useThinkingElapsedSeconds,
   formatThinkingHeaderLabel,
   CopTimelineHeaderLabel,
 } from './CopTimelineHeader'
-import { AssistantThinkingMarkdown, CopThoughtSummaryRow, TimelineNarrativeBody } from './ThinkingBlock'
-import { SourceListCard } from './SourceList'
-import { WebFetchItem } from './WebFetchItem'
+import { AssistantThinkingMarkdown } from './ThinkingBlock'
+import { CopTimelineSegment } from './CopTimelineSegment'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
-import { ExploreTimelineRow, FileOpToolRow } from './ToolRows'
 
-export function CopTimeline({ steps, sources, narratives, isComplete, codeExecutions, onOpenCodeExecution, activeCodeExecutionId, subAgents, onOpenSubAgent, fileOps, exploreGroups, webFetches, genericTools, headerOverride, shimmer, live, preserveExpanded, accessToken, baseUrl, thinkingRows, copInlineTextRows, assistantThinking, thinkingStartedAt, trailingAssistantTextPresent, thinkingHint, segmentLive, forceCollapsed }: Props) {
+export type { WebSearchPhaseStep } from './types'
+
+export function CopTimeline({
+  segments,
+  pool,
+  thinkingOnly,
+  thinkingHint,
+  headerOverride,
+  isComplete,
+  live,
+  shimmer,
+  onOpenCodeExecution,
+  activeCodeExecutionId,
+  onOpenSubAgent,
+  accessToken,
+  baseUrl,
+}: {
+  segments: CopSubSegment[]
+  pool: ResolvedPool
+  thinkingOnly?: { markdown: string; live?: boolean; durationSec: number; startedAtMs?: number } | null
+  thinkingHint?: string
+  headerOverride?: string
+  isComplete: boolean
+  live?: boolean
+  shimmer?: boolean
+  onOpenCodeExecution?: (ce: CodeExecution) => void
+  activeCodeExecutionId?: string
+  onOpenSubAgent?: (agent: SubAgentRef) => void
+  accessToken?: string
+  baseUrl?: string
+}) {
   const { t } = useLocale()
   const reduceMotion = useReducedMotion()
-  const thinkingRowList = thinkingRows ?? []
-  const copInlineList = copInlineTextRows ?? []
-  const interleavedThinkingLive = thinkingRowList.some((r) => r.live)
-  const legacyThinkingLive = !!assistantThinking?.live
-  const legacyThinkingVisible = !!(assistantThinking && (assistantThinking.markdown.trim() !== '' || assistantThinking.live))
-  const hasInterleavedThinking = thinkingRowList.length > 0
-  const hasAnyThinking = hasInterleavedThinking || legacyThinkingVisible
-  const anyThinkingLive = interleavedThinkingLive || legacyThinkingLive
 
-  const visibleSteps = steps.filter((step) => step.kind !== 'finished')
-  const textEntries = narratives ?? []
-  const codeExecCount = codeExecutions?.length ?? 0
-  const subAgentCount = subAgents?.length ?? 0
-  const fileOpCount = fileOps?.length ?? 0
-  const exploreGroupCount = exploreGroups?.length ?? 0
-  const webFetchCount = webFetches?.length ?? 0
-  const genericToolCount = genericTools?.length ?? 0
-  const sourceCount = sources.length
-  const effectiveStepCount = visibleSteps.length || (codeExecCount + subAgentCount + fileOpCount + exploreGroupCount + webFetchCount + genericToolCount)
-  const hasThinkingOnly = hasAnyThinking && effectiveStepCount === 0 && sourceCount === 0
-  const mixedSegmentWithThinking = hasAnyThinking && !hasThinkingOnly
+  const poolHasItems = pool.codeExecutions.size > 0 || pool.fileOps.size > 0 || pool.webFetches.size > 0 || pool.subAgents.size > 0 || pool.genericTools.size > 0 || pool.steps.size > 0
+  const hasSegments = segments.length > 0 || poolHasItems
+  const hasThinkingOnly = thinkingOnly != null && segments.length === 0 && !poolHasItems
+  const anyThinking = thinkingOnly != null
+  const thinkingLive = thinkingOnly?.live ?? false
+  const anyThinkingLive = thinkingLive
   const timelineIsLive = !!live || anyThinkingLive
+  const bodyHasContent = hasSegments || hasThinkingOnly
   const [collapsed, setCollapsed] = useState(() => {
-    if (preserveExpanded) return false
-    if (!isComplete) return timelineIsLive ? hasThinkingOnly : false
-    if (hasThinkingOnly) return true
+    if (timelineIsLive && !isComplete) return hasThinkingOnly
+    if (hasThinkingOnly && !isComplete) return false
+    if (hasThinkingOnly && isComplete) return true
     return true
   })
-  const [bodyHeight, setBodyHeight] = useState<number | null>(null)
-  const [bodyTransitioning, setBodyTransitioning] = useState(false)
-  const bodyRef = useRef<HTMLDivElement | null>(null)
-  const collapsedRef = useRef(collapsed)
+  const [userToggled, setUserToggled] = useState(false)
+  const prevLive = useRef(timelineIsLive)
 
-  const userToggledCollapsedRef = useRef(false)
-  const prevTimelineIsLiveRef = useRef<boolean | undefined>(undefined)
-
-  const prevCompleteRef = useRef<boolean | undefined>(undefined)
+  // Auto-collapse when live ends
   useEffect(() => {
-    collapsedRef.current = collapsed
-  }, [collapsed])
-
-  useEffect(() => {
-    if (preserveExpanded) {
-      prevCompleteRef.current = isComplete
-      return
-    }
-    if (userToggledCollapsedRef.current) {
-      prevCompleteRef.current = isComplete
-      return
-    }
-    if (prevCompleteRef.current === undefined) {
-      prevCompleteRef.current = isComplete
-      return
-    }
-    if (!prevCompleteRef.current && isComplete) {
+    if (userToggled) return
+    if (prevLive.current && !timelineIsLive && isComplete) {
       setCollapsed(true)
     }
-    prevCompleteRef.current = isComplete
-  }, [isComplete, preserveExpanded])
+    prevLive.current = timelineIsLive
+  }, [timelineIsLive, isComplete, userToggled])
 
+  // Auto-expand when new segment appears (live mode)
   useEffect(() => {
-    if (preserveExpanded) return
-    if (userToggledCollapsedRef.current) return
-    if (!isComplete && timelineIsLive) {
+    if (userToggled) return
+    if (timelineIsLive && !isComplete) {
       setCollapsed(hasThinkingOnly)
-      return
     }
-    if (hasThinkingOnly && trailingAssistantTextPresent) {
+    if (hasThinkingOnly && isComplete) {
       setCollapsed(true)
     }
-  }, [hasThinkingOnly, isComplete, preserveExpanded, timelineIsLive, trailingAssistantTextPresent])
+  }, [hasThinkingOnly, isComplete, timelineIsLive, userToggled])
 
-  useLayoutEffect(() => {
-    if (preserveExpanded) {
-      prevTimelineIsLiveRef.current = timelineIsLive
-      return
-    }
-    if (userToggledCollapsedRef.current) {
-      prevTimelineIsLiveRef.current = timelineIsLive
-      return
-    }
-    if (prevTimelineIsLiveRef.current === undefined) {
-      prevTimelineIsLiveRef.current = timelineIsLive
-      return
-    }
-    if (prevTimelineIsLiveRef.current && !timelineIsLive) {
-      setCollapsed(true)
-    }
-    prevTimelineIsLiveRef.current = timelineIsLive
-  }, [preserveExpanded, timelineIsLive])
+  const aggregatedDurationSec = thinkingOnly?.durationSec ?? 0
+  const segmentThinkingStartedAtMs = thinkingOnly?.startedAtMs
 
-  useEffect(() => {
-    if (forceCollapsed == null) return
-    if (userToggledCollapsedRef.current) return
-    setCollapsed(forceCollapsed)
-  }, [forceCollapsed])
-
-  const aggregatedDurationSec = (() => {
-    let sum = 0
-    for (const r of thinkingRowList) {
-      const d = r.durationSec
-      if (typeof d === 'number' && d > 0) sum += d
-    }
-    if (legacyThinkingVisible && thinkingRowList.length === 0) {
-      sum += initialThinkingElapsedSec(thinkingStartedAt, [], assistantThinking ?? null)
-    }
-    return sum
-  })()
-
-  const segmentThinkingStartedAtMs = firstThinkingStartMs(thinkingRowList, thinkingStartedAt)
-  const pendingHasContent = (
-    visibleSteps.length +
-    textEntries.length +
-    codeExecCount +
-    subAgentCount +
-    fileOpCount +
-    exploreGroupCount +
-    webFetchCount +
-    genericToolCount +
-    thinkingRowList.length +
-    copInlineList.length +
-    (legacyThinkingVisible ? 1 : 0)
-  ) > 0 || sourceCount > 0
-  const pendingShowThinkingHeader = !!live && !hasAnyThinking && !pendingHasContent && !!thinkingHint
-  const thinkingTimerActive = anyThinkingLive || (hasAnyThinking && !!live)
+  const pendingHasContent = hasSegments || hasThinkingOnly
+  const pendingShowThinkingHeader = !!live && !anyThinking && !pendingHasContent && !!thinkingHint
+  const thinkingTimerActive = anyThinkingLive || (anyThinking && !!live)
   const activeThinkingElapsed = useThinkingElapsedSeconds(thinkingTimerActive, segmentThinkingStartedAtMs)
   const thinkingLiveHeaderLabel = formatThinkingHeaderLabel(thinkingHint, activeThinkingElapsed, t)
 
-  const shouldRender = !(
-    visibleSteps.length === 0 &&
-    textEntries.length === 0 &&
-    codeExecCount === 0 &&
-    subAgentCount === 0 &&
-    fileOpCount === 0 &&
-    exploreGroupCount === 0 &&
-    webFetchCount === 0 &&
-    genericToolCount === 0 &&
-    !headerOverride &&
-    !hasAnyThinking &&
-    !thinkingHint &&
-    copInlineList.length === 0
-  )
-
-  let fallbackSeq = 0
-  const nextSeq = (seq?: number) => {
-    if (typeof seq === 'number') {
-      fallbackSeq = Math.max(fallbackSeq + 1, seq + 1)
-      return seq
-    }
-    const next = fallbackSeq
-    fallbackSeq += 1
-    return next
-  }
-  const allUnified: UEntry[] = []
-  for (const step of visibleSteps) {
-    allUnified.push({ kind: 'step', id: step.id, seq: nextSeq(step.seq), item: step })
-  }
-  for (const narrative of textEntries) {
-    allUnified.push({ kind: 'text', id: narrative.id, seq: nextSeq(narrative.seq), item: narrative })
-  }
-  for (const ce of (codeExecutions ?? [])) {
-    allUnified.push({ kind: 'code', id: ce.id, seq: nextSeq(ce.seq), item: ce })
-  }
-  for (const a of (subAgents ?? [])) {
-    allUnified.push({ kind: 'agent', id: a.id, seq: nextSeq(a.seq), item: a })
-  }
-  for (const op of (fileOps ?? [])) {
-    allUnified.push({ kind: 'fileop', id: op.id, seq: nextSeq(op.seq), item: op })
-  }
-  for (const group of (exploreGroups ?? [])) {
-    allUnified.push({ kind: 'explore', id: group.id, seq: nextSeq(group.seq), item: group })
-  }
-  for (const wf of (webFetches ?? [])) {
-    allUnified.push({ kind: 'fetch', id: wf.id, seq: nextSeq(wf.seq), item: wf })
-  }
-  for (const tool of (genericTools ?? [])) {
-    allUnified.push({ kind: 'generic', id: tool.id, seq: nextSeq(tool.seq), item: tool })
-  }
-  for (const row of thinkingRowList) {
-    allUnified.push({
-      kind: 'thinking',
-      id: row.id,
-      seq: nextSeq(row.seq),
-      item: { markdown: row.markdown, live: !!row.live, durationSec: row.durationSec, startedAtMs: row.startedAtMs },
-    })
-  }
-  for (const row of copInlineList) {
-    allUnified.push({
-      kind: 'copinline',
-      id: row.id,
-      seq: nextSeq(row.seq),
-      item: { text: row.text, live: !!row.live },
-    })
-  }
-  if (legacyThinkingVisible) {
-    const legacyDurationSec = initialThinkingElapsedSec(
-      thinkingStartedAt,
-      thinkingRowList,
-      assistantThinking ?? null,
-    )
-    allUnified.push({
-      kind: 'thinking',
-      id: '_assistant_thinking',
-      seq: Number.MIN_SAFE_INTEGER,
-      item: {
-        markdown: assistantThinking!.markdown,
-        live: !!assistantThinking!.live,
-        durationSec: legacyDurationSec,
-      },
-    })
-  }
-  const totalUnifiableItems =
-    visibleSteps.length +
-    textEntries.length +
-    codeExecCount +
-    subAgentCount +
-    fileOpCount +
-    exploreGroupCount +
-    webFetchCount +
-    genericToolCount +
-    thinkingRowList.length +
-    copInlineList.length +
-    (legacyThinkingVisible ? 1 : 0)
-  const hasContent = totalUnifiableItems > 0 || sourceCount > 0
-  const useUnified = totalUnifiableItems > 0
-  allUnified.sort((a, b) => a.seq - b.seq || ENTRY_SORT_PRIORITY[a.kind] - ENTRY_SORT_PRIORITY[b.kind] || a.id.localeCompare(b.id))
-
-  const thinkingOnlyUnified =
-    useUnified &&
-    allUnified.length > 0 &&
-    copInlineList.length === 0 &&
-    allUnified.every((e) => e.kind === 'thinking')
+  const shouldRender = hasSegments || hasThinkingOnly || !!thinkingHint
 
   const thoughtDurationLabel =
     aggregatedDurationSec > 0
       ? t.copTimelineThoughtForSeconds(aggregatedDurationSec)
       : t.copTimelineThinkingDoneNoDuration
-  const showPendingThinkingHeader = pendingShowThinkingHeader
-  const [hovered, setHovered] = useState(false)
 
-  const thinkingOnlyCompletedPlain =
-    thinkingOnlyUnified && isComplete && !anyThinkingLive && hasThinkingOnly
-  const unifiedEntries: UEntry[] = thinkingOnlyCompletedPlain
-    ? [
-        ...allUnified,
-        {
-          kind: 'done',
-          id: '_thinking_done',
-          seq: (allUnified[allUnified.length - 1]?.seq ?? 0) + 0.5,
-          item: { label: t.copThinkingDone },
-        },
-      ]
-    : allUnified
-
-  const headerPhaseKey = (anyThinkingLive || (hasAnyThinking && !!live))
+  const headerPhaseKey: string = (anyThinkingLive || (anyThinking && !!live))
     ? 'thinking-live'
-    : hasAnyThinking
+    : anyThinking
       ? 'thought'
-      : showPendingThinkingHeader
+      : pendingShowThinkingHeader
         ? 'thinking-pending'
         : live
           ? 'live'
@@ -299,36 +119,31 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
             ? 'complete'
             : 'idle'
 
-  const resolvedAutoLabel = autoLabel({
-    anyThinkingLive,
-    hasAnyThinking,
-    live: !!live,
-    thinkingLiveHeaderLabel,
-    isComplete,
-    hasThinkingOnly,
-    sourceCount,
-    effectiveStepCount,
-    thoughtDurationLabel,
-    showPendingThinkingHeader,
-    thinkingHint,
-    visibleSteps,
-    t,
-  })
+  const totalStepCount = segments.length
 
-  const headerLabel = headerOverride ?? resolvedAutoLabel
-  const previousHeaderLabelRef = useRef<string | null>(null)
+  const headerLabel = headerOverride ?? (() => {
+    if (anyThinkingLive || (anyThinking && live)) return thinkingLiveHeaderLabel
+    if (anyThinking && isComplete && hasSegments) {
+      return totalStepCount > 0
+        ? `${totalStepCount} step${totalStepCount === 1 ? '' : 's'} completed`
+        : thoughtDurationLabel
+    }
+    if (anyThinking) return thoughtDurationLabel
+    if (pendingShowThinkingHeader) return `${thinkingHint}...`
+    if (isComplete) {
+      if (totalStepCount > 0) return `${totalStepCount} step${totalStepCount === 1 ? '' : 's'} completed`
+      return 'Completed'
+    }
+    const lastSeg = segments[segments.length - 1]
+    if (lastSeg && lastSeg.status === 'open') return lastSeg.title
+    return thinkingHint ? `${thinkingHint}...` : 'Working...'
+  })()
+
   const seededStatusAnimation =
-    !!live || !!shimmer || (
-      !headerOverride && (
-        headerPhaseKey === 'thinking-pending'
-        || headerPhaseKey === 'thinking-live'
-        || headerPhaseKey === 'thought'
-      )
-    )
-  const carriesForwardHeaderAnimation =
-    !headerOverride && headerPhaseKey === 'thought'
-  const headerUsesIncrementalTypewriter =
-    seededStatusAnimation || carriesForwardHeaderAnimation
+    !!live || !!shimmer || headerPhaseKey === 'thinking-pending' || headerPhaseKey === 'thinking-live' || headerPhaseKey === 'thought'
+  const headerUsesIncrementalTypewriter = seededStatusAnimation || headerPhaseKey === 'thought'
+
+  const [hovered, setHovered] = useState(false)
 
   useEffect(() => {
     previousHeaderLabelRef.current = headerLabel
@@ -352,7 +167,6 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
     recordPerfValue('cop_timeline_visible_nodes', unifiedEntries.length, 'nodes', {
       collapsed,
       live: !!live,
-      unified: useUnified,
     })
   }, [
     collapsed,
@@ -373,27 +187,18 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
 
   if (!shouldRender) return null
 
+  const toggleBody = () => {
+    setUserToggled(true)
+    setCollapsed((v) => !v)
+  }
+
   return (
-    <div
-      className="cop-timeline-root"
-      style={{
-        maxWidth: '663px',
-      }}
-    >
+    <div className="cop-timeline-root" style={{ maxWidth: '663px' }}>
       <button
         type="button"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={() => {
-          if (!hasContent && isComplete) return
-          userToggledCollapsedRef.current = true
-          const nextCollapsed = !collapsedRef.current
-          const measuredHeight = bodyRef.current?.scrollHeight ?? 0
-          setBodyHeight(measuredHeight)
-          setBodyTransitioning(true)
-          setCollapsed(nextCollapsed)
-          collapsedRef.current = nextCollapsed
-        }}
+        onClick={toggleBody}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -401,7 +206,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           padding: '4px 0 2px',
           background: 'none',
           border: 'none',
-          cursor: (!hasContent && isComplete) ? 'default' : 'pointer',
+          cursor: 'pointer',
           color: hovered ? 'var(--c-cop-row-hover-fg)' : 'var(--c-cop-row-fg)',
           fontSize: '13px',
           fontWeight: 400,
@@ -417,7 +222,7 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
           shimmer={!!shimmer}
           incremental={headerUsesIncrementalTypewriter}
         />
-        {(isComplete || live) && hasContent && (
+        {(isComplete || live) && bodyHasContent && (
           <motion.div
             animate={{ rotate: collapsed ? 0 : 90 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
@@ -430,142 +235,73 @@ export function CopTimeline({ steps, sources, narratives, isComplete, codeExecut
 
       <motion.div
         initial={false}
-        animate={{ height: collapsed ? 0 : (bodyHeight ?? 'auto'), opacity: collapsed ? 0 : 1 }}
-        transition={bodyTransitioning && !reduceMotion ? { duration: 0.24, ease: [0.4, 0, 0.2, 1] } : { duration: 0 }}
-        onAnimationComplete={() => {
-          setBodyTransitioning(false)
-          if (!collapsed) setBodyHeight(null)
-        }}
-        style={{ overflow: collapsed || bodyTransitioning ? 'hidden' : 'visible' }}
+        animate={{ height: collapsed ? 0 : 'auto', opacity: collapsed ? 0 : 1 }}
+        transition={!reduceMotion ? { duration: 0.24, ease: [0.4, 0, 0.2, 1] } : { duration: 0 }}
+        style={{ overflow: collapsed ? 'hidden' : 'visible' }}
       >
-            <div ref={bodyRef} style={{ position: 'relative', paddingLeft: visibleSteps.length > 0 || textEntries.length > 0 || codeExecCount > 0 || subAgentCount > 0 || webFetchCount > 0 || fileOpCount > 0 || exploreGroupCount > 0 || hasAnyThinking || copInlineList.length > 0 || genericToolCount > 0 ? `${COP_TIMELINE_CONTENT_PADDING_LEFT_PX}px` : undefined, paddingTop: '3px', paddingBottom: '3px' }}>
-
-              <div style={{ display: 'flex', flexDirection: 'column', paddingTop: unifiedEntries.length > 0 ? '0' : undefined }}>
-                <AnimatePresence initial={!isComplete || !!live}>
-                {unifiedEntries.map((entry, idx) => {
-                  const isFirst = idx === 0
-                  const isLast = idx === unifiedEntries.length - 1
-                  const multiItems = unifiedEntries.length >= 2
-                  const entryDotTop = entry.kind === 'code'
-                    ? (entry.item.language !== 'shell' ? COP_TIMELINE_PYTHON_DOT_TOP : COP_TIMELINE_DOT_TOP)
-                    : COP_TIMELINE_DOT_TOP
-                  const entryDotColor = dotColor(entry)
-                  return (
-                    <CopTimelineUnifiedRow
-                      key={entry.id}
-                      isFirst={isFirst}
-                      isLast={isLast}
-                      multiItems={multiItems}
-                      dotTop={entryDotTop}
-                      dotColor={entryDotColor}
-                    >
-                      {entry.kind === 'step' && (
-                        <div>
-                          <div
-                            style={{
-                              fontSize: '13px',
-                              color: 'var(--c-cop-row-fg)',
-                              lineHeight: '18px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                            }}
-                          >
-                            <TypewriterText
-                              text={timelineStepDisplayLabel(entry.item)}
-                              className={entry.item.status === 'active' ? 'thinking-shimmer-dim' : undefined}
-                              live={!!live}
-                            />
-                          </div>
-
-                          {entry.item.kind === 'searching' && entry.item.queries && entry.item.queries.length > 0 && (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                              {entry.item.queries.map((q) => (
-                                <QueryPill key={q} text={q} live={!!live} />
-                              ))}
-                            </div>
-                          )}
-
-                          {entry.item.kind === 'reviewing' && (
-                            <SourceListCard sources={entry.item.sources ?? sources} />
-                          )}
-                        </div>
-                      )}
-                      {entry.kind === 'thinking' && (
-                        mixedSegmentWithThinking ? (
-                          <CopThoughtSummaryRow
-                            markdown={entry.item.markdown}
-                            live={entry.item.live}
-                            thoughtDurationSeconds={entry.item.durationSec ?? 0}
-                            startedAtMs={entry.item.startedAtMs}
-                          />
-                        ) : hasThinkingOnly ? (
-                          <div
-                            style={{
-                              paddingTop: Math.max(
-                                0,
-                                COP_TIMELINE_DOT_TOP +
-                                  COP_TIMELINE_DOT_SIZE / 2 -
-                                  COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX / 2,
-                              ),
-                            }}
-                          >
-                            <AssistantThinkingMarkdown
-                              markdown={entry.item.markdown}
-                              live={entry.item.live && !thinkingOnlyCompletedPlain}
-                              variant="timeline-plain"
-                            />
-                          </div>
-                        ) : (
-                          <AssistantThinkingMarkdown markdown={entry.item.markdown} live={entry.item.live} />
-                        )
-                      )}
-                      {entry.kind === 'copinline' && (
-                        <TimelineNarrativeBody text={entry.item.text} tone="primary" live={entry.item.live} />
-                      )}
-                      {entry.kind === 'done' && (
-                        <div
-                          style={{
-                            fontSize: '13px',
-                            color: 'var(--c-cop-row-fg)',
-                            lineHeight: '18px',
-                          }}
-                        >
-                          {entry.item.label}
-                        </div>
-                      )}
-                      {entry.kind === 'text' && <TimelineNarrativeBody text={entry.item.text} live={!!live} />}
-                      {entry.kind === 'code' && (entry.item.language === 'shell'
-                        ? <ExecutionCard variant="shell" code={entry.item.code} output={entry.item.output} status={entry.item.status} errorMessage={entry.item.errorMessage} smooth={!!live && entry.item.status === 'running'} />
-                        : <CodeExecutionCard language={entry.item.language} code={entry.item.code} output={entry.item.output} errorMessage={entry.item.errorMessage} status={entry.item.status} onOpen={onOpenCodeExecution ? () => onOpenCodeExecution(entry.item as CodeExecution) : undefined} isActive={activeCodeExecutionId === entry.item.id} />
-                      )}
-                      {entry.kind === 'agent' && (
-                        <SubAgentBlock sourceTool={entry.item.sourceTool} nickname={entry.item.nickname} personaId={entry.item.personaId} input={entry.item.input} output={entry.item.output} status={entry.item.status} error={entry.item.error} live={live} currentRunId={entry.item.currentRunId} accessToken={accessToken} baseUrl={baseUrl} onOpenPanel={onOpenSubAgent ? () => onOpenSubAgent(entry.item) : undefined} />
-                      )}
-                      {entry.kind === 'fileop' && (
-                        <FileOpToolRow op={entry.item} live={!!live} />
-                      )}
-                      {entry.kind === 'explore' && (
-                        <ExploreTimelineRow group={entry.item} live={!!live} segmentLive={!!segmentLive} />
-                      )}
-                      {entry.kind === 'fetch' && <WebFetchItem fetch={entry.item} live={!!live} />}
-                      {entry.kind === 'generic' && (
-                        <ExecutionCard
-                          variant="fileop"
-                          toolName={entry.item.toolName}
-                          label={entry.item.label}
-                          output={entry.item.output}
-                          status={entry.item.status}
-                          errorMessage={entry.item.errorMessage}
-                          smooth={!!live && entry.item.status === 'running'}
-                        />
-                      )}
-                    </CopTimelineUnifiedRow>
-                  )
-                })}
-                </AnimatePresence>
+        <div style={{ position: 'relative', paddingTop: '3px', paddingBottom: '3px', paddingLeft: segments.length > 0 ? '24px' : undefined }}>
+          {/* Thinking-only mode (no segments) */}
+          {hasThinkingOnly && thinkingOnly && (
+            <>
+              <div
+                style={{
+                  paddingTop: Math.max(0, COP_TIMELINE_DOT_TOP + COP_TIMELINE_DOT_SIZE / 2 - COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX / 2),
+                }}
+              >
+                <AssistantThinkingMarkdown
+                  markdown={thinkingOnly.markdown}
+                  live={!!thinkingOnly.live && !isComplete}
+                  variant="timeline-plain"
+                />
               </div>
-            </div>
+              {isComplete && !thinkingOnly.live && (
+                <div
+                  style={{
+                    fontSize: '13px',
+                    color: 'var(--c-cop-row-fg)',
+                    lineHeight: '18px',
+                    paddingTop: '6px',
+                  }}
+                >
+                  {t.copThinkingDone as string}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Segments */}
+          {segments.map((seg, index) => {
+            const isLast = index === segments.length - 1
+            const segDotColor = seg.status === 'open'
+              ? 'var(--c-text-secondary)'
+              : 'var(--c-text-muted)'
+            return (
+              <CopTimelineUnifiedRow
+                key={seg.id}
+                isFirst={index === 0}
+                isLast={isLast}
+                multiItems={segments.length >= 2}
+                dotColor={segDotColor}
+                dotTop={8}
+                paddingBottom={7}
+                horizontalMotion={false}
+              >
+                <CopTimelineSegment
+                  segment={seg}
+                  pool={pool}
+                  isLive={!!live && seg.status === 'open'}
+                  defaultExpanded={isLast && (!isComplete || seg.status === 'open')}
+                  onOpenCodeExecution={onOpenCodeExecution}
+                  activeCodeExecutionId={activeCodeExecutionId}
+                  onOpenSubAgent={onOpenSubAgent}
+                  accessToken={accessToken}
+                  baseUrl={baseUrl}
+                />
+              </CopTimelineUnifiedRow>
+            )
+          })}
+
+        </div>
       </motion.div>
     </div>
   )

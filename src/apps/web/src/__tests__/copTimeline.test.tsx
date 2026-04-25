@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { CopTimeline } from '../components/CopTimeline'
+import { CopTimeline } from '../components/cop-timeline/CopTimeline'
 import { CopTimelineHeaderLabel } from '../components/cop-timeline/CopTimelineHeader'
+
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { SubAgentRef, WebSource } from '../storage'
 import type { CodeExecution } from '../components/CodeExecutionCard'
@@ -82,7 +83,13 @@ afterEach(() => {
   }
 })
 
-function renderTimeline(params: {
+function mapById<T extends { id: string }>(arr: T[]): Map<string, T> {
+  const m = new Map<string, T>()
+  for (const item of arr) m.set(item.id, item)
+  return m
+}
+
+type OldParams = {
   isComplete: boolean
   preserveExpanded?: boolean
   steps: { id: string; kind: 'planning' | 'searching' | 'reviewing' | 'finished'; label: string; status: 'active' | 'done'; queries?: string[]; sources?: WebSource[]; seq?: number }[]
@@ -99,30 +106,106 @@ function renderTimeline(params: {
   thinkingHint?: string
   live?: boolean
   shimmer?: boolean
-}): string {
+  headerOverride?: string
+}
+
+function Wrapper(props: OldParams) {
+  const p = oldToNew(props)
+  return (
+    <CopTimeline
+      segments={p.segments}
+      pool={p.pool}
+      thinkingOnly={p.thinkingOnly}
+      thinkingHint={p.thinkingHint}
+      headerOverride={p.headerOverride}
+      isComplete={p.isComplete}
+      live={p.live}
+      shimmer={p.shimmer}
+    />
+  )
+}
+
+function oldToNew(params: OldParams) {
+  const pool = {
+    codeExecutions: mapById((params.codeExecutions ?? []) as Array<{ id: string } & Record<string, unknown>>),
+    fileOps: mapById((params.fileOps ?? []) as Array<{ id: string } & Record<string, unknown>>),
+    webFetches: mapById((params.webFetches ?? []) as Array<{ id: string } & Record<string, unknown>>),
+    subAgents: mapById((params.subAgents ?? []) as Array<{ id: string } & Record<string, unknown>>),
+    genericTools: mapById((params.genericTools ?? []) as Array<{ id: string } & Record<string, unknown>>),
+    steps: mapById(params.steps as Array<{ id: string } & Record<string, unknown>>),
+    sources: params.sources,
+  } as Parameters<typeof CopTimeline>[0]['pool']
+
+  const hasTools = params.steps.length > 0 ||
+    (params.codeExecutions?.length ?? 0) > 0 ||
+    (params.subAgents?.length ?? 0) > 0 ||
+    (params.fileOps?.length ?? 0) > 0 ||
+    (params.webFetches?.length ?? 0) > 0 ||
+    (params.genericTools?.length ?? 0) > 0
+
+  let thinkingOnly = null
+  if (!hasTools && params.thinkingRows && params.thinkingRows.length > 0) {
+    thinkingOnly = {
+      markdown: params.thinkingRows.map((r) => r.markdown).join(''),
+      live: params.thinkingRows.some((r) => r.live),
+      durationSec: params.thinkingRows.reduce((s, r) => s + (r.durationSec ?? 0), 0),
+      startedAtMs: params.thinkingRows.length > 0 ? params.thinkingRows[0]?.startedAtMs : undefined,
+    }
+  }
+
+  // Build fake segments from tool arrays when there are tools but no real COP items
+  const segments: Parameters<typeof CopTimeline>[0]['segments'] = []
+  if (hasTools) {
+    const flatItems: Array<{ kind: string; call?: { toolCallId: string; toolName: string; arguments: Record<string, unknown>; result?: unknown; errorClass?: string }; seq: number }> = []
+
+    const addCall = (id: string, toolName: string, seq?: number) => {
+      flatItems.push({ kind: 'call', call: { toolCallId: id, toolName, arguments: {} }, seq: seq ?? 0 })
+    }
+    params.steps.forEach((s) => addCall(s.id, 'unknown_step', s.seq))
+    ;(params.codeExecutions ?? []).forEach((c) => addCall(c.id, 'exec_command', c.seq ?? 0))
+    ;(params.subAgents ?? []).forEach((a) => addCall(a.id, 'spawn_agent', a.seq ?? 0))
+    ;(params.fileOps ?? []).forEach((f) => addCall(f.id, f.toolName, f.seq ?? 0))
+    ;(params.webFetches ?? []).forEach((w) => addCall(w.id, 'web_fetch', w.seq ?? 0))
+    ;(params.genericTools ?? []).forEach((g) => addCall(g.id, g.toolName, g.seq ?? 0))
+
+    // Add thinking rows as thinking items
+    ;(params.thinkingRows ?? []).forEach((t) => {
+      flatItems.push({ kind: 'thinking', seq: t.seq })
+    })
+    flatItems.sort((a, b) => a.seq - b.seq)
+
+    if (flatItems.length > 0) {
+      segments.push({
+        id: 'flat-seg',
+        category: 'generic' as const,
+        status: params.isComplete ? 'closed' as const : 'open' as const,
+        items: flatItems as Parameters<typeof CopTimeline>[0]['segments'][number]['items'],
+        seq: flatItems[0]?.seq ?? 0,
+        title: params.isComplete ? 'Completed' : 'Working...',
+      })
+    }
+  }
+
+  return {
+    segments,
+    pool,
+    thinkingOnly,
+    thinkingHint: params.thinkingHint,
+    headerOverride: params.headerOverride,
+    isComplete: params.isComplete,
+    live: params.live,
+    shimmer: params.shimmer,
+  }
+}
+
+function renderTimeline(params: OldParams): string {
   const previousMatchMedia = window.matchMedia
   window.matchMedia = vi.fn(reducedMotionMatchMedia)
+  const props = oldToNew(params)
   try {
     return renderToStaticMarkup(
       <LocaleProvider>
-        <CopTimeline
-          steps={params.steps}
-          sources={params.sources}
-          narratives={params.narratives}
-          isComplete={params.isComplete}
-          preserveExpanded={params.preserveExpanded}
-          codeExecutions={params.codeExecutions}
-          subAgents={params.subAgents}
-          fileOps={params.fileOps}
-          webFetches={params.webFetches}
-          genericTools={params.genericTools}
-          thinkingRows={params.thinkingRows}
-          thinkingStartedAt={params.thinkingStartedAt}
-          trailingAssistantTextPresent={params.trailingAssistantTextPresent}
-          thinkingHint={params.thinkingHint}
-          live={params.live}
-          shimmer={params.shimmer}
-        />
+        <CopTimeline {...props} />
       </LocaleProvider>,
     )
   } finally {
@@ -130,31 +213,15 @@ function renderTimeline(params: {
   }
 }
 
-async function renderTimelineDom(params: Parameters<typeof renderTimeline>[0]) {
+async function renderTimelineDom(params: OldParams) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
+  const props = oldToNew(params)
   await act(async () => {
     root.render(
       <LocaleProvider>
-        <CopTimeline
-          steps={params.steps}
-          sources={params.sources}
-          narratives={params.narratives}
-          isComplete={params.isComplete}
-          preserveExpanded={params.preserveExpanded}
-          codeExecutions={params.codeExecutions}
-          subAgents={params.subAgents}
-          fileOps={params.fileOps}
-          webFetches={params.webFetches}
-          genericTools={params.genericTools}
-          thinkingRows={params.thinkingRows}
-          thinkingStartedAt={params.thinkingStartedAt}
-          trailingAssistantTextPresent={params.trailingAssistantTextPresent}
-          thinkingHint={params.thinkingHint}
-          live={params.live}
-          shimmer={params.shimmer}
-        />
+        <CopTimeline {...props} />
       </LocaleProvider>,
     )
   })
@@ -482,7 +549,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             steps={[]}
             sources={[]}
@@ -577,7 +644,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             steps={[]}
             sources={[]}
@@ -596,7 +663,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={true}
             steps={[]}
             sources={[]}
@@ -635,7 +702,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -656,7 +723,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             steps={[]}
             sources={[]}
@@ -691,7 +758,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -708,7 +775,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -744,7 +811,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -761,7 +828,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -797,7 +864,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             shimmer
@@ -836,7 +903,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             steps={[]}
             sources={[]}
@@ -853,7 +920,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete
             steps={[]}
             sources={[]}
@@ -887,7 +954,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             preserveExpanded
             steps={[]}
@@ -907,7 +974,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete
             preserveExpanded
             steps={[]}
@@ -1011,7 +1078,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             live
             steps={[]}
@@ -1031,7 +1098,7 @@ describe('CopTimeline', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <CopTimeline
+          <Wrapper
             isComplete={false}
             steps={[]}
             sources={[]}

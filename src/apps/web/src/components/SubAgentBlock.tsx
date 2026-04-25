@@ -4,7 +4,7 @@ import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTypewriter } from '../hooks/useTypewriter'
 import { useSubAgentCop } from '../hooks/useSubAgentCop'
-import { CopTimeline } from './CopTimeline'
+import { CopTimeline } from './cop-timeline/CopTimeline'
 
 type Props = {
   sourceTool?: 'acp_agent'
@@ -216,8 +216,16 @@ export function SubAgentBlock({
                   marginBottom: '4px',
                 }}>
                   <CopTimeline
-                    steps={cop.steps}
-                    sources={cop.sources}
+                    segments={[]}
+                    pool={{
+                      codeExecutions: new Map(),
+                      fileOps: new Map(),
+                      webFetches: new Map(),
+                      subAgents: new Map(),
+                      genericTools: new Map(),
+                      steps: new Map(cop.steps.map((s: Record<string, unknown>) => [s.id as string, s])) as Map<string, any>,
+                      sources: cop.sources,
+                    }}
                     isComplete={cop.isComplete}
                     live={!!(live || cop.isStreaming)}
                   />

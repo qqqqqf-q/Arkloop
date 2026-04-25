@@ -10,7 +10,7 @@ import {
   CopTimeline,
   type WebSearchPhaseStep,
 } from './CopTimeline'
-import { CopTimelineLocalExpansionProvider, ExploreTimelineSegment, EditTimelineSegment } from './cop-timeline/ToolRows'
+import { CopTimelineLocalExpansionProvider } from './cop-timeline/ToolRows'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { recordPerfCount, recordPerfValue } from '../perfDebug'
 import { noteShowWidgetStatus } from '../streamDebug'
@@ -52,7 +52,8 @@ import {
   type AssistantTurnSegment,
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
-import { copTimelinePayloadForSegment, promotedCopTimelineEntries, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { buildSubSegments, buildResolvedPool, segmentLiveTitle, EMPTY_POOL, buildThinkingOnlyFromItems, buildFallbackSegments } from '../copSubSegment'
 import { applyRunEventToWebSearchSteps } from '../webSearchTimelineFromRunEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
@@ -80,8 +81,6 @@ import {
   patchLegacySearchSteps,
   liveTurnHasThinkingSegment,
   collectCompletedWidgets,
-  thinkingRowsForCop,
-  copInlineTextRowsForCop,
   buildStreamingArtifactsFromHandoff,
   resolveCopHeaderOverride,
 } from '../lib/chat-helpers'
@@ -444,8 +443,8 @@ const LiveRunPane = memo(function LiveRunPane({
                 : [
                     <CopTimeline
                       key="cop-leading-inner"
-                      steps={[]}
-                      sources={[]}
+                      segments={[]}
+                      pool={EMPTY_POOL}
                       isComplete={false}
                       live
                       shimmer
@@ -493,16 +492,24 @@ const LiveRunPane = memo(function LiveRunPane({
         (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
         <div style={{ maxWidth: '663px' }}>
           <CopTimeline
-            steps={[]}
-            sources={[]}
+            segments={buildFallbackSegments({
+              codeExecutions: dedupedTopLevelCodeExecutions,
+              subAgents: topLevelSubAgents,
+              fileOps: topLevelFileOps,
+              webFetches: topLevelWebFetches,
+            })}
+            pool={buildResolvedPool({
+              steps: [],
+              sources: [],
+              codeExecutions: dedupedTopLevelCodeExecutions,
+              subAgents: topLevelSubAgents,
+              fileOps: topLevelFileOps,
+              webFetches: topLevelWebFetches,
+            })}
             isComplete
-            codeExecutions={dedupedTopLevelCodeExecutions.length > 0 ? dedupedTopLevelCodeExecutions : undefined}
             onOpenCodeExecution={onOpenCodeExecution}
             onOpenSubAgent={onOpenSubAgent}
             activeCodeExecutionId={codePanelExecutionId ?? undefined}
-            subAgents={topLevelSubAgents.length > 0 ? topLevelSubAgents : undefined}
-            fileOps={topLevelFileOps.length > 0 ? topLevelFileOps : undefined}
-            webFetches={topLevelWebFetches.length > 0 ? topLevelWebFetches : undefined}
             accessToken={accessToken}
             baseUrl={baseUrl}
           />
@@ -2297,6 +2304,7 @@ export function ChatView() {
       terminalRunHandoffStatus !== 'completed'
     const copClosedByFollowingSeg = si < lastSegIdx
     const copTimelineLive = liveRunUiActive && !copClosedByFollowingSeg
+
     const payload = copTimelinePayloadForSegment(seg, {
       codeExecutions: dedupedTopLevelCodeExecutions,
       fileOps: topLevelFileOps,
@@ -2305,38 +2313,33 @@ export function ChatView() {
       searchSteps,
       sources: currentRunSourcesRef.current,
     })
+    const pool = buildResolvedPool(payload)
+
+    const subSegments = buildSubSegments(seg.items)
+    if (subSegments.length > 0 && copTimelineLive) {
+      const lastSeg = subSegments[subSegments.length - 1]!
+      lastSeg.status = 'open'
+      lastSeg.title = segmentLiveTitle(lastSeg.category)
+    }
+
     const liveWidgets = liveStreamingWidgetEntriesForCop(seg, streamingArtifacts)
     const liveArts = liveInlineArtifactEntriesForCop(seg, streamingArtifacts)
-    const thinkingRowsLive = !isSearchThread
-      ? thinkingRowsForCop(seg, {
-          live: copTimelineLive,
-          segmentIndex: si,
-          lastSegmentIndex: lastSegIdx,
-        })
-      : []
-    const copInlineLive = !isSearchThread
-      ? copInlineTextRowsForCop(seg, {
-          live: copTimelineLive,
-          segmentIndex: si,
-          lastSegmentIndex: lastSegIdx,
-        })
-      : []
-    const peerExploreGroups = payload.exploreGroups ?? []
-    const peerEditOps = payload.fileOps?.filter((op) => op.displayKind === 'edit') ?? []
-    const bodyFileOps = payload.fileOps?.filter((op) => op.displayKind !== 'edit')
+
     const hasTimelineBody =
+      subSegments.length > 0 ||
       payload.steps.length > 0 ||
       payload.sources.length > 0 ||
       !!payload.codeExecutions?.length ||
-      !!bodyFileOps?.length ||
+      !!payload.fileOps?.length ||
       !!payload.webFetches?.length ||
       !!payload.genericTools?.length ||
       !!payload.subAgents?.length ||
-      thinkingRowsLive.length > 0 ||
-      copInlineLive.length > 0
-    if (!hasTimelineBody && peerExploreGroups.length === 0 && peerEditOps.length === 0 && liveWidgets.length === 0 && liveArts.length === 0) {
+      !!(payload.exploreGroups && payload.exploreGroups.length > 0)
+
+    if (!hasTimelineBody && liveWidgets.length === 0 && liveArts.length === 0) {
       return []
     }
+
     const timelineTitleOverride =
       preservingHandoffSegments
         ? currentRunCopHeaderOverride({
@@ -2347,74 +2350,34 @@ export function ChatView() {
             hasFileOps: !!(payload.fileOps && payload.fileOps.length > 0),
             hasWebFetches: !!(payload.webFetches && payload.webFetches.length > 0),
             hasGenericTools: !!(payload.genericTools && payload.genericTools.length > 0),
-            hasThinking: thinkingRowsLive.length > 0 || copInlineLive.length > 0,
+            hasThinking: subSegments.some((s) => s.items.some((i) => i.kind === 'thinking')),
             handoffStatus: terminalRunHandoffStatus === 'running' ? null : terminalRunHandoffStatus,
           })
         : seg.title?.trim() || undefined
-    const trailSeg = si + 1 <= lastSegIdx ? liveSegments[si + 1] : undefined
-    const trailingAssistantTextPresent =
-      trailSeg?.type === 'text' && trailSeg.content.length > 0
-    const attachedThinkingRowsForSlice = (slice: { thinkingRows?: Array<{ id: string }> } | undefined) => (
-      slice?.thinkingRows?.flatMap((row) => thinkingRowsLive.find((item) => item.id === row.id) ?? [])
-    )
-    const promotedEntries = promotedCopTimelineEntries({
-      payload,
-      hasTimelineBody,
-      bodyFileOps,
-      thinkingRows: thinkingRowsLive,
-      copInlineTextRows: copInlineLive,
-    })
-    const promotedNodes = promotedEntries.flatMap((entry, entryIndex) => {
-      const entryLive = copTimelineLive && entryIndex === promotedEntries.length - 1
-      const entryComplete = !entryLive
-      if (entry.kind === 'timeline') {
-        const sliceThinkingRows = entry.slice.thinkingRows?.flatMap((row) => {
-          const item = thinkingRowsLive.find((candidate) => candidate.id === row.id)
-          return item ? [{ ...item, live: entryLive && item.live }] : []
-        })
-        const sliceInlineRows = entry.slice.copInlineTextRows?.flatMap((row) => {
-          const item = copInlineLive.find((candidate) => candidate.id === row.id)
-          return item ? [{ ...item, live: entryLive && item.live }] : []
-        })
-        return [(
-          <CopTimeline
-            key={`live-cop-inner-${si}-${entry.id}`}
-            steps={entry.slice.steps}
-            sources={entry.slice.sources}
-            isComplete={entryComplete}
-            codeExecutions={entry.slice.codeExecutions}
-            onOpenCodeExecution={openCodePanel}
-            onOpenSubAgent={openAgentPanelState}
-            activeCodeExecutionId={codePanelExecution?.id}
-            subAgents={entry.slice.subAgents}
-            fileOps={entry.slice.fileOps}
-            webFetches={entry.slice.webFetches}
-            genericTools={entry.slice.genericTools}
-            headerOverride={timelineTitleOverride}
-            thinkingRows={sliceThinkingRows && sliceThinkingRows.length > 0 ? sliceThinkingRows : undefined}
-            copInlineTextRows={sliceInlineRows && sliceInlineRows.length > 0 ? sliceInlineRows : undefined}
-            shimmer={entryLive}
-            live={entryLive}
-            preserveExpanded={preservingHandoffSegments && entryLive}
-            trailingAssistantTextPresent={trailingAssistantTextPresent}
-            thinkingHint={thinkingHint}
-            accessToken={accessToken}
-            baseUrl={baseUrl}
-          />
-        )]
-      }
-      if (entry.kind === 'explore') {
-        const group = peerExploreGroups.find((item) => item.id === entry.id)
-        const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
-        return group ? [<ExploreTimelineSegment key={`live-explore-${si}-${group.id}`} group={group} live={entryLive} segmentLive={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
-      }
-      const op = peerEditOps.find((item) => item.id === entry.id)
-      const attachedThinkingRows = attachedThinkingRowsForSlice(entry.attachedSlice)?.map((row) => ({ ...row, live: entryLive && row.live }))
-      return op ? [<EditTimelineSegment key={`live-edit-${si}-${op.id}`} op={op} live={entryLive} attachedThinkingRows={attachedThinkingRows} />] : []
-    })
+
+    const thinkingOnlyData = subSegments.length === 0 && payload.codeExecutions?.length === 0 && payload.subAgents?.length === 0 && payload.fileOps?.length === 0 && payload.webFetches?.length === 0 && payload.genericTools?.length === 0
+      ? buildThinkingOnlyFromItems(seg.items)
+      : null
 
     return [
-      ...promotedNodes,
+      subSegments.length > 0 || thinkingOnlyData ? (
+        <CopTimeline
+          key={`live-cop-${si}`}
+          segments={subSegments}
+          pool={pool}
+          thinkingOnly={thinkingOnlyData}
+          thinkingHint={thinkingHint}
+          headerOverride={timelineTitleOverride}
+          isComplete={!copTimelineLive}
+          live={copTimelineLive}
+          shimmer={copTimelineLive}
+          onOpenCodeExecution={openCodePanel}
+          onOpenSubAgent={openAgentPanelState}
+          activeCodeExecutionId={codePanelExecution?.id}
+          accessToken={accessToken}
+          baseUrl={baseUrl}
+        />
+      ) : null,
       ...liveWidgets.map((entry) => (
         <WidgetBlock
           key={`live-w-${entry.toolCallId ?? entry.toolCallIndex}`}
@@ -2440,7 +2403,7 @@ export function ChatView() {
           onAction={handleArtifactAction}
         />
       )),
-    ]
+    ].filter(Boolean)
   }
 
   const renderLiveCopSegment = (
@@ -2473,7 +2436,7 @@ export function ChatView() {
           >
         <div
           style={{
-            maxWidth: 800,
+            maxWidth: appMode === 'work' ? 1000 : 800,
             margin: '0 auto',
             padding: `50px ${isPanelOpen ? chatContentPadding.panelOpen : chatContentPadding.panelClosed} var(--chat-input-area-height)`,
           }}
@@ -2581,7 +2544,7 @@ export function ChatView() {
       {/* 输入区域 */}
       <div
         ref={inputAreaRef}
-        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'work' ? chatInputPadding.work : isPanelOpen ? chatInputPadding.panelOpen : chatInputPadding.panelClosed} ${appMode === 'work' ? '22px' : '8px'}`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
+        style={{ maxWidth: 1200, margin: '0 auto', padding: `12px ${appMode === 'work' ? chatInputPadding.work : isPanelOpen ? chatInputPadding.panelOpen : chatInputPadding.panelClosed} 8px`, position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10, background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page) 24px)' }}
         className="flex w-full flex-col items-center gap-2"
       >
         {/* 滚动到底部按钮：始终锚定在输入框顶边正上方 */}
