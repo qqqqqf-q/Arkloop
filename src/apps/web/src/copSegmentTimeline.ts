@@ -321,6 +321,68 @@ export function copTimelinePayloadForSegment(
   }
 }
 
+export type CopTimelinePayload = ReturnType<typeof copTimelinePayloadForSegment>
+
+export type CopTimelineBodySeqInput = {
+  payload: CopTimelinePayload
+  bodyFileOps?: FileOpRef[] | null
+  thinkingRows?: Array<{ seq: number }> | null
+  copInlineTextRows?: Array<{ seq: number }> | null
+}
+
+export type PromotedCopTimelineEntryKind = 'timeline' | 'explore' | 'edit'
+
+export type PromotedCopTimelineEntry = {
+  kind: PromotedCopTimelineEntryKind
+  id: string
+  seq: number
+}
+
+function minSeq(items: Array<{ seq?: number } | undefined | null>): number | undefined {
+  const values = items
+    .map((item) => item?.seq)
+    .filter((value): value is number => typeof value === 'number')
+  return values.length > 0 ? Math.min(...values) : undefined
+}
+
+export function copTimelineBodySeq({ payload, bodyFileOps, thinkingRows, copInlineTextRows }: CopTimelineBodySeqInput): number {
+  return minSeq([
+    payload.steps[0],
+    payload.codeExecutions?.[0],
+    bodyFileOps?.[0],
+    payload.webFetches?.[0],
+    payload.genericTools?.[0],
+    payload.subAgents?.[0],
+    thinkingRows?.[0],
+    copInlineTextRows?.[0],
+  ]) ?? Number.MAX_SAFE_INTEGER
+}
+
+export function promotedCopTimelineEntries(params: {
+  payload: CopTimelinePayload
+  hasTimelineBody: boolean
+  bodyFileOps?: FileOpRef[] | null
+  thinkingRows?: Array<{ seq: number }> | null
+  copInlineTextRows?: Array<{ seq: number }> | null
+}): PromotedCopTimelineEntry[] {
+  const entries: PromotedCopTimelineEntry[] = []
+  if (params.hasTimelineBody) {
+    entries.push({
+      kind: 'timeline',
+      id: 'timeline',
+      seq: copTimelineBodySeq(params),
+    })
+  }
+  for (const group of params.payload.exploreGroups ?? []) {
+    entries.push({ kind: 'explore', id: group.id, seq: group.seq ?? Number.MAX_SAFE_INTEGER })
+  }
+  for (const op of params.payload.fileOps ?? []) {
+    if (op.displayKind !== 'edit') continue
+    entries.push({ kind: 'edit', id: op.id, seq: op.seq ?? Number.MAX_SAFE_INTEGER })
+  }
+  return entries.sort((left, right) => left.seq - right.seq || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
+}
+
 /** COP 段内已由 CopTimeline 渲染的条目 id（与 allStreamItems 互斥，避免双份工具 UI） */
 export function toolCallIdsInCopTimelines(
   turn: AssistantTurnUi,

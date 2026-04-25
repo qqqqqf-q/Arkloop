@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, promotedCopTimelineEntries, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 
 const call = (id: string, name: string, seq: number) =>
   ({ kind: 'call' as const, call: { toolCallId: id, toolName: name, arguments: {} }, seq })
@@ -260,7 +260,48 @@ describe('copTimelinePayloadForSegment', () => {
       ['read_2', 'read_3'],
       ['grep_2'],
     ])
+    expect(r.exploreGroups?.map((group) => group.label)).toEqual([
+      'Searched code, Listed files, Read a file',
+      'Read files',
+      'Searched code',
+    ])
     expect(r.codeExecutions?.map((item) => item.id)).toEqual(['cmd_1', 'cmd_2'])
+  })
+
+  it('promotedCopTimelineEntries 按真实 seq 混排 Explore 和 Edit', () => {
+    const payload = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [
+          call('read_1', 'read', 1),
+          call('edit_1', 'edit', 2),
+          call('read_2', 'read', 3),
+        ],
+      },
+      {
+        fileOps: [
+          { id: 'read_1', toolName: 'read_file', label: 'Read a.ts', status: 'success', seq: 1, filePath: 'a.ts', displayKind: 'read' },
+          { id: 'edit_1', toolName: 'edit', label: 'Edited a.ts', status: 'failed', seq: 2, filePath: 'a.ts', displayKind: 'edit' },
+          { id: 'read_2', toolName: 'read_file', label: 'Read b.ts', status: 'success', seq: 3, filePath: 'b.ts', displayKind: 'read' },
+        ],
+        sources: [],
+      },
+    )
+
+    expect(payload.exploreGroups?.map((group) => group.items.map((item) => item.id))).toEqual([
+      ['read_1'],
+      ['read_2'],
+    ])
+    expect(promotedCopTimelineEntries({
+      payload,
+      hasTimelineBody: false,
+      bodyFileOps: [],
+    }).map((entry) => `${entry.kind}:${entry.id}`)).toEqual([
+      `explore:${payload.exploreGroups?.[0]?.id}`,
+      'edit:edit_1',
+      `explore:${payload.exploreGroups?.[1]?.id}`,
+    ])
   })
 
   it('edit 和 lsp rename 不进入 Explore', () => {

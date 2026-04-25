@@ -10,6 +10,7 @@ import {
   CopTimeline,
   type WebSearchPhaseStep,
 } from './CopTimeline'
+import { CopTimelineLocalExpansionProvider, ExploreTimelineSegment, EditTimelineSegment } from './cop-timeline/ToolRows'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { recordPerfCount, recordPerfValue } from '../perfDebug'
 import { noteShowWidgetStatus } from '../streamDebug'
@@ -51,7 +52,7 @@ import {
   type AssistantTurnSegment,
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
-import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, promotedCopTimelineEntries, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 import { applyRunEventToWebSearchSteps } from '../webSearchTimelineFromRunEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
@@ -2321,13 +2322,20 @@ export function ChatView() {
           lastSegmentIndex: lastSegIdx,
         })
       : []
-    if (
-      copSegmentCalls(seg).length === 0 &&
-      thinkingRowsLive.length === 0 &&
-      copInlineLive.length === 0 &&
-      liveWidgets.length === 0 &&
-      liveArts.length === 0
-    ) {
+    const peerExploreGroups = payload.exploreGroups ?? []
+    const peerEditOps = payload.fileOps?.filter((op) => op.displayKind === 'edit') ?? []
+    const bodyFileOps = payload.fileOps?.filter((op) => op.displayKind !== 'edit')
+    const hasTimelineBody =
+      payload.steps.length > 0 ||
+      payload.sources.length > 0 ||
+      !!payload.codeExecutions?.length ||
+      !!bodyFileOps?.length ||
+      !!payload.webFetches?.length ||
+      !!payload.genericTools?.length ||
+      !!payload.subAgents?.length ||
+      thinkingRowsLive.length > 0 ||
+      copInlineLive.length > 0
+    if (!hasTimelineBody && peerExploreGroups.length === 0 && peerEditOps.length === 0 && liveWidgets.length === 0 && liveArts.length === 0) {
       return []
     }
     const timelineTitleOverride =
@@ -2348,7 +2356,7 @@ export function ChatView() {
     const trailingAssistantTextPresent =
       trailSeg?.type === 'text' && trailSeg.content.length > 0
     const segmentLive = copTimelineLive && si === lastSegIdx
-    return [
+    const timelineNode = hasTimelineBody ? (
       <CopTimeline
         key={si === 0 ? 'cop-leading-inner' : `live-cop-inner-${si}`}
         steps={payload.steps}
@@ -2359,8 +2367,7 @@ export function ChatView() {
         onOpenSubAgent={openAgentPanelState}
         activeCodeExecutionId={codePanelExecution?.id}
         subAgents={payload.subAgents}
-        fileOps={payload.fileOps}
-        exploreGroups={payload.exploreGroups}
+        fileOps={bodyFileOps}
         webFetches={payload.webFetches}
         genericTools={payload.genericTools}
         headerOverride={timelineTitleOverride}
@@ -2368,13 +2375,36 @@ export function ChatView() {
         copInlineTextRows={copInlineLive.length > 0 ? copInlineLive : undefined}
         shimmer={copTimelineLive}
         live={copTimelineLive}
-        segmentLive={segmentLive}
         preserveExpanded={preservingHandoffSegments}
         trailingAssistantTextPresent={trailingAssistantTextPresent}
         thinkingHint={thinkingHint}
         accessToken={accessToken}
         baseUrl={baseUrl}
-      />,
+      />
+    ) : null
+    const exploreNodes = new Map(peerExploreGroups.map((group) => [
+      group.id,
+      <ExploreTimelineSegment key={`live-explore-${si}-${group.id}`} group={group} live={copTimelineLive} segmentLive={segmentLive} />,
+    ] as const))
+    const editNodes = new Map(peerEditOps.map((op) => [
+      op.id,
+      <EditTimelineSegment key={`live-edit-${si}-${op.id}`} op={op} live={copTimelineLive} />,
+    ] as const))
+    const promotedEntries = promotedCopTimelineEntries({
+      payload,
+      hasTimelineBody,
+      bodyFileOps,
+      thinkingRows: thinkingRowsLive,
+      copInlineTextRows: copInlineLive,
+    })
+    const promotedNodes = promotedEntries.flatMap((entry) => {
+      if (entry.kind === 'timeline') return timelineNode ? [timelineNode] : []
+      if (entry.kind === 'explore') return exploreNodes.get(entry.id) ?? []
+      return editNodes.get(entry.id) ?? []
+    })
+
+    return [
+      ...promotedNodes,
       ...liveWidgets.map((entry) => (
         <WidgetBlock
           key={`live-w-${entry.toolCallId ?? entry.toolCallIndex}`}
@@ -2452,7 +2482,8 @@ export function ChatView() {
                   llmFailedLabel={t.desktopSettings.chatCompactBannerLlmFailed}
                 />
               )}
-              <MessageList
+              <CopTimelineLocalExpansionProvider stabilizeScroll={stabilizeDocumentPanelScroll}>
+                <MessageList
                 lastTurnStartIdx={lastTurnStartIdx}
                 lastTurnRef={lastUserMsgRef}
                 lastUserPromptRef={lastUserPromptRef}
@@ -2528,7 +2559,8 @@ export function ChatView() {
                 setRunDetailPanelRunId={setRunDetailPanelRunId}
                 clearUserEnterAnimation={clearUserEnterAnimation}
                 failedRunError={error}
-              />
+                />
+              </CopTimelineLocalExpansionProvider>
 
             </>
           )}

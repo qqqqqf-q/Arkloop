@@ -3,6 +3,7 @@ import { Info } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { MessageBubble } from './MessageBubble'
 import { CopTimeline, type WebSearchPhaseStep } from './CopTimeline'
+import { EditTimelineSegment, ExploreTimelineSegment } from './cop-timeline/ToolRows'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { WidgetBlock } from './WidgetBlock'
 import { IncognitoDivider } from './IncognitoDivider'
@@ -17,8 +18,8 @@ import { usePanels } from '../contexts/panels'
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
 import { apiBaseUrl } from '@arkloop/shared/api'
-import { copTimelinePayloadForSegment } from '../copSegmentTimeline'
-import { copSegmentCalls, assistantTurnPlainText } from '../assistantTurnSegments'
+import { copTimelinePayloadForSegment, promotedCopTimelineEntries } from '../copSegmentTimeline'
+import { assistantTurnPlainText } from '../assistantTurnSegments'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { createThreadShare } from '../api'
 import { readMessageTerminalStatus, readMessageWidgets, type ArtifactRef, type MessageTerminalStatusRef, type SubAgentRef, type WebSource } from '../storage'
@@ -454,12 +455,20 @@ export const MessageList = memo(function MessageList({
                         lastSegmentIndex: historicalSegments.length - 1,
                       })
                     : []
-                  if (
-                    copSegmentCalls(seg).length === 0 &&
-                    thinkingRowsHist.length === 0 &&
-                    copInlineHist.length === 0 &&
-                    histWidgets.length === 0
-                  ) {
+                  const peerExploreGroups = payload.exploreGroups ?? []
+                  const peerEditOps = payload.fileOps?.filter((op) => op.displayKind === 'edit') ?? []
+                  const bodyFileOps = payload.fileOps?.filter((op) => op.displayKind !== 'edit')
+                  const hasTimelineBody =
+                    payload.steps.length > 0 ||
+                    payload.sources.length > 0 ||
+                    !!payload.codeExecutions?.length ||
+                    !!bodyFileOps?.length ||
+                    !!payload.webFetches?.length ||
+                    !!payload.genericTools?.length ||
+                    !!payload.subAgents?.length ||
+                    thinkingRowsHist.length > 0 ||
+                    copInlineHist.length > 0
+                  if (!hasTimelineBody && peerExploreGroups.length === 0 && peerEditOps.length === 0 && histWidgets.length === 0) {
                     return null
                   }
                   const timelineTitleOverride = displayTerminalStatus != null
@@ -479,31 +488,54 @@ export const MessageList = memo(function MessageList({
                   const histTrailingText =
                     histTrail?.type === 'text' && histTrail.content.length > 0
                   const segmentLive = currentRunMessageLive && si === historicalSegments.length - 1
+                  const timelineNode = hasTimelineBody ? (
+                    <CopTimeline
+                      key={`${msg.id}-timeline-${si}`}
+                      steps={payload.steps}
+                      sources={payload.sources}
+                      isComplete={!currentRunMessageLive}
+                      live={currentRunMessageLive}
+                      codeExecutions={payload.codeExecutions}
+                      onOpenCodeExecution={openCodePanel}
+                      onOpenSubAgent={openAgentPanel}
+                      activeCodeExecutionId={codePanelExecutionId ?? undefined}
+                      subAgents={payload.subAgents}
+                      fileOps={bodyFileOps}
+                      webFetches={payload.webFetches}
+                      genericTools={payload.genericTools}
+                      headerOverride={timelineTitleOverride}
+                      preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
+                      thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
+                      copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
+                      trailingAssistantTextPresent={histTrailingText}
+                      accessToken={accessToken}
+                      baseUrl={baseUrl}
+                    />
+                  ) : null
+                  const exploreNodes = new Map(peerExploreGroups.map((group) => [
+                    group.id,
+                    <ExploreTimelineSegment key={`${msg.id}-explore-${group.id}`} group={group} live={currentRunMessageLive} segmentLive={segmentLive} />,
+                  ] as const))
+                  const editNodes = new Map(peerEditOps.map((op) => [
+                    op.id,
+                    <EditTimelineSegment key={`${msg.id}-edit-${op.id}`} op={op} live={currentRunMessageLive} />,
+                  ] as const))
+                  const promotedEntries = promotedCopTimelineEntries({
+                    payload,
+                    hasTimelineBody,
+                    bodyFileOps,
+                    thinkingRows: thinkingRowsHist,
+                    copInlineTextRows: copInlineHist,
+                  })
+                  const promotedNodes = promotedEntries.flatMap((entry) => {
+                    if (entry.kind === 'timeline') return timelineNode ? [timelineNode] : []
+                    if (entry.kind === 'explore') return exploreNodes.get(entry.id) ?? []
+                    return editNodes.get(entry.id) ?? []
+                  })
+
                   return (
                     <Fragment key={`${msg.id}-acw-${si}`}>
-                      <CopTimeline
-                        steps={payload.steps}
-                        sources={payload.sources}
-                        isComplete={!currentRunMessageLive}
-                        live={currentRunMessageLive}
-                        codeExecutions={payload.codeExecutions}
-                        onOpenCodeExecution={openCodePanel}
-                        onOpenSubAgent={openAgentPanel}
-                        activeCodeExecutionId={codePanelExecutionId ?? undefined}
-                        subAgents={payload.subAgents}
-                        fileOps={payload.fileOps}
-                        exploreGroups={payload.exploreGroups}
-                        webFetches={payload.webFetches}
-                        genericTools={payload.genericTools}
-                        headerOverride={timelineTitleOverride}
-                        preserveExpanded={terminalRunHistoryExpanded && terminalRunAssistantMessageId === msg.id}
-                        thinkingRows={thinkingRowsHist.length > 0 ? thinkingRowsHist : undefined}
-                        copInlineTextRows={copInlineHist.length > 0 ? copInlineHist : undefined}
-                        segmentLive={segmentLive}
-                        trailingAssistantTextPresent={histTrailingText}
-                        accessToken={accessToken}
-                        baseUrl={baseUrl}
-                      />
+                      {promotedNodes}
                       {histWidgets.map((w) => (
                         <WidgetBlock
                           key={w.id}
