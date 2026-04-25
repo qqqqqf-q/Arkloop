@@ -75,7 +75,6 @@ func NewPersonaResolutionMiddleware(
 			}
 			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus)
 		}
-
 		rc.ToolBudget = map[string]any{}
 		rc.PerToolSoftLimits = tools.DefaultPerToolSoftLimits()
 		rc.ToolDenylist = nil
@@ -125,25 +124,29 @@ func NewPersonaResolutionMiddleware(
 			toExecutionPersonaProfile(resolution.Definition),
 		)
 
-		rc.ResetPromptAssembly()
-		cacheSystemPrompt := rc.AgentConfig != nil && rc.AgentConfig.PromptCacheControl == "system_prompt"
-		rc.UpsertPromptSegment(PromptSegment{
-			Name:          "persona.system_prompt",
-			Target:        PromptTargetSystemPrefix,
-			Role:          "system",
-			Text:          profile.SystemPrompt,
-			Stability:     PromptStabilityStablePrefix,
-			CacheEligible: cacheSystemPrompt,
-		})
-		if len(rc.PendingSubAgentCallbacks) > 0 {
+		if rc.ResumePromptSnapshot != nil {
+			rc.ApplyResumePromptSnapshot()
+		} else {
+			rc.ResetPromptAssembly()
+			cacheSystemPrompt := rc.AgentConfig != nil && rc.AgentConfig.PromptCacheControl == "system_prompt"
 			rc.UpsertPromptSegment(PromptSegment{
-				Name:          "runtime.pending_subagent_callbacks",
-				Target:        PromptTargetRuntimeTail,
-				Role:          "user",
-				Text:          buildPendingSubAgentCallbacksBlock(rc.PendingSubAgentCallbacks),
-				Stability:     PromptStabilityVolatileTail,
-				CacheEligible: false,
+				Name:          "persona.system_prompt",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          profile.SystemPrompt,
+				Stability:     PromptStabilityStablePrefix,
+				CacheEligible: cacheSystemPrompt,
 			})
+			if len(rc.PendingSubAgentCallbacks) > 0 {
+				rc.UpsertPromptSegment(PromptSegment{
+					Name:          "runtime.pending_subagent_callbacks",
+					Target:        PromptTargetRuntimeTail,
+					Role:          "user",
+					Text:          buildPendingSubAgentCallbacksBlock(rc.PendingSubAgentCallbacks),
+					Stability:     PromptStabilityVolatileTail,
+					CacheEligible: false,
+				})
+			}
 		}
 		rc.ReasoningIterations = profile.ReasoningIterations
 		rc.ToolContinuationBudget = profile.ToolContinuationBudget

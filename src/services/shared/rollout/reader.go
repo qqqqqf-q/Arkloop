@@ -153,6 +153,12 @@ func (r *Reader) Reconstruct(items []RolloutItem) *ReconstructedState {
 			if json.Unmarshal(item.Payload, &payload) == nil {
 				currentTurnIndex = payload.TurnIndex
 			}
+		case "prompt_snapshot":
+			var payload PromptSnapshot
+			if json.Unmarshal(item.Payload, &payload) == nil && state.PromptSnapshot == nil {
+				copy := payload
+				state.PromptSnapshot = &copy
+			}
 		case "assistant_message":
 			var payload AssistantMessage
 			if json.Unmarshal(item.Payload, &payload) != nil {

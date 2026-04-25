@@ -3,6 +3,7 @@
 package data
 
 import (
+	"arkloop/services/shared/runresume"
 	"context"
 	"fmt"
 	"strings"
@@ -28,11 +29,7 @@ func DesktopRunHasRecoverableOutput(
 	if runID == uuid.Nil {
 		return false, fmt.Errorf("run_id must not be empty")
 	}
-	eventType, err := (DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, []string{
-		"message.delta",
-		"tool.call",
-		"tool.result",
-	})
+	eventType, err := (DesktopRunEventsRepository{}).GetLatestEventType(ctx, tx, runID, runresume.RecoverableEventTypeNames())
 	if err != nil {
 		return false, err
 	}

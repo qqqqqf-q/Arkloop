@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"arkloop/services/shared/runkind"
+	"arkloop/services/shared/runresume"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -709,11 +710,7 @@ func (r *RunEventRepository) HasRecoverableAssistantOutput(
 	if runID == uuid.Nil {
 		return false, fmt.Errorf("run_id must not be empty")
 	}
-	eventType, err := r.GetLatestEventType(ctx, runID, []string{
-		"message.delta",
-		"tool.call",
-		"tool.result",
-	})
+	eventType, err := r.GetLatestEventType(ctx, runID, runresume.RecoverableEventTypeNames())
 	if err != nil {
 		return false, err
 	}

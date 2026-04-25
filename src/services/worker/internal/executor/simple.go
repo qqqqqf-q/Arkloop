@@ -3,9 +3,11 @@ package executor
 import (
 	"context"
 
+	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/skillstore"
 	"arkloop/services/worker/internal/agent"
 	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/pipeline"
 )
 
@@ -36,6 +38,9 @@ func (e *SimpleExecutor) Execute(
 		ApplyImageFilter: true,
 	})
 	agentRequest := planned.Request
+	if rc.RolloutRecorder != nil && rc.ResumePromptSnapshot == nil {
+		appendPromptSnapshot(ctx, rc, agentRequest)
+	}
 
 	runCtx := agent.RunContext{
 		RunID:                            rc.Run.ID,
@@ -88,4 +93,37 @@ func (e *SimpleExecutor) Execute(
 	}
 	loop := agent.NewLoop(rc.Gateway, rc.ToolExecutor)
 	return loop.Run(ctx, runCtx, agentRequest, emitter, yield)
+}
+
+func appendPromptSnapshot(ctx context.Context, rc *pipeline.RunContext, req llm.Request) {
+	segments := rc.PromptSegments()
+	snapshotSegments := make([]rollout.PromptSegment, 0, len(segments))
+	for _, segment := range segments {
+		snapshotSegments = append(snapshotSegments, rollout.PromptSegment{
+			Name:          segment.Name,
+			Target:        string(segment.Target),
+			Role:          segment.Role,
+			Text:          segment.Text,
+			Stability:     string(segment.Stability),
+			CacheEligible: segment.CacheEligible,
+		})
+	}
+	snapshot := rollout.PromptSnapshot{
+		Segments:      snapshotSegments,
+		SystemPrompt:  rc.MaterializedSystemPrompt(),
+		RuntimePrompt: rc.MaterializedRuntimePrompt(),
+		RequestModel:  req.Model,
+		ReasoningMode: rc.ReasoningMode,
+		WorkDir:       rc.WorkDir,
+		ProfileRef:    rc.ProfileRef,
+		WorkspaceRef:  rc.WorkspaceRef,
+	}
+	if rc.SelectedRoute != nil {
+		snapshot.SelectedRouteID = rc.SelectedRoute.Route.ID
+		snapshot.SelectedModel = rc.SelectedRoute.Route.Model
+	}
+	if rc.PersonaDefinition != nil {
+		snapshot.PersonaID = rc.PersonaDefinition.ID
+	}
+	_ = rc.RolloutRecorder.Append(ctx, agent.MakePromptSnapshot(snapshot))
 }

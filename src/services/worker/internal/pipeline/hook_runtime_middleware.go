@@ -17,6 +17,10 @@ func NewPromptHookMiddleware() RunMiddleware {
 		if rc.HookRuntime == nil {
 			return next(ctx, rc)
 		}
+		if rc.ResumePromptSnapshot != nil {
+			rc.ApplyResumePromptSnapshot()
+			return next(ctx, rc)
+		}
 		rc.RemovePromptSegmentsByPrefix("hook.before.")
 		rc.RemovePromptSegmentsByPrefix("hook.after.")
 		appendHookPromptSegments(rc, rc.HookRuntime.BeforePromptSegments(ctx, rc, "hook.before"))

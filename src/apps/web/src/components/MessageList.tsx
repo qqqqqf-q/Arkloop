@@ -374,6 +374,7 @@ export const MessageList = memo(function MessageList({
     const hasTerminalOutput = msg.role === 'assistant' && hasRecoverableRunOutput({
       text: msg.content,
       assistantTurn: historicalTurn,
+      thinking: msgThinking,
       searchSteps: timelineSteps,
       widgets: msgWidgetsRaw,
       codeExecutions: messageCodeExecutions,

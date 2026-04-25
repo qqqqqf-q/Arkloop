@@ -279,6 +279,8 @@ type RunContext struct {
 	// -- Rollout --
 	// RolloutRecorder 用于写入 rollout 日志，为 nil 时不记录
 	RolloutRecorder *rollout.Recorder
+	// ResumePromptSnapshot 是 continue 从 parent rollout 恢复的 prompt/materialized context。
+	ResumePromptSnapshot *rollout.PromptSnapshot
 	// ResponseDraftStore 用于保存未完成正文草稿
 	ResponseDraftStore objectstore.BlobStore
 
@@ -429,6 +431,24 @@ func (rc *RunContext) MaterializedRuntimePrompt() string {
 		return ""
 	}
 	return rc.PromptAssembly.MaterializeRuntimePrompt()
+}
+
+func (rc *RunContext) ApplyResumePromptSnapshot() {
+	if rc == nil || rc.ResumePromptSnapshot == nil {
+		return
+	}
+	segments := make([]PromptSegment, 0, len(rc.ResumePromptSnapshot.Segments))
+	for _, segment := range rc.ResumePromptSnapshot.Segments {
+		segments = append(segments, PromptSegment{
+			Name:          segment.Name,
+			Target:        PromptSegmentTarget(segment.Target),
+			Role:          segment.Role,
+			Text:          segment.Text,
+			Stability:     PromptSegmentStability(segment.Stability),
+			CacheEligible: segment.CacheEligible,
+		})
+	}
+	rc.ReplacePromptAssembly(PromptAssembly{Segments: segments})
 }
 
 func (rc *RunContext) syncLegacyPromptViews() {

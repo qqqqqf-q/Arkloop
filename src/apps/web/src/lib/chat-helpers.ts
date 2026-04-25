@@ -132,6 +132,7 @@ export function assistantTurnHasVisibleOutput(turn: AssistantTurnUi | null | und
 export function hasRecoverableRunOutput(params: {
   text?: string | null
   assistantTurn?: AssistantTurnUi | null
+  thinking?: { thinkingText?: string | null; segments?: ReadonlyArray<unknown> | null } | null
   searchSteps?: ReadonlyArray<unknown> | null
   widgets?: ReadonlyArray<unknown> | null
   codeExecutions?: ReadonlyArray<unknown> | null
@@ -142,6 +143,8 @@ export function hasRecoverableRunOutput(params: {
 }): boolean {
   if (params.text?.trim()) return true
   if ((params.assistantTurn?.segments.length ?? 0) > 0) return true
+  if (params.thinking?.thinkingText?.trim()) return true
+  if ((params.thinking?.segments?.length ?? 0) > 0) return true
   if ((params.searchSteps?.length ?? 0) > 0) return true
   if ((params.widgets?.length ?? 0) > 0) return true
   if ((params.codeExecutions?.length ?? 0) > 0) return true

@@ -29,6 +29,10 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 			isAdmin := checkSenderIsAdmin(ctx, rc)
 			rc.SenderIsAdmin = isAdmin
 		}
+		if rc.ResumePromptSnapshot != nil {
+			rc.ApplyResumePromptSnapshot()
+			return next(ctx, rc)
+		}
 		rc.UpsertPromptSegment(PromptSegment{
 			Name:          "runtime.context",
 			Target:        PromptTargetSystemPrefix,

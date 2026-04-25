@@ -10,6 +10,7 @@ import (
 	"arkloop/services/shared/messagecontent"
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/rollout"
+	"arkloop/services/shared/runresume"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/imageutil"
 	"arkloop/services/worker/internal/llm"
@@ -42,14 +43,16 @@ type loadedRunInputs struct {
 	Messages              []llm.Message
 	ThreadMessageIDs      []uuid.UUID
 	ThreadContextFrontier []FrontierNode
+	ResumePromptSnapshot  *rollout.PromptSnapshot
 }
 
 type LoadedRunInputs = loadedRunInputs
 
 type resumeReplayInsertion struct {
-	AnchorKey string
-	Messages  []llm.Message
-	RunID     uuid.UUID
+	AnchorKey      string
+	Messages       []llm.Message
+	RunID          uuid.UUID
+	PromptSnapshot *rollout.PromptSnapshot
 }
 
 type resumeUnavailableError struct {
@@ -65,8 +68,7 @@ func (e *resumeUnavailableError) Error() string {
 
 const (
 	resumeUnavailableErrorClass       = "resume.unavailable"
-	interruptedToolErrorClass         = "tool.interrupted"
-	interruptedToolErrorMessage       = "tool execution interrupted before result was recorded"
+	replaySyntheticToolErrorClass     = "tool.interrupted"
 	runStartedThreadTailMessageIDKey  = "thread_tail_message_id"
 	runStartedContinuationSourceKey   = "continuation_source"
 	runStartedContinuationLoopKey     = "continuation_loop"
@@ -108,6 +110,7 @@ func NewInputLoaderMiddleware(
 		rc.InputJSON = loaded.InputJSON
 		rc.Messages, rc.ThreadMessageIDs = sanitizeToolPairs(loaded.Messages, loaded.ThreadMessageIDs)
 		rc.ThreadContextFrontier = append([]FrontierNode(nil), loaded.ThreadContextFrontier...)
+		rc.ResumePromptSnapshot = loaded.ResumePromptSnapshot
 		if rawWorkDir, ok := loaded.InputJSON["work_dir"].(string); ok {
 			rc.WorkDir = strings.TrimSpace(rawWorkDir)
 		}
@@ -250,7 +253,7 @@ func loadRunInputs(
 			return nil, err
 		}
 	} else if run.ResumeFromRunID != nil {
-		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, canonicalContext, messages)
+		replayInsertions, err = loadResumedReplay(ctx, tx, run, runsRepo, eventsRepo, rolloutStore, canonicalContext, messages, isExplicitContinueJob(jobPayload))
 		if err != nil {
 			var resumeErr *resumeUnavailableError
 			if errors.As(err, &resumeErr) {
@@ -314,7 +317,18 @@ func loadRunInputs(
 		Messages:              llmMessages,
 		ThreadMessageIDs:      ids,
 		ThreadContextFrontier: canonicalContext.Frontier,
+		ResumePromptSnapshot:  firstResumePromptSnapshot(replayInsertions),
 	}, nil
+}
+
+func firstResumePromptSnapshot(insertions []resumeReplayInsertion) *rollout.PromptSnapshot {
+	for _, insertion := range insertions {
+		if insertion.PromptSnapshot != nil {
+			copy := *insertion.PromptSnapshot
+			return &copy
+		}
+	}
+	return nil
 }
 
 func LoadRunInputs(
@@ -502,6 +516,7 @@ func loadResumedReplay(
 	rolloutStore objectstore.BlobStore,
 	canonicalContext *canonicalThreadContext,
 	threadMessages []data.ThreadMessage,
+	requirePromptSnapshot bool,
 ) ([]resumeReplayInsertion, error) {
 	if run.ResumeFromRunID == nil {
 		return nil, nil
@@ -524,6 +539,7 @@ func loadResumedReplay(
 		rolloutStore,
 		canonicalContext,
 		threadMessages,
+		requirePromptSnapshot,
 		map[uuid.UUID]struct{}{},
 	)
 	if err != nil {
@@ -647,6 +663,7 @@ func collectResumeReplayInsertions(
 	rolloutStore objectstore.BlobStore,
 	canonicalContext *canonicalThreadContext,
 	threadMessages []data.ThreadMessage,
+	requirePromptSnapshot bool,
 	visited map[uuid.UUID]struct{},
 ) ([]resumeReplayInsertion, error) {
 	if _, ok := visited[runID]; ok {
@@ -681,6 +698,7 @@ func collectResumeReplayInsertions(
 			rolloutStore,
 			canonicalContext,
 			threadMessages,
+			requirePromptSnapshot,
 			visited,
 		)
 		if err != nil {
@@ -714,6 +732,12 @@ func collectResumeReplayInsertions(
 		return nil, &resumeUnavailableError{reason: "resume rollout is unavailable"}
 	}
 	state := rollout.NewReader(rolloutStore).Reconstruct(items)
+	if requirePromptSnapshot && state.PromptSnapshot == nil {
+		return nil, &resumeUnavailableError{reason: "resume prompt snapshot is unavailable"}
+	}
+	if len(state.PendingToolCalls) > 0 {
+		return nil, &resumeUnavailableError{reason: "resume source run has unfinished tool calls"}
+	}
 	replayedMessages, err := buildReplayMessages(state)
 	if err != nil {
 		return nil, err
@@ -727,9 +751,10 @@ func collectResumeReplayInsertions(
 		return nil, &resumeUnavailableError{reason: "resume rollout is unavailable"}
 	}
 	return append(insertions, resumeReplayInsertion{
-		AnchorKey: insertionAnchorKey,
-		Messages:  replayedMessages,
-		RunID:     parentRun.ID,
+		AnchorKey:      insertionAnchorKey,
+		Messages:       replayedMessages,
+		RunID:          parentRun.ID,
+		PromptSnapshot: state.PromptSnapshot,
 	}), nil
 }
 
@@ -772,6 +797,9 @@ func loadRuntimeRecoveryReplay(
 		return nil, &resumeUnavailableError{reason: "runtime recovery rollout is unavailable"}
 	}
 	state := rollout.NewReader(rolloutStore).Reconstruct(items)
+	if len(state.PendingToolCalls) > 0 {
+		return nil, &resumeUnavailableError{reason: "runtime recovery has unfinished tool calls"}
+	}
 	replayedMessages, err := buildReplayMessages(state)
 	if err != nil {
 		return nil, err
@@ -799,11 +827,7 @@ func runtimeRecoveryHasRecoverableOutput(
 	if eventsRepo == nil || runID == uuid.Nil {
 		return false, nil
 	}
-	eventType, err := eventsRepo.GetLatestEventType(ctx, tx, runID, []string{
-		"message.delta",
-		"tool.call",
-		"tool.result",
-	})
+	eventType, err := eventsRepo.GetLatestEventType(ctx, tx, runID, runresume.RecoverableEventTypeNames())
 	if err != nil {
 		return false, err
 	}
@@ -876,18 +900,6 @@ func buildReplayMessages(state *rollout.ReconstructedState) ([]llm.Message, erro
 			replayed = append(replayed, rebuilt)
 		}
 	}
-	for _, call := range state.PendingToolCalls {
-		rebuilt := replayToolResultMessage(rollout.ReplayToolResult{
-			CallID:    call.CallID,
-			Name:      call.Name,
-			Error:     interruptedToolErrorMessage,
-			Synthetic: true,
-		})
-		rebuilt, keep := filterLongTermHeartbeatDecision(rebuilt)
-		if keep {
-			replayed = append(replayed, rebuilt)
-		}
-	}
 	return replayed, nil
 }
 
@@ -941,7 +953,7 @@ func replayToolResultMessage(result rollout.ReplayToolResult) llm.Message {
 		}
 	}
 	if strings.TrimSpace(result.Error) != "" {
-		errorClass := interruptedToolErrorClass
+		errorClass := replaySyntheticToolErrorClass
 		if !result.Synthetic {
 			errorClass = "tool.error"
 		}

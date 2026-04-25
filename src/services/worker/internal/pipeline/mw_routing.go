@@ -108,13 +108,23 @@ func NewRoutingMiddleware(
 		}
 
 		var decision routing.ProviderRouteDecision
-		if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
+		if rc.ResumePromptSnapshot != nil && strings.TrimSpace(rc.ResumePromptSnapshot.SelectedRouteID) != "" {
+			decision = activeRouter.Decide(map[string]any{"route_id": strings.TrimSpace(rc.ResumePromptSnapshot.SelectedRouteID)}, byokEnabled, false)
+		} else if rawOutputRouteID, ok := rc.InputJSON["output_route_id"].(string); ok && strings.TrimSpace(rawOutputRouteID) != "" {
+			decision = activeRouter.Decide(map[string]any{"route_id": strings.TrimSpace(rawOutputRouteID)}, byokEnabled, false)
+		} else if _, hasRouteID := rc.InputJSON["route_id"]; hasRouteID {
 			decision = activeRouter.Decide(rc.InputJSON, byokEnabled, false)
 		} else {
 			selector := ""
 			userModelOverride := false
 			// model override from input_json (user-specified) takes priority over persona default
-			if modelOverride, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(modelOverride) != "" {
+			if rc.ResumePromptSnapshot != nil && strings.TrimSpace(rc.ResumePromptSnapshot.SelectedModel) != "" {
+				selector = strings.TrimSpace(rc.ResumePromptSnapshot.SelectedModel)
+				userModelOverride = true
+			} else if outputModelKey, ok := rc.InputJSON["output_model_key"].(string); ok && strings.TrimSpace(outputModelKey) != "" {
+				selector = strings.TrimSpace(outputModelKey)
+				userModelOverride = true
+			} else if modelOverride, ok := rc.InputJSON["model"].(string); ok && strings.TrimSpace(modelOverride) != "" {
 				selector = strings.TrimSpace(modelOverride)
 				userModelOverride = true
 			} else if rc.AgentConfig != nil && rc.AgentConfig.Model != nil {

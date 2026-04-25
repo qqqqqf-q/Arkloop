@@ -37,6 +37,15 @@ func MakeTurnStart(turnIndex int, model string) rollout.RolloutItem {
 	}
 }
 
+func MakePromptSnapshot(snapshot rollout.PromptSnapshot) rollout.RolloutItem {
+	data, _ := json.Marshal(snapshot)
+	return rollout.RolloutItem{
+		Type:      "prompt_snapshot",
+		Timestamp: time.Now(),
+		Payload:   data,
+	}
+}
+
 // MakeAssistantMessage 创建 AssistantMessage RolloutItem
 func MakeAssistantMessage(content string, contentParts json.RawMessage, toolCalls json.RawMessage) rollout.RolloutItem {
 	payload := rollout.AssistantMessage{

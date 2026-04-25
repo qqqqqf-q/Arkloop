@@ -666,6 +666,93 @@ func TestThreadContinueCreatesResumedRunFromFailedRunWithOutput(t *testing.T) {
 	}
 }
 
+func TestThreadContinueCreatesResumedRunFromFailedRunWithThinkingOnly(t *testing.T) {
+	db := setupTestDatabase(t, "api_go_threads_continue_failed_thinking")
+
+	ctx := context.Background()
+	pool, err := data.NewPool(ctx, db.DSN, data.PoolLimits{MaxConns: 32, MinConns: 0})
+	if err != nil {
+		t.Fatalf("new pool: %v", err)
+	}
+	defer pool.Close()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 2592000)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+
+	userRepo, _ := data.NewUserRepository(pool)
+	credentialRepo, _ := data.NewUserCredentialRepository(pool)
+	membershipRepo, _ := data.NewAccountMembershipRepository(pool)
+	refreshTokenRepo, _ := data.NewRefreshTokenRepository(pool)
+	auditRepo, _ := data.NewAuditLogRepository(pool)
+	threadRepo, _ := data.NewThreadRepository(pool)
+	projectRepo, _ := data.NewProjectRepository(pool)
+	runRepo, _ := data.NewRunEventRepository(pool)
+	messageRepo, _ := data.NewMessageRepository(pool)
+
+	authService, _ := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	jobRepo, _ := data.NewJobRepository(pool)
+	registrationService, _ := auth.NewRegistrationService(pool, passwordHasher, tokenService, refreshTokenRepo, jobRepo)
+	auditWriter := audit.NewWriter(auditRepo, membershipRepo, logger)
+
+	handler := NewHandler(HandlerConfig{
+		Pool:                  pool,
+		Logger:                logger,
+		AuthService:           authService,
+		RegistrationService:   registrationService,
+		AccountMembershipRepo: membershipRepo,
+		ThreadRepo:            threadRepo,
+		MessageRepo:           messageRepo,
+		RunEventRepo:          runRepo,
+		ProjectRepo:           projectRepo,
+		AuditWriter:           auditWriter,
+		TrustIncomingTraceID:  true,
+	})
+
+	registerResp := doJSON(handler, nethttp.MethodPost, "/v1/auth/register", map[string]any{"login": "alice_continue_thinking", "password": "pwd12345", "email": "alice_continue_thinking@test.com"}, nil)
+	if registerResp.Code != nethttp.StatusCreated {
+		t.Fatalf("register: %d body=%s", registerResp.Code, registerResp.Body.String())
+	}
+	alice := decodeJSONBody[registerResponse](t, registerResp.Body.Bytes())
+	headers := authHeader(alice.AccessToken)
+
+	threadResp := doJSON(handler, nethttp.MethodPost, "/v1/threads", map[string]any{"title": "continue thinking"}, headers)
+	if threadResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create thread: %d body=%s", threadResp.Code, threadResp.Body.String())
+	}
+	threadPayload := decodeJSONBody[threadResponse](t, threadResp.Body.Bytes())
+	accountID := uuid.MustParse(threadPayload.AccountID)
+	threadID := uuid.MustParse(threadPayload.ID)
+	userID := uuid.MustParse(alice.UserID)
+
+	if _, err := pool.Exec(ctx, `INSERT INTO messages (id, account_id, thread_id, created_by_user_id, role, content, metadata_json, hidden) VALUES ($1, $2, $3, $4, 'user', $5, '{}'::jsonb, false)`, uuid.New(), accountID, threadID, userID, "hello thinking"); err != nil {
+		t.Fatalf("insert user message: %v", err)
+	}
+	runResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+"/runs", nil, headers)
+	if runResp.Code != nethttp.StatusCreated {
+		t.Fatalf("create run: %d body=%s", runResp.Code, runResp.Body.String())
+	}
+	runID := uuid.MustParse(decodeJSONBody[createRunResponse](t, runResp.Body.Bytes()).RunID)
+	failedAt := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `UPDATE runs SET status = 'failed', status_updated_at = $2, failed_at = $2 WHERE id = $1`, runID, failedAt); err != nil {
+		t.Fatalf("mark run failed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json, ts) VALUES ($1, 2, 'message.delta', '{"role":"assistant","channel":"thinking","content_delta":"ponder"}'::jsonb, $2), ($1, 3, 'run.failed', '{"error_class":"provider.non_retryable"}'::jsonb, $2)`, runID, failedAt); err != nil {
+		t.Fatalf("insert thinking events: %v", err)
+	}
+
+	continueResp := doJSON(handler, nethttp.MethodPost, "/v1/threads/"+threadPayload.ID+":continue", map[string]any{"run_id": runID.String()}, headers)
+	if continueResp.Code != nethttp.StatusCreated {
+		t.Fatalf("continue thinking run: %d body=%s", continueResp.Code, continueResp.Body.String())
+	}
+}
+
 func TestThreadsCreateListGetPatchAndAudit(t *testing.T) {
 	db := setupTestDatabase(t, "api_go_threads")
 
