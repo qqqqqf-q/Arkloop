@@ -127,6 +127,7 @@ button:not(:disabled) {
   --c-attachment-shimmer-mid: #454542;
   --title-btn-dim: rgba(255, 255, 255, 0.04);
   --title-btn-hover: rgba(255, 255, 255, 0.09);
+  --c-window-close-hover: #c42b1c;
   --c-sidebar-btn-hover: #000000;
   --c-mode-switch-track: rgba(255, 255, 255, 0.06);
   --c-mode-switch-border: rgba(255, 255, 255, 0.08);
@@ -269,6 +270,7 @@ button:not(:disabled) {
     --c-attachment-shimmer-mid: #D8D8D6;
     --title-btn-dim: rgba(0, 0, 0, 0.06);
     --title-btn-hover: rgba(0, 0, 0, 0.10);
+    --c-window-close-hover: #c42b1c;
     --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
     --c-mode-switch-track: rgba(0, 0, 0, 0.05);
     --c-mode-switch-border: rgba(0, 0, 0, 0.08);
@@ -392,6 +394,7 @@ button:not(:disabled) {
   --c-attachment-shimmer-mid: #D8D8D6;
   --title-btn-dim: rgba(0, 0, 0, 0.06);
   --title-btn-hover: rgba(0, 0, 0, 0.10);
+  --c-window-close-hover: #c42b1c;
   --c-sidebar-btn-hover: rgba(0, 0, 0, 0.12);
   --c-mode-switch-track: rgba(0, 0, 0, 0.05);
   --c-mode-switch-border: rgba(0, 0, 0, 0.08);

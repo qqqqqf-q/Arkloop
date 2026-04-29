@@ -69,8 +69,8 @@ export type {
 export { SettingsModal } from './components/SettingsModal'
 export type { SettingsModalTranslations } from './components/SettingsModal'
 
-export { isDesktop, getDesktopApi, getDesktopMode, isLocalMode } from './desktop'
-export type { ConnectionMode, ArkloopDesktopApi } from './desktop'
+export { isDesktop, getDesktopApi, getDesktopMode, getDesktopPlatform, isLocalMode } from './desktop'
+export type { ConnectionMode, DesktopPlatform, ArkloopDesktopApi } from './desktop'
 
 export { Badge } from './components/Badge'
 export type { BadgeVariant } from './components/Badge'

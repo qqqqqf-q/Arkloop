@@ -346,6 +346,7 @@ function attachRendererContextMenu(win: BrowserWindow): void {
 function createWindow(): BrowserWindow {
   const config = loadConfig()
   const iconPath = getAppIconPath()
+  const isWindows = process.platform === 'win32'
 
   const win = new BrowserWindow({
     width: config.window.width,
@@ -360,6 +361,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
+    frame: isWindows ? false : undefined,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 12, y: 12 },
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: iconPath } : {}),
@@ -390,6 +392,12 @@ function createWindow(): BrowserWindow {
   win.once('ready-to-show', () => {
     win.show()
   })
+
+  const syncMaximizedState = () => {
+    win.webContents.send('arkloop:window:maximized-changed', win.isMaximized())
+  }
+  win.on('maximize', syncMaximizedState)
+  win.on('unmaximize', syncMaximizedState)
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (parseHttpUrl(url)) {

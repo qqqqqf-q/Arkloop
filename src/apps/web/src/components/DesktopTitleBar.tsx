@@ -1,6 +1,17 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen, Glasses, ArrowUp } from 'lucide-react'
-import { isDesktop } from '@arkloop/shared/desktop'
+import {
+  ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Glasses,
+  Minus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Square,
+  X,
+} from 'lucide-react'
+import { getDesktopApi, getDesktopPlatform, isDesktop } from '@arkloop/shared/desktop'
 import type { AppUpdaterState } from '@arkloop/shared/desktop'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { Button } from '@arkloop/shared'
@@ -13,6 +24,7 @@ import { beginPerfTrace, endPerfTrace } from '../perfDebug'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from './buttonStyles'
 
 export const DESKTOP_TITLEBAR_HEIGHT = 44
+const WINDOWS_TITLEBAR_HEIGHT = 44
 
 type Props = {
   sidebarCollapsed: boolean
@@ -53,6 +65,36 @@ export function DesktopTitleBar({
   const popoverRef = useRef<HTMLDivElement>(null)
   const [updatePopoverOpen, setUpdatePopoverOpen] = useState(false)
   const [updatePopoverPosition, setUpdatePopoverPosition] = useState<{ top: number; right: number }>({ top: 50, right: 12 })
+  const [windowMaximized, setWindowMaximized] = useState(false)
+  const desktopPlatform = getDesktopPlatform()
+  const platformName = (desktopPlatform ?? navigator.platform).toLowerCase()
+  const isMac = desktopPlatform === 'darwin' || (!desktopPlatform && platformName.includes('mac'))
+  const isWindows = desktopPlatform === 'win32' || (!desktopPlatform && platformName.includes('win'))
+  const titleBarHeight = isWindows ? WINDOWS_TITLEBAR_HEIGHT : DESKTOP_TITLEBAR_HEIGHT
+
+  useEffect(() => {
+    if (!isWindows) return
+    const api = getDesktopApi()
+    void api?.window?.isMaximized().then(setWindowMaximized).catch(() => {})
+    return api?.window?.onMaximizedChanged?.(setWindowMaximized)
+  }, [isWindows])
+
+  const handleWindowMinimize = useCallback(() => {
+    const request = getDesktopApi()?.window?.minimize()
+    void request?.catch(() => {})
+  }, [])
+
+  const handleWindowMaximize = useCallback(() => {
+    const request = getDesktopApi()?.window?.toggleMaximize()
+    void request
+      ?.then((result) => setWindowMaximized(result.maximized))
+      .catch(() => {})
+  }, [])
+
+  const handleWindowClose = useCallback(() => {
+    const request = getDesktopApi()?.window?.close()
+    void request?.catch(() => {})
+  }, [])
 
   // 检查是否跳过了当前版本
   const isVersionSkipped = useMemo(() => {
@@ -97,29 +139,32 @@ export function DesktopTitleBar({
 
   if (!isDesktop()) return null
 
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-
   const btnCls = [
     'flex h-8 w-8 items-center justify-center rounded-md',
     'text-[var(--c-text-tertiary)] transition-colors',
-    'hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
+    isWindows
+      ? 'hover:bg-[var(--title-btn-hover)] hover:text-[var(--c-text-primary)]'
+      : 'hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
   ].join(' ')
 
   return (
     <div
-      className="relative flex shrink-0 items-center"
+      className="relative grid shrink-0 items-center"
       style={{
-        height: DESKTOP_TITLEBAR_HEIGHT,
-        paddingLeft: isMac ? '76px' : '16px',
-        paddingRight: '12px',
-        background: 'var(--c-bg-sidebar)',
+        height: titleBarHeight,
+        gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+        paddingLeft: isMac ? '76px' : isWindows ? '12px' : '16px',
+        paddingRight: isWindows ? 0 : '12px',
+        background: isWindows
+          ? 'color-mix(in srgb, var(--c-bg-sidebar) 92%, var(--c-bg-page))'
+          : 'var(--c-bg-sidebar)',
         borderBottom: '0.5px solid var(--c-border-subtle)',
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      {/* sidebar toggle + back/forward — nudged 1px down to align with macOS traffic lights */}
+      {/* sidebar and history controls */}
       <div
-        className="flex items-center gap-1 self-start pt-[6px]"
+        className={isWindows ? 'flex min-w-0 items-center gap-1.5 justify-self-start' : 'flex min-w-0 items-center gap-1 self-start justify-self-start pt-[6px]'}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <button
@@ -154,9 +199,9 @@ export function DesktopTitleBar({
         </button>
       </div>
 
-      {/* ModeSwitch centered */}
+      {/* centered mode switch */}
       <div
-        className="absolute left-1/2 -translate-x-1/2 translate-y-px"
+        className="min-w-0 translate-y-px justify-self-center"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <ModeSwitch
@@ -167,39 +212,51 @@ export function DesktopTitleBar({
         />
       </div>
 
-      {/* Right side: always no-drag to prevent drag region from blocking right-side panels */}
+      {/* app actions and window controls */}
       <div
-        className="ml-auto flex items-center justify-end"
-        style={{ WebkitAppRegion: 'no-drag', minWidth: '300px' } as React.CSSProperties}
+        className={isWindows ? 'flex min-w-0 items-stretch justify-end self-stretch justify-self-end' : 'flex min-w-0 items-center justify-end justify-self-end'}
+        style={{
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
       >
-        {showIncognitoToggle && onTogglePrivateMode && (
-          <button
-            onClick={onTogglePrivateMode}
-            title={t.toggleIncognito}
-            className={[
-              'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-              isPrivateMode
-                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
-            ].join(' ')}
-          >
-            <Glasses size={17} />
-          </button>
-        )}
-        {hasComponentUpdates && onCheckAppUpdate && (
-          <button
-            ref={updateBtnRef}
-            onClick={togglePopover}
-            title={isVersionSkipped ? t.updateSkipped : t.componentUpdatesAvailable}
-            className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-bg-deep)] ${
-              isVersionSkipped ? 'text-[var(--c-text-muted)]' : 'text-[var(--c-accent)]'
-            }`}
-          >
-            <ArrowUp size={16} />
-            {!isVersionSkipped && (
-              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--c-accent)]" />
-            )}
-          </button>
+        <div className={isWindows ? 'flex items-center justify-end gap-1 pr-2' : 'flex items-center justify-end'}>
+          {showIncognitoToggle && onTogglePrivateMode && (
+            <button
+              onClick={onTogglePrivateMode}
+              title={t.toggleIncognito}
+              className={[
+                'flex h-8 w-8 items-center justify-center rounded-md transition-colors',
+                isPrivateMode
+                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                  : 'text-[var(--c-text-tertiary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]',
+              ].join(' ')}
+            >
+              <Glasses size={17} />
+            </button>
+          )}
+          {hasComponentUpdates && onCheckAppUpdate && (
+            <button
+              ref={updateBtnRef}
+              onClick={togglePopover}
+              title={isVersionSkipped ? t.updateSkipped : t.componentUpdatesAvailable}
+              className={`relative flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-bg-deep)] ${
+                isVersionSkipped ? 'text-[var(--c-text-muted)]' : 'text-[var(--c-accent)]'
+              }`}
+            >
+              <ArrowUp size={16} />
+              {!isVersionSkipped && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--c-accent)]" />
+              )}
+            </button>
+          )}
+        </div>
+        {isWindows && (
+          <WindowsWindowControls
+            maximized={windowMaximized}
+            onMinimize={handleWindowMinimize}
+            onMaximize={handleWindowMaximize}
+            onClose={handleWindowClose}
+          />
         )}
         {updatePopoverOpen && <UpdatePopover
           ref={popoverRef}
@@ -211,6 +268,66 @@ export function DesktopTitleBar({
           onClose={() => setUpdatePopoverOpen(false)}
         />}
       </div>
+    </div>
+  )
+}
+
+type WindowsWindowControlsProps = {
+  maximized: boolean
+  onMinimize: () => void
+  onMaximize: () => void
+  onClose: () => void
+}
+
+function WindowsWindowControls({
+  maximized,
+  onMinimize,
+  onMaximize,
+  onClose,
+}: WindowsWindowControlsProps) {
+  const buttonCls = [
+    'flex h-full w-[46px] items-center justify-center',
+    'text-[var(--c-text-secondary)] transition-colors',
+    'hover:bg-[var(--title-btn-hover)] hover:text-[var(--c-text-primary)]',
+  ].join(' ')
+
+  return (
+    <div className="flex h-full items-stretch">
+      <button
+        type="button"
+        title="Minimize"
+        aria-label="Minimize"
+        className={buttonCls}
+        onClick={onMinimize}
+      >
+        <Minus size={15} strokeWidth={1.8} />
+      </button>
+      <button
+        type="button"
+        title={maximized ? 'Restore' : 'Maximize'}
+        aria-label={maximized ? 'Restore' : 'Maximize'}
+        className={buttonCls}
+        onClick={onMaximize}
+      >
+        {maximized ? (
+          <Copy size={13} strokeWidth={1.7} />
+        ) : (
+          <Square size={12} strokeWidth={1.8} />
+        )}
+      </button>
+      <button
+        type="button"
+        title="Close"
+        aria-label="Close"
+        className={[
+          'flex h-full w-[46px] items-center justify-center',
+          'text-[var(--c-text-secondary)] transition-colors',
+          'hover:bg-[var(--c-window-close-hover)] hover:text-white',
+        ].join(' ')}
+        onClick={onClose}
+      >
+        <X size={15} strokeWidth={1.8} />
+      </button>
     </div>
   )
 }

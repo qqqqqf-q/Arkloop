@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
 export type LocalPortMode = 'auto' | 'manual'
+export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
 export type SearchProvider = 'none' | 'duckduckgo' | 'tavily' | 'searxng'
@@ -320,6 +321,13 @@ export type ArkloopDesktopApi = {
     getOsUsername: () => Promise<string>
     openExternal: (url: string) => Promise<void>
   }
+  window: {
+    minimize: () => Promise<void>
+    toggleMaximize: () => Promise<{ maximized: boolean }>
+    close: () => Promise<void>
+    isMaximized: () => Promise<boolean>
+    onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
+  }
   logs: {
     getDir: () => Promise<string>
     getFiles: () => Promise<{ main: string; sidecar: string }>
@@ -371,10 +379,12 @@ contextBridge.exposeInMainWorld('__ARKLOOP_DESKTOP__', {
   bridgeBaseUrl: bridgeBaseUrlSnapshot,
   accessToken: config.desktopAccessToken ?? '',
   mode: configSnapshot.mode,
+  platform: process.platform,
   getApiBaseUrl: () => getCurrentApiBaseUrl(),
   getBridgeBaseUrl: () => bridgeBaseUrlSnapshot,
   getAccessToken: () => config.desktopAccessToken ?? '',
   getMode: () => configSnapshot.mode,
+  getPlatform: () => process.platform,
 })
 
 ipcRenderer.on('arkloop:config:changed', (_event: Electron.IpcRendererEvent, nextConfig: AppConfig) => {
@@ -496,6 +506,18 @@ const api: ArkloopDesktopApi = {
     quit: () => ipcRenderer.invoke('arkloop:app:quit'),
     getOsUsername: () => ipcRenderer.invoke('arkloop:app:os-username'),
     openExternal: (url: string) => ipcRenderer.invoke('arkloop:app:open-external', url),
+  },
+
+  window: {
+    minimize: () => ipcRenderer.invoke('arkloop:window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('arkloop:window:toggle-maximize'),
+    close: () => ipcRenderer.invoke('arkloop:window:close'),
+    isMaximized: () => ipcRenderer.invoke('arkloop:window:is-maximized'),
+    onMaximizedChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, maximized: boolean) => callback(maximized)
+      ipcRenderer.on('arkloop:window:maximized-changed', handler)
+      return () => ipcRenderer.removeListener('arkloop:window:maximized-changed', handler)
+    },
   },
 
   logs: {

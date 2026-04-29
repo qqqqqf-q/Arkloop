@@ -409,6 +409,29 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle('arkloop:window:minimize', () => {
+    getWindow()?.minimize()
+  })
+
+  ipcMain.handle('arkloop:window:toggle-maximize', () => {
+    const win = getWindow()
+    if (!win) return { maximized: false }
+    if (win.isMaximized()) {
+      win.unmaximize()
+    } else {
+      win.maximize()
+    }
+    return { maximized: win.isMaximized() }
+  })
+
+  ipcMain.handle('arkloop:window:close', () => {
+    getWindow()?.close()
+  })
+
+  ipcMain.handle('arkloop:window:is-maximized', () => {
+    return getWindow()?.isMaximized() ?? false
+  })
+
   ipcMain.handle('arkloop:logs:dir', () => {
     return getDesktopLogDir()
   })

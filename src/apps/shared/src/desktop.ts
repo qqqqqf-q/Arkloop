@@ -1,5 +1,6 @@
 export type ConnectionMode = 'local' | 'saas' | 'self-hosted'
 export type LocalPortMode = 'auto' | 'manual'
+export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
 export type SearchProvider = 'none' | 'duckduckgo' | 'tavily' | 'searxng'
@@ -124,10 +125,12 @@ type DesktopInfo = {
   bridgeBaseUrl?: string
   accessToken?: string
   mode?: ConnectionMode
+  platform?: DesktopPlatform
   getApiBaseUrl?: () => string
   getBridgeBaseUrl?: () => string
   getAccessToken?: () => string
   getMode?: () => ConnectionMode
+  getPlatform?: () => DesktopPlatform
 }
 
 export type UpdaterComponentStatus = {
@@ -218,6 +221,13 @@ export type ArkloopDesktopApi = {
     getVersion: () => Promise<string>
     quit: () => Promise<void>
     getOsUsername?: () => Promise<string>
+  }
+  window?: {
+    minimize: () => Promise<void>
+    toggleMaximize: () => Promise<{ maximized: boolean }>
+    close: () => Promise<void>
+    isMaximized: () => Promise<boolean>
+    onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void
   }
   logs?: {
     getDir: () => Promise<string>
@@ -346,6 +356,14 @@ export function getDesktopMode(): ConnectionMode | null {
     return info.getMode() ?? null
   }
   return info?.mode ?? null
+}
+
+export function getDesktopPlatform(): DesktopPlatform | null {
+  const info = getDesktopInfo()
+  if (typeof info?.getPlatform === 'function') {
+    return info.getPlatform() ?? null
+  }
+  return info?.platform ?? null
 }
 
 export function getDesktopAccessToken(): string | null {
