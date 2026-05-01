@@ -165,19 +165,26 @@ async function readBrowserSearchState(win: BrowserWindow): Promise<BrowserSearch
   const value = await win.webContents.executeJavaScript(`
 (() => {
   const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const textFrom = (element) => {
+    if (!element) return '';
+    const clone = element.cloneNode(true);
+    clone.querySelectorAll('style, script, noscript, svg').forEach((item) => item.remove());
+    return clean(clone.textContent);
+  };
   const toURL = (value) => {
     try { return new URL(value, location.href).toString(); } catch { return ''; }
   };
   const resultNodes = Array.from(document.querySelectorAll('[data-testid="web-result"], .result, li.b_algo'));
   const results = resultNodes.map((node) => {
     const anchor = node.querySelector('a.result-title[href], h2 a[href], a[href]');
+    const titleNode = anchor ? anchor.querySelector('h1, h2, h3, .wgl-title, [data-testid="result-title"]') || anchor : null;
     const snippetNode = node.querySelector(
       '[data-testid="result-description"], .result-description, .wgl-description, .description, .b_caption p, .b_snippet, p'
     );
     return {
-      title: clean(anchor ? anchor.textContent : ''),
+      title: textFrom(titleNode),
       url: toURL(anchor ? anchor.getAttribute('href') : ''),
-      snippet: clean(snippetNode ? snippetNode.textContent : ''),
+      snippet: textFrom(snippetNode),
     };
   }).filter((item) => item.title && item.url);
   const challengeNode = document.querySelector(
