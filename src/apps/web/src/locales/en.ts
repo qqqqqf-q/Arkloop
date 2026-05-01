@@ -324,22 +324,22 @@ export const en: LocaleStrings = {
     happyNewYear: (name: string | null) => name ? `Happy New Year, ${name}` : "Happy New Year",
     happyLunarNewYear: (name: string | null) => name ? `Happy Lunar New Year, ${name}` : "Happy Lunar New Year",
     mondayMorning: (name: string | null) => name ? `New week, ${name}. Let's go.` : "New week. Let's go.",
-    fridayAfternoon: (name: string | null) => name ? `It's Friday, ${name}. Anything to wrap up before you sign off?` : "It's Friday. Anything to wrap up before you sign off?",
+    fridayAfternoon: (name: string | null) => name ? `Friday, ${name}. Anything to wrap up?` : "Friday. Anything to wrap up?",
     lateNight: (name: string | null) => name ? `Still awake, ${name}?` : "Still awake?",
     morning: (name: string | null) => [
       name ? `Good morning, ${name}` : "Good morning",
-      name ? `Morning, ${name}. What's on the plan today?` : "Morning. What's on the plan today?",
+      name ? `Morning, ${name}. What's the plan?` : "Morning. What's the plan?",
       name ? `${name}, morning. Coffee yet?` : "Morning. Coffee yet?",
     ],
     afternoon: (name: string | null) => [
       name ? `Good afternoon, ${name}` : "Good afternoon",
       "It's afternoon. What can I help with?",
-      name ? `${name}, good afternoon. How's it going?` : "Good afternoon. How's it going?",
+      name ? `${name}, good afternoon.` : "Good afternoon.",
     ],
     evening: (name: string | null) => [
       name ? `Good evening, ${name}` : "Good evening",
       "Working late?",
-      name ? `${name}, good evening. What can I take off your plate?` : "Good evening. What can I take off your plate?",
+      name ? `${name}, good evening. What can I help with?` : "Good evening. What can I help with?",
     ],
     generic: (name: string | null) => [
       name ? `Hi, ${name}. What can I help with?` : "What can I help with?",
