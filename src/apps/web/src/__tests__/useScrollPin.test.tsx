@@ -845,6 +845,142 @@ describe('useScrollPin', () => {
     })
   })
 
+  it('禁用用户消息置顶时，待执行的平滑到底部不应被布局变化变成瞬移', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let api: ScrollPinResult | null = null
+    const scrollCalls: Array<{ behavior: ScrollBehavior | undefined; top: number }> = []
+    const metrics = {
+      clientHeight: 400,
+      scrollHeight: 1400,
+      turnHeight: 120,
+      turnOffset: 560,
+      headerOffset: 600,
+      bottomOffset: 1400,
+    }
+
+    await act(async () => {
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }]}
+          promptPinningDisabled
+          deferSmoothScroll
+          onReady={(value) => { api = value }}
+          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
+        />,
+      )
+    })
+
+    const readyApi = requireApi(api)
+    const scrollContainer = requireContainer(readyApi)
+    const contentRoot = requireContentRoot(readyApi)
+
+    act(() => {
+      scrollContainer.scrollTop = 120
+      readyApi.activateAnchor()
+      triggerResize(contentRoot)
+    })
+    await act(async () => {
+      await flushAnimationFrames(1)
+    })
+
+    expect(scrollCalls.some((call) => call.behavior === 'instant')).toBe(false)
+    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1000 })
+    expect(scrollContainer.scrollTop).toBe(120)
+    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
+
+    act(() => {
+      scrollContainer.scrollTop = 1000
+    })
+    await act(async () => {
+      await flushAnimationFrames(2)
+    })
+
+    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
+
+    act(() => {
+      root.unmount()
+    })
+  })
+
+  it('禁用用户消息置顶时，运行中 UI 出现后仍应延续平滑到底部', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let api: ScrollPinResult | null = null
+    const scrollCalls: Array<{ behavior: ScrollBehavior | undefined; top: number }> = []
+    const metrics = {
+      clientHeight: 400,
+      scrollHeight: 1400,
+      turnHeight: 120,
+      turnOffset: 560,
+      headerOffset: 600,
+      bottomOffset: 1400,
+    }
+
+    await act(async () => {
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }]}
+          promptPinningDisabled
+          deferSmoothScroll
+          onReady={(value) => { api = value }}
+          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
+        />,
+      )
+    })
+
+    const readyApi = requireApi(api)
+    const scrollContainer = requireContainer(readyApi)
+
+    act(() => {
+      scrollContainer.scrollTop = 120
+      readyApi.activateAnchor()
+    })
+    await act(async () => {
+      await flushAnimationFrames(1)
+    })
+
+    await act(async () => {
+      metrics.scrollHeight = 1600
+      metrics.bottomOffset = 1600
+      root.render(
+        <ScrollPinHarness
+          metrics={metrics}
+          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
+          promptPinningDisabled
+          deferSmoothScroll
+          liveRunUiVisible
+          onReady={(value) => { api = value }}
+          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
+        />,
+      )
+      await flushAnimationFrames(2)
+    })
+
+    expect(scrollCalls.some((call) => call.behavior === 'instant')).toBe(false)
+    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1000 })
+    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1200 })
+    expect(scrollContainer.scrollTop).toBe(120)
+    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
+
+    act(() => {
+      scrollContainer.scrollTop = 1200
+    })
+    await act(async () => {
+      await flushAnimationFrames(2)
+    })
+
+    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
+
+    act(() => {
+      root.unmount()
+    })
+  })
+
   it('发送后进入锚定时，不应被旧的视角保持重新往下带走', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
