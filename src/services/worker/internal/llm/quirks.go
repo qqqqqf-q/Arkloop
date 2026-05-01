@@ -13,6 +13,7 @@ const (
 	QuirkStripUnsignedThinking   QuirkID = "strip_unsigned_thinking"
 	QuirkForceTempOneOnThink     QuirkID = "force_temp_one_on_thinking"
 	QuirkEchoEmptyTextOnThink    QuirkID = "echo_empty_text_on_thinking"
+	QuirkStripCacheControl       QuirkID = "strip_cache_control"
 )
 
 type Quirk struct {
@@ -142,6 +143,18 @@ var anthropicQuirks = []Quirk{
 				strings.Contains(lower, "back")
 		},
 		Apply: applyEchoEmptyTextOnThinking,
+	},
+	{
+		ID: QuirkStripCacheControl,
+		Match: func(status int, rawBody string) bool {
+			if status != 400 {
+				return false
+			}
+			lower := strings.ToLower(rawBody)
+			return strings.Contains(lower, "cache_control") &&
+				strings.Contains(lower, "extra inputs are not permitted")
+		},
+		Apply: applyStripCacheControl,
 	},
 }
 
@@ -414,4 +427,26 @@ func applyForceTempOneOnThinking(payload map[string]any) {
 		return
 	}
 	payload["temperature"] = 1.0
+}
+
+func applyStripCacheControl(payload map[string]any) {
+	if messages, ok := payload["messages"].([]map[string]any); ok {
+		for _, msg := range messages {
+			if content, ok := msg["content"].([]map[string]any); ok {
+				for _, block := range content {
+					delete(block, "cache_control")
+				}
+			}
+		}
+	}
+	if system, ok := payload["system"].([]map[string]any); ok {
+		for _, block := range system {
+			delete(block, "cache_control")
+		}
+	}
+	if tools, ok := payload["tools"].([]map[string]any); ok {
+		for _, tool := range tools {
+			delete(tool, "cache_control")
+		}
+	}
 }

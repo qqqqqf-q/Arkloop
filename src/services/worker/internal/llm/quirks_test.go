@@ -310,6 +310,98 @@ func TestQuirkApply_ForceTempOneOnThinking(t *testing.T) {
 	}
 }
 
+func TestQuirkMatch_StripCacheControl(t *testing.T) {
+	q := anthropicQuirks[3]
+	if q.ID != QuirkStripCacheControl {
+		t.Fatalf("unexpected id %s", q.ID)
+	}
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "didl_extra_inputs",
+			status: 400,
+			body:   `{"error":{"message":"Extra inputs are not permitted, field: messages[1].content[0].cache_control"}}`,
+			want:   true,
+		},
+		{
+			name:   "wrong_status",
+			status: 500,
+			body:   `Extra inputs are not permitted cache_control`,
+			want:   false,
+		},
+		{
+			name:   "missing_cache_control",
+			status: 400,
+			body:   `Extra inputs are not permitted, field: messages[1].foo`,
+			want:   false,
+		},
+		{
+			name:   "missing_extra_inputs",
+			status: 400,
+			body:   `cache_control is invalid`,
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := q.Match(tc.status, tc.body); got != tc.want {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQuirkApply_StripCacheControl(t *testing.T) {
+	payload := map[string]any{
+		"messages": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{"type": "text", "text": "hello", "cache_control": map[string]any{"type": "ephemeral"}},
+				},
+			},
+			{
+				"role": "assistant",
+				"content": []map[string]any{
+					{"type": "text", "text": "hi", "cache_control": map[string]any{"type": "ephemeral"}},
+					{"type": "tool_use", "id": "t1", "name": "read", "input": map[string]any{}},
+				},
+			},
+		},
+		"system": []map[string]any{
+			{"type": "text", "text": "sys", "cache_control": map[string]any{"type": "ephemeral"}},
+		},
+		"tools": []map[string]any{
+			{"name": "read", "input_schema": map[string]any{}, "cache_control": map[string]any{"type": "ephemeral"}},
+		},
+	}
+	applyStripCacheControl(payload)
+
+	msgs := payload["messages"].([]map[string]any)
+	userContent := msgs[0]["content"].([]map[string]any)
+	if _, ok := userContent[0]["cache_control"]; ok {
+		t.Fatalf("user message cache_control must be removed")
+	}
+	assistantContent := msgs[1]["content"].([]map[string]any)
+	if _, ok := assistantContent[0]["cache_control"]; ok {
+		t.Fatalf("assistant message cache_control must be removed")
+	}
+
+	system := payload["system"].([]map[string]any)
+	if _, ok := system[0]["cache_control"]; ok {
+		t.Fatalf("system cache_control must be removed")
+	}
+
+	tools := payload["tools"].([]map[string]any)
+	if _, ok := tools[0]["cache_control"]; ok {
+		t.Fatalf("tool cache_control must be removed")
+	}
+}
+
 func TestQuirkStore_Concurrent(t *testing.T) {
 	store := NewQuirkStore()
 	var wg sync.WaitGroup
