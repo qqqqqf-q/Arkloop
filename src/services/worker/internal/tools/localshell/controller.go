@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -767,6 +768,9 @@ func buildOutputRef(processRef string, cursor uint64, next uint64) string {
 }
 
 func resolveProcessShellCommand(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe", []string{"/c", command}
+	}
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return "/bin/bash", []string{"--noprofile", "--norc", "-lc", command}
 	}
