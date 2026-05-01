@@ -228,7 +228,20 @@ func parseArgs(args map[string]any) ([]string, int, *tools.ExecutionError) {
 }
 
 func parseQueries(args map[string]any) ([]string, *tools.ExecutionError) {
-	queries := []string{}
+	var query string
+	hasQuery := false
+	if rawQuery, has := args["query"]; has && rawQuery != nil {
+		typed, ok := rawQuery.(string)
+		if !ok {
+			return nil, &tools.ExecutionError{
+				ErrorClass: errorArgsInvalid,
+				Message:    "parameter query must be a non-empty string",
+				Details:    map[string]any{"field": "query"},
+			}
+		}
+		query = strings.TrimSpace(typed)
+		hasQuery = query != ""
+	}
 
 	if rawQueries, has := args["queries"]; has && rawQueries != nil {
 		list, err := asStringList(rawQueries)
@@ -239,37 +252,46 @@ func parseQueries(args map[string]any) ([]string, *tools.ExecutionError) {
 				Details:    map[string]any{"field": "queries"},
 			}
 		}
-		queries = append(queries, list...)
+		queries := normalizeQueries(list)
+		if hasQuery && len(queries) > 0 {
+			return nil, &tools.ExecutionError{
+				ErrorClass: errorArgsInvalid,
+				Message:    "provide either query or queries, not both",
+				Details:    map[string]any{"fields": []string{"query", "queries"}},
+			}
+		}
+		if len(queries) == 0 {
+			return nil, &tools.ExecutionError{
+				ErrorClass: errorArgsInvalid,
+				Message:    "parameter query or queries is required",
+				Details:    map[string]any{"fields": []string{"query", "queries"}},
+			}
+		}
+		if len(queries) > maxQueriesLimit {
+			return nil, &tools.ExecutionError{
+				ErrorClass: errorArgsInvalid,
+				Message:    fmt.Sprintf("queries count must be in range 1..%d", maxQueriesLimit),
+				Details:    map[string]any{"field": "queries", "max": maxQueriesLimit},
+			}
+		}
+		return queries, nil
 	}
 
-	if rawQuery, has := args["query"]; has && rawQuery != nil {
-		query, ok := rawQuery.(string)
-		if !ok || strings.TrimSpace(query) == "" {
+	if !hasQuery {
+		if _, has := args["query"]; has {
 			return nil, &tools.ExecutionError{
 				ErrorClass: errorArgsInvalid,
 				Message:    "parameter query must be a non-empty string",
 				Details:    map[string]any{"field": "query"},
 			}
 		}
-		queries = append(queries, query)
-	}
-
-	queries = normalizeQueries(queries)
-	if len(queries) == 0 {
 		return nil, &tools.ExecutionError{
 			ErrorClass: errorArgsInvalid,
 			Message:    "parameter query or queries is required",
 			Details:    map[string]any{"fields": []string{"query", "queries"}},
 		}
 	}
-	if len(queries) > maxQueriesLimit {
-		return nil, &tools.ExecutionError{
-			ErrorClass: errorArgsInvalid,
-			Message:    fmt.Sprintf("queries count must be in range 1..%d", maxQueriesLimit),
-			Details:    map[string]any{"field": "queries", "max": maxQueriesLimit},
-		}
-	}
-	return queries, nil
+	return []string{query}, nil
 }
 
 func asStringList(value any) ([]string, error) {

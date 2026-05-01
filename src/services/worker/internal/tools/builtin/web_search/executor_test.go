@@ -27,6 +27,39 @@ func TestParseArgsAcceptQueriesArray(t *testing.T) {
 	}
 }
 
+func TestParseArgsAcceptQueriesWithBlankQuery(t *testing.T) {
+	queries, maxResults, err := parseArgs(map[string]any{
+		"query":       "  ",
+		"queries":     []any{"q1", "q2"},
+		"max_results": 2,
+	})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+	if maxResults != 2 {
+		t.Fatalf("expected maxResults=2, got %d", maxResults)
+	}
+	if len(queries) != 2 || queries[0] != "q1" || queries[1] != "q2" {
+		t.Fatalf("unexpected queries: %#v", queries)
+	}
+}
+
+func TestParseArgsRejectsQueryAndQueriesTogether(t *testing.T) {
+	_, _, err := parseArgs(map[string]any{
+		"query":   "q1",
+		"queries": []any{"q2", "q3"},
+	})
+	if err == nil {
+		t.Fatal("expected parseArgs to fail")
+	}
+	if err.ErrorClass != errorArgsInvalid {
+		t.Fatalf("unexpected error class: %s", err.ErrorClass)
+	}
+	if !strings.Contains(err.Message, "either query or queries") {
+		t.Fatalf("unexpected message: %q", err.Message)
+	}
+}
+
 func TestParseArgsRejectTooManyQueries(t *testing.T) {
 	_, _, err := parseArgs(map[string]any{
 		"queries":     []any{"q1", "q2", "q3", "q4", "q5", "q6"},
