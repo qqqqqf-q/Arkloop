@@ -72,7 +72,7 @@ type Props = {
   accessToken?: string
   onAsrError?: (error: unknown) => void
   onPersonaChange?: (personaKey: string) => void
-  onOpenSettings?: (tab: SettingsTab) => void
+  onOpenSettings?: (tab: SettingsTab | 'voice') => void
   appMode?: AppMode
   hasMessages?: boolean
   messagesLoading?: boolean
@@ -217,7 +217,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const onChangeRef = useLatest(setDraft)
   const accessTokenRef = useLatest(accessToken)
   const onAsrErrorRef = useLatest(onAsrError)
-  const onVoiceNotConfiguredRef = useLatest<(() => void) | undefined>(() => onOpenSettings?.('voice' as never))
+  const onVoiceNotConfiguredRef = useLatest<(() => void) | undefined>(() => onOpenSettings?.('voice'))
 
   const { t } = useLocale()
 

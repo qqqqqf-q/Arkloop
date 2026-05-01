@@ -37,7 +37,7 @@ import { DesktopChannelsSettings } from "./settings/DesktopChannelsSettings";
 import { SkillsSettings } from "./settings/SkillsSettings";
 import { MCPSettings } from "./settings/MCPSettings";
 import { ToolsSettings } from "./settings/ToolsSettings";
-import { AdvancedSettings } from "./settings/AdvancedSettings";
+import { AdvancedSettings, type AdvancedSettingsKey } from "./settings/AdvancedSettings";
 import { MemorySettings } from "./settings/MemorySettings";
 import { NotebookSettings } from "./settings/NotebookSettings";
 import { ConnectionSettings } from "./settings/ConnectionSettings";
@@ -46,7 +46,6 @@ import { ExtensionsSettings } from "./settings/ExtensionsSettings";
 import { ModulesSettings } from "./settings/ModulesSettings";
 import { DeveloperSettings } from "./settings/DeveloperSettings";
 import { DesktopPromptInjectionSettings } from "./settings/DesktopPromptInjectionSettings";
-import { VoiceSettings } from "./settings/VoiceSettings";
 import { DesignTokensSettings } from "./settings/DesignTokensSettings";
 import { AboutSettings } from "./settings/AboutSettings";
 import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from "../perfDebug";
@@ -67,7 +66,6 @@ export type DesktopSettingsKey =
   | "memory"
   | "connection"
   | "chat"
-  | "voice"
   | "promptInjection"
   | "modules"
   | "extensions"
@@ -117,6 +115,7 @@ type Props = {
   me: MeResponse | null;
   accessToken: string;
   initialSection?: DesktopSettingsKey;
+  initialAdvancedKey?: AdvancedSettingsKey | null;
   sectionRequestId?: number;
   onClose: () => void;
   onLogout: () => void;
@@ -136,6 +135,7 @@ export function DesktopSettings({
   me,
   accessToken,
   initialSection = "general",
+  initialAdvancedKey = null,
   sectionRequestId,
   onClose,
   onLogout,
@@ -178,8 +178,7 @@ export function DesktopSettings({
     });
   const activePaneNeedsHydration =
     activeKey === "chat" ||
-    activeKey === "connection" ||
-    activeKey === "voice";
+    activeKey === "connection";
 
   const selectSection = useCallback((key: DesktopSettingsKey) => {
     setActiveKey(key);
@@ -448,7 +447,13 @@ export function DesktopSettings({
       case "about":
         return <AboutSettings accessToken={accessToken} />;
       case "advanced":
-        return <AdvancedSettings accessToken={accessToken} />;
+        return (
+          <AdvancedSettings
+            key={`${sectionRequestId ?? 0}:${initialAdvancedKey ?? "usage"}`}
+            accessToken={accessToken}
+            initialKey={initialAdvancedKey}
+          />
+        );
       case "notebook":
         return <NotebookSettings />;
       case "memory":
@@ -475,8 +480,6 @@ export function DesktopSettings({
             }}
           />
         );
-      case "voice":
-        return <VoiceSettings accessToken={accessToken} initialConfig={hydrationSnapshot.config} />;
       case "promptInjection":
         return <DesktopPromptInjectionSettings accessToken={accessToken} />;
       case "modules":

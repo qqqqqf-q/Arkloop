@@ -12,6 +12,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { isDesktop } from '@arkloop/shared/desktop'
 import type { SettingsTab } from '../components/SettingsModal'
 import type { DesktopSettingsKey } from '../components/DesktopSettings'
+import type { AdvancedSettingsKey } from '../components/settings/AdvancedSettings'
 import {
   readAppModeFromStorage,
   writeAppModeToStorage,
@@ -36,6 +37,8 @@ export interface AppUIContextValue {
   settingsOpen: boolean
   settingsInitialTab: SettingsTab
   desktopSettingsSection: DesktopSettingsKey
+  desktopAdvancedSection: AdvancedSettingsKey | null
+  desktopSettingsRequestId: number
   notificationsOpen: boolean
   notificationVersion: number
   appMode: AppMode
@@ -70,7 +73,7 @@ type SearchUIContextValue = Pick<
   AppUIContextValue,
   'isSearchMode' | 'searchOverlayOpen' | 'enterSearchMode' | 'exitSearchMode' | 'openSearchOverlay' | 'closeSearchOverlay'
 >
-type SettingsUIContextValue = Pick<AppUIContextValue, 'settingsOpen' | 'settingsInitialTab' | 'desktopSettingsSection' | 'openSettings' | 'closeSettings'>
+type SettingsUIContextValue = Pick<AppUIContextValue, 'settingsOpen' | 'settingsInitialTab' | 'desktopSettingsSection' | 'desktopAdvancedSection' | 'desktopSettingsRequestId' | 'openSettings' | 'closeSettings'>
 type NotificationsUIContextValue = Pick<AppUIContextValue, 'notificationsOpen' | 'notificationVersion' | 'openNotifications' | 'closeNotifications' | 'markNotificationRead'>
 type AppModeUIContextValue = Pick<AppUIContextValue, 'appMode' | 'availableAppModes' | 'setAppMode'>
 type SkillPromptUIContextValue = Pick<AppUIContextValue, 'pendingSkillPrompt' | 'queueSkillPrompt' | 'consumeSkillPrompt'>
@@ -141,6 +144,8 @@ function AppUIProviders({
       settingsOpen: value.settingsOpen,
       settingsInitialTab: value.settingsInitialTab,
       desktopSettingsSection: value.desktopSettingsSection,
+      desktopAdvancedSection: value.desktopAdvancedSection,
+      desktopSettingsRequestId: value.desktopSettingsRequestId,
       openSettings: value.openSettings,
       closeSettings: value.closeSettings,
     }),
@@ -148,6 +153,8 @@ function AppUIProviders({
       value.settingsOpen,
       value.settingsInitialTab,
       value.desktopSettingsSection,
+      value.desktopAdvancedSection,
+      value.desktopSettingsRequestId,
       value.openSettings,
       value.closeSettings,
     ],
@@ -238,6 +245,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
   const [desktopSettingsSection, setDesktopSettingsSection] = useState<DesktopSettingsKey>('general')
+  const [desktopAdvancedSection, setDesktopAdvancedSection] = useState<AdvancedSettingsKey | null>(null)
+  const [desktopSettingsRequestId, setDesktopSettingsRequestId] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(
     () => new URLSearchParams(location.search).has('notices'),
   )
@@ -328,11 +337,16 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         voice: 'advanced',
         updates: 'about',
       }
+      const advancedKeyMap: Partial<Record<string, AdvancedSettingsKey>> = {
+        voice: 'voice',
+      }
       const section = keyMap[tab] ?? 'general'
+      const advancedSection = advancedKeyMap[tab] ?? null
       const sample = {
         source: 'sidebar',
         requestedTab: tab,
         section,
+        advancedSection: advancedSection ?? '',
         pathname: location.pathname,
       }
       recordPerfDuration('desktop_settings_open_request', 0, sample)
@@ -344,6 +358,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         }
       }
       setDesktopSettingsSection(section)
+      setDesktopAdvancedSection(advancedSection)
+      setDesktopSettingsRequestId((current) => current + 1)
       setSettingsOpen(true)
       return
     }
@@ -563,6 +579,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     settingsOpen,
     settingsInitialTab,
     desktopSettingsSection,
+    desktopAdvancedSection,
+    desktopSettingsRequestId,
     notificationsOpen,
     notificationVersion,
     appMode,
@@ -593,6 +611,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     settingsOpen,
     settingsInitialTab,
     desktopSettingsSection,
+    desktopAdvancedSection,
+    desktopSettingsRequestId,
     notificationsOpen,
     notificationVersion,
     appMode,

@@ -60,7 +60,6 @@ type LayoutMainProps = {
   filteredThreads: import('../api').ThreadResponse[]
   appMode: import('../storage').AppMode
   pathname: string
-  desktopSettingsSectionRequestId: number
   onSearchClose: () => void
   onMeUpdated: (m: import('../api').MeResponse) => void
   onTrySkill: (prompt: string) => void
@@ -72,14 +71,20 @@ const LayoutMain = memo(function LayoutMain({
   filteredThreads,
   appMode,
   pathname,
-  desktopSettingsSectionRequestId,
   onSearchClose,
   onMeUpdated,
   onTrySkill,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
   const { setCreditsBalance } = useCredits()
-  const { settingsOpen, settingsInitialTab, desktopSettingsSection, closeSettings } = useSettingsUI()
+  const {
+    settingsOpen,
+    settingsInitialTab,
+    desktopSettingsSection,
+    desktopAdvancedSection,
+    desktopSettingsRequestId,
+    closeSettings,
+  } = useSettingsUI()
   const { notificationsOpen, closeNotifications, markNotificationRead } = useNotificationsUI()
 
   useEffect(() => {
@@ -118,7 +123,8 @@ const LayoutMain = memo(function LayoutMain({
           me={me}
           accessToken={accessToken}
           initialSection={desktopSettingsSection}
-          sectionRequestId={desktopSettingsSectionRequestId}
+          initialAdvancedKey={desktopAdvancedSection}
+          sectionRequestId={desktopSettingsRequestId}
           onClose={closeSettings}
           onLogout={logout}
           onMeUpdated={onMeUpdated}
@@ -161,7 +167,6 @@ export function AppLayout() {
   const desktop = isDesktop()
 
   const [appUpdateState, setAppUpdateState] = useState<import('@arkloop/shared/desktop').AppUpdaterState | null>(null)
-  const [desktopSettingsSectionRequestId, setDesktopSettingsSectionRequestId] = useState(0)
 
   // app updater
   useEffect(() => {
@@ -188,7 +193,6 @@ export function AppLayout() {
   }, [])
 
   const handleTitleBarOpenSettings = useCallback((tab?: SettingsTab | 'voice') => {
-    setDesktopSettingsSectionRequestId((current) => current + 1)
     openSettings(tab)
   }, [openSettings])
 
@@ -297,7 +301,6 @@ export function AppLayout() {
             filteredThreads={filteredThreads}
             appMode={activeAppMode}
             pathname={location.pathname}
-            desktopSettingsSectionRequestId={desktopSettingsSectionRequestId}
             onSearchClose={handleCloseSearch}
             onMeUpdated={updateMe}
             onTrySkill={handleTrySkill}

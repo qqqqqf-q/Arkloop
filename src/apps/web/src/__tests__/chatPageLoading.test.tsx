@@ -610,6 +610,8 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
     settingsOpen: false,
     settingsInitialTab: 'account',
     desktopSettingsSection: 'general',
+    desktopAdvancedSection: null,
+    desktopSettingsRequestId: 0,
     notificationsOpen: false,
     notificationVersion: context.notificationVersion,
     appMode: 'chat',

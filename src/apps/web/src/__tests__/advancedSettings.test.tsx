@@ -170,7 +170,12 @@ describe('AdvancedSettings', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('使用量')
-    expect(container.textContent).toContain('模块')
+    expect(container.textContent).toContain('语音输入')
+
+    const navLabels = Array.from(container.querySelectorAll('button'))
+      .map((button) => button.textContent?.trim() ?? '')
+      .filter((label) => ['使用量', '语音输入', '网络'].includes(label))
+    expect(navLabels).toEqual(['使用量', '语音输入', '网络'])
 
     const logsButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('日志'))
     expect(logsButton).toBeTruthy()

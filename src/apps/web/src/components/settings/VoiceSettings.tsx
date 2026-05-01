@@ -53,14 +53,7 @@ import { settingsSectionCls } from './_SettingsSection'
 const sectionCls = settingsSectionCls
 
 const fieldLabelCls = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
-const fieldInputStyle = {
-  border: '0.5px solid var(--c-border-auth)',
-  height: '36px',
-  padding: '0 14px',
-  fontSize: '13px',
-  fontWeight: 500,
-  fontFamily: 'inherit',
-} as const
+const fieldInputCls = 'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)] focus:border-[var(--c-border)]'
 
 // -- Reusable custom dropdown --
 
@@ -76,6 +69,7 @@ function CustomDropdown<T extends string>({
   style?: React.CSSProperties
 }) {
   const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({})
   const menuRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
 
@@ -89,47 +83,68 @@ function CustomDropdown<T extends string>({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  const handleOpen = () => {
+    if (!open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      const scrollY = window.scrollY || document.documentElement.scrollTop || 0
+      const scrollX = window.scrollX || document.documentElement.scrollLeft || 0
+      setMenuStyle({
+        position: 'absolute',
+        top: rect.bottom + scrollY + 4,
+        left: rect.left + scrollX,
+        width: rect.width,
+        zIndex: 9999,
+      })
+    }
+    setOpen((v) => !v)
+  }
+
+  const menu = open ? (
+    <div
+      ref={menuRef}
+      className="dropdown-menu"
+      style={{
+        ...menuStyle,
+        border: '0.5px solid var(--c-border-subtle)',
+        borderRadius: '10px',
+        padding: '4px',
+        background: 'var(--c-bg-menu)',
+        boxShadow: 'var(--c-dropdown-shadow)',
+        maxHeight: '220px',
+        overflowY: 'auto',
+      }}
+    >
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => { onChange(opt.value); setOpen(false) }}
+          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
+          style={{
+            color: value === opt.value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
+            fontWeight: value === opt.value ? 500 : 400,
+          }}
+        >
+          <span>{opt.label}</span>
+          {value === opt.value && <Star size={11} className="shrink-0" />}
+        </button>
+      ))}
+    </div>
+  ) : null
+
   return (
     <div className="relative">
       <button
         ref={btnRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between rounded-[10px] bg-[var(--c-bg-input)] px-3 py-1.5 text-[13px] font-medium text-[var(--c-text-primary)] outline-none transition-colors hover:bg-[var(--c-bg-deep)]"
-        style={{ border: '1px solid var(--c-border-subtle)', ...style }}
+        onClick={handleOpen}
+        className="flex w-full items-center justify-between rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none transition-colors hover:bg-[var(--c-bg-deep)]"
+        style={style}
       >
         <span className="truncate">{options.find((o) => o.value === value)?.label ?? value}</span>
         <ChevronDown size={13} className="ml-2 shrink-0 text-[var(--c-text-muted)]" />
       </button>
-      {open && (
-        <div
-          ref={menuRef}
-          className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50 min-w-full"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            borderRadius: '10px',
-            padding: '4px',
-            background: 'var(--c-bg-menu)',
-            boxShadow: 'var(--c-dropdown-shadow)',
-          }}
-        >
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { onChange(opt.value); setOpen(false) }}
-              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-[13px] font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
-              style={{
-                color: value === opt.value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
-                fontWeight: value === opt.value ? 500 : 400,
-              }}
-            >
-              <span>{opt.label}</span>
-              {value === opt.value && <Star size={11} className="shrink-0" />}
-            </button>
-          ))}
-        </div>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   )
 }
@@ -205,8 +220,7 @@ function AddCredentialModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={ds.voiceCredsNamePlaceholder}
-              className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[13px] font-medium text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
-              style={fieldInputStyle}
+              className={fieldInputCls}
             />
           </div>
 
@@ -217,7 +231,6 @@ function AddCredentialModal({
               value={provider}
               onChange={(v) => { setProvider(v); setModel(MODELS[v]?.[0]?.value ?? '') }}
               options={PROVIDERS}
-              style={fieldInputStyle}
             />
           </div>
 
@@ -228,7 +241,7 @@ function AddCredentialModal({
               value={model}
               onChange={setModel}
               options={modelOptions}
-              style={{ ...fieldInputStyle, width: '100%' }}
+              style={{ width: '100%' }}
             />
           </div>
 
@@ -241,8 +254,7 @@ function AddCredentialModal({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={ds.voiceCredsApiKeyPlaceholder}
-                className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[13px] font-medium text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)]"
-                style={{ ...fieldInputStyle, paddingRight: '36px' }}
+                className={`${fieldInputCls} pr-9`}
               />
               <button
                 type="button"
@@ -254,37 +266,36 @@ function AddCredentialModal({
             </div>
           </div>
 
-          {/* isDefault */}
-          <div className="col-span-2">
-            <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-[var(--c-text-secondary)]">
-              <input
-                type="checkbox"
-                checked={isDefault}
-                onChange={(e) => setIsDefault(e.target.checked)}
-                className="accent-[var(--c-btn-bg)]"
-              />
-              {ds.voiceCredsIsDefault}
-            </label>
-          </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-[9px] px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            {ds.voiceCredsCancel}
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving || !name.trim() || !apiKey.trim()}
-            className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: 'var(--c-btn-bg)' }}
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : ds.voiceCredsSave}
-          </button>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--c-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={isDefault}
+              onChange={(e) => setIsDefault(e.target.checked)}
+              className="accent-[var(--c-btn-bg)]"
+            />
+            {ds.voiceCredsIsDefault}
+          </label>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+              style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            >
+              {ds.voiceCredsCancel}
+            </button>
+            <button
+              onClick={() => void handleSave()}
+              disabled={saving || !name.trim() || !apiKey.trim()}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
+              style={{ background: 'var(--c-btn-bg)' }}
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : ds.voiceCredsSave}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
@@ -330,7 +341,7 @@ function DeleteConfirmModal({
           <button
             onClick={onClose}
             disabled={deleting}
-            className="rounded-[9px] px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+            className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
             style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             {ds.voiceCredsCancel}
@@ -338,7 +349,7 @@ function DeleteConfirmModal({
           <button
             onClick={() => void handleConfirm()}
             disabled={deleting}
-            className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-status-error)] transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-status-error)] transition-opacity hover:opacity-90 disabled:opacity-50"
             style={{ border: '0.5px solid var(--c-status-error)' }}
           >
             {deleting ? <Loader2 size={14} className="animate-spin" /> : ds.voiceCredsDelete}
@@ -418,8 +429,7 @@ function EditCredentialModal({
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-[10px] bg-[var(--c-bg-input)] text-[13px] font-medium text-[var(--c-text-primary)] outline-none"
-              style={fieldInputStyle}
+              className={fieldInputCls}
             />
           </div>
 
@@ -429,8 +439,7 @@ function EditCredentialModal({
             <input
               value={provider}
               disabled
-              className="w-full cursor-not-allowed rounded-[10px] bg-[var(--c-bg-deep)] text-[13px] font-medium text-[var(--c-text-muted)] outline-none"
-              style={{ ...fieldInputStyle, cursor: 'not-allowed' }}
+              className={`${fieldInputCls} cursor-not-allowed bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]`}
             />
           </div>
 
@@ -441,41 +450,40 @@ function EditCredentialModal({
               value={model}
               onChange={setModel}
               options={modelOptions}
-              style={{ ...fieldInputStyle, width: '100%' }}
+              style={{ width: '100%' }}
             />
           </div>
 
-          {/* isDefault */}
-          <div className="col-span-2">
-            <label className="flex cursor-pointer items-center gap-2 text-[13px] font-medium text-[var(--c-text-secondary)]">
-              <input
-                type="checkbox"
-                checked={isDefault}
-                onChange={(e) => setIsDefault(e.target.checked)}
-                className="accent-[var(--c-btn-bg)]"
-              />
-              {ds.voiceCredsIsDefault}
-            </label>
-          </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-[9px] px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            {ds.voiceCredsCancel}
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving || !name.trim()}
-            className="rounded-[9px] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: 'var(--c-btn-bg)' }}
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : ds.voiceCredsSave}
-          </button>
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[var(--c-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={isDefault}
+              onChange={(e) => setIsDefault(e.target.checked)}
+              className="accent-[var(--c-btn-bg)]"
+            />
+            {ds.voiceCredsIsDefault}
+          </label>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
+              style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            >
+              {ds.voiceCredsCancel}
+            </button>
+            <button
+              onClick={() => void handleSave()}
+              disabled={saving || !name.trim()}
+              className="rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
+              style={{ background: 'var(--c-btn-bg)' }}
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : ds.voiceCredsSave}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
@@ -655,10 +663,10 @@ export function VoiceSettings({ accessToken, initialConfig = null }: Props) {
           <h4 className="text-sm font-medium text-[var(--c-text-heading)]">{ds.voiceCredsTitle}</h4>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 rounded-[9px] px-3 py-1 text-[13px] font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
             style={{ background: 'var(--c-btn-bg)' }}
           >
-            <Plus size={13} />
+            <Plus size={14} />
             {ds.voiceCredsAdd}
           </button>
         </div>
@@ -679,13 +687,17 @@ export function VoiceSettings({ accessToken, initialConfig = null }: Props) {
             {credentials.map((cred) => (
               <div
                 key={cred.id}
-                className="flex items-center justify-between rounded-lg border border-[var(--c-border-subtle)] px-3 py-2"
+                className="group flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5"
+                style={{ contentVisibility: 'auto', containIntrinsicBlockSize: '60px' }}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--c-text-primary)]">{cred.name}</span>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <p className="truncate text-sm font-medium text-[var(--c-text-primary)]">{cred.name}</p>
                     {cred.is_default && (
-                      <span className="rounded-md bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-400">
+                      <span
+                        className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium"
+                        style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}
+                      >
                         {ds.voiceCredsDefault}
                       </span>
                     )}
@@ -695,29 +707,29 @@ export function VoiceSettings({ accessToken, initialConfig = null }: Props) {
                     {cred.key_prefix ? ` · ${cred.key_prefix}…` : ''}
                   </p>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto">
                   {!cred.is_default && (
                     <button
                       onClick={() => void handleSetDefault(cred.id)}
-                      className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+                      className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
                       title={ds.voiceCredsSetDefault}
                     >
-                      <Star size={13} />
+                      <Star size={14} />
                     </button>
                   )}
                   <button
                     onClick={() => setEditTarget(cred)}
-                    className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+                    className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
                     title={ds.voiceCredsEdit}
                   >
-                    <Pencil size={13} />
+                    <Pencil size={14} />
                   </button>
                   <button
                     onClick={() => setDeleteTarget(cred)}
-                    className="rounded p-1 text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-status-error)]"
+                    className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-status-error)]"
                     title={ds.voiceCredsDelete}
                   >
-                    <Trash2 size={13} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

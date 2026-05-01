@@ -9,6 +9,7 @@ import {
   Globe,
   Import,
   Loader2,
+  Mic,
   Network,
   RefreshCw,
   ScrollText,
@@ -38,10 +39,14 @@ import { settingsInputCls } from './_SettingsInput'
 import { SettingsLabel } from './_SettingsLabel'
 import { SettingsSelect } from './_SettingsSelect'
 import { ConnectionSettings } from './ConnectionSettings'
+import { VoiceSettings } from './VoiceSettings'
 
-type AdvancedKey = 'network' | 'usage' | 'data' | 'logs'
+export type AdvancedSettingsKey = 'usage' | 'voice' | 'network' | 'data' | 'logs'
 
-type Props = { accessToken: string }
+type Props = {
+  accessToken: string
+  initialKey?: AdvancedSettingsKey | null
+}
 
 type UsageState = {
   summary: MeUsageSummary | null
@@ -985,7 +990,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
   }, [])
 
   useEffect(() => {
-    const detectImports = api?.onboarding.detectImports
+    const detectImports = api?.onboarding?.detectImports
     if (!detectImports) return
     let cancelled = false
 
@@ -1501,15 +1506,16 @@ function LogsPane() {
 
 // -- Main component --
 
-export function AdvancedSettings({ accessToken }: Props) {
+export function AdvancedSettings({ accessToken, initialKey = null }: Props) {
   const { t } = useLocale()
   const { timeZone } = useTimeZone()
   const ds = t.desktopSettings
+  const requestedKey = initialKey ?? 'usage'
   const now = useMemo(() => getDateStringInTimeZone(new Date(), timeZone), [timeZone])
   const defaultYear = Number(now.slice(0, 4))
   const defaultMonth = Number(now.slice(5, 7))
 
-  const [activeKey, setActiveKey] = useState<AdvancedKey>('usage')
+  const [activeKey, setActiveKey] = useState<AdvancedSettingsKey>(requestedKey)
   const [prefetchedUsage, setPrefetchedUsage] = useState<UsageState | null>(null)
 
   const loadOverview = useCallback(async () => {
@@ -1542,8 +1548,9 @@ export function AdvancedSettings({ accessToken }: Props) {
     }
   }, [accessToken, defaultMonth, defaultYear])
 
-  const navItems: Array<{ key: AdvancedKey; icon: LucideIcon; label: string }> = [
+  const navItems: Array<{ key: AdvancedSettingsKey; icon: LucideIcon; label: string }> = [
     { key: 'usage', icon: BarChart3, label: ds.advancedUsage },
+    { key: 'voice', icon: Mic, label: ds.voiceTitle },
     { key: 'network', icon: Network, label: ds.advancedNetwork },
     { key: 'data', icon: Database, label: ds.advancedData },
     { key: 'logs', icon: ScrollText, label: ds.advancedLogs },
@@ -1584,6 +1591,7 @@ export function AdvancedSettings({ accessToken }: Props) {
               initialUsage={prefetchedUsage}
             />
           )}
+          {activeKey === 'voice' && <VoiceSettings accessToken={accessToken} />}
           {activeKey === 'network' && <NetworkPane onReloadOverview={loadOverview} />}
           {activeKey === 'data' && (
             <DataPane onReloadOverview={loadOverview} />
