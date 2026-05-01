@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
+	"arkloop/services/shared/eventbus"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -289,6 +290,42 @@ func TestChannelInboundBurstScanDelay(t *testing.T) {
 	if delay != channelInboundBurstRecoveryInterval {
 		t.Fatalf("retry delay = %s, want %s", delay, channelInboundBurstRecoveryInterval)
 	}
+}
+
+func TestCloseChannelInboundBurstSubscriptionSkipsAlreadyClosedSubscription(t *testing.T) {
+	sub := &channelInboundBurstTestSubscription{ch: make(chan eventbus.Message)}
+	close(sub.ch)
+
+	closeChannelInboundBurstSubscription(sub, true)
+
+	if sub.closeCalled {
+		t.Fatal("expected already closed subscription to be left alone")
+	}
+}
+
+func TestCloseChannelInboundBurstSubscriptionClosesOpenSubscription(t *testing.T) {
+	sub := &channelInboundBurstTestSubscription{ch: make(chan eventbus.Message)}
+
+	closeChannelInboundBurstSubscription(sub, false)
+
+	if !sub.closeCalled {
+		t.Fatal("expected open subscription to be closed")
+	}
+}
+
+type channelInboundBurstTestSubscription struct {
+	ch          chan eventbus.Message
+	closeCalled bool
+}
+
+func (s *channelInboundBurstTestSubscription) Channel() <-chan eventbus.Message {
+	return s.ch
+}
+
+func (s *channelInboundBurstTestSubscription) Close() error {
+	s.closeCalled = true
+	close(s.ch)
+	return nil
 }
 
 func countRows(t *testing.T, pool *pgxpool.Pool, query string, args ...any) int {

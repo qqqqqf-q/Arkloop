@@ -174,7 +174,7 @@ func (r channelInboundBurstRunner) runEventDriven(ctx context.Context) {
 		}
 
 		subscriptionClosed := r.runEventDrivenSubscription(ctx, sub)
-		_ = sub.Close()
+		closeChannelInboundBurstSubscription(sub, subscriptionClosed)
 		if !subscriptionClosed {
 			return
 		}
@@ -182,6 +182,13 @@ func (r channelInboundBurstRunner) runEventDriven(ctx context.Context) {
 			return
 		}
 	}
+}
+
+func closeChannelInboundBurstSubscription(sub eventbus.Subscription, subscriptionClosed bool) {
+	if sub == nil || subscriptionClosed {
+		return
+	}
+	_ = sub.Close()
 }
 
 func (r channelInboundBurstRunner) runEventDrivenSubscription(ctx context.Context, sub eventbus.Subscription) bool {
