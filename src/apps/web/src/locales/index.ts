@@ -1307,6 +1307,10 @@ export interface LocaleStrings {
     apiKeyHintGemini: string;
     baseUrl: string;
     baseUrlPlaceholder: string;
+    customHeaders: string;
+    addHeader: string;
+    headerKeyPlaceholder: string;
+    headerValuePlaceholder: string;
     save: string;
     saving: string;
     cancel: string;

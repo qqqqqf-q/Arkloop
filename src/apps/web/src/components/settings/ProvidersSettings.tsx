@@ -10,6 +10,7 @@ import {
   Check,
   Zap,
   SlidersHorizontal,
+  Minus,
 } from 'lucide-react'
 import {
   type LlmProvider,
@@ -88,6 +89,42 @@ function mergeProviderAdvancedJSON(
 ): Record<string, unknown> {
   const next = { ...(current ?? {}) }
   next[OPENVIKING_BACKEND_ADVANCED_KEY] = backend
+  return next
+}
+
+const OPENVIKING_EXTRA_HEADERS_KEY = 'openviking_extra_headers'
+
+type HeaderEntry = { key: string; value: string }
+
+function readCustomHeaders(advanced: Record<string, unknown> | null | undefined): HeaderEntry[] {
+  if (!advanced) return []
+  const raw = advanced[OPENVIKING_EXTRA_HEADERS_KEY]
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  const out: HeaderEntry[] = []
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue
+    out.push({ key, value })
+  }
+  return out
+}
+
+function applyCustomHeaders(
+  advanced: Record<string, unknown> | null | undefined,
+  headers: HeaderEntry[],
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(advanced ?? {}) }
+  const cleaned: Record<string, string> = {}
+  for (const { key, value } of headers) {
+    const k = key.trim()
+    const v = value.trim()
+    if (!k || !v) continue
+    cleaned[k] = v
+  }
+  if (Object.keys(cleaned).length === 0) {
+    delete next[OPENVIKING_EXTRA_HEADERS_KEY]
+  } else {
+    next[OPENVIKING_EXTRA_HEADERS_KEY] = cleaned
+  }
   return next
 }
 
@@ -346,6 +383,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   const [preset, setPreset] = useState<VendorPresetKey>('openai_responses')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
+  const [customHeaders, setCustomHeaders] = useState<HeaderEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -355,13 +393,17 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
     setErr('')
     try {
       const v = VENDOR_PRESETS.find((vv) => vv.key === preset)!
+      const advancedJSON = applyCustomHeaders(
+        mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+        customHeaders,
+      )
       await createLlmProvider(accessToken, {
         name: name.trim(),
         provider: v.provider,
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         openai_api_mode: v.openai_api_mode,
-        advanced_json: mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+        advanced_json: advancedJSON,
       })
       onCreated()
     } catch (e) {
@@ -431,6 +473,17 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
               <span className="mt-1 block text-xs text-[var(--c-text-muted)]">需以 https:// 开头</span>
             )}
           </div>
+          <div className="col-span-2">
+            <label className={fieldLabelCls}>{p.customHeaders ?? 'Custom headers'}</label>
+            <CustomHeadersEditor
+              headers={customHeaders}
+              onChange={setCustomHeaders}
+              inputCls={fieldInputCls}
+              addLabel={p.addHeader ?? 'Add header'}
+              keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+              valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
+            />
+          </div>
         </div>
 
         {err && <p className="mt-3 text-xs text-[var(--c-status-error-text)]">{err}</p>}
@@ -477,6 +530,7 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
   const [formName, setFormName] = useState(provider.name)
   const [formApiKey, setFormApiKey] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
+  const [formHeaders, setFormHeaders] = useState<HeaderEntry[]>(() => readCustomHeaders(provider.advanced_json))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -487,22 +541,25 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
     setFormName(provider.name)
     setFormApiKey('')
     setFormBaseUrl(provider.base_url ?? '')
+    setFormHeaders(readCustomHeaders(provider.advanced_json))
     setErr('')
     setConfirmDelete(false)
-  }, [provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
+  }, [provider.advanced_json, provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
 
   const handleSave = async () => {
     setSaving(true)
     setErr('')
     try {
       const selected = VENDOR_PRESETS.find((v) => v.key === formPreset)
+      const merged = mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider))
+      const advancedJSON = applyCustomHeaders(merged, formHeaders)
       await updateLlmProvider(accessToken, provider.id, {
         name: formName.trim() || undefined,
         api_key: formApiKey.trim() || undefined,
         base_url: formBaseUrl.trim() || null,
         provider: selected?.provider,
         openai_api_mode: selected?.openai_api_mode ?? null,
-        advanced_json: mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
+        advanced_json: advancedJSON,
       })
       setFormApiKey('')
       onUpdated()
@@ -551,6 +608,16 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
           {formBaseUrl.trim() && !formBaseUrl.trim().startsWith('https://') && !formBaseUrl.trim().startsWith('http://') && (
             <p className="mt-1 text-xs text-[var(--c-text-muted)]">需以 https:// 开头</p>
           )}
+        </LabelField>
+        <LabelField label={p.customHeaders ?? 'Custom headers'}>
+          <CustomHeadersEditor
+            headers={formHeaders}
+            onChange={setFormHeaders}
+            inputCls={INPUT_CLS}
+            addLabel={p.addHeader ?? 'Add header'}
+            keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+            valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
+          />
         </LabelField>
       </div>
 
@@ -1004,6 +1071,69 @@ function LabelField({ label, children }: { label: string; children: React.ReactN
     <div>
       <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{label}</label>
       {children}
+    </div>
+  )
+}
+
+function CustomHeadersEditor({
+  headers,
+  onChange,
+  inputCls,
+  addLabel,
+  keyPlaceholder,
+  valuePlaceholder,
+}: {
+  headers: HeaderEntry[]
+  onChange: (next: HeaderEntry[]) => void
+  inputCls: string
+  addLabel: string
+  keyPlaceholder: string
+  valuePlaceholder: string
+}) {
+  const update = (idx: number, patch: Partial<HeaderEntry>) => {
+    onChange(headers.map((h, i) => (i === idx ? { ...h, ...patch } : h)))
+  }
+  const remove = (idx: number) => {
+    onChange(headers.filter((_, i) => i !== idx))
+  }
+  const add = () => {
+    onChange([...headers, { key: '', value: '' }])
+  }
+  return (
+    <div className="space-y-1.5">
+      {headers.map((h, idx) => (
+        <div key={idx} className="flex items-center gap-1.5">
+          <input
+            value={h.key}
+            onChange={(e) => update(idx, { key: e.target.value })}
+            placeholder={keyPlaceholder}
+            className={inputCls + ' flex-1'}
+          />
+          <input
+            value={h.value}
+            onChange={(e) => update(idx, { value: e.target.value })}
+            placeholder={valuePlaceholder}
+            className={inputCls + ' flex-1'}
+          />
+          <button
+            type="button"
+            onClick={() => remove(idx)}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-red-500"
+            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          >
+            <Minus size={12} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={add}
+        className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+        style={{ border: '0.5px solid var(--c-border-subtle)' }}
+      >
+        <Plus size={11} />
+        {addLabel}
+      </button>
     </div>
   )
 }

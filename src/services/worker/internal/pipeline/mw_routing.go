@@ -355,7 +355,9 @@ func GatewayFromSelectedRoute(selected routing.SelectedProviderRoute, auxGateway
 
 func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRoute, emitDebugEvents bool, llmMaxResponseBytes int) (llm.ResolvedGatewayConfig, error) {
 	credential := selected.Credential
-	advancedJSON := providerPayloadAdvancedJSON(mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON))
+	mergedAdvancedJSON := mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON)
+	customHeaders := extractCustomHeaders(mergedAdvancedJSON)
+	advancedJSON := providerPayloadAdvancedJSON(mergedAdvancedJSON)
 	apiKey, err := resolveAPIKey(credential)
 	if err != nil {
 		return llm.ResolvedGatewayConfig{}, err
@@ -367,6 +369,7 @@ func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRout
 	transport := llm.TransportConfig{
 		APIKey:           apiKey,
 		BaseURL:          baseURL,
+		DefaultHeaders:   customHeaders,
 		EmitDebugEvents:  emitDebugEvents,
 		MaxResponseBytes: llmMaxResponseBytes,
 	}
@@ -442,6 +445,33 @@ func providerPayloadAdvancedJSON(raw map[string]any) map[string]any {
 		filtered[key] = value
 	}
 	return filtered
+}
+
+func extractCustomHeaders(raw map[string]any) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	rawHeaders, ok := raw["openviking_extra_headers"].(map[string]any)
+	if !ok || len(rawHeaders) == 0 {
+		return nil
+	}
+	headers := make(map[string]string, len(rawHeaders))
+	for key, value := range rawHeaders {
+		k := strings.TrimSpace(key)
+		v, ok := value.(string)
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		headers[k] = v
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return headers
 }
 
 func isInternalAdvancedJSONKey(key string) bool {
