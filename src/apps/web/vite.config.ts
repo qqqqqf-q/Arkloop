@@ -7,6 +7,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 const ARKLOOP_HOME = path.join(os.homedir(), '.arkloop')
+const TRUE_VALUES = new Set(['1', 'true'])
+
+function isEnabled(value: string | undefined): boolean {
+  return TRUE_VALUES.has(value?.trim().toLowerCase() ?? '')
+}
 
 function readDesktopDevConfig(): { token: string; apiBaseUrl: string } | null {
   try {
@@ -25,19 +30,33 @@ function readDesktopDevConfig(): { token: string; apiBaseUrl: string } | null {
   }
 }
 
-function desktopDevPlugin() {
+function desktopDevPlugin(enabled: boolean) {
   return {
     name: 'arkloop-desktop-dev',
     transformIndexHtml() {
+      if (!enabled) return []
       const cfg = readDesktopDevConfig()
       if (!cfg) return []
       const { token, apiBaseUrl } = cfg
-      const obj = JSON.stringify({ apiBaseUrl, bridgeBaseUrl: '', accessToken: token, mode: 'local' })
+      const platform = process.platform
+      const obj = JSON.stringify({ apiBaseUrl, bridgeBaseUrl: '', accessToken: token, mode: 'local', platform })
+      const children = [
+        '(()=>{',
+        `const injected=Object.assign(${obj},{`,
+        `getApiBaseUrl:function(){return ${JSON.stringify(apiBaseUrl)}},`,
+        "getBridgeBaseUrl:function(){return ''},",
+        `getAccessToken:function(){return ${JSON.stringify(token)}},`,
+        "getMode:function(){return 'local'},",
+        `getPlatform:function(){return ${JSON.stringify(platform)}}`,
+        '});',
+        'window.__ARKLOOP_DESKTOP__=Object.assign({},injected,window.__ARKLOOP_DESKTOP__||{});',
+        '})();',
+      ].join('')
       return [
         {
           tag: 'script',
           injectTo: 'head-prepend' as const,
-          children: `window.__ARKLOOP_DESKTOP__=Object.assign(${obj},{getApiBaseUrl:function(){return ${JSON.stringify(apiBaseUrl)}},getBridgeBaseUrl:function(){return ''},getAccessToken:function(){return ${JSON.stringify(token)}},getMode:function(){return 'local'}});`,
+          children,
         },
       ]
     },
@@ -47,12 +66,15 @@ function desktopDevPlugin() {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'ARKLOOP_')
+  const desktopShellDev = isEnabled(process.env.ARKLOOP_DESKTOP_SHELL_DEV ?? env.ARKLOOP_DESKTOP_SHELL_DEV)
   const apiProxyTarget = (() => {
-    if (mode === 'development') {
+    const explicitTarget = process.env.ARKLOOP_API_PROXY_TARGET ?? env.ARKLOOP_API_PROXY_TARGET
+    if (explicitTarget) return explicitTarget
+    if (mode === 'development' && desktopShellDev) {
       const cfg = readDesktopDevConfig()
       if (cfg) return cfg.apiBaseUrl
     }
-    return process.env.ARKLOOP_API_PROXY_TARGET ?? env.ARKLOOP_API_PROXY_TARGET ?? 'http://127.0.0.1:19000'
+    return 'http://127.0.0.1:19000'
   })()
   const base =
     process.env.ARKLOOP_WEB_BASE ??
@@ -64,7 +86,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       tailwindcss(),
       react(),
-      ...(mode === 'development' ? [desktopDevPlugin()] : []),
+      ...(mode === 'development' ? [desktopDevPlugin(desktopShellDev)] : []),
     ],
     server: {
       proxy: {

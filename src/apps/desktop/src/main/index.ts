@@ -363,7 +363,7 @@ function createWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
     },
-    frame: isWindows ? false : undefined,
+    frame: !isWindows,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 12, y: 12 },
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: iconPath } : {}),

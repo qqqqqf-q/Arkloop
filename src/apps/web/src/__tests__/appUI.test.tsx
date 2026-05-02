@@ -9,9 +9,14 @@ import { DesktopTitleBar } from '../components/DesktopTitleBar'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { AppUpdaterState } from '@arkloop/shared/desktop'
 
+const desktopMock = vi.hoisted(() => ({
+  isDesktop: vi.fn(() => true),
+  platform: vi.fn(() => 'darwin' as string | null),
+}))
+
 vi.mock('@arkloop/shared/desktop', () => ({
-  isDesktop: () => true,
-  getDesktopPlatform: () => 'darwin',
+  isDesktop: desktopMock.isDesktop,
+  getDesktopPlatform: desktopMock.platform,
   getDesktopApi: () => ({}),
 }))
 
@@ -153,6 +158,7 @@ describe('DesktopTitleBar update entry', () => {
     IS_REACT_ACT_ENVIRONMENT?: boolean
   }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
+  const originalNavigatorPlatform = Object.getOwnPropertyDescriptor(window.navigator, 'platform')
 
   const appUpdateState = (phase: AppUpdaterState['phase']): AppUpdaterState => ({
     supported: true,
@@ -164,6 +170,8 @@ describe('DesktopTitleBar update entry', () => {
   })
 
   beforeEach(() => {
+    desktopMock.isDesktop.mockReturnValue(true)
+    desktopMock.platform.mockReturnValue('darwin')
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -180,6 +188,11 @@ describe('DesktopTitleBar update entry', () => {
       delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
     } else {
       actEnvironment.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+    }
+    if (originalNavigatorPlatform) {
+      Object.defineProperty(window.navigator, 'platform', originalNavigatorPlatform)
+    } else {
+      Reflect.deleteProperty(window.navigator, 'platform')
     }
   })
 
@@ -204,6 +217,38 @@ describe('DesktopTitleBar update entry', () => {
       )
     })
   }
+
+  it('普通浏览器模式不渲染标题栏', async () => {
+    desktopMock.isDesktop.mockReturnValue(false)
+
+    await renderTitleBar(appUpdateState('available'), true)
+
+    expect(container.firstElementChild).toBeNull()
+  })
+
+  it('平台缺失时不使用浏览器平台推断 macOS 标题栏留白', async () => {
+    desktopMock.platform.mockReturnValue(null)
+    Object.defineProperty(window.navigator, 'platform', {
+      configurable: true,
+      value: 'MacIntel',
+    })
+
+    await renderTitleBar(appUpdateState('available'), true)
+
+    const titleBar = container.firstElementChild as HTMLElement | null
+    expect(titleBar?.style.paddingLeft).toBe('8px')
+    expect(container.querySelector('button[title="Minimize"]')).toBeNull()
+  })
+
+  it('Linux 桌面不渲染 Windows 自绘控制', async () => {
+    desktopMock.platform.mockReturnValue('linux')
+
+    await renderTitleBar(appUpdateState('available'), true)
+
+    const titleBar = container.firstElementChild as HTMLElement | null
+    expect(titleBar?.style.paddingLeft).toBe('8px')
+    expect(container.querySelector('button[title="Minimize"]')).toBeNull()
+  })
 
   it('只为桌面应用 available/downloaded 状态显示标题栏更新入口', async () => {
     await renderTitleBar(appUpdateState('idle'), false)

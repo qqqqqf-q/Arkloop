@@ -25,6 +25,8 @@ import { secondaryButtonSmCls, secondaryButtonBorderStyle } from './buttonStyles
 
 export const DESKTOP_TITLEBAR_HEIGHT = 44
 const WINDOWS_TITLEBAR_HEIGHT = 44
+const MAC_TITLEBAR_LEFT_PADDING = 76
+const DESKTOP_ICON_RAIL_LEFT_PADDING = 8
 
 type Props = {
   sidebarCollapsed: boolean
@@ -67,9 +69,8 @@ export function DesktopTitleBar({
   const [updatePopoverPosition, setUpdatePopoverPosition] = useState<{ top: number; right: number }>({ top: 50, right: 12 })
   const [windowMaximized, setWindowMaximized] = useState(false)
   const desktopPlatform = getDesktopPlatform()
-  const platformName = (desktopPlatform ?? navigator.platform).toLowerCase()
-  const isMac = desktopPlatform === 'darwin' || (!desktopPlatform && platformName.includes('mac'))
-  const isWindows = desktopPlatform === 'win32' || (!desktopPlatform && platformName.includes('win'))
+  const isMac = desktopPlatform === 'darwin'
+  const isWindows = desktopPlatform === 'win32'
   const titleBarHeight = isWindows ? WINDOWS_TITLEBAR_HEIGHT : DESKTOP_TITLEBAR_HEIGHT
   const hasActionableAppUpdate =
     appUpdateState?.phase === 'available' ||
@@ -163,7 +164,7 @@ export function DesktopTitleBar({
       style={{
         height: titleBarHeight,
         gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
-        paddingLeft: isMac ? '76px' : isWindows ? '12px' : '16px',
+        paddingLeft: `${isMac ? MAC_TITLEBAR_LEFT_PADDING : DESKTOP_ICON_RAIL_LEFT_PADDING}px`,
         paddingRight: isWindows ? 0 : '12px',
         background: isWindows
           ? 'color-mix(in srgb, var(--c-bg-sidebar) 92%, var(--c-bg-page))'
