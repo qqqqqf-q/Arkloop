@@ -28,6 +28,7 @@ func repairMissingColumns(ctx context.Context, db *sql.DB) error {
 		// Local desktop databases may already have 00086 marked applied with the old shape.
 		{Table: "threads", Column: "collaboration_mode", Definition: "TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan'))"},
 		{Table: "threads", Column: "collaboration_mode_revision", Definition: "INTEGER NOT NULL DEFAULT 0"},
+		{Table: "threads", Column: "learning_mode_enabled", Definition: "INTEGER NOT NULL DEFAULT 0"},
 	}
 
 	for _, s := range specs {

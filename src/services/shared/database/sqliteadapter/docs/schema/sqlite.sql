@@ -1327,7 +1327,7 @@ CREATE TABLE "threads" (
     branched_from_message_id TEXT,
     title_locked             INTEGER NOT NULL DEFAULT 0,
     mode                     TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'work')),
-    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0, learning_mode_enabled INTEGER NOT NULL DEFAULT 0,
     UNIQUE (id, account_id)
 );
 

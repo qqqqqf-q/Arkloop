@@ -159,6 +159,7 @@ export function WelcomePage() {
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [initialPlanMode, setInitialPlanMode] = useState(false)
+  const [initialLearningModeEnabled, setInitialLearningModeEnabled] = useState(false)
   const attachmentsRef = useRef<Attachment[]>([])
   const skipAttachmentDraftPersistRef = useRef(false)
   const prevAttachmentDraftScopeRef = useRef<InputDraftScope | null>(null)
@@ -346,6 +347,10 @@ export function WelcomePage() {
     setInitialPlanMode((prev) => !prev)
   }, [appMode])
 
+  const handleToggleLearningMode = useCallback(async (_currentMode: boolean) => {
+    setInitialLearningModeEnabled((prev) => !prev)
+  }, [])
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
     e.preventDefault()
     const text = (chatInputRef.current?.getValue() ?? '').trim()
@@ -361,6 +366,7 @@ export function WelcomePage() {
         is_private: isPrivateMode,
         mode: appMode === 'work' ? 'work' : 'chat',
         collaboration_mode: appMode === 'work' && initialPlanMode ? 'plan' : 'default',
+        learning_mode_enabled: initialLearningModeEnabled,
       })
       const uploaded = await Promise.all(
         attachments.map(async (attachment) => {
@@ -510,6 +516,8 @@ export function WelcomePage() {
             draftOwnerKey={me?.id}
             planMode={appMode === 'work' && initialPlanMode}
             onTogglePlanMode={handleTogglePlanMode}
+            learningModeEnabled={initialLearningModeEnabled}
+            onToggleLearningMode={handleToggleLearningMode}
           />
           {/* incognito note: 平滑展开/收起 */}
           <div

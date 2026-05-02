@@ -521,6 +521,7 @@ export type CreateThreadRequest = {
   mode?: ThreadMode
   project_id?: string
   collaboration_mode?: CollaborationMode
+  learning_mode_enabled?: boolean
 }
 
 export type ThreadMode = 'chat' | 'work'
@@ -542,6 +543,7 @@ export type ThreadResponse = {
   is_private: boolean
   collaboration_mode: CollaborationMode
   collaboration_mode_revision: number
+  learning_mode_enabled: boolean
   title_locked?: boolean
   hidden?: boolean
   updated_at?: string
@@ -815,6 +817,18 @@ export async function updateThreadCollaborationMode(
     method: 'PATCH',
     accessToken,
     body: JSON.stringify({ collaboration_mode: collaborationMode }),
+  })
+}
+
+export async function updateThreadLearningMode(
+  accessToken: string,
+  threadId: string,
+  enabled: boolean,
+): Promise<ThreadResponse> {
+  return await apiFetch<ThreadResponse>(`/v1/threads/${threadId}`, {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify({ learning_mode_enabled: enabled }),
   })
 }
 

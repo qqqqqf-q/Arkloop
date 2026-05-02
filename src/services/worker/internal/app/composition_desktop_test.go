@@ -1603,6 +1603,46 @@ func TestDesktopPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) 
 	}
 }
 
+func TestDesktopPersonaResolutionRestoresLearningModePromptAfterReset(t *testing.T) {
+	reg := personas.NewRegistry()
+	reg.Set(personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		SoulMD:         "persona soul",
+		PromptMD:       "system prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+	})
+	mw := desktopPersonaResolution(nil, func() *personas.Registry { return reg }, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{
+			"persona_id":            "test-persona",
+			"learning_mode_enabled": true,
+		},
+	}
+	pipeline.ApplyLearningMode(rc)
+
+	var gotRuntimePrompt string
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, got *pipeline.RunContext) error {
+		gotRuntimePrompt = got.RuntimePrompt
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("desktopPersonaResolution failed: %v", err)
+	}
+	if !rc.LearningModeEnabled {
+		t.Fatal("expected learning mode to remain active")
+	}
+	if !strings.Contains(gotRuntimePrompt, "学习辅导已在当前 thread 启用") {
+		t.Fatalf("expected learning prompt after desktop persona reset, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, "不替换当前 persona") {
+		t.Fatalf("expected persona overlay boundary in desktop runtime prompt, got %q", gotRuntimePrompt)
+	}
+}
+
 func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testing.T) {
 	ctx := context.Background()
 

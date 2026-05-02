@@ -98,6 +98,7 @@ import {
   listRunEvents,
   listThreadRuns,
   updateThreadCollaborationMode,
+  updateThreadLearningMode,
   uploadStagingAttachment,
   isApiError,
   type CollaborationMode,
@@ -809,9 +810,12 @@ export const ChatView = memo(function ChatView() {
   }, [threadId, completedUnreadThreadIds, markCompletionRead])
   const planModeUpdateRef = useRef<Promise<void> | null>(null)
   const planModeRequestSeqRef = useRef(0)
-  const waitForPlanModeUpdate = useCallback(async () => {
-    const pending = planModeUpdateRef.current
-    if (pending) await pending
+  const learningModeUpdateRef = useRef<Promise<void> | null>(null)
+  const learningModeRequestSeqRef = useRef(0)
+  const [learningModeUpdating, setLearningModeUpdating] = useState(false)
+  const waitForThreadModeUpdates = useCallback(async () => {
+    const pending = [planModeUpdateRef.current, learningModeUpdateRef.current].filter((item): item is Promise<void> => !!item)
+    if (pending.length > 0) await Promise.all(pending)
   }, [])
   const {
     messages,
@@ -2064,7 +2068,7 @@ export const ChatView = memo(function ChatView() {
       }
 
       if (pendingIncognito && messages.length > 0) {
-        await waitForPlanModeUpdate()
+        await waitForThreadModeUpdates()
         const lastMessageId = messages[messages.length - 1].id
         const forked = await forkThread(accessToken, threadId, lastMessageId, true)
         if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
@@ -2115,7 +2119,7 @@ export const ChatView = memo(function ChatView() {
       injectionBlockedRunIdRef.current = null
       noResponseMsgIdRef.current = message.id
 
-      await waitForPlanModeUpdate()
+      await waitForThreadModeUpdates()
       const run = await createRun(accessToken, threadId, personaKey, modelOverride, resolveThreadWorkFolder(threadId), readThreadReasoningMode(threadId) !== 'off' ? readThreadReasoningMode(threadId) as RunReasoningMode : undefined)
       writeRunThinkingHint(run.run_id, hint)
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
@@ -2163,7 +2167,7 @@ export const ChatView = memo(function ChatView() {
     setUserEnterMessageId,
     t.copThinkingHints,
     threadId,
-    waitForPlanModeUpdate,
+    waitForThreadModeUpdates,
     queueReadyAttachments,
     resolveThreadWorkFolder,
     resolveReasoningMode,
@@ -2460,6 +2464,29 @@ export const ChatView = memo(function ChatView() {
     await updatePromise
   }, [accessToken, isWorkMode, onThreadUpserted, setError, threadId])
 
+  const handleToggleLearningMode = useCallback(async (currentMode: boolean) => {
+    if (!threadId || learningModeUpdateRef.current) return
+    const requestSeq = ++learningModeRequestSeqRef.current
+    setLearningModeUpdating(true)
+    const updatePromise: Promise<void> = updateThreadLearningMode(accessToken, threadId, !currentMode).then((thread) => {
+      if (learningModeRequestSeqRef.current === requestSeq) {
+        onThreadUpserted(thread)
+      }
+    }).catch((err) => {
+      if (learningModeRequestSeqRef.current === requestSeq) {
+        setError(normalizeError(err))
+        throw err
+      }
+    }).finally(() => {
+      if (learningModeUpdateRef.current === updatePromise) {
+        learningModeUpdateRef.current = null
+        setLearningModeUpdating(false)
+      }
+    })
+    learningModeUpdateRef.current = updatePromise
+    await updatePromise
+  }, [accessToken, onThreadUpserted, setError, threadId])
+
   const hasMessages = messages.length > 0
   const inputHorizontalPadding = isWorkMode
     ? (isPanelOpen ? chatContentPadding.panelOpen : chatContentPadding.panelClosed)
@@ -2494,8 +2521,11 @@ export const ChatView = memo(function ChatView() {
       draftOwnerKey={me?.id}
       planMode={currentThread?.collaboration_mode === 'plan'}
       onTogglePlanMode={handleTogglePlanMode}
+      learningModeEnabled={!!currentThread?.learning_mode_enabled}
+      learningModeUpdating={learningModeUpdating}
+      onToggleLearningMode={handleToggleLearningMode}
     />
-  ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, effectiveAppMode, isSearchThread, hasMessages, messagesLoading, threadId, accessToken, me?.id, t.followUpPlaceholder, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings, editingQueuedPromptId, cancelQueuedPromptEdit, currentThread?.collaboration_mode, handleTogglePlanMode])
+  ), [attachments, sending, isStreaming, canCancel, cancelSubmitting, effectiveAppMode, isSearchThread, hasMessages, messagesLoading, threadId, accessToken, me?.id, t.followUpPlaceholder, t.replyPlaceholder, handleSend, handleCancel, handleAttachFiles, handlePasteContent, handleRemoveAttachment, handleAsrError, handlePersonaChange, onOpenSettings, editingQueuedPromptId, cancelQueuedPromptEdit, currentThread?.collaboration_mode, currentThread?.learning_mode_enabled, learningModeUpdating, handleTogglePlanMode, handleToggleLearningMode])
 
   const renderLiveCopItems = (
     seg: Extract<AssistantTurnSegment, { type: 'cop' }>,

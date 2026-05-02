@@ -1232,6 +1232,7 @@ func desktopInputLoader(
 		rc.ThreadMessageIDs = loaded.ThreadMessageIDs
 		rc.ThreadContextFrontier = append([]pipeline.FrontierNode(nil), loaded.ThreadContextFrontier...)
 		pipeline.ApplyCollaborationMode(rc)
+		pipeline.ApplyLearningMode(rc)
 		if rc.Tracer != nil {
 			rc.Tracer.Event("input_loader", "input_loader.loaded", map[string]any{
 				"run_kind":           strings.TrimSpace(desktopStringValue(loaded.InputJSON["run_kind"])),
@@ -3013,6 +3014,7 @@ func desktopPersonaResolution(
 			}
 		}
 		pipeline.SyncPlanModePrompt(rc)
+		pipeline.SyncLearningModePrompt(rc)
 
 		return next(ctx, rc)
 	}

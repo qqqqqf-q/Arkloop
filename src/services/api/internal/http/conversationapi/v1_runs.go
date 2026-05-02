@@ -160,6 +160,13 @@ func setRunCollaborationMode(startedData map[string]any, jobData map[string]any,
 	}
 }
 
+func setRunLearningMode(startedData map[string]any, jobData map[string]any, enabled bool) {
+	startedData["learning_mode_enabled"] = enabled
+	if jobData != nil {
+		jobData["learning_mode_enabled"] = enabled
+	}
+}
+
 type submitInputResponse struct {
 	OK bool `json:"ok"`
 }
@@ -388,6 +395,7 @@ func createThreadRun(
 		thread = &currentThread
 		jobData := map[string]any{"source": "api"}
 		setRunCollaborationMode(startedData, jobData, collaborationMode, collaborationModeRevision)
+		setRunLearningMode(startedData, jobData, thread.LearningModeEnabled)
 
 		var resumeFromRunID *uuid.UUID
 		if requestedResumeFromRunID != nil {

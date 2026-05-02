@@ -193,6 +193,7 @@ func NewPersonaResolutionMiddleware(
 			}
 		}
 		SyncPlanModePrompt(rc)
+		SyncLearningModePrompt(rc)
 
 		return next(ctx, rc)
 	}

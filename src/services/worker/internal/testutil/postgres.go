@@ -257,6 +257,7 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			is_private         BOOLEAN     NOT NULL DEFAULT FALSE,
 			collaboration_mode TEXT        NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')),
 			collaboration_mode_revision BIGINT NOT NULL DEFAULT 0,
+			learning_mode_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 			expires_at         TIMESTAMPTZ NULL,
 			deleted_at         TIMESTAMPTZ NULL,
 			next_message_seq   BIGINT      NOT NULL DEFAULT 1,

@@ -7,7 +7,6 @@ import type { SettingsTab } from '../SettingsModal'
 import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import {
   SEARCH_PERSONA_KEY,
-  LEARNING_PERSONA_KEY,
   readWorkFolder,
   writeWorkFolder,
   clearWorkFolder,
@@ -42,6 +41,9 @@ type Props = {
   hideWorkFolderPicker?: boolean
   hideModelPicker?: boolean
   onMenuOpenChange?: (open: boolean) => void
+  learningModeEnabled?: boolean
+  learningModeUpdating?: boolean
+  onToggleLearningMode?: (currentMode: boolean) => Promise<void>
 }
 
 function readActiveWorkFolder(threadId?: string): string | null {
@@ -70,6 +72,9 @@ export function PersonaModelBar({
   hideWorkFolderPicker,
   hideModelPicker,
   onMenuOpenChange,
+  learningModeEnabled = false,
+  learningModeUpdating = false,
+  onToggleLearningMode,
 }: Props) {
   const { t } = useLocale()
   const { threads, upsertThread } = useThreadList()
@@ -86,6 +91,13 @@ export function PersonaModelBar({
   const showWorkFolderPicker = isWorkMode && isDesktop() && !hideWorkFolderPicker && !threadMessagesLoading && !threadHasMessages
   const effectiveFolderMenuOpen = folderMenuOpen && showWorkFolderPicker
   const currentThread = workThreadId ? threads.find((thread) => thread.id === workThreadId) ?? null : null
+  const showLearningMode = learningModeEnabled || Boolean(onToggleLearningMode)
+  const learningModeDisabled = learningModeUpdating || !onToggleLearningMode
+  const toggleLearningMode = useCallback(() => {
+    if (learningModeDisabled) return
+    void onToggleLearningMode?.(learningModeEnabled)
+    setMenuOpen(false)
+  }, [learningModeDisabled, learningModeEnabled, onToggleLearningMode])
 
   // close plus menu on outside click
   useEffect(() => {
@@ -310,14 +322,40 @@ export function PersonaModelBar({
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
               {isWorkMode ? (
-                <button
-                  type="button"
-                  onClick={() => { onFileInputClick(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-                >
-                  <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
-                  {t.addFromLocal}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { onFileInputClick(); setMenuOpen(false) }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
+                  >
+                    <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
+                    {t.addFromLocal}
+                  </button>
+                  {showLearningMode && (
+                    <>
+                      <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
+                      <button
+                        type="button"
+                        onClick={toggleLearningMode}
+                        disabled={learningModeDisabled}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
+                        style={{
+                          color: learningModeEnabled ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                          fontWeight: learningModeEnabled ? 500 : 400,
+                          opacity: learningModeDisabled ? 0.55 : undefined,
+                        }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <BookOpen size={14} style={{ flexShrink: 0 }} />
+                          {t.learningMode}
+                        </span>
+                        {learningModeEnabled && (
+                          <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
+                        )}
+                      </button>
+                    </>
+                  )}
+                </>
               ) : (
                 <>
                   <button
@@ -331,11 +369,9 @@ export function PersonaModelBar({
                   <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
                   {personas.map((persona) => {
                     const isActive = selectedPersonaKey === persona.persona_key
-                    const icon = persona.persona_key === LEARNING_PERSONA_KEY
-                      ? <BookOpen size={14} style={{ flexShrink: 0 }} />
-                      : persona.persona_key === SEARCH_PERSONA_KEY
-                        ? <Search size={14} style={{ flexShrink: 0 }} />
-                        : null
+                    const icon = persona.persona_key === SEARCH_PERSONA_KEY
+                      ? <Search size={14} style={{ flexShrink: 0 }} />
+                      : null
                     return (
                       <button
                         key={persona.persona_key}
@@ -357,6 +393,27 @@ export function PersonaModelBar({
                       </button>
                     )
                   })}
+                  {showLearningMode && (
+                    <button
+                      type="button"
+                      onClick={toggleLearningMode}
+                      disabled={learningModeDisabled}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
+                      style={{
+                        color: learningModeEnabled ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                        fontWeight: learningModeEnabled ? 500 : 400,
+                        opacity: learningModeDisabled ? 0.55 : undefined,
+                      }}
+                    >
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <BookOpen size={14} style={{ flexShrink: 0 }} />
+                        {t.learningMode}
+                      </span>
+                      {learningModeEnabled && (
+                        <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
+                      )}
+                    </button>
+                  )}
                 </>
               )}
             </div>
@@ -365,6 +422,40 @@ export function PersonaModelBar({
       </div>
 
       {/* active mode chip */}
+      {showLearningMode && learningModeEnabled && (
+        <button
+          type="button"
+          onClick={toggleLearningMode}
+          disabled={learningModeDisabled}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            height: '33.5px',
+            padding: '0 8px 0 9px',
+            borderRadius: '8px',
+            background: 'var(--c-chip-active-bg)',
+            border: '0.5px solid var(--c-border-subtle)',
+            flexShrink: 0,
+            marginLeft: '4px',
+            cursor: learningModeDisabled ? 'not-allowed' : 'pointer',
+            opacity: learningModeDisabled ? 0.55 : undefined,
+          }}
+        >
+          <BookOpen size={12} style={{ color: 'var(--c-chip-active-text)', flexShrink: 0 }} />
+          <span style={{
+            fontSize: '13px',
+            color: 'var(--c-chip-active-text)',
+            fontWeight: 450,
+            whiteSpace: 'nowrap',
+            margin: '0 4px',
+          }}>
+            {t.learningMode}
+          </span>
+          <X size={9} style={{ color: 'var(--c-chip-active-text)', opacity: 0.5, flexShrink: 0 }} />
+        </button>
+      )}
+
       {isNonDefaultMode && (
         <button
           type="button"
@@ -383,9 +474,6 @@ export function PersonaModelBar({
             cursor: 'pointer',
           }}
         >
-          {selectedPersonaKey === LEARNING_PERSONA_KEY && (
-            <BookOpen size={12} style={{ color: 'var(--c-chip-active-text)', flexShrink: 0 }} />
-          )}
           {selectedPersonaKey === SEARCH_PERSONA_KEY && (
             <Search size={12} style={{ color: '#4691F6', flexShrink: 0 }} />
           )}

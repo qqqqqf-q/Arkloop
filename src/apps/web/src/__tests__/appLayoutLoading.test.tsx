@@ -86,6 +86,7 @@ function makeThread(overrides: Partial<ThreadResponse>): ThreadResponse {
     is_private: false,
     collaboration_mode: 'default',
     collaboration_mode_revision: 0,
+    learning_mode_enabled: false,
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides,
   }

@@ -191,8 +191,8 @@ func TestRepairMissingColumnsMigratesOldPlanMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load threads columns: %v", err)
 	}
-	if !hasSQLiteColumns(columns, "collaboration_mode", "collaboration_mode_revision") {
-		t.Fatalf("threads columns = %v, want collaboration mode columns", columns)
+	if !hasSQLiteColumns(columns, "collaboration_mode", "collaboration_mode_revision", "learning_mode_enabled") {
+		t.Fatalf("threads columns = %v, want repaired thread columns", columns)
 	}
 
 	var defaultMode, planMode string

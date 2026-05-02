@@ -136,6 +136,7 @@ func retryThreadMessage(
 		}
 		thread = &currentThread
 		setRunCollaborationMode(startedData, jobData, collaborationMode, collaborationModeRevision)
+		setRunLearningMode(startedData, jobData, thread.LearningModeEnabled)
 
 		run, err := createThreadRunForSource(
 			r.Context(),

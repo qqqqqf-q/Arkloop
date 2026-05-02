@@ -52,6 +52,20 @@ func TestSetRunCollaborationModeWritesStartedAndJobData(t *testing.T) {
 	}
 }
 
+func TestSetRunLearningModeWritesStartedAndJobData(t *testing.T) {
+	startedData := map[string]any{}
+	jobData := map[string]any{}
+
+	setRunLearningMode(startedData, jobData, true)
+
+	if got, _ := startedData["learning_mode_enabled"].(bool); !got {
+		t.Fatalf("started learning_mode_enabled = %#v, want true", startedData["learning_mode_enabled"])
+	}
+	if got, _ := jobData["learning_mode_enabled"].(bool); !got {
+		t.Fatalf("job learning_mode_enabled = %#v, want true", jobData["learning_mode_enabled"])
+	}
+}
+
 func assertRunField(t *testing.T, values map[string]any, key string, want string) {
 	t.Helper()
 	if got, _ := values[key].(string); got != want {

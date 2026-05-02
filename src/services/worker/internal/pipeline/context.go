@@ -276,6 +276,7 @@ type RunContext struct {
 	CollaborationMode         string
 	CollaborationModeRevision int64
 	IsPlanMode                bool
+	LearningModeEnabled       bool
 	PlanFilePath              string
 	PlanModeExitReminder      bool
 

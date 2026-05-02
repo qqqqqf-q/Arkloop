@@ -25,6 +25,13 @@ vi.mock('@arkloop/shared/desktop', () => ({
   getDesktopApi: () => null,
 }))
 
+vi.mock('../contexts/thread-list', () => ({
+  useThreadList: () => ({
+    threads: [],
+    upsertThread: vi.fn(),
+  }),
+}))
+
 vi.mock('@arkloop/shared', async () => {
   const actual = await vi.importActual<typeof import('@arkloop/shared')>('@arkloop/shared')
   return {

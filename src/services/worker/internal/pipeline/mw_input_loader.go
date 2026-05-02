@@ -154,6 +154,7 @@ func NewInputLoaderMiddleware(
 			rc.WorkDir = strings.TrimSpace(rawWorkDir)
 		}
 		ApplyCollaborationMode(rc)
+		ApplyLearningMode(rc)
 		emitTraceEvent(rc, "input_loader", "input_loader.loaded", map[string]any{
 			"run_kind":           strings.TrimSpace(stringValue(rc.InputJSON["run_kind"])),
 			"message_count":      len(rc.Messages),
@@ -225,6 +226,14 @@ func ApplyPlanMode(rc *RunContext) {
 	ApplyCollaborationMode(rc)
 }
 
+func ApplyLearningMode(rc *RunContext) {
+	if rc == nil {
+		return
+	}
+	rc.LearningModeEnabled = boolValue(rc.InputJSON["learning_mode_enabled"])
+	SyncLearningModePrompt(rc)
+}
+
 func int64Value(value any) int64 {
 	switch typed := value.(type) {
 	case int64:
@@ -235,6 +244,28 @@ func int64Value(value any) int64 {
 		return int64(typed)
 	default:
 		return 0
+	}
+}
+
+func boolValue(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case int:
+		return typed != 0
+	case int64:
+		return typed != 0
+	case float64:
+		return typed != 0
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "1", "true", "yes", "on":
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
 	}
 }
 
@@ -288,6 +319,59 @@ func SyncPlanModePrompt(rc *RunContext) {
 				"</system-reminder>",
 		})
 	}
+}
+
+func SyncLearningModePrompt(rc *RunContext) {
+	if rc == nil {
+		return
+	}
+	rc.RemovePromptSegment("learning_tutor")
+	if !rc.LearningModeEnabled {
+		return
+	}
+	rc.UpsertPromptSegment(PromptSegment{
+		Name:          "learning_tutor",
+		Target:        PromptTargetRuntimeTail,
+		Role:          "user",
+		Stability:     PromptStabilityVolatileTail,
+		CacheEligible: false,
+		Text: `<system-reminder>
+学习辅导已在当前 thread 启用。这是后端注入的学习辅导语义层，不替换当前 persona，不改变当前模式和工具可用性。你仍然是当前模式下的 Arkloop；当用户在学习、题解、数学、科学、工程、编程基础或概念理解场景中提问时，采用导师式回答。
+
+<learning_tutor_policy>
+默认工作语言跟随用户当前输入语言或已知偏好；用户使用中文时使用中文。用户主动指定语言时，以用户指定为准。
+
+对每条学习相关消息先判断意图再行动：
+- Directive：用户明确要求“解题、推导、计算、验证、写出答案、给完整过程”时，可以给出完整解答，但必须展示关键思路和必要验证。
+- Inquiry：用户问“为什么、怎么理解、原理是什么、哪里不懂”时，先解释概念和思路，不直接倾倒完整答案。
+默认按 Inquiry 处理，除非用户明确要求完整解答。
+
+教学遵循 U-S-T：
+1. Understand：先理解题目、用户困惑点、已知条件和目标。
+2. Solve：内部先独立求解并检查正确性，不把未经验证的推理直接抛给用户。
+3. Teach：从直觉解释开始，逐步过渡到形式化表述；必要时给小例子、反例、图示或步骤拆解。
+
+回答方式：
+- 像一位严谨、耐心的老师，关注用户是否真正理解，而不是只把答案交出去。
+- 不要一次性倾倒所有知识；在自然教学节点停下，但不要机械地以“要继续吗？”结尾。
+- 避免“这很简单”之类会压低用户体验的表述。
+- 用户表现出焦虑或挫败时，可以适度鼓励，但不要空泛安慰。
+
+数学与表达：
+- 数学表达式使用 LaTeX。行内公式使用 \( ... \)，块级公式使用 \[ ... \]。
+- 即使只是单个变量或短表达式，也用 LaTeX 包裹，例如 \( x \) 的值为 \( 3 \)。
+- 同一行中如果包含 LaTeX，避免混用 Markdown 粗体或斜体造成渲染冲突。
+
+可视化与工具：
+- 当概念关系、流程、分类、算法步骤适合图示时，可以使用 Mermaid；节点 ID 使用 ASCII，中文放在节点标签中。
+- 只有工具在当前 turn 真实可用时才调用，不伪造工具能力；外部事实、最新数据或引用材料仍按当前 persona 的工具与引用规则处理。
+
+边界：
+- 学习辅导只改变学习场景下的解释和教学策略，不创建新的 persona，不覆盖 Normal/Work mode 的基础行为。
+- 非学习任务仍按当前 persona 和当前模式规则处理。
+</learning_tutor_policy>
+</system-reminder>`,
+	})
 }
 
 func loadRunInputs(
@@ -371,6 +455,9 @@ func loadRunInputsWithTrace(
 		}
 		if rawRevision, ok := dataJSON["collaboration_mode_revision"]; ok {
 			inputJSON["collaboration_mode_revision"] = rawRevision
+		}
+		if rawLearningMode, ok := dataJSON["learning_mode_enabled"]; ok {
+			inputJSON["learning_mode_enabled"] = rawLearningMode
 		}
 		if rawTimeoutSeconds, ok := dataJSON["timeout_seconds"]; ok {
 			switch value := rawTimeoutSeconds.(type) {

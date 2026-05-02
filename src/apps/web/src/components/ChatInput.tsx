@@ -82,6 +82,9 @@ type Props = {
   draftOwnerKey?: string | null
   planMode?: boolean
   onTogglePlanMode?: (currentMode: boolean) => Promise<void>
+  learningModeEnabled?: boolean
+  learningModeUpdating?: boolean
+  onToggleLearningMode?: (currentMode: boolean) => Promise<void>
 }
 
 type TextareaSelection = {
@@ -182,6 +185,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   queuedEditLabel,
   onCancelQueuedEdit,
   draftOwnerKey,
+  learningModeEnabled = false,
+  learningModeUpdating = false,
+  onToggleLearningMode,
 }, ref) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -977,6 +983,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             hideWorkFolderPicker={isWorkCompactInput}
             hideModelPicker={isWorkCompactInput}
             onMenuOpenChange={handleMenuOpenChange}
+            learningModeEnabled={learningModeEnabled}
+            learningModeUpdating={learningModeUpdating}
+            onToggleLearningMode={onToggleLearningMode}
           />
 
           {isEditingQueuedPrompt && (

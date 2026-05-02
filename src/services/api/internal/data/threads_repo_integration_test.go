@@ -175,6 +175,17 @@ func TestThreadRepositoryListSearchFork(t *testing.T) {
 		t.Fatalf("sidebar update changed updated_at: before=%s after=%s", threadWork.UpdatedAt, threadWorkWithSidebar.UpdatedAt)
 	}
 	threadWork = *threadWorkWithSidebar
+	threadWorkWithLearning, err := threadRepo.UpdateFields(ctx, threadWork.ID, ThreadUpdateFields{
+		SetLearningModeEnabled: true,
+		LearningModeEnabled:    true,
+	})
+	if err != nil {
+		t.Fatalf("update learning mode: %v", err)
+	}
+	if threadWorkWithLearning == nil || !threadWorkWithLearning.LearningModeEnabled {
+		t.Fatalf("learning mode = %#v", threadWorkWithLearning)
+	}
+	threadWork = *threadWorkWithLearning
 
 	forkSource, err := messageRepo.Create(ctx, account.ID, threadWork.ID, "user", "fork source body", &user.ID)
 	if err != nil {
@@ -192,6 +203,9 @@ func TestThreadRepositoryListSearchFork(t *testing.T) {
 	}
 	if forked.Mode != ThreadModeWork {
 		t.Fatalf("forked mode = %q", forked.Mode)
+	}
+	if !forked.LearningModeEnabled {
+		t.Fatal("expected forked learning mode to be enabled")
 	}
 	if forked.SidebarWorkFolder == nil || *forked.SidebarWorkFolder != workFolder {
 		t.Fatalf("forked sidebar work folder = %#v", forked.SidebarWorkFolder)

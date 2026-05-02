@@ -46,7 +46,6 @@ Arkloop 是**开源**、面向**对话式 AI Agent** 的平台：托管运行时
 | `summarizer` | 系统内置摘要（标题/结果摘要） |
 | `impression-builder` | 系统级记忆画像构建 |
 | `extended-search` / `search-output` | 联网搜索与搜索输出整理（可与 Lua executor 配合） |
-| `stem-tutor` | STEM 教学向 |
 
 另：`normal` 模板含 **`arkloop_help`** 于 `core_tools`，便于在答复产品概念时拉取本知识库。
 

@@ -24,21 +24,23 @@ import (
 )
 
 type createThreadRequest struct {
-	Title             *string      `json:"title"`
-	IsPrivate         bool         `json:"is_private"`
-	Mode              *string      `json:"mode"`
-	ProjectID         optionalUUID `json:"project_id"`
-	CollaborationMode *string      `json:"collaboration_mode"`
+	Title               *string      `json:"title"`
+	IsPrivate           bool         `json:"is_private"`
+	Mode                *string      `json:"mode"`
+	ProjectID           optionalUUID `json:"project_id"`
+	CollaborationMode   *string      `json:"collaboration_mode"`
+	LearningModeEnabled bool         `json:"learning_mode_enabled"`
 }
 
 type updateThreadRequest struct {
-	Title             optionalString `json:"title"`
-	ProjectID         optionalUUID   `json:"project_id"`
-	CollaborationMode optionalString `json:"collaboration_mode"`
-	Mode              optionalString `json:"mode"`
-	SidebarWorkFolder optionalString `json:"sidebar_work_folder"`
-	SidebarPinned     optionalBool   `json:"sidebar_pinned"`
-	SidebarGtdBucket  optionalString `json:"sidebar_gtd_bucket"`
+	Title               optionalString `json:"title"`
+	ProjectID           optionalUUID   `json:"project_id"`
+	CollaborationMode   optionalString `json:"collaboration_mode"`
+	LearningModeEnabled optionalBool   `json:"learning_mode_enabled"`
+	Mode                optionalString `json:"mode"`
+	SidebarWorkFolder   optionalString `json:"sidebar_work_folder"`
+	SidebarPinned       optionalBool   `json:"sidebar_pinned"`
+	SidebarGtdBucket    optionalString `json:"sidebar_gtd_bucket"`
 }
 
 type threadResponse struct {
@@ -57,6 +59,7 @@ type threadResponse struct {
 	IsPrivate                 bool    `json:"is_private"`
 	CollaborationMode         string  `json:"collaboration_mode"`
 	CollaborationModeRevision int64   `json:"collaboration_mode_revision"`
+	LearningModeEnabled       bool    `json:"learning_mode_enabled"`
 	ParentThreadID            *string `json:"parent_thread_id,omitempty"`
 }
 
@@ -96,7 +99,7 @@ type optionalUUID struct {
 }
 
 func isTitleOnlyThreadUpdate(body updateThreadRequest) bool {
-	return body.Title.Present && !body.ProjectID.Present && !body.CollaborationMode.Present && !body.Mode.Present && !body.SidebarWorkFolder.Present && !body.SidebarPinned.Present && !body.SidebarGtdBucket.Present
+	return body.Title.Present && !body.ProjectID.Present && !body.CollaborationMode.Present && !body.LearningModeEnabled.Present && !body.Mode.Present && !body.SidebarWorkFolder.Present && !body.SidebarPinned.Present && !body.SidebarGtdBucket.Present
 }
 
 func (u *optionalUUID) UnmarshalJSON(raw []byte) error {
@@ -232,10 +235,12 @@ func createThread(
 			writeInternalError(w, traceID, err)
 			return
 		}
-		if initialCollaborationMode != data.ThreadCollaborationModeDefault {
+		if initialCollaborationMode != data.ThreadCollaborationModeDefault || body.LearningModeEnabled {
 			updated, err := txThreadRepo.UpdateFields(r.Context(), thread.ID, data.ThreadUpdateFields{
-				SetCollaborationMode: true,
-				CollaborationMode:    initialCollaborationMode,
+				SetCollaborationMode:   true,
+				CollaborationMode:      initialCollaborationMode,
+				SetLearningModeEnabled: true,
+				LearningModeEnabled:    body.LearningModeEnabled,
 			})
 			if err != nil {
 				writeInternalError(w, traceID, err)
@@ -407,7 +412,7 @@ func patchThread(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if !body.Title.Present && !body.ProjectID.Present && !body.CollaborationMode.Present && !body.Mode.Present && !body.SidebarWorkFolder.Present && !body.SidebarPinned.Present && !body.SidebarGtdBucket.Present {
+		if !body.Title.Present && !body.ProjectID.Present && !body.CollaborationMode.Present && !body.LearningModeEnabled.Present && !body.Mode.Present && !body.SidebarWorkFolder.Present && !body.SidebarPinned.Present && !body.SidebarGtdBucket.Present {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
@@ -472,22 +477,24 @@ func patchThread(
 		}
 
 		params := data.ThreadUpdateFields{
-			SetTitle:             body.Title.Present,
-			Title:                body.Title.Value,
-			SetTitleLocked:       body.Title.Present,
-			TitleLocked:          body.Title.Present,
-			SetProjectID:         body.ProjectID.Present,
-			ProjectID:            body.ProjectID.Value,
-			SetCollaborationMode: body.CollaborationMode.Present,
-			CollaborationMode:    collaborationMode,
-			SetMode:              body.Mode.Present,
-			Mode:                 threadMode,
-			SetSidebarWorkFolder: body.SidebarWorkFolder.Present,
-			SidebarWorkFolder:    sidebarWorkFolder,
-			SetSidebarPinnedAt:   body.SidebarPinned.Present,
-			SidebarPinnedAt:      sidebarPinnedAt,
-			SetSidebarGtdBucket:  body.SidebarGtdBucket.Present,
-			SidebarGtdBucket:     sidebarGtdBucket,
+			SetTitle:               body.Title.Present,
+			Title:                  body.Title.Value,
+			SetTitleLocked:         body.Title.Present,
+			TitleLocked:            body.Title.Present,
+			SetProjectID:           body.ProjectID.Present,
+			ProjectID:              body.ProjectID.Value,
+			SetCollaborationMode:   body.CollaborationMode.Present,
+			CollaborationMode:      collaborationMode,
+			SetLearningModeEnabled: body.LearningModeEnabled.Present,
+			LearningModeEnabled:    body.LearningModeEnabled.Value,
+			SetMode:                body.Mode.Present,
+			Mode:                   threadMode,
+			SetSidebarWorkFolder:   body.SidebarWorkFolder.Present,
+			SidebarWorkFolder:      sidebarWorkFolder,
+			SetSidebarPinnedAt:     body.SidebarPinned.Present,
+			SidebarPinnedAt:        sidebarPinnedAt,
+			SetSidebarGtdBucket:    body.SidebarGtdBucket.Present,
+			SidebarGtdBucket:       sidebarGtdBucket,
 		}
 
 		if isTitleOnlyThreadUpdate(body) {
@@ -1152,6 +1159,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		IsPrivate:                 thread.IsPrivate,
 		CollaborationMode:         thread.CollaborationMode,
 		CollaborationModeRevision: thread.CollaborationModeRevision,
+		LearningModeEnabled:       thread.LearningModeEnabled,
 		ParentThreadID:            parentThreadID,
 	}
 }

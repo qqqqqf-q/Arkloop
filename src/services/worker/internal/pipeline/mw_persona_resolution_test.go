@@ -261,6 +261,54 @@ func TestPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) {
 	}
 }
 
+func TestPersonaResolutionRestoresLearningModePromptAfterReset(t *testing.T) {
+	reg := buildPersonaRegistry(t, personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		SoulMD:         "persona soul",
+		PromptMD:       "system prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+	})
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{
+			"persona_id":            "test-persona",
+			"learning_mode_enabled": true,
+		},
+	}
+	pipeline.ApplyLearningMode(rc)
+
+	var gotRuntimePrompt string
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		gotRuntimePrompt = rc.RuntimePrompt
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !rc.LearningModeEnabled {
+		t.Fatal("expected learning mode to remain active")
+	}
+	if !strings.Contains(gotRuntimePrompt, "学习辅导已在当前 thread 启用") {
+		t.Fatalf("expected learning prompt after persona reset, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, "不替换当前 persona") {
+		t.Fatalf("expected persona overlay boundary in runtime prompt, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, "U-S-T") {
+		t.Fatalf("expected teaching method in runtime prompt, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, "LaTeX") {
+		t.Fatalf("expected math guidance in runtime prompt, got %q", gotRuntimePrompt)
+	}
+}
+
 func TestPersonaResolutionLoadsSystemSummarizerConfig(t *testing.T) {
 	reg := buildPersonaRegistry(t,
 		personas.Definition{
