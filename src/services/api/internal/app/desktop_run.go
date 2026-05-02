@@ -4,6 +4,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net"
 	nethttp "net/http"
@@ -37,11 +39,31 @@ import (
 	"arkloop/services/shared/telegrambot"
 )
 
-func desktopJWTSecretValue() string {
+func desktopJWTSecretValue(dataDir string) (string, error) {
 	if v := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_JWT_SECRET")); v != "" {
-		return v
+		return v, nil
 	}
-	return "arkloop-desktop-mode-jwt-secret-not-validated"
+	secretPath := filepath.Join(dataDir, "jwt.secret")
+	raw, err := os.ReadFile(secretPath)
+	if err == nil {
+		secret := strings.TrimSpace(string(raw))
+		if secret == "" {
+			return "", fmt.Errorf("jwt.secret must not be empty")
+		}
+		return secret, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", fmt.Errorf("read jwt.secret: %w", err)
+	}
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return "", fmt.Errorf("generate jwt secret: %w", err)
+	}
+	secret := hex.EncodeToString(secretBytes)
+	if err := os.WriteFile(secretPath, []byte(secret), 0o600); err != nil {
+		return "", fmt.Errorf("write jwt.secret: %w", err)
+	}
+	return secret, nil
 }
 
 // RunDesktop starts the desktop-mode API server, blocking until ctx is cancelled or an error occurs.
@@ -354,7 +376,11 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init password hasher: %w", err)
 	}
-	tokenService, err := auth.NewJwtAccessTokenService(desktopJWTSecretValue(), 3600, 86400)
+	jwtSecret, err := desktopJWTSecretValue(cfg.DataDir)
+	if err != nil {
+		return fmt.Errorf("jwt secret: %w", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService(jwtSecret, 3600, 86400)
 	if err != nil {
 		return fmt.Errorf("init token service: %w", err)
 	}

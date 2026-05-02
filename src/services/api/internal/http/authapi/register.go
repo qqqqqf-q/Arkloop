@@ -11,6 +11,7 @@ import (
 )
 
 type Deps struct {
+	Pool                  data.DB
 	AuthService           *auth.Service
 	RegistrationService   *auth.RegistrationService
 	EmailVerifyService    *auth.EmailVerifyService
@@ -28,6 +29,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("POST /v1/bootstrap/init", bootstrapInit(deps.RegistrationService))
 	mux.HandleFunc("GET /v1/bootstrap/verify/{token}", bootstrapVerify(deps.RegistrationService))
 	mux.HandleFunc("POST /v1/bootstrap/setup", bootstrapSetup(deps.RegistrationService))
+	registerLocalSessionRoute(mux, deps)
 	mux.HandleFunc("GET /v1/auth/captcha-config", captchaConfig(deps.ConfigResolver))
 	mux.HandleFunc("POST /v1/auth/resolve", resolveIdentity(deps.AuthService, deps.FeatureFlagService, deps.AuditWriter, deps.ConfigResolver))
 	mux.HandleFunc("/v1/auth/login", login(deps.AuthService, deps.AuditWriter, deps.ConfigResolver))

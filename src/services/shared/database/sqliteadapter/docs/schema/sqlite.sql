@@ -183,6 +183,14 @@ CREATE INDEX idx_thread_context_replacements_thread_created
 CREATE INDEX idx_thread_subagent_callbacks_thread_pending
     ON thread_subagent_callbacks(thread_id, created_at);
 
+CREATE INDEX idx_threads_owner_sidebar_gtd
+    ON threads (account_id, created_by_user_id, sidebar_gtd_bucket)
+    WHERE deleted_at IS NULL AND sidebar_gtd_bucket IS NOT NULL;
+
+CREATE INDEX idx_threads_owner_sidebar_pinned
+    ON threads (account_id, created_by_user_id, sidebar_pinned_at DESC)
+    WHERE deleted_at IS NULL AND sidebar_pinned_at IS NOT NULL;
+
 CREATE INDEX idx_threads_parent_thread_id ON threads(parent_thread_id) WHERE parent_thread_id IS NOT NULL;
 
 CREATE INDEX idx_worker_registrations_heartbeat ON worker_registrations(heartbeat_at);
@@ -343,7 +351,6 @@ CREATE TABLE account_entitlement_overrides (
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (account_id, key)
 );
-
 CREATE TABLE "account_memberships" (
     id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
     account_id     TEXT NOT NULL REFERENCES "accounts"(id) ON DELETE CASCADE,
@@ -394,7 +401,7 @@ CREATE TABLE api_keys (
     last_used_at TEXT,
     expires_at  TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
+, scopes TEXT NOT NULL DEFAULT '[]', revoked_at TEXT);
 
 CREATE TABLE asr_credentials (
     id            TEXT PRIMARY KEY DEFAULT (
@@ -1327,7 +1334,7 @@ CREATE TABLE "threads" (
     branched_from_message_id TEXT,
     title_locked             INTEGER NOT NULL DEFAULT 0,
     mode                     TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'work')),
-    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0, sidebar_work_folder TEXT NULL, sidebar_pinned_at TEXT NULL, sidebar_gtd_bucket TEXT NULL CHECK (sidebar_gtd_bucket IS NULL OR sidebar_gtd_bucket IN ('inbox', 'todo', 'waiting', 'someday', 'archived')),
     UNIQUE (id, account_id)
 );
 

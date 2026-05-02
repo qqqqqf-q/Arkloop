@@ -71,6 +71,6 @@ src/apps/desktop/resources/arkloop-sidecar
 src/services/desktop/desktop
 /sandbox
 release-files/
-ark
+/ark
 .cache
 .gstack/

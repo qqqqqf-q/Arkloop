@@ -32,7 +32,7 @@ export function ToolsSettings({ accessToken }: Props) {
       <div className="-mx-6 shrink-0 border-t border-[var(--c-border-subtle)]" />
       <div className="min-h-0 flex-1 pt-3">
         {activeTab === 'connectors' && <ConnectorsSettings accessToken={accessToken} nestedUnderTabs />}
-        {activeTab === 'searchFetch' && <SearchFetchSettings />}
+        {activeTab === 'searchFetch' && <SearchFetchSettings accessToken={accessToken} />}
       </div>
     </div>
   )

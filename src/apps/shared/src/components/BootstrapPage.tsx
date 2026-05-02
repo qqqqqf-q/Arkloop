@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { verifyBootstrapToken, setupBootstrapAdmin } from '../api/bootstrap'
+import type { BootstrapSetupRequest, BootstrapSetupResponse, BootstrapVerifyResponse } from '../api/bootstrap'
 import { ErrorCallout } from './ErrorCallout'
 import {
   SpinnerIcon, normalizeError, Reveal, PasswordEye, AuthLayout,
@@ -39,6 +40,11 @@ export type ConsoleTarget = {
   current?: boolean
 }
 
+export type BootstrapApi = {
+  verifyToken: (token: string) => Promise<BootstrapVerifyResponse>
+  setup: (req: BootstrapSetupRequest) => Promise<BootstrapSetupResponse>
+}
+
 type Phase = 'verifying' | 'invalid' | 'form' | 'success'
 
 type Props = {
@@ -46,10 +52,19 @@ type Props = {
   t: BootstrapTranslations
   locale: Locale
   consoles?: ConsoleTarget[]
+  tokenOverride?: string
+  api?: BootstrapApi
+  successPath?: string
 }
 
-export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
-  const { token = '' } = useParams()
+const defaultBootstrapApi: BootstrapApi = {
+  verifyToken: verifyBootstrapToken,
+  setup: setupBootstrapAdmin,
+}
+
+export function BootstrapPage({ onLoggedIn, t, locale, consoles, tokenOverride, api = defaultBootstrapApi, successPath = '/dashboard' }: Props) {
+  const { token: routeToken = '' } = useParams()
+  const token = tokenOverride ?? routeToken
   const navigate = useNavigate()
 
   const [phase, setPhase] = useState<Phase>('verifying')
@@ -72,7 +87,7 @@ export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
     setPhase('verifying')
     setError(null)
 
-    verifyBootstrapToken(token)
+    api.verifyToken(token)
       .then((resp) => {
         if (cancelled) return
         if (resp.valid) {
@@ -89,7 +104,7 @@ export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
       })
 
     return () => { cancelled = true }
-  }, [token, t.requestFailed])
+  }, [api, token, t.requestFailed])
 
   useEffect(() => {
     if (phase !== 'form') return
@@ -102,12 +117,12 @@ export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
   useEffect(() => {
     if (phase !== 'success' || !pendingAccessToken) return
     if (hasMultipleConsoles) return
-    const timer = window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
       onLoggedIn(pendingAccessToken)
-      navigate('/dashboard', { replace: true })
+      navigate(successPath, { replace: true })
     }, 900)
     return () => window.clearTimeout(timer)
-  }, [navigate, onLoggedIn, pendingAccessToken, phase, hasMultipleConsoles])
+  }, [navigate, onLoggedIn, pendingAccessToken, phase, hasMultipleConsoles, successPath])
 
   const expiresLabel = useMemo(() => {
     if (!expiresAt) return ''
@@ -134,7 +149,7 @@ export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
     setSubmitting(true)
     setError(null)
     try {
-      const resp = await setupBootstrapAdmin({
+      const resp = await api.setup({
         token,
         username: username.trim(),
         password,
@@ -157,7 +172,7 @@ export function BootstrapPage({ onLoggedIn, t, locale, consoles }: Props) {
     if (!pendingAccessToken) return
     onLoggedIn(pendingAccessToken)
     if (target.current) {
-      navigate('/dashboard', { replace: true })
+      navigate(successPath, { replace: true })
     } else {
       window.location.href = `${target.url}#_t=${encodeURIComponent(pendingAccessToken)}`
     }

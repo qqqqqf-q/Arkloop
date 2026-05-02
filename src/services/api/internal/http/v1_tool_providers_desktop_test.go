@@ -131,7 +131,7 @@ func TestDesktopToolProvidersListActivateAndConfigWebSearch(t *testing.T) {
 		ProjectRepo:             projectRepo,
 	})
 
-	token := auth.DesktopToken()
+	token := issueDesktopLocalSessionAccessToken(t, handler)
 	authH := map[string]string{"Authorization": "Bearer " + token}
 
 	rec := httptest.NewRecorder()
@@ -336,7 +336,7 @@ func TestDesktopToolProvidersListMemoryLocalRuntime(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(nethttp.MethodGet, "/v1/tool-providers", nil)
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	handler.ServeHTTP(rec, req)
 	if rec.Code != nethttp.StatusOK {
 		t.Fatalf("list status %d: %s", rec.Code, rec.Body.String())
@@ -477,7 +477,7 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 		}
 		r := httptest.NewRequest(nethttp.MethodPut, path, rdr)
 		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+		setDesktopTestAuthHeader(t, handler, r)
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		return w
@@ -490,7 +490,7 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(nethttp.MethodGet, "/v1/tool-providers", nil)
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	handler.ServeHTTP(rec, req)
 	if rec.Code != nethttp.StatusOK {
 		t.Fatalf("list status %d: %s", rec.Code, rec.Body.String())
@@ -621,7 +621,7 @@ func TestDesktopToolProvidersListSeparatesDockerAndFirecrackerRuntime(t *testing
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(nethttp.MethodGet, "/v1/tool-providers", nil)
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	handler.ServeHTTP(rec, req)
 	if rec.Code != nethttp.StatusOK {
 		t.Fatalf("list status %d: %s", rec.Code, rec.Body.String())
