@@ -17,6 +17,7 @@ import (
 )
 
 func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
+	t.Setenv("ARKLOOP_STUB_AGENT_ENABLED", "true")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
 
@@ -97,6 +98,7 @@ func TestNativeRunEngineV1HandlerWritesEventsAndMessage(t *testing.T) {
 }
 
 func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
+	t.Setenv("ARKLOOP_STUB_AGENT_ENABLED", "true")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
 
@@ -165,6 +167,7 @@ func TestNativeRunEngineV1HandlerCancelsWhenRequested(t *testing.T) {
 }
 
 func TestNativeRunEngineV1HandlerCompletesWithTinyDirectPool(t *testing.T) {
+	t.Setenv("ARKLOOP_STUB_AGENT_ENABLED", "true")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_COUNT", "2")
 	t.Setenv("ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS", "0")
 

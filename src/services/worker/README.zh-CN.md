@@ -22,7 +22,7 @@
   - `ARKLOOP_WORKER_HEARTBEAT_SECONDS`（默认 10；设为 0 可禁用 heartbeat）
   - `ARKLOOP_WORKER_QUEUE_JOB_TYPES`（默认 `run.execute`）
 - Provider 路由：
-  - `ARKLOOP_PROVIDER_ROUTING_JSON`（为空时默认走 stub）
+  - `ARKLOOP_PROVIDER_ROUTING_JSON`（为空时会选中 stub 路由；stub 网关默认关闭，需显式设置 `ARKLOOP_STUB_AGENT_ENABLED=true` 才会输出测试内容）
 - Tools：
   - `ARKLOOP_TOOL_ALLOWLIST`（已弃用；仅记录日志，不再裁剪运行时工具）
   - `ARKLOOP_TOOL_PROVIDER_CACHE_TTL_SECONDS`（默认 `60`；0 表示不缓存，每次 run 都查 DB）

@@ -18,7 +18,7 @@ const (
 	stubDeltaCountEnv        = "ARKLOOP_STUB_AGENT_DELTA_COUNT"
 	stubDeltaIntervalSeconds = "ARKLOOP_STUB_AGENT_DELTA_INTERVAL_SECONDS"
 	llmDebugEventsEnv        = "ARKLOOP_LLM_DEBUG_EVENTS"
-	defaultStubEnabled       = true
+	defaultStubEnabled       = false
 	defaultStubDeltaCount    = 3
 	defaultStubDeltaInterval = 0.02
 	defaultStubProviderKind  = "stub"
