@@ -21,10 +21,13 @@ import (
 	worker "arkloop/services/worker"
 )
 
+const desktopQuietLogsEnv = "ARKLOOP_DESKTOP_QUIET_LOGS"
+
 type Options struct {
 	Component    string
 	StartBridge  bool
 	StartSandbox bool
+	Quiet        bool
 }
 
 func Run(ctx context.Context, opts Options) error {
@@ -35,6 +38,10 @@ func Run(ctx context.Context, opts Options) error {
 	component := strings.TrimSpace(opts.Component)
 	if component == "" {
 		component = "desktop"
+	}
+	if opts.Quiet {
+		restoreQuietLogs := setDesktopQuietLogsEnv()
+		defer restoreQuietLogs()
 	}
 	slog.SetDefault(sharedlog.New(sharedlog.Config{Component: component}))
 
@@ -130,6 +137,18 @@ func Run(ctx context.Context, opts Options) error {
 		}
 	}
 	return firstErr
+}
+
+func setDesktopQuietLogsEnv() func() {
+	previous, hadPrevious := os.LookupEnv(desktopQuietLogsEnv)
+	_ = os.Setenv(desktopQuietLogsEnv, "1")
+	return func() {
+		if hadPrevious {
+			_ = os.Setenv(desktopQuietLogsEnv, previous)
+			return
+		}
+		_ = os.Unsetenv(desktopQuietLogsEnv)
+	}
 }
 
 func EnsureToken() error {

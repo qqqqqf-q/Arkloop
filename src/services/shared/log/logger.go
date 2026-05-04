@@ -51,6 +51,9 @@ func New(cfg Config) *slog.Logger {
 	if cfg.Level == 0 {
 		cfg.Level = defaultLevel
 	}
+	if os.Getenv("ARKLOOP_DESKTOP_QUIET_LOGS") == "1" {
+		cfg.Output = io.Discard
+	}
 	if cfg.Output == nil {
 		cfg.Output = os.Stderr
 	}

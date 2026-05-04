@@ -5,9 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,8 +15,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -43,14 +42,10 @@ const (
 	desktopUserID    = "00000000-0000-4000-8000-000000000001"
 	desktopAccountID = "00000000-0000-4000-8000-000000000002"
 	desktopRole      = "platform_admin"
-
-	localTrustTokenQuery = "ark_web_local_token"
-	localTrustCookieName = "arkloop_local_web"
 )
 
 type localTrustConfig struct {
 	Enabled bool
-	Token   string
 }
 
 func cmdWeb(ctx context.Context, args []string) error {
@@ -73,6 +68,8 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	webRoot := fs.String("web-root", "", "web dist directory")
 	dataDir := fs.String("data-dir", "", "data directory")
 	publicURL := fs.String("public-url", "", "public base URL")
+	noOpen := fs.Bool("no-open", false, "do not open browser")
+	verbose := fs.Bool("verbose", false, "show runtime logs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -95,6 +92,10 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	if err := writeDesktopPort(*apiPort); err != nil {
 		return err
 	}
+	ownerPasswordSet, err := desktopOwnerPasswordCredentialExists(ctx, *dataDir)
+	if err != nil {
+		return err
+	}
 
 	runtimeErr := make(chan error, 1)
 	go func() {
@@ -102,6 +103,7 @@ func cmdWebStart(ctx context.Context, args []string) error {
 			Component:    "headless-web",
 			StartBridge:  true,
 			StartSandbox: true,
+			Quiet:        !*verbose,
 		})
 	}()
 
@@ -135,13 +137,25 @@ func cmdWebStart(ctx context.Context, args []string) error {
 
 	localURL := "http://" + net.JoinHostPort(localDisplayHost(*host), listenPort(listener.Addr(), *port))
 	webURL := localURL
-	if localTrust.Token != "" {
-		webURL = urlWithLocalTrustToken(localURL, "/", localTrust.Token)
-		fmt.Fprintf(os.Stdout, "setup_url=%s\n", urlWithLocalTrustToken(localURL, "/setup", localTrust.Token))
+	openURL := webURL
+	if localTrust.Enabled && !ownerPasswordSet {
+		setupURL := localURL + "/setup"
+		openURL = setupURL
 	}
-	fmt.Fprintf(os.Stdout, "web_url=%s\n", webURL)
-	fmt.Fprintf(os.Stdout, "api_url=%s\n", apiURL)
-	fmt.Fprintf(os.Stdout, "web_root=%s\n", root)
+	printHeadlessWebPanel(os.Stdout, headlessWebPanel{
+		WebURL:      webURL,
+		SetupURL:    setupURLForPanel(localURL, localTrust.Enabled && !ownerPasswordSet),
+		APIURL:      apiURL,
+		WebRoot:     root,
+		ListenAddr:  webAddr,
+		OpenedURL:   openURL,
+		RemoteLogin: ownerPasswordSet,
+	})
+	if !*noOpen {
+		if err := openExternalBrowser(openURL); err != nil {
+			fmt.Fprintf(os.Stderr, "open_error=%s\n", err)
+		}
+	}
 
 	select {
 	case err := <-runtimeErr:
@@ -160,6 +174,61 @@ func cmdWebStart(ctx context.Context, args []string) error {
 func printWebUsage() {
 	fmt.Fprintln(os.Stderr, "usage: ark web [flags]")
 	fmt.Fprintln(os.Stderr, "       ark web reset-password [flags]")
+}
+
+type headlessWebPanel struct {
+	WebURL      string
+	SetupURL    string
+	APIURL      string
+	WebRoot     string
+	ListenAddr  string
+	OpenedURL   string
+	RemoteLogin bool
+}
+
+func setupURLForPanel(localURL string, required bool) string {
+	if !required {
+		return ""
+	}
+	return localURL + "/setup"
+}
+
+func printHeadlessWebPanel(output *os.File, panel headlessWebPanel) {
+	if output == nil {
+		return
+	}
+	if !term.IsTerminal(int(output.Fd())) {
+		printHeadlessWebKV(output, panel)
+		return
+	}
+	fmt.Fprint(output, "\033[2J\033[H")
+	fmt.Fprintln(output, "\033[1;38;5;75mARKLOOP WEB\033[0m")
+	fmt.Fprintln(output)
+	if panel.SetupURL != "" {
+		fmt.Fprintf(output, "  \033[1;33mSetup:\033[0m          \033[1m%s\033[0m\n", panel.SetupURL)
+	}
+	fmt.Fprintf(output, "  \033[1;36mWeb interface:\033[0m  \033[1m%s\033[0m\n", panel.WebURL)
+	fmt.Fprintf(output, "  \033[90mAPI:\033[0m            %s\n", panel.APIURL)
+	fmt.Fprintf(output, "  \033[90mListening:\033[0m      %s\n", panel.ListenAddr)
+	if panel.RemoteLogin {
+		fmt.Fprintln(output, "  \033[90mRemote:\033[0m         password login enabled")
+	} else {
+		fmt.Fprintln(output, "  \033[90mRemote:\033[0m         setup required")
+	}
+	fmt.Fprintln(output)
+	fmt.Fprintf(output, "  \033[90mOpened:\033[0m         %s\n", panel.OpenedURL)
+	fmt.Fprintln(output, "  \033[90mStop:\033[0m           Ctrl+C")
+	fmt.Fprintln(output)
+}
+
+func printHeadlessWebKV(output io.Writer, panel headlessWebPanel) {
+	if panel.SetupURL != "" {
+		fmt.Fprintf(output, "setup_url=%s\n", panel.SetupURL)
+	}
+	fmt.Fprintf(output, "web_url=%s\n", panel.WebURL)
+	fmt.Fprintf(output, "api_url=%s\n", panel.APIURL)
+	fmt.Fprintf(output, "web_root=%s\n", panel.WebRoot)
+	fmt.Fprintf(output, "opened_url=%s\n", panel.OpenedURL)
 }
 
 func configureHeadlessEnv(apiPort int, bridgePort int, dataDir string, publicURL string) error {
@@ -344,11 +413,7 @@ func serveIndex(w http.ResponseWriter, r *http.Request, webRoot string, localTru
 func localTrustConfigForHost(host string) (localTrustConfig, error) {
 	switch requestHostName(host) {
 	case "localhost", "127.0.0.1", "::1", "", "0.0.0.0", "::":
-		token, err := generateLocalTrustToken()
-		if err != nil {
-			return localTrustConfig{}, err
-		}
-		return localTrustConfig{Enabled: true, Token: token}, nil
+		return localTrustConfig{Enabled: true}, nil
 	default:
 		return localTrustConfig{}, nil
 	}
@@ -358,54 +423,7 @@ func localTrustAllowed(w http.ResponseWriter, r *http.Request, cfg localTrustCon
 	if !cfg.Enabled || !isLocalWebRequest(r) {
 		return false
 	}
-	if cfg.Token == "" {
-		return true
-	}
-	if localTrustTokenMatches(r.URL.Query().Get(localTrustTokenQuery), cfg.Token) {
-		http.SetCookie(w, &http.Cookie{
-			Name:     localTrustCookieName,
-			Value:    cfg.Token,
-			Path:     "/",
-			MaxAge:   12 * 60 * 60,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		})
-		return true
-	}
-	cookie, err := r.Cookie(localTrustCookieName)
-	if err != nil {
-		return false
-	}
-	return localTrustTokenMatches(cookie.Value, cfg.Token)
-}
-
-func localTrustTokenMatches(got string, want string) bool {
-	got = strings.TrimSpace(got)
-	want = strings.TrimSpace(want)
-	if got == "" || want == "" || len(got) != len(want) {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
-}
-
-func generateLocalTrustToken() (string, error) {
-	var raw [32]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
-}
-
-func urlWithLocalTrustToken(baseURL string, requestPath string, token string) string {
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return baseURL
-	}
-	parsed.Path = requestPath
-	q := parsed.Query()
-	q.Set(localTrustTokenQuery, token)
-	parsed.RawQuery = q.Encode()
-	return parsed.String()
+	return true
 }
 
 func injectDesktopInfo(index []byte, token string) []byte {
@@ -639,6 +657,28 @@ func readPasswordTwice(stdin *os.File, output io.Writer) (string, error) {
 	return string(first), nil
 }
 
+func desktopOwnerPasswordCredentialExists(ctx context.Context, explicitDataDir string) (bool, error) {
+	dataDir, err := desktop.ResolveDataDir(explicitDataDir)
+	if err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return false, err
+	}
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(dataDir, "data.db"))
+	if err != nil {
+		return false, err
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(1) FROM user_credentials WHERE user_id = $1`, desktopUserID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func setDesktopOwnerPassword(ctx context.Context, explicitDataDir string, login string, password string) error {
 	dataDir, err := desktop.ResolveDataDir(explicitDataDir)
 	if err != nil {
@@ -679,6 +719,24 @@ func setDesktopOwnerPassword(ctx context.Context, explicitDataDir string, login 
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func openExternalBrowser(targetURL string) error {
+	targetURL = strings.TrimSpace(targetURL)
+	if targetURL == "" {
+		return nil
+	}
+
+	var cmd *exec.Cmd
+	switch goruntime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", targetURL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", targetURL)
+	default:
+		cmd = exec.Command("xdg-open", targetURL)
+	}
+	return cmd.Start()
 }
 
 func seedDesktopOwner(ctx context.Context, q *sqlitepgx.Pool) error {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,16 +108,15 @@ func TestAssetPathWithinRootRejectsSymlinkEscape(t *testing.T) {
 
 func TestLocalTrustConfigForHost(t *testing.T) {
 	tests := []struct {
-		host      string
-		want      bool
-		wantToken bool
+		host string
+		want bool
 	}{
-		{host: "localhost", want: true, wantToken: true},
-		{host: "127.0.0.1", want: true, wantToken: true},
-		{host: "::1", want: true, wantToken: true},
-		{host: "0.0.0.0", want: true, wantToken: true},
-		{host: "::", want: true, wantToken: true},
-		{host: "", want: true, wantToken: true},
+		{host: "localhost", want: true},
+		{host: "127.0.0.1", want: true},
+		{host: "::1", want: true},
+		{host: "0.0.0.0", want: true},
+		{host: "::", want: true},
+		{host: "", want: true},
 		{host: "192.168.1.10", want: false},
 	}
 
@@ -129,47 +129,85 @@ func TestLocalTrustConfigForHost(t *testing.T) {
 			if got.Enabled != tt.want {
 				t.Fatalf("localTrustConfigForHost(%q).Enabled = %v, want %v", tt.host, got.Enabled, tt.want)
 			}
-			if (got.Token != "") != tt.wantToken {
-				t.Fatalf("localTrustConfigForHost(%q).Token presence = %v, want %v", tt.host, got.Token != "", tt.wantToken)
-			}
 		})
 	}
 }
 
-func TestLocalTrustAllowedWithWildcardRequiresURLTokenOrCookie(t *testing.T) {
-	cfg := localTrustConfig{Enabled: true, Token: "setup-token"}
-
+func TestLocalTrustAllowedWithWildcardAllowsPlainLoopback(t *testing.T) {
 	plain := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:19080/", nil)
 	plain.Host = "127.0.0.1:19080"
 	plain.RemoteAddr = "127.0.0.1:50000"
-	if localTrustAllowed(httptest.NewRecorder(), plain, cfg) {
-		t.Fatal("expected wildcard local trust to require setup token")
+	if !localTrustAllowed(httptest.NewRecorder(), plain, localTrustConfig{Enabled: true}) {
+		t.Fatal("expected plain loopback request to allow local trust")
 	}
 
-	withToken := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:19080/setup?"+localTrustTokenQuery+"=setup-token", nil)
-	withToken.Host = "127.0.0.1:19080"
-	withToken.RemoteAddr = "127.0.0.1:50000"
-	rec := httptest.NewRecorder()
-	if !localTrustAllowed(rec, withToken, cfg) {
-		t.Fatal("expected matching setup token to allow local trust")
-	}
-	if cookie := rec.Result().Cookies(); len(cookie) != 1 || cookie[0].Name != localTrustCookieName {
-		t.Fatalf("expected local trust cookie, got %#v", cookie)
-	}
-
-	withCookie := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:19080/", nil)
-	withCookie.Host = "127.0.0.1:19080"
-	withCookie.RemoteAddr = "127.0.0.1:50000"
-	withCookie.AddCookie(&http.Cookie{Name: localTrustCookieName, Value: "setup-token"})
-	if !localTrustAllowed(httptest.NewRecorder(), withCookie, cfg) {
-		t.Fatal("expected matching cookie to allow local trust")
-	}
-
-	remote := httptest.NewRequest(http.MethodGet, "http://192.168.1.10:19080/setup?"+localTrustTokenQuery+"=setup-token", nil)
+	remote := httptest.NewRequest(http.MethodGet, "http://192.168.1.10:19080/setup", nil)
 	remote.Host = "192.168.1.10:19080"
 	remote.RemoteAddr = "127.0.0.1:50000"
-	if localTrustAllowed(httptest.NewRecorder(), remote, cfg) {
-		t.Fatal("expected LAN host to reject local trust even with token")
+	if localTrustAllowed(httptest.NewRecorder(), remote, localTrustConfig{Enabled: true}) {
+		t.Fatal("expected LAN host to reject local trust")
+	}
+}
+
+func TestServeIndexInjectsDesktopInfoForPlainLoopback(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html><head></head><body></body></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("ARKLOOP_DESKTOP_TOKEN", "arkloop-desktop-token")
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:19080/", nil)
+	req.Host = "127.0.0.1:19080"
+	req.RemoteAddr = "127.0.0.1:50000"
+	rec := httptest.NewRecorder()
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true})
+	got := rec.Body.String()
+	if !strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
+		t.Fatalf("expected local desktop injection: %s", got)
+	}
+	if !strings.Contains(got, `getMode:function(){return "local"}`) {
+		t.Fatalf("expected local mode getter: %s", got)
+	}
+}
+
+func TestServeIndexDoesNotInjectDesktopInfoForLANHost(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html><head></head><body></body></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("ARKLOOP_DESKTOP_TOKEN", "arkloop-desktop-token")
+
+	req := httptest.NewRequest(http.MethodGet, "http://192.168.1.10:19080/", nil)
+	req.Host = "192.168.1.10:19080"
+	req.RemoteAddr = "127.0.0.1:50000"
+	rec := httptest.NewRecorder()
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true})
+	if got := rec.Body.String(); strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
+		t.Fatalf("unexpected desktop injection: %s", got)
+	}
+}
+
+func TestDesktopOwnerPasswordCredentialExists(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+
+	exists, err := desktopOwnerPasswordCredentialExists(ctx, dataDir)
+	if err != nil {
+		t.Fatalf("credential exists before setup: %v", err)
+	}
+	if exists {
+		t.Fatal("expected no owner password before setup")
+	}
+
+	if err := setDesktopOwnerPassword(ctx, dataDir, "owner-web", "abc12345"); err != nil {
+		t.Fatalf("set owner password: %v", err)
+	}
+	exists, err = desktopOwnerPasswordCredentialExists(ctx, dataDir)
+	if err != nil {
+		t.Fatalf("credential exists after setup: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected owner password after setup")
 	}
 }
 

@@ -14,6 +14,7 @@ import { VerifyEmailPage } from './components/VerifyEmailPage'
 import { OnboardingWizard } from './components/OnboardingWizard'
 import { HeadlessSetupPage } from './components/HeadlessSetupPage'
 import { useLocale } from './contexts/LocaleContext'
+import { shouldDelayLocalSession } from './appAuthStartup'
 import {
   clearActiveThreadIdInStorage,
   writeAccessTokenToStorage,
@@ -156,8 +157,16 @@ function App() {
       addToast(t.sessionExpired, 'warn')
     })
 
+    const localMode = isLocalMode()
+    if (shouldDelayLocalSession(localMode, sidecarChecked, onboardingDone)) {
+      setAuthChecked(false)
+      return () => {
+        controller.abort()
+      }
+    }
+
     // Local 模式: local trust 只用于换取正常 session，业务 API 继续使用 JWT。
-    if (isLocalMode()) {
+    if (localMode) {
       const desktopToken = getDesktopAccessToken()?.trim()
       if (!desktopToken) {
         clearAccessTokenFromStorage()
@@ -211,7 +220,7 @@ function App() {
     return () => {
       controller.abort()
     }
-  }, [addToast, t.sessionExpired])
+  }, [addToast, onboardingDone, sidecarChecked, t.sessionExpired])
 
   const handleLoggedIn = useCallback((token: string) => {
     clearActiveThreadIdInStorage()
