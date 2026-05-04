@@ -58,6 +58,9 @@ func TestInjectDesktopInfoAddsLocalModeScript(t *testing.T) {
 	if !strings.Contains(got, "getApiBaseUrl:function(){return window.location.origin}") {
 		t.Fatalf("missing same-origin api getter: %s", got)
 	}
+	if !strings.Contains(got, "getAppVersion:function(){return") {
+		t.Fatalf("missing app version getter: %s", got)
+	}
 	if !strings.Contains(got, "</head>") {
 		t.Fatalf("index head was not preserved: %s", got)
 	}

@@ -149,11 +149,13 @@ type DesktopInfo = {
   accessToken?: string
   mode?: ConnectionMode
   platform?: DesktopPlatform
+  appVersion?: string
   getApiBaseUrl?: () => string
   getBridgeBaseUrl?: () => string
   getAccessToken?: () => string
   getMode?: () => ConnectionMode
   getPlatform?: () => DesktopPlatform
+  getAppVersion?: () => string
 }
 
 export type UpdaterComponentStatus = {
@@ -389,6 +391,14 @@ export function getDesktopPlatform(): DesktopPlatform | null {
     return info.getPlatform() ?? null
   }
   return info?.platform ?? null
+}
+
+export function getDesktopAppVersion(): string | null {
+  const info = getDesktopInfo()
+  if (typeof info?.getAppVersion === 'function') {
+    return info.getAppVersion() ?? null
+  }
+  return info?.appVersion ?? null
 }
 
 export function getDesktopAccessToken(): string | null {

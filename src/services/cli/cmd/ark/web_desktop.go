@@ -568,10 +568,11 @@ func injectDesktopInfo(index []byte, token string) []byte {
 	}
 	payload, _ := json.Marshal(map[string]string{
 		"accessToken":   token,
+		"appVersion":    version,
 		"bridgeBaseUrl": "",
 		"mode":          "local",
 	})
-	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getBridgeBaseUrl:function(){return ""},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"}});</script>`)
+	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getBridgeBaseUrl:function(){return ""},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"},getAppVersion:function(){return ` + strconv.Quote(version) + `}});</script>`)
 	if idx := bytes.Index(index, []byte("</head>")); idx >= 0 {
 		out := make([]byte, 0, len(index)+len(script))
 		out = append(out, index[:idx]...)

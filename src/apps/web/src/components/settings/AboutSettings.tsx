@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, Github, HardDrive } from 'lucide-react'
-import { getDesktopApi, type DesktopAdvancedOverview } from '@arkloop/shared/desktop'
+import { getDesktopApi, getDesktopAppVersion, type DesktopAdvancedOverview } from '@arkloop/shared/desktop'
 import { Button, PillToggle } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { openExternal } from '../../openExternal'
@@ -13,6 +13,7 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
   const { t } = useLocale()
   const ds = t.desktopSettings
   const api = getDesktopApi()
+  const localAppVersion = getDesktopAppVersion() ?? ''
   const [devMode, setDevMode] = useState(() => readDeveloperMode())
   const [fallbackVersion, setFallbackVersion] = useState('')
   const [overview, setOverview] = useState<DesktopAdvancedOverview | null>(null)
@@ -20,7 +21,10 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!api?.advanced) return
+    if (!api?.advanced) {
+      setLoading(false)
+      return
+    }
     let active = true
     void api.advanced.getOverview()
       .then((data) => {
@@ -38,7 +42,11 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
   }, [api, t.requestFailed])
 
   useEffect(() => {
-    if (overview?.appVersion || !api?.app) return
+    if (overview?.appVersion) return
+    if (!api?.app) {
+      setFallbackVersion(localAppVersion)
+      return
+    }
     let active = true
     void api.app.getVersion()
       .then((version) => {
@@ -48,7 +56,7 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
     return () => {
       active = false
     }
-  }, [api, overview?.appVersion])
+  }, [api, localAppVersion, overview?.appVersion])
 
   const appName = overview?.appName ?? 'Arkloop'
   const appVersion = overview?.appVersion ?? fallbackVersion

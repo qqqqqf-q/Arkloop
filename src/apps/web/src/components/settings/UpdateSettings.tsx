@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
-import { getDesktopApi, type UpdaterComponent, type AppUpdaterState } from '@arkloop/shared/desktop'
+import { getDesktopApi, getDesktopAppVersion, type UpdaterComponent, type AppUpdaterState } from '@arkloop/shared/desktop'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 type ComponentStatus = {
@@ -29,7 +29,30 @@ function getUpdaterApi() {
 }
 
 function getAppUpdaterApi() {
-  return getDesktopApi()?.appUpdater ?? null
+  const api = getDesktopApi()?.appUpdater
+  if (api) return api
+  const state = localHeadlessAppUpdaterState()
+  if (!state) return null
+  return {
+    getState: async () => state,
+    check: async () => state,
+    download: async () => state,
+    install: async () => ({ ok: false }),
+    onState: () => () => {},
+  }
+}
+
+function localHeadlessAppUpdaterState(): AppUpdaterState | null {
+  const currentVersion = getDesktopAppVersion()
+  if (!currentVersion) return null
+  return {
+    supported: false,
+    phase: 'unsupported',
+    currentVersion,
+    latestVersion: null,
+    progressPercent: 0,
+    error: null,
+  }
 }
 
 type ComponentRow = {

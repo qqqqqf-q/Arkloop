@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ChevronLeft } from 'lucide-react'
-import { getDesktopApi } from '@arkloop/shared/desktop'
+import { getDesktopApi, getDesktopAppVersion } from '@arkloop/shared/desktop'
 import { useToast } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getAccountSettings, updateAccountSettings } from '../../api'
@@ -56,7 +56,9 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
     const api = getDesktopApi()
     if (api) {
       api.app.getVersion().then(setAppVersion).catch(() => {})
+      return
     }
+    setAppVersion(getDesktopAppVersion() ?? '')
   }, [])
 
   useEffect(() => {
