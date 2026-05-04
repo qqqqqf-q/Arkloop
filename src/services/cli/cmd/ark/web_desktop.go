@@ -563,6 +563,9 @@ func resolveWebRoot(explicit string) (string, error) {
 	if strings.TrimSpace(explicit) != "" {
 		candidates = append(candidates, strings.TrimSpace(explicit))
 	}
+	if strings.TrimSpace(webRootHint) != "" {
+		candidates = append(candidates, strings.TrimSpace(webRootHint))
+	}
 	if env := strings.TrimSpace(os.Getenv("ARKLOOP_WEB_ROOT")); env != "" {
 		candidates = append(candidates, env)
 	}

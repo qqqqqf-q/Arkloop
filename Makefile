@@ -1,5 +1,6 @@
 SERVICES := api gateway worker sandbox
 SHARED   := src/services/shared
+VERSION ?= dev
 
 # Default: cloud build (no extra tags required)
 .PHONY: build build-cloud build-desktop build-desktop-sidecar build-desktop-sidecar-all build-cli build-shared test test-cloud test-desktop lint
@@ -74,4 +75,4 @@ help:
 ## build-cli: Build CLI tool
 build-cli:
 	@echo "==> Building CLI..."
-	cd src/services/cli && go build -tags desktop -o ../../../bin/ark ./cmd/ark
+	cd src/services/cli && go build -tags desktop -ldflags "-X main.version=$(VERSION)" -o ../../../bin/ark ./cmd/ark

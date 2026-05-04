@@ -106,6 +106,31 @@ func TestAssetPathWithinRootRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestResolveWebRootUsesInjectedHint(t *testing.T) {
+	oldHint := webRootHint
+	t.Cleanup(func() {
+		webRootHint = oldHint
+	})
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	webRootHint = root
+
+	got, err := resolveWebRoot("")
+	if err != nil {
+		t.Fatalf("resolveWebRoot: %v", err)
+	}
+	want, err := filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("abs root: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveWebRoot = %q, want %q", got, want)
+	}
+}
+
 func TestLocalTrustConfigForHost(t *testing.T) {
 	tests := []struct {
 		host string

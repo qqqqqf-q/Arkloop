@@ -22,6 +22,15 @@ Download the latest version from [GitHub Releases](https://github.com/qqqqqf-q/A
 
 The desktop app bundles the full runtime — no Docker, no configuration. Just open and use. Automatic updates via GitHub Releases.
 
+### CLI via Homebrew
+
+Homebrew installs the Arkloop CLI only:
+
+```bash
+brew install qqqqqf-q/arkloop/arkloop
+ark web
+```
+
 <details>
 <summary>macOS: app blocked (Move to Trash)</summary>
 

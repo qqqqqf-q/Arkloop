@@ -15,6 +15,22 @@ import (
 	"arkloop/services/cli/internal/apiclient"
 )
 
+func TestWriteVersionUsesInjectedVersion(t *testing.T) {
+	oldVersion := version
+	version = "v1.2.3"
+	t.Cleanup(func() {
+		version = oldVersion
+	})
+
+	out := &bytes.Buffer{}
+	if err := writeVersion(out); err != nil {
+		t.Fatalf("writeVersion: %v", err)
+	}
+	if got := out.String(); got != "ark version v1.2.3\n" {
+		t.Fatalf("unexpected version output: %q", got)
+	}
+}
+
 func TestResolveHostUsesExplicitFlag(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
