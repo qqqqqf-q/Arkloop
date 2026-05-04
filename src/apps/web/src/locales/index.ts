@@ -318,6 +318,25 @@ export interface LocaleStrings {
   otpCodePlaceholder: string;
   otpSendBtn: string;
   otpSendingCountdown: (s: number) => string;
+  bootstrap: {
+    title: string;
+    subtitle: string;
+    username: string;
+    usernamePlaceholder: string;
+    password: string;
+    passwordPlaceholder: string;
+    confirmPassword: string;
+    confirmPasswordPlaceholder: string;
+    passwordMismatch: string;
+    submit: string;
+    verifying: string;
+    successTitle: string;
+    successBody: string;
+    invalidTitle: string;
+    invalidBody: string;
+    expiresAt: (value: string) => string;
+    selectHint: string;
+  };
   otpVerifyBtn: string;
   emailNotVerifiedHint: string;
   newChatTitle: string;

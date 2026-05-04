@@ -66,6 +66,13 @@ export type ResolveIdentityResponse =
         email?: string
       }
     }
+  | {
+      next_step: 'setup_required'
+      prefill?: {
+        login?: string
+        email?: string
+      }
+    }
 
 export type MeResponse = {
   id: string
@@ -204,6 +211,23 @@ export type SelectablePersona = {
 export async function login(req: LoginRequest): Promise<LoginResponse> {
   return await apiFetch<LoginResponse>('/v1/auth/login', {
     method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function createLocalSession(desktopToken: string, signal?: AbortSignal): Promise<LoginResponse> {
+  return await apiFetch<LoginResponse>('/v1/auth/local-session', {
+    method: 'POST',
+    accessToken: desktopToken,
+    signal,
+    _isRetry: true,
+  })
+}
+
+export async function setLocalOwnerPassword(req: { username: string; password: string }, desktopToken: string): Promise<LoginResponse> {
+  return await apiFetch<LoginResponse>('/v1/auth/local-owner-password', {
+    method: 'POST',
+    accessToken: desktopToken,
     body: JSON.stringify(req),
   })
 }

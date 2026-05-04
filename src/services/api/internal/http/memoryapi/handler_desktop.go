@@ -1,8 +1,8 @@
 //go:build desktop
 
 // Package memoryapi provides HTTP endpoints for the Desktop settings UI to
-// inspect and manage notebook entries. These routes are desktop-only and use
-// the fixed desktop token for authentication.
+// inspect and manage notebook entries. These routes are desktop-only but still
+// authenticate with the normal owner session.
 package memoryapi
 
 import (
@@ -40,6 +40,7 @@ type MemoryEntry struct {
 // Deps holds the dependencies for the notebook API.
 type Deps struct {
 	Pool                     data.DB
+	AuthService              *auth.Service
 	MemoryProvider           string
 	OpenVikingBaseURL        string
 	OpenVikingAPIKey         string
@@ -52,6 +53,7 @@ type Deps struct {
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	h := &handler{
 		pool:                     deps.Pool,
+		authService:              deps.AuthService,
 		memoryProvider:           strings.TrimSpace(deps.MemoryProvider),
 		ovBaseURL:                deps.OpenVikingBaseURL,
 		ovAPIKey:                 deps.OpenVikingAPIKey,
@@ -71,6 +73,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 
 type handler struct {
 	pool                     data.DB
+	authService              *auth.Service
 	memoryProvider           string
 	ovBaseURL                string
 	ovAPIKey                 string
@@ -130,7 +133,7 @@ const (
 )
 
 func (h *handler) dispatchEntries(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	switch r.Method {
@@ -144,7 +147,7 @@ func (h *handler) dispatchEntries(w nethttp.ResponseWriter, r *nethttp.Request) 
 }
 
 func (h *handler) dispatchEntryByID(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/desktop/memory/entries/")
@@ -162,7 +165,7 @@ func (h *handler) dispatchEntryByID(w nethttp.ResponseWriter, r *nethttp.Request
 }
 
 func (h *handler) getStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodGet {
@@ -326,7 +329,7 @@ func errString(err error) string {
 }
 
 func (h *handler) getSnapshot(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodGet {
@@ -437,7 +440,7 @@ func (h *handler) deleteEntry(w nethttp.ResponseWriter, r *nethttp.Request, id s
 }
 
 func (h *handler) rebuildSnapshotHandler(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodPost {
@@ -796,7 +799,7 @@ func buildNotebookBlock(lines []string) string {
 }
 
 func (h *handler) getContent(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodGet {
@@ -1202,11 +1205,16 @@ func agentIDFromQuery(r *nethttp.Request) string {
 	return id
 }
 
-func checkDesktopToken(w nethttp.ResponseWriter, r *nethttp.Request) bool {
+func (h *handler) checkAccessToken(w nethttp.ResponseWriter, r *nethttp.Request) bool {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
 	token := strings.TrimPrefix(authHeader, "Bearer ")
 	token = strings.TrimSpace(token)
-	if token != auth.DesktopToken() {
+	if h == nil || h.authService == nil || token == "" {
+		httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", "invalid token", "", nil)
+		return false
+	}
+	verified, err := h.authService.VerifyAccessTokenForActor(r.Context(), token)
+	if err != nil || verified.UserID != auth.DesktopUserID || verified.AccountID != auth.DesktopAccountID {
 		httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.invalid_token", "invalid token", "", nil)
 		return false
 	}
@@ -1214,7 +1222,7 @@ func checkDesktopToken(w nethttp.ResponseWriter, r *nethttp.Request) bool {
 }
 
 func (h *handler) getImpression(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodGet {
@@ -1315,7 +1323,7 @@ func (h *handler) waitForImpressionRebuild(ctx context.Context, runID uuid.UUID,
 }
 
 func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if !checkDesktopToken(w, r) {
+	if !h.checkAccessToken(w, r) {
 		return
 	}
 	if r.Method != nethttp.MethodPost {

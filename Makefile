@@ -74,4 +74,4 @@ help:
 ## build-cli: Build CLI tool
 build-cli:
 	@echo "==> Building CLI..."
-	cd src/services/cli && go build -o ../../../bin/ark ./cmd/ark
+	cd src/services/cli && go build -tags desktop -o ../../../bin/ark ./cmd/ark

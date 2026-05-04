@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/auth"
+	"arkloop/services/api/internal/data"
+	"arkloop/services/shared/database/sqliteadapter"
+	"arkloop/services/shared/database/sqlitepgx"
 )
 
 func TestBuildNowledgeSnapshotBlock(t *testing.T) {
@@ -124,6 +127,7 @@ func TestGetStatusTreatsLocalNowledgeWithoutAPIKeyAsConfigured(t *testing.T) {
 	defer srv.Close()
 
 	h := &handler{
+		authService:              newTestAuthService(t),
 		memoryProvider:           "nowledge",
 		nowledgeBaseURL:          srv.URL,
 		nowledgeAPIKey:           "",
@@ -131,7 +135,7 @@ func TestGetStatusTreatsLocalNowledgeWithoutAPIKeyAsConfigured(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/desktop/memory/status", nil)
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	req.Header.Set("Authorization", "Bearer "+issueTestAccessToken(t, h.authService))
 	rr := httptest.NewRecorder()
 
 	h.getStatus(rr, req)
@@ -146,6 +150,59 @@ func TestGetStatusTreatsLocalNowledgeWithoutAPIKeyAsConfigured(t *testing.T) {
 	if !status.Configured {
 		t.Fatalf("expected local nowledge without api key to be configured: %#v", status)
 	}
+}
+
+func newTestAuthService(t *testing.T) *auth.Service {
+	t.Helper()
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	t.Cleanup(func() { sqlitePool.Close() })
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+	userRepo, err := data.NewUserRepository(pool)
+	if err != nil {
+		t.Fatalf("new user repo: %v", err)
+	}
+	credentialRepo, err := data.NewUserCredentialRepository(pool)
+	if err != nil {
+		t.Fatalf("new credential repo: %v", err)
+	}
+	membershipRepo, err := data.NewAccountMembershipRepository(pool)
+	if err != nil {
+		t.Fatalf("new membership repo: %v", err)
+	}
+	refreshTokenRepo, err := data.NewRefreshTokenRepository(pool)
+	if err != nil {
+		t.Fatalf("new refresh token repo: %v", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService("memory-test-secret", 3600, 86400)
+	if err != nil {
+		t.Fatalf("new token service: %v", err)
+	}
+	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
+	if err != nil {
+		t.Fatalf("new password hasher: %v", err)
+	}
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	if err != nil {
+		t.Fatalf("new auth service: %v", err)
+	}
+	return authService
+}
+
+func issueTestAccessToken(t *testing.T, authService *auth.Service) string {
+	t.Helper()
+	issued, err := authService.IssueTokenPairForUser(context.Background(), auth.DesktopUserID)
+	if err != nil {
+		t.Fatalf("issue access token: %v", err)
+	}
+	return issued.AccessToken
 }
 
 func TestCheckOpenVikingHealthSucceeds(t *testing.T) {

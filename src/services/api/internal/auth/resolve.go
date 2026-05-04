@@ -15,8 +15,9 @@ import (
 type ResolveNextStep string
 
 const (
-	ResolveNextStepPassword ResolveNextStep = "password"
-	ResolveNextStepRegister ResolveNextStep = "register"
+	ResolveNextStepPassword      ResolveNextStep = "password"
+	ResolveNextStepRegister      ResolveNextStep = "register"
+	ResolveNextStepSetupRequired ResolveNextStep = "setup_required"
 )
 
 type ResolvedIdentity struct {
@@ -56,6 +57,11 @@ func (s *Service) ResolveIdentity(ctx context.Context, identity string) (Resolve
 	identity = strings.TrimSpace(identity)
 	if identity == "" {
 		return ResolvedIdentity{}, InvalidIdentityError{}
+	}
+	if resolved, ok, err := s.resolvePasswordUnset(ctx, identity); err != nil {
+		return ResolvedIdentity{}, err
+	} else if ok {
+		return resolved, nil
 	}
 
 	credential, err := s.credentialRepo.GetByLogin(ctx, identity)

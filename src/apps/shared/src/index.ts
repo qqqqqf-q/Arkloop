@@ -54,7 +54,7 @@ export type { AppError, FormattedError } from './components/ErrorCallout'
 export { AuthPage } from './components/AuthPage'
 export type { AuthPageTranslations, AuthApi, ResolveIdentityResponse, RegisterRequest } from './components/AuthPage'
 export { BootstrapPage } from './components/BootstrapPage'
-export type { BootstrapTranslations, ConsoleTarget } from './components/BootstrapPage'
+export type { BootstrapApi, BootstrapTranslations, ConsoleTarget } from './components/BootstrapPage'
 export { LoadingPage } from './components/LoadingPage'
 
 export {

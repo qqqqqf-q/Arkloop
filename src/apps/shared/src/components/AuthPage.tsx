@@ -12,7 +12,7 @@ import type { LoginRequest, LoginResponse } from '../api/types'
 type Phase = 'identity' | 'password' | 'otp-email' | 'otp-code' | 'register'
 
 export type ResolveIdentityResponse = {
-  next_step: 'password' | 'register'
+  next_step: 'password' | 'register' | 'setup_required'
   flow_token?: string
   masked_email?: string
   otp_available?: boolean
@@ -236,6 +236,8 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
             setFlowToken(res.flow_token ?? '')
             setOtpAvailable(res.otp_available ?? false)
             setPhase('password')
+          } else if (res.next_step === 'setup_required') {
+            setError({ code: 'auth.setup_required', message: 'setup_required' })
           } else {
             setRegLogin(res.prefill?.login ?? '')
             setRegEmail(res.prefill?.email ?? '')

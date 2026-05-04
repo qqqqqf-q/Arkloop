@@ -29,6 +29,7 @@ import type { ThemePreset } from "../themes/types";
 import {
   createLlmProvider,
   createProviderModel,
+  createLocalSession,
   listAvailableModels,
   listLlmProviders,
   updateLlmProvider,
@@ -52,8 +53,16 @@ type ModelImportStatus =
 
 type Props = { onComplete: () => void };
 type ImportSelectionState = Partial<Record<ImportSourceKind, Record<ImportItemKey, boolean>>>;
-const LOCAL_ACCESS_TOKEN =
-  getDesktopAccessToken() ?? "";
+
+let localSessionAccessToken = "";
+async function getLocalSessionAccessToken(): Promise<string> {
+  if (localSessionAccessToken) return localSessionAccessToken;
+  const desktopToken = getDesktopAccessToken()?.trim();
+  if (!desktopToken) return "";
+  const session = await createLocalSession(desktopToken);
+  localSessionAccessToken = session.access_token;
+  return localSessionAccessToken;
+}
 
 const IMPORT_ITEM_KEYS = ["identity", "skills", "mcp", "providers"] as const;
 
@@ -715,9 +724,10 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   const upsertProviderCredential =
     useCallback(async (): Promise<LlmProvider> => {
+      const accessToken = await getLocalSessionAccessToken();
       const vendorOpt = VENDOR_OPTIONS.find((option) => option.key === vendor)!;
       const trimmedUrl = baseUrl.trim().replace(/\/$/, "");
-      const providers = await listLlmProviders(LOCAL_ACCESS_TOKEN);
+      const providers = await listLlmProviders(accessToken);
       const existing =
         providers.find(
           (provider) =>
@@ -726,7 +736,7 @@ export function OnboardingWizard({ onComplete }: Props) {
         ) ?? providers.find((provider) => providerMatches(provider, vendorOpt));
 
       if (existing) {
-        return await updateLlmProvider(LOCAL_ACCESS_TOKEN, existing.id, {
+        return await updateLlmProvider(accessToken, existing.id, {
           name: vendorOpt.label,
           provider: vendorOpt.provider,
           api_key: apiKey.trim(),
@@ -736,7 +746,7 @@ export function OnboardingWizard({ onComplete }: Props) {
       }
 
       try {
-        return await createLlmProvider(LOCAL_ACCESS_TOKEN, {
+        return await createLlmProvider(accessToken, {
           name: vendorOpt.label,
           provider: vendorOpt.provider,
           api_key: apiKey.trim(),
@@ -753,7 +763,7 @@ export function OnboardingWizard({ onComplete }: Props) {
           throw error;
         }
 
-        const latestProviders = await listLlmProviders(LOCAL_ACCESS_TOKEN);
+        const latestProviders = await listLlmProviders(accessToken);
         const conflicted =
           latestProviders.find(
             (provider) =>
@@ -764,7 +774,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
         if (!conflicted) throw error;
 
-        return await updateLlmProvider(LOCAL_ACCESS_TOKEN, conflicted.id, {
+        return await updateLlmProvider(accessToken, conflicted.id, {
           name: vendorOpt.label,
           provider: vendorOpt.provider,
           api_key: apiKey.trim(),
@@ -781,13 +791,14 @@ export function OnboardingWizard({ onComplete }: Props) {
     setModelImportStatus("idle");
     try {
       const provider = await upsertProviderCredential();
+      const accessToken = await getLocalSessionAccessToken();
       setCreatedProviderId(provider.id);
       setConfiguredModels(provider.models ?? []);
 
       // Real connectivity test: fetch available models from the provider API
       setModelImportStatus("loading");
       const response = await listAvailableModels(
-        LOCAL_ACCESS_TOKEN,
+        accessToken,
         provider.id,
       );
       const models = response.models ?? [];
@@ -822,8 +833,9 @@ export function OnboardingWizard({ onComplete }: Props) {
     setAddingModel(true);
     setModelError(null);
     try {
+      const accessToken = await getLocalSessionAccessToken();
       const created = await createProviderModel(
-        LOCAL_ACCESS_TOKEN,
+        accessToken,
         createdProviderId,
         {
           model,
@@ -866,12 +878,13 @@ export function OnboardingWizard({ onComplete }: Props) {
     setModelError(null);
 
     try {
+      const accessToken = await getLocalSessionAccessToken();
       const ids = Array.from(selectedModelIds);
       const imported: LlmProviderModel[] = [];
       for (const [index, modelId] of ids.entries()) {
         const am = availableModels.find((m) => m.id === modelId);
         const created = await createProviderModel(
-          LOCAL_ACCESS_TOKEN,
+          accessToken,
           createdProviderId,
           {
             model: modelId,

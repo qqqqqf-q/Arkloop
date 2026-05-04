@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useLocale } from '../../contexts/LocaleContext'
 import { listToolProviders } from '../../api-admin'
-import { getDesktopAccessToken, getDesktopApi } from '@arkloop/shared/desktop'
+import { getDesktopApi } from '@arkloop/shared/desktop'
 import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
 import { useToast } from '@arkloop/shared'
 import { ProviderSelectCard } from './ProviderSelectCard'
@@ -113,7 +113,11 @@ function PasswordInput({ value, onChange, placeholder }: {
 // Main component
 // ---------------------------------------------------------------------------
 
-export function SearchFetchSettings() {
+type Props = {
+  accessToken: string
+}
+
+export function SearchFetchSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
   const { addToast } = useToast()
@@ -143,7 +147,6 @@ export function SearchFetchSettings() {
   useEffect(() => {
     let canceled = false
     const load = async () => {
-      const accessToken = getDesktopAccessToken()
       if (!accessToken) {
         if (!canceled) setRuntimeProviders({})
         return
@@ -167,7 +170,7 @@ export function SearchFetchSettings() {
     }
     void load()
     return () => { canceled = true }
-  }, [savedAt])
+  }, [accessToken, savedAt])
 
   const runtimeStatusForName = (providerName?: string, fallbackReason?: string) => {
     const runtime = providerName ? runtimeProviders[providerName] : undefined

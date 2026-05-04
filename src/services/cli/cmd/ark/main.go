@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"arkloop/services/cli/internal/apiclient"
@@ -34,6 +35,7 @@ type commandRoute string
 
 const (
 	commandRun          commandRoute = "run"
+	commandWeb          commandRoute = "web"
 	commandChat         commandRoute = "chat"
 	commandStatus       commandRoute = "status"
 	commandModelsList   commandRoute = "models.list"
@@ -66,7 +68,7 @@ func run() error {
 		return &exitError{2}
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	route, err := routeCommand(os.Args[1:])
@@ -78,6 +80,8 @@ func run() error {
 	switch route.kind {
 	case commandRun:
 		return cmdRun(ctx, route.args)
+	case commandWeb:
+		return cmdWeb(ctx, route.args)
 	case commandChat:
 		return cmdChat(ctx, route.args)
 	case commandStatus:
@@ -101,6 +105,7 @@ func printUsage() {
 
 commands:
   run <prompt>                   execute a single run and exit
+  web                            start local headless web runtime
   chat                           interactive multi-turn conversation
   status                         show current desktop connection status
   models list                    list configured models
@@ -117,6 +122,8 @@ func routeCommand(args []string) (routedCommand, error) {
 	switch args[0] {
 	case "run":
 		return routedCommand{kind: commandRun, args: args[1:]}, nil
+	case "web":
+		return routedCommand{kind: commandWeb, args: args[1:]}, nil
 	case "chat":
 		return routedCommand{kind: commandChat, args: args[1:]}, nil
 	case "status":

@@ -98,9 +98,7 @@ func createThreadMessage(
 			return
 		}
 
-		// Use thread.AccountID to ensure message is created with the same account_id as the thread.
-		// This is critical for desktop mode where actor.AccountID may differ from the thread's actual account_id
-		// due to how interceptDesktopActor resolves the actor from a dynamic desktop token.
+		// Use thread.AccountID so messages stay on the thread's account even if token claims drift.
 		slog.Debug("createThreadMessage: calling CreateStructured", "account_id", thread.AccountID, "thread_id", threadID, "role", "user", "projection_len", len(projection))
 		message, err := messageRepo.CreateStructured(r.Context(), thread.AccountID, threadID, "user", projection, contentJSON, &actor.UserID)
 		if err != nil {

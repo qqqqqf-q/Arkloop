@@ -239,6 +239,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	}
 
 	authapi.RegisterRoutes(mux, authapi.Deps{
+		Pool:                  cfg.Pool,
 		AuthService:           cfg.AuthService,
 		RegistrationService:   cfg.RegistrationService,
 		EmailVerifyService:    cfg.EmailVerifyService,

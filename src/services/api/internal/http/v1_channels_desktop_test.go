@@ -114,7 +114,7 @@ func TestDesktopChannelEndpointsReturnEmptyLists(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			req := httptest.NewRequest(nethttp.MethodGet, testCase.path, nil)
-			req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+			setDesktopTestAuthHeader(t, handler, req)
 			rec := httptest.NewRecorder()
 
 			handler.ServeHTTP(rec, req)
@@ -161,7 +161,7 @@ func TestDesktopChannelResponsesIncludeOwnerUserID(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -183,7 +183,7 @@ func TestDesktopChannelResponsesIncludeOwnerUserID(t *testing.T) {
 	channelID, _ := created["id"].(string)
 
 	listReq := httptest.NewRequest(nethttp.MethodGet, "/v1/channels", nil)
-	listReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, listReq)
 	listRec := httptest.NewRecorder()
 
 	handler.ServeHTTP(listRec, listReq)
@@ -205,7 +205,7 @@ func TestDesktopChannelResponsesIncludeOwnerUserID(t *testing.T) {
 	}
 
 	getReq := httptest.NewRequest(nethttp.MethodGet, fmt.Sprintf("/v1/channels/%s", channelID), nil)
-	getReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, getReq)
 	getRec := httptest.NewRecorder()
 
 	handler.ServeHTTP(getRec, getReq)
@@ -301,7 +301,7 @@ func TestDesktopCreateChannelRepairsLegacySecretsSchema(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -320,7 +320,7 @@ func TestDesktopCreateChannelRepairsLegacySecretsSchema(t *testing.T) {
 	}
 
 	listReq := httptest.NewRequest(nethttp.MethodGet, "/v1/channels", nil)
-	listReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, listReq)
 	listRec := httptest.NewRecorder()
 
 	handler.ServeHTTP(listRec, listReq)
@@ -404,7 +404,7 @@ func TestDesktopCreateChannelRepairsBrokenChannelSecretsReference(t *testing.T) 
 	}
 
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -470,7 +470,7 @@ func TestDesktopCreateChannelWorksWithoutChannelIDDefault(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, req)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -523,7 +523,7 @@ func TestDesktopUpdateTelegramChannelDefaultModelDoesNotRequireDecryptInPollingM
 	}
 
 	createReq := httptest.NewRequest(nethttp.MethodPost, "/v1/channels", bytes.NewReader(createBody))
-	createReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, createReq)
 	createReq.Header.Set("Content-Type", "application/json")
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
@@ -602,7 +602,7 @@ func TestDesktopUpdateTelegramChannelDefaultModelDoesNotRequireDecryptInPollingM
 	}
 
 	updateReq := httptest.NewRequest(nethttp.MethodPatch, "/v1/channels/"+channelID, bytes.NewReader(updateBody))
-	updateReq.Header.Set("Authorization", "Bearer "+auth.DesktopToken())
+	setDesktopTestAuthHeader(t, handler, updateReq)
 	updateReq.Header.Set("Content-Type", "application/json")
 	updateRec := httptest.NewRecorder()
 	handler.ServeHTTP(updateRec, updateReq)

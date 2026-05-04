@@ -27,6 +27,7 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'auth.invite_code_invalid': { zh: '邀请码无效', en: 'Invalid invite code.' },
   'auth.login_exists': { zh: '用户名已被占用', en: 'Login already taken.' },
   'auth.flow_token_invalid': { zh: '登录流程已失效，请重新开始', en: 'Sign-in flow expired. Please start again.' },
+  'auth.setup_required': { zh: '需要先完成本机设置', en: 'Local setup required.' },
   'auth.otp_unavailable': { zh: '当前账号无法使用邮箱验证码', en: 'Email code is unavailable for this account.' },
   'auth.otp_invalid': { zh: '验证码无效或已过期', en: 'Code invalid or expired.' },
   'auth.token_expired': { zh: '登录已过期，请重新登录', en: 'Session expired. Please log in again.' },

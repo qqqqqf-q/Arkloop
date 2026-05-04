@@ -214,6 +214,26 @@ func (s *Service) IssueRefreshTokenOnly(ctx context.Context, userID uuid.UUID) (
 	return plaintext, nil
 }
 
+func (s *Service) IssueTokenPairForUser(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
+	if s == nil || s.userRepo == nil {
+		return IssuedTokenPair{}, fmt.Errorf("userRepo not configured")
+	}
+	if userID == uuid.Nil {
+		return IssuedTokenPair{}, fmt.Errorf("user_id must not be nil")
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return IssuedTokenPair{}, err
+	}
+	if user == nil {
+		return IssuedTokenPair{}, UserNotFoundError{UserID: userID}
+	}
+	if user.Status != "active" {
+		return IssuedTokenPair{}, SuspendedUserError{UserID: user.ID, Status: user.Status}
+	}
+	return s.issueTokenPair(ctx, userID)
+}
+
 // issueTokenPair 为指定用户签发 Access Token + Refresh Token，并将 Refresh Token 持久化到 DB。
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
@@ -256,10 +276,6 @@ func (s *Service) resolveDefaultAccount(ctx context.Context, userID uuid.UUID) (
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, token string) (*data.User, error) {
-	if user, ok := interceptDesktopUser(ctx, s.userRepo); ok {
-		return user, nil
-	}
-
 	verified, err := s.tokenService.Verify(token)
 	if err != nil {
 		return nil, err
@@ -293,10 +309,6 @@ func (s *Service) VerifyAccessTokenForActor(ctx context.Context, token string) (
 	}
 	if ctx == nil {
 		ctx = context.Background()
-	}
-
-	if vat, ok := interceptDesktopActor(token); ok {
-		return vat, nil
 	}
 
 	verified, err := s.tokenService.Verify(token)
