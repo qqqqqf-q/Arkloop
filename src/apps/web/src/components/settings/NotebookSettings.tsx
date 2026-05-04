@@ -5,10 +5,10 @@ import remarkGfm from 'remark-gfm'
 import { ConfirmDialog, Modal, formatDateTime } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
-import { getDesktopApi } from '@arkloop/shared/desktop'
 import type { MemoryEntry } from '@arkloop/shared/desktop'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
+import { getDesktopMemoryApi } from '../../desktopMemoryApi'
 
 function formatDate(iso: string): string {
   return formatDateTime(iso, { includeZone: false })
@@ -269,7 +269,9 @@ function NotebookCard({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function NotebookSettings() {
+type Props = { accessToken?: string }
+
+export function NotebookSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const ds = t.desktopSettings
 
@@ -283,19 +285,19 @@ export function NotebookSettings() {
   const [confirmClearAll, setConfirmClearAll] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
 
-  const api = getDesktopApi()
+  const memoryApi = getDesktopMemoryApi(accessToken)
 
   const loadEntries = useCallback(async (quiet = false) => {
-    if (!api?.memory) { setLoading(false); return }
+    if (!memoryApi) { setLoading(false); return }
     if (!quiet) setLoading(true); else setRefreshing(true)
     try {
-      const resp = await api.memory.list()
+      const resp = await memoryApi.list()
       setEntries(resp.entries ?? [])
     } catch { /* ignore */ } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [api])
+  }, [memoryApi])
 
   useEffect(() => {
     void loadEntries()
@@ -303,36 +305,36 @@ export function NotebookSettings() {
 
   const handleAdd = useCallback(async () => {
     const content = addContent.trim()
-    if (!content || !api?.memory) return
+    if (!content || !memoryApi) return
     setAdding(true)
     try {
-      await api.memory.add(content)
+      await memoryApi.add(content)
       setAddContent('')
       await loadEntries(true)
     } catch { /* ignore */ } finally {
       setAdding(false)
     }
-  }, [addContent, api, loadEntries])
+  }, [addContent, memoryApi, loadEntries])
 
   const handleDelete = useCallback(async (id: string) => {
-    if (!api?.memory) return
-    try { await api.memory.delete(id); setEntries((p) => p.filter((e) => e.id !== id)) } catch { /* ignore */ }
+    if (!memoryApi) return
+    try { await memoryApi.delete(id); setEntries((p) => p.filter((e) => e.id !== id)) } catch { /* ignore */ }
     setConfirmDeleteId(null)
-  }, [api])
+  }, [memoryApi])
 
   const handleEdit = useCallback(async (id: string, newContent: string, category: string) => {
-    if (!api?.memory) return
-    await api.memory.delete(id)
-    await api.memory.add(newContent, category)
+    if (!memoryApi) return
+    await memoryApi.delete(id)
+    await memoryApi.add(newContent, category)
     await loadEntries(true)
-  }, [api, loadEntries])
+  }, [memoryApi, loadEntries])
 
   const handleClearAll = useCallback(async () => {
-    if (!api?.memory) return
-    for (const e of entries) { try { await api.memory.delete(e.id) } catch { /* ignore */ } }
+    if (!memoryApi) return
+    for (const e of entries) { try { await memoryApi.delete(e.id) } catch { /* ignore */ } }
     setEntries([])
     setConfirmClearAll(false)
-  }, [api, entries])
+  }, [memoryApi, entries])
 
   const filteredEntries = searchQuery.trim()
     ? entries.filter((e) => {
@@ -354,7 +356,7 @@ export function NotebookSettings() {
     )
   }
 
-  if (!api?.memory) {
+  if (!memoryApi) {
     return (
       <div className="flex flex-col gap-4">
         <SettingsSectionHeader title={ds.notebookSettingsTitle} description={ds.notebookSettingsDesc} />

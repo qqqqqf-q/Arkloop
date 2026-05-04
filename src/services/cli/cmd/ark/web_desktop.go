@@ -48,6 +48,28 @@ type localTrustConfig struct {
 	Enabled bool
 }
 
+type headlessDesktopConfig struct {
+	Memory headlessMemoryConfig `json:"memory"`
+}
+
+type headlessMemoryConfig struct {
+	Enabled              *bool                    `json:"enabled"`
+	Provider             string                   `json:"provider"`
+	MemoryCommitEachTurn *bool                    `json:"memoryCommitEachTurn"`
+	OpenViking           headlessOpenVikingConfig `json:"openviking"`
+	Nowledge             headlessNowledgeConfig   `json:"nowledge"`
+}
+
+type headlessOpenVikingConfig struct {
+	RootAPIKey string `json:"rootApiKey"`
+}
+
+type headlessNowledgeConfig struct {
+	BaseURL          string `json:"baseUrl"`
+	APIKey           string `json:"apiKey"`
+	RequestTimeoutMs int    `json:"requestTimeoutMs"`
+}
+
 func cmdWeb(ctx context.Context, args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
@@ -254,7 +276,121 @@ func configureHeadlessEnv(apiPort int, bridgePort int, dataDir string, publicURL
 			return err
 		}
 	}
+	if err := applyHeadlessDesktopConfigEnv(dataDir); err != nil {
+		return err
+	}
 	return nil
+}
+
+func applyHeadlessDesktopConfigEnv(explicitDataDir string) error {
+	cfg, err := loadHeadlessDesktopConfig(explicitDataDir)
+	if err != nil {
+		return err
+	}
+	return applyHeadlessMemoryEnv(cfg.Memory)
+}
+
+func loadHeadlessDesktopConfig(explicitDataDir string) (headlessDesktopConfig, error) {
+	var cfg headlessDesktopConfig
+	dataDir, err := desktop.ResolveDataDir(explicitDataDir)
+	if err != nil {
+		return cfg, err
+	}
+	raw, err := os.ReadFile(filepath.Join(dataDir, "config.json"))
+	if err != nil {
+		return cfg, nil
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return headlessDesktopConfig{}, nil
+	}
+	return cfg, nil
+}
+
+func applyHeadlessMemoryEnv(cfg headlessMemoryConfig) error {
+	provider := normalizeHeadlessMemoryProvider(cfg.Provider)
+	if err := os.Setenv("ARKLOOP_MEMORY_ENABLED", boolEnv(cfg.memoryEnabled())); err != nil {
+		return err
+	}
+	if err := os.Setenv("ARKLOOP_MEMORY_COMMIT_EACH_TURN", boolEnv(cfg.commitEachTurn())); err != nil {
+		return err
+	}
+	if err := os.Setenv("ARKLOOP_MEMORY_PROVIDER", provider); err != nil {
+		return err
+	}
+	clearHeadlessMemoryProviderEnv()
+	switch provider {
+	case "nowledge":
+		return applyHeadlessNowledgeEnv(cfg.Nowledge)
+	case "openviking":
+		return applyHeadlessOpenVikingEnv(cfg.OpenViking)
+	default:
+		return nil
+	}
+}
+
+func clearHeadlessMemoryProviderEnv() {
+	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_BASE_URL")
+	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_API_KEY")
+	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS")
+	_ = os.Unsetenv("ARKLOOP_OPENVIKING_BASE_URL")
+	_ = os.Unsetenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")
+}
+
+func applyHeadlessNowledgeEnv(cfg headlessNowledgeConfig) error {
+	if value := strings.TrimSpace(cfg.BaseURL); value != "" {
+		if err := os.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", value); err != nil {
+			return err
+		}
+	}
+	if value := strings.TrimSpace(cfg.APIKey); value != "" {
+		if err := os.Setenv("ARKLOOP_NOWLEDGE_API_KEY", value); err != nil {
+			return err
+		}
+	}
+	if cfg.RequestTimeoutMs > 0 {
+		if err := os.Setenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS", strconv.Itoa(cfg.RequestTimeoutMs)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyHeadlessOpenVikingEnv(cfg headlessOpenVikingConfig) error {
+	if err := os.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://127.0.0.1:19010"); err != nil {
+		return err
+	}
+	if value := strings.TrimSpace(cfg.RootAPIKey); value != "" {
+		if err := os.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizeHeadlessMemoryProvider(provider string) string {
+	switch strings.TrimSpace(provider) {
+	case "nowledge":
+		return "nowledge"
+	case "openviking":
+		return "openviking"
+	default:
+		return "notebook"
+	}
+}
+
+func (cfg headlessMemoryConfig) memoryEnabled() bool {
+	return cfg.Enabled == nil || *cfg.Enabled
+}
+
+func (cfg headlessMemoryConfig) commitEachTurn() bool {
+	return cfg.MemoryCommitEachTurn == nil || *cfg.MemoryCommitEachTurn
+}
+
+func boolEnv(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func waitAPIReady(ctx context.Context) <-chan error {

@@ -174,6 +174,69 @@ func TestLocalTrustAllowedWithWildcardAllowsPlainLoopback(t *testing.T) {
 	}
 }
 
+func TestConfigureHeadlessEnvLoadsNowledgeMemoryConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	config := `{"memory":{"enabled":true,"provider":"nowledge","memoryCommitEachTurn":false,"nowledge":{"baseUrl":"http://127.0.0.1:14242","apiKey":"local-key","requestTimeoutMs":45000}}}`
+	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://stale-openviking")
+
+	if err := configureHeadlessEnv(19101, 19103, dataDir, ""); err != nil {
+		t.Fatalf("configureHeadlessEnv: %v", err)
+	}
+
+	if got := os.Getenv("ARKLOOP_API_GO_ADDR"); got != "127.0.0.1:19101" {
+		t.Fatalf("ARKLOOP_API_GO_ADDR = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_DATA_DIR"); got != dataDir {
+		t.Fatalf("ARKLOOP_DATA_DIR = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_MEMORY_ENABLED"); got != "true" {
+		t.Fatalf("ARKLOOP_MEMORY_ENABLED = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_MEMORY_COMMIT_EACH_TURN"); got != "false" {
+		t.Fatalf("ARKLOOP_MEMORY_COMMIT_EACH_TURN = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_MEMORY_PROVIDER"); got != "nowledge" {
+		t.Fatalf("ARKLOOP_MEMORY_PROVIDER = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL"); got != "http://127.0.0.1:14242" {
+		t.Fatalf("ARKLOOP_NOWLEDGE_BASE_URL = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_NOWLEDGE_API_KEY"); got != "local-key" {
+		t.Fatalf("ARKLOOP_NOWLEDGE_API_KEY = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"); got != "45000" {
+		t.Fatalf("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"); got != "" {
+		t.Fatalf("ARKLOOP_OPENVIKING_BASE_URL = %q", got)
+	}
+}
+
+func TestConfigureHeadlessEnvDefaultsToNotebookWithoutConfig(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "http://stale-nowledge")
+
+	if err := configureHeadlessEnv(19101, 19103, dataDir, ""); err != nil {
+		t.Fatalf("configureHeadlessEnv: %v", err)
+	}
+
+	if got := os.Getenv("ARKLOOP_MEMORY_ENABLED"); got != "true" {
+		t.Fatalf("ARKLOOP_MEMORY_ENABLED = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_MEMORY_COMMIT_EACH_TURN"); got != "true" {
+		t.Fatalf("ARKLOOP_MEMORY_COMMIT_EACH_TURN = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_MEMORY_PROVIDER"); got != "notebook" {
+		t.Fatalf("ARKLOOP_MEMORY_PROVIDER = %q", got)
+	}
+	if got := os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL"); got != "" {
+		t.Fatalf("ARKLOOP_NOWLEDGE_BASE_URL = %q", got)
+	}
+}
+
 func TestServeIndexInjectsDesktopInfoForPlainLoopback(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html><head></head><body></body></html>"), 0o644); err != nil {

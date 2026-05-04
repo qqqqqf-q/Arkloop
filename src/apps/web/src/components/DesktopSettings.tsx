@@ -455,7 +455,7 @@ export function DesktopSettings({
           />
         );
       case "notebook":
-        return <NotebookSettings />;
+        return <NotebookSettings accessToken={accessToken} />;
       case "memory":
         return <MemorySettings accessToken={accessToken} />;
       case "connection":

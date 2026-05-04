@@ -4,7 +4,6 @@ import { PillToggle, Modal } from '@arkloop/shared'
 import { ProviderSelectCard } from './ProviderSelectCard'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
-import { getDesktopApi } from '@arkloop/shared/desktop'
 import { formatDateTime } from '@arkloop/shared'
 import type { MemoryConfig, SnapshotHit } from '@arkloop/shared/desktop'
 import { checkBridgeAvailable, bridgeClient, type ModuleStatus } from '../../api-bridge'
@@ -13,6 +12,7 @@ import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { MemoryConfigModal } from './MemoryConfigModal'
 import { listMemoryErrors, type MemoryErrorEvent } from '../../api'
 import { PastedContentModal } from '../PastedContentModal'
+import { getDesktopMemoryApi } from '../../desktopMemoryApi'
 
 // ---------------------------------------------------------------------------
 // Status dot — shows health on the provider card
@@ -614,8 +614,7 @@ export function MemorySettings({ accessToken }: Props) {
   const [health, setHealth] = useState<HealthStatus>('checking')
   const [healthLabel, setHealthLabel] = useState('')
 
-  const api = getDesktopApi()
-  const memoryApi = api?.memory
+  const memoryApi = getDesktopMemoryApi(accessToken)
 
   const probeHealth = useCallback(async (cfg: MemoryConfig | null) => {
     if (!cfg?.enabled) {
@@ -810,7 +809,13 @@ export function MemorySettings({ accessToken }: Props) {
 
   const saveConfig = useCallback(async (next: MemoryConfig) => {
     if (!memoryApi) return
-    await memoryApi.setConfig(next)
+    try {
+      await memoryApi.setConfig(next)
+    } catch (err) {
+      console.error('memory setConfig failed', err)
+      void loadData(true)
+      return
+    }
     memoryConfigCache = next
     setMemConfigState(next)
     void probeHealth(next)
