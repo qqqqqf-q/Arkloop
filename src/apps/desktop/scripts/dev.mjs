@@ -90,7 +90,8 @@ async function main() {
 
   console.log('building desktop sidecar...')
   mkdirSync(resolve(desktopBin, '..'), { recursive: true })
-  await runStep('go', ['build', '-tags', 'desktop', '-ldflags', '-extldflags=-Wl,-no_warn_duplicate_libraries', '-o', desktopBin, './src/services/desktop/cmd/desktop'], {
+  const darwinLdflags = process.platform === 'darwin' ? ['-ldflags', '-extldflags=-Wl,-no_warn_duplicate_libraries'] : []
+  await runStep('go', ['build', '-tags', 'desktop', ...darwinLdflags, '-o', desktopBin, './src/services/desktop/cmd/desktop'], {
     cwd: workspaceRoot,
   })
 
