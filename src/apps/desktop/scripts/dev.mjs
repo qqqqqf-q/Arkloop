@@ -68,6 +68,7 @@ function normalizeDevUrl(url) {
 }
 
 const ANSI_ESCAPE_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
+const VITE_DEV_URL_PARSE_TIMEOUT_MS = 30000
 
 function stripAnsi(value) {
   return value.replace(ANSI_ESCAPE_PATTERN, '')
@@ -93,18 +94,31 @@ function startViteDevServer() {
 
     let settled = false
     let outputBuffer = ''
+    let parseTimeout
 
     const settle = (url) => {
       if (settled) return
       settled = true
+      clearTimeout(parseTimeout)
       resolvePromise({ vite, url })
     }
 
-    const rejectStart = (error) => {
+    const rejectStart = (error, killVite = false) => {
       if (settled) return
       settled = true
+      clearTimeout(parseTimeout)
+      if (killVite && !vite.killed) {
+        vite.kill()
+      }
       rejectPromise(error)
     }
+
+    parseTimeout = setTimeout(() => {
+      rejectStart(
+        new Error(`vite dev url parse timeout after ${VITE_DEV_URL_PARSE_TIMEOUT_MS}ms`),
+        true,
+      )
+    }, VITE_DEV_URL_PARSE_TIMEOUT_MS)
 
     const handleOutput = (chunk, stream) => {
       stream.write(chunk)
