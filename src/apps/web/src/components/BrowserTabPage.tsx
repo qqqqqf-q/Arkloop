@@ -146,15 +146,7 @@ export function BrowserTabPage() {
         className="flex h-12 shrink-0 items-center gap-2 px-3"
         style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
       >
-        <button
-          type="button"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
-          title={t.newBrowserTab}
-          onClick={() => { void createBrowserTab() }}
-        >
-          <Plus size={16} />
-        </button>
-        <div className="flex min-w-0 flex-1 items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           <div
             className="flex h-9 w-fit max-w-full min-w-0 items-center gap-1 overflow-x-auto px-1 py-0.5"
           >
@@ -216,6 +208,14 @@ export function BrowserTabPage() {
               )
             })}
           </div>
+          <button
+            type="button"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            title={t.newBrowserTab}
+            onClick={() => { void createBrowserTab() }}
+          >
+            <Plus size={16} />
+          </button>
         </div>
         <button
           type="button"
