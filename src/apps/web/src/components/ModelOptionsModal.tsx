@@ -14,6 +14,13 @@ import { SettingsInput, settingsInputCls } from './settings/_SettingsInput'
 import { SettingsModalFrame } from './settings/_SettingsModalFrame'
 import { SettingsSelect } from './settings/_SettingsSelect'
 import { SettingsSwitch } from './settings/_SettingsSwitch'
+import {
+  HeadersEditor,
+  readHeaderEntriesFromAdvancedJSON,
+  stripHeaderEntriesFromAdvancedJSON,
+  writeHeaderEntriesToAdvancedJSON,
+  type HeaderEntry,
+} from './settings/HeadersEditor'
 
 type Labels = {
   modelOptionsTitle: string
@@ -36,6 +43,10 @@ type Labels = {
   maxOutputTokens: string
   providerOptionsJson: string
   providerOptionsHint: string
+  headers?: string
+  addHeader?: string
+  headerKeyPlaceholder?: string
+  headerValuePlaceholder?: string
   save: string
   cancel: string
   reset: string
@@ -76,6 +87,7 @@ type DraftState = {
   contextWindow: string
   maxOutputTokens: string
   defaultTemperature: string
+  headers: HeaderEntry[]
   providerOptionsJSON: string
 }
 
@@ -130,11 +142,12 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
       contextWindow: '',
       maxOutputTokens: '',
       defaultTemperature: '',
+      headers: [],
       providerOptionsJSON: '{}',
     }
   }
   const catalog = getAvailableCatalogFromAdvancedJson(model.advanced_json)
-  const rest = stripAvailableCatalogFromAdvancedJson(model.advanced_json)
+  const rest = stripHeaderEntriesFromAdvancedJSON(stripAvailableCatalogFromAdvancedJson(model.advanced_json))
   const modelType = resolvedModelType(model, catalog)
   const inputModalities = Array.isArray(catalog?.input_modalities) ? catalog.input_modalities : []
   const outputModalities = Array.isArray(catalog?.output_modalities) ? catalog.output_modalities : []
@@ -154,6 +167,7 @@ function deriveDraft(model: LlmProviderModel | null): DraftState {
     contextWindow: contextLength,
     maxOutputTokens: typeof catalog?.max_output_tokens === 'number' ? String(catalog.max_output_tokens) : '',
     defaultTemperature: typeof catalog?.default_temperature === 'number' ? String(catalog.default_temperature) : '',
+    headers: readHeaderEntriesFromAdvancedJSON(model.advanced_json),
     providerOptionsJSON: JSON.stringify(rest, null, 2),
   }
 }
@@ -252,6 +266,7 @@ function buildEditPayload(
   if (AVAILABLE_CATALOG_ADVANCED_KEY in providerOptions) {
     delete providerOptions[AVAILABLE_CATALOG_ADVANCED_KEY]
   }
+  providerOptions = stripHeaderEntriesFromAdvancedJSON(providerOptions)
 
   const nextType = draft.modelType.trim() || 'chat'
   const nextDraft: DraftState = {
@@ -263,7 +278,10 @@ function buildEditPayload(
     defaultTemperature,
   }
   const catalog = buildCatalog(model, nextDraft)
-  const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
+  const advancedJSON = writeHeaderEntriesToAdvancedJSON(
+    mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions),
+    nextDraft.headers,
+  )
   const tags = nextDraft.embedding
     ? Array.from(new Set([...model.tags.filter((tag) => tag !== 'embedding'), 'embedding']))
     : model.tags.filter((tag) => tag !== 'embedding')
@@ -416,6 +434,7 @@ export function ModelOptionsModal({
     if (AVAILABLE_CATALOG_ADVANCED_KEY in providerOptions) {
       delete providerOptions[AVAILABLE_CATALOG_ADVANCED_KEY]
     }
+    providerOptions = stripHeaderEntriesFromAdvancedJSON(providerOptions)
 
     const nextType = draft.modelType.trim() || 'chat'
     const nextDraft: DraftState = {
@@ -445,7 +464,10 @@ export function ModelOptionsModal({
       if (nextDraft.toolCalling) catalog.tool_calling = true
       if (nextDraft.reasoning) catalog.reasoning = true
 
-      const advancedJSON = mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions)
+      const advancedJSON = writeHeaderEntriesToAdvancedJSON(
+        mergeAvailableCatalogIntoAdvancedJson(catalog, providerOptions),
+        nextDraft.headers,
+      )
       const tags = nextDraft.embedding ? ['embedding'] : []
 
       setSaving(true)
@@ -598,6 +620,16 @@ export function ModelOptionsModal({
               </div>
             </section>
             <p className="text-xs text-[var(--c-text-muted)]">{labels.visionBridgeHint}</p>
+
+            <FormField label={labels.headers ?? 'Headers'}>
+              <HeadersEditor
+                headers={draft.headers}
+                onChange={(headers) => setDraft((prev) => ({ ...prev, headers }))}
+                addLabel={labels.addHeader ?? 'Add header'}
+                keyPlaceholder={labels.headerKeyPlaceholder ?? 'Header name'}
+                valuePlaceholder={labels.headerValuePlaceholder ?? 'Header value'}
+              />
+            </FormField>
 
             <FormField label={labels.providerOptionsJson} error={error}>
               <AutoResizeTextarea

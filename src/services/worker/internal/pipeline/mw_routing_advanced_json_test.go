@@ -48,6 +48,10 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 			CredentialID: "cred-openai",
 			AdvancedJSON: map[string]any{
 				"metadata": map[string]any{"source": "route"},
+				"openviking_extra_headers": map[string]any{
+					"x-route":  "model",
+					"x-shared": "model",
+				},
 				"available_catalog": map[string]any{
 					"id":             "gpt-5.4",
 					"context_length": float64(200000),
@@ -62,6 +66,10 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 			AdvancedJSON: map[string]any{
 				"top_p":              0.9,
 				"openviking_backend": "openai",
+				"openviking_extra_headers": map[string]any{
+					"x-provider": "credential",
+					"x-shared":   "credential",
+				},
 			},
 		},
 	}
@@ -90,6 +98,15 @@ func TestResolveGatewayConfigFromSelectedRoute_OpenAIAuto(t *testing.T) {
 	}
 	if _, exists := resolved.OpenAI.AdvancedPayloadJSON["openviking_backend"]; exists {
 		t.Fatalf("openviking_backend must stay internal, got %#v", resolved.OpenAI.AdvancedPayloadJSON)
+	}
+	if resolved.Transport.DefaultHeaders["x-route"] != "model" {
+		t.Fatalf("expected model headers to be applied, got %#v", resolved.Transport.DefaultHeaders)
+	}
+	if resolved.Transport.DefaultHeaders["x-provider"] != "credential" {
+		t.Fatalf("expected provider headers to be preserved, got %#v", resolved.Transport.DefaultHeaders)
+	}
+	if resolved.Transport.DefaultHeaders["x-shared"] != "model" {
+		t.Fatalf("expected model headers to override matching provider headers, got %#v", resolved.Transport.DefaultHeaders)
 	}
 	if routing.RouteContextWindowTokens(selected.Route) != 200000 {
 		t.Fatalf("expected route metadata to remain available locally")

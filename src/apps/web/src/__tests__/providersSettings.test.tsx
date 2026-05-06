@@ -10,6 +10,7 @@ const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 const listLlmProviders = vi.fn()
 const listAvailableModels = vi.fn()
 const createLlmProvider = vi.fn()
+const updateLlmProvider = vi.fn()
 const createProviderModel = vi.fn()
 const deleteLlmProvider = vi.fn()
 const copyLlmProvider = vi.fn()
@@ -31,7 +32,7 @@ async function loadSubject() {
       listLlmProviders,
       listAvailableModels,
       createLlmProvider,
-      updateLlmProvider: vi.fn(),
+      updateLlmProvider,
       deleteLlmProvider,
       copyLlmProvider,
       createProviderModel,
@@ -55,6 +56,7 @@ beforeEach(() => {
   listLlmProviders.mockReset()
   listAvailableModels.mockReset()
   createLlmProvider.mockReset()
+  updateLlmProvider.mockReset()
   createProviderModel.mockReset()
   deleteLlmProvider.mockReset()
   copyLlmProvider.mockReset()
@@ -79,6 +81,15 @@ beforeEach(() => {
     provider: 'openai',
     openai_api_mode: 'responses',
     base_url: 'https://created.example/v1',
+    advanced_json: {},
+    models: [],
+  })
+  updateLlmProvider.mockResolvedValue({
+    id: 'provider-1',
+    name: 'OpenRouter',
+    provider: 'openai',
+    openai_api_mode: 'responses',
+    base_url: 'https://openrouter.ai/api/v1',
     advanced_json: {},
     models: [],
   })
@@ -402,6 +413,73 @@ describe('ProvidersSettings', () => {
     expect(listAvailableModels).toHaveBeenCalledWith('token', 'provider-created')
     expect(createProviderModel).toHaveBeenCalledWith('token', 'provider-created', expect.objectContaining({
       model: 'openai/gpt-4o-mini',
+    }))
+  })
+
+  it('新增供应商时在高级选项保存 Headers', async () => {
+    const { ProvidersSettings, LocaleProvider } = await loadSubject()
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <ProvidersSettings accessToken="token" />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    const addButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('添加供应商'))
+    expect(addButton).toBeTruthy()
+    await act(async () => {
+      addButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const advancedButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+      /高级选项|高级配置|Advanced/.test(button.textContent ?? ''),
+    )
+    expect(advancedButton).toBeTruthy()
+    await act(async () => {
+      advancedButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const addHeaderButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('添加 Header'))
+    expect(addHeaderButton).toBeTruthy()
+    await act(async () => {
+      addHeaderButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const inputs = Array.from(document.body.querySelectorAll('input')) as HTMLInputElement[]
+    const nameInput = inputs.find((input) => input.placeholder === 'My Provider')
+    const apiKeyInput = inputs.find((input) => input.type === 'password')
+    const headerNameInput = inputs.find((input) => input.placeholder === 'Header 名称')
+    const headerValueInput = inputs.find((input) => input.placeholder === 'Header 值')
+    expect(nameInput).toBeTruthy()
+    expect(apiKeyInput).toBeTruthy()
+    expect(headerNameInput).toBeTruthy()
+    expect(headerValueInput).toBeTruthy()
+
+    await act(async () => {
+      setInputValue(nameInput!, 'Created Provider')
+      setInputValue(apiKeyInput!, 'sk-created')
+      setInputValue(headerNameInput!, 'X-Provider')
+      setInputValue(headerValueInput!, 'secret')
+    })
+    await flushEffects()
+
+    const saveButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('保存'))
+    expect(saveButton).toBeTruthy()
+    await act(async () => {
+      saveButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(createLlmProvider).toHaveBeenCalledWith('token', expect.objectContaining({
+      advanced_json: expect.objectContaining({
+        openviking_extra_headers: { 'X-Provider': 'secret' },
+      }),
     }))
   })
 })

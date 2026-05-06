@@ -39,6 +39,14 @@ import { SettingsModalFrame } from './_SettingsModalFrame'
 import { SettingsSelect } from './_SettingsSelect'
 import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
 import { SettingsSwitch } from './_SettingsSwitch'
+import {
+  AdvancedOptionsDisclosure,
+  HeadersEditor,
+  advancedJSONSignature,
+  readHeaderEntriesFromAdvancedJSON,
+  writeHeaderEntriesToAdvancedJSON,
+  type HeaderEntry,
+} from './HeadersEditor'
 
 const VENDOR_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -528,6 +536,8 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   const [preset, setPreset] = useState<VendorPresetKey>('openai_responses')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
+  const [headers, setHeaders] = useState<HeaderEntry[]>([])
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -543,7 +553,10 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         openai_api_mode: v.openai_api_mode,
-        advanced_json: mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+        advanced_json: writeHeaderEntriesToAdvancedJSON(
+          mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+          headers,
+        ),
       })
       onCreated(provider)
     } catch (e) {
@@ -612,6 +625,22 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
               maxLength={500}
             />
           </div>
+          <AdvancedOptionsDisclosure
+            label={p.advancedOptions ?? p.advancedConfig}
+            open={advancedOpen}
+            onToggle={() => setAdvancedOpen((value) => !value)}
+          >
+            <div>
+              <label className={fieldLabelCls}>{p.headers ?? 'Headers'}</label>
+              <HeadersEditor
+                headers={headers}
+                onChange={setHeaders}
+                addLabel={p.addHeader ?? 'Add header'}
+                keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+                valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
+              />
+            </div>
+          </AdvancedOptionsDisclosure>
         </div>
 
         {err && <p className="mt-3 text-xs text-[var(--c-status-error-text)]">{err}</p>}
@@ -642,6 +671,7 @@ function ProviderDetail({
   const [formName, setFormName] = useState(provider.name)
   const [formApiKey, setFormApiKey] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
+  const [formHeaders, setFormHeaders] = useState<HeaderEntry[]>(() => readHeaderEntriesFromAdvancedJSON(provider.advanced_json))
   const [err, setErr] = useState('')
   const autoSaveTimerRef = useRef<number | null>(null)
   const readOnly = isManagedLocalProvider(provider)
@@ -651,8 +681,9 @@ function ProviderDetail({
     setFormName(provider.name)
     setFormApiKey('')
     setFormBaseUrl(provider.base_url ?? '')
+    setFormHeaders(readHeaderEntriesFromAdvancedJSON(provider.advanced_json))
     setErr('')
-  }, [provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
+  }, [provider.advanced_json, provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
 
   useEffect(() => {
     return () => {
@@ -670,7 +701,12 @@ function ProviderDetail({
     const nameChanged = formName.trim() !== provider.name
     const baseUrlChanged = nextBaseUrl !== (provider.base_url ?? '')
     const apiKeyChanged = apiKey !== ''
-    if (!providerChanged && !modeChanged && !nameChanged && !baseUrlChanged && !apiKeyChanged) return
+    const nextAdvancedJSON = writeHeaderEntriesToAdvancedJSON(
+      mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
+      formHeaders,
+    )
+    const advancedChanged = advancedJSONSignature(nextAdvancedJSON) !== advancedJSONSignature(provider.advanced_json)
+    if (!providerChanged && !modeChanged && !nameChanged && !baseUrlChanged && !apiKeyChanged && !advancedChanged) return
 
     setErr('')
     try {
@@ -680,14 +716,14 @@ function ProviderDetail({
         base_url: nextBaseUrl || null,
         provider: selected?.provider,
         openai_api_mode: selected?.openai_api_mode ?? null,
-        advanced_json: mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
+        advanced_json: nextAdvancedJSON,
       })
       setFormApiKey('')
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : p.saveFailed)
     }
-  }, [accessToken, formApiKey, formBaseUrl, formName, formPreset, onUpdated, p.saveFailed, provider, readOnly])
+  }, [accessToken, formApiKey, formBaseUrl, formHeaders, formName, formPreset, onUpdated, p.saveFailed, provider, readOnly])
 
   useEffect(() => {
     if (readOnly) return
@@ -761,6 +797,15 @@ function ProviderDetail({
               onChange={(e) => setFormBaseUrl(e.target.value.slice(0, 500))}
               placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
               maxLength={500}
+            />
+          </ProviderDetailRow>
+          <ProviderDetailRow label={p.headers ?? 'Headers'}>
+            <HeadersEditor
+              headers={formHeaders}
+              onChange={setFormHeaders}
+              addLabel={p.addHeader ?? 'Add header'}
+              keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+              valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
             />
           </ProviderDetailRow>
         </ProviderDetailCard>
@@ -1100,6 +1145,10 @@ function ModelsSection({
           maxOutputTokens: p.maxOutputTokens ?? 'Max Output Tokens',
           providerOptionsJson: p.providerOptionsJson ?? 'Provider Options (JSON)',
           providerOptionsHint: p.providerOptionsHint ?? 'Only provider-specific fields belong here. Model capability fields are managed above.',
+          headers: p.headers ?? 'Headers',
+          addHeader: p.addHeader ?? 'Add header',
+          headerKeyPlaceholder: p.headerKeyPlaceholder ?? 'Header name',
+          headerValuePlaceholder: p.headerValuePlaceholder ?? 'Header value',
           save: p.save,
           cancel: p.cancel,
           reset: p.reset ?? 'Reset',
