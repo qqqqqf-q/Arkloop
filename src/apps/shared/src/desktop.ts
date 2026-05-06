@@ -181,6 +181,24 @@ export type UpdaterStatus = {
 
 export type UpdaterComponent = 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
 
+export type DesktopBrowserTab = {
+  id: string
+  title: string
+  url: string
+  faviconUrl: string | null
+  loading: boolean
+  error: string | null
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type DesktopBrowserTabBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -266,6 +284,19 @@ export type ArkloopDesktopApi = {
   fs?: {
     listDir: (folderPath: string, subPath?: string) => Promise<{ entries: LocalFileEntry[] }>
     readFile: (folderPath: string, relativePath: string) => Promise<{ data: string; mime_type: string } | { error: string }>
+  }
+  browserTabs?: {
+    list: () => Promise<{ tabs: DesktopBrowserTab[] }>
+    create: () => Promise<DesktopBrowserTab>
+    close: (tabId: string) => Promise<{ tabs: DesktopBrowserTab[] }>
+    navigate: (tabId: string, url: string) => Promise<DesktopBrowserTab>
+    reload: (tabId: string) => Promise<DesktopBrowserTab>
+    goBack: (tabId: string) => Promise<DesktopBrowserTab>
+    goForward: (tabId: string) => Promise<DesktopBrowserTab>
+    show: (tabId: string, bounds: DesktopBrowserTabBounds) => Promise<{ ok: boolean }>
+    hide: () => Promise<{ ok: boolean }>
+    syncBounds: (tabId: string, bounds: DesktopBrowserTabBounds) => Promise<{ ok: boolean }>
+    onStateChanged: (callback: (state: { tabs: DesktopBrowserTab[] }) => void) => () => void
   }
 }
 

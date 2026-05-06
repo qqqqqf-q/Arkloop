@@ -15,7 +15,6 @@ import { getDesktopApi, getDesktopPlatform, isDesktop } from '@arkloop/shared/de
 import type { AppUpdaterState } from '@arkloop/shared/desktop'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { Button } from '@arkloop/shared'
-import { ModeSwitch } from './ModeSwitch'
 import { useLocale } from '../contexts/LocaleContext'
 import type { AppMode } from '../storage'
 import type { SettingsTab } from './SettingsModal'
@@ -32,8 +31,6 @@ type Props = {
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
   appMode: AppMode
-  onSetAppMode: (mode: AppMode) => void
-  availableModes: AppMode[]
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
@@ -49,8 +46,6 @@ export function DesktopTitleBar({
   sidebarCollapsed,
   onToggleSidebar,
   appMode,
-  onSetAppMode,
-  availableModes,
   showIncognitoToggle = true,
   isPrivateMode,
   onTogglePrivateMode,
@@ -160,10 +155,9 @@ export function DesktopTitleBar({
 
   return (
     <div
-      className="relative grid shrink-0 items-center"
+      className="relative flex shrink-0 items-center justify-between"
       style={{
         height: titleBarHeight,
-        gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
         paddingLeft: `${isMac ? MAC_TITLEBAR_LEFT_PADDING : DESKTOP_ICON_RAIL_LEFT_PADDING}px`,
         paddingRight: isWindows ? 0 : '12px',
         background: isWindows
@@ -210,22 +204,9 @@ export function DesktopTitleBar({
         </button>
       </div>
 
-      {/* centered mode switch */}
-      <div
-        className="min-w-0 translate-y-px justify-self-center"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <ModeSwitch
-          mode={appMode}
-          onChange={onSetAppMode}
-          labels={{ chat: t.modeChat, work: t.modeWork }}
-          availableModes={availableModes}
-        />
-      </div>
-
       {/* app actions and window controls */}
       <div
-        className={isWindows ? 'flex min-w-0 items-stretch justify-end self-stretch justify-self-end' : 'flex min-w-0 items-center justify-end justify-self-end'}
+        className={isWindows ? 'ml-auto flex min-w-0 items-stretch justify-end self-stretch' : 'ml-auto flex min-w-0 items-center justify-end'}
         style={{
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}

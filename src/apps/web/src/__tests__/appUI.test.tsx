@@ -172,6 +172,7 @@ describe('DesktopTitleBar update entry', () => {
   beforeEach(() => {
     desktopMock.isDesktop.mockReturnValue(true)
     desktopMock.platform.mockReturnValue('darwin')
+    window.localStorage.setItem('arkloop:web:locale', 'zh')
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -182,6 +183,7 @@ describe('DesktopTitleBar update entry', () => {
     if (root) {
       act(() => root!.unmount())
     }
+    window.localStorage.removeItem('arkloop:web:locale')
     container.remove()
     root = null
     if (originalActEnvironment === undefined) {
@@ -204,8 +206,6 @@ describe('DesktopTitleBar update entry', () => {
             sidebarCollapsed={false}
             onToggleSidebar={() => {}}
             appMode="chat"
-            onSetAppMode={() => {}}
-            availableModes={['chat', 'work']}
             showIncognitoToggle={false}
             hasAppUpdate={hasAppUpdate}
             appUpdateState={state}
@@ -260,5 +260,35 @@ describe('DesktopTitleBar update entry', () => {
 
     await renderTitleBar(appUpdateState('downloaded'), true)
     expect(container.querySelector('button[title="已可安装"]')).not.toBeNull()
+  })
+
+  it('标题栏只保留系统级控件，不再渲染 chat/work 与浏览器页签', async () => {
+    desktopMock.platform.mockReturnValue('win32')
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopTitleBar
+            sidebarCollapsed={false}
+            onToggleSidebar={() => {}}
+            appMode="chat"
+            showIncognitoToggle={false}
+            hasAppUpdate={false}
+            appUpdateState={appUpdateState('idle')}
+            onCheckAppUpdate={() => {}}
+            onDownloadApp={() => {}}
+            onInstallApp={() => {}}
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    expect(container.textContent).not.toContain('Chat')
+    expect(container.textContent).not.toContain('Work')
+    expect(container.textContent).not.toContain('Arkloop Docs')
+    expect(container.querySelector('button[title="新建网页 Tab"]')).toBeNull()
+    expect(container.querySelector('button[title="Close browser tab"]')).toBeNull()
+    expect(container.querySelector('button[title="Minimize"]')).not.toBeNull()
+    expect(container.querySelector('button[title="Close"]')).not.toBeNull()
   })
 })

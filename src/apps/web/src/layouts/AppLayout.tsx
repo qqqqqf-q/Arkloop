@@ -4,6 +4,8 @@ import { isDesktop, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
+import { DesktopTabBar } from '../components/DesktopTabBar'
+import { BrowserTabPage } from '../components/BrowserTabPage'
 import { SettingsModal, type SettingsTab } from '../components/SettingsModal'
 import { DesktopSettings } from '../components/DesktopSettings'
 import { ChatsSearchModal } from '../components/ChatsSearchModal'
@@ -24,6 +26,7 @@ import {
   useTitleBarIncognitoUI,
 } from '../contexts/app-ui'
 import { useCredits } from '../contexts/credits'
+import { useBrowserTabs } from '../contexts/browser-tabs'
 import { isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
 
 const MainViewport = memo(function MainViewport({
@@ -59,10 +62,14 @@ type LayoutMainProps = {
   isSearchOpen: boolean
   filteredThreads: import('../api').ThreadResponse[]
   appMode: import('../storage').AppMode
+  availableModes: import('../storage').AppMode[]
   pathname: string
   onSearchClose: () => void
   onMeUpdated: (m: import('../api').MeResponse) => void
   onTrySkill: (prompt: string) => void
+  onSetAppMode: (mode: import('../storage').AppMode) => void
+  browserPanelOpen: boolean
+  onToggleBrowserPanel: () => void
 }
 
 const LayoutMain = memo(function LayoutMain({
@@ -70,10 +77,14 @@ const LayoutMain = memo(function LayoutMain({
   isSearchOpen,
   filteredThreads,
   appMode,
+  availableModes,
   pathname,
   onSearchClose,
   onMeUpdated,
   onTrySkill,
+  onSetAppMode,
+  browserPanelOpen,
+  onToggleBrowserPanel,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
   const { setCreditsBalance } = useCredits()
@@ -132,12 +143,33 @@ const LayoutMain = memo(function LayoutMain({
         />
       ) : (
         <div className="relative flex min-w-0 flex-1 overflow-hidden">
-          <MainViewport
-            accessToken={accessToken}
-            notificationsOpen={notificationsOpen}
-            closeNotifications={closeNotifications}
-            markNotificationRead={markNotificationRead}
-          />
+          <div className="flex min-w-0 flex-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {desktop && (
+              <DesktopTabBar
+                appMode={appMode}
+                availableModes={availableModes}
+                browserPanelOpen={browserPanelOpen}
+                onSetAppMode={onSetAppMode}
+                onToggleBrowserPanel={onToggleBrowserPanel}
+              />
+            )}
+            <MainViewport
+              accessToken={accessToken}
+              notificationsOpen={notificationsOpen}
+              closeNotifications={closeNotifications}
+              markNotificationRead={markNotificationRead}
+            />
+            </div>
+            {desktop && browserPanelOpen && (
+              <aside
+                className="flex min-h-0 min-w-0 shrink-0 border-l border-[var(--c-border-subtle)] bg-[var(--c-bg-page)]"
+                style={{ width: 'clamp(520px, 50vw, 960px)' }}
+              >
+                <BrowserTabPage />
+              </aside>
+            )}
+          </div>
         </div>
       )}
     </>
@@ -160,6 +192,7 @@ export function AppLayout() {
   const { closeNotifications } = useNotificationsUI()
   const { queueSkillPrompt } = useSkillPromptUI()
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI()
+  const { panelOpen: browserPanelOpen, toggleBrowserPanel } = useBrowserTabs()
   useCredits()
   const { t } = useLocale()
   const navigate = useNavigate()
@@ -209,6 +242,10 @@ export function AppLayout() {
   const handleDesktopTitleBarIncognitoClick = useCallback(() => {
     triggerTitleBarIncognitoClick(togglePrivateMode)
   }, [triggerTitleBarIncognitoClick, togglePrivateMode])
+
+  const handleTitleBarSetAppMode = useCallback((mode: import('../storage').AppMode) => {
+    setAppMode(mode)
+  }, [setAppMode])
 
   const handleNewThread = useCallback(() => {
     if (isSearchMode) writeSelectedPersonaKeyToStorage(DEFAULT_PERSONA_KEY)
@@ -271,8 +308,6 @@ export function AppLayout() {
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => toggleSidebar('titlebar')}
             appMode={activeAppMode}
-            onSetAppMode={setAppMode}
-            availableModes={availableAppModes}
             showIncognitoToggle={activeAppMode !== 'work'}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
@@ -300,10 +335,14 @@ export function AppLayout() {
             isSearchOpen={isSearchOpen}
             filteredThreads={filteredThreads}
             appMode={activeAppMode}
+            availableModes={availableAppModes}
             pathname={location.pathname}
             onSearchClose={handleCloseSearch}
             onMeUpdated={updateMe}
             onTrySkill={handleTrySkill}
+            onSetAppMode={handleTitleBarSetAppMode}
+            browserPanelOpen={browserPanelOpen}
+            onToggleBrowserPanel={toggleBrowserPanel}
           />
         </div>
       </div>

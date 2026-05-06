@@ -20,6 +20,18 @@ import { DEFAULT_CONFIG } from './types'
 import { getDesktopLogDir, getDesktopLogPaths } from './logging'
 import { applyOnboardingImport, detectOnboardingImportSources, type OnboardingImportApplyRequest } from './onboarding-import'
 import type { AppConfig, ApplyConfigUpdateOptions, ConnectorsConfig, MemoryConfig } from './types'
+import {
+  listBrowserTabs,
+  createBrowserTab,
+  closeBrowserTab,
+  navigateBrowserTab,
+  reloadBrowserTab,
+  goBackBrowserTab,
+  goForwardBrowserTab,
+  showBrowserTabView,
+  hideBrowserTabView,
+  syncBrowserTabViewBounds,
+} from './browser-tabs'
 
 type DesktopController = {
   applyConfigUpdate: (config: AppConfig, options?: ApplyConfigUpdateOptions) => Promise<AppConfig>
@@ -455,6 +467,56 @@ export function registerIpcHandlers(
 
   ipcMain.handle('arkloop:logs:files', () => {
     return getDesktopLogPaths()
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:list', () => {
+    return listBrowserTabs()
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:create', () => {
+    return createBrowserTab()
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:close', (_event, tabId: string) => {
+    return closeBrowserTab(tabId)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:navigate', (_event, tabId: string, url: string) => {
+    return navigateBrowserTab(tabId, url)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:reload', (_event, tabId: string) => {
+    return reloadBrowserTab(tabId)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:go-back', (_event, tabId: string) => {
+    return goBackBrowserTab(tabId)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:go-forward', (_event, tabId: string) => {
+    return goForwardBrowserTab(tabId)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:show', (_event, tabId: string, bounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }) => {
+    return showBrowserTabView(tabId, bounds)
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:hide', () => {
+    return hideBrowserTabView()
+  })
+
+  ipcMain.handle('arkloop:browser-tabs:sync-bounds', (_event, tabId: string, bounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }) => {
+    return syncBrowserTabViewBounds(tabId, bounds)
   })
 
   ipcMain.handle('arkloop:dialog:open-folder', async (event) => {

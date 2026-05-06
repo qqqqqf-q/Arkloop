@@ -135,26 +135,7 @@ async function main() {
   })
 
   console.log('starting vite dev server...')
-<<<<<<< fix/desktop-vite-port-fallback
   const { vite, url: viteUrl } = await startViteDevServer()
-=======
-  const viteCommand = resolveCommand('pnpm')
-  const vite = spawn(viteCommand, ['exec', 'vite', '--port', String(vitePort), '--strictPort'], {
-    cwd: webRoot,
-    stdio: 'inherit',
-    shell: shouldUseShell(viteCommand),
-    env: {
-      ...process.env,
-      ARKLOOP_API_PROXY_TARGET: 'http://127.0.0.1:19001',
-      ARKLOOP_DESKTOP_SHELL_DEV: 'true',
-    },
-  })
-
-  vite.on('error', (err) => {
-    console.error('vite failed to start:', err)
-    process.exit(1)
-  })
->>>>>>> main
 
   console.log('waiting for vite dev server...')
   await waitForVite(viteUrl)
