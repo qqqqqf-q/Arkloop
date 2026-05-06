@@ -374,7 +374,9 @@ func GatewayFromSelectedRoute(selected routing.SelectedProviderRoute, auxGateway
 
 func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRoute, emitDebugEvents bool, llmMaxResponseBytes int) (llm.ResolvedGatewayConfig, error) {
 	credential := selected.Credential
-	advancedJSON := providerPayloadAdvancedJSON(mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON))
+	mergedAdvancedJSON := mergeAdvancedJSON(credential.AdvancedJSON, selected.Route.AdvancedJSON)
+	customHeaders := extractCustomHeaders(mergedAdvancedJSON)
+	advancedJSON := providerPayloadAdvancedJSON(mergedAdvancedJSON)
 	if isLocalProviderKind(credential.ProviderKind) {
 		return resolveLocalProviderGatewayConfig(selected, localproviders.Credential{ProviderID: localProviderIDFromKind(credential.ProviderKind), AuthMode: localproviders.AuthModeAPIKey}, advancedJSON, emitDebugEvents, llmMaxResponseBytes)
 	}
@@ -389,6 +391,7 @@ func ResolveGatewayConfigFromSelectedRoute(selected routing.SelectedProviderRout
 	transport := llm.TransportConfig{
 		APIKey:           apiKey,
 		BaseURL:          baseURL,
+		DefaultHeaders:   customHeaders,
 		EmitDebugEvents:  emitDebugEvents,
 		MaxResponseBytes: llmMaxResponseBytes,
 	}
@@ -593,6 +596,26 @@ func mergeAdvancedJSON(providerAdvancedJSON map[string]any, modelAdvancedJSON ma
 		merged[key] = value
 	}
 	for key, value := range modelAdvancedJSON {
+		if key == "openviking_extra_headers" {
+			merged[key] = mergeAdvancedHeaderJSON(providerAdvancedJSON[key], value)
+			continue
+		}
+		merged[key] = value
+	}
+	return merged
+}
+
+func mergeAdvancedHeaderJSON(providerHeaders any, modelHeaders any) any {
+	providerMap, providerOK := providerHeaders.(map[string]any)
+	modelMap, modelOK := modelHeaders.(map[string]any)
+	if !providerOK || !modelOK {
+		return modelHeaders
+	}
+	merged := make(map[string]any, len(providerMap)+len(modelMap))
+	for key, value := range providerMap {
+		merged[key] = value
+	}
+	for key, value := range modelMap {
 		merged[key] = value
 	}
 	return merged
@@ -610,6 +633,26 @@ func providerPayloadAdvancedJSON(raw map[string]any) map[string]any {
 		filtered[key] = value
 	}
 	return filtered
+}
+
+func extractCustomHeaders(raw map[string]any) map[string]string {
+	rawHeaders, ok := raw["openviking_extra_headers"].(map[string]any)
+	if !ok || len(rawHeaders) == 0 {
+		return nil
+	}
+	headers := make(map[string]string, len(rawHeaders))
+	for key, value := range rawHeaders {
+		headerName := strings.TrimSpace(key)
+		headerValue, ok := value.(string)
+		if headerName == "" || !ok || strings.TrimSpace(headerValue) == "" {
+			continue
+		}
+		headers[headerName] = strings.TrimSpace(headerValue)
+	}
+	if len(headers) == 0 {
+		return nil
+	}
+	return headers
 }
 
 func isInternalAdvancedJSONKey(key string) bool {

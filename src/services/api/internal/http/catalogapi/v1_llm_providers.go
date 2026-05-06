@@ -1110,33 +1110,33 @@ func testChatModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, 
 	case llmproviders.ProtocolKindAnthropicMessages:
 		return testAnthropicChat(ctx, cfg, baseURL, apiKey, model)
 	case llmproviders.ProtocolKindGeminiGenerateContent:
-		return testGeminiChat(ctx, baseURL, apiKey, model)
+		return testGeminiChat(ctx, cfg, baseURL, apiKey, model)
 	case llmproviders.ProtocolKindOpenAIResponses:
-		return testOpenAIResponsesChat(ctx, baseURL, apiKey, model)
+		return testOpenAIResponsesChat(ctx, cfg, baseURL, apiKey, model)
 	default:
-		return testOpenAIChat(ctx, baseURL, apiKey, model)
+		return testOpenAIChat(ctx, cfg, baseURL, apiKey, model)
 	}
 }
 
 func testEmbeddingModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	switch cfg.Kind {
 	case llmproviders.ProtocolKindGeminiGenerateContent:
-		return testGeminiEmbedding(ctx, baseURL, apiKey, model)
+		return testGeminiEmbedding(ctx, cfg, baseURL, apiKey, model)
 	default:
-		return testOpenAIEmbedding(ctx, baseURL, apiKey, model)
+		return testOpenAIEmbedding(ctx, cfg, baseURL, apiKey, model)
 	}
 }
 
 func testImageModel(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	switch cfg.Kind {
 	case llmproviders.ProtocolKindGeminiGenerateContent:
-		return testGeminiImage(ctx, baseURL, apiKey, model)
+		return testGeminiImage(ctx, cfg, baseURL, apiKey, model)
 	default:
-		return testOpenAIImage(ctx, baseURL, apiKey, model)
+		return testOpenAIImage(ctx, cfg, baseURL, apiKey, model)
 	}
 }
 
-func testOpenAIChat(ctx context.Context, baseURL, apiKey, model string) error {
+func testOpenAIChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
@@ -1144,32 +1144,32 @@ func testOpenAIChat(ctx context.Context, baseURL, apiKey, model string) error {
 		},
 		"max_tokens": 32,
 	}
-	return doTestHTTPPost(ctx, baseURL+"/chat/completions", apiKey, "Bearer", payload)
+	return doTestHTTPPost(ctx, cfg, baseURL+"/chat/completions", apiKey, "Bearer", payload)
 }
 
-func testOpenAIResponsesChat(ctx context.Context, baseURL, apiKey, model string) error {
+func testOpenAIResponsesChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"model":             model,
 		"input":             "ping",
 		"max_output_tokens": 32,
 	}
-	return doTestHTTPPost(ctx, baseURL+"/responses", apiKey, "Bearer", payload)
+	return doTestHTTPPost(ctx, cfg, baseURL+"/responses", apiKey, "Bearer", payload)
 }
 
-func testOpenAIEmbedding(ctx context.Context, baseURL, apiKey, model string) error {
+func testOpenAIEmbedding(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"model": model,
 		"input": "ping",
 	}
-	return doTestHTTPPost(ctx, baseURL+"/embeddings", apiKey, "Bearer", payload)
+	return doTestHTTPPost(ctx, cfg, baseURL+"/embeddings", apiKey, "Bearer", payload)
 }
 
-func testOpenAIImage(ctx context.Context, baseURL, apiKey, model string) error {
+func testOpenAIImage(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"model":  model,
 		"prompt": "ping",
 	}
-	return doTestHTTPPost(ctx, baseURL+"/images/generations", apiKey, "Bearer", payload)
+	return doTestHTTPPost(ctx, cfg, baseURL+"/images/generations", apiKey, "Bearer", payload)
 }
 
 func testAnthropicChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
@@ -1194,12 +1194,13 @@ func testAnthropicChat(ctx context.Context, cfg llmproviders.CatalogProtocolConf
 	for key, value := range cfg.Anthropic.ExtraHeaders {
 		req.Header.Set(key, value)
 	}
+	applyUserExtraHeadersToRequest(req, cfg)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	return doTestRequest(req)
 }
 
-func testGeminiChat(ctx context.Context, baseURL, apiKey, model string) error {
+func testGeminiChat(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
@@ -1217,10 +1218,11 @@ func testGeminiChat(ctx context.Context, baseURL, apiKey, model string) error {
 	req.Header.Set("x-goog-api-key", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeadersToRequest(req, cfg)
 	return doTestRequest(req)
 }
 
-func testGeminiEmbedding(ctx context.Context, baseURL, apiKey, model string) error {
+func testGeminiEmbedding(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"content": map[string]any{
 			"parts": []map[string]string{
@@ -1235,10 +1237,11 @@ func testGeminiEmbedding(ctx context.Context, baseURL, apiKey, model string) err
 	req.Header.Set("x-goog-api-key", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeadersToRequest(req, cfg)
 	return doTestRequest(req)
 }
 
-func testGeminiImage(ctx context.Context, baseURL, apiKey, model string) error {
+func testGeminiImage(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, baseURL, apiKey, model string) error {
 	payload := map[string]any{
 		"instances": []map[string]string{
 			{"prompt": "ping"},
@@ -1254,10 +1257,11 @@ func testGeminiImage(ctx context.Context, baseURL, apiKey, model string) error {
 	req.Header.Set("x-goog-api-key", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeadersToRequest(req, cfg)
 	return doTestRequest(req)
 }
 
-func doTestHTTPPost(ctx context.Context, url, apiKey, authPrefix string, payload map[string]any) error {
+func doTestHTTPPost(ctx context.Context, cfg llmproviders.CatalogProtocolConfig, url, apiKey, authPrefix string, payload map[string]any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -1271,7 +1275,14 @@ func doTestHTTPPost(ctx context.Context, url, apiKey, authPrefix string, payload
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeadersToRequest(req, cfg)
 	return doTestRequest(req)
+}
+
+func applyUserExtraHeadersToRequest(req *nethttp.Request, cfg llmproviders.CatalogProtocolConfig) {
+	for key, value := range llmproviders.OpenVikingExtraHeadersFromAdvancedJSON(cfg.Credential.AdvancedJSON) {
+		req.Header.Set(key, value)
+	}
 }
 
 func doTestRequest(req *nethttp.Request) error {

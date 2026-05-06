@@ -91,6 +91,7 @@ func listOpenAIModels(ctx context.Context, cfg CatalogProtocolConfig) ([]Availab
 	body, status, err := fetchCatalogJSON(ctx, strings.TrimRight(cfg.BaseURL, "/")+"/models", func(req *nethttp.Request) {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 		req.Header.Set("Accept", "application/json")
+		applyUserExtraHeaders(req, cfg)
 	})
 	if err != nil {
 		return nil, err
@@ -133,6 +134,7 @@ func listOpenRouterEmbeddingModels(ctx context.Context, cfg CatalogProtocolConfi
 	body, status, err := fetchCatalogJSON(ctx, strings.TrimRight(cfg.BaseURL, "/")+"/embeddings/models", func(req *nethttp.Request) {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 		req.Header.Set("Accept", "application/json")
+		applyUserExtraHeaders(req, cfg)
 	})
 	if err != nil {
 		return nil, err
@@ -212,6 +214,12 @@ func fetchCatalogJSON(ctx context.Context, url string, decorate func(*nethttp.Re
 	return body, resp.StatusCode, nil
 }
 
+func applyUserExtraHeaders(req *nethttp.Request, cfg CatalogProtocolConfig) {
+	for key, value := range OpenVikingExtraHeadersFromAdvancedJSON(cfg.Credential.AdvancedJSON) {
+		req.Header.Set(key, value)
+	}
+}
+
 func mergeAvailableModels(base []AvailableModel, extra []AvailableModel) []AvailableModel {
 	if len(extra) == 0 {
 		return base
@@ -258,6 +266,7 @@ func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtoc
 	for key, value := range cfg.Anthropic.ExtraHeaders {
 		req.Header.Set(key, value)
 	}
+	applyUserExtraHeaders(req, cfg)
 
 	resp, err := policy.NewHTTPClient(availableModelsTimeout).Do(req)
 	if err != nil {
@@ -363,6 +372,7 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 	}
 	req.Header.Set("x-goog-api-key", cfg.APIKey)
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeaders(req, cfg)
 
 	resp, err := policy.NewHTTPClient(availableModelsTimeout).Do(req)
 	if err != nil {
