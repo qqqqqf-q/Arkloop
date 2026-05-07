@@ -8,11 +8,13 @@ type Props = {
   browserPanelOpen?: boolean
   onSetAppMode: (mode: AppMode) => void
   onToggleBrowserPanel?: () => void
+  title?: string
 }
 
 export function DesktopTabBar({
   browserPanelOpen = false,
   onToggleBrowserPanel,
+  title,
 }: Props) {
   const { t } = useLocale()
 
@@ -24,7 +26,13 @@ export function DesktopTabBar({
         background: 'var(--c-bg-page)',
       }}
     >
-      <div className="flex min-w-0 flex-1 items-center" />
+      <div className="flex min-w-0 flex-1 items-center">
+        {title && (
+          <span className="truncate text-sm font-medium text-[var(--c-text-primary)]">
+            {title}
+          </span>
+        )}
+      </div>
       {!browserPanelOpen && (
         <button
           type="button"
