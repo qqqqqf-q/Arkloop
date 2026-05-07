@@ -2827,7 +2827,7 @@ export const ChatView = memo(function ChatView() {
           chatInputEl
         )}
         <p style={{ color: 'var(--c-text-muted)', fontSize: '11px', letterSpacing: '-0.3px', textAlign: 'center', marginBottom: 0, marginTop: '-2px' }}>
-          Arkloop is AI and can make mistakes. Please double-check responses.
+          OPEN MARKET
         </p>
       </div>
 
