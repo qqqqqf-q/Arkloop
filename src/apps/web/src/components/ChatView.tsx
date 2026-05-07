@@ -25,7 +25,6 @@ import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
 import { DocumentPanel } from './DocumentPanel'
 import { AgentPanel } from './AgentPanel'
-import { ChatTitleMenu } from './ChatTitleMenu'
 import { MessageList } from './MessageList'
 import { CopSegmentBlocks } from './CopSegmentBlocks'
 import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
@@ -2630,7 +2629,6 @@ export const ChatView = memo(function ChatView() {
 
   return (
     <div className="theme-surface-page relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
-      <ChatTitleMenu />
 
       {/* 主体区域：消息 + 输入 + 可选的 sources 侧边面板 */}
       <div className="relative flex flex-1 min-h-0">

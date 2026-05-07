@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Pencil, Star, Trash2, PanelRightOpen } from 'lucide-react'
 import { ConfirmDialog } from '@arkloop/shared'
+import { isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
@@ -202,7 +203,7 @@ export function DesktopTabBar({
             )
           )}
         </div>
-        {!browserPanelOpen && (
+        {isDesktop() && !browserPanelOpen && (
           <button
             type="button"
             onClick={onToggleBrowserPanel}

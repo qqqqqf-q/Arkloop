@@ -181,16 +181,14 @@ const LayoutMain = memo(function LayoutMain({
           <div className="flex min-w-0 flex-1 overflow-hidden">
             {!browserFullscreen && (
               <div className="flex min-w-0 flex-col overflow-hidden" style={{ flex: browserPanelOpen ? `0 0 ${chatRatio}%` : '1 1 100%' }}>
-              {desktop && (
-                <DesktopTabBar
-                  appMode={appMode}
-                  availableModes={availableModes}
-                  browserPanelOpen={browserPanelOpen}
-                  onSetAppMode={onSetAppMode}
-                  onToggleBrowserPanel={onToggleBrowserPanel}
-                  currentThread={currentThread}
-                />
-              )}
+              <DesktopTabBar
+                appMode={appMode}
+                availableModes={availableModes}
+                browserPanelOpen={browserPanelOpen}
+                onSetAppMode={onSetAppMode}
+                onToggleBrowserPanel={onToggleBrowserPanel}
+                currentThread={currentThread}
+              />
               <MainViewport
                 accessToken={accessToken}
                 notificationsOpen={notificationsOpen}
