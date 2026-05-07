@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { LocaleProvider } from '../contexts/LocaleContext'
 import { BrowserTabsProvider } from '../contexts/browser-tabs'
 import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import { PluginWorkspaceShell } from '../plugins/PluginWorkspaceShell'
@@ -129,13 +130,15 @@ describe('PluginWorkspaceShell', () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
-          <BrowserTabsProvider>
-            <PluginRuntimeProvider>
-              <PluginBrowserSessionProvider>
-                <PluginWorkspaceShell plugin={hybridPlugin} presentation="hybrid" />
-              </PluginBrowserSessionProvider>
-            </PluginRuntimeProvider>
-          </BrowserTabsProvider>
+          <LocaleProvider>
+            <BrowserTabsProvider>
+              <PluginRuntimeProvider>
+                <PluginBrowserSessionProvider>
+                  <PluginWorkspaceShell plugin={hybridPlugin} presentation="hybrid" />
+                </PluginBrowserSessionProvider>
+              </PluginRuntimeProvider>
+            </BrowserTabsProvider>
+          </LocaleProvider>
         </MemoryRouter>,
       )
       await Promise.resolve()
@@ -143,10 +146,81 @@ describe('PluginWorkspaceShell', () => {
     })
 
     expect(container.querySelector('[data-testid="sample-plugin-body"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="plugin-hybrid-layout"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="browser-tab-page"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="plugin-presentation-value"]')).toBeNull()
     expect(desktopMock.browserTabsApi.create).toHaveBeenCalledTimes(1)
     expect(desktopMock.browserTabsApi.navigate).toHaveBeenCalledWith(
       'browser-plugin',
       'https://example.com/hybrid',
+    )
+  })
+
+  it('uses the browser surface as the primary workspace in embedded browser mode', async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
+          <LocaleProvider>
+            <BrowserTabsProvider>
+              <PluginRuntimeProvider>
+                <PluginBrowserSessionProvider>
+                  <PluginWorkspaceShell plugin={hybridPlugin} presentation="embedded-browser" />
+                </PluginBrowserSessionProvider>
+              </PluginRuntimeProvider>
+            </BrowserTabsProvider>
+          </LocaleProvider>
+        </MemoryRouter>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(container.querySelector('[data-testid="sample-plugin-body"]')).toBeNull()
+    expect(container.querySelector('[data-testid="plugin-browser-layout"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="browser-tab-page"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="plugin-presentation-value"]')).toBeNull()
+    expect(desktopMock.browserTabsApi.navigate).toHaveBeenCalledWith(
+      'browser-plugin',
+      'https://example.com/hybrid',
+    )
+  })
+
+  it('resolves a browser target from the route query and shows the normalized target in the header', async () => {
+    const queryTargetPlugin: PluginDefinition = {
+      ...hybridPlugin,
+      surfaces: {
+        ...hybridPlugin.surfaces,
+        resolveBrowserUrl: ({ location }) => {
+          const params = new URLSearchParams(location.search)
+          return params.get('target') ?? 'https://example.com/hybrid'
+        },
+      },
+    }
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/plugins/sample-plugin?target=docs.arkloop.test']}>
+          <LocaleProvider>
+            <BrowserTabsProvider>
+              <PluginRuntimeProvider>
+                <PluginBrowserSessionProvider>
+                  <PluginWorkspaceShell plugin={queryTargetPlugin} presentation="hybrid" />
+                </PluginBrowserSessionProvider>
+              </PluginRuntimeProvider>
+            </BrowserTabsProvider>
+          </LocaleProvider>
+        </MemoryRouter>,
+      )
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    expect(container.querySelector('[data-testid="plugin-browser-target"]')?.textContent).toBe(
+      'https://docs.arkloop.test/',
+    )
+    expect(desktopMock.browserTabsApi.navigate).toHaveBeenCalledWith(
+      'browser-plugin',
+      'https://docs.arkloop.test/',
     )
   })
 })

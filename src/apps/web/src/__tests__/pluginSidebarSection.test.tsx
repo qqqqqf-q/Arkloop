@@ -44,10 +44,10 @@ describe('PluginSidebarSection', () => {
     }
   })
 
-  it('renders built-in plugins and opens the clicked plugin', async () => {
+  it('keeps the current workspace route when opening a browser plugin from the sidebar', async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/']}>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
           <PluginRuntimeProvider>
             <PluginSidebarSection />
             <Probe />
@@ -57,15 +57,17 @@ describe('PluginSidebarSection', () => {
       await Promise.resolve()
     })
 
-    expect(container.textContent).toContain('Sample Plugin')
+    expect(container.textContent).toContain('Sample Page Plugin')
+    expect(container.textContent).toContain('Sample Browser Plugin')
+    expect(container.textContent).toContain('Sample Hybrid Plugin')
 
     await act(async () => {
       container
-        .querySelector('[data-testid="plugin-entry-sample-plugin"]')
+        .querySelector('[data-testid="plugin-entry-sample-browser-plugin"]')
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await Promise.resolve()
     })
 
-    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/plugins/sample-plugin')
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/t/thread-1')
   })
 })

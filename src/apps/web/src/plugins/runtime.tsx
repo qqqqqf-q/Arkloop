@@ -2,11 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { readPluginRuntimeState, writePluginRuntimeState } from '../storage'
 import { getBuiltinPluginById } from './registry'
@@ -15,6 +17,7 @@ import type { PluginDefinition, PluginPresentation } from './types'
 type PluginRuntimeContextValue = {
   activePluginId: string | null
   activePlugin: PluginDefinition | null
+  activePluginPresentation: PluginPresentation | null
   getPresentationForPlugin: (pluginId: string) => PluginPresentation | null
   openPlugin: (pluginId: string, presentation?: PluginPresentation) => Promise<void>
   setPresentationForPlugin: (pluginId: string, presentation: PluginPresentation) => void
@@ -24,12 +27,43 @@ const PluginRuntimeContext = createContext<PluginRuntimeContextValue | null>(nul
 
 export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [activePluginId, setActivePluginId] = useState<string | null>(
     () => readPluginRuntimeState().lastPluginId,
   )
+  const [activePluginContextPath, setActivePluginContextPath] = useState<string | null>(null)
   const [presentationByPluginId, setPresentationByPluginId] = useState<
     Record<string, PluginPresentation>
   >(() => readPluginRuntimeState().presentationByPluginId)
+  const lastWorkspacePathRef = useRef('/')
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/plugins/')) return
+    const nextPath = `${location.pathname}${location.search}${location.hash}` || '/'
+    lastWorkspacePathRef.current = nextPath
+  }, [location.hash, location.pathname, location.search])
+
+  useEffect(() => {
+    if (!activePluginId) return
+    const currentPath = `${location.pathname}${location.search}${location.hash}` || '/'
+    const activePresentation =
+      presentationByPluginId[activePluginId] ??
+      getBuiltinPluginById(activePluginId)?.presentation.default ??
+      null
+    if (!activePluginContextPath) return
+    if (currentPath === activePluginContextPath) return
+    if (activePresentation === 'route') {
+      setActivePluginId(null)
+      setActivePluginContextPath(null)
+      return
+    }
+    setActivePluginId(null)
+    setActivePluginContextPath(null)
+  }, [
+    location.hash,
+    location.pathname,
+    location.search,
+  ])
 
   const setPresentationForPlugin = useCallback(
     (pluginId: string, presentation: PluginPresentation) => {
@@ -56,12 +90,21 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
         [pluginId]: nextPresentation,
       }
       setActivePluginId(pluginId)
+      setActivePluginContextPath(
+        nextPresentation === 'route'
+          ? `/plugins/${encodeURIComponent(pluginId)}`
+          : (lastWorkspacePathRef.current || '/'),
+      )
       setPresentationByPluginId(nextPresentationMap)
       writePluginRuntimeState({
         lastPluginId: pluginId,
         presentationByPluginId: nextPresentationMap,
       })
-      navigate(`/plugins/${encodeURIComponent(pluginId)}`)
+      if (nextPresentation === 'route') {
+        navigate(`/plugins/${encodeURIComponent(pluginId)}`)
+        return
+      }
+      navigate(lastWorkspacePathRef.current || '/')
     },
     [navigate, presentationByPluginId],
   )
@@ -70,6 +113,11 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
     () => ({
       activePluginId,
       activePlugin: activePluginId ? getBuiltinPluginById(activePluginId) : null,
+      activePluginPresentation: activePluginId
+        ? (presentationByPluginId[activePluginId] ??
+          getBuiltinPluginById(activePluginId)?.presentation.default ??
+          null)
+        : null,
       getPresentationForPlugin: (pluginId) =>
         presentationByPluginId[pluginId] ??
         getBuiltinPluginById(pluginId)?.presentation.default ??

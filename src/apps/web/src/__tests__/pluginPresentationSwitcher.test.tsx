@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { LocaleProvider } from '../contexts/LocaleContext'
 import { BrowserTabsProvider } from '../contexts/browser-tabs'
 import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import { PluginHostPage } from '../plugins/PluginHostPage'
@@ -94,7 +95,7 @@ vi.mock('../storage', async () => {
   }
 })
 
-describe('Plugin presentation switcher', () => {
+describe('Fixed sample plugin presentation', () => {
   let container: HTMLDivElement
   let root: ReturnType<typeof createRoot>
   const actEnvironment = globalThis as typeof globalThis & {
@@ -124,40 +125,30 @@ describe('Plugin presentation switcher', () => {
     }
   })
 
-  it('switches the plugin presentation from hybrid to embedded browser', async () => {
+  it('does not render a presentation switcher for the fixed browser sample plugin', async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
-          <BrowserTabsProvider>
-            <PluginRuntimeProvider>
-              <PluginBrowserSessionProvider>
-                <Routes>
-                  <Route path="/plugins/:pluginId" element={<PluginHostPage />} />
-                </Routes>
-              </PluginBrowserSessionProvider>
-            </PluginRuntimeProvider>
-          </BrowserTabsProvider>
+        <MemoryRouter initialEntries={['/plugins/sample-browser-plugin']}>
+          <LocaleProvider>
+            <BrowserTabsProvider>
+              <PluginRuntimeProvider>
+                <PluginBrowserSessionProvider>
+                  <Routes>
+                    <Route path="/plugins/:pluginId" element={<PluginHostPage />} />
+                  </Routes>
+                </PluginBrowserSessionProvider>
+              </PluginRuntimeProvider>
+            </BrowserTabsProvider>
+          </LocaleProvider>
         </MemoryRouter>,
       )
       await Promise.resolve()
       await Promise.resolve()
     })
 
-    expect(container.querySelector('[data-testid="plugin-presentation-value"]')?.textContent).toBe(
-      'hybrid',
-    )
-
-    await act(async () => {
-      container
-        .querySelector('[data-testid="plugin-presentation-button-embedded-browser"]')
-        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      await Promise.resolve()
-      await Promise.resolve()
-    })
-
-    expect(container.querySelector('[data-testid="plugin-presentation-value"]')?.textContent).toBe(
-      'embedded-browser',
-    )
+    expect(container.querySelector('[data-testid="plugin-presentation-value"]')).toBeNull()
+    expect(container.querySelector('[data-testid^="plugin-presentation-button-"]')).toBeNull()
+    expect(container.querySelector('[data-testid="browser-tab-page"]')).not.toBeNull()
     expect(desktopMock.browserTabsApi.navigate).toHaveBeenCalledWith(
       'browser-plugin',
       'https://example.com/',

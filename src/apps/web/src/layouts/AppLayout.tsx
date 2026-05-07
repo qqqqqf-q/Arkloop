@@ -31,7 +31,26 @@ import {
 } from "../contexts/app-ui";
 import { useCredits } from "../contexts/credits";
 import { useBrowserTabs } from "../contexts/browser-tabs";
+import { usePluginBrowserSession } from "../plugins/browser-session";
+import { usePluginRuntime } from "../plugins/runtime";
 import { isPerfDebugEnabled, recordPerfValue } from "../perfDebug";
+
+function normalizePluginBrowserTarget(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  const candidate = /^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
 const MainViewport = memo(function MainViewport({
   accessToken,
@@ -237,6 +256,7 @@ const LayoutMain = memo(function LayoutMain({
               >
                 <BrowserTabPage
                   browserFullscreen={browserFullscreen}
+                  forcePanelOpen={browserPanelOpen}
                   onToggleBrowserFullscreen={onToggleBrowserFullscreen}
                 />
               </div>
@@ -279,7 +299,14 @@ export function AppLayout() {
   const { closeNotifications } = useNotificationsUI();
   const { queueSkillPrompt } = useSkillPromptUI();
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI();
-  const { panelOpen: browserPanelOpen, toggleBrowserPanel } = useBrowserTabs();
+  const {
+    panelOpen: browserPanelOpen,
+    toggleBrowserPanel,
+    closeBrowserPanel,
+    navigateBrowserTab,
+  } = useBrowserTabs();
+  const { activePlugin, activePluginPresentation } = usePluginRuntime();
+  const { ensureBrowserSession } = usePluginBrowserSession();
   useCredits();
   const { t } = useLocale();
   const navigate = useNavigate();
@@ -296,6 +323,21 @@ export function AppLayout() {
   const handleToggleBrowserFullscreen = useCallback(() => {
     setBrowserFullscreen((prev) => !prev);
   }, []);
+  const pluginUsesBrowserPanel =
+    desktop &&
+    activePlugin !== null &&
+    (activePluginPresentation === "embedded-browser" ||
+      activePluginPresentation === "hybrid");
+  const pluginForcesBrowserFullscreen =
+    activePluginPresentation === "embedded-browser";
+  const effectiveBrowserPanelOpen = pluginUsesBrowserPanel
+    ? true
+    : browserPanelOpen;
+  const effectiveBrowserFullscreen = pluginForcesBrowserFullscreen
+    ? true
+    : pluginUsesBrowserPanel
+      ? false
+      : browserFullscreen;
 
   // app updater
   useEffect(() => {
@@ -308,6 +350,56 @@ export function AppLayout() {
       .catch(() => {});
     return api.appUpdater.onState(setAppUpdateState);
   }, [desktop]);
+
+  useEffect(() => {
+    if (!desktop || !activePlugin || !activePluginPresentation) return;
+    if (activePluginPresentation === "route") {
+      closeBrowserPanel();
+      setBrowserFullscreen(false);
+      return;
+    }
+
+    let cancelled = false;
+    setBrowserFullscreen(activePluginPresentation === "embedded-browser");
+
+    const openPluginBrowserSurface = async () => {
+      const browserTabId = await ensureBrowserSession(activePlugin.id, {
+        openPanel: true,
+      });
+      if (!browserTabId || cancelled) return;
+      const rawBrowserUrl = await activePlugin.surfaces.resolveBrowserUrl?.({
+        pluginId: activePlugin.id,
+        presentation: activePluginPresentation,
+        location: {
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash,
+        },
+      });
+      if (cancelled) return;
+      const resolvedBrowserUrl = rawBrowserUrl
+        ? normalizePluginBrowserTarget(rawBrowserUrl)
+        : null;
+      if (!resolvedBrowserUrl) return;
+      await navigateBrowserTab(browserTabId, resolvedBrowserUrl);
+    };
+
+    void openPluginBrowserSurface();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activePlugin,
+    activePluginPresentation,
+    closeBrowserPanel,
+    desktop,
+    ensureBrowserSession,
+    location.hash,
+    location.pathname,
+    location.search,
+    navigateBrowserTab,
+  ]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -537,9 +629,9 @@ export function AppLayout() {
                 onMeUpdated={updateMe}
                 onTrySkill={handleTrySkill}
                 onSetAppMode={handleTitleBarSetAppMode}
-                browserPanelOpen={browserPanelOpen}
+                browserPanelOpen={effectiveBrowserPanelOpen}
                 onToggleBrowserPanel={toggleBrowserPanel}
-                browserFullscreen={browserFullscreen}
+                browserFullscreen={effectiveBrowserFullscreen}
                 onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
                 currentThread={currentThread}
               />

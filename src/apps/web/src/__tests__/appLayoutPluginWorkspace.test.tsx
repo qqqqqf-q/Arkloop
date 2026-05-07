@@ -1,6 +1,6 @@
-import { act } from 'react'
+import { act, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToastProvider } from '@arkloop/shared'
 
@@ -14,6 +14,7 @@ import { PluginRuntimeProvider } from '../plugins/runtime'
 import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import { CreditsProvider } from '../contexts/credits'
 import { PluginHostPage } from '../plugins/PluginHostPage'
+import { usePluginRuntime } from '../plugins/runtime'
 import {
   getMe,
   getMyCredits,
@@ -23,6 +24,70 @@ import {
   type MeResponse,
 } from '../api'
 
+const desktopMock = vi.hoisted(() => {
+  let stateChangedHandler:
+    | ((snapshot: {
+        tabs: Array<{
+          id: string
+          title: string
+          url: string
+          faviconUrl: string | null
+          loading: boolean
+          error: string | null
+          canGoBack: boolean
+          canGoForward: boolean
+        }>
+      }) => void)
+    | null = null
+
+  const browserTabsApi = {
+    list: vi.fn().mockResolvedValue({ tabs: [] }),
+    create: vi.fn().mockImplementation(async () => {
+      const tab = {
+        id: 'browser-plugin',
+        title: 'Plugin Tab',
+        url: 'https://example.com/',
+        faviconUrl: null,
+        loading: false,
+        error: null,
+        canGoBack: false,
+        canGoForward: false,
+      }
+      stateChangedHandler?.({ tabs: [tab] })
+      return tab
+    }),
+    close: vi.fn().mockResolvedValue({ tabs: [] }),
+    navigate: vi.fn().mockResolvedValue({
+      id: 'browser-plugin',
+      title: 'Plugin Tab',
+      url: 'https://example.com/',
+      faviconUrl: null,
+      loading: false,
+      error: null,
+      canGoBack: false,
+      canGoForward: false,
+    }),
+    reload: vi.fn(),
+    goBack: vi.fn(),
+    goForward: vi.fn(),
+    show: vi.fn().mockResolvedValue({ ok: true }),
+    hide: vi.fn().mockResolvedValue({ ok: true }),
+    syncBounds: vi.fn().mockResolvedValue({ ok: true }),
+    onStateChanged: vi.fn((callback) => {
+      stateChangedHandler = callback
+      return () => {
+        stateChangedHandler = null
+      }
+    }),
+  }
+
+  return {
+    isDesktop: vi.fn(() => true),
+    getDesktopApi: vi.fn(() => ({ browserTabs: browserTabsApi })),
+    browserTabsApi,
+  }
+})
+
 vi.mock('@arkloop/shared/desktop', async () => {
   const actual =
     await vi.importActual<typeof import('@arkloop/shared/desktop')>(
@@ -30,8 +95,8 @@ vi.mock('@arkloop/shared/desktop', async () => {
     )
   return {
     ...actual,
-    isDesktop: vi.fn(() => true),
-    getDesktopApi: () => ({}),
+    isDesktop: desktopMock.isDesktop,
+    getDesktopApi: desktopMock.getDesktopApi,
   }
 })
 
@@ -93,12 +158,37 @@ describe('AppLayout plugin workspace takeover', () => {
     }
   })
 
+  function PluginOpener({ pluginId }: { pluginId: string }) {
+    const { openPlugin } = usePluginRuntime()
+    const openedRef = useRef(false)
+
+    useEffect(() => {
+      if (openedRef.current) return
+      openedRef.current = true
+      void openPlugin(pluginId)
+    }, [openPlugin, pluginId])
+
+    return null
+  }
+
+  function LocationProbe() {
+    const location = useLocation()
+    return <div data-testid="path">{location.pathname}</div>
+  }
+
+  async function flushPluginBrowserEffects() {
+    await Promise.resolve()
+    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
+  }
+
   it('renders plugin workspace content while keeping the global sidebar visible', async () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
           <ToastProvider>
-            <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
+            <MemoryRouter initialEntries={['/plugins/sample-hybrid-plugin']}>
               <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
                 <ThreadListProvider>
                   <AppUIProvider>
@@ -125,14 +215,101 @@ describe('AppLayout plugin workspace takeover', () => {
           </ToastProvider>
         </LocaleProvider>,
       )
-      await Promise.resolve()
-      await Promise.resolve()
+      await flushPluginBrowserEffects()
     })
 
-    expect(container.textContent).toContain('Sample Plugin')
-    expect(container.textContent).toContain('sample plugin page')
+    expect(container.textContent).toContain('Sample Hybrid Plugin')
+    expect(container.textContent).toContain('sample hybrid plugin page')
     expect(
       container.querySelector('[data-testid="workspace-host"]'),
     ).not.toBeNull()
+  })
+
+  it('keeps the main workspace visible while opening the browser panel for a hybrid plugin', async () => {
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ToastProvider>
+            <MemoryRouter initialEntries={['/']}>
+              <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
+                <ThreadListProvider>
+                  <AppUIProvider>
+                    <BrowserTabsProvider>
+                      <PluginRuntimeProvider>
+                        <PluginBrowserSessionProvider>
+                          <CreditsProvider>
+                            <PluginOpener pluginId="sample-hybrid-plugin" />
+                            <LocationProbe />
+                            <Routes>
+                              <Route element={<AppLayout />}>
+                                <Route path="/" element={<div data-testid="chat-view">Chat view</div>} />
+                                <Route
+                                  path="/plugins/:pluginId"
+                                  element={<PluginHostPage />}
+                                />
+                              </Route>
+                            </Routes>
+                          </CreditsProvider>
+                        </PluginBrowserSessionProvider>
+                      </PluginRuntimeProvider>
+                    </BrowserTabsProvider>
+                  </AppUIProvider>
+                </ThreadListProvider>
+              </AuthProvider>
+            </MemoryRouter>
+          </ToastProvider>
+        </LocaleProvider>,
+      )
+      await flushPluginBrowserEffects()
+    })
+
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/')
+    expect(container.querySelector('[data-testid="workspace-host"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')?.textContent).toContain('Chat view')
+    expect(container.querySelectorAll('[data-testid="browser-tab-page"]')).toHaveLength(1)
+  })
+
+  it('hides the main workspace while opening the browser panel fullscreen for a browser plugin', async () => {
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ToastProvider>
+            <MemoryRouter initialEntries={['/']}>
+              <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
+                <ThreadListProvider>
+                  <AppUIProvider>
+                    <BrowserTabsProvider>
+                      <PluginRuntimeProvider>
+                        <PluginBrowserSessionProvider>
+                          <CreditsProvider>
+                            <PluginOpener pluginId="sample-browser-plugin" />
+                            <LocationProbe />
+                            <Routes>
+                              <Route element={<AppLayout />}>
+                                <Route path="/" element={<div data-testid="chat-view">Chat view</div>} />
+                                <Route
+                                  path="/plugins/:pluginId"
+                                  element={<PluginHostPage />}
+                                />
+                              </Route>
+                            </Routes>
+                          </CreditsProvider>
+                        </PluginBrowserSessionProvider>
+                      </PluginRuntimeProvider>
+                    </BrowserTabsProvider>
+                  </AppUIProvider>
+                </ThreadListProvider>
+              </AuthProvider>
+            </MemoryRouter>
+          </ToastProvider>
+        </LocaleProvider>,
+      )
+      await flushPluginBrowserEffects()
+    })
+
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/')
+    expect(container.querySelector('[data-testid="workspace-host"]')).toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull()
+    expect(container.querySelectorAll('[data-testid="browser-tab-page"]')).toHaveLength(1)
   })
 })

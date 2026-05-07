@@ -15,7 +15,10 @@ import {
 } from '../storage'
 
 type PluginBrowserSessionContextValue = {
-  ensureBrowserSession: (pluginId: string) => Promise<string | null>
+  ensureBrowserSession: (
+    pluginId: string,
+    options?: { openPanel?: boolean }
+  ) => Promise<string | null>
   getBrowserTabIdForPlugin: (pluginId: string) => string | null
 }
 
@@ -34,11 +37,14 @@ export function PluginBrowserSessionProvider({
   const pendingSessionsRef = useRef<Record<string, Promise<string | null>>>({})
 
   const ensureBrowserSession = useCallback(
-    async (pluginId: string) => {
+    async (pluginId: string, options?: { openPanel?: boolean }) => {
+      const openPanel = options?.openPanel ?? true
       const existingTabId = sessionsRef.current[pluginId]
       if (existingTabId) {
-        openBrowserPanel()
-        activateBrowserTab(existingTabId)
+        if (openPanel) {
+          openBrowserPanel()
+        }
+        activateBrowserTab(existingTabId, { openPanel })
         return existingTabId
       }
 
@@ -46,14 +52,16 @@ export function PluginBrowserSessionProvider({
       if (pending) {
         const pendingTabId = await pending
         if (pendingTabId) {
-          openBrowserPanel()
-          activateBrowserTab(pendingTabId)
+          if (openPanel) {
+            openBrowserPanel()
+          }
+          activateBrowserTab(pendingTabId, { openPanel })
         }
         return pendingTabId
       }
 
       const creation = (async () => {
-        const newTabId = await createBrowserTab()
+        const newTabId = await createBrowserTab({ openPanel })
         if (!newTabId) return null
 
         const next = { ...sessionsRef.current, [pluginId]: newTabId }
@@ -68,8 +76,10 @@ export function PluginBrowserSessionProvider({
       try {
         const newTabId = await creation
         if (newTabId) {
-          openBrowserPanel()
-          activateBrowserTab(newTabId)
+          if (openPanel) {
+            openBrowserPanel()
+          }
+          activateBrowserTab(newTabId, { openPanel })
         }
         return newTabId
       } finally {

@@ -37,9 +37,18 @@ function getDomain(rawUrl: string): string {
 type BrowserTabPageProps = {
   browserFullscreen?: boolean
   onToggleBrowserFullscreen?: () => void
+  embedded?: boolean
+  forcedTabId?: string | null
+  forcePanelOpen?: boolean
 }
 
-export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFullscreen }: BrowserTabPageProps) {
+export function BrowserTabPage({
+  browserFullscreen = false,
+  onToggleBrowserFullscreen,
+  embedded = false,
+  forcedTabId = null,
+  forcePanelOpen = false,
+}: BrowserTabPageProps) {
   const { t } = useLocale()
   const {
     tabs,
@@ -61,9 +70,14 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
   const [_submitting, setSubmitting] = useState(false)
   const [failedFavicons, setFailedFavicons] = useState<Record<string, string>>({})
   const [inputFocused, setInputFocused] = useState(false)
-  const draftUrl = activeBrowserTabId ? getDraftUrl(activeBrowserTabId) : ''
+  const resolvedActiveBrowserTabId = forcedTabId ?? activeBrowserTabId
+  const resolvedActiveBrowserTab = forcedTabId
+    ? (tabs.find((tab) => tab.id === forcedTabId) ?? null)
+    : activeBrowserTab
+  const draftUrl = resolvedActiveBrowserTabId ? getDraftUrl(resolvedActiveBrowserTabId) : ''
   const desktop = isDesktop()
   const browserApi = getDesktopApi()?.browserTabs
+  const effectivePanelOpen = forcePanelOpen || panelOpen
 
   useEffect(() => {
     setFailedFavicons((current) => {
@@ -78,26 +92,31 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
     })
   }, [tabs])
 
-  const showEmbeddedBrowser = desktop && panelOpen && Boolean(activeBrowserTabId && activeBrowserTab && browserApi)
+  const showEmbeddedBrowser = desktop && Boolean(
+    resolvedActiveBrowserTabId &&
+    resolvedActiveBrowserTab &&
+    browserApi &&
+    (embedded || effectivePanelOpen),
+  )
 
   const syncBounds = useMemo(() => {
-    if (!showEmbeddedBrowser || !activeBrowserTabId) return null
+    if (!showEmbeddedBrowser || !resolvedActiveBrowserTabId) return null
     return () => {
       const element = hostRef.current
       if (!element) return
-      void browserApi?.syncBounds(activeBrowserTabId, getRectForElement(element)).catch(() => {})
+      void browserApi?.syncBounds(resolvedActiveBrowserTabId, getRectForElement(element)).catch(() => {})
     }
-  }, [activeBrowserTabId, browserApi, showEmbeddedBrowser])
+  }, [browserApi, resolvedActiveBrowserTabId, showEmbeddedBrowser])
 
   useLayoutEffect(() => {
-    if (!showEmbeddedBrowser || !activeBrowserTabId) return
+    if (!showEmbeddedBrowser || !resolvedActiveBrowserTabId) return
     const element = hostRef.current
     if (!element) return
-    void browserApi?.show(activeBrowserTabId, getRectForElement(element)).catch(() => {})
+    void browserApi?.show(resolvedActiveBrowserTabId, getRectForElement(element)).catch(() => {})
     return () => {
       void browserApi?.hide().catch(() => {})
     }
-  }, [activeBrowserTabId, browserApi, showEmbeddedBrowser])
+  }, [browserApi, resolvedActiveBrowserTabId, showEmbeddedBrowser])
 
   useEffect(() => {
     if (!syncBounds) return
@@ -116,10 +135,10 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
   }, [syncBounds])
 
   const submitNavigation = async () => {
-    if (!activeBrowserTabId) return
+    if (!resolvedActiveBrowserTabId) return
     setSubmitting(true)
     try {
-      await navigateBrowserTab(activeBrowserTabId, draftUrl)
+      await navigateBrowserTab(resolvedActiveBrowserTabId, draftUrl)
     } finally {
       setSubmitting(false)
     }
@@ -127,7 +146,10 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
 
   if (!desktop || !browserApi) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6">
+      <div
+        className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6"
+        data-testid="browser-tab-page"
+      >
         <div
           className="max-w-md rounded-2xl bg-[var(--c-bg-sub)] p-6 text-center"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
@@ -138,13 +160,25 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
     )
   }
 
-  if (!panelOpen) {
+  if (!effectivePanelOpen && !embedded) {
     return null
   }
 
-  if (!activeBrowserTab && tabs.length > 0) {
+  if (!effectivePanelOpen && embedded) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6">
+      <div
+        className="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--c-bg-page)]"
+        data-testid="browser-tab-page"
+      />
+    )
+  }
+
+  if (!resolvedActiveBrowserTab && tabs.length > 0) {
+    return (
+      <div
+        className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6"
+        data-testid="browser-tab-page"
+      >
         <div
           className="max-w-md rounded-2xl bg-[var(--c-bg-sub)] p-6 text-center"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
@@ -156,7 +190,10 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--c-bg-page)]">
+    <div
+      className="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--c-bg-page)]"
+      data-testid="browser-tab-page"
+    >
       <div
         className="flex h-12 shrink-0 items-center gap-2 px-3"
         style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
@@ -166,7 +203,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
             className="flex h-9 w-fit max-w-full min-w-0 items-center gap-1 overflow-x-auto px-1 py-0.5"
           >
             {tabs.map((tab) => {
-              const active = activeBrowserTabId === tab.id
+              const active = resolvedActiveBrowserTabId === tab.id
               const displayFaviconUrl = tab.faviconUrl ?? getFallbackFaviconUrl(tab.url)
               return (
                 <div
@@ -210,7 +247,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
                   </button>
                   <button
                     type="button"
-                    onClick={() => activateBrowserTab(tab.id)}
+                    onClick={() => activateBrowserTab(tab.id, { openPanel: !embedded })}
                     className="flex h-full min-w-0 flex-1 items-center rounded-r-[10px] pl-0 pr-2.5 text-left text-[12.5px] leading-[18px]"
                     title={tab.url || tab.title}
                     style={{
@@ -227,12 +264,12 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
             type="button"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
             title={t.newBrowserTab}
-            onClick={() => { void createBrowserTab() }}
+            onClick={() => { void createBrowserTab({ openPanel: !embedded }) }}
           >
             <Plus size={16} />
           </button>
         </div>
-        {onToggleBrowserFullscreen && (
+        {!embedded && onToggleBrowserFullscreen && (
           <button
             type="button"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
@@ -242,17 +279,19 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
             {browserFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
         )}
-        <button
-          type="button"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
-          title={t.browserPanelCollapse}
-          onClick={closeBrowserPanel}
-        >
-          <PanelRightClose size={16} />
-        </button>
+        {!embedded && (
+          <button
+            type="button"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            title={t.browserPanelCollapse}
+            onClick={closeBrowserPanel}
+          >
+            <PanelRightClose size={16} />
+          </button>
+        )}
       </div>
 
-      {activeBrowserTab && activeBrowserTabId && (
+      {resolvedActiveBrowserTab && resolvedActiveBrowserTabId && (
         <div
           className="flex shrink-0 items-center gap-2 px-4 py-1"
           style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
@@ -260,8 +299,8 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!activeBrowserTab.canGoBack}
-          onClick={() => void goBackBrowserTab(activeBrowserTabId)}
+          disabled={!resolvedActiveBrowserTab.canGoBack}
+          onClick={() => void goBackBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Back"
         >
           <ChevronLeft size={16} />
@@ -269,8 +308,8 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!activeBrowserTab.canGoForward}
-          onClick={() => void goForwardBrowserTab(activeBrowserTabId)}
+          disabled={!resolvedActiveBrowserTab.canGoForward}
+          onClick={() => void goForwardBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Forward"
         >
           <ChevronRight size={16} />
@@ -278,11 +317,11 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={activeBrowserTab.loading}
-          onClick={() => void reloadBrowserTab(activeBrowserTabId)}
+          disabled={resolvedActiveBrowserTab.loading}
+          onClick={() => void reloadBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Reload"
         >
-          {activeBrowserTab.loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
+          {resolvedActiveBrowserTab.loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCcw size={16} />}
         </button>
         <form
           className="flex min-w-0 flex-1 items-center gap-2"
@@ -293,7 +332,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         >
           <input
             value={inputFocused ? draftUrl : (draftUrl ? getDomain(draftUrl) : '')}
-            onChange={(event) => setDraftUrl(activeBrowserTabId, event.target.value)}
+            onChange={(event) => setDraftUrl(resolvedActiveBrowserTabId, event.target.value)}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
             placeholder="输入 URL"
@@ -304,7 +343,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         </div>
       )}
 
-      {activeBrowserTab?.error && (
+      {resolvedActiveBrowserTab?.error && (
         <div
           className="mx-4 mt-3 flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-sm text-[var(--c-status-error)]"
           style={{ background: 'color-mix(in srgb, var(--c-status-error) 12%, transparent)' }}
@@ -312,7 +351,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="font-medium">{t.browserTabLoadFailed}</p>
-            <p className="mt-1 break-words text-[var(--c-text-secondary)]">{activeBrowserTab.error}</p>
+            <p className="mt-1 break-words text-[var(--c-text-secondary)]">{resolvedActiveBrowserTab.error}</p>
             <div className="mt-2">
               <Button variant="outline" size="sm" onClick={() => void submitNavigation()}>
                 {t.browserTabRetry}
@@ -326,7 +365,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
         ref={hostRef}
         className="relative min-h-0 w-full min-w-0 flex-1"
       >
-        {!activeBrowserTab?.url && (
+        {!resolvedActiveBrowserTab?.url && (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div
               className="max-w-md rounded-2xl bg-[var(--c-bg-sub)] p-6 text-center"
