@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a desktop-first plugin workspace framework to the `web` app with sidebar entries, a unified `/plugins/:pluginId` route, workspace-level takeover, and browser-session reuse for embedded or hybrid plugins.
+**Goal:** Add a desktop-first plugin workspace framework to the `web` app with sidebar entries, route-backed page plugins, browser takeover modes, and browser-session reuse for browser or hybrid plugins.
 
-**Architecture:** Introduce a small plugin subsystem under `src/apps/web/src/plugins/` that owns plugin metadata, runtime state, host routing, and browser-session mapping. Keep Electron unaware of plugins by layering plugin session state on top of the existing `BrowserTabsProvider`, then teach `AppLayout` to render either the default workspace or a plugin workspace shell.
+**Architecture:** Introduce a small plugin subsystem under `src/apps/web/src/plugins/` that owns plugin metadata, runtime state, host routing, and browser-session mapping. Keep Electron unaware of plugins by layering plugin session state on top of the existing `BrowserTabsProvider`, then teach `AppLayout` to render a route-backed plugin page, preserve the default workspace alongside the right-side browser, or hand the workspace over to the global browser panel depending on plugin presentation.
 
 **Tech Stack:** React 19, React Router 7, TypeScript 5.9, Vitest, existing Arkloop desktop bridge and browser tab context.
 
@@ -17,15 +17,15 @@
 - Create: `src/apps/web/src/plugins/registry.ts`
   - Built-in plugin definitions and selector helpers.
 - Create: `src/apps/web/src/plugins/runtime.tsx`
-  - Plugin runtime provider, navigation API, persistence, and active plugin lookup.
+  - Plugin runtime provider, navigation API, persistence, active plugin lookup, and context-path based activation clearing.
 - Create: `src/apps/web/src/plugins/PluginHostPage.tsx`
-  - Route entry for `/plugins/:pluginId`.
+  - Route entry for page-style plugins.
 - Create: `src/apps/web/src/plugins/PluginSidebarSection.tsx`
   - Sidebar section for plugin entries.
 - Create: `src/apps/web/src/plugins/browser-session.tsx`
   - Mapping layer between `pluginId` and browser tab ids.
 - Create: `src/apps/web/src/plugins/PluginWorkspaceShell.tsx`
-  - Workspace renderer for plugin takeover and hybrid layouts.
+  - Workspace renderer for route-backed plugin takeover pages.
 - Create: `src/apps/web/src/plugins/builtin/SamplePluginPage.tsx`
   - Minimal built-in route plugin used to verify the framework end-to-end.
 - Create: `src/apps/web/src/__tests__/pluginRuntime.test.tsx`
@@ -41,11 +41,17 @@
 - Modify: `src/apps/web/src/App.tsx`
   - Mount the plugin runtime provider and add `/plugins/:pluginId`.
 - Modify: `src/apps/web/src/layouts/AppLayout.tsx`
-  - Delegate workspace rendering to either default route content or plugin workspace shell.
+  - Coordinate workspace-host visibility with the global right-side browser panel.
 - Modify: `src/apps/web/src/components/Sidebar.tsx`
   - Insert the plugin sidebar section.
 - Modify: `src/apps/web/src/storage.ts`
   - Add plugin runtime persistence helpers.
+
+## Current Presentation Semantics
+
+- `route`: render a plugin-owned page in the main workspace area with no browser chrome.
+- `embedded-browser`: keep the current workspace route, open the global right-side browser, and fullscreen it so the chat/workspace host is hidden.
+- `hybrid`: keep the current workspace route, preserve the chat/workspace host, and open the global right-side browser alongside it.
 
 ## Task 1: Plugin Types, Registry, and Runtime Persistence
 
@@ -72,8 +78,8 @@ vi.mock('../storage', async () => {
   return {
     ...actual,
     readPluginRuntimeState: vi.fn(() => ({
-      lastPluginId: 'sample-plugin',
-      presentationByPluginId: { 'sample-plugin': 'route' },
+      lastPluginId: 'sample-page-plugin',
+      presentationByPluginId: { 'sample-page-plugin': 'route' },
     })),
     writePluginRuntimeState: vi.fn(),
   }
@@ -86,8 +92,11 @@ function Probe() {
     <div>
       <div data-testid="active">{activePluginId ?? 'none'}</div>
       <div data-testid="path">{location.pathname}</div>
-      <button type="button" onClick={() => void openPlugin('sample-plugin')}>
-        open
+      <button type="button" onClick={() => void openPlugin('sample-page-plugin')}>
+        open-page
+      </button>
+      <button type="button" onClick={() => void openPlugin('sample-browser-plugin')}>
+        open-browser
       </button>
     </div>
   )
@@ -126,8 +135,8 @@ describe('PluginRuntimeProvider', () => {
       await Promise.resolve()
     })
 
-    expect(container.querySelector('[data-testid="active"]')?.textContent).toBe('sample-plugin')
-    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/plugins/sample-plugin')
+    expect(container.querySelector('[data-testid="active"]')?.textContent).toBe('sample-page-plugin')
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/plugins/sample-page-plugin')
   })
 })
 ```
@@ -183,7 +192,7 @@ export function writePluginRuntimeState(state: PluginRuntimeStorageState): void 
 }
 ```
 
-- [ ] **Step 4: Create plugin types and built-in sample plugin**
+- [ ] **Step 4: Create plugin types and built-in sample plugins**
 
 ```ts
 // src/apps/web/src/plugins/types.ts
@@ -208,37 +217,70 @@ export type PluginDefinition = {
   }
   surfaces: {
     mount?: React.ComponentType
-    resolveBrowserUrl?: () => Promise<string> | string
-    browserPlacement?: 'main' | 'sidecar'
+    resolveBrowserUrl?: (ctx: PluginResolveBrowserUrlContext) => Promise<string> | string
+    browserPlacement?: 'sidecar'
   }
 }
 ```
 
 ```tsx
 // src/apps/web/src/plugins/builtin/SamplePluginPage.tsx
-export function SamplePluginPage() {
-  return <div data-testid="sample-plugin-page">sample plugin page</div>
+export function SamplePagePluginPage() {
+  return <div data-testid="sample-page-plugin-page">sample page plugin page</div>
+}
+
+export function SampleHybridPluginPage() {
+  return <div data-testid="sample-hybrid-plugin-page">sample hybrid plugin page</div>
 }
 ```
 
 ```ts
 // src/apps/web/src/plugins/registry.ts
-import { SamplePluginPage } from './builtin/SamplePluginPage'
+import { SampleHybridPluginPage, SamplePagePluginPage } from './builtin/SamplePluginPage'
 import type { PluginDefinition } from './types'
 
 export const builtinPlugins: PluginDefinition[] = [
   {
-    id: 'sample-plugin',
-    title: 'Sample Plugin',
+    id: 'sample-page-plugin',
+    title: 'Sample Page Plugin',
     desktopOnly: true,
     nav: { section: 'workspace', order: 100 },
-    shell: { mode: 'plugin-workspace' },
+    shell: { mode: 'plugin-main' },
     presentation: {
       default: 'route',
-      supported: ['route', 'embedded-browser', 'hybrid'],
+      supported: ['route'],
     },
     surfaces: {
-      mount: SamplePluginPage,
+      mount: SamplePagePluginPage,
+    },
+  },
+  {
+    id: 'sample-browser-plugin',
+    title: 'Sample Browser Plugin',
+    desktopOnly: true,
+    nav: { section: 'workspace', order: 110 },
+    shell: { mode: 'plugin-workspace' },
+    presentation: {
+      default: 'embedded-browser',
+      supported: ['embedded-browser'],
+    },
+    surfaces: {
+      resolveBrowserUrl: () => 'https://example.com/',
+      browserPlacement: 'sidecar',
+    },
+  },
+  {
+    id: 'sample-hybrid-plugin',
+    title: 'Sample Hybrid Plugin',
+    desktopOnly: true,
+    nav: { section: 'workspace', order: 120 },
+    shell: { mode: 'plugin-workspace' },
+    presentation: {
+      default: 'hybrid',
+      supported: ['hybrid'],
+    },
+    surfaces: {
+      mount: SampleHybridPluginPage,
       resolveBrowserUrl: () => 'https://example.com/',
       browserPlacement: 'sidecar',
     },
@@ -258,8 +300,17 @@ export function getBuiltinPluginById(pluginId: string): PluginDefinition | null 
 
 ```tsx
 // src/apps/web/src/plugins/runtime.tsx
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { getBuiltinPluginById } from './registry'
 import type { PluginDefinition, PluginPresentation } from './types'
@@ -277,9 +328,17 @@ const PluginRuntimeContext = createContext<PluginRuntimeContextValue | null>(nul
 
 export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const initialState = readPluginRuntimeState()
   const [activePluginId, setActivePluginId] = useState<string | null>(initialState.lastPluginId)
+  const [activePluginContextPath, setActivePluginContextPath] = useState<string | null>(null)
   const [presentationByPluginId, setPresentationByPluginId] = useState(initialState.presentationByPluginId)
+  const lastWorkspacePathRef = useRef('/')
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/plugins/')) return
+    lastWorkspacePathRef.current = `${location.pathname}${location.search}${location.hash}` || '/'
+  }, [location.hash, location.pathname, location.search])
 
   const setPresentationForPlugin = useCallback((pluginId: string, presentation: PluginPresentation) => {
     setPresentationByPluginId((current) => {
@@ -294,10 +353,19 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
     if (!plugin) return
     const nextPresentation = presentation ?? presentationByPluginId[pluginId] ?? plugin.presentation.default
     setActivePluginId(pluginId)
+    setActivePluginContextPath(
+      nextPresentation === 'route'
+        ? `/plugins/${encodeURIComponent(pluginId)}`
+        : (lastWorkspacePathRef.current || '/'),
+    )
     const nextPresentationMap = { ...presentationByPluginId, [pluginId]: nextPresentation }
     writePluginRuntimeState({ lastPluginId: pluginId, presentationByPluginId: nextPresentationMap })
     setPresentationByPluginId(nextPresentationMap)
-    navigate(`/plugins/${encodeURIComponent(pluginId)}`)
+    if (nextPresentation === 'route') {
+      navigate(`/plugins/${encodeURIComponent(pluginId)}`)
+      return
+    }
+    navigate(lastWorkspacePathRef.current || '/')
   }, [navigate, presentationByPluginId])
 
   const value = useMemo<PluginRuntimeContextValue>(() => ({
@@ -368,7 +436,7 @@ describe('PluginHostPage', () => {
   it('renders the registered plugin page for a valid route plugin', async () => {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
+        <MemoryRouter initialEntries={['/plugins/sample-page-plugin']}>
           <PluginRuntimeProvider>
             <Routes>
               <Route path="/plugins/:pluginId" element={<PluginHostPage />} />
@@ -379,7 +447,7 @@ describe('PluginHostPage', () => {
       await Promise.resolve()
     })
 
-    expect(container.querySelector('[data-testid="sample-plugin-page"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="sample-page-plugin-page"]')).not.toBeNull()
   })
 })
 ```
@@ -414,11 +482,7 @@ export function PluginHostPage() {
     return <Component />
   }
 
-  return (
-    <div data-testid="plugin-host-placeholder">
-      plugin host placeholder for {plugin.id} ({presentation})
-    </div>
-  )
+  return <Navigate to="/" replace />
 }
 ```
 
@@ -508,7 +572,9 @@ describe('PluginSidebarSection', () => {
       await Promise.resolve()
     })
 
-    expect(container.textContent).toContain('Sample Plugin')
+    expect(container.textContent).toContain('Sample Page Plugin')
+    expect(container.textContent).toContain('Sample Browser Plugin')
+    expect(container.textContent).toContain('Sample Hybrid Plugin')
   })
 })
 ```
@@ -577,7 +643,7 @@ import { PluginSidebarSection } from '../plugins/PluginSidebarSection'
 Extend `src/apps/web/src/__tests__/appLayoutDesktopSettingsSidebar.test.tsx` with a second case that mounts `AppLayout` inside `PluginRuntimeProvider` and asserts the plugin entry is visible in desktop mode:
 
 ```tsx
-expect(container.textContent).toContain('Sample Plugin')
+expect(container.textContent).toContain('Sample Page Plugin')
 ```
 
 - [ ] **Step 6: Run the sidebar and layout tests**
@@ -651,7 +717,7 @@ vi.mock('@arkloop/shared/desktop', () => ({
 function Probe() {
   const { ensureBrowserSession } = usePluginBrowserSession()
   return (
-    <button type="button" onClick={() => void ensureBrowserSession('sample-plugin')}>
+    <button type="button" onClick={() => void ensureBrowserSession('sample-browser-plugin')}>
       ensure
     </button>
   )
@@ -746,7 +812,10 @@ import { useBrowserTabs } from '../contexts/browser-tabs'
 import { readPluginBrowserSessionMap, writePluginBrowserSessionMap } from '../storage'
 
 type PluginBrowserSessionContextValue = {
-  ensureBrowserSession: (pluginId: string) => Promise<string | null>
+  ensureBrowserSession: (
+    pluginId: string,
+    options?: { openPanel?: boolean }
+  ) => Promise<string | null>
   getBrowserTabIdForPlugin: (pluginId: string) => string | null
 }
 
@@ -756,20 +825,23 @@ export function PluginBrowserSessionProvider({ children }: { children: ReactNode
   const { tabs, createBrowserTab, activateBrowserTab, openBrowserPanel } = useBrowserTabs()
   const [sessions, setSessions] = useState(readPluginBrowserSessionMap)
 
-  const ensureBrowserSession = useCallback(async (pluginId: string) => {
+  const ensureBrowserSession = useCallback(async (
+    pluginId: string,
+    options?: { openPanel?: boolean },
+  ) => {
     const existingTabId = sessions[pluginId]
     if (existingTabId && tabs.some((tab) => tab.id === existingTabId)) {
-      openBrowserPanel()
-      activateBrowserTab(existingTabId)
+      if (options?.openPanel ?? true) openBrowserPanel()
+      activateBrowserTab(existingTabId, { openPanel: options?.openPanel ?? true })
       return existingTabId
     }
-    const newTabId = await createBrowserTab()
+    const newTabId = await createBrowserTab({ openPanel: options?.openPanel ?? true })
     if (!newTabId) return null
     const next = { ...sessions, [pluginId]: newTabId }
     setSessions(next)
     writePluginBrowserSessionMap(next)
-    openBrowserPanel()
-    activateBrowserTab(newTabId)
+    if (options?.openPanel ?? true) openBrowserPanel()
+    activateBrowserTab(newTabId, { openPanel: options?.openPanel ?? true })
     return newTabId
   }, [activateBrowserTab, createBrowserTab, openBrowserPanel, sessions, tabs])
 
@@ -870,7 +942,7 @@ describe('AppLayout plugin workspace takeover', () => {
       root.render(
         <LocaleProvider>
           <ToastProvider>
-            <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
+            <MemoryRouter initialEntries={['/plugins/sample-page-plugin']}>
               <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
                 <ThreadListProvider>
                   <AppUIProvider>
@@ -898,8 +970,8 @@ describe('AppLayout plugin workspace takeover', () => {
       await Promise.resolve()
     })
 
-    expect(container.textContent).toContain('Sample Plugin')
-    expect(container.textContent).toContain('sample plugin page')
+    expect(container.textContent).toContain('Sample Page Plugin')
+    expect(container.textContent).toContain('sample page plugin page')
   })
 })
 ```
@@ -910,28 +982,14 @@ Run: `cd /Users/huhui/Projects/Arkloop/src/apps/web && pnpm test -- --run src/__
 
 Expected: FAIL because `AppLayout` still treats plugin pages as ordinary route content with no workspace shell behavior.
 
-- [ ] **Step 3: Implement the plugin workspace shell**
+- [ ] **Step 3: Implement the route-backed plugin workspace shell**
 
 ```tsx
 // src/apps/web/src/plugins/PluginWorkspaceShell.tsx
-import { useEffect } from 'react'
+export function PluginWorkspaceShell({ plugin }: { plugin: PluginDefinition }) {
+  if (!plugin.surfaces.mount) return null
 
-import { usePluginBrowserSession } from './browser-session'
-import { usePluginRuntime } from './runtime'
-
-export function PluginWorkspaceShell() {
-  const { activePlugin } = usePluginRuntime()
-  const { ensureBrowserSession } = usePluginBrowserSession()
-
-  useEffect(() => {
-    if (!activePlugin) return
-    if (activePlugin.presentation.default === 'route') return
-    void ensureBrowserSession(activePlugin.id)
-  }, [activePlugin, ensureBrowserSession])
-
-  if (!activePlugin || !activePlugin.surfaces.mount) return null
-
-  const Component = activePlugin.surfaces.mount
+  const Component = plugin.surfaces.mount
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col" data-testid="plugin-workspace-shell">
@@ -939,7 +997,7 @@ export function PluginWorkspaceShell() {
         className="flex h-12 shrink-0 items-center px-4 text-sm font-medium text-[var(--c-text-primary)]"
         style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
       >
-        {activePlugin.title}
+        {plugin.title}
       </div>
       <div className="min-h-0 flex-1">
         <Component />
@@ -949,19 +1007,19 @@ export function PluginWorkspaceShell() {
 }
 ```
 
-- [ ] **Step 4: Teach `PluginHostPage` and `AppLayout` about workspace takeover**
+- [ ] **Step 4: Teach `PluginHostPage` and `AppLayout` about page plugins vs browser-driven plugins**
 
 ```tsx
 // in PluginHostPage.tsx
 import { PluginWorkspaceShell } from './PluginWorkspaceShell'
 
-if (plugin.shell.mode === 'plugin-workspace') {
-  return <PluginWorkspaceShell />
+if (presentation === 'route' && plugin.shell.mode === 'plugin-workspace') {
+  return <PluginWorkspaceShell plugin={plugin} />
 }
 ```
 
 ```tsx
-// in AppLayout.tsx, keep Sidebar and outer frame unchanged, but allow plugin workspace pages
+// in AppLayout.tsx, keep Sidebar and outer frame unchanged, but coordinate browser takeover
 <main
   className="relative flex min-w-0 flex-1 flex-col overflow-y-auto"
   style={{ scrollbarGutter: 'stable' }}
@@ -972,19 +1030,26 @@ if (plugin.shell.mode === 'plugin-workspace') {
 </main>
 ```
 
-Keep the existing sidebar and desktop browser panel logic intact. The new behavior is that the plugin host now occupies the full `Workspace Host` rather than trying to render inside chat-specific components.
+Keep the existing sidebar and `Workspace Host` intact for `route` plugins. For `embedded-browser` and `hybrid`, coordinate the existing global right-side browser panel from `AppLayout`: `hybrid` keeps `workspace-host` visible, while `embedded-browser` forces the browser fullscreen so `workspace-host` is hidden.
 
-- [ ] **Step 5: Add a hybrid placeholder branch**
+- [ ] **Step 5: Add browser takeover behavior to `AppLayout`**
 
-Extend `PluginHostPage.tsx` so that unsupported non-route render modes are explicit rather than implicit:
+Drive the browser panel from plugin presentation state instead of returning a placeholder page:
 
 ```tsx
-if (presentation === 'embedded-browser' || presentation === 'hybrid') {
-  return <PluginWorkspaceShell />
-}
+const pluginUsesBrowserPanel =
+  activePluginPresentation === 'embedded-browser' ||
+  activePluginPresentation === 'hybrid'
+
+const pluginForcesBrowserFullscreen =
+  activePluginPresentation === 'embedded-browser'
 ```
 
-This keeps route plugins working now and gives later tasks a single shell to evolve.
+Then:
+
+- `hybrid`: keep `workspace-host` rendered and open the right-side browser panel
+- `embedded-browser`: open the right-side browser panel and fullscreen it so `workspace-host` is hidden
+- `route`: close takeover state and let normal route content render
 
 - [ ] **Step 6: Run focused tests and typecheck**
 
