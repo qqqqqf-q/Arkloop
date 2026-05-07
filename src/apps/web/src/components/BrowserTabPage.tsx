@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, ChevronLeft, ChevronRight, Globe, Loader2, PanelRightClose, Plus, RefreshCcw, X } from 'lucide-react'
+import { AlertCircle, ChevronLeft, ChevronRight, Globe, Loader2, Maximize2, Minimize2, PanelRightClose, Plus, RefreshCcw, X } from 'lucide-react'
 import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import { Button } from '@arkloop/shared'
 import { useBrowserTabs } from '../contexts/browser-tabs'
@@ -25,7 +25,21 @@ function getFallbackFaviconUrl(rawUrl: string): string | null {
   }
 }
 
-export function BrowserTabPage() {
+function getDomain(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.hostname
+  } catch {
+    return rawUrl
+  }
+}
+
+type BrowserTabPageProps = {
+  browserFullscreen?: boolean
+  onToggleBrowserFullscreen?: () => void
+}
+
+export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFullscreen }: BrowserTabPageProps) {
   const { t } = useLocale()
   const {
     tabs,
@@ -46,6 +60,7 @@ export function BrowserTabPage() {
   const hostRef = useRef<HTMLDivElement>(null)
   const [submitting, setSubmitting] = useState(false)
   const [failedFavicons, setFailedFavicons] = useState<Record<string, string>>({})
+  const [inputFocused, setInputFocused] = useState(false)
   const draftUrl = activeBrowserTabId ? getDraftUrl(activeBrowserTabId) : ''
   const desktop = isDesktop()
   const browserApi = getDesktopApi()?.browserTabs
@@ -217,6 +232,16 @@ export function BrowserTabPage() {
             <Plus size={16} />
           </button>
         </div>
+        {onToggleBrowserFullscreen && (
+          <button
+            type="button"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            title={browserFullscreen ? '退出全屏' : '全屏'}
+            onClick={onToggleBrowserFullscreen}
+          >
+            {browserFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+        )}
         <button
           type="button"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
@@ -229,7 +254,7 @@ export function BrowserTabPage() {
 
       {activeBrowserTab && activeBrowserTabId && (
         <div
-          className="flex shrink-0 items-center gap-2 px-4 py-3"
+          className="flex shrink-0 items-center gap-2 px-4 py-1"
           style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
         >
         <button
@@ -267,15 +292,14 @@ export function BrowserTabPage() {
           }}
         >
           <input
-            value={draftUrl}
+            value={inputFocused ? draftUrl : (draftUrl ? getDomain(draftUrl) : '')}
             onChange={(event) => setDraftUrl(activeBrowserTabId, event.target.value)}
-            placeholder={t.browserTabInputPlaceholder}
-            className="h-10 min-w-0 flex-1 rounded-xl bg-[var(--c-bg-input)] px-4 text-sm text-[var(--c-text-primary)] outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            placeholder="输入 URL"
+            className="h-9 min-w-0 flex-1 rounded-lg bg-transparent px-4 text-sm text-[var(--c-text-primary)] outline-none hover:bg-[var(--c-bg-input)] focus:bg-transparent focus:border-[var(--c-border-subtle)] border border-transparent transition-colors"
+            style={{ textAlign: inputFocused ? 'left' : 'center' }}
           />
-          <Button type="submit" variant="primary" size="sm" disabled={submitting}>
-            {activeBrowserTab.loading || submitting ? t.loading : t.browserTabOpen}
-          </Button>
         </form>
         </div>
       )}

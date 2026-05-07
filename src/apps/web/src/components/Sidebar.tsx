@@ -181,7 +181,7 @@ const SidebarThreadItem = memo(function SidebarThreadItem({
               setEditingThreadId(null)
             }
           }}
-          className="h-[34px] min-w-0 flex-1 bg-transparent px-2 py-0 text-[13.5px] leading-[20px] text-[var(--c-text-primary)] outline-none"
+          className="h-[34px] min-w-0 flex-1 bg-transparent px-3 py-0 text-[13.5px] leading-[20px] text-[var(--c-text-primary)] outline-none"
           style={{ border: 'none', fontWeight: 'var(--c-sidebar-thread-weight)' }}
           maxLength={200}
         />
@@ -193,7 +193,7 @@ const SidebarThreadItem = memo(function SidebarThreadItem({
             navigate(`/t/${thread.id}`)
           }}
           className={[
-            'flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2 py-0 text-left text-[13.5px] leading-[20px] group-hover:text-[var(--c-text-primary)]',
+            'flex h-[34px] min-w-0 flex-1 items-center gap-2 px-3 py-0 text-left text-[13.5px] leading-[20px] group-hover:text-[var(--c-text-primary)]',
             isActive
               ? 'text-[var(--c-text-primary)]'
               : 'text-[var(--c-text-secondary)]',

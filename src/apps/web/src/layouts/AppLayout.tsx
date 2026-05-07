@@ -70,6 +70,8 @@ type LayoutMainProps = {
   onSetAppMode: (mode: import('../storage').AppMode) => void
   browserPanelOpen: boolean
   onToggleBrowserPanel: () => void
+  browserFullscreen: boolean
+  onToggleBrowserFullscreen: () => void
 }
 
 const LayoutMain = memo(function LayoutMain({
@@ -85,6 +87,8 @@ const LayoutMain = memo(function LayoutMain({
   onSetAppMode,
   browserPanelOpen,
   onToggleBrowserPanel,
+  browserFullscreen,
+  onToggleBrowserFullscreen,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
   const { setCreditsBalance } = useCredits()
@@ -144,29 +148,34 @@ const LayoutMain = memo(function LayoutMain({
       ) : (
         <div className="relative flex min-w-0 flex-1 overflow-hidden">
           <div className="flex min-w-0 flex-1 overflow-hidden">
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            {desktop && (
-              <DesktopTabBar
-                appMode={appMode}
-                availableModes={availableModes}
-                browserPanelOpen={browserPanelOpen}
-                onSetAppMode={onSetAppMode}
-                onToggleBrowserPanel={onToggleBrowserPanel}
+            {!browserFullscreen && (
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden" style={{ flex: browserPanelOpen ? '1 1 50%' : '1 1 100%' }}>
+              {desktop && (
+                <DesktopTabBar
+                  appMode={appMode}
+                  availableModes={availableModes}
+                  browserPanelOpen={browserPanelOpen}
+                  onSetAppMode={onSetAppMode}
+                  onToggleBrowserPanel={onToggleBrowserPanel}
+                />
+              )}
+              <MainViewport
+                accessToken={accessToken}
+                notificationsOpen={notificationsOpen}
+                closeNotifications={closeNotifications}
+                markNotificationRead={markNotificationRead}
               />
+              </div>
             )}
-            <MainViewport
-              accessToken={accessToken}
-              notificationsOpen={notificationsOpen}
-              closeNotifications={closeNotifications}
-              markNotificationRead={markNotificationRead}
-            />
-            </div>
             {desktop && browserPanelOpen && (
               <aside
                 className="flex min-h-0 min-w-0 shrink-0 border-l border-[var(--c-border-subtle)] bg-[var(--c-bg-page)]"
-                style={{ width: 'clamp(520px, 50vw, 960px)' }}
+                style={{ flex: browserFullscreen ? '1 1 100%' : '1 1 50%' }}
               >
-                <BrowserTabPage />
+                <BrowserTabPage
+                  browserFullscreen={browserFullscreen}
+                  onToggleBrowserFullscreen={onToggleBrowserFullscreen}
+                />
               </aside>
             )}
           </div>
@@ -201,6 +210,11 @@ export function AppLayout() {
 
   const [appUpdateState, setAppUpdateState] = useState<import('@arkloop/shared/desktop').AppUpdaterState | null>(null)
   const [productUpdateNotifications, setProductUpdateNotifications] = useState(true)
+  const [browserFullscreen, setBrowserFullscreen] = useState(false)
+
+  const handleToggleBrowserFullscreen = useCallback(() => {
+    setBrowserFullscreen(prev => !prev)
+  }, [])
 
   // app updater
   useEffect(() => {
@@ -364,6 +378,8 @@ export function AppLayout() {
             onSetAppMode={handleTitleBarSetAppMode}
             browserPanelOpen={browserPanelOpen}
             onToggleBrowserPanel={toggleBrowserPanel}
+            browserFullscreen={browserFullscreen}
+            onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
           />
         </div>
       </div>
