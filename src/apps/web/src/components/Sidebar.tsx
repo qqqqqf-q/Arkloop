@@ -1745,10 +1745,10 @@ export function Sidebar({
               {userInitial}
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
-              <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
+              <div className="truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
                 {me?.username ?? t.loading}
               </div>
-              <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
+              <div className="text-[12px] font-normal text-[var(--c-text-tertiary)]">
                 {t.enterprisePlan}
               </div>
             </div>
