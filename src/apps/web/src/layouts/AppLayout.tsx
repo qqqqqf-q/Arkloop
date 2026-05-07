@@ -108,9 +108,6 @@ const LayoutMain = memo(function LayoutMain({
   const {
     settingsOpen,
     settingsInitialTab,
-    desktopSettingsSection,
-    desktopAdvancedSection,
-    desktopSettingsRequestId,
     closeSettings,
   } = useSettingsUI();
   const { notificationsOpen, closeNotifications, markNotificationRead } =
@@ -181,87 +178,71 @@ const LayoutMain = memo(function LayoutMain({
         />
       )}
 
-      {desktop && settingsOpen ? (
-        <DesktopSettings
-          me={me}
-          accessToken={accessToken}
-          initialSection={desktopSettingsSection}
-          initialAdvancedKey={desktopAdvancedSection}
-          sectionRequestId={desktopSettingsRequestId}
-          onClose={closeSettings}
-          onLogout={logout}
-          onMeUpdated={onMeUpdated}
-          onTrySkill={onTrySkill}
-        />
-      ) : (
-        <div
-          ref={containerRef}
-          className="relative flex min-w-0 flex-1 overflow-hidden rounded-l-xl"
-          style={{ border: "0.5px solid var(--c-border-subtle)" }}
-        >
-          <div className="flex min-w-0 flex-1 overflow-hidden">
-            {!browserFullscreen && (
-              <div
-                className="flex min-w-0 flex-col overflow-hidden"
-                style={{
-                  flex: browserPanelOpen ? `0 0 ${chatRatio}%` : "1 1 100%",
-                }}
-              >
-                <DesktopTabBar
-                  appMode={appMode}
-                  availableModes={availableModes}
-                  browserPanelOpen={browserPanelOpen}
-                  onSetAppMode={onSetAppMode}
-                  onToggleBrowserPanel={onToggleBrowserPanel}
-                  currentThread={currentThread}
-                />
-                <MainViewport
-                  accessToken={accessToken}
-                  notificationsOpen={notificationsOpen}
-                  closeNotifications={closeNotifications}
-                  markNotificationRead={markNotificationRead}
-                />
-              </div>
-            )}
-            {desktop && browserPanelOpen && (
-              <aside
-                className="flex min-h-0 min-w-0 shrink-0 bg-[var(--c-bg-page)] relative"
-                style={{
-                  flex: browserFullscreen
-                    ? "1 1 100%"
-                    : `0 0 ${100 - chatRatio}%`,
-                }}
-              >
-                {!browserFullscreen && (
-                  <div
-                    className="absolute left-0 top-0 bottom-0 cursor-col-resize"
-                    style={{ width: "12px", marginLeft: "-6px", zIndex: 10 }}
-                    onMouseDown={handleMouseDown}
-                  >
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-[3px] bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors"
-                      style={{ right: "3px" }}
-                    />
-                  </div>
-                )}
+      <div
+        ref={containerRef}
+        className="relative flex min-w-0 flex-1 overflow-hidden rounded-l-xl"
+        style={{ border: "0.5px solid var(--c-border-subtle)" }}
+      >
+        <div className="flex min-w-0 flex-1 overflow-hidden">
+          {!browserFullscreen && (
+            <div
+              className="flex min-w-0 flex-col overflow-hidden"
+              style={{
+                flex: browserPanelOpen ? `0 0 ${chatRatio}%` : "1 1 100%",
+              }}
+            >
+              <DesktopTabBar
+                appMode={appMode}
+                availableModes={availableModes}
+                browserPanelOpen={browserPanelOpen}
+                onSetAppMode={onSetAppMode}
+                onToggleBrowserPanel={onToggleBrowserPanel}
+                currentThread={currentThread}
+              />
+              <MainViewport
+                accessToken={accessToken}
+                notificationsOpen={notificationsOpen}
+                closeNotifications={closeNotifications}
+                markNotificationRead={markNotificationRead}
+              />
+            </div>
+          )}
+          {desktop && browserPanelOpen && (
+            <aside
+              className="relative flex min-h-0 min-w-0 shrink-0 bg-(--c-bg-page)"
+              style={{
+                flex: browserFullscreen ? "1 1 100%" : `0 0 ${100 - chatRatio}%`,
+              }}
+            >
+              {!browserFullscreen && (
                 <div
-                  className="flex-1 min-w-0"
-                  style={{
-                    borderLeft: browserFullscreen
-                      ? "none"
-                      : "0.5px solid var(--c-border-subtle)",
-                  }}
+                  className="absolute left-0 top-0 bottom-0 cursor-col-resize"
+                  style={{ width: "12px", marginLeft: "-6px", zIndex: 10 }}
+                  onMouseDown={handleMouseDown}
                 >
-                  <BrowserTabPage
-                    browserFullscreen={browserFullscreen}
-                    onToggleBrowserFullscreen={onToggleBrowserFullscreen}
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-[3px] bg-transparent transition-colors hover:bg-(--c-border-subtle)"
+                    style={{ right: "3px" }}
                   />
                 </div>
-              </aside>
-            )}
-          </div>
+              )}
+              <div
+                className="flex-1 min-w-0"
+                style={{
+                  borderLeft: browserFullscreen
+                    ? "none"
+                    : "0.5px solid var(--c-border-subtle)",
+                }}
+              >
+                <BrowserTabPage
+                  browserFullscreen={browserFullscreen}
+                  onToggleBrowserFullscreen={onToggleBrowserFullscreen}
+                />
+              </div>
+            </aside>
+          )}
         </div>
-      )}
+      </div>
     </>
   );
 });
@@ -286,7 +267,14 @@ export function AppLayout() {
     closeSearchOverlay,
   } = useSearchUI();
   const { appMode, availableAppModes, setAppMode } = useAppModeUI();
-  const { openSettings, closeSettings } = useSettingsUI();
+  const {
+    settingsOpen,
+    desktopSettingsSection,
+    desktopAdvancedSection,
+    desktopSettingsRequestId,
+    openSettings,
+    closeSettings,
+  } = useSettingsUI();
   const { closeNotifications } = useNotificationsUI();
   const { queueSkillPrompt } = useSkillPromptUI();
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI();
@@ -494,7 +482,7 @@ export function AppLayout() {
       userTimeZone={me?.timezone ?? null}
       accountTimeZone={me?.account_timezone ?? null}
     >
-      <div className="theme-background-root app-viewport flex flex-col overflow-hidden bg-[var(--c-bg-page)]">
+      <div className="theme-background-root app-viewport flex flex-col overflow-hidden bg-(--c-bg-page)">
         <div className="theme-background-layer" aria-hidden="true" />
         {desktop && (
           <DesktopTitleBar
@@ -514,32 +502,48 @@ export function AppLayout() {
         )}
 
         <div className="flex min-h-0 flex-1">
-          {!sidebarHiddenByWidth && (
-            <Sidebar
-              threads={filteredThreads}
-              onNewThread={handleNewThread}
-              onThreadDeleted={handleThreadDeleted}
-              beforeNavigateToThread={handleBeforeNavigateToThread}
+          {desktop && settingsOpen ? (
+            <DesktopSettings
+              me={me}
+              accessToken={accessToken}
+              initialSection={desktopSettingsSection}
+              initialAdvancedKey={desktopAdvancedSection}
+              sectionRequestId={desktopSettingsRequestId}
+              onClose={closeSettings}
+              onLogout={logout}
+              onMeUpdated={updateMe}
+              onTrySkill={handleTrySkill}
             />
-          )}
+          ) : (
+            <>
+              {!sidebarHiddenByWidth && (
+                <Sidebar
+                  threads={filteredThreads}
+                  onNewThread={handleNewThread}
+                  onThreadDeleted={handleThreadDeleted}
+                  beforeNavigateToThread={handleBeforeNavigateToThread}
+                />
+              )}
 
-          <LayoutMain
-            desktop={desktop}
-            isSearchOpen={isSearchOpen}
-            filteredThreads={filteredThreads}
-            appMode={activeAppMode}
-            availableModes={availableAppModes}
-            pathname={location.pathname}
-            onSearchClose={handleCloseSearch}
-            onMeUpdated={updateMe}
-            onTrySkill={handleTrySkill}
-            onSetAppMode={handleTitleBarSetAppMode}
-            browserPanelOpen={browserPanelOpen}
-            onToggleBrowserPanel={toggleBrowserPanel}
-            browserFullscreen={browserFullscreen}
-            onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
-            currentThread={currentThread}
-          />
+              <LayoutMain
+                desktop={desktop}
+                isSearchOpen={isSearchOpen}
+                filteredThreads={filteredThreads}
+                appMode={activeAppMode}
+                availableModes={availableAppModes}
+                pathname={location.pathname}
+                onSearchClose={handleCloseSearch}
+                onMeUpdated={updateMe}
+                onTrySkill={handleTrySkill}
+                onSetAppMode={handleTitleBarSetAppMode}
+                browserPanelOpen={browserPanelOpen}
+                onToggleBrowserPanel={toggleBrowserPanel}
+                browserFullscreen={browserFullscreen}
+                onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
+                currentThread={currentThread}
+              />
+            </>
+          )}
         </div>
       </div>
     </TimeZoneProvider>
