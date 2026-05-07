@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDown, Pencil, Star, Trash2, PanelRightOpen } from 'lucide-react'
+import { MoreHorizontal, Pencil, Star, Trash2, PanelRightOpen } from 'lucide-react'
 import { ConfirmDialog } from '@arkloop/shared'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
@@ -197,7 +197,7 @@ export function DesktopTabBar({
                   style={{ maxWidth: '280px' }}
                 >
                   <span className="truncate">{currentTitle}</span>
-                  <ChevronDown size={14} className="shrink-0" />
+                  <MoreHorizontal size={14} className="shrink-0" />
                 </button>
               </div>
             )
