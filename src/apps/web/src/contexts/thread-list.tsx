@@ -9,14 +9,16 @@ import {
   type ReactNode,
 } from 'react'
 import { silentRefresh } from '@arkloop/shared'
-import { isLocalMode } from '@arkloop/shared/desktop'
+import { getDesktopApi, isDesktop, isLocalMode } from '@arkloop/shared/desktop'
 import {
   isApiError,
+  listMessages,
   listThreads,
   streamThreadRunStateEvents,
   updateThreadMode,
   updateThreadSidebarState,
   type CollaborationMode,
+  type MessageResponse,
   type ThreadGtdBucket,
   type ThreadResponse,
   type UpdateThreadSidebarRequest,
@@ -67,6 +69,12 @@ export interface ThreadListContextValue {
 const ThreadListContext = createContext<ThreadListContextValue | null>(null)
 const THREAD_RUN_STATE_RECONNECT_DELAY_MS = 1000
 const GTD_BUCKETS: readonly ThreadGtdBucket[] = ['inbox', 'todo', 'waiting', 'someday', 'archived']
+const COMPLETION_PROMPT_PREVIEW_LIMIT = 180
+
+type CompletedThreadNotificationTarget = {
+  threadId: string
+  title?: string | null
+}
 
 function sortThreadsByActivity(threads: ThreadResponse[]): ThreadResponse[] {
   return [...threads].sort((a, b) => {
@@ -79,6 +87,35 @@ function sortThreadsByActivity(threads: ThreadResponse[]): ThreadResponse[] {
 function normalizeSidebarWorkFolder(value: string | null | undefined): string | null {
   const trimmed = (value ?? '').trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeNotificationText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function truncateNotificationText(value: string, limit: number): string {
+  if (value.length <= limit) return value
+  return `${value.slice(0, limit - 1).trimEnd()}…`
+}
+
+function messageUserText(message: MessageResponse): string {
+  if (message.content_json?.parts?.length) {
+    return message.content_json.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join(' ')
+  }
+  return message.content
+}
+
+function lastUserPromptPreview(messages: MessageResponse[]): string {
+  for (let idx = messages.length - 1; idx >= 0; idx--) {
+    const message = messages[idx]
+    if (message.role !== 'user') continue
+    const text = normalizeNotificationText(messageUserText(message))
+    if (text) return truncateNotificationText(text, COMPLETION_PROMPT_PREVIEW_LIMIT)
+  }
+  return ''
 }
 
 function legacyGtdBucketForThread(threadId: string): ThreadGtdBucket | null {
@@ -152,6 +189,7 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true)
 
   const [threads, setThreads] = useState<ThreadResponse[]>([])
+  const threadsRef = useRef<ThreadResponse[]>([])
   const [runningThreadIds, setRunningThreadIds] = useState<Set<string>>(new Set())
   const runningThreadIdsRef = useRef<Set<string>>(new Set())
   const [completedUnreadThreadIds, setCompletedUnreadThreadIds] = useState<Set<string>>(new Set())
@@ -164,6 +202,32 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     runningThreadIdsRef.current = next
     setRunningThreadIds(next)
   }, [])
+
+  useEffect(() => {
+    threadsRef.current = threads
+  }, [threads])
+
+  const notifyCompletedThreads = useCallback((targets: Iterable<CompletedThreadNotificationTarget>) => {
+    if (!isDesktop()) return
+    const items = Array.from(targets)
+    if (items.length === 0 || !accessToken) return
+    const api = getDesktopApi()
+    if (!api?.config || !api.notifications) return
+    void api.config.get().then(async (config) => {
+      if (config.desktop?.desktopNotifications === false) return
+      const threadsById = new Map(threadsRef.current.map((thread) => [thread.id, thread]))
+      await Promise.all(items.map(async (item) => {
+        const title = normalizeNotificationText(item.title ?? threadsById.get(item.threadId)?.title ?? '') || 'Arkloop'
+        let body = ''
+        try {
+          body = lastUserPromptPreview(await listMessages(accessToken, item.threadId, 40))
+        } catch {
+          body = ''
+        }
+        await api.notifications?.show({ title, body: body || undefined })
+      }))
+    }).catch(() => {})
+  }, [accessToken])
 
   const addCompletedUnread = useCallback((threadIds: Iterable<string>) => {
     setCompletedUnreadThreadIds((prev) => {
@@ -194,6 +258,7 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     const wasRunning = runningThreadIdsRef.current.has(threadId)
     if (wasRunning && !isRunning) {
       addCompletedUnread([threadId])
+      notifyCompletedThreads([{ threadId, title }])
     } else if (isRunning) {
       clearCompletedUnread([threadId])
     }
@@ -223,7 +288,7 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
       next[idx] = updated
       return next
     })
-  }, [addCompletedUnread, clearCompletedUnread, replaceRunningThreadIds])
+  }, [addCompletedUnread, clearCompletedUnread, notifyCompletedThreads, replaceRunningThreadIds])
 
   const migrateLegacyThreadModes = useCallback(async (token: string): Promise<ThreadResponse[]> => {
     if (legacyModeMigrationInFlightRef.current) return []
@@ -310,11 +375,18 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     mirrorSidebarStateToLocal(items, sidebarMigration.failedThreadIds)
     const nextRunning = new Set(items.filter((t) => t.active_run_id != null).map((t) => t.id))
     const completedThreadIds = Array.from(runningThreadIdsRef.current).filter((threadId) => !nextRunning.has(threadId))
+    threadsRef.current = items
     setThreads(items)
     replaceRunningThreadIds(nextRunning)
-    if (completedThreadIds.length > 0) addCompletedUnread(completedThreadIds)
+    if (completedThreadIds.length > 0) {
+      addCompletedUnread(completedThreadIds)
+      notifyCompletedThreads(completedThreadIds.map((threadId) => ({
+        threadId,
+        title: itemsById.get(threadId)?.title,
+      })))
+    }
     if (nextRunning.size > 0) clearCompletedUnread(nextRunning)
-  }, [addCompletedUnread, clearCompletedUnread, migrateLegacySidebarState, migrateLegacyThreadModes, replaceRunningThreadIds])
+  }, [addCompletedUnread, clearCompletedUnread, migrateLegacySidebarState, migrateLegacyThreadModes, notifyCompletedThreads, replaceRunningThreadIds])
 
   useEffect(() => {
     mountedRef.current = true
@@ -381,6 +453,16 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
       streamController?.abort()
     }
   }, [accessToken, applyThreadState, syncThreadList])
+
+  useEffect(() => {
+    if (!isDesktop()) return
+    void getDesktopApi()?.power?.setSessionActive(runningThreadIds.size > 0).catch(() => {})
+  }, [runningThreadIds])
+
+  useEffect(() => () => {
+    if (!isDesktop()) return
+    void getDesktopApi()?.power?.setSessionActive(false).catch(() => {})
+  }, [])
 
   const addThread = useCallback((thread: ThreadResponse) => {
     let nextThread = thread

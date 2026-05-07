@@ -4,9 +4,12 @@ import (
 	"net/netip"
 	"net/url"
 	"testing"
+
+	sharedoutbound "arkloop/services/shared/outboundurl"
 )
 
 func TestIsDeniedIP(t *testing.T) {
+	policy := sharedoutbound.Policy{ProtectionEnabled: true}
 	tests := []struct {
 		ip   string
 		deny bool
@@ -30,7 +33,7 @@ func TestIsDeniedIP(t *testing.T) {
 
 	for _, tt := range tests {
 		ip := netip.MustParseAddr(tt.ip)
-		got := isDeniedIP(ip)
+		got := isDeniedIP(ip, policy)
 		if got != tt.deny {
 			t.Errorf("isDeniedIP(%s) = %v, want %v", tt.ip, got, tt.deny)
 		}
@@ -38,6 +41,7 @@ func TestIsDeniedIP(t *testing.T) {
 }
 
 func TestValidateURL(t *testing.T) {
+	policy := sharedoutbound.Policy{ProtectionEnabled: true}
 	tests := []struct {
 		rawURL  string
 		wantErr bool
@@ -63,14 +67,35 @@ func TestValidateURL(t *testing.T) {
 			}
 			continue
 		}
-		err = validateURL(u)
+		err = validateURL(u, policy)
 		if (err != nil) != tt.wantErr {
 			t.Errorf("validateURL(%q) error=%v, wantErr=%v", tt.rawURL, err, tt.wantErr)
 		}
 	}
 }
 
+func TestValidateURLSkipsSafetyChecksByDefault(t *testing.T) {
+	policy := sharedoutbound.Policy{}
+	for _, rawURL := range []string{
+		"http://localhost/api",
+		"http://127.0.0.1/api",
+		"http://10.0.0.1/api",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			u, err := url.Parse(rawURL)
+			if err != nil {
+				t.Fatalf("url.Parse(%q): %v", rawURL, err)
+			}
+			if err := validateURL(u, policy); err != nil {
+				t.Fatalf("validateURL(%q) error=%v", rawURL, err)
+			}
+		})
+	}
+}
+
 func TestNewHTTPClientRejectsInternalURL(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	tests := []struct {
 		name    string
 		url     string

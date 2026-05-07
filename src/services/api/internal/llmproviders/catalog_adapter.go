@@ -91,6 +91,7 @@ func listOpenAIModels(ctx context.Context, cfg CatalogProtocolConfig) ([]Availab
 	body, status, err := fetchCatalogJSON(ctx, strings.TrimRight(cfg.BaseURL, "/")+"/models", func(req *nethttp.Request) {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 		req.Header.Set("Accept", "application/json")
+		applyUserExtraHeaders(req, cfg)
 	})
 	if err != nil {
 		return nil, err
@@ -133,6 +134,7 @@ func listOpenRouterEmbeddingModels(ctx context.Context, cfg CatalogProtocolConfi
 	body, status, err := fetchCatalogJSON(ctx, strings.TrimRight(cfg.BaseURL, "/")+"/embeddings/models", func(req *nethttp.Request) {
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 		req.Header.Set("Accept", "application/json")
+		applyUserExtraHeaders(req, cfg)
 	})
 	if err != nil {
 		return nil, err
@@ -183,7 +185,8 @@ func listOpenRouterEmbeddingModels(ctx context.Context, cfg CatalogProtocolConfi
 }
 
 func fetchCatalogJSON(ctx context.Context, url string, decorate func(*nethttp.Request)) ([]byte, int, error) {
-	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(url); err != nil {
+	policy := sharedoutbound.DefaultPolicy()
+	if err := policy.ValidateRequestURL(url); err != nil {
 		return nil, 0, &UpstreamListModelsError{Kind: "request", Err: err}
 	}
 
@@ -195,7 +198,7 @@ func fetchCatalogJSON(ctx context.Context, url string, decorate func(*nethttp.Re
 		decorate(req)
 	}
 
-	resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(availableModelsTimeout).Do(req)
+	resp, err := policy.NewHTTPClient(availableModelsTimeout).Do(req)
 	if err != nil {
 		return nil, 0, upstreamNetworkError(err)
 	}
@@ -209,6 +212,12 @@ func fetchCatalogJSON(ctx context.Context, url string, decorate func(*nethttp.Re
 		return nil, resp.StatusCode, err
 	}
 	return body, resp.StatusCode, nil
+}
+
+func applyUserExtraHeaders(req *nethttp.Request, cfg CatalogProtocolConfig) {
+	for key, value := range OpenVikingExtraHeadersFromAdvancedJSON(cfg.Credential.AdvancedJSON) {
+		req.Header.Set(key, value)
+	}
 }
 
 func mergeAvailableModels(base []AvailableModel, extra []AvailableModel) []AvailableModel {
@@ -242,7 +251,8 @@ type anthropicCatalogAdapter struct{}
 func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolConfig) ([]AvailableModel, error) {
 	path := anthropicCatalogPath(cfg.BaseURL)
 	modelsURL := strings.TrimRight(cfg.BaseURL, "/") + path
-	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(modelsURL); err != nil {
+	policy := sharedoutbound.DefaultPolicy()
+	if err := policy.ValidateRequestURL(modelsURL); err != nil {
 		return nil, &UpstreamListModelsError{Kind: "request", Err: err}
 	}
 
@@ -256,8 +266,9 @@ func (anthropicCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtoc
 	for key, value := range cfg.Anthropic.ExtraHeaders {
 		req.Header.Set(key, value)
 	}
+	applyUserExtraHeaders(req, cfg)
 
-	resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(availableModelsTimeout).Do(req)
+	resp, err := policy.NewHTTPClient(availableModelsTimeout).Do(req)
 	if err != nil {
 		return nil, upstreamNetworkError(err)
 	}
@@ -350,7 +361,8 @@ type geminiCatalogAdapter struct{}
 
 func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolConfig) ([]AvailableModel, error) {
 	modelsURL := strings.TrimRight(cfg.BaseURL, "/") + "/models"
-	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(modelsURL); err != nil {
+	policy := sharedoutbound.DefaultPolicy()
+	if err := policy.ValidateRequestURL(modelsURL); err != nil {
 		return nil, &UpstreamListModelsError{Kind: "request", Err: err}
 	}
 
@@ -360,8 +372,9 @@ func (geminiCatalogAdapter) ListModels(ctx context.Context, cfg CatalogProtocolC
 	}
 	req.Header.Set("x-goog-api-key", cfg.APIKey)
 	req.Header.Set("Accept", "application/json")
+	applyUserExtraHeaders(req, cfg)
 
-	resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(availableModelsTimeout).Do(req)
+	resp, err := policy.NewHTTPClient(availableModelsTimeout).Do(req)
 	if err != nil {
 		return nil, upstreamNetworkError(err)
 	}
@@ -567,11 +580,12 @@ func upstreamNetworkError(err error) error {
 }
 
 func classifyCatalogStatus(status int, body []byte) error {
-	if status == nethttp.StatusUnauthorized || status == nethttp.StatusForbidden {
-		return &UpstreamListModelsError{Kind: "auth", StatusCode: status, Err: fmt.Errorf("status=%d", status)}
-	}
 	if status >= 200 && status < 300 {
 		return nil
+	}
+	bodyText := strings.TrimSpace(string(body))
+	if status == nethttp.StatusUnauthorized || status == nethttp.StatusForbidden {
+		return &UpstreamListModelsError{Kind: "auth", StatusCode: status, Err: catalogStatusError(status, bodyText)}
 	}
 	kind := "upstream"
 	if status >= 400 && status < 500 {
@@ -580,6 +594,13 @@ func classifyCatalogStatus(status int, body []byte) error {
 	return &UpstreamListModelsError{
 		Kind:       kind,
 		StatusCode: status,
-		Err:        fmt.Errorf("status=%d body=%s", status, strings.TrimSpace(string(body))),
+		Err:        catalogStatusError(status, bodyText),
 	}
+}
+
+func catalogStatusError(status int, body string) error {
+	if body == "" {
+		return fmt.Errorf("status=%d", status)
+	}
+	return fmt.Errorf("status=%d body=%s", status, body)
 }

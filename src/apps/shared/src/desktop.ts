@@ -95,6 +95,18 @@ export type NetworkConfig = {
   userAgent?: string
 }
 
+export type StartupOpenMode = 'home' | 'last-workspace'
+export type CloseWindowBehavior = 'keep-in-background' | 'quit'
+
+export type DesktopPreferencesConfig = {
+  startupOpen: StartupOpenMode
+  closeBehavior: CloseWindowBehavior
+  launchAtLogin: boolean
+  desktopNotifications: boolean
+  productUpdateNotifications: boolean
+  keepScreenAwake: boolean
+}
+
 export type MemoryEntry = {
   id: string
   scope: string
@@ -132,6 +144,7 @@ export type DesktopConfig = {
   connectors: ConnectorsConfig
   memory: MemoryConfig
   network: NetworkConfig
+  desktop: DesktopPreferencesConfig
   voice?: VoiceConfig
 }
 
@@ -266,6 +279,14 @@ export type ArkloopDesktopApi = {
     getVersion: () => Promise<string>
     quit: () => Promise<void>
     getOsUsername?: () => Promise<string>
+    openExternal?: (url: string) => Promise<void>
+  }
+  notifications?: {
+    show: (input: { title: string; body?: string }) => Promise<{ ok: boolean }>
+    isSupported: () => Promise<boolean>
+  }
+  power?: {
+    setSessionActive: (active: boolean) => Promise<{ ok: boolean }>
   }
   window?: {
     minimize: () => Promise<void>

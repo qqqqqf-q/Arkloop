@@ -6,6 +6,8 @@ import {
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatDateTime, getActiveTimeZone } from '@arkloop/shared'
+import { SettingsButton } from './_SettingsButton'
+import { SettingsSelect } from './_SettingsSelect'
 
 function getCurrentYearMonth(timeZone: string): { year: number; month: number } {
   const parts = formatDateTime(new Date(), { timeZone, includeZone: false }).slice(0, 7).split('-')
@@ -160,34 +162,32 @@ export function CreditsContent({ accessToken, onCreditsChanged }: { accessToken:
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{t.creditsHistoryMonthly}</span>
           <div className="flex items-center gap-2">
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(Number(e.target.value))}
-              className="h-8 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
-              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-            >
-              {Array.from({ length: 3 }, (_, i) => currentYearMonth.year - i).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(Number(e.target.value))}
-              className="h-8 rounded-lg px-2 text-sm text-[var(--c-text-heading)] outline-none"
-              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-            >
-              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>{getMonthLabel(m, locale)}</option>
-              ))}
-            </select>
-            <button
+            <div className="w-[92px]">
+              <SettingsSelect
+                value={String(filterYear)}
+                options={Array.from({ length: 3 }, (_, i) => {
+                  const year = currentYearMonth.year - i
+                  return { value: String(year), label: String(year) }
+                })}
+                onChange={(value) => setFilterYear(Number(value))}
+              />
+            </div>
+            <div className="w-[132px]">
+              <SettingsSelect
+                value={String(filterMonth)}
+                options={Array.from({ length: 12 }, (_, i) => {
+                  const month = i + 1
+                  return { value: String(month), label: getMonthLabel(month, locale) }
+                })}
+                onChange={(value) => setFilterMonth(Number(value))}
+              />
+            </div>
+            <SettingsButton
               onClick={() => void handleQueryUsage()}
               disabled={txLoading}
-              className="flex h-8 items-center rounded-lg px-3 text-sm font-medium text-[var(--c-text-heading)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:opacity-50"
-              style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
             >
               {t.creditsUsageQuery}
-            </button>
+            </SettingsButton>
           </div>
           {txError && (
             <p className="text-xs text-[var(--c-status-error-text)]">{txError}</p>

@@ -93,6 +93,18 @@ export type NetworkConfig = {
   userAgent?: string
 }
 
+export type StartupOpenMode = 'home' | 'last-workspace'
+export type CloseWindowBehavior = 'keep-in-background' | 'quit'
+
+export type DesktopPreferencesConfig = {
+  startupOpen: StartupOpenMode
+  closeBehavior: CloseWindowBehavior
+  launchAtLogin: boolean
+  desktopNotifications: boolean
+  productUpdateNotifications: boolean
+  keepScreenAwake: boolean
+}
+
 export type MemoryEntry = {
   id: string
   scope: string
@@ -130,6 +142,7 @@ export type AppConfig = {
   connectors: ConnectorsConfig
   memory: MemoryConfig
   network: NetworkConfig
+  desktop: DesktopPreferencesConfig
   voice?: VoiceConfig
 }
 
@@ -364,6 +377,13 @@ export type ArkloopDesktopApi = {
     getOsUsername: () => Promise<string>
     openExternal: (url: string) => Promise<void>
   }
+  notifications: {
+    show: (input: { title: string; body?: string }) => Promise<{ ok: boolean }>
+    isSupported: () => Promise<boolean>
+  }
+  power: {
+    setSessionActive: (active: boolean) => Promise<{ ok: boolean }>
+  }
   window: {
     minimize: () => Promise<void>
     toggleMaximize: () => Promise<{ maximized: boolean }>
@@ -564,6 +584,15 @@ const api: ArkloopDesktopApi = {
     quit: () => ipcRenderer.invoke('arkloop:app:quit'),
     getOsUsername: () => ipcRenderer.invoke('arkloop:app:os-username'),
     openExternal: (url: string) => ipcRenderer.invoke('arkloop:app:open-external', url),
+  },
+
+  notifications: {
+    show: (input) => ipcRenderer.invoke('arkloop:notifications:show', input),
+    isSupported: () => ipcRenderer.invoke('arkloop:notifications:is-supported'),
+  },
+
+  power: {
+    setSessionActive: (active: boolean) => ipcRenderer.invoke('arkloop:power:set-session-active', active),
   },
 
   window: {

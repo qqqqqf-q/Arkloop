@@ -110,6 +110,7 @@ import { settingsInputCls } from './_SettingsInput'
 import { settingsLabelCls } from './_SettingsLabel'
 import { settingsSectionCls } from './_SettingsSection'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
+import { SettingsSelect } from './_SettingsSelect'
 
 const inputCls = settingsInputCls('sm')
 const labelCls = settingsLabelCls('sm')
@@ -613,17 +614,12 @@ export function ConnectorsSettings({ accessToken, nestedUnderTabs = false }: Pro
                           )}
                         </div>
                         {field.type === 'select' ? (
-                          <select
-                            className={inputCls}
+                          <SettingsSelect
                             value={value}
-                            onChange={setConfig(field.key)}
-                          >
-                            {(field.options ?? []).map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(nextValue) => setConfigForm((prev) => ({ ...prev, [field.key]: nextValue }))}
+                            options={(field.options ?? []).map((option) => ({ value: option, label: option }))}
+                            triggerClassName="h-[32px]"
+                          />
                         ) : (
                           <input
                             type={inputType}

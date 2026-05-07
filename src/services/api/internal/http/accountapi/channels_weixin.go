@@ -285,7 +285,7 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 	if m := strings.TrimSpace(cfg.DefaultModel); m != "" {
 		runData["model"] = m
 	}
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, identity.UserID, "run.started", runData)
+	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
 	if err != nil {
 		return err
 	}
@@ -370,7 +370,7 @@ func (c *weixinConnector) resolveWeixinThreadID(
 			slog.InfoContext(ctx, "weixin_stale_dm_binding", "thread_id", threadMap.ThreadID, "channel_id", ch.ID)
 			_ = dmRepo.DeleteByBinding(ctx, ch.ID, identity.ID, personaID, "")
 		}
-		thread, err := threadRepoTx.Create(ctx, ch.AccountID, identity.UserID, projectID, buildTitle(), false)
+		thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, buildTitle(), false)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -393,7 +393,7 @@ func (c *weixinConnector) resolveWeixinThreadID(
 		slog.InfoContext(ctx, "weixin_stale_group_binding", "thread_id", threadMap.ThreadID, "channel_id", ch.ID)
 		_ = groupRepo.DeleteByBinding(ctx, ch.ID, platformChatID, personaID)
 	}
-	thread, err := threadRepoTx.Create(ctx, ch.AccountID, nil, projectID, buildTitle(), false)
+	thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, buildTitle(), false)
 	if err != nil {
 		return uuid.Nil, err
 	}

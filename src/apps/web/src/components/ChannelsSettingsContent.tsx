@@ -16,11 +16,12 @@ import {
   isApiError,
 } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
-import { AutoResizeTextarea } from '@arkloop/shared'
+import { AutoResizeTextarea, ConfirmDialog } from '@arkloop/shared'
 import { QQLoginFlow } from './QQLoginFlow'
 import { CopyIconButton } from './CopyIconButton'
 import { ModelDropdown } from './settings/DesktopChannelSettingsShared'
 import { openExternal } from '../openExternal'
+import { SettingsSelect } from './settings/_SettingsSelect'
 
 type Props = {
   accessToken: string
@@ -71,6 +72,8 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   const [tokenDrafts, setTokenDrafts] = useState<Record<string, string>>({})
   const [verifyingChannelId, setVerifyingChannelId] = useState<string | null>(null)
   const [verifyResults, setVerifyResults] = useState<Record<string, { ok: boolean; message: string }>>({})
+  const [deleteTarget, setDeleteTarget] = useState<ChannelResponse | null>(null)
+  const [unbindTarget, setUnbindTarget] = useState<string | null>(null)
 
   const personaOptions = useMemo(
     () => personas.map((p) => ({ value: p.id, label: p.display_name || p.id })),
@@ -223,9 +226,9 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   }
 
   const handleDelete = async (ch: ChannelResponse) => {
-    if (!confirm(ct.deleteConfirm)) return
     try {
       await deleteChannel(accessToken, ch.id)
+      setDeleteTarget(null)
       await load()
     } catch (err) {
       setError(isApiError(err) ? err.message : ct.deleteFailed)
@@ -259,9 +262,9 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
   }
 
   const handleUnbind = async (id: string) => {
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await unbindChannelIdentity(accessToken, id)
+      setUnbindTarget(null)
       await load()
     } catch {
       setError(ct.unbindFailed)
@@ -324,19 +327,17 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
         <div className="flex flex-col gap-3 rounded-lg p-4" style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-sub)' }}>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.platform}</label>
-            <select
+            <SettingsSelect
               value={formType}
-              onChange={(e) => {
-                setFormType(e.target.value as ChannelType)
+              onChange={(value) => {
+                setFormType(value as ChannelType)
                 setError('')
               }}
-              className="h-9 rounded-lg bg-[var(--c-bg-input)] px-3 text-sm text-[var(--c-text-primary)] outline-none"
-              style={{ border: '0.5px solid var(--c-border-subtle)' }}
-            >
-              {CHANNEL_TYPES.filter((ct) => !usedTypes.has(ct)).map((ct) => (
-                <option key={ct} value={ct}>{channelLabel(ct)}</option>
-              ))}
-            </select>
+              options={CHANNEL_TYPES
+                .filter((ct) => !usedTypes.has(ct))
+                .map((item) => ({ value: item, label: channelLabel(item) }))}
+              triggerClassName="h-9"
+            />
           </div>
 
           {formType === 'qqbot' && (
@@ -474,15 +475,15 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-medium text-[var(--c-text-secondary)]">{ct.feishuDomain}</label>
-                  <select
+                  <SettingsSelect
                     value={formFeishuDomain}
-                    onChange={(e) => setFormFeishuDomain(e.target.value as 'feishu' | 'lark')}
-                    className="h-9 rounded-lg bg-[var(--c-bg-input)] px-3 text-sm text-[var(--c-text-primary)] outline-none"
-                    style={{ border: '0.5px solid var(--c-border-subtle)' }}
-                  >
-                    <option value="feishu">{ct.feishuDomainFeishu}</option>
-                    <option value="lark">{ct.feishuDomainLark}</option>
-                  </select>
+                    onChange={(value) => setFormFeishuDomain(value as 'feishu' | 'lark')}
+                    options={[
+                      { value: 'feishu', label: ct.feishuDomainFeishu },
+                      { value: 'lark', label: ct.feishuDomainLark },
+                    ]}
+                    triggerClassName="h-9"
+                  />
                 </div>
               </div>
 
@@ -639,7 +640,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
                     {ch.is_active ? ct.inactive : ct.active}
                   </button>
                   <button
-                    onClick={() => handleDelete(ch)}
+                    onClick={() => setDeleteTarget(ch)}
                     className="text-[var(--c-text-muted)] hover:text-[var(--c-status-error,#ef4444)]"
                   >
                     <Trash2 size={14} />
@@ -750,7 +751,7 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
                   <span className="text-xs text-[var(--c-text-tertiary)]">{channelLabel(id.channel_type)}</span>
                 </div>
                 <button
-                  onClick={() => handleUnbind(id.id)}
+                  onClick={() => setUnbindTarget(id.id)}
                   className="text-xs text-[var(--c-text-muted)] hover:text-[var(--c-status-error,#ef4444)]"
                 >
                   {ct.unbind}
@@ -760,6 +761,24 @@ export function ChannelsSettingsContent({ accessToken }: Props) {
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={ct.delete}
+        message={ct.deleteConfirm}
+        confirmLabel={ct.delete}
+        cancelLabel={ct.cancel}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => { if (deleteTarget) void handleDelete(deleteTarget) }}
+      />
+      <ConfirmDialog
+        open={unbindTarget !== null}
+        title={ct.unbind}
+        message={ct.unbindConfirm}
+        confirmLabel={ct.unbind}
+        cancelLabel={ct.cancel}
+        onClose={() => setUnbindTarget(null)}
+        onConfirm={() => { if (unbindTarget) void handleUnbind(unbindTarget) }}
+      />
     </div>
   )
 }

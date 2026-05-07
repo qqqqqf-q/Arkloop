@@ -1,5 +1,7 @@
 package localproviders
 
+import "github.com/google/uuid"
+
 const (
 	SourceLocal       = "local"
 	OwnershipReadOnly = "read_only"
@@ -185,4 +187,23 @@ func modelByID(providerID string, modelID string) (Model, bool) {
 		}
 	}
 	return Model{}, false
+}
+
+func ProviderUUID(providerID string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("arkloop:local-provider:"+providerID))
+}
+
+func ProviderIDFromUUID(providerUUID uuid.UUID) (string, bool) {
+	switch providerUUID {
+	case ProviderUUID(ClaudeCodeProviderID):
+		return ClaudeCodeProviderID, true
+	case ProviderUUID(CodexProviderID):
+		return CodexProviderID, true
+	default:
+		return "", false
+	}
+}
+
+func RouteUUID(providerID string, modelID string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("arkloop:local-provider:"+providerID+":model:"+modelID))
 }

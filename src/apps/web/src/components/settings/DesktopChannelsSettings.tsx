@@ -16,12 +16,18 @@ import { DesktopQQBotSettingsPanel } from './DesktopQQBotSettingsPanel'
 import { DesktopQQSettingsPanel } from './DesktopQQSettingsPanel'
 import { DesktopTelegramSettingsPanel } from './DesktopTelegramSettingsPanel'
 import { DesktopWeixinSettingsPanel } from './DesktopWeixinSettingsPanel'
+import { SettingsModalFrame } from './_SettingsModalFrame'
 
 type Props = {
   accessToken: string
 }
 
 type IntegrationTab = 'telegram' | 'discord' | 'feishu' | 'qqbot' | 'qq' | 'weixin'
+type ChannelsCache = {
+  channels: ChannelResponse[]
+  personas: Persona[]
+  providers: LlmProvider[]
+}
 
 function TelegramIcon({ size = 15 }: { size?: number }) {
   return (
@@ -56,30 +62,126 @@ function WeixinIcon({ size = 15 }: { size?: number }) {
 }
 
 const PLATFORM_ICONS: Record<IntegrationTab, ReactNode> = {
-  telegram: <TelegramIcon />,
-  discord: <DiscordIcon />,
-  feishu: <Send size={15} />,
-  qqbot: <QQIcon />,
-  qq: <QQIcon />,
-  weixin: <WeixinIcon />,
+  telegram: <TelegramIcon size={24} />,
+  discord: <DiscordIcon size={24} />,
+  feishu: <Send size={24} />,
+  qqbot: <QQIcon size={24} />,
+  qq: <QQIcon size={24} />,
+  weixin: <WeixinIcon size={24} />,
+}
+
+const PLATFORM_COLORS: Record<IntegrationTab, { color: string; background: string }> = {
+  telegram: { color: '#2aabee', background: 'rgba(42,171,238,0.14)' },
+  discord: { color: '#5865f2', background: 'rgba(88,101,242,0.14)' },
+  feishu: { color: '#3370ff', background: 'rgba(51,112,255,0.14)' },
+  qqbot: { color: '#12b7f5', background: 'rgba(18,183,245,0.14)' },
+  qq: { color: '#12b7f5', background: 'rgba(18,183,245,0.14)' },
+  weixin: { color: '#07c160', background: 'rgba(7,193,96,0.14)' },
+}
+
+let cachedChannelsData: ChannelsCache | null = null
+
+function channelPersonaName(channel: ChannelResponse | null, personas: Persona[], defaultLabel: string) {
+  if (!channel?.persona_id) return defaultLabel
+  const persona = personas.find((item) => item.id === channel.persona_id)
+  return persona?.display_name || persona?.persona_key || defaultLabel
+}
+
+function channelModelName(channel: ChannelResponse | null, defaultLabel: string) {
+  const value = channel?.config_json?.default_model
+  return typeof value === 'string' && value.trim() ? value.trim() : defaultLabel
+}
+
+function ChannelSummaryCard({
+  item,
+  personas,
+  active,
+  onOpen,
+  activeLabel,
+  inactiveLabel,
+  labels,
+}: {
+  item: { key: IntegrationTab; label: string; channel: ChannelResponse | null }
+  personas: Persona[]
+  active: boolean
+  onOpen: () => void
+  activeLabel: string
+  inactiveLabel: string
+  labels: {
+    persona: string
+    model: string
+    default: string
+  }
+}) {
+  const enabled = item.channel?.is_active === true
+  const persona = channelPersonaName(item.channel, personas, labels.default)
+  const model = channelModelName(item.channel, labels.default)
+  const colors = PLATFORM_COLORS[item.key]
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={[
+        'group relative min-h-[88px] rounded-xl border bg-[var(--c-bg-menu)] p-4 text-left transition-[border-color,background-color] duration-150',
+        active
+          ? 'border-[var(--c-btn-bg)]'
+          : 'border-[var(--c-border-subtle)] hover:border-[color-mix(in_srgb,var(--c-border)_76%,var(--c-text-primary)_24%)] hover:bg-[var(--c-bg-sub)]',
+      ].join(' ')}
+    >
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+          style={{ color: colors.color, background: colors.background }}
+        >
+          {PLATFORM_ICONS[item.key]}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <h3 className="truncate text-[15px] font-semibold leading-tight text-[var(--c-text-primary)]">{item.label}</h3>
+            <span
+              className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-tight"
+              style={{
+                background: enabled ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))' : 'var(--c-bg-deep)',
+                color: enabled ? 'var(--c-status-success, #22c55e)' : 'var(--c-text-muted)',
+              }}
+            >
+              {enabled ? activeLabel : inactiveLabel}
+            </span>
+          </div>
+          <div className="mt-2 flex min-w-0 items-center gap-2 text-[12px] font-medium text-[var(--c-text-muted)]">
+            <span className="truncate">{labels.persona}: {persona}</span>
+            <span className="shrink-0 text-[var(--c-text-muted)]">/</span>
+            <span className="truncate">{labels.model}: {model}</span>
+          </div>
+        </div>
+      </div>
+    </button>
+  )
 }
 
 export function DesktopChannelsSettings({ accessToken }: Props) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const ct = t.channels
-  const [activeTab, setActiveTab] = useState<IntegrationTab>('telegram')
-  const [loading, setLoading] = useState(true)
-  const [channels, setChannels] = useState<ChannelResponse[]>([])
-  const [personas, setPersonas] = useState<Persona[]>([])
-  const [providers, setProviders] = useState<LlmProvider[]>([])
+  const ds = t.desktopSettings
+  const [activeTab, setActiveTab] = useState<IntegrationTab | null>(null)
+  const [loading, setLoading] = useState(() => cachedChannelsData === null)
+  const [channels, setChannels] = useState<ChannelResponse[]>(() => cachedChannelsData?.channels ?? [])
+  const [personas, setPersonas] = useState<Persona[]>(() => cachedChannelsData?.personas ?? [])
+  const [providers, setProviders] = useState<LlmProvider[]>(() => cachedChannelsData?.providers ?? [])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    if (cachedChannelsData === null) setLoading(true)
     try {
       const [allChannels, allPersonas] = await Promise.all([
         listChannels(accessToken),
         listChannelPersonas(accessToken).catch(() => [] as Persona[]),
       ])
+      cachedChannelsData = {
+        channels: allChannels,
+        personas: allPersonas,
+        providers: cachedChannelsData?.providers ?? [],
+      }
       setChannels(allChannels)
       setPersonas(allPersonas)
     } finally {
@@ -92,7 +194,14 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
   }, [load])
 
   useEffect(() => {
-    listLlmProviders(accessToken).then(setProviders).catch(() => {})
+    listLlmProviders(accessToken).then((nextProviders) => {
+      cachedChannelsData = {
+        channels: cachedChannelsData?.channels ?? channels,
+        personas: cachedChannelsData?.personas ?? personas,
+        providers: nextProviders,
+      }
+      setProviders(nextProviders)
+    }).catch(() => {})
   }, [accessToken])
 
   const telegramChannel = useMemo(
@@ -128,92 +237,110 @@ export function DesktopChannelsSettings({ accessToken }: Props) {
     { key: 'qq', label: ct.qqOneBot, channel: qqChannel },
     { key: 'weixin', label: ct.weixin, channel: wxChannel },
   ]
+  const cardLabels = locale === 'zh'
+    ? {
+        persona: '智能体',
+        model: '模型',
+        default: '默认',
+      }
+    : {
+        persona: 'Persona',
+        model: 'Model',
+        default: 'Default',
+      }
+  const selectedItem = tabItems.find((item) => item.key === activeTab) ?? null
+
+  const detailPanel = selectedItem === null ? null
+    : selectedItem.key === 'telegram' ? (
+      <DesktopTelegramSettingsPanel
+        accessToken={accessToken}
+        channel={telegramChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    ) : selectedItem.key === 'discord' ? (
+      <DesktopDiscordSettingsPanel
+        accessToken={accessToken}
+        channel={discordChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    ) : selectedItem.key === 'feishu' ? (
+      <DesktopFeishuSettingsPanel
+        accessToken={accessToken}
+        channel={feishuChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    ) : selectedItem.key === 'qqbot' ? (
+      <DesktopQQBotSettingsPanel
+        accessToken={accessToken}
+        channel={qqBotChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    ) : selectedItem.key === 'weixin' ? (
+      <DesktopWeixinSettingsPanel
+        accessToken={accessToken}
+        channel={wxChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    ) : (
+      <DesktopQQSettingsPanel
+        accessToken={accessToken}
+        channel={qqChannel}
+        personas={personas}
+        providers={providers}
+        reload={load}
+      />
+    )
 
   return (
-    <div className="-m-6 flex min-h-0 min-w-0 overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
-      {/* Platform list */}
-      <div
-        className="flex w-[200px] shrink-0 flex-col overflow-y-auto py-2"
-        style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}
-      >
-        <div className="flex flex-col gap-[3px] px-2">
-          {tabItems.map(({ key, label, channel }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={[
-                'flex h-[38px] items-center gap-2.5 truncate rounded-lg px-2.5 text-left text-[13px] font-medium transition-all duration-[120ms] active:scale-[0.97]',
-                activeTab === key
-                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
-                  : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)]',
-              ].join(' ')}
-            >
-              <span className="shrink-0 text-[var(--c-text-muted)]">{PLATFORM_ICONS[key]}</span>
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              {channel?.is_active && (
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--c-status-success-text)]" />
-              )}
-            </button>
-          ))}
-        </div>
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
+      <div>
+        <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[var(--c-text-heading)]">{ds.channels}</h2>
+        <p className="mt-2 text-[13px] text-[var(--c-text-muted)]">{ct.subtitle}</p>
       </div>
 
-      {/* Detail panel */}
-      <div className="min-w-0 flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-20 text-[var(--c-text-muted)]">
-            <Loader2 size={20} className="animate-spin" />
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-[var(--c-text-muted)]">
+          <Loader2 size={18} className="animate-spin" />
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {tabItems.map((item) => (
+            <ChannelSummaryCard
+              key={item.key}
+              item={item}
+              personas={personas}
+              active={activeTab === item.key}
+              onOpen={() => setActiveTab(item.key)}
+              activeLabel={ct.active}
+              inactiveLabel={ct.inactive}
+              labels={cardLabels}
+            />
+          ))}
+        </div>
+      )}
+
+      {selectedItem && detailPanel && (
+        <SettingsModalFrame
+          open
+          title={selectedItem.label}
+          onClose={() => setActiveTab(null)}
+          width={760}
+        >
+          <div className="mt-6 max-h-[min(78vh,820px)] overflow-y-auto pr-1">
+            {detailPanel}
           </div>
-        ) : activeTab === 'telegram' ? (
-          <DesktopTelegramSettingsPanel
-            accessToken={accessToken}
-            channel={telegramChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        ) : activeTab === 'discord' ? (
-          <DesktopDiscordSettingsPanel
-            accessToken={accessToken}
-            channel={discordChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        ) : activeTab === 'feishu' ? (
-          <DesktopFeishuSettingsPanel
-            accessToken={accessToken}
-            channel={feishuChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        ) : activeTab === 'qqbot' ? (
-          <DesktopQQBotSettingsPanel
-            accessToken={accessToken}
-            channel={qqBotChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        ) : activeTab === 'weixin' ? (
-          <DesktopWeixinSettingsPanel
-            accessToken={accessToken}
-            channel={wxChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        ) : (
-          <DesktopQQSettingsPanel
-            accessToken={accessToken}
-            channel={qqChannel}
-            personas={personas}
-            providers={providers}
-            reload={load}
-          />
-        )}
-      </div>
+        </SettingsModalFrame>
+      )}
     </div>
   )
 }

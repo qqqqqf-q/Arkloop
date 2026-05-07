@@ -1,9 +1,9 @@
 import { Download, Github, Loader2, MessageSquare, MoreHorizontal, RefreshCw, Trash2 } from 'lucide-react'
-import { PillToggle } from '@arkloop/shared'
 import { openExternal } from '../../openExternal'
 import type { ViewSkill } from './types'
 import { formatDate } from './types'
 import { DropdownAction } from './DropdownAction'
+import { SettingsSwitch } from '../settings/_SettingsSwitch'
 
 type Props = {
   items: ViewSkill[]
@@ -175,7 +175,7 @@ export function SkillList({
             </div>
 
             <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
-              <PillToggle
+              <SettingsSwitch
                 checked={enabled}
                 disabled={busy}
                 onChange={() => {

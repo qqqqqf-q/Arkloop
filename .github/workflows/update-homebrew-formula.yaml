@@ -1,0 +1,75 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish without leading v"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: homebrew-formula-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update formula version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.HOMEBREW_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: release
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          path = Path("packaging/homebrew/arkloop.rb")
+          text = path.read_text()
+          text = re.sub(r'tag: "v[^"]+"', f'tag: "v{version}"', text)
+          text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
+          path.write_text(text)
+          PY
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+
+      - name: Commit formula update
+        run: |
+          if git diff --quiet -- packaging/homebrew/arkloop.rb; then
+            echo "Homebrew formula is already up to date"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packaging/homebrew/arkloop.rb
+          git commit -m "build(homebrew): update arkloop to ${{ steps.release.outputs.version }}"
+          git push

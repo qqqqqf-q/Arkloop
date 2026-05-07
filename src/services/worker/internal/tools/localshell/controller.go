@@ -55,16 +55,16 @@ func (s *safeBuf) String() string {
 }
 
 const (
-	processStartupWait = 150 * time.Millisecond
-	processDrainGrace  = 100 * time.Millisecond
-	processKillGrace   = 2 * time.Second
-	processPollTick    = 100 * time.Millisecond
-	processRingBytes   = 1 << 20
-	defaultProcessHome = "/tmp"
-	defaultProcessTmp  = "/tmp"
-	defaultProcessPath = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	defaultProcessLang = "C.UTF-8"
-	processUserName    = "arkloop"
+	processStartupWait     = 150 * time.Millisecond
+	processDrainGrace      = 100 * time.Millisecond
+	processKillGrace       = 2 * time.Second
+	processPollTick        = 100 * time.Millisecond
+	processRingBytes       = 1 << 20
+	defaultProcessHome     = "/tmp"
+	defaultProcessTmp      = "/tmp"
+	defaultUnixProcessPath = "/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	defaultProcessLang     = "C.UTF-8"
+	processUserName        = "arkloop"
 )
 
 var processTerminalRetention = 30 * time.Second
@@ -96,6 +96,7 @@ type managedProcess struct {
 	output            *ItemBuffer
 	updateCh          chan struct{}
 	readerWG          sync.WaitGroup
+	outputReaders     []io.Closer
 
 	// promoted buffered process: safe buffers for final drain
 	promotedStdout    *safeBuf
@@ -295,16 +296,33 @@ func (c *ProcessController) runBuffered(req ExecCommandRequest) (*Response, erro
 	cmd.SysProcAttr = procSysProcAttr()
 
 	var stdout, stderr safeBuf
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutRead, stdoutWrite, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	stderrRead, stderrWrite, err := os.Pipe()
+	if err != nil {
+		closeClosers(stdoutRead, stdoutWrite)
+		return nil, err
+	}
+	cmd.Stdout = stdoutWrite
+	cmd.Stderr = stderrWrite
 
 	timeout := time.Duration(NormalizeTimeoutMs(ModeBuffered, req.TimeoutMs)) * time.Millisecond
 	if err := cmd.Start(); err != nil {
+		closeClosers(stdoutRead, stdoutWrite, stderrRead, stderrWrite)
 		return nil, err
 	}
+	closeClosers(stdoutWrite, stderrWrite)
+	var copyWG sync.WaitGroup
+	copyWG.Add(2)
+	go copyProcessOutput(&copyWG, &stdout, stdoutRead)
+	go copyProcessOutput(&copyWG, &stderr, stderrRead)
 	done := make(chan error, 1)
 	go func() {
-		done <- cmd.Wait()
+		err := cmd.Wait()
+		waitForOutputReaders(&copyWG, processDrainGrace, stdoutRead, stderrRead)
+		done <- err
 	}()
 
 	select {
@@ -456,6 +474,25 @@ func (c *ProcessController) promoteToManaged(
 	return proc, nil
 }
 
+func copyProcessOutput(wg *sync.WaitGroup, dst io.Writer, src io.ReadCloser) {
+	defer wg.Done()
+	defer src.Close()
+	decoder := newProcessOutputDecoder()
+	buf := make([]byte, 4096)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			_, _ = io.WriteString(dst, decoder.Decode(buf[:n]))
+		}
+		if err != nil {
+			if tail := decoder.Flush(); tail != "" {
+				_, _ = io.WriteString(dst, tail)
+			}
+			return
+		}
+	}
+}
+
 func (c *ProcessController) startManaged(req ExecCommandRequest) (*managedProcess, error) {
 	ref, err := newProcessRef()
 	if err != nil {
@@ -492,30 +529,38 @@ func (c *ProcessController) startManaged(req ExecCommandRequest) (*managedProces
 		}
 		proc.stdin = file
 		proc.ptyFile = file
+		proc.outputReaders = []io.Closer{file}
 		proc.readerWG.Add(1)
 		go c.readStream(proc, StreamPTY, file)
 	default:
-		stdout, err := cmd.StdoutPipe()
+		stdoutRead, stdoutWrite, err := os.Pipe()
 		if err != nil {
 			return nil, err
 		}
-		stderr, err := cmd.StderrPipe()
+		stderrRead, stderrWrite, err := os.Pipe()
 		if err != nil {
+			closeClosers(stdoutRead, stdoutWrite)
 			return nil, err
 		}
+		cmd.Stdout = stdoutWrite
+		cmd.Stderr = stderrWrite
 		if proc.allowStdin {
 			stdin, err := cmd.StdinPipe()
 			if err != nil {
+				closeClosers(stdoutRead, stdoutWrite, stderrRead, stderrWrite)
 				return nil, err
 			}
 			proc.stdin = stdin
 		}
 		if err := cmd.Start(); err != nil {
+			closeClosers(stdoutRead, stdoutWrite, stderrRead, stderrWrite)
 			return nil, err
 		}
+		closeClosers(stdoutWrite, stderrWrite)
+		proc.outputReaders = []io.Closer{stdoutRead, stderrRead}
 		proc.readerWG.Add(2)
-		go c.readStream(proc, StreamStdout, stdout)
-		go c.readStream(proc, StreamStderr, stderr)
+		go c.readStream(proc, StreamStdout, stdoutRead)
+		go c.readStream(proc, StreamStderr, stderrRead)
 	}
 
 	if req.Mode != ModePTY && cmd.Process == nil {
@@ -584,18 +629,25 @@ func (c *ProcessController) waitForSnapshot(proc *managedProcess, cursor uint64,
 
 func (c *ProcessController) readStream(proc *managedProcess, stream string, reader io.ReadCloser) {
 	defer proc.readerWG.Done()
-	defer reader.Close()
+	defer closeProcessReader(proc, reader)
 
+	decoder := newProcessOutputDecoder()
 	buf := make([]byte, 4096)
 	for {
 		n, err := reader.Read(buf)
 		if n > 0 {
 			proc.mu.Lock()
-			proc.output.Append(stream, string(buf[:n]))
+			proc.output.Append(stream, decoder.Decode(buf[:n]))
 			notifyLocked(proc)
 			proc.mu.Unlock()
 		}
 		if err != nil {
+			if tail := decoder.Flush(); tail != "" {
+				proc.mu.Lock()
+				proc.output.Append(stream, tail)
+				notifyLocked(proc)
+				proc.mu.Unlock()
+			}
 			return
 		}
 	}
@@ -618,8 +670,7 @@ func (c *ProcessController) waitForExit(proc *managedProcess, timeoutMs int) {
 	if timer != nil {
 		timer.Stop()
 	}
-	proc.readerWG.Wait()
-	time.Sleep(processDrainGrace)
+	waitForProcessOutputReaders(proc, processDrainGrace)
 
 	proc.mu.Lock()
 	defer proc.mu.Unlock()
@@ -740,6 +791,69 @@ func killProcessLocked(proc *managedProcess, status string) {
 	})
 }
 
+func waitForOutputReaders(wg *sync.WaitGroup, wait time.Duration, readers ...io.Closer) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return
+	case <-time.After(wait):
+		closeClosers(readers...)
+		<-done
+	}
+}
+
+func waitForProcessOutputReaders(proc *managedProcess, wait time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		proc.readerWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return
+	case <-time.After(wait):
+		proc.mu.Lock()
+		closeProcessOutputReadersLocked(proc)
+		proc.mu.Unlock()
+		<-done
+	}
+}
+
+func closeProcessReader(proc *managedProcess, reader io.Closer) {
+	proc.mu.Lock()
+	defer proc.mu.Unlock()
+	closeProcessReaderLocked(proc, reader)
+}
+
+func closeProcessOutputReadersLocked(proc *managedProcess) {
+	for _, reader := range proc.outputReaders {
+		closeProcessReaderLocked(proc, reader)
+	}
+	proc.outputReaders = nil
+}
+
+func closeProcessReaderLocked(proc *managedProcess, reader io.Closer) {
+	if reader == nil {
+		return
+	}
+	_ = reader.Close()
+	if proc.ptyFile != nil && reader == proc.ptyFile {
+		proc.ptyFile = nil
+	}
+}
+
+func closeClosers(closers ...io.Closer) {
+	for _, closer := range closers {
+		if closer != nil {
+			_ = closer.Close()
+		}
+	}
+}
+
 func notifyLocked(proc *managedProcess) {
 	close(proc.updateCh)
 	proc.updateCh = make(chan struct{})
@@ -769,7 +883,7 @@ func buildOutputRef(processRef string, cursor uint64, next uint64) string {
 
 func resolveProcessShellCommand(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
-		return "cmd.exe", []string{"/c", command}
+		return windowsComSpec(), []string{"/d", "/s", "/c", command}
 	}
 	if _, err := os.Stat("/bin/bash"); err == nil {
 		return "/bin/bash", []string{"--noprofile", "--norc", "-lc", command}
@@ -789,16 +903,35 @@ func resolveProcessCwd(cwd string) string {
 
 func buildProcessEnv(extra map[string]*string, includeTerm bool) []string {
 	env := map[string]string{
-		"HOME":                    processHomeDir(),
 		"PATH":                    processPath(),
-		"LANG":                    defaultProcessLang,
-		"TMPDIR":                  processTempDir(),
 		"PYTHONDONTWRITEBYTECODE": "1",
-		"USER":                    processUserName,
-		"LOGNAME":                 processUserName,
 	}
-	if includeTerm {
-		env["TERM"] = "xterm-256color"
+	if runtime.GOOS == "windows" {
+		home := processHomeDir()
+		temp := processTempDir()
+		env["HOME"] = home
+		env["USERPROFILE"] = home
+		env["TEMP"] = temp
+		env["TMP"] = temp
+		if systemRoot := strings.TrimSpace(os.Getenv("SystemRoot")); systemRoot != "" {
+			env["SystemRoot"] = systemRoot
+			env["WINDIR"] = systemRoot
+		}
+		if comSpec := strings.TrimSpace(windowsComSpec()); comSpec != "" {
+			env["ComSpec"] = comSpec
+		}
+		if pathext := strings.TrimSpace(os.Getenv("PATHEXT")); pathext != "" {
+			env["PATHEXT"] = pathext
+		}
+	} else {
+		env["HOME"] = processHomeDir()
+		env["LANG"] = defaultProcessLang
+		env["TMPDIR"] = processTempDir()
+		env["USER"] = processUserName
+		env["LOGNAME"] = processUserName
+		if includeTerm {
+			env["TERM"] = "xterm-256color"
+		}
 	}
 	for key, value := range extra {
 		key = strings.TrimSpace(key)
@@ -823,6 +956,16 @@ func buildProcessEnv(extra map[string]*string, includeTerm bool) []string {
 	return result
 }
 
+func windowsComSpec() string {
+	if comSpec := strings.TrimSpace(os.Getenv("ComSpec")); comSpec != "" {
+		return comSpec
+	}
+	if systemRoot := strings.TrimSpace(os.Getenv("SystemRoot")); systemRoot != "" {
+		return filepath.Join(systemRoot, "System32", "cmd.exe")
+	}
+	return "cmd.exe"
+}
+
 func processHomeDir() string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		return strings.TrimSpace(home)
@@ -835,7 +978,20 @@ func processPath() string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		entries = append(entries, filepath.Join(strings.TrimSpace(home), ".arkloop", "bin"))
 	}
-	entries = append(entries, filepath.SplitList(defaultProcessPath)...)
+	if runtime.GOOS == "windows" {
+		if hostPath := strings.TrimSpace(os.Getenv("PATH")); hostPath != "" {
+			entries = append(entries, filepath.SplitList(hostPath)...)
+		} else if systemRoot := strings.TrimSpace(os.Getenv("SystemRoot")); systemRoot != "" {
+			entries = append(entries,
+				filepath.Join(systemRoot, "System32"),
+				systemRoot,
+				filepath.Join(systemRoot, "System32", "Wbem"),
+				filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0"),
+			)
+		}
+	} else {
+		entries = append(entries, filepath.SplitList(defaultUnixProcessPath)...)
+	}
 	return strings.Join(uniqueProcessPathEntries(entries), string(os.PathListSeparator))
 }
 

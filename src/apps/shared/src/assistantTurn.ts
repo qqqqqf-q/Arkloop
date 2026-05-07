@@ -18,6 +18,7 @@ export type TurnToolCallRef = {
   displayDescription?: string
   result?: unknown
   errorClass?: string
+  errorMessage?: string
 }
 
 export type CopBlockItem =
@@ -109,6 +110,25 @@ function pickDisplayDescription(data: unknown): string | undefined {
   return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : undefined
 }
 
+function extractErrorInfo(data: unknown, fallbackErrorClass?: string): { errorClass?: string; errorMessage?: string } {
+  const error = data && typeof data === 'object' && !Array.isArray(data)
+    ? (data as { error?: unknown }).error
+    : undefined
+  const record = error && typeof error === 'object' && !Array.isArray(error)
+    ? error as Record<string, unknown>
+    : undefined
+  const errorClassRaw = record?.error_class ?? record?.errorClass ?? record?.code
+  const messageRaw = record?.message
+  const errorClass = typeof errorClassRaw === 'string' && errorClassRaw.trim() !== ''
+    ? errorClassRaw.trim()
+    : typeof fallbackErrorClass === 'string' && fallbackErrorClass.trim() !== '' ? fallbackErrorClass.trim() : undefined
+  const errorMessage = typeof messageRaw === 'string' && messageRaw.trim() !== '' ? messageRaw.trim() : undefined
+  return {
+    ...(errorClass ? { errorClass } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
+  }
+}
+
 function extractResultPayload(event: AssistantTurnEvent): unknown {
   if (!event.data || typeof event.data !== 'object') return undefined
   return (event.data as { result?: unknown }).result
@@ -126,6 +146,7 @@ function cloneTurnToolCall(c: TurnToolCallRef): TurnToolCallRef {
     ...(c.displayDescription != null ? { displayDescription: c.displayDescription } : {}),
     result: c.result,
     errorClass: c.errorClass,
+    ...(c.errorMessage != null ? { errorMessage: c.errorMessage } : {}),
   }
 }
 
@@ -216,12 +237,14 @@ function attachResultToItems(
   toolCallId: string,
   result: unknown,
   errorClass?: string,
+  errorMessage?: string,
 ): boolean {
   for (const item of items) {
     if (item.kind !== 'call') continue
     if (item.call.toolCallId !== toolCallId) continue
     item.call.result = result
     if (errorClass) item.call.errorClass = errorClass
+    if (errorMessage) item.call.errorMessage = errorMessage
     return true
   }
   return false
@@ -232,11 +255,12 @@ function attachResultToSegments(
   toolCallId: string,
   result: unknown,
   errorClass?: string,
+  errorMessage?: string,
 ): boolean {
   for (let i = segments.length - 1; i >= 0; i--) {
     const segment = segments[i]
     if (segment?.type !== 'cop') continue
-    if (attachResultToItems(segment.items, toolCallId, result, errorClass)) {
+    if (attachResultToItems(segment.items, toolCallId, result, errorClass, errorMessage)) {
       return true
     }
   }
@@ -302,11 +326,11 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
     return currentHasExecution
   }
 
-  const attachResultToCop = (toolCallId: string, toolName: string, result: unknown, errorClass?: string) => {
-    if (currentCop && attachResultToItems(currentCop.items, toolCallId, result, errorClass)) {
+  const attachResultToCop = (toolCallId: string, toolName: string, result: unknown, errorClass?: string, errorMessage?: string) => {
+    if (currentCop && attachResultToItems(currentCop.items, toolCallId, result, errorClass, errorMessage)) {
       return
     }
-    if (attachResultToSegments(segments, toolCallId, result, errorClass)) return
+    if (attachResultToSegments(segments, toolCallId, result, errorClass, errorMessage)) return
     if (shouldBreakCopBeforeOrphanResult(toolName)) flushCop(eventTs)
     ensureCop()
     const targetCop = currentCop
@@ -319,6 +343,7 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
         arguments: {},
         result,
         errorClass,
+        errorMessage,
       },
       seq: event.seq,
     })
@@ -455,11 +480,8 @@ export function foldAssistantTurnEvent(state: AssistantTurnFoldState, event: Ass
     if (shouldHideCopTool(toolName)) return
     const toolCallId = pickToolCallId(event)
     const result = extractResultPayload(event)
-    const err =
-      typeof event.error_class === 'string' && event.error_class.trim() !== ''
-        ? event.error_class
-        : undefined
-    attachResultToCop(toolCallId, toolName, result, err)
+    const err = extractErrorInfo(event.data, event.error_class)
+    attachResultToCop(toolCallId, toolName, result, err.errorClass, err.errorMessage)
     const tail = currentCop?.items.at(-1)
     if (tail?.kind === 'call') {
       state.thinkingMustBreakBeforeNext = true

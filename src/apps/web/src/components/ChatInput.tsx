@@ -1078,7 +1078,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   accessToken={accessToken}
                   value={selectedModel}
                   onChange={handleModelChange}
-                  onAddApiKey={() => onOpenSettings?.('models')}
+                  onAddModel={() => onOpenSettings?.('models')}
                   variant={variant}
                   thinkingEnabled={reasoningMode}
                   onThinkingChange={handleReasoningModeChange}

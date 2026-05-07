@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, FolderSearch, Loader2, Plus } from 'lucide-react'
 import { listMCPDiscoverySources, importMCPInstall, type MCPDiscoverySource, type MCPDiscoveryProposal } from '../../api'
+import { SettingsButton } from '../settings/_SettingsButton'
 import { SettingsInput } from '../settings/_SettingsInput'
 import type { MCPCopy } from './types'
 
@@ -210,15 +211,15 @@ export function MCPScanSection({ accessToken, copy, onImported }: Props) {
                         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--c-text-heading)]">
                           {proposal.display_name}
                         </span>
-                        <button
+                        <SettingsButton
+                          variant="primary"
                           type="button"
                           disabled={!source.installable || importing}
                           onClick={() => void handleImport(source, proposal)}
-                          className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-[filter] duration-150 hover:[filter:brightness(1.12)] disabled:opacity-50"
-                          style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+                          className="shrink-0 text-xs"
                         >
                           {copy.import}
-                        </button>
+                        </SettingsButton>
                       </div>
                     ))}
                   </div>
@@ -236,16 +237,16 @@ export function MCPScanSection({ accessToken, copy, onImported }: Props) {
                   placeholder={copy.placeholderFilePath}
                 />
               </div>
-              <button
+              <SettingsButton
+                variant="primary"
                 type="button"
                 disabled={manualLoading || !manualPath.trim()}
                 onClick={() => void handleManualScan()}
-                className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-[filter] duration-150 hover:[filter:brightness(1.12)] disabled:opacity-40"
-                style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+                className="shrink-0 text-xs"
+                icon={manualLoading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
               >
-                {manualLoading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                 {copy.scan}
-              </button>
+              </SettingsButton>
             </div>
           </div>
         </div>

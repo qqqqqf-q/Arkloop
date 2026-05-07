@@ -4,11 +4,15 @@ import (
 	"errors"
 	"net/netip"
 	"testing"
+
+	sharedoutbound "arkloop/services/shared/outboundurl"
 )
 
 // SSRF 拦截核心函数 EnsureURLAllowed 全路径测试
 
 func TestEnsureURLAllowed(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	tests := []struct {
 		name       string
 		rawURL     string
@@ -77,6 +81,28 @@ func TestEnsureURLAllowed(t *testing.T) {
 	}
 }
 
+func TestEnsureURLAllowedSkipsSafetyChecksByDefault(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "false")
+
+	for _, rawURL := range []string{
+		"http://localhost/admin",
+		"http://127.0.0.1:8080/api",
+		"https://10.0.0.1/internal",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			if err := EnsureURLAllowed(rawURL); err != nil {
+				t.Fatalf("EnsureURLAllowed() error = %v", err)
+			}
+		})
+	}
+
+	var policyErr UrlPolicyDeniedError
+	err := EnsureURLAllowed("ftp://example.com/file")
+	if !errors.As(err, &policyErr) || policyErr.Reason != "unsupported_scheme" {
+		t.Fatalf("EnsureURLAllowed() error = %v, want unsupported_scheme", err)
+	}
+}
+
 func TestUrlPolicyDeniedErrorMessage(t *testing.T) {
 	e := UrlPolicyDeniedError{Reason: "test_reason", Details: map[string]any{"key": "val"}}
 	msg := e.Error()
@@ -120,6 +146,8 @@ func TestTryParseIP(t *testing.T) {
 }
 
 func TestEnsureIPAllowed(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	tests := []struct {
 		name    string
 		ip      string

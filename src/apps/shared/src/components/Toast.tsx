@@ -11,42 +11,31 @@ type Toast = {
 }
 
 const variantText: Record<ToastVariant, string> = {
-  success: 'text-[var(--c-status-success-text)]',
-  error: 'text-[var(--c-status-error-text)]',
+  success: 'text-[var(--c-status-ok-text)]',
+  error: 'text-[var(--c-danger-action-text)]',
   warn: 'text-[var(--c-status-warn-text)]',
   neutral: 'text-[var(--c-text-secondary)]',
 }
 
-const variantSurface: Record<ToastVariant, string> = {
-  success: 'var(--c-bg-menu)',
-  error: 'var(--c-error-bg)',
-  warn: 'var(--c-status-warn-bg)',
-  neutral: 'var(--c-bg-menu)',
-}
-
-const variantBorder: Record<ToastVariant, string> = {
-  success: 'var(--c-border-subtle)',
-  error: 'var(--c-error-border)',
-  warn: 'var(--c-status-warn-text)',
-  neutral: 'var(--c-border-subtle)',
-}
+const toastFrameBorder = 'color-mix(in srgb, var(--c-border) 91%, var(--c-text-primary) 9%)'
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   return (
     <div
       className={[
-        'flex items-center gap-2 rounded-lg px-4 py-2.5',
+        'flex min-h-[32px] items-center gap-2 rounded-[6.5px] px-3.5 py-2 [background-clip:padding-box]',
         toast.exiting ? 'toast-exit' : 'toast-enter',
       ].join(' ')}
       style={{
-        border: `0.5px solid ${variantBorder[toast.variant]}`,
-        background: variantSurface[toast.variant],
+        border: `0.65px solid ${toastFrameBorder}`,
+        background: 'var(--c-bg-input)',
       }}
     >
       <span className={`flex-1 text-sm ${variantText[toast.variant]}`}>{toast.message}</span>
       <button
+        type="button"
         onClick={onDismiss}
-        className="shrink-0 text-[var(--c-text-muted)] transition-opacity hover:opacity-70"
+        className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] text-[color-mix(in_srgb,var(--c-border)_72%,var(--c-text-primary)_28%)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
       >
         <X size={14} />
       </button>

@@ -23,6 +23,7 @@ import {
   updateMCPInstall,
 } from '../../api/mcp-installs'
 import { notifyToolCatalogChanged } from '../../lib/toolCatalogRefresh'
+import { mcpDiscoveryStatusLabel, mcpDiscoveryStatusVariant } from './mcpDiscoveryStatus'
 
 type Transport = 'stdio' | 'http_sse' | 'streamable_http'
 type HostRequirement = 'desktop_local' | 'desktop_sidecar' | 'cloud_worker' | 'remote_http'
@@ -181,24 +182,6 @@ function buildRequest(form: FormState): CreateMCPInstallRequest {
     auth_headers: Object.keys(headers).length > 0 ? headers : undefined,
     bearer_token: bearerToken || undefined,
     host_requirement: form.hostRequirement,
-  }
-}
-
-function statusVariant(status: string): 'success' | 'warning' | 'error' | 'neutral' {
-  switch (status) {
-    case 'ready':
-      return 'success'
-    case 'needs_check':
-    case 'configured':
-      return 'warning'
-    case 'install_missing':
-    case 'auth_invalid':
-    case 'connect_failed':
-    case 'discovered_empty':
-    case 'protocol_error':
-      return 'error'
-    default:
-      return 'neutral'
   }
 }
 
@@ -371,7 +354,11 @@ export function MCPConfigsPage() {
     {
       key: 'discovery_status',
       header: tc.colStatus,
-      render: (row) => <Badge variant={statusVariant(row.discovery_status)}>{row.discovery_status}</Badge>,
+      render: (row) => (
+        <Badge variant={mcpDiscoveryStatusVariant(row.discovery_status)}>
+          {mcpDiscoveryStatusLabel(row.discovery_status, { checked: tc.statusChecked })}
+        </Badge>
+      ),
     },
     {
       key: 'enabled',

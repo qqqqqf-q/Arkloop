@@ -1,0 +1,57 @@
+name: Generate AUR PKGBUILD
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-pkgbuild-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate arkloop-git
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install makepkg tools
+        run: pacman -Syu --noconfirm --needed base-devel git nodejs
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate .SRCINFO
+        run: |
+          useradd -m builder
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+          su builder -c "cd '${GITHUB_WORKSPACE}/packaging/aur/arkloop-git' && makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Validate generated files
+        working-directory: packaging/aur/arkloop-git
+        run: |
+          test -s PKGBUILD
+          test -s .SRCINFO
+          grep -q '^pkgbase = arkloop-git$' .SRCINFO
+          grep -q '^pkgname = arkloop-git$' .SRCINFO
+
+      - name: Upload AUR files
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-arkloop-git
+          path: |
+            packaging/aur/arkloop-git/PKGBUILD
+            packaging/aur/arkloop-git/.SRCINFO
+          if-no-files-found: error

@@ -279,6 +279,34 @@ func TestDesktopPromptInjectionResolverReadsPlatformSettings(t *testing.T) {
 	}
 }
 
+func TestResolveDesktopLLMRetryReadsPlatformSettings(t *testing.T) {
+	t.Setenv("ARKLOOP_LLM_RETRY_MAX_ATTEMPTS", "")
+	t.Setenv("ARKLOOP_LLM_RETRY_BASE_DELAY_MS", "")
+
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	mustExecDesktopSQL(t, db, `CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+
+	maxAttempts, baseDelayMs := resolveDesktopLLMRetry(ctx, db)
+	if maxAttempts != 3 || baseDelayMs != 1000 {
+		t.Fatalf("default retry config = (%d, %d), want (3, 1000)", maxAttempts, baseDelayMs)
+	}
+
+	for key, value := range map[string]string{
+		"llm.retry.max_attempts":  "2",
+		"llm.retry.base_delay_ms": "250",
+	} {
+		if _, err := db.Exec(ctx, `INSERT INTO platform_settings (key, value) VALUES ($1, $2)`, key, value); err != nil {
+			t.Fatalf("insert platform setting %s: %v", key, err)
+		}
+	}
+
+	maxAttempts, baseDelayMs = resolveDesktopLLMRetry(ctx, db)
+	if maxAttempts != 2 || baseDelayMs != 250 {
+		t.Fatalf("stored retry config = (%d, %d), want (2, 250)", maxAttempts, baseDelayMs)
+	}
+}
+
 func TestDesktopCapabilityMiddlewaresRunMemoryBeforeTrustSource(t *testing.T) {
 	ctx := context.Background()
 	db := openDesktopPromptInjectionTestDB(t)

@@ -23,3 +23,5 @@ export { RunsSettings } from "./RunsSettings";
 export { DesktopPromptInjectionSettings } from "./DesktopPromptInjectionSettings";
 export { VoiceSettings } from "./VoiceSettings";
 export { DesignTokensSettings } from "./DesignTokensSettings";
+export { SettingsCheckboxList, SettingsCheckboxRow } from "./_SettingsCheckboxList";
+export type { SettingsCheckboxListOption } from "./_SettingsCheckboxList";

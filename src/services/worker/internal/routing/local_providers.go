@@ -66,6 +66,20 @@ func localProviderRoutes(status localproviders.ProviderStatus) (ProviderCredenti
 	return credential, routes
 }
 
+func LocalProviderSelectedRoute(status localproviders.ProviderStatus, model localproviders.Model) (SelectedProviderRoute, bool) {
+	credential, routes := localProviderRoutes(localproviders.ProviderStatus{
+		ID:          status.ID,
+		DisplayName: status.DisplayName,
+		Provider:    status.Provider,
+		AuthMode:    status.AuthMode,
+		Models:      []localproviders.Model{model},
+	})
+	if credential.ID == "" || len(routes) != 1 {
+		return SelectedProviderRoute{}, false
+	}
+	return SelectedProviderRoute{Credential: credential, Route: routes[0]}, true
+}
+
 func localRouteID(providerID string, modelID string) string {
 	id := "local-" + strings.ReplaceAll(providerID, "_", "-") + "-" + strings.ReplaceAll(modelID, "_", "-")
 	if len(id) <= 64 {

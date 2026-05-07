@@ -1,0 +1,153 @@
+name: Update AUR Bin Package
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish without leading v"
+        required: true
+        type: string
+      asset_url:
+        description: "Direct URL to arkloop-bin pkg.tar.zst"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-bin-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update arkloop-bin
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      AUR_PACKAGE: arkloop-bin
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Install tools
+        run: |
+          pacman -Syu --noconfirm --needed base-devel curl git jq openssh
+          useradd -m builder
+
+      - name: Resolve release asset
+        id: release
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+            ASSET_URL="${{ inputs.asset_url }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${{ github.event.release.assets_url }}" > assets.json
+            ASSET_NAME="$(jq -r '[.[].name | select(test("^arkloop-bin-.*\\.pkg\\.tar\\.zst$"))][0] // empty' assets.json)"
+            if [ -z "${ASSET_NAME}" ]; then
+              echo "No arkloop-bin pkg.tar.zst asset found on the release" >&2
+              exit 1
+            fi
+            ASSET_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ github.event.release.tag_name }}/${ASSET_NAME}"
+          fi
+
+          ASSET_NAME="${ASSET_URL##*/}"
+          curl -fL "${ASSET_URL}" -o "${ASSET_NAME}"
+          SHA256="$(sha256sum "${ASSET_NAME}" | awk '{print $1}')"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "asset_url=${ASSET_URL}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate AUR files
+        run: |
+          mkdir -p aur-files
+          cat > aur-files/PKGBUILD <<'EOF'
+          # Maintainer: mizorewww <aac6fef@icloud.com>
+          pkgname=arkloop-bin
+          pkgver=${PKGVER}
+          pkgrel=1
+          pkgdesc="Desktop app for building conversational AI agents"
+          arch=('x86_64')
+          url="https://github.com/qqqqqf-q/Arkloop"
+          license=('Apache-2.0')
+          depends=(
+            'alsa-lib'
+            'at-spi2-core'
+            'gtk3'
+            'libappindicator-gtk3'
+            'libdrm'
+            'libnotify'
+            'libxcomposite'
+            'libxdamage'
+            'libxkbcommon'
+            'libxrandr'
+            'libxss'
+            'mesa'
+            'nss'
+            'xdg-utils'
+          )
+          provides=('arkloop' 'arkloop-desktop')
+          conflicts=('arkloop' 'arkloop-desktop')
+          options=('!strip' '!debug')
+          _pkgfile="${PKGFILE}"
+          source_x86_64=("${PKGFILE}::${PKGURL}")
+          sha256sums_x86_64=('${PKGSHA256}')
+          noextract=("${PKGFILE}")
+
+          package() {
+            bsdtar -xpf "${srcdir}/${_pkgfile}" -C "${pkgdir}" \
+              --exclude='.BUILDINFO' \
+              --exclude='.MTREE' \
+              --exclude='.PKGINFO'
+          }
+          EOF
+          sed -i \
+            -e "s|\${PKGVER}|${{ steps.release.outputs.version }}|g" \
+            -e "s|\${PKGFILE}|${{ steps.release.outputs.asset_name }}|g" \
+            -e "s|\${PKGURL}|${{ steps.release.outputs.asset_url }}|g" \
+            -e "s|\${PKGSHA256}|${{ steps.release.outputs.sha256 }}|g" \
+            aur-files/PKGBUILD
+          chown -R builder:builder aur-files
+          runuser -u builder -- bash -lc 'cd "$1" && makepkg --printsrcinfo' bash "$PWD/aur-files" > aur-files/.SRCINFO
+
+      - name: Push to AUR
+        run: |
+          if [ -z "${AUR_SSH_PRIVATE_KEY}" ]; then
+            echo "AUR_SSH_PRIVATE_KEY secret is required" >&2
+            exit 1
+          fi
+
+          install -dm700 ~/.ssh
+          printf '%s\n' "${AUR_SSH_PRIVATE_KEY}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts
+
+          GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur -o IdentitiesOnly=yes" git clone "ssh://aur@aur.archlinux.org/${AUR_PACKAGE}.git" aur-repo
+          cp aur-files/PKGBUILD aur-files/.SRCINFO aur-repo/
+          cd aur-repo
+
+          git config user.name "mizorewww"
+          git config user.email "aac6fef@icloud.com"
+
+          if git diff --quiet -- PKGBUILD .SRCINFO; then
+            echo "AUR ${AUR_PACKAGE} is already up to date"
+            exit 0
+          fi
+
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${{ steps.release.outputs.version }}"
+          GIT_SSH_COMMAND="ssh -i ${HOME}/.ssh/aur -o IdentitiesOnly=yes" git push origin master

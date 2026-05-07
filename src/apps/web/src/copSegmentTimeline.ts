@@ -24,6 +24,7 @@ export type GenericToolCallRef = {
   id: string
   toolName: string
   label: string
+  displayDescription?: string
   output?: string
   emptyLabel?: string
   status: 'running' | 'success' | 'failed'
@@ -81,6 +82,7 @@ const AUXILIARY_RENDERED_TOOL_NAMES = new Set([
   'document_write',
   'browser',
 ])
+const IMAGE_GENERATE_TOOL_NAME = 'image_generate'
 
 function sortBySeq<T extends { seq?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
@@ -223,6 +225,48 @@ function summarizeGenericResult(result: unknown): { output?: string; emptyLabel?
   if (typeof result === 'boolean') return { output: `returned boolean · ${result ? 'true' : 'false'}` }
   if (typeof result === 'number') return { output: `returned number · ${result}` }
   return { output: 'returned value' }
+}
+
+function genericImageGenerateLabel(status: GenericToolCallRef['status']): string {
+  switch (status) {
+    case 'running': return 'Generating image'
+    case 'success': return 'Generated image'
+    case 'failed': return 'Image generation failed'
+  }
+}
+
+function genericImageGenerateInput(args: Record<string, unknown>, fallback: string): string {
+  const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+  const inputImages = Array.isArray(args.input_images)
+    ? args.input_images.filter((item): item is string => typeof item === 'string' && item.trim() !== '').map((item) => item.trim())
+    : []
+  const options = [
+    typeof args.size === 'string' && args.size.trim() ? `size=${args.size.trim()}` : '',
+    typeof args.quality === 'string' && args.quality.trim() ? `quality=${args.quality.trim()}` : '',
+    typeof args.background === 'string' && args.background.trim() ? `background=${args.background.trim()}` : '',
+    typeof args.output_format === 'string' && args.output_format.trim() ? `format=${args.output_format.trim()}` : '',
+    inputImages.length > 0 ? `input_images=${inputImages.join(', ')}` : '',
+  ].filter(Boolean)
+  const lines = [
+    prompt ? `prompt: ${prompt}` : '',
+    ...options,
+  ].filter(Boolean)
+  return lines.length > 0 ? lines.join('\n') : fallback
+}
+
+function summarizeImageGenerateResult(result: unknown): { output?: string; emptyLabel?: string } {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return { emptyLabel: 'No image metadata returned' }
+  const r = result as Record<string, unknown>
+  const artifacts = Array.isArray(r.artifacts) ? r.artifacts : []
+  const parts = [
+    typeof r.provider === 'string' && r.provider.trim() ? `provider: ${r.provider.trim()}` : '',
+    typeof r.model === 'string' && r.model.trim() ? `model: ${r.model.trim()}` : '',
+    typeof r.mime_type === 'string' && r.mime_type.trim() ? `type: ${r.mime_type.trim()}` : '',
+    typeof r.bytes === 'number' ? `bytes: ${r.bytes}` : '',
+    artifacts.length > 0 ? `artifacts: ${artifacts.length}` : '',
+    typeof r.revised_prompt === 'string' && r.revised_prompt.trim() ? `revised_prompt: ${r.revised_prompt.trim()}` : '',
+  ].filter(Boolean)
+  return parts.length > 0 ? { output: parts.join('\n') } : { emptyLabel: 'No image metadata returned' }
 }
 
 function parseTodoItems(value: unknown): TodoItemRef[] {
@@ -538,7 +582,12 @@ export function copTimelinePayloadForSegment(
       .map((item): GenericToolCallRef => {
         const call = item.call
         const hasError = typeof call.errorClass === 'string' && call.errorClass.trim() !== ''
-        const resultSummary = summarizeGenericResult(call.result)
+        const status: GenericToolCallRef['status'] = hasError ? 'failed' : call.result === undefined ? 'running' : 'success'
+        const isImageGenerate = call.toolName === IMAGE_GENERATE_TOOL_NAME
+        const statusLabel = isImageGenerate ? genericImageGenerateLabel(status) : ''
+        const resultSummary = isImageGenerate && status === 'success'
+          ? summarizeImageGenerateResult(call.result)
+          : summarizeGenericResult(call.result)
         const previewEntries = Object.entries(call.arguments).slice(0, 2)
         const preview = previewEntries.length > 0
           ? `${call.toolName} ${previewEntries.map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`).join(' ')}`
@@ -546,11 +595,12 @@ export function copTimelinePayloadForSegment(
         return {
           id: call.toolCallId,
           toolName: call.toolName,
-          label: call.displayDescription || preview,
+          label: isImageGenerate ? genericImageGenerateInput(call.arguments, statusLabel) : call.displayDescription || preview,
+          ...(isImageGenerate ? { displayDescription: statusLabel } : {}),
           output: resultSummary.output,
           emptyLabel: resultSummary.emptyLabel,
-          status: hasError ? 'failed' : call.result === undefined ? 'running' : 'success',
-          errorMessage: hasError ? call.errorClass : undefined,
+          status,
+          errorMessage: hasError ? call.errorMessage ?? call.errorClass : undefined,
           seq: item.seq,
         }
       }),

@@ -37,6 +37,11 @@ func EnsureURLAllowed(rawURL string) error {
 		return UrlPolicyDeniedError{Reason: "missing_hostname"}
 	}
 
+	policy := sharedoutbound.DefaultPolicy()
+	if !policy.ProtectionEnabled {
+		return nil
+	}
+
 	lowered := strings.ToLower(strings.Trim(host, "."))
 	if lowered == "localhost" || strings.HasSuffix(lowered, ".localhost") {
 		return UrlPolicyDeniedError{Reason: "localhost_denied", Details: map[string]any{"hostname": host}}
@@ -53,7 +58,6 @@ func tryParseIP(hostname string) netip.Addr {
 	return sharedoutbound.ParseIP(hostname)
 }
 
-// EnsureIPAllowed 校验解析后的 IP，防止 DNS rebinding 绕过字符串级 URL 检查。
 func EnsureIPAllowed(ip netip.Addr) error {
 	if err := sharedoutbound.DefaultPolicy().EnsureIPAllowed(ip); err != nil {
 		var denied sharedoutbound.DeniedError
@@ -65,7 +69,6 @@ func EnsureIPAllowed(ip netip.Addr) error {
 	return nil
 }
 
-// SafeDialContext 在 DNS 解析后校验全部 IP，消除 TOCTOU 窗口。
 func SafeDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return sharedoutbound.DefaultPolicy().SafeDialContext(dialer)
 }

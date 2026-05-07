@@ -274,7 +274,8 @@ func probeOpenAIEmbeddingDimension(ctx context.Context, apiBase, apiKey, model s
 	}
 
 	endpoint := apiBase + "/embeddings"
-	if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(endpoint); err != nil {
+	policy := sharedoutbound.DefaultPolicy()
+	if err := policy.ValidateRequestURL(endpoint); err != nil {
 		return 0, err
 	}
 
@@ -294,7 +295,7 @@ func probeOpenAIEmbeddingDimension(ctx context.Context, apiBase, apiKey, model s
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(openVikingProbeTimeout).Do(req)
+	resp, err := policy.NewHTTPClient(openVikingProbeTimeout).Do(req)
 	if err != nil {
 		return 0, err
 	}

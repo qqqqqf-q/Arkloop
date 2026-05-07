@@ -24,7 +24,7 @@ func TestQQBotChannelSenderKeepsReplyIDForAllSegments(t *testing.T) {
 				t.Fatalf("decode send body: %v", err)
 			}
 			bodies = append(bodies, body)
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"id":"msg-%d"}`, len(bodies))))
+			_, _ = fmt.Fprintf(w, `{"id":"msg-%d"}`, len(bodies))
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}

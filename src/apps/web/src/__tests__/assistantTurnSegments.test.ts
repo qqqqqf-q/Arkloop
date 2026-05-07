@@ -157,6 +157,26 @@ describe('buildAssistantTurnFromAgentEvents', () => {
     ])
   })
 
+  it('tool.result error message 会保留到 COP call', () => {
+    const turn = buildAssistantTurnFromAgentEvents([
+      ev('r1', 1, 'tool-call', { tool_name: 'image_generate', tool_call_id: 'img_1', arguments: { prompt: 'a mountain at dawn' } }),
+      ev('r1', 2, 'tool-result', {
+        tool_name: 'image_generate',
+        tool_call_id: 'img_1',
+        error: { error_class: 'provider.retryable', message: 'request failed after retry' },
+      }, 'provider.retryable'),
+    ])
+
+    const segment = turn.segments.find((item) => item.type === 'cop')
+    expect(segment?.type).toBe('cop')
+    if (segment?.type !== 'cop') throw new Error('missing cop segment')
+    expect(copSegmentCalls(segment)[0]).toEqual(expect.objectContaining({
+      toolCallId: 'img_1',
+      errorClass: 'provider.retryable',
+      errorMessage: 'request failed after retry',
+    }))
+  })
+
   it('thinking 与首个 tool 同 cop（中间无正文）', () => {
     const turn = buildAssistantTurnFromAgentEvents([
       ev('r1', 1, 'assistant-delta', { role: 'assistant', channel: 'thinking', content_delta: 'plan' }),

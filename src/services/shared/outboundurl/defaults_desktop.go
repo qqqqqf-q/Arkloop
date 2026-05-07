@@ -2,10 +2,14 @@
 
 package outboundurl
 
+func defaultProtectionEnabled() bool {
+	return false
+}
+
 func defaultTrustFakeIP() bool {
-	return true
+	return false
 }
 
 func defaultAllowLoopbackHTTP() bool {
-	return true
+	return false
 }

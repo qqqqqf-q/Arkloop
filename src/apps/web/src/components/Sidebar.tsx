@@ -23,6 +23,7 @@ import {
 import type { ThreadGtdBucket, ThreadResponse, UpdateThreadSidebarRequest } from '../api'
 import { listStarredThreadIds, starThread, unstarThread, updateThreadTitle, deleteThread, updateThreadSidebarState } from '../api'
 import { isLocalMode, isDesktop } from '@arkloop/shared/desktop'
+import { ConfirmDialog } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
 import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
@@ -57,6 +58,7 @@ const PROJECT_GROUP_SECONDARY_PAGE_SIZE = 2
 const PROJECT_GROUP_LABEL_WEIGHT = 'var(--c-sidebar-thread-weight)'
 const SIDEBAR_ROW_TEXT_SIZE = '13.5px'
 const SIDEBAR_ROW_LINE_HEIGHT = '20px'
+const GTD_ENABLED_STORAGE_KEY = 'arkloop:web:gtd_enabled'
 const DRAG_START_DISTANCE_PX = 3
 const DRAG_LONG_PRESS_DELAY_MS = 180
 const GTD_BUCKETS: readonly GtdBucket[] = ['inbox', 'todo', 'waiting', 'someday', 'archived']
@@ -77,6 +79,14 @@ function threadTitle(thread: ThreadResponse, untitled: string): string {
 
 function defaultGtdExpandedBuckets(): Set<GtdBucket> {
   return new Set(GTD_BUCKETS)
+}
+
+function areStringSetsEqual(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false
+  for (const value of left) {
+    if (!right.has(value)) return false
+  }
+  return true
 }
 
 function normalizeGtdBucket(value: ThreadResponse['sidebar_gtd_bucket']): GtdBucket | null {
@@ -289,6 +299,7 @@ export function Sidebar({
   const [gtdSomedayIds, setGtdSomedayIds] = useState<Set<string>>(() => readGtdSomedayThreadIds())
   const [gtdArchivedIds, setGtdArchivedIds] = useState<Set<string>>(() => readGtdArchivedThreadIds())
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => readPinnedThreadIds())
+  const pinnedIdsRef = useRef(pinnedIds)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => readExpandedProjectPaths())
   const [expandedLimits, setExpandedLimits] = useState<Record<string, number>>({})
   const [expandedGtdBuckets, setExpandedGtdBuckets] = useState<Set<GtdBucket>>(() => defaultGtdExpandedBuckets())
@@ -739,14 +750,18 @@ export function Sidebar({
   const markGtdSomeday = useCallback((id: string) => moveGtdThread(id, 'someday'), [moveGtdThread])
   const archiveGtdThread = useCallback((id: string) => moveGtdThread(id, 'archived'), [moveGtdThread])
 
-  const applyPinnedLocal = useCallback((id: string, pinned: boolean) => {
-    setPinnedIds((prev: Set<string>) => {
-      const next = new Set(prev)
-      if (pinned) next.add(id); else next.delete(id)
-      writePinnedThreadIds(next)
-      return next
-    })
+  const replacePinnedIds = useCallback((next: Set<string>) => {
+    pinnedIdsRef.current = next
+    writePinnedThreadIds(next)
+    setPinnedIds(next)
   }, [])
+
+  const applyPinnedLocal = useCallback((id: string, pinned: boolean) => {
+    const next = new Set(pinnedIdsRef.current)
+    if (pinned) next.add(id)
+    else next.delete(id)
+    replacePinnedIds(next)
+  }, [replacePinnedIds])
 
   const togglePin = useCallback((id: string) => {
     const nextPinned = !effectivePinnedIds.has(id)
@@ -1074,18 +1089,16 @@ export function Sidebar({
       await deleteThread(accessToken, id)
       // 清理 GTD 和 Pin 的本地状态
       applyGtdBucketLocal(id, null)
-      setPinnedIds((prev: Set<string>) => {
-        if (!prev.has(id)) return prev
-        const next = new Set(prev)
+      if (pinnedIdsRef.current.has(id)) {
+        const next = new Set(pinnedIdsRef.current)
         next.delete(id)
-        writePinnedThreadIds(next)
-        return next
-      })
+        replacePinnedIds(next)
+      }
       onThreadDeleted(id)
     } catch {
       // 失败静默
     }
-  }, [accessToken, applyGtdBucketLocal, onThreadDeleted])
+  }, [accessToken, applyGtdBucketLocal, onThreadDeleted, replacePinnedIds])
 
   // 进入编辑模式后自动聚焦 input
   useEffect(() => {
@@ -1122,8 +1135,16 @@ export function Sidebar({
       const enabled = (e as CustomEvent<boolean>).detail
       setGtdEnabled(enabled)
     }
+    const storageHandler = (e: StorageEvent) => {
+      if (e.key !== GTD_ENABLED_STORAGE_KEY) return
+      setGtdEnabled(e.newValue === 'true')
+    }
     window.addEventListener('arkloop:gtd-enabled-changed', handler)
-    return () => window.removeEventListener('arkloop:gtd-enabled-changed', handler)
+    window.addEventListener('storage', storageHandler)
+    return () => {
+      window.removeEventListener('arkloop:gtd-enabled-changed', handler)
+      window.removeEventListener('storage', storageHandler)
+    }
   }, [])
 
   // 监听 work folder 变更，触发重新渲染
@@ -1144,10 +1165,27 @@ export function Sidebar({
       setGtdWaitingIds(readGtdWaitingThreadIds())
       setGtdSomedayIds(readGtdSomedayThreadIds())
       setGtdArchivedIds(readGtdArchivedThreadIds())
-      setPinnedIds(readPinnedThreadIds())
     })
     return () => { cancelled = true }
   }, [threads])
+
+  useEffect(() => {
+    let cancelled = false
+    window.queueMicrotask(() => {
+      if (cancelled) return
+      const storedPinnedIds = readPinnedThreadIds()
+      const next = new Set(pinnedIdsRef.current)
+      for (const thread of threads) {
+        if (thread.sidebar_pinned_at || storedPinnedIds.has(thread.id)) {
+          next.add(thread.id)
+        } else {
+          next.delete(thread.id)
+        }
+      }
+      if (!areStringSetsEqual(next, pinnedIdsRef.current)) replacePinnedIds(next)
+    })
+    return () => { cancelled = true }
+  }, [replacePinnedIds, threads])
 
   useEffect(() => {
     if (!isPerfDebugEnabled()) return
@@ -1402,67 +1440,19 @@ export function Sidebar({
       onClose={() => setShareModalThreadId(null)}
     />
   ) : null
-  const deleteConfirmPortal = deleteConfirmThreadId !== null ? createPortal(
-    <div
-      className="overlay-fade-in fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 10000, background: 'rgba(0,0,0,0.12)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) setDeleteConfirmThreadId(null) }}
-    >
-      <div
-        className="modal-enter"
-        style={{
-          background: 'var(--c-bg-page)',
-          border: '0.5px solid var(--c-border-subtle)',
-          borderRadius: '16px',
-          padding: '24px',
-          width: '320px',
-          boxShadow: 'var(--c-dropdown-shadow)',
-        }}
-      >
-        <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--c-text-primary)', marginBottom: '8px' }}>
-          {t.deleteThreadConfirmTitle}
-        </p>
-        <p style={{ fontSize: '13px', color: 'var(--c-text-secondary)', lineHeight: 1.55, marginBottom: '20px' }}>
-          {t.deleteThreadConfirmBody}
-        </p>
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button
-            onClick={() => setDeleteConfirmThreadId(null)}
-            className="hover:bg-[var(--c-bg-deep)]"
-            style={{
-              padding: '7px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: 'var(--c-text-secondary)',
-              background: 'transparent',
-              border: '0.5px solid var(--c-border-subtle)',
-              cursor: 'pointer',
-            }}
-          >
-            {t.deleteThreadCancel}
-          </button>
-          <button
-            onClick={() => handleDelete(deleteConfirmThreadId)}
-            className="hover:opacity-85 active:opacity-70"
-            style={{
-              padding: '7px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: '#fff',
-              background: '#ef4444',
-              border: 'none',
-              cursor: 'pointer',
-            }}
-          >
-            {t.deleteThreadConfirm}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  ) : null
+  const deleteConfirmDialog = (
+    <ConfirmDialog
+      open={deleteConfirmThreadId !== null}
+      title={t.deleteThreadConfirmTitle}
+      message={t.deleteThreadConfirmBody}
+      confirmLabel={t.deleteThreadConfirm}
+      cancelLabel={t.deleteThreadCancel}
+      onClose={() => setDeleteConfirmThreadId(null)}
+      onConfirm={() => {
+        if (deleteConfirmThreadId) void handleDelete(deleteConfirmThreadId)
+      }}
+    />
+  )
 
   const dragPortal = dragState ? createPortal(
     <div
@@ -1492,13 +1482,18 @@ export function Sidebar({
     </div>,
     document.body,
   ) : null
+  const navButtonClass = 'group flex h-[32px] w-full items-center gap-[10px] overflow-hidden whitespace-nowrap rounded-lg px-[8px] text-[15px] text-[var(--c-text-secondary)] transition-colors duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]'
+  const navButtonStyle = { fontWeight: 'var(--c-sidebar-nav-weight)' }
+  const navLabelClass = 'min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-100'
+  const newThreadNavLabel = isWorkMode ? t.newTask : t.newChat
+  const searchNavLabel = isWorkMode ? t.searchTasks : t.searchChats
 
   return (
     <>
       <aside
       ref={asideRef}
       className={[
-        'flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
+        'theme-surface-sidebar flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
         collapsed ? 'w-[48px]' : narrow ? 'w-[224px]' : desktopMode ? 'w-[284px]' : 'w-[304px]',
       ].join(' ')}
       style={{
@@ -1567,14 +1562,17 @@ export function Sidebar({
       )}
 
       {/* Nav buttons — always rendered, text clips when sidebar narrows */}
-      <nav className="flex flex-col gap-px px-2 pt-1">
+      <nav className="flex flex-col items-start gap-px pl-[8px] pr-[7px] pt-1">
         <button
           onClick={onNewThread}
-          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-          style={{ fontWeight: 'var(--c-sidebar-nav-weight)' }}
+          aria-label={newThreadNavLabel}
+          className={navButtonClass}
+          style={navButtonStyle}
         >
-          <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.newTask : t.newChat}</span>
+          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+            <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+          </span>
+          <span className={navLabelClass}>{newThreadNavLabel}</span>
         </button>
 
         <button
@@ -1602,20 +1600,26 @@ export function Sidebar({
           onPointerLeave={() => {
             searchPointerTraceRef.current = null
           }}
-          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-          style={{ fontWeight: 'var(--c-sidebar-nav-weight)' }}
+          aria-label={searchNavLabel}
+          className={navButtonClass}
+          style={navButtonStyle}
         >
-          <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{isWorkMode ? t.searchTasks : t.searchChats}</span>
+          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+            <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+          </span>
+          <span className={navLabelClass}>{searchNavLabel}</span>
         </button>
 
         <button
           onClick={() => navigate('/scheduled-jobs')}
-          className="group flex h-9 items-center gap-2.5 overflow-hidden whitespace-nowrap rounded-lg px-2 text-[15px] text-[var(--c-text-secondary)] transition-[background-color,color] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]"
-          style={{ fontWeight: 'var(--c-sidebar-nav-weight)' }}
+          aria-label={t.scheduledJobs}
+          className={navButtonClass}
+          style={navButtonStyle}
         >
-          <Clock size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          <span style={{ overflow: 'hidden', maxWidth: collapsed ? 0 : '200px', opacity: collapsed ? 0 : 1, transition: 'max-width 280ms cubic-bezier(0.16,1,0.3,1), opacity 150ms ease', whiteSpace: 'nowrap' }}>{t.scheduledJobs}</span>
+          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+            <Clock size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+          </span>
+          <span className={navLabelClass}>{t.scheduledJobs}</span>
         </button>
 
       </nav>
@@ -1798,7 +1802,7 @@ export function Sidebar({
 
       {menuPortal}
       {shareModal}
-      {deleteConfirmPortal}
+      {deleteConfirmDialog}
       {dragPortal}
     </>
   )

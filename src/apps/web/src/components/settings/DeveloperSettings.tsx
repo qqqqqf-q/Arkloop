@@ -7,9 +7,9 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { getAccountSettings, updateAccountSettings } from '../../api'
 import { readDeveloperShowRunDetailButton, writeDeveloperShowRunDetailButton, readDeveloperShowDebugPanel, writeDeveloperShowDebugPanel, readDeveloperPipelineTraceEnabled, writeDeveloperPipelineTraceEnabled, readDeveloperPromptCacheDebugEnabled, writeDeveloperPromptCacheDebugEnabled } from '../../storage'
 import { RunsSettings } from './RunsSettings'
-import { PillToggle } from '@arkloop/shared'
 import type { DesktopSettingsKey } from '../DesktopSettings'
-import { secondaryButtonBorderStyle, secondaryButtonSmCls } from '../buttonStyles'
+import { SettingsSwitch } from './_SettingsSwitch'
+import { SettingsButton } from './_SettingsButton'
 
 type Props = {
   accessToken?: string
@@ -24,15 +24,13 @@ type PanelBtnProps = {
 
 function PanelButton({ onClick, disabled, children }: PanelBtnProps) {
   return (
-    <button
-      type="button"
+    <SettingsButton
+      variant="secondary"
       onClick={onClick}
       disabled={disabled}
-      className={secondaryButtonSmCls}
-      style={secondaryButtonBorderStyle}
     >
       {children}
-    </button>
+    </SettingsButton>
   )
 }
 
@@ -189,7 +187,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
               {ds.pipelineTraceDesc}
             </div>
           </div>
-          <PillToggle
+          <SettingsSwitch
             checked={pipelineTraceEnabled}
             disabled={!accessToken || pipelineTraceLoading || pipelineTraceSaving}
             onChange={(next) => {
@@ -210,7 +208,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
               {ds.promptCacheDebugDesc}
             </div>
           </div>
-          <PillToggle
+          <SettingsSwitch
             checked={promptCacheDebugEnabled}
             disabled={!accessToken || promptCacheDebugLoading || promptCacheDebugSaving}
             onChange={(next) => {
@@ -232,7 +230,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
               {ds.showRunDetailButtonDesc}
             </div>
           </div>
-          <PillToggle
+          <SettingsSwitch
             checked={showRunDetailButton}
             onChange={(next) => {
               setShowRunDetailButton(next)
@@ -254,7 +252,7 @@ export function DeveloperSettings({ accessToken, onNavigate }: Props) {
               {ds.showDebugPanelDesc}
             </div>
           </div>
-          <PillToggle
+          <SettingsSwitch
             checked={showDebugPanel}
             onChange={(next) => {
               setShowDebugPanel(next)

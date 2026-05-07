@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MessageCircleMore } from 'lucide-react'
 import { openExternal } from '../../openExternal'
 import {
   type ChannelBindingResponse,
@@ -16,9 +15,10 @@ import {
   verifyChannel,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-import { PillToggle } from '@arkloop/shared'
 import {
+  channelRowsCls,
   BindingsCard,
+  ChannelDetailRow,
   buildModelOptions,
   ListField,
   mergeListValues,
@@ -27,9 +27,9 @@ import {
   resolvePersonaID,
   sameItems,
   SaveActions,
-  StatusBadge,
   TokenField,
 } from './DesktopChannelSettingsShared'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 type Props = {
   accessToken: string
@@ -272,7 +272,6 @@ export function DesktopDiscordSettingsPanel({
 
   const handleUnbind = async (binding: ChannelBindingResponse) => {
     if (!channel) return
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
       const nextBindings = await listChannelBindings(accessToken, channel.id)
@@ -316,7 +315,7 @@ export function DesktopDiscordSettingsPanel({
     <div className="flex flex-col gap-6">
       {error && (
         <div
-          className="rounded-xl px-4 py-3 text-sm"
+          className="rounded-xl px-5 py-3 text-sm"
           style={{
             border: '0.5px solid color-mix(in srgb, var(--c-status-error, #ef4444) 24%, transparent)',
             background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
@@ -328,51 +327,18 @@ export function DesktopDiscordSettingsPanel({
       )}
 
       <div
-        className="rounded-2xl p-5"
+        className="overflow-hidden rounded-xl"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                  <MessageCircleMore size={18} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.discord}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <StatusBadge active={enabled} label={enabled ? ct.active : ct.inactive} />
-                    <StatusBadge
-                      active={tokenConfigured}
-                      label={tokenConfigured ? ds.connectorConfigured : ds.connectorNotConfigured}
-                    />
-                    {verifyResult && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        style={{
-                          background: verifyResult.ok
-                            ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))'
-                            : 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
-                          color: verifyResult.ok
-                            ? 'var(--c-status-success, #22c55e)'
-                            : 'var(--c-status-error, #ef4444)',
-                        }}
-                      >
-                        {verifyResult.message}
-                      </span>
-                    )}
-                  </div>
-                </div>
+        <div className="flex flex-col">
+          <div className={channelRowsCls}>
+            <ChannelDetailRow label={t.agentSettings.reasoningModes.enabled}>
+              <div className="flex justify-end">
+                <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
               </div>
-            </div>
-
-            <PillToggle checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.botToken}>
               <TokenField
-                label={ct.botToken}
                 value={tokenDraft}
                 placeholder={tokenConfigured && !tokenDraft ? ct.tokenAlreadyConfigured : ct.botTokenPlaceholder}
                 onChange={(value) => {
@@ -390,12 +356,9 @@ export function DesktopDiscordSettingsPanel({
                   Discord Developer Portal
                 </button>
               </p>
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                {ct.persona}
-              </label>
+            <ChannelDetailRow label={ct.persona}>
               <ModelDropdown
                 value={personaID}
                 options={personaOptions}
@@ -406,12 +369,9 @@ export function DesktopDiscordSettingsPanel({
                   setSaved(false)
                 }}
               />
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                {ds.connectorDefaultModel}
-              </label>
+            <ChannelDetailRow label={ds.connectorDefaultModel}>
               <ModelDropdown
                 value={defaultModel}
                 options={modelOptions}
@@ -422,17 +382,17 @@ export function DesktopDiscordSettingsPanel({
                   setSaved(false)
                 }}
               />
-            </div>
+            </ChannelDetailRow>
 
             <div className="md:col-span-2">
               <div
-                className="rounded-xl px-4 py-4"
+                className="relative px-5 py-4"
                 style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
               >
                 <div className="mb-4">
                   <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.accessControl}</div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className={channelRowsCls}>
                   <div>
                     <ListField
                       label={ct.allowedServerIds}
@@ -496,7 +456,7 @@ export function DesktopDiscordSettingsPanel({
       />
 
       <div
-        className="rounded-2xl px-5 py-4"
+        className="rounded-xl px-5 py-4"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
         <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>
@@ -519,6 +479,14 @@ export function DesktopDiscordSettingsPanel({
         onSave={() => void handleSave()}
         onVerify={() => void handleVerify()}
       />
+      {verifyResult && (
+        <p
+          className="px-1 text-xs"
+          style={{ color: verifyResult.ok ? 'var(--c-status-success)' : 'var(--c-status-error)' }}
+        >
+          {verifyResult.message}
+        </p>
+      )}
     </div>
   )
 }

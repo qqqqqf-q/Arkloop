@@ -17,6 +17,8 @@ import type {
   SidecarRuntime,
 } from '@arkloop/shared/desktop'
 import { useLocale } from '../contexts/LocaleContext'
+import { SettingsButton } from './settings/_SettingsButton'
+import { SettingsInput } from './settings/_SettingsInput'
 import { SettingsSelect } from './settings/_SettingsSelect'
 
 type Props = {
@@ -311,30 +313,26 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
               {localPortMode === 'manual' && (
                 <div className="flex flex-col gap-2">
                   <label className="text-sm text-[var(--c-text-secondary)]">{ct.manualPort}</label>
-                  <input
+                  <SettingsInput
+                    variant="md"
                     type="number"
                     min={1}
                     max={65535}
                     value={localPort}
                     onChange={(event) => setLocalPort(event.target.value)}
-                    className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
-                    style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
                   />
                   <div className="text-xs text-[var(--c-text-muted)]">{ct.manualPortHint}</div>
                 </div>
               )}
 
               {(runtimeError || localPortMode === 'manual') && (
-                <button
-                  type="button"
+                <SettingsButton
                   onClick={() => void handleRestoreAuto()}
                   disabled={saving}
-                  className="flex h-8 w-fit items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:opacity-50"
-                  style={{ border: '0.5px solid var(--c-border-subtle)' }}
+                  icon={<RotateCcw size={13} />}
                 >
-                  <RotateCcw size={13} />
-                  <span>{ct.restoreAutoPort}</span>
-                </button>
+                  {ct.restoreAutoPort}
+                </SettingsButton>
               )}
             </div>
           )}
@@ -365,36 +363,30 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
       {mode === 'self-hosted' && (
         <div className="flex flex-col gap-2">
           <label className="text-sm text-[var(--c-text-secondary)]">{ct.baseUrl}</label>
-          <input
+          <SettingsInput
+            variant="md"
             type="url"
             value={selfHostedUrl}
             onChange={(event) => setSelfHostedUrl(event.target.value)}
             placeholder="https://your-server.com"
-            className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
           />
         </div>
       )}
 
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <SettingsButton
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="flex h-8 items-center rounded-lg px-4 text-sm font-medium text-white transition-colors disabled:opacity-50"
-          style={{ background: 'var(--c-accent)' }}
         >
           {ct.save}
-        </button>
-        <button
-          type="button"
+        </SettingsButton>
+        <SettingsButton
           onClick={() => void handleTest()}
-          className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+          icon={<Wifi size={13} />}
         >
-          <Wifi size={13} />
-          <span>{ct.testConnection}</span>
-        </button>
+          {ct.testConnection}
+        </SettingsButton>
         {testResult === 'connected' && (
           <span className="flex items-center gap-1 text-xs" style={{ color: '#22c55e' }}>
             <CheckCircle size={13} /> {ct.connected}

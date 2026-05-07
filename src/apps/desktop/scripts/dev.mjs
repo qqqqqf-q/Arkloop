@@ -88,6 +88,7 @@ function startViteDevServer() {
       env: {
         ...process.env,
         ARKLOOP_API_PROXY_TARGET: 'http://127.0.0.1:19001',
+        ARKLOOP_DESKTOP_SHELL_DEV: 'true',
       },
     })
 

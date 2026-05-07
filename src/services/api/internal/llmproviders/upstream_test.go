@@ -4,6 +4,7 @@ import (
 	"context"
 	nethttp "net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"arkloop/services/api/internal/data"
@@ -11,7 +12,26 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestClassifyCatalogStatusIncludesAuthResponseBody(t *testing.T) {
+	err := classifyCatalogStatus(nethttp.StatusForbidden, []byte(`{"error":{"message":"invalid api key"}}`))
+	upstreamErr, ok := err.(*UpstreamListModelsError)
+	if !ok {
+		t.Fatalf("expected UpstreamListModelsError, got %T: %v", err, err)
+	}
+	if upstreamErr.Kind != "auth" {
+		t.Fatalf("Kind = %q, want auth", upstreamErr.Kind)
+	}
+	if upstreamErr.StatusCode != nethttp.StatusForbidden {
+		t.Fatalf("StatusCode = %d, want %d", upstreamErr.StatusCode, nethttp.StatusForbidden)
+	}
+	if upstreamErr.Err == nil || !strings.Contains(upstreamErr.Err.Error(), "invalid api key") {
+		t.Fatalf("raw error did not include upstream body: %v", upstreamErr.Err)
+	}
+}
+
 func TestListUpstreamModelsRejectsUnsafeBaseURL(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	baseURL := "https://10.0.0.1/v1"
 	accountID := uuid.New()
 	provider := data.LlmCredential{
@@ -35,8 +55,9 @@ func TestListUpstreamModelsRejectsUnsafeBaseURL(t *testing.T) {
 	}
 }
 
-func TestListUpstreamModelsAllowsLoopbackHTTPInTests(t *testing.T) {
-	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
+func TestListUpstreamModelsAllowsLoopbackWhenProtectionDisabled(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "false")
+
 	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)

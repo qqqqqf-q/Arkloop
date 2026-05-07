@@ -26,7 +26,7 @@ const (
 	memorySkeletonMaxDirs   = 10               // 最多读取的一级子目录数
 	memoryLeafMaxPerDir     = 30               // 每个目录下最多读取的叶子 abstract 数
 	memoryFragmentLimit     = 0
-	impressionFragmentLimit = 20
+	impressionFragmentLimit = 40
 )
 
 var usageRepo = data.UsageRecordsRepository{}

@@ -34,7 +34,7 @@ export type Props = {
   fileOps?: FileOpRef[]
   exploreGroups?: ExploreGroupRef[]
   webFetches?: WebFetchRef[]
-  genericTools?: Array<{ id: string; toolName: string; label: string; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
+  genericTools?: Array<{ id: string; toolName: string; label: string; displayDescription?: string; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   headerOverride?: string
   shimmer?: boolean
   live?: boolean

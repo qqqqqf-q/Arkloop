@@ -127,6 +127,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"interrupt_agent",
 		"memory_edit",
 		"memory_forget",
+		"memory_list",
 		"memory_read",
 		"memory_search",
 		"memory_write",
@@ -172,7 +173,7 @@ func TestResolveBuiltinNowledgeUsesAPIKeyAndThreadTools(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["memory_edit"]; ok {
 		t.Fatal("memory_edit should be hidden for nowledge")
 	}
-	for _, name := range []string{"memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch"} {
+	for _, name := range []string{"memory_list", "memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline"} {
 		if _, ok := resolved.ToolNameSet()[name]; !ok {
 			t.Fatalf("%s should be available", name)
 		}

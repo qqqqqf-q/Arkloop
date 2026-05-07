@@ -42,6 +42,7 @@ function toolKindLabel(toolName: string): string {
     case 'write_file': return 'write'
     case 'edit':
     case 'edit_file': return 'edit'
+    case 'image_generate': return 'image'
     default: return toolName
   }
 }
@@ -134,7 +135,7 @@ export function ExecutionCard({ variant, toolName, label, displayDescription, co
 
   const preview = variant === 'shell'
     ? (displayDescription || extractCommandPreview(code) || t.shellRan)
-    : (label || '')
+    : (displayDescription || label || '')
   // 只在有 displayDescription 时追加命令缩写，避免与 extractCommandPreview 重复
   const commandHeads = variant === 'shell' && displayDescription ? abbreviateCommandHeads(code) : ''
   const statusWord = variant === 'shell'

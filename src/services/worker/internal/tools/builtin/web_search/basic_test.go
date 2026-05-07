@@ -12,6 +12,7 @@ import (
 )
 
 func TestBasicProviderSearchCallsDesktopEndpoint(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
 	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
 
 	redirectValue := "a1aHR0cHM6Ly9leGFtcGxlLmNvbS9i"

@@ -6,8 +6,23 @@ user_selectable: false
 is_system: true
 is_builtin: true
 core_tools:
+    - memory_list
     - memory_search
     - memory_read
+    - memory_thread_search
+    - memory_thread_fetch
+    - memory_connections
+    - memory_timeline
+    - notebook_read
+tool_allowlist:
+    - memory_list
+    - memory_search
+    - memory_read
+    - memory_thread_search
+    - memory_thread_fetch
+    - memory_connections
+    - memory_timeline
+    - notebook_read
 budgets:
     reasoning_iterations: 100
     max_output_tokens: 32768

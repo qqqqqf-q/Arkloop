@@ -346,6 +346,7 @@ export interface LocaleStrings {
       fieldSyncMode: string
       fieldWorkspaceEnabled: string
       fieldIsActive: string
+      statusChecked: string
       enabledLabel: string
       disabledLabel: string
       actionCheck: string

@@ -17,7 +17,7 @@ on:
         default: "Early Access"
 
 permissions:
-  contents: write
+  contents: read
   packages: read
 
 concurrency:
@@ -225,12 +225,84 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 3 – Create GitHub Release with all assets
+  # Job 3 – Build Arch Linux package
+  # ---------------------------------------------------------------------------
+  build-archlinux-package:
+    name: Build Arch Linux pkg.tar.zst
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Install build tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            alsa-lib \
+            at-spi2-core \
+            base-devel \
+            git \
+            go \
+            gtk3 \
+            libappindicator-gtk3 \
+            libdrm \
+            libnotify \
+            libxcomposite \
+            libxdamage \
+            libxkbcommon \
+            libxrandr \
+            libxss \
+            mesa \
+            nodejs \
+            nss \
+            pnpm \
+            python \
+            xdg-utils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: release_meta
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF_NAME}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./src/apps/desktop/package.json').version")"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build Arch package
+        run: |
+          useradd -m builder
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+          su builder -c "cd '${GITHUB_WORKSPACE}/packaging/arch' && ARKLOOP_DESKTOP_VERSION='${{ steps.release_meta.outputs.version }}' makepkg -s --noconfirm"
+
+      - name: List package
+        run: ls -lh packaging/arch/*.pkg.tar.zst
+
+      - name: Upload Arch package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer-archlinux-x64
+          path: packaging/arch/*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Job 4 – Create GitHub Release with all assets
   # ---------------------------------------------------------------------------
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-sidecar, build-desktop]
+    needs: [build-sidecar, build-desktop, build-archlinux-package]
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
     defaults:
       run:
         shell: bash
@@ -275,6 +347,7 @@ jobs:
             -name '*.AppImage' -o \
             -name '*.deb' -o \
             -name '*.rpm' -o \
+            -name '*.pkg.tar.zst' -o \
             -name '*.exe' -o \
             -name '*.blockmap' -o \
             -name 'latest*.yml' \
@@ -455,7 +528,7 @@ jobs:
           - Windows：下载 `Arkloop-win-x64.exe`
           - macOS Apple Silicon：下载 `Arkloop-mac-arm64.dmg`
           - macOS Intel：下载 `Arkloop-mac-x64.dmg`
-          - Linux x64：下载 `Arkloop-linux-amd64.deb`、`Arkloop-linux-x86_64.rpm` 或 `Arkloop-linux-x86_64.AppImage`
+          - Linux x64：下载 `Arkloop-linux-amd64.deb`、`Arkloop-linux-x86_64.rpm`、`Arkloop-linux-x86_64.AppImage` 或 `arkloop-bin-*.pkg.tar.zst`
 
           ## 说明
           EOF
@@ -517,3 +590,26 @@ jobs:
           body_path: release-notes.md
           generate_release_notes: true
           files: release-files/*
+
+      - name: Dispatch package update workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_meta.outputs.version }}
+          WORKFLOW_REF: ${{ github.event.repository.default_branch }}
+        run: |
+          mapfile -t arch_assets < <(find release-files -maxdepth 1 -type f -name 'arkloop-bin-*.pkg.tar.zst' -printf '%f\n' | sort)
+          if [ "${#arch_assets[@]}" -ne 1 ]; then
+            echo "Expected one arkloop-bin pkg.tar.zst asset, found ${#arch_assets[@]}" >&2
+            exit 1
+          fi
+          arch_asset="${arch_assets[0]}"
+          arch_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${arch_asset}"
+
+          gh workflow run update-aur-bin.yaml \
+            --ref "${WORKFLOW_REF}" \
+            -f version="${VERSION}" \
+            -f asset_url="${arch_url}"
+
+          gh workflow run update-homebrew-formula.yaml \
+            --ref "${WORKFLOW_REF}" \
+            -f version="${VERSION}"

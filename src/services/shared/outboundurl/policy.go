@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	ProtectionEnabledEnv = "ARKLOOP_OUTBOUND_PROTECTION_ENABLED"
 	AllowLoopbackHTTPEnv = "ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP"
 	TrustFakeIPEnv       = "ARKLOOP_OUTBOUND_TRUST_FAKE_IP"
 	ProxyURLEnv          = "ARKLOOP_OUTBOUND_PROXY_URL"
@@ -32,6 +33,7 @@ func (e DeniedError) Error() string {
 }
 
 type Policy struct {
+	ProtectionEnabled bool
 	AllowLoopbackHTTP bool
 	TrustFakeIP       bool
 	Resolver          *net.Resolver
@@ -43,6 +45,7 @@ type Policy struct {
 
 func DefaultPolicy() Policy {
 	return Policy{
+		ProtectionEnabled: protectionEnabledFromEnv(),
 		AllowLoopbackHTTP: allowLoopbackHTTPFromEnv(),
 		TrustFakeIP:       trustFakeIPFromEnv(),
 		Resolver:          net.DefaultResolver,
@@ -51,6 +54,15 @@ func DefaultPolicy() Policy {
 		RetryCount:        retryCountFromEnv(),
 		UserAgent:         strings.TrimSpace(os.Getenv(UserAgentEnv)),
 	}
+}
+
+func protectionEnabledFromEnv() bool {
+	raw := strings.TrimSpace(os.Getenv(ProtectionEnabledEnv))
+	if raw == "" {
+		return defaultProtectionEnabled()
+	}
+	ok, err := strconv.ParseBool(raw)
+	return err == nil && ok
 }
 
 func allowLoopbackHTTPFromEnv() bool {
@@ -134,6 +146,9 @@ func (p Policy) ValidateRequestURL(raw string) error {
 }
 
 func (p Policy) ValidateURL(u *url.URL) error {
+	if !p.ProtectionEnabled {
+		return validateRequestShape(u)
+	}
 	return p.validateParsedURL(u, false)
 }
 
@@ -141,6 +156,9 @@ func (p Policy) EnsureIPAllowed(ip netip.Addr) error {
 	addr := ip.Unmap()
 	if !addr.IsValid() {
 		return DeniedError{Reason: "invalid_ip"}
+	}
+	if !p.ProtectionEnabled {
+		return nil
 	}
 	if p.isDeniedIP(addr) {
 		return DeniedError{Reason: "private_ip_denied", Details: map[string]any{"ip": addr.String()}}
@@ -163,6 +181,9 @@ func ParseIP(hostname string) netip.Addr {
 func (p Policy) SafeDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
 	if dialer == nil {
 		dialer = &net.Dialer{Timeout: 10 * time.Second}
+	}
+	if !p.ProtectionEnabled {
+		return dialer.DialContext
 	}
 	resolver := p.Resolver
 	if resolver == nil {
@@ -274,6 +295,24 @@ func checkInternalRedirect(req *http.Request, via []*http.Request) error {
 	return validateInternalParsedURL(req.URL, false)
 }
 
+func validateRequestShape(u *url.URL) error {
+	if u == nil {
+		return DeniedError{Reason: "invalid_url"}
+	}
+	if !u.IsAbs() {
+		return DeniedError{Reason: "invalid_url"}
+	}
+
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return DeniedError{Reason: "unsupported_scheme", Details: map[string]any{"scheme": scheme}}
+	}
+	if strings.TrimSpace(u.Hostname()) == "" {
+		return DeniedError{Reason: "missing_hostname"}
+	}
+	return nil
+}
+
 func (p Policy) validateParsedURL(u *url.URL, baseURLMode bool) error {
 	if u == nil {
 		return DeniedError{Reason: "invalid_url"}
@@ -298,8 +337,9 @@ func (p Policy) validateParsedURL(u *url.URL, baseURLMode bool) error {
 		if strings.TrimSpace(u.Fragment) != "" {
 			return DeniedError{Reason: "fragment_denied"}
 		}
-		// user-configured base URLs are trusted; skip all security checks
-		return nil
+		if !p.ProtectionEnabled {
+			return validateRequestShape(u)
+		}
 	}
 
 	if !p.isAllowedSchemeForHost(scheme, hostname) {

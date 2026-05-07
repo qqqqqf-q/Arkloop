@@ -355,29 +355,118 @@ func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerCon
 	if _, err := url.Parse(server.URL); err != nil {
 		return nil, err
 	}
+	client := effectiveMCPHTTPClient{server: server, nextID: 1}
+	if err := client.initialize(ctx); err != nil {
+		return nil, err
+	}
+	result, err := client.request(ctx, "tools/list", map[string]any{}, server.CallTimeoutMs)
+	if err != nil {
+		return nil, err
+	}
+	return parseEffectiveMCPTools(result), nil
+}
+
+type effectiveMCPHTTPClient struct {
+	server    effectiveMCPServerConfig
+	nextID    int64
+	sessionID string
+}
+
+func (c *effectiveMCPHTTPClient) initialize(ctx context.Context) error {
+	if _, err := c.request(ctx, "initialize", map[string]any{
+		"protocolVersion": effectiveMCPProtocolVersion,
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "arkloop-api", "version": "0"},
+	}, c.server.CallTimeoutMs); err != nil {
+		return err
+	}
+	return c.notify(ctx, "notifications/initialized", nil)
+}
+
+func (c *effectiveMCPHTTPClient) request(ctx context.Context, method string, params map[string]any, timeoutMs int) (map[string]any, error) {
+	id := c.nextID
+	c.nextID++
 	body := map[string]any{
 		"jsonrpc": "2.0",
-		"id":      1,
-		"method":  "tools/list",
-		"params":  map[string]any{},
+		"id":      id,
+		"method":  method,
+	}
+	if params != nil {
+		body["params"] = params
 	}
 	encoded, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
-	timeout := time.Duration(server.CallTimeoutMs) * time.Millisecond
+	resp, cancel, err := c.send(ctx, encoded, timeoutMs)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
+	}
+	if value := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); value != "" {
+		c.sessionID = value
+	}
+	contentType := resp.Header.Get("Content-Type")
+	var payload map[string]any
+	if strings.Contains(contentType, "text/event-stream") {
+		payload, err = parseEffectiveMCPSSEResponse(resp.Body, id)
+	} else {
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return parseEffectiveMCPResponse(payload)
+}
+
+func (c *effectiveMCPHTTPClient) notify(ctx context.Context, method string, params map[string]any) error {
+	body := map[string]any{
+		"jsonrpc": "2.0",
+		"method":  method,
+	}
+	if params != nil {
+		body["params"] = params
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	resp, cancel, err := c.send(ctx, encoded, c.server.CallTimeoutMs)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
+	}
+	if value := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); value != "" {
+		c.sessionID = value
+	}
+	return nil
+}
+
+func (c *effectiveMCPHTTPClient) send(ctx context.Context, encoded []byte, timeoutMs int) (*http.Response, context.CancelFunc, error) {
+	timeout := time.Duration(timeoutMs) * time.Millisecond
 	if timeout <= 0 {
 		timeout = time.Duration(effectiveMCPDefaultTimeoutMs) * time.Millisecond
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL, bytes.NewReader(encoded))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server.URL, bytes.NewReader(encoded))
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	for key, value := range server.Headers {
+	if strings.TrimSpace(c.sessionID) != "" {
+		req.Header.Set("Mcp-Session-Id", strings.TrimSpace(c.sessionID))
+	}
+	for key, value := range c.server.Headers {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
 			continue
 		}
@@ -385,27 +474,10 @@ func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerCon
 	}
 	resp, err := newEffectiveMCPHTTPClient().Do(req)
 	if err != nil {
-		return nil, err
+		cancel()
+		return nil, nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
-	}
-	contentType := resp.Header.Get("Content-Type")
-	var payload map[string]any
-	if strings.Contains(contentType, "text/event-stream") {
-		payload, err = parseEffectiveMCPSSEResponse(resp.Body)
-	} else {
-		err = json.NewDecoder(resp.Body).Decode(&payload)
-	}
-	if err != nil {
-		return nil, err
-	}
-	result, err := parseEffectiveMCPResponse(payload)
-	if err != nil {
-		return nil, err
-	}
-	return parseEffectiveMCPTools(result), nil
+	return resp, cancel, nil
 }
 
 func listEffectiveMCPStdioTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
@@ -688,7 +760,7 @@ func parseEffectiveMCPResponse(payload map[string]any) (map[string]any, error) {
 	return result, nil
 }
 
-func parseEffectiveMCPSSEResponse(r io.Reader) (map[string]any, error) {
+func parseEffectiveMCPSSEResponse(r io.Reader, reqID int64) (map[string]any, error) {
 	scanner := bufio.NewScanner(r)
 	var dataLine string
 	for scanner.Scan() {
@@ -700,7 +772,10 @@ func parseEffectiveMCPSSEResponse(r io.Reader) (map[string]any, error) {
 		if line == "" && dataLine != "" {
 			var payload map[string]any
 			if err := json.Unmarshal([]byte(dataLine), &payload); err == nil {
-				return payload, nil
+				id, ok := parseEffectiveMCPID(payload["id"])
+				if ok && id == reqID {
+					return payload, nil
+				}
 			}
 			dataLine = ""
 		}

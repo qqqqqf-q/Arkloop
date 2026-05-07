@@ -15,6 +15,17 @@ vi.mock('../api', async () => {
   }
 })
 
+vi.mock('../contexts/thread-list', async () => {
+  const actual = await vi.importActual<typeof import('../contexts/thread-list')>('../contexts/thread-list')
+  return {
+    ...actual,
+    useThreadList: () => ({
+      threads: [],
+      upsertThread: vi.fn(),
+    }),
+  }
+})
+
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve()
     .then(() => Promise.resolve())

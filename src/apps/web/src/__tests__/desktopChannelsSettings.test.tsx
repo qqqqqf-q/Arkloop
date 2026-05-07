@@ -79,6 +79,7 @@ async function loadDesktopSettingsSubject() {
     DesktopPromptInjectionSettings: () => <div>prompt injection</div>,
     ConnectorsSettings: () => <div>connectors</div>,
     VoiceSettings: () => <div>voice</div>,
+    AboutSettings: () => <div>about page</div>,
   }))
   vi.doMock('../components/settings/GeneralSettings', () => ({ GeneralSettings: () => <div>general</div> }))
   vi.doMock('../components/settings/DesktopAppearanceSettings', () => ({ DesktopAppearanceSettings: () => <div>appearance</div> }))
@@ -98,7 +99,7 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../components/settings/DesktopPromptInjectionSettings', () => ({ DesktopPromptInjectionSettings: () => <div>prompt injection</div> }))
   vi.doMock('../components/settings/VoiceSettings', () => ({ VoiceSettings: () => <div>voice</div> }))
   vi.doMock('../components/settings/DesignTokensSettings', () => ({ DesignTokensSettings: () => <div>design tokens</div> }))
-  vi.doMock('../components/settings/AboutSettings', () => ({ AboutSettings: () => <div>about</div> }))
+  vi.doMock('../components/settings/AboutSettings', () => ({ AboutSettings: () => <div>about page</div> }))
 
   const { DesktopSettings } = await import('../components/DesktopSettings')
   const { LocaleProvider } = await import('../contexts/LocaleContext')
@@ -175,7 +176,6 @@ afterEach(() => {
   vi.doUnmock('../components/settings/DesktopPromptInjectionSettings')
   vi.doUnmock('../components/settings/VoiceSettings')
   vi.doUnmock('../components/settings/DesignTokensSettings')
-  vi.doUnmock('../components/settings/AboutSettings')
   vi.resetModules()
   vi.clearAllMocks()
   if (originalActEnvironment === undefined) {
@@ -186,7 +186,7 @@ afterEach(() => {
 })
 
 describe('DesktopSettings', () => {
-  it('侧边栏将 channels 文案显示为第三方接入并包含高级入口', async () => {
+  it('侧边栏将 channels 文案显示为第三方接入并包含高级与关于入口', async () => {
     const { DesktopSettings, LocaleProvider } = await loadDesktopSettingsSubject()
 
     await act(async () => {
@@ -208,6 +208,7 @@ describe('DesktopSettings', () => {
 
     expect(container.textContent).toContain('接入')
     expect(container.textContent).toContain('高级')
+    expect(container.textContent).toContain('关于')
   })
 
   it('侧边栏恢复记忆入口并能展示记忆页内容', async () => {
@@ -234,7 +235,7 @@ describe('DesktopSettings', () => {
     expect(container.textContent).toContain('memory')
   })
 
-  it('外部重复打开关于页时同步到请求的 section', async () => {
+  it('外部重复打开关于页时展示关于页', async () => {
     const { DesktopSettings, LocaleProvider } = await loadDesktopSettingsSubject()
 
     const render = (sectionRequestId: number) => (
@@ -256,7 +257,7 @@ describe('DesktopSettings', () => {
       root!.render(render(0))
     })
     await flushEffects()
-    expect(container.textContent).toContain('about')
+    expect(container.textContent).toContain('about page')
 
     const generalButton = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent?.includes('通用'))
@@ -271,7 +272,7 @@ describe('DesktopSettings', () => {
       root!.render(render(1))
     })
     await flushEffects()
-    expect(container.textContent).toContain('about')
+    expect(container.textContent).toContain('about page')
   })
 })
 
@@ -327,7 +328,22 @@ describe('DesktopChannelsSettings', () => {
 
     expect(container.textContent).toContain('Telegram')
     expect(container.textContent).toContain('Discord')
-    expect(container.textContent).toContain('私聊访问控制')
+
+    const telegramTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Telegram'))
+    expect(telegramTab).toBeTruthy()
+
+    await act(async () => {
+      telegramTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(document.body.textContent).toContain('私聊访问控制')
+
+    const closeButton = document.body.querySelector('button[aria-label="Close"], button[aria-label="关闭"]')
+    await act(async () => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
 
     const discordTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Discord'))
     expect(discordTab).toBeTruthy()
@@ -335,10 +351,11 @@ describe('DesktopChannelsSettings', () => {
     await act(async () => {
       discordTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
-    expect(container.textContent).toContain('访问控制')
-    expect(container.textContent).toContain('允许的 Server ID')
-    expect(container.textContent).toContain('允许的 Channel ID')
+    expect(document.body.textContent).toContain('访问控制')
+    expect(document.body.textContent).toContain('允许的 Server ID')
+    expect(document.body.textContent).toContain('允许的 Channel ID')
   })
 
   it('可以创建 Discord 配置并生成 Discord 绑定码', async () => {
@@ -388,8 +405,9 @@ describe('DesktopChannelsSettings', () => {
     await act(async () => {
       discordTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
-    const inputs = Array.from(container.querySelectorAll('input'))
+    const inputs = Array.from(document.body.querySelectorAll('input'))
     const tokenInput = inputs.find((input) => input.getAttribute('placeholder')?.includes('Bot Token')) as HTMLInputElement
     const serverInput = inputs.find((input) => input.getAttribute('placeholder')?.includes('Server ID')) as HTMLInputElement
     const channelInput = inputs.find((input) => input.getAttribute('placeholder')?.includes('Channel ID')) as HTMLInputElement
@@ -401,13 +419,13 @@ describe('DesktopChannelsSettings', () => {
     })
     await flushEffects()
 
-    const addButtons = Array.from(container.querySelectorAll('button')).filter((button) => button.textContent?.includes('添加'))
+    const addButtons = Array.from(document.body.querySelectorAll('button')).filter((button) => button.textContent?.includes('添加'))
     await act(async () => {
       addButtons[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       addButtons[1]!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const saveButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === '保存')
+    const saveButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.trim() === '保存')
     await act(async () => {
       saveButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
@@ -423,14 +441,14 @@ describe('DesktopChannelsSettings', () => {
       },
     })
 
-    const bindButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('生成绑定码'))
+    const bindButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('生成绑定码'))
     await act(async () => {
       bindButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
 
     expect(api.createChannelBindCode).toHaveBeenCalledWith('token', 'discord')
-    expect(container.textContent).toContain('/bind ABC123')
+    expect(document.body.textContent).toContain('/bind ABC123')
   })
 
   it('Discord verify 成功时同时显示 app 和 bot 信息', async () => {
@@ -480,8 +498,9 @@ describe('DesktopChannelsSettings', () => {
     await act(async () => {
       discordTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
-    const verifyButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('验证连接'))
+    const verifyButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('验证连接'))
     expect(verifyButton).toBeTruthy()
 
     await act(async () => {
@@ -490,9 +509,9 @@ describe('DesktopChannelsSettings', () => {
     await flushEffects()
 
     expect(api.verifyChannel).toHaveBeenCalledWith('token', 'dc-1')
-    expect(container.textContent).toContain('Arkloop DM')
-    expect(container.textContent).toContain('@arkloop_bot')
-    expect(container.textContent).toContain('app-123')
+    expect(document.body.textContent).toContain('Arkloop DM')
+    expect(document.body.textContent).toContain('@arkloop_bot')
+    expect(document.body.textContent).toContain('app-123')
   })
 
   it('可以创建飞书官方渠道并提交官方接入配置', async () => {
@@ -538,11 +557,12 @@ describe('DesktopChannelsSettings', () => {
     await act(async () => {
       feishuTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
-    const appIDInput = Array.from(container.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === 'cli_xxx') as HTMLInputElement
-    const appSecretInput = Array.from(container.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 App Secret') as HTMLInputElement
-    const verifyTokenInput = Array.from(container.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 Verification Token') as HTMLInputElement
-    const encryptKeyInput = Array.from(container.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 Encrypt Key') as HTMLInputElement
+    const appIDInput = Array.from(document.body.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === 'cli_xxx') as HTMLInputElement
+    const appSecretInput = Array.from(document.body.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 App Secret') as HTMLInputElement
+    const verifyTokenInput = Array.from(document.body.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 Verification Token') as HTMLInputElement
+    const encryptKeyInput = Array.from(document.body.querySelectorAll('input')).find((input) => input.getAttribute('placeholder') === '粘贴 Encrypt Key') as HTMLInputElement
 
     await act(async () => {
       setInputValue(appIDInput, 'cli_xxx')
@@ -552,7 +572,7 @@ describe('DesktopChannelsSettings', () => {
     })
     await flushEffects()
 
-    const saveButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === '保存')
+    const saveButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.trim() === '保存')
     await act(async () => {
       saveButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
@@ -634,18 +654,19 @@ describe('DesktopChannelsSettings', () => {
     await act(async () => {
       feishuTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+    await flushEffects()
 
-    const verifyButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('验证连接'))
+    const verifyButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('验证连接'))
     expect(verifyButton).toBeTruthy()
 
     await act(async () => {
       verifyButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     await flushEffects()
+    await flushEffects()
 
     expect(api.verifyChannel).toHaveBeenCalledWith('token', 'fs-1')
-    expect(container.textContent).toContain('https://arkloop.example/v1/channels/feishu/fs-1/webhook')
-    expect(container.textContent).toContain('Arkloop Feishu')
-    expect(container.textContent).toContain('ou_bot')
+    expect(document.body.textContent).toContain('Arkloop Feishu')
+    expect(document.body.textContent).toContain('ou_bot')
   })
 })

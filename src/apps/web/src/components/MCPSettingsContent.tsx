@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, Plus, RefreshCw } from 'lucide-react'
+import { ConfirmDialog } from '@arkloop/shared'
 import {
   checkMCPInstall,
   createMCPInstall,
@@ -21,6 +22,7 @@ import {
 import { MCPInstallList } from './mcp/MCPInstallList'
 import { MCPFormModal } from './mcp/MCPFormModal'
 import { MCPScanSection } from './mcp/MCPScanSection'
+import { SettingsButton } from './settings/_SettingsButton'
 
 type Props = {
   accessToken: string
@@ -84,6 +86,15 @@ export function MCPSettingsContent({ accessToken }: Props) {
         toastDeleted: '已删除。',
         toastChecked: '检查已完成。',
         toastImported: '已导入。',
+        status: {
+          checked: '检查通过',
+          pending: '待检查',
+          configured: '已配置',
+          failed: '连接失败',
+          authError: '认证异常',
+          error: '协议异常',
+          missing: '缺少依赖',
+        },
       }
     }
     return {
@@ -138,6 +149,15 @@ export function MCPSettingsContent({ accessToken }: Props) {
       toastDeleted: 'Deleted.',
       toastChecked: 'Check completed.',
       toastImported: 'Imported.',
+      status: {
+        checked: 'Checked',
+        pending: 'Pending',
+        configured: 'Configured',
+        failed: 'Failed',
+        authError: 'Auth Error',
+        error: 'Error',
+        missing: 'Missing',
+      },
     }
   }, [locale])
 
@@ -151,6 +171,7 @@ export function MCPSettingsContent({ accessToken }: Props) {
   const [busyID, setBusyID] = useState<string | null>(null)
   const [menuID, setMenuID] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<MCPInstall | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // close menu on outside click
@@ -241,19 +262,20 @@ export function MCPSettingsContent({ accessToken }: Props) {
     }
   }, [accessToken, copy, editing, form, loadInstalls])
 
-  const handleDelete = useCallback(async (install: MCPInstall) => {
-    if (!window.confirm(`${copy.delete} "${install.display_name}"?`)) return
-    setBusyID(install.id)
+  const handleDelete = useCallback(async () => {
+    if (!deleteTarget) return
+    setBusyID(deleteTarget.id)
     try {
-      await deleteMCPInstall(accessToken, install.id)
+      await deleteMCPInstall(accessToken, deleteTarget.id)
       setNotice(copy.toastDeleted)
+      setDeleteTarget(null)
       await loadInstalls()
     } catch {
       setNotice(copy.toastDeleteFailed)
     } finally {
       setBusyID(null)
     }
-  }, [accessToken, copy.delete, copy.toastDeleteFailed, copy.toastDeleted, loadInstalls])
+  }, [accessToken, copy.toastDeleteFailed, copy.toastDeleted, deleteTarget, loadInstalls])
 
   const handleToggle = useCallback(async (install: MCPInstall) => {
     setBusyID(install.id)
@@ -293,25 +315,21 @@ export function MCPSettingsContent({ accessToken }: Props) {
           <p className="mt-1 text-sm text-[var(--c-text-secondary)]">{ds.mcpDesc}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
+          <SettingsButton
+            variant="secondary"
             onClick={() => void loadInstalls()}
             disabled={loading}
-            className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
+            icon={loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             {copy.refresh}
-          </button>
-          <button
-            type="button"
+          </SettingsButton>
+          <SettingsButton
+            variant="primary"
             onClick={openCreate}
-            className="flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium"
-            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+            icon={<Plus size={14} />}
           >
-            <Plus size={14} />
             {copy.add}
-          </button>
+          </SettingsButton>
         </div>
       </div>
 
@@ -333,7 +351,7 @@ export function MCPSettingsContent({ accessToken }: Props) {
         menuID={menuID}
         setMenuID={setMenuID}
         onEdit={openEdit}
-        onDelete={(i) => void handleDelete(i)}
+        onDelete={setDeleteTarget}
         onToggle={(i) => void handleToggle(i)}
         onCheck={(i) => void handleCheck(i)}
         copy={copy}
@@ -365,6 +383,16 @@ export function MCPSettingsContent({ accessToken }: Props) {
         onSave={() => void handleSave()}
         onClose={closeForm}
         copy={copy}
+      />
+      <ConfirmDialog
+        open={deleteTarget != null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void handleDelete()}
+        title={copy.delete}
+        message={deleteTarget ? `${copy.delete} "${deleteTarget.display_name}"?` : ''}
+        confirmLabel={copy.delete}
+        cancelLabel={copy.cancel}
+        loading={deleteTarget != null && busyID === deleteTarget.id}
       />
     </div>
   )

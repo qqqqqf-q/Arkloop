@@ -71,6 +71,18 @@ export type NetworkConfig = {
   userAgent?: string
 }
 
+export type StartupOpenMode = 'home' | 'last-workspace'
+export type CloseWindowBehavior = 'keep-in-background' | 'quit'
+
+export type DesktopPreferencesConfig = {
+  startupOpen: StartupOpenMode
+  closeBehavior: CloseWindowBehavior
+  launchAtLogin: boolean
+  desktopNotifications: boolean
+  productUpdateNotifications: boolean
+  keepScreenAwake: boolean
+}
+
 export type LocalConfig = {
   port: number
   portMode: LocalPortMode
@@ -93,6 +105,7 @@ export type AppConfig = {
   connectors: ConnectorsConfig
   memory: MemoryConfig
   network: NetworkConfig
+  desktop: DesktopPreferencesConfig
   voice?: VoiceConfig
 }
 
@@ -113,5 +126,13 @@ export const DEFAULT_CONFIG: AppConfig = {
     proxyEnabled: false,
     requestTimeoutMs: 30000,
     retryCount: 1,
+  },
+  desktop: {
+    startupOpen: 'last-workspace',
+    closeBehavior: 'keep-in-background',
+    launchAtLogin: false,
+    desktopNotifications: true,
+    productUpdateNotifications: true,
+    keepScreenAwake: false,
   },
 }

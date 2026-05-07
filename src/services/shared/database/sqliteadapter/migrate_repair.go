@@ -66,6 +66,50 @@ func repairMissingColumns(ctx context.Context, db *sql.DB) error {
 	if err := repairSecretsAccountDefault(ctx, db); err != nil {
 		return err
 	}
+	if err := repairChannelOwnerUserIDs(ctx, db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func repairChannelOwnerUserIDs(ctx context.Context, db *sql.DB) error {
+	for _, table := range []string{"channels", "accounts"} {
+		exists, err := sqliteTableExists(ctx, db, table)
+		if err != nil {
+			return fmt.Errorf("repairChannelOwnerUserIDs: check table %s: %w", table, err)
+		}
+		if !exists {
+			return nil
+		}
+	}
+	for _, spec := range []repairColumnSpec{
+		{Table: "channels", Column: "owner_user_id"},
+		{Table: "accounts", Column: "owner_user_id"},
+	} {
+		exists, err := columnExists(ctx, db, spec.Table, spec.Column)
+		if err != nil {
+			return fmt.Errorf("repairChannelOwnerUserIDs: check %s.%s: %w", spec.Table, spec.Column, err)
+		}
+		if !exists {
+			return nil
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+UPDATE channels
+   SET owner_user_id = (
+       SELECT accounts.owner_user_id
+         FROM accounts
+        WHERE accounts.id = channels.account_id
+   )
+ WHERE owner_user_id IS NULL
+   AND EXISTS (
+       SELECT 1
+         FROM accounts
+        WHERE accounts.id = channels.account_id
+          AND accounts.owner_user_id IS NOT NULL
+   )`); err != nil {
+		return fmt.Errorf("repairChannelOwnerUserIDs: backfill channel owner_user_id: %w", err)
+	}
 	return nil
 }
 

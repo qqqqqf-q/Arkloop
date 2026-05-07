@@ -17,22 +17,22 @@ export function Button({
   ...props
 }: ButtonProps) {
   const variantCls = {
-    primary: 'bg-[var(--c-btn-bg)] text-[var(--c-btn-text)] hover:opacity-90',
-    ghost: 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]',
-    danger: 'bg-red-600 text-white hover:bg-red-700',
-    outline: 'border border-[var(--c-border)] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)]',
+    primary: 'bg-[var(--c-btn-bg)] text-[var(--c-btn-text)] hover:[box-shadow:inset_0_0_0_999px_rgba(255,255,255,0.07),0_0_0_0.2px_var(--c-btn-bg)]',
+    ghost: 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]',
+    danger: 'bg-[var(--c-bg-input)] text-[var(--c-danger-action-text)] [background-clip:padding-box] hover:border-transparent hover:bg-[var(--c-bg-deep)]',
+    outline: 'border-[0.65px] border-[color-mix(in_srgb,var(--c-border)_91%,var(--c-text-primary)_9%)] bg-[var(--c-bg-input)] text-[color-mix(in_srgb,var(--c-text-secondary)_72%,var(--c-text-primary)_28%)] [background-clip:padding-box] hover:border-transparent hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
   }[variant]
 
   const sizeCls = {
-    sm: 'px-3 py-1.5 text-xs rounded-lg',
-    md: 'px-4 py-2 text-sm rounded-lg',
+    sm: 'h-[32px] rounded-[6.5px] px-3.5 text-sm',
+    md: 'h-[35px] rounded-[7px] px-3 text-sm',
   }[size]
 
   return (
     <button
       type="button"
       disabled={disabled || loading}
-      className={`font-medium transition-colors disabled:opacity-50 inline-flex items-center gap-2 ${variantCls} ${sizeCls} ${className}`}
+      className={`inline-flex items-center justify-center gap-1.5 font-[450] transition-colors duration-[180ms] disabled:cursor-not-allowed disabled:opacity-40 ${variantCls} ${sizeCls} ${className}`}
       {...props}
     >
       {loading && <SpinnerIcon />}

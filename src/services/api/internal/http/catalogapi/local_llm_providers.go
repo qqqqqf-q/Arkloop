@@ -96,25 +96,18 @@ func localProviderAdvancedJSON(status localproviders.ProviderStatus) map[string]
 }
 
 func localProviderUUID(providerID string) uuid.UUID {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("arkloop:local-provider:"+providerID))
+	return localproviders.ProviderUUID(providerID)
 }
 
 func isLocalProviderUUID(providerID uuid.UUID) bool {
-	return providerID == localProviderUUID(localproviders.ClaudeCodeProviderID) ||
-		providerID == localProviderUUID(localproviders.CodexProviderID)
+	_, ok := localproviders.ProviderIDFromUUID(providerID)
+	return ok
 }
 
 func localProviderIDFromUUID(providerID uuid.UUID) (string, bool) {
-	switch providerID {
-	case localProviderUUID(localproviders.ClaudeCodeProviderID):
-		return localproviders.ClaudeCodeProviderID, true
-	case localProviderUUID(localproviders.CodexProviderID):
-		return localproviders.CodexProviderID, true
-	default:
-		return "", false
-	}
+	return localproviders.ProviderIDFromUUID(providerID)
 }
 
 func localRouteUUID(providerID string, modelID string) uuid.UUID {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("arkloop:local-provider:"+providerID+":model:"+modelID))
+	return localproviders.RouteUUID(providerID, modelID)
 }

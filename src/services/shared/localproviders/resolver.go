@@ -809,7 +809,7 @@ func (r *Resolver) doJSON(req *http.Request, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("oauth refresh failed: status %d", resp.StatusCode)

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	sharedoutbound "arkloop/services/shared/outboundurl"
 	"arkloop/services/worker/internal/tools"
 )
 
@@ -64,6 +65,8 @@ func TestExecuteUnwrapsJinaWrapperBeforeFetch(t *testing.T) {
 }
 
 func TestExecuteUnwrapsJinaWrapperBeforePolicyCheck(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	provider := &captureProvider{}
 	executor := &ToolExecutor{
 		provider: provider,

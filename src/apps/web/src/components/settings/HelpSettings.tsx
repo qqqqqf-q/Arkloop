@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { HelpCircle, ArrowUpRight, Flag, X } from 'lucide-react'
+import { HelpCircle, ArrowUpRight, Flag } from 'lucide-react'
 import { isApiError, createSuggestionFeedback } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
 import { openExternal } from '../../openExternal'
 import { AutoResizeTextarea } from '@arkloop/shared'
+import { SettingsButton } from './_SettingsButton'
+import { SettingsModalFrame } from './_SettingsModalFrame'
 
 export function HelpContent({ label }: { label: string }) {
   const { locale } = useLocale()
@@ -78,26 +80,28 @@ export function ReportFeedbackContent({ accessToken }: { accessToken: string }) 
       </div>
 
       {open && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center"
-          style={{ background: 'rgba(0,0,0,0.12)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false) }}
-        >
-          <div
-            className="modal-enter w-full max-w-lg rounded-2xl p-6"
-            style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-[var(--c-text-heading)]">{t.suggestionTitle}</h3>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
+        <SettingsModalFrame
+          open
+          title={t.suggestionTitle}
+          onClose={() => setOpen(false)}
+          width={540}
+          footer={(
+            <>
+              <SettingsButton size="modal" variant="secondary" onClick={() => setOpen(false)}>
+                {t.reportCancel}
+              </SettingsButton>
+              <SettingsButton
+                size="modal"
+                variant="primary"
+                onClick={() => void handleSubmit()}
+                disabled={submitting || success || !feedback.trim()}
               >
-                <X size={16} />
-              </button>
-            </div>
-
+                {submitting ? '...' : t.suggestionSubmit}
+              </SettingsButton>
+            </>
+          )}
+        >
+          <div className="mt-7">
             <AutoResizeTextarea
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
@@ -108,7 +112,7 @@ export function ReportFeedbackContent({ accessToken }: { accessToken: string }) 
               maxHeight={240}
               disabled={submitting || success}
               className="w-full resize-none rounded-lg border px-3 py-2 text-sm text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
-              style={{ borderColor: 'var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+              style={{ borderColor: 'var(--c-border-subtle)', background: 'var(--c-bg-input)' }}
             />
 
             <div className="mt-2 flex items-center justify-between">
@@ -116,28 +120,8 @@ export function ReportFeedbackContent({ accessToken }: { accessToken: string }) 
               {error && <span className="text-xs text-[var(--c-status-error-text)]">{error}</span>}
               {!error && success && <span className="text-xs text-[var(--c-status-success-text,#22c55e)]">{t.suggestionSuccess}</span>}
             </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-              >
-                {t.reportCancel}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={submitting || success || !feedback.trim()}
-                className="rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50"
-                style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
-              >
-                {submitting ? '...' : t.suggestionSubmit}
-              </button>
-            </div>
           </div>
-        </div>
+        </SettingsModalFrame>
       )}
     </>
   )

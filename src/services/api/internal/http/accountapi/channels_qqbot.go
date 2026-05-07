@@ -494,7 +494,7 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 	}
 	deliveryPayload := buildQQBotChannelDeliveryPayload(ch.ID, identity.ID, platformChatID, messageID, conversationType)
 	runData := buildChannelRunStartedData(personaRef, cfg.DefaultModel, "", deliveryPayload)
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, identity.UserID, "run.started", runData)
+	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
 	if err != nil {
 		return err
 	}
@@ -574,7 +574,7 @@ func (c qqbotConnector) resolveThreadID(
 			titleText = platformChatID
 		}
 		titleText += " (QQBot 私聊)"
-		thread, err := threadRepoTx.Create(ctx, ch.AccountID, identity.UserID, projectID, &titleText, false)
+		thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, &titleText, false)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -592,7 +592,7 @@ func (c qqbotConnector) resolveThreadID(
 		return existing.ThreadID, nil
 	}
 	titleText := "QQBot 群 " + platformChatID
-	thread, err := threadRepoTx.Create(ctx, ch.AccountID, nil, projectID, &titleText, false)
+	thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, &titleText, false)
 	if err != nil {
 		return uuid.Nil, err
 	}

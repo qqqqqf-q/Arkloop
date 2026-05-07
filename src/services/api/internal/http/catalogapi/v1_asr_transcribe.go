@@ -142,7 +142,8 @@ func asrTranscribeEntry(
 		}
 
 		upstreamURL := resolveAsrBaseURL(cred) + "/audio/transcriptions"
-		if err := sharedoutbound.DefaultPolicy().ValidateRequestURL(upstreamURL); err != nil {
+		policy := sharedoutbound.DefaultPolicy()
+		if err := policy.ValidateRequestURL(upstreamURL); err != nil {
 			writeErrStr(nethttp.StatusUnprocessableEntity, "asr.invalid_base_url", "invalid ASR base_url: "+err.Error())
 			return
 		}
@@ -155,7 +156,7 @@ func asrTranscribeEntry(
 		req.Header.Set("Content-Type", mw.FormDataContentType())
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
-		resp, err := sharedoutbound.DefaultPolicy().NewHTTPClient(asrUpstreamTimeout).Do(req)
+		resp, err := policy.NewHTTPClient(asrUpstreamTimeout).Do(req)
 		if err != nil {
 			var denied sharedoutbound.DeniedError
 			if errors.As(err, &denied) {

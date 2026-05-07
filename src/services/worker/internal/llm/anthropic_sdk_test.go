@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	anthropic "github.com/anthropics/anthropic-sdk-go"
 )
 
 func anthropicSDKSSEBody(chunks []string) string {
@@ -719,6 +722,94 @@ func TestAnthropicSDKGateway_QuirkRetryStripUnsignedThinking(t *testing.T) {
 				t.Fatalf("retry must drop unsigned thinking, found %#v", block)
 			}
 		}
+	}
+}
+
+func TestAnthropicSDKDetectQuirk_UsesCapturedResponseTail(t *testing.T) {
+	capture := newProviderResponseCapture()
+	capture.setResponse(&http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{"Content-Type": []string{"text/event-stream"}}})
+	capture.appendBody([]byte(`{"error":{"message":"Extra inputs are not permitted, field: 'messages[1].content[0].cache_control'"}}`))
+
+	apiErr := &anthropic.Error{
+		StatusCode: http.StatusBadRequest,
+		Response: &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Anthropic request failed: status=400"}}`)),
+		},
+	}
+	id, ok := anthropicSDKDetectQuirk(apiErr, capture)
+	if !ok || id != QuirkStripCacheControl {
+		t.Fatalf("expected strip cache_control quirk from response tail, got id=%s ok=%v", id, ok)
+	}
+	id, ok = anthropicSDKDetectQuirk(fmt.Errorf("anthropic stream failed"), capture)
+	if !ok || id != QuirkStripCacheControl {
+		t.Fatalf("expected strip cache_control quirk without api error, got id=%s ok=%v", id, ok)
+	}
+}
+
+func TestAnthropicSDKGateway_QuirkRetryStripCacheControl(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	var attempts int
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		bodies = append(bodies, body)
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"Extra inputs are not permitted, field: 'messages[1].content[0].cache_control'"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(anthropicSDKSSEBody([]string{
+			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}`,
+			`{"type":"message_stop"}`,
+		})))
+	}))
+	defer server.Close()
+
+	cacheControl := "ephemeral"
+	gateway := NewAnthropicGatewaySDK(AnthropicGatewayConfig{
+		Transport: TransportConfig{APIKey: "key", BaseURL: server.URL},
+		Protocol:  AnthropicProtocolConfig{Version: "2023-06-01"},
+	})
+	request := Request{
+		Model: "claude-test",
+		Messages: []Message{
+			{Role: "system", Content: []ContentPart{{Text: "system", CacheControl: &cacheControl}}},
+			{Role: "user", Content: []ContentPart{{Text: "hi", CacheControl: &cacheControl}}},
+		},
+	}
+	var completed bool
+	var learned []StreamQuirkLearned
+	if err := gateway.Stream(context.Background(), request, func(event StreamEvent) error {
+		switch ev := event.(type) {
+		case StreamRunCompleted:
+			completed = true
+		case StreamQuirkLearned:
+			learned = append(learned, ev)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected retry, got attempts=%d", attempts)
+	}
+	if !completed {
+		t.Fatalf("missing completion after retry")
+	}
+	if len(learned) != 1 || learned[0].QuirkID != string(QuirkStripCacheControl) {
+		t.Fatalf("expected strip cache_control quirk, got %#v", learned)
+	}
+	if count := countAnthropicCacheControlBlocks(bodies[1]); count != 0 {
+		t.Fatalf("retry payload must strip cache_control, got %d in %#v", count, bodies[1])
 	}
 }
 

@@ -18,6 +18,7 @@ import { useLocale } from './contexts/LocaleContext'
 import { shouldDelayLocalSession } from './appAuthStartup'
 import {
   clearActiveThreadIdInStorage,
+  readActiveThreadIdFromStorage,
   writeAccessTokenToStorage,
   clearAccessTokenFromStorage,
 } from './storage'
@@ -41,15 +42,49 @@ const ScheduledJobsPage = lazy(() => import('./pages/scheduled-jobs/ScheduledJob
 
 const sessionRestoreRetries = 12
 const sessionRestoreDelayMs = 1000
+let startupRestoreAttempted = false
+
+function StartupRoute() {
+  const [targetThreadId, setTargetThreadId] = useState<string | null>(null)
+  const shouldRestoreStartupThread = isDesktop() && !startupRestoreAttempted
+  const [checked, setChecked] = useState(!shouldRestoreStartupThread)
+
+  useEffect(() => {
+    if (!shouldRestoreStartupThread) return
+    startupRestoreAttempted = true
+    let active = true
+    const api = getDesktopApi()
+    if (!api?.config) {
+      setChecked(true)
+      return
+    }
+    void api.config.get().then((config) => {
+      if (!active) return
+      if ((config.desktop?.startupOpen ?? 'last-workspace') === 'last-workspace') {
+        setTargetThreadId(readActiveThreadIdFromStorage())
+      }
+      setChecked(true)
+    }).catch(() => {
+      if (active) setChecked(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [shouldRestoreStartupThread])
+
+  if (!checked) return null
+  if (targetThreadId) return <Navigate to={`/t/${targetThreadId}`} replace />
+  return <WelcomePage />
+}
 
 function App() {
   const { t } = useLocale()
   const { addToast } = useToast()
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
+  const [onboardingDone, setOnboardingDone] = useState<boolean | null>(() => (isDesktop() ? null : true))
   const [sidecarError, setSidecarError] = useState<{ title: string; message: string } | null>(null)
-  const [sidecarChecked, setSidecarChecked] = useState(false)
+  const [sidecarChecked, setSidecarChecked] = useState(() => !isDesktop())
 
   // Desktop: 检查 onboarding 状态
   useEffect(() => {
@@ -159,6 +194,12 @@ function App() {
     })
 
     const localMode = isLocalMode()
+    if (!sidecarChecked || onboardingDone === null) {
+      setAuthChecked(false)
+      return () => {
+        controller.abort()
+      }
+    }
     if (shouldDelayLocalSession(localMode, sidecarChecked, onboardingDone)) {
       setAuthChecked(false)
       return () => {
@@ -318,7 +359,7 @@ function App() {
               </ThreadListProvider>
             </AuthProvider>
           }>
-            <Route index element={<WelcomePage />} />
+            <Route index element={<StartupRoute />} />
             <Route path="search" element={<WelcomePage />} />
             <Route path="t/:threadId" element={<ChatShell />} />
             <Route path="t/:threadId/search" element={<ChatShell />} />

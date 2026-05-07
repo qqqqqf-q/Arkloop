@@ -176,7 +176,7 @@ function getDevPackagedSidecarPath(): string {
 
 function getSidecarBinaryCandidates(): string[] {
   if (app.isPackaged) {
-    return [getSidecarPath(), getBundledSidecarPath()]
+    return [getBundledSidecarPath(), getSidecarPath()]
   }
   return [
     getDevBuiltSidecarPath(),

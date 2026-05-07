@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { CopyIconButton } from './CopyIconButton'
 import type { Components, Options, UrlTransform } from 'react-markdown'
 import { defaultUrlTransform } from 'react-markdown'
@@ -739,20 +740,14 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
     [effectiveDisableMath],
   )
 
-  // 异步加载 rehype 插件：流式期间跳过高亮，完成后异步加载
+  // 代码高亮异步加载；KaTeX 保持同步，避免首帧和测试环境退化为 math code。
   const [asyncPlugins, setAsyncPlugins] = useState<NonNullable<Options['rehypePlugins']>>([])
   const loadedRef = useRef(false)
 
   useEffect(() => {
     if (streaming) {
-      // 流式期间：重置加载状态，使用空插件或仅 katex
       loadedRef.current = false
-      if (effectiveDisableMath) {
-        setAsyncPlugins([])
-      } else {
-        // 流式期间数学仍同步渲染（remark-math 已处理），但 katex 也异步
-        setAsyncPlugins([])
-      }
+      setAsyncPlugins([])
       return
     }
 
@@ -762,12 +757,6 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
       const loadPlugins = async () => {
         // 动态加载 rehype 插件，异步执行不阻塞渲染
         const plugins: NonNullable<Options['rehypePlugins']> = []
-        if (!effectiveDisableMath) {
-          try {
-            const m = await import('rehype-katex')
-            plugins.push([m.default ?? m, { throwOnError: false, output: 'htmlAndMathml' }])
-          } catch { /* skip */ }
-        }
         try {
           const m = await import('rehype-highlight')
           plugins.push([m.default ?? m, { ignoreMissing: true }])
@@ -779,8 +768,10 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
   }, [streaming, effectiveDisableMath])
 
   const rehypePlugins = useMemo<NonNullable<Options['rehypePlugins']>>(
-    () => asyncPlugins,
-    [asyncPlugins],
+    () => (effectiveDisableMath
+      ? asyncPlugins
+      : [[rehypeKatex, { throwOnError: false, output: 'htmlAndMathml' }], ...asyncPlugins]),
+    [asyncPlugins, effectiveDisableMath],
   )
 
   const activePanelArtifactKey = useActiveArtifactKey()

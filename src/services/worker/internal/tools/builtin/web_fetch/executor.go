@@ -292,9 +292,6 @@ func classifyFetchFailure(err error) fetchFailure {
 		if netErr.Timeout() {
 			return fetchFailure{reason: fetchFailureNetworkTimeout, retryable: true}
 		}
-		if netErr.Temporary() {
-			return fetchFailure{reason: fetchFailureNetworkError, retryable: true}
-		}
 	}
 
 	message := strings.ToLower(err.Error())

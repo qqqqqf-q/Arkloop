@@ -96,7 +96,10 @@ export function installAppUpdate(): void {
   autoUpdater.quitAndInstall(false, true)
 }
 
-export function setupAppUpdater(getWindow: () => Electron.BrowserWindow | null): void {
+export function setupAppUpdater(
+  getWindow: () => Electron.BrowserWindow | null,
+  options: { autoCheck: boolean } = { autoCheck: true },
+): void {
   getWindowRef = getWindow
   state = baseState()
 
@@ -159,5 +162,7 @@ export function setupAppUpdater(getWindow: () => Electron.BrowserWindow | null):
   })
 
   patchState({})
-  void checkForAppUpdates().catch(() => {})
+  if (options.autoCheck) {
+    void checkForAppUpdates().catch(() => {})
+  }
 }

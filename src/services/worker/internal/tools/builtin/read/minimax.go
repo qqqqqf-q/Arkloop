@@ -32,7 +32,8 @@ func NewMiniMaxProvider(apiKey string, baseURL string, model string) (*MiniMaxPr
 	if cleanedBaseURL == "" {
 		cleanedBaseURL = defaultMiniMaxBaseURL
 	}
-	normalizedBaseURL, err := sharedoutbound.DefaultPolicy().NormalizeBaseURL(cleanedBaseURL)
+	policy := sharedoutbound.DefaultPolicy()
+	normalizedBaseURL, err := policy.NormalizeBaseURL(cleanedBaseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +44,7 @@ func NewMiniMaxProvider(apiKey string, baseURL string, model string) (*MiniMaxPr
 	}
 
 	return &MiniMaxProvider{
-		http:    sharedoutbound.DefaultPolicy().NewHTTPClient(0),
+		http:    policy.NewHTTPClient(0),
 		baseURL: normalizedBaseURL,
 		apiKey:  cleanedKey,
 		model:   cleanedModel,

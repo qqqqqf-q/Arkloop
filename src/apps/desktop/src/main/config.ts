@@ -6,6 +6,8 @@ import type {
   AppConfig,
   ConnectionMode,
   ConnectorsConfig,
+  CloseWindowBehavior,
+  DesktopPreferencesConfig,
   FetchConnectorConfig,
   FetchProvider,
   LocalConfig,
@@ -17,6 +19,7 @@ import type {
   OpenVikingDesktopConfig,
   SearchConnectorConfig,
   SearchProvider,
+  StartupOpenMode,
   VoiceConfig,
 } from './types'
 
@@ -202,6 +205,26 @@ function normalizeNetwork(raw: unknown): NetworkConfig {
   }
 }
 
+function normalizeStartupOpenMode(value: unknown): StartupOpenMode {
+  return value === 'home' ? 'home' : 'last-workspace'
+}
+
+function normalizeCloseBehavior(value: unknown): CloseWindowBehavior {
+  return value === 'quit' ? 'quit' : 'keep-in-background'
+}
+
+function normalizeDesktopPreferences(raw: unknown): DesktopPreferencesConfig {
+  const r = (raw && typeof raw === 'object') ? raw as Partial<DesktopPreferencesConfig> : {}
+  return {
+    startupOpen: normalizeStartupOpenMode(r.startupOpen),
+    closeBehavior: normalizeCloseBehavior(r.closeBehavior),
+    launchAtLogin: r.launchAtLogin === true,
+    desktopNotifications: r.desktopNotifications === false ? false : true,
+    productUpdateNotifications: r.productUpdateNotifications === false ? false : true,
+    keepScreenAwake: r.keepScreenAwake === true,
+  }
+}
+
 export function normalizeConfig(config: Partial<AppConfig> | null | undefined): AppConfig {
   const parsed = config ?? {}
   return {
@@ -228,6 +251,7 @@ export function normalizeConfig(config: Partial<AppConfig> | null | undefined): 
     connectors: normalizeConnectors(parsed.connectors),
     memory: normalizeMemory(parsed.memory),
     network: normalizeNetwork(parsed.network),
+    desktop: normalizeDesktopPreferences(parsed.desktop),
     voice: normalizeVoice(parsed.voice),
   }
 }

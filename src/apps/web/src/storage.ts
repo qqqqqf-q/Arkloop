@@ -3,7 +3,7 @@ import {
 } from '@arkloop/shared/storage'
 import type { Theme } from '@arkloop/shared/contexts/theme'
 import type { UploadedThreadAttachment } from './api'
-import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeDefinition } from './themes/types'
+import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeDefinition, ThemeBackgroundImage } from './themes/types'
 import type { AssistantTurnSegment, AssistantTurnUi, CopBlockItem, TurnToolCallRef } from './assistantTurnSegments'
 import type { AgentUIEvent } from './agent-ui/contract'
 import {
@@ -30,6 +30,8 @@ const THEME_PRESET_KEY = 'arkloop:web:theme-preset'
 const CUSTOM_THEME_ID_KEY = 'arkloop:web:custom-theme-id'
 const CUSTOM_THEMES_KEY = 'arkloop:web:custom-themes'
 const CUSTOM_BODY_FONT_KEY = 'arkloop:web:custom-body-font'
+const BACKGROUND_IMAGE_KEY = 'arkloop:web:background-image'
+const BACKGROUND_IMAGE_OPACITY_KEY = 'arkloop:web:background-image-opacity'
 const INPUT_DRAFT_TEXT_PREFIX = 'arkloop:web:input_draft_text'
 const INPUT_DRAFT_ATTACHMENTS_PREFIX = 'arkloop:web:input_draft_attachments'
 const INPUT_HISTORY_PREFIX = 'arkloop:web:input_history'
@@ -245,10 +247,10 @@ if (typeof window !== 'undefined') {
   })
 }
 
-function tryWriteDraftWithEviction(write: () => void, protectedKeys: string[]): void {
+function tryWriteDraftWithEviction(write: () => void, protectedKeys: string[]): boolean {
   try {
     write()
-    return
+    return true
   } catch {
     // fall through
   }
@@ -269,11 +271,12 @@ function tryWriteDraftWithEviction(write: () => void, protectedKeys: string[]): 
     if (!removedAny) continue
     try {
       write()
-      return
+      return true
     } catch {
       // keep evicting
     }
   }
+  return false
 }
 
 function inputDraftBaseKey(scope: InputDraftScope, prefix: string): string | null {
@@ -2148,7 +2151,7 @@ export function readThemePresetFromStorage(): ThemePreset {
   if (!canUseLocalStorage()) return 'default'
   try {
     const raw = localStorage.getItem(THEME_PRESET_KEY)
-    const valid: ThemePreset[] = ['default', 'terra', 'github', 'nord', 'catppuccin', 'tokyo-night', 'retina-burn', 'custom']
+    const valid: ThemePreset[] = ['default', 'terra', 'github', 'nord', 'catppuccin', 'tokyo-night', 'retina-burn', 'background-image', 'custom']
     return valid.includes(raw as ThemePreset) ? (raw as ThemePreset) : 'default'
   } catch {
     return 'default'
@@ -2215,6 +2218,68 @@ export function writeCustomBodyFontToStorage(font: string | null): void {
     } else {
       localStorage.removeItem(CUSTOM_BODY_FONT_KEY)
     }
+  } catch { /* ignore */ }
+}
+
+function isBackgroundImageDataUrl(value: string): boolean {
+  return /^data:image\/(?:png|jpeg|jpg|webp|gif|avif);base64,[a-zA-Z0-9+/=]+$/.test(value)
+}
+
+export function readBackgroundImageFromStorage(): ThemeBackgroundImage | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    const raw = localStorage.getItem(BACKGROUND_IMAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<ThemeBackgroundImage>
+    if (typeof parsed.dataUrl !== 'string' || !isBackgroundImageDataUrl(parsed.dataUrl)) return null
+    const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim() : 'background'
+    const mimeType = typeof parsed.mimeType === 'string' && parsed.mimeType.trim() ? parsed.mimeType.trim() : 'image/jpeg'
+    const size = Number.isFinite(parsed.size) && Number(parsed.size) >= 0 ? Number(parsed.size) : 0
+    const updatedAt = Number.isFinite(parsed.updatedAt) ? Number(parsed.updatedAt) : Date.now()
+    return { dataUrl: parsed.dataUrl, name, mimeType, size, updatedAt }
+  } catch {
+    return null
+  }
+}
+
+export function writeBackgroundImageToStorage(image: ThemeBackgroundImage | null): boolean {
+  if (!canUseLocalStorage()) return false
+  try {
+    if (!image) {
+      localStorage.removeItem(BACKGROUND_IMAGE_KEY)
+      return true
+    }
+    if (!isBackgroundImageDataUrl(image.dataUrl)) return false
+    const payload = JSON.stringify(image)
+    return tryWriteDraftWithEviction(() => {
+      localStorage.setItem(BACKGROUND_IMAGE_KEY, payload)
+    }, [BACKGROUND_IMAGE_KEY])
+  } catch {
+    return false
+  }
+}
+
+function normalizeBackgroundImageOpacity(value: unknown): number {
+  const next = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(next)) return 100
+  return Math.min(Math.max(Math.round(next), 0), 100)
+}
+
+export function readBackgroundImageOpacityFromStorage(): number {
+  if (!canUseLocalStorage()) return 100
+  try {
+    const raw = localStorage.getItem(BACKGROUND_IMAGE_OPACITY_KEY)
+    if (!raw) return 100
+    return normalizeBackgroundImageOpacity(raw)
+  } catch {
+    return 100
+  }
+}
+
+export function writeBackgroundImageOpacityToStorage(opacity: number): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(BACKGROUND_IMAGE_OPACITY_KEY, String(normalizeBackgroundImageOpacity(opacity)))
   } catch { /* ignore */ }
 }
 

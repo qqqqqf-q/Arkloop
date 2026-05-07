@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -35,10 +36,15 @@ var localShellAllowedEnvKeys = []string{
 	"LOGNAME",
 	"PATH",
 	"SHELL",
+	"ComSpec",
 	"TEMP",
 	"TMP",
 	"TMPDIR",
+	"PATHEXT",
+	"SystemRoot",
 	"USER",
+	"USERPROFILE",
+	"WINDIR",
 }
 
 type Executor struct {
@@ -448,7 +454,7 @@ func sanitizeLocalEnvPatches(overrides map[string]*string) map[string]*string {
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
-		if key == "" || slices.Contains(localShellAllowedEnvKeys, key) {
+		if key == "" || isLocalShellAllowedEnvKey(key) {
 			continue
 		}
 		patches[key] = nil
@@ -460,6 +466,15 @@ func sanitizeLocalEnvPatches(overrides map[string]*string) map[string]*string {
 		return nil
 	}
 	return patches
+}
+
+func isLocalShellAllowedEnvKey(key string) bool {
+	if runtime.GOOS == "windows" {
+		return slices.ContainsFunc(localShellAllowedEnvKeys, func(allowed string) bool {
+			return strings.EqualFold(key, allowed)
+		})
+	}
+	return slices.Contains(localShellAllowedEnvKeys, key)
 }
 
 func isProcessNotFound(err error) bool {
@@ -561,8 +576,15 @@ func readIntArg(args map[string]any, key string) int {
 func sanitizeOutput(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
+		line = strings.TrimSuffix(line, "\r")
 		parts := strings.Split(line, "\r")
-		lines[i] = parts[len(parts)-1]
+		for j := len(parts) - 1; j >= 0; j-- {
+			if parts[j] != "" {
+				line = parts[j]
+				break
+			}
+		}
+		lines[i] = line
 	}
 	s = strings.Join(lines, "\n")
 

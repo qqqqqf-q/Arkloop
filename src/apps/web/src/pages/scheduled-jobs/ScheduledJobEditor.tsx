@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Folder, FolderOpen, X, Check } from 'lucide-react'
+import { ChevronRight, Folder, FolderOpen, X, Check } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { Modal, FormField, PillToggle, useToast } from '@arkloop/shared'
+import { Modal, FormField, useToast } from '@arkloop/shared'
 import { getAvailableCatalogFromAdvancedJson } from '@arkloop/shared/llm/available-catalog-advanced-json'
 import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
+import { SettingsButton } from '../../components/settings/_SettingsButton'
+import { SettingsInput, settingsInputCls } from '../../components/settings/_SettingsInput'
 import { SettingsSelect } from '../../components/settings/_SettingsSelect'
+import { SettingsSwitch } from '../../components/settings/_SettingsSwitch'
 import {
   listAllPersonas,
   listThreads,
@@ -36,6 +39,9 @@ type Props = {
   onSaved: () => void
   accessToken: string
 }
+
+const TEXTAREA_CLS =
+  `${settingsInputCls('md')} h-auto min-h-[96px] resize-y py-2`
 
 export default function ScheduledJobEditor({
   open,
@@ -418,29 +424,19 @@ export default function ScheduledJobEditor({
     >
       <div className="flex flex-col gap-4">
         <FormField label={t.scheduledJobsName}>
-          <input
+          <SettingsInput
+            variant="md"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-            style={{
-              border: '0.5px solid var(--c-border-subtle)',
-              background: 'var(--c-bg-input)',
-              color: 'var(--c-text-primary)',
-            }}
             maxLength={200}
           />
         </FormField>
 
         <FormField label={t.scheduledJobsDescription}>
-          <input
+          <SettingsInput
+            variant="md"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-            style={{
-              border: '0.5px solid var(--c-border-subtle)',
-              background: 'var(--c-bg-input)',
-              color: 'var(--c-text-primary)',
-            }}
           />
         </FormField>
 
@@ -458,12 +454,7 @@ export default function ScheduledJobEditor({
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
-            className="w-full resize-y rounded-lg px-3 py-2 text-sm outline-none"
-            style={{
-              border: '0.5px solid var(--c-border-subtle)',
-              background: 'var(--c-bg-input)',
-              color: 'var(--c-text-primary)',
-            }}
+            className={TEXTAREA_CLS}
           />
         </FormField>
 
@@ -489,7 +480,7 @@ export default function ScheduledJobEditor({
                 <span className="text-sm" style={{ color: 'var(--c-text-secondary)' }}>
                   {t.scheduledJobsThinking}
                 </span>
-                <PillToggle
+                <SettingsSwitch
                   checked={!!reasoningMode}
                   onChange={(v) => setReasoningMode(v ? 'medium' : '')}
                 />
@@ -524,17 +515,12 @@ export default function ScheduledJobEditor({
 
         {scheduleKind === 'interval' && (
           <FormField label={t.scheduledJobsIntervalMinutes}>
-            <input
+            <SettingsInput
+              variant="md"
               type="number"
               min={1}
               value={intervalMin}
               onChange={(e) => setIntervalMin(Number(e.target.value))}
-              className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-              style={{
-                border: '0.5px solid var(--c-border-subtle)',
-                background: 'var(--c-bg-input)',
-                color: 'var(--c-text-primary)',
-              }}
             />
           </FormField>
         )}
@@ -542,28 +528,18 @@ export default function ScheduledJobEditor({
         {(scheduleKind === 'daily' || scheduleKind === 'weekdays') && (
           <>
             <FormField label={t.scheduledJobsDailyTime}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={dailyTime}
                 onChange={(e) => setDailyTime(e.target.value)}
                 placeholder="HH:MM"
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsTimezone}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
           </>
@@ -579,28 +555,18 @@ export default function ScheduledJobEditor({
               />
             </FormField>
             <FormField label={t.scheduledJobsDailyTime}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={dailyTime}
                 onChange={(e) => setDailyTime(e.target.value)}
                 placeholder="HH:MM"
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsTimezone}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
           </>
@@ -609,43 +575,28 @@ export default function ScheduledJobEditor({
         {scheduleKind === 'monthly' && (
           <>
             <FormField label={t.scheduledJobsMonthlyDay}>
-              <input
+              <SettingsInput
+                variant="md"
                 type="number"
                 min={1}
                 max={28}
                 value={monthlyDay}
                 onChange={(e) => setMonthlyDay(Number(e.target.value))}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsMonthlyTime}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={monthlyTime}
                 onChange={(e) => setMonthlyTime(e.target.value)}
                 placeholder="HH:MM"
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsTimezone}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
           </>
@@ -654,40 +605,29 @@ export default function ScheduledJobEditor({
         {scheduleKind === 'at' && (
           <>
             <FormField label={t.scheduledJobsFireAt}>
-              <input
+              <SettingsInput
+                variant="md"
                 type="datetime-local"
                 value={fireAt}
                 onChange={(e) => setFireAt(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsTimezone}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <label
-              className="flex items-center gap-2 text-sm"
+              className="flex items-center justify-between gap-3 text-sm"
               style={{ color: 'var(--c-text-secondary)' }}
             >
-              <input
-                type="checkbox"
+              <span>{t.scheduledJobsDeleteAfterRun}</span>
+              <SettingsSwitch
                 checked={deleteAfterRun}
-                onChange={(e) => setDeleteAfterRun(e.target.checked)}
+                onChange={setDeleteAfterRun}
               />
-              {t.scheduledJobsDeleteAfterRun}
             </label>
           </>
         )}
@@ -695,28 +635,18 @@ export default function ScheduledJobEditor({
         {scheduleKind === 'cron' && (
           <>
             <FormField label={t.scheduledJobsCronExpr}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={cronExpr}
                 onChange={(e) => setCronExpr(e.target.value)}
                 placeholder="0 9 * * *"
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
             <FormField label={t.scheduledJobsTimezone}>
-              <input
+              <SettingsInput
+                variant="md"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
           </>
@@ -725,19 +655,20 @@ export default function ScheduledJobEditor({
         <button
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
-          className="flex items-center gap-1 text-xs font-medium"
-          style={{ color: 'var(--c-text-tertiary)' }}
+          className="group/folder -ml-2 flex h-[34px] w-[calc(100%+16px)] cursor-pointer select-none items-center px-2 py-0 text-left"
         >
           <span
-            className="transition-transform duration-150"
-            style={{
-              display: 'inline-block',
-              transform: showAdvanced ? 'rotate(180deg)' : 'rotate(0deg)',
-            }}
+            className="select-none text-[13.5px] leading-[20px] text-[var(--c-text-muted)] transition-colors duration-[80ms] group-hover/folder:text-[var(--c-text-tertiary)]"
+            style={{ fontWeight: 500 }}
           >
-            ▼
+            {t.scheduledJobsAdvanced}
           </span>
-          {t.scheduledJobsAdvanced}
+          <span className="ml-1 shrink-0 text-[var(--c-text-muted)] opacity-0 transition-opacity duration-[80ms] group-hover/folder:opacity-100">
+            <ChevronRight
+              size={12}
+              className={['transition-transform duration-150', showAdvanced ? 'rotate-90' : 'rotate-0'].join(' ')}
+            />
+          </span>
         </button>
 
         {showAdvanced && (
@@ -749,10 +680,8 @@ export default function ScheduledJobEditor({
                     ref={folderBtnRef}
                     type="button"
                     onClick={handleOpenFolderMenu}
-                    className="flex h-9 w-full items-center justify-between rounded-lg px-3 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
+                    className={`${settingsInputCls('md')} flex items-center justify-between text-left hover:bg-[var(--c-bg-deep)]`}
                     style={{
-                      border: '0.5px solid var(--c-border-subtle)',
-                      background: 'var(--c-bg-input)',
                       color: workDir ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
                     }}
                   >
@@ -775,61 +704,42 @@ export default function ScheduledJobEditor({
             )}
             {!desktop && (
               <FormField label={t.scheduledJobsWorkDir}>
-                <input
+                <SettingsInput
+                  variant="md"
                   value={workDir}
                   onChange={(e) => setWorkDir(e.target.value)}
-                  className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                  style={{
-                    border: '0.5px solid var(--c-border-subtle)',
-                    background: 'var(--c-bg-input)',
-                    color: 'var(--c-text-primary)',
-                  }}
                 />
               </FormField>
             )}
 
             <FormField label={t.scheduledJobsTimeout}>
-              <input
+              <SettingsInput
+                variant="md"
                 type="number"
                 min={0}
                 value={timeout}
                 onChange={(e) => setTimeout_(Number(e.target.value))}
                 placeholder="0"
-                className="h-9 w-full rounded-lg px-3 text-sm outline-none"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: 'var(--c-bg-input)',
-                  color: 'var(--c-text-primary)',
-                }}
               />
             </FormField>
           </>
         )}
 
         <div className="mt-2 flex justify-end gap-2">
-          <button
-            type="button"
+          <SettingsButton
+            size="modal"
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--c-bg-deep)]"
-            style={{
-              color: 'var(--c-text-secondary)',
-              border: '0.5px solid var(--c-border-subtle)',
-            }}
           >
             {t.scheduledJobsCancel}
-          </button>
-          <button
-            type="button"
+          </SettingsButton>
+          <SettingsButton
+            variant="primary"
+            size="modal"
             onClick={handleSave}
             disabled={saving || !name.trim() || !prompt.trim()}
-            className="rounded-lg px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-40"
-            style={{
-              background: 'var(--c-accent)',
-              color: 'var(--c-accent-fg)',
-            }}
           >
             {saving ? t.scheduledJobsSaving : t.scheduledJobsSave}
-          </button>
+          </SettingsButton>
         </div>
       </div>
     </Modal>

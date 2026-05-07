@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { MessageCircle, Zap } from 'lucide-react'
 import {
   type ChannelBindingResponse,
   type ChannelResponse,
@@ -15,8 +14,9 @@ import {
   updateChannelBinding,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-import { PillToggle } from '@arkloop/shared'
 import {
+  channelRowsCls,
+  ChannelDetailRow,
   BindingsCard,
   buildModelOptions,
   inputCls,
@@ -27,10 +27,10 @@ import {
   resolvePersonaID,
   sameItems,
   SaveActions,
-  StatusBadge,
   TokenField,
 } from './DesktopChannelSettingsShared'
 import { QQLoginFlow } from '../QQLoginFlow'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 type Props = {
   accessToken: string
@@ -264,7 +264,6 @@ export function DesktopQQSettingsPanel({
 
   const handleUnbind = async (binding: ChannelBindingResponse) => {
     if (!channel) return
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
       const nextBindings = await listChannelBindings(accessToken, channel.id)
@@ -339,7 +338,7 @@ export function DesktopQQSettingsPanel({
     <div className="flex flex-col gap-6">
       {error && (
         <div
-          className="rounded-xl px-4 py-3 text-sm"
+          className="rounded-xl px-5 py-3 text-sm"
           style={{
             border: '0.5px solid color-mix(in srgb, var(--c-status-error, #ef4444) 24%, transparent)',
             background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
@@ -351,111 +350,64 @@ export function DesktopQQSettingsPanel({
       )}
 
       <div
-        className="rounded-2xl p-5"
+        className="overflow-hidden rounded-xl"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                  <MessageCircle size={18} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.qqOneBot}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <StatusBadge active={enabled} label={enabled ? ct.active : ct.inactive} />
-                  </div>
+        <div className="flex flex-col">
+          <div className={channelRowsCls}>
+            <ChannelDetailRow label={t.agentSettings.reasoningModes.enabled}>
+              <div className="flex justify-end">
+                <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
+              </div>
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.qqSetup}>
+              <QQLoginFlow accessToken={accessToken} channelId={channel?.id ?? ''} onStatusChange={handleNapCatStatus} />
+            </ChannelDetailRow>
+            {isWindows && (
+              <ChannelDetailRow label={ct.qqAutoLogin}>
+                <div>
+                  <ModelDropdown
+                    value={autoLoginUin}
+                    options={autoLoginOptions}
+                    placeholder={ct.qqAutoLoginNone}
+                    disabled={saving}
+                    onChange={(v) => { setAutoLoginUin(v); setSaved(false) }}
+                  />
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">{ct.qqAutoLoginDesc}</p>
                 </div>
-              </div>
-            </div>
-
-            <PillToggle checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
-          </div>
-
-          {/* NapCat login flow */}
-          <div
-            className="rounded-xl px-4 py-4"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            <QQLoginFlow accessToken={accessToken} channelId={channel?.id ?? ''} onStatusChange={handleNapCatStatus} />
-          </div>
-
-          {/* Auto re-login (Windows only) */}
-          {isWindows && (
-          <div
-            className="rounded-xl px-4 py-4"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-              {ct.qqAutoLogin}
-            </label>
-            <ModelDropdown
-              value={autoLoginUin}
-              options={autoLoginOptions}
-              placeholder={ct.qqAutoLoginNone}
-              disabled={saving}
-              onChange={(v) => { setAutoLoginUin(v); setSaved(false) }}
-            />
-            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">{ct.qqAutoLoginDesc}</p>
-          </div>
-          )}
-
-          {/* OneBot API config */}
-          <div
-            className="rounded-xl px-4 py-4"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            <div className="mb-4 flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                <Zap size={14} />
-              </span>
-              <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.qqOneBotTitle}</div>
-              {isWindows && napCatStatus?.logged_in && (napCatStatus.onebot_ws_url || napCatStatus.onebot_http_url) && (
-                <span className="ml-auto text-[10px] text-[var(--c-text-muted)]">{ct.qqOneBotAutoFilled}</span>
-              )}
-            </div>
-            <div className="grid gap-3">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                  {ct.qqOneBotWSUrl}
-                </label>
-                <input
-                  type="text"
-                  value={onebotWSUrl}
-                  onChange={(e) => { setOnebotWSUrl(e.target.value); setSaved(false) }}
-                  placeholder={ct.qqOneBotWSUrlPlaceholder}
-                  disabled={saving}
-                  className={inputCls}
-                />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                  {ct.qqOneBotHTTPUrl}
-                </label>
-                <input
-                  type="text"
-                  value={onebotHTTPUrl}
-                  onChange={(e) => { setOnebotHTTPUrl(e.target.value); setSaved(false) }}
-                  placeholder={ct.qqOneBotHTTPUrlPlaceholder}
-                  disabled={saving}
-                  className={inputCls}
-                />
-              </div>
+              </ChannelDetailRow>
+            )}
+            <ChannelDetailRow label={ct.qqOneBotWSUrl}>
+              <input
+                type="text"
+                value={onebotWSUrl}
+                onChange={(e) => { setOnebotWSUrl(e.target.value); setSaved(false) }}
+                placeholder={ct.qqOneBotWSUrlPlaceholder}
+                disabled={saving}
+                className={inputCls}
+              />
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.qqOneBotHTTPUrl}>
+              <input
+                type="text"
+                value={onebotHTTPUrl}
+                onChange={(e) => { setOnebotHTTPUrl(e.target.value); setSaved(false) }}
+                placeholder={ct.qqOneBotHTTPUrlPlaceholder}
+                disabled={saving}
+                className={inputCls}
+              />
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.qqOneBotToken}>
               <TokenField
-                label={ct.qqOneBotToken}
                 value={onebotToken}
                 placeholder={ct.qqOneBotTokenPlaceholder}
                 onChange={(v) => { setOnebotToken(v); setSaved(false) }}
               />
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+            </ChannelDetailRow>
             {/* access control card */}
             <div className="md:col-span-2">
               <div
-                className="rounded-xl px-4 py-4"
+                className="relative px-5 py-4"
                 style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
               >
                 <div className="mb-4">
@@ -555,7 +507,7 @@ export function DesktopQQSettingsPanel({
       />
 
       <div
-        className="rounded-2xl px-5 py-4"
+        className="rounded-xl px-5 py-4"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
         <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>

@@ -135,7 +135,7 @@ type StatusBadgeVariant = 'success' | 'warning' | 'error' | 'neutral'
 export function statusVariant(status: string): StatusBadgeVariant {
   switch (status) {
     case 'ready':
-      return 'success'
+      return 'neutral'
     case 'needs_check':
     case 'configured':
       return 'warning'
@@ -148,6 +148,29 @@ export function statusVariant(status: string): StatusBadgeVariant {
     default:
       return 'neutral'
   }
+}
+
+export function statusLabel(status: string, labels: MCPStatusCopy): string {
+  switch (status) {
+    case 'ready': return labels.checked
+    case 'needs_check': return labels.pending
+    case 'configured': return labels.configured
+    case 'connect_failed': return labels.failed
+    case 'auth_invalid': return labels.authError
+    case 'protocol_error': return labels.error
+    case 'install_missing': return labels.missing
+    default: return status
+  }
+}
+
+export type MCPStatusCopy = {
+  checked: string
+  pending: string
+  configured: string
+  failed: string
+  authError: string
+  error: string
+  missing: string
 }
 
 export type MCPCopy = {
@@ -202,4 +225,5 @@ export type MCPCopy = {
   toastDeleted: string
   toastChecked: string
   toastImported: string
+  status: MCPStatusCopy
 }

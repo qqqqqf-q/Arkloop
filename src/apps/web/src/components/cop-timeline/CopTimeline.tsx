@@ -31,6 +31,10 @@ function isTopLevelOnlySegment(segment: CopSubSegment): boolean {
   return calls.length > 0 && calls.every((item) => TOP_LEVEL_TOOL_NAMES.has(item.call.toolName))
 }
 
+function isSingleImageToolSegment(segment: CopSubSegment): boolean {
+  return segment.category === 'image' && segment.items.length === 1 && segment.items[0]?.kind === 'call'
+}
+
 export function CopTimeline({
   segments,
   pool,
@@ -67,6 +71,7 @@ export function CopTimeline({
   const { t } = useLocale()
   const reduceMotion = useReducedMotion()
   const timelineSegments = segments.filter((s) => !isTopLevelOnlySegment(s))
+  const segmentDotTop = (segment: CopSubSegment) => isSingleImageToolSegment(segment) ? COP_TIMELINE_DOT_TOP : 8
 
   const poolHasItems = pool.fileOps.size > 0 || pool.webFetches.size > 0 || pool.subAgents.size > 0 || pool.genericTools.size > 0 || pool.steps.size > 0
   const hasSegments = timelineSegments.length > 0 || poolHasItems
@@ -314,6 +319,7 @@ export function CopTimeline({
                   isLive={!!live && timelineSegments[0]!.status === 'open'}
                   defaultExpanded={true}
                   hideHeader
+                  flattenSingleItem={isSingleImageToolSegment(timelineSegments[0]!)}
                   compactNarrativeEnd={compactNarrativeEnd}
                   onOpenCodeExecution={onOpenCodeExecution}
                   activeCodeExecutionId={activeCodeExecutionId}
@@ -325,6 +331,7 @@ export function CopTimeline({
               ) : (
                 timelineSegments.map((seg, index) => {
                 const isLast = index === timelineSegments.length - 1
+                const flattenSingleItem = isSingleImageToolSegment(seg)
                 const segDotColor = seg.status === 'open'
                   ? 'var(--c-text-secondary)'
                   : 'var(--c-text-muted)'
@@ -335,7 +342,7 @@ export function CopTimeline({
                     isLast={isLast}
                     multiItems={timelineSegments.length >= 2}
                     dotColor={segDotColor}
-                    dotTop={8}
+                    dotTop={segmentDotTop(seg)}
                     paddingBottom={7}
                     horizontalMotion={false}
                   >
@@ -344,6 +351,8 @@ export function CopTimeline({
                       pool={pool}
                       isLive={!!live && seg.status === 'open'}
                       defaultExpanded={isLast && (!isComplete || seg.status === 'open')}
+                      hideHeader={flattenSingleItem}
+                      flattenSingleItem={flattenSingleItem}
                       compactNarrativeEnd={compactNarrativeEnd}
                       onOpenCodeExecution={onOpenCodeExecution}
                       activeCodeExecutionId={activeCodeExecutionId}

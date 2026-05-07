@@ -1,7 +1,15 @@
-export type ThemePreset = 'default' | 'terra' | 'github' | 'nord' | 'catppuccin' | 'tokyo-night' | 'retina-burn' | 'custom'
+export type ThemePreset = 'default' | 'terra' | 'github' | 'nord' | 'catppuccin' | 'tokyo-night' | 'retina-burn' | 'background-image' | 'custom'
 export type FontFamily = 'default' | 'inter' | 'system' | 'serif' | 'noto-sans' | 'source-sans' | 'open-dyslexic' | 'custom'
 export type CodeFontFamily = 'jetbrains-mono' | 'fira-code' | 'cascadia-code' | 'source-code-pro'
 export type FontSize = 'compact' | 'normal' | 'relaxed'
+
+export type ThemeBackgroundImage = {
+  dataUrl: string
+  name: string
+  mimeType: string
+  size: number
+  updatedAt: number
+}
 
 export type ThemeColorVars = {
   // Backgrounds

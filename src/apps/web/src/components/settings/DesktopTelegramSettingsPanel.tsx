@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Radio } from 'lucide-react' // icon only
 import { openExternal } from '../../openExternal'
 import {
   type ChannelBindingResponse,
@@ -16,9 +15,10 @@ import {
   verifyChannel,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-import { PillToggle } from '@arkloop/shared'
 import {
+  channelRowsCls,
   BindingsCard,
+  ChannelDetailRow,
   buildModelOptions,
   ListField,
   mergeListValues,
@@ -27,9 +27,9 @@ import {
   resolvePersonaID,
   sameItems,
   SaveActions,
-  StatusBadge,
   TokenField,
 } from './DesktopChannelSettingsShared'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 type Props = {
   accessToken: string
@@ -76,7 +76,7 @@ export function DesktopTelegramSettingsPanel({
   const [tokenDraft, setTokenDraft] = useState('')
   const [defaultModel, setDefaultModel] = useState((channel?.config_json?.default_model as string | undefined) ?? '')
   const [verifying, setVerifying] = useState(false)
-  const [verifyResult, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [, setVerifyResult] = useState<{ ok: boolean; message: string } | null>(null)
   const [bindCode, setBindCode] = useState<string | null>(null)
   const [generatingCode, setGeneratingCode] = useState(false)
   const [bindings, setBindings] = useState<ChannelBindingResponse[]>([])
@@ -289,7 +289,6 @@ export function DesktopTelegramSettingsPanel({
 
   const handleUnbind = async (binding: ChannelBindingResponse) => {
     if (!channel) return
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
       const nextBindings = await listChannelBindings(accessToken, channel.id)
@@ -333,7 +332,7 @@ export function DesktopTelegramSettingsPanel({
     <div className="flex flex-col gap-6">
       {error && (
         <div
-          className="rounded-xl px-4 py-3 text-sm"
+          className="rounded-xl px-5 py-3 text-sm"
           style={{
             border: '0.5px solid color-mix(in srgb, var(--c-status-error, #ef4444) 24%, transparent)',
             background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
@@ -345,51 +344,18 @@ export function DesktopTelegramSettingsPanel({
       )}
 
       <div
-        className="rounded-2xl p-5"
+        className="overflow-hidden rounded-xl"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                  <Radio size={18} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegram}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <StatusBadge active={enabled} label={enabled ? ct.active : ct.inactive} />
-                    <StatusBadge
-                      active={tokenConfigured}
-                      label={tokenConfigured ? ds.connectorConfigured : ds.connectorNotConfigured}
-                    />
-                    {verifyResult && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        style={{
-                          background: verifyResult.ok
-                            ? 'var(--c-status-success-bg, rgba(34,197,94,0.1))'
-                            : 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
-                          color: verifyResult.ok
-                            ? 'var(--c-status-success, #22c55e)'
-                            : 'var(--c-status-error, #ef4444)',
-                        }}
-                      >
-                        {verifyResult.message}
-                      </span>
-                    )}
-                  </div>
-                </div>
+        <div className="flex flex-col">
+          <div className={channelRowsCls}>
+            <ChannelDetailRow label={t.agentSettings.reasoningModes.enabled}>
+              <div className="flex justify-end">
+                <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
               </div>
-            </div>
-
-            <PillToggle checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.botToken}>
               <TokenField
-                label={ct.botToken}
                 value={tokenDraft}
                 placeholder={tokenConfigured && !tokenDraft ? ct.tokenAlreadyConfigured : ct.botTokenPlaceholder}
                 onChange={(value) => {
@@ -407,11 +373,10 @@ export function DesktopTelegramSettingsPanel({
                   @BotFather
                 </button>
               </p>
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramPrivateChatAccess}</div>
-              <div className="mt-3">
+            <ChannelDetailRow label={ct.telegramPrivateChatAccess}>
+              <div>
                 <ModelDropdown
                   value={privateRestrict ? 'restrict' : 'all'}
                   options={[
@@ -424,39 +389,38 @@ export function DesktopTelegramSettingsPanel({
                     setSaved(false)
                   }}
                 />
+                {privateRestrict && (
+                  <div className="mt-3">
+                    <ListField
+                      label={ct.allowedUsers}
+                      values={privateIDs}
+                      inputValue={privateInput}
+                      placeholder={ct.allowedUsersPlaceholder}
+                      addLabel={t.skills.add}
+                      onInputChange={setPrivateInput}
+                      onAdd={handleAddPrivate}
+                      onRemove={(value) => {
+                        setPrivateIDs((current) => current.filter((item) => item !== value))
+                        setSaved(false)
+                      }}
+                    />
+                    <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
+                      {ct.allowedUsersHint}{' '}
+                      <button
+                        type="button"
+                        onClick={() => openExternal('https://t.me/userinfobot')}
+                        className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
+                      >
+                        @userinfobot
+                      </button>
+                    </p>
+                  </div>
+                )}
               </div>
-              {privateRestrict && (
-                <div className="mt-3">
-                  <ListField
-                    label={ct.allowedUsers}
-                    values={privateIDs}
-                    inputValue={privateInput}
-                    placeholder={ct.allowedUsersPlaceholder}
-                    addLabel={t.skills.add}
-                    onInputChange={setPrivateInput}
-                    onAdd={handleAddPrivate}
-                    onRemove={(value) => {
-                      setPrivateIDs((current) => current.filter((item) => item !== value))
-                      setSaved(false)
-                    }}
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
-                    {ct.allowedUsersHint}{' '}
-                    <button
-                      type="button"
-                      onClick={() => openExternal('https://t.me/userinfobot')}
-                      className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
-                    >
-                      @userinfobot
-                    </button>
-                  </p>
-                </div>
-              )}
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.telegramGroupChatAccess}</div>
-              <div className="mt-3">
+            <ChannelDetailRow label={ct.telegramGroupChatAccess}>
+              <div>
                 <ModelDropdown
                   value={groupRestrict ? 'restrict' : 'all'}
                   options={[
@@ -469,40 +433,37 @@ export function DesktopTelegramSettingsPanel({
                     setSaved(false)
                   }}
                 />
+                {groupRestrict && (
+                  <div className="mt-3">
+                    <ListField
+                      label={ct.telegramAllowedGroupsLabel}
+                      values={groupIDs}
+                      inputValue={groupInput}
+                      placeholder={ct.telegramAllowedGroupsPlaceholder}
+                      addLabel={t.skills.add}
+                      onInputChange={setGroupInput}
+                      onAdd={handleAddGroup}
+                      onRemove={(value) => {
+                        setGroupIDs((current) => current.filter((item) => item !== value))
+                        setSaved(false)
+                      }}
+                    />
+                    <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
+                      {ct.telegramAllowedGroupsHint}{' '}
+                      <button
+                        type="button"
+                        onClick={() => openExternal('https://t.me/getidsbot')}
+                        className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
+                      >
+                        @getidsbot
+                      </button>
+                    </p>
+                  </div>
+                )}
               </div>
-              {groupRestrict && (
-                <div className="mt-3">
-                  <ListField
-                    label={ct.telegramAllowedGroupsLabel}
-                    values={groupIDs}
-                    inputValue={groupInput}
-                    placeholder={ct.telegramAllowedGroupsPlaceholder}
-                    addLabel={t.skills.add}
-                    onInputChange={setGroupInput}
-                    onAdd={handleAddGroup}
-                    onRemove={(value) => {
-                      setGroupIDs((current) => current.filter((item) => item !== value))
-                      setSaved(false)
-                    }}
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">
-                    {ct.telegramAllowedGroupsHint}{' '}
-                    <button
-                      type="button"
-                      onClick={() => openExternal('https://t.me/getidsbot')}
-                      className="text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
-                    >
-                      @getidsbot
-                    </button>
-                  </p>
-                </div>
-              )}
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                {ct.persona}
-              </label>
+            <ChannelDetailRow label={ct.persona}>
               <ModelDropdown
                 value={personaID}
                 options={personaOptions}
@@ -513,12 +474,9 @@ export function DesktopTelegramSettingsPanel({
                   setSaved(false)
                 }}
               />
-            </div>
+            </ChannelDetailRow>
 
-            <div className="md:col-span-2">
-              <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
-                {ds.connectorDefaultModel}
-              </label>
+            <ChannelDetailRow label={ds.connectorDefaultModel}>
               <ModelDropdown
                 value={defaultModel}
                 options={modelOptions}
@@ -529,7 +487,7 @@ export function DesktopTelegramSettingsPanel({
                   setSaved(false)
                 }}
               />
-            </div>
+            </ChannelDetailRow>
           </div>
         </div>
       </div>
@@ -560,7 +518,7 @@ export function DesktopTelegramSettingsPanel({
       />
 
       <div
-        className="rounded-2xl px-5 py-4"
+        className="rounded-xl px-5 py-4"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
         <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>

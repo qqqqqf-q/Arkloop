@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef, memo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useLayoutEffect, useRef, memo, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus,
@@ -6,10 +6,11 @@ import {
   Download,
   X,
   Loader2,
-  ChevronDown,
-  Check,
   Zap,
   SlidersHorizontal,
+  Search,
+  Pencil,
+  Copy as CopyIcon,
 } from 'lucide-react'
 import {
   type LlmProvider,
@@ -19,6 +20,7 @@ import {
   createLlmProvider,
   updateLlmProvider,
   deleteLlmProvider,
+  copyLlmProvider,
   createProviderModel,
   deleteProviderModel,
   patchProviderModel,
@@ -27,11 +29,24 @@ import {
   isApiError,
 } from '../../api'
 import { routeAdvancedJsonFromAvailableCatalog } from '@arkloop/shared/llm/available-catalog-advanced-json'
-import { ConfirmDialog, PillToggle } from '@arkloop/shared'
+import { ConfirmDialog } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { ModelOptionsModal } from '../ModelOptionsModal'
 import { AnimatedCheck } from '../AnimatedCheck'
-import { secondaryButtonBorderStyle } from '../buttonStyles'
+import { SettingsButton, SettingsIconButton } from './_SettingsButton'
+import { SettingsInput, SettingsSearchInput } from './_SettingsInput'
+import { SettingsModalFrame } from './_SettingsModalFrame'
+import { SettingsSelect } from './_SettingsSelect'
+import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
+import { SettingsSwitch } from './_SettingsSwitch'
+import {
+  AdvancedOptionsDisclosure,
+  HeadersEditor,
+  advancedJSONSignature,
+  readHeaderEntriesFromAdvancedJSON,
+  writeHeaderEntriesToAdvancedJSON,
+  type HeaderEntry,
+} from './HeadersEditor'
 
 const VENDOR_PRESETS = [
   { key: 'openai_responses', provider: 'openai', openai_api_mode: 'responses' },
@@ -101,10 +116,6 @@ function mergeProviderAdvancedJSON(
   return next
 }
 
-import { settingsInputCls } from './_SettingsInput'
-
-const INPUT_CLS = settingsInputCls('sm')
-
 type ProviderActionError = {
   message: string
   code?: string
@@ -167,91 +178,53 @@ function VendorDropdown({
   value,
   onChange,
   p,
+  triggerClassName,
 }: {
   value: VendorPresetKey
   onChange: (v: VendorPresetKey) => void
   p: ReturnType<typeof useLocale>['t']['adminProviders']
+  triggerClassName?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current?.contains(e.target as Node) || btnRef.current?.contains(e.target as Node)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   return (
-    <div className="relative">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => setOpen(v => !v)}
-        className="flex w-full items-center justify-between rounded-lg bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-        style={{ border: '1px solid var(--c-border-subtle)' }}
-      >
-        <span className="truncate">{vendorLabel(value, p)}</span>
-        <ChevronDown size={13} className="ml-2 shrink-0 text-[var(--c-text-muted)]" />
-      </button>
-      {open && (
-        <div
-          ref={menuRef}
-          className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50 min-w-full"
-          style={{
-            border: '0.5px solid var(--c-border-subtle)',
-            borderRadius: '10px',
-            padding: '4px',
-            background: 'var(--c-bg-menu)',
-            boxShadow: 'var(--c-dropdown-shadow)',
-          }}
-        >
-          {VENDOR_PRESETS.map((v) => (
-            <button
-              key={v.key}
-              type="button"
-              onClick={() => { onChange(v.key); setOpen(false) }}
-              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors hover:bg-[var(--c-bg-deep)]"
-              style={{ color: value === v.key ? 'var(--c-text-heading)' : 'var(--c-text-secondary)', fontWeight: value === v.key ? 500 : 400 }}
-            >
-              <span>{vendorLabel(v.key, p)}</span>
-              {value === v.key && <Check size={13} className="shrink-0" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <SettingsSelect
+      value={value}
+      options={VENDOR_PRESETS.map((preset) => ({
+        value: preset.key,
+        label: vendorLabel(preset.key, p),
+      }))}
+      onChange={(next) => onChange(next as VendorPresetKey)}
+      triggerClassName={triggerClassName}
+    />
   )
 }
 
 type Props = { accessToken: string }
+type ProviderFilter = 'all' | 'enabled' | 'local' | 'cloud'
+
+let cachedProviders: LlmProvider[] | null = null
 
 export function ProvidersSettings({ accessToken }: Props) {
   const { t } = useLocale()
   const p = t.adminProviders
 
-  const [providers, setProviders] = useState<LlmProvider[]>([])
+  const [providers, setProviders] = useState<LlmProvider[]>(() => cachedProviders ?? [])
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<ProviderFilter>('all')
+  const [loading, setLoading] = useState(() => cachedProviders === null)
   const [error, setError] = useState('')
   const [showAddProvider, setShowAddProvider] = useState(false)
-
-  const firstLoadRef = useRef(true)
+  const [copyingProviderId, setCopyingProviderId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<LlmProvider | null>(null)
+  const [deletingProviderId, setDeletingProviderId] = useState<string | null>(null)
+  const [autoImportProviderId, setAutoImportProviderId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
       const list = await listLlmProviders(accessToken)
+      cachedProviders = list
       setProviders(list)
-      if (firstLoadRef.current && list.length > 0) {
-        setSelectedId(list[0].id)
-        firstLoadRef.current = false
-      } else {
-        setSelectedId((prev) => list.find((pv) => pv.id === prev) ? prev : (list[0]?.id ?? null))
-      }
+      setSelectedId((prev) => list.find((pv) => pv.id === prev) ? prev : null)
     } catch {
       setError(p.loadFailed)
     } finally {
@@ -262,6 +235,64 @@ export function ProvidersSettings({ accessToken }: Props) {
   useEffect(() => { void load() }, [load])
 
   const selected = providers.find((pv) => pv.id === selectedId) ?? null
+  const filterItems: { key: ProviderFilter; label: string }[] = [
+    { key: 'all', label: p.filterAll ?? 'All' },
+    { key: 'enabled', label: p.filterEnabled ?? 'Enabled' },
+    { key: 'local', label: p.filterLocal ?? p.localProvider },
+    { key: 'cloud', label: p.filterCloud ?? 'Cloud' },
+  ]
+  const filteredProviders = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    return providers.filter((provider) => {
+      if (filter === 'enabled' && !provider.models.some((model) => model.show_in_picker)) return false
+      if (filter === 'local' && !isManagedLocalProvider(provider)) return false
+      if (filter === 'cloud' && isManagedLocalProvider(provider)) return false
+      if (!normalized) return true
+      return [
+        provider.name,
+        provider.base_url ?? '',
+        provider.provider,
+        provider.openai_api_mode ?? '',
+      ].join(' ').toLowerCase().includes(normalized)
+    })
+  }, [filter, providers, query])
+
+  const handleCopyProvider = useCallback(async (provider: LlmProvider) => {
+    if (isManagedLocalProvider(provider)) return
+    setError('')
+    setCopyingProviderId(provider.id)
+    try {
+      await copyLlmProvider(accessToken, provider.id)
+      await load()
+    } catch {
+      setError(p.saveFailed)
+    } finally {
+      setCopyingProviderId(null)
+    }
+  }, [accessToken, load, p.saveFailed])
+
+  const handleDeleteProvider = useCallback(async () => {
+    if (!deleteTarget || isManagedLocalProvider(deleteTarget)) return
+    setError('')
+    setDeletingProviderId(deleteTarget.id)
+    try {
+      await deleteLlmProvider(accessToken, deleteTarget.id)
+      setSelectedId((prev) => prev === deleteTarget.id ? null : prev)
+      setDeleteTarget(null)
+      await load()
+    } catch {
+      setError(p.deleteFailed)
+    } finally {
+      setDeletingProviderId(null)
+    }
+  }, [accessToken, deleteTarget, load, p.deleteFailed])
+
+  const handleProviderCreated = useCallback(async (provider: LlmProvider) => {
+    setShowAddProvider(false)
+    setSelectedId(provider.id)
+    setAutoImportProviderId(provider.id)
+    await load()
+  }, [load])
 
   if (loading) {
     return (
@@ -272,79 +303,223 @@ export function ProvidersSettings({ accessToken }: Props) {
   }
 
   return (
-    <div className="-m-6 flex min-h-0 min-w-0 overflow-hidden" style={{ height: 'calc(100% + 48px)' }}>
-      {/* Provider list */}
-      <div className="flex w-[220px] shrink-0 flex-col overflow-hidden max-[1230px]:w-[180px] xl:w-[240px]" style={{ borderRight: '0.5px solid var(--c-border-subtle)' }}>
-        <div className="flex-1 overflow-y-auto px-2 py-1">
-          <div className="flex flex-col gap-[3px]">
-            {providers.map((pv) => (
-              <button
-                key={pv.id}
-                onClick={() => setSelectedId(pv.id)}
-                className={[
-                  'flex h-[38px] items-center gap-2 rounded-lg px-2.5 text-left text-[14px] font-medium transition-all duration-[120ms] active:scale-[0.96]',
-                  selectedId === pv.id
-                    ? 'rounded-[10px] bg-[var(--c-bg-deep)] text-[var(--c-text-heading)]'
-                    : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-heading)]',
-                ].join(' ')}
-              >
-                <span className="min-w-0 flex-1 truncate">{pv.name}</span>
-                {isManagedLocalProvider(pv) && (
-                  <span className="shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
-                    {p.localProvider}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-[24px] font-semibold leading-tight text-[var(--c-text-heading)]">{p.providersPageTitle ?? p.title}</h2>
+          <p className="mt-2 text-[13px] text-[var(--c-text-muted)]">{p.providersPageDesc ?? ''}</p>
         </div>
-        <div className="border-t border-[var(--c-border-subtle)] px-3 py-3">
-          <button
-            onClick={() => setShowAddProvider(true)}
-            className="flex h-10 w-full items-center justify-center gap-1.5 rounded-lg text-[13px] font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <Plus size={14} />
-            {p.addProvider}
-          </button>
-        </div>
-        {error && <p className="px-2 pb-2 text-xs text-[var(--c-status-error-text)]">{error}</p>}
+        <SettingsButton
+          variant="primary"
+          onClick={() => setShowAddProvider(true)}
+          icon={<Plus size={14} />}
+        >
+          {p.addProvider}
+        </SettingsButton>
       </div>
 
-      {/* Detail */}
-      <div className="min-w-0 flex-1 overflow-y-auto p-4 max-[1230px]:p-3 sm:p-5">
-        {selected ? (
-          <ProviderDetail
-            key={selected.id}
-            provider={selected}
-            accessToken={accessToken}
-            onUpdated={load}
-            onDeleted={load}
-            p={p}
-          />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3">
-            <p className="text-sm text-[var(--c-text-muted)]">{p.noProviders}</p>
-            <button
-              onClick={() => setShowAddProvider(true)}
-              className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)]"
-              style={{ background: 'var(--c-btn-bg)' }}
-            >
-              <Plus size={14} />
-              {p.addProvider}
-            </button>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
+            <SettingsInput
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={p.searchProviders}
+              className="pl-9"
+            />
           </div>
-        )}
+          <SettingsSegmentedControl<ProviderFilter>
+            options={filterItems.map((item) => ({ value: item.key, label: item.label }))}
+            value={filter}
+            onChange={setFilter}
+          />
+        </div>
+        {error && <p className="text-xs text-[var(--c-status-error-text)]">{error}</p>}
       </div>
+
+      {filteredProviders.length > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {filteredProviders.map((provider) => (
+            <ProviderSummaryCard
+              key={provider.id}
+              provider={provider}
+              accessToken={accessToken}
+              p={p}
+              onOpen={() => setSelectedId(provider.id)}
+              onCopy={() => void handleCopyProvider(provider)}
+              onDelete={() => setDeleteTarget(provider)}
+              copying={copyingProviderId === provider.id}
+              deleting={deletingProviderId === provider.id}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-4 py-12 text-center">
+          <p className="text-sm font-medium text-[var(--c-text-primary)]">{p.noProviders}</p>
+          <p className="mt-1 text-xs text-[var(--c-text-muted)]">{p.noProvidersDesc}</p>
+        </div>
+      )}
+
+      {selected && (
+        <SettingsModalFrame
+          open
+          title={selected.name}
+          onClose={() => setSelectedId(null)}
+          width={760}
+        >
+      <div className="mt-6 max-h-[min(78vh,820px)] overflow-y-auto pr-1">
+            <ProviderDetail
+              key={selected.id}
+              provider={selected}
+              accessToken={accessToken}
+              onUpdated={load}
+              p={p}
+              showTitle={false}
+              autoImportModels={autoImportProviderId === selected.id}
+              onAutoImportStarted={() => setAutoImportProviderId(null)}
+            />
+          </div>
+        </SettingsModalFrame>
+      )}
 
       {showAddProvider && (
         <AddProviderModal
           accessToken={accessToken}
           p={p}
           onClose={() => setShowAddProvider(false)}
-          onCreated={() => { setShowAddProvider(false); void load() }}
+          onCreated={(provider) => { void handleProviderCreated(provider) }}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (deletingProviderId === null) setDeleteTarget(null)
+        }}
+        onConfirm={() => void handleDeleteProvider()}
+        title={p.deleteProvider}
+        message={p.deleteProviderConfirm}
+        confirmLabel={p.deleteProvider}
+        cancelLabel={p.cancel}
+        loading={deletingProviderId !== null}
+      />
+    </div>
+  )
+}
+
+function ProviderSummaryCard({
+  provider,
+  accessToken,
+  p,
+  onOpen,
+  onCopy,
+  onDelete,
+  copying,
+  deleting,
+}: {
+  provider: LlmProvider
+  accessToken: string
+  p: ReturnType<typeof useLocale>['t']['adminProviders']
+  onOpen: () => void
+  onCopy: () => void
+  onDelete: () => void
+  copying: boolean
+  deleting: boolean
+}) {
+  const local = isManagedLocalProvider(provider)
+  const enabledModels = provider.models.filter((model) => model.show_in_picker).length
+  const apiMode = provider.openai_api_mode === 'chat_completions'
+    ? p.vendorOpenaiChat
+    : vendorLabel(toVendorKey(provider.provider, provider.openai_api_mode), p)
+  const baseUrl = provider.base_url?.trim() || '—'
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    onOpen()
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+      className="group relative flex min-h-[138px] cursor-pointer flex-col rounded-xl bg-[var(--c-bg-input)] p-4 text-left outline-none transition-[border-color,box-shadow,background-color] duration-180 hover:[box-shadow:0_0_0_0.35px_var(--c-input-border-color-hover)] focus-visible:[box-shadow:0_0_0_1px_var(--c-input-border-color-hover)]"
+      style={{ border: '0.5px solid var(--c-input-border-color)' }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate text-[14px] font-semibold leading-tight text-[var(--c-text-primary)]">{provider.name}</h3>
+          <p className="mt-1 truncate text-[11px] leading-tight text-[var(--c-text-muted)]">{apiMode}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="rounded-md bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium leading-tight text-[var(--c-text-muted)]">
+            {local ? p.localProvider : (p.filterCloud ?? 'Cloud')}
+          </span>
+          {provider.read_only && (
+            <span className="rounded-md bg-[var(--c-bg-deep)] px-1.5 py-0.5 text-[10px] font-medium leading-tight text-[var(--c-text-muted)]">
+              {p.readOnlyProvider}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="mt-4 min-w-0 space-y-2 pr-[152px]">
+        <ProviderCardLine label={p.baseUrl} value={baseUrl} />
+        <ProviderCardLine label={p.modelsSection} value={`${provider.models.length} / ${enabledModels}`} />
+      </div>
+      <div
+        className="pointer-events-none absolute bottom-3 right-3 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <SettingsIconButton
+          label={p.editProvider}
+          className="pointer-events-auto h-8 w-8"
+          onClick={onOpen}
+        >
+          <Pencil size={12} />
+        </SettingsIconButton>
+        {!local && (
+          <SettingsIconButton
+            label={p.copyProvider ?? 'Copy provider'}
+            className="pointer-events-auto h-8 w-8"
+            onClick={onCopy}
+            disabled={copying}
+          >
+            {copying ? <Loader2 size={12} className="animate-spin" /> : <CopyIcon size={12} />}
+          </SettingsIconButton>
+        )}
+        <div className="pointer-events-auto">
+          <ModelTestButton
+            accessToken={accessToken}
+            provider={provider}
+            label={p.testModel ?? 'Test'}
+            searchPlaceholder={p.searchProviders}
+            iconOnly
+          />
+        </div>
+        {!local && (
+          <SettingsIconButton
+            label={p.deleteProvider}
+            className="pointer-events-auto h-8 w-8"
+            danger
+            onClick={onDelete}
+            disabled={deleting}
+          >
+            {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+          </SettingsIconButton>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ProviderCardLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-medium leading-tight text-[var(--c-text-muted)]">{label}</div>
+      <div className="mt-0.5 truncate text-[12px] font-medium leading-tight text-[var(--c-text-secondary)]">{value}</div>
     </div>
   )
 }
@@ -355,12 +530,14 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   accessToken: string
   p: ReturnType<typeof useLocale>['t']['adminProviders']
   onClose: () => void
-  onCreated: () => void
+  onCreated: (provider: LlmProvider) => void
 }) {
   const [name, setName] = useState('')
   const [preset, setPreset] = useState<VendorPresetKey>('openai_responses')
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
+  const [headers, setHeaders] = useState<HeaderEntry[]>([])
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
 
@@ -370,15 +547,18 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
     setErr('')
     try {
       const v = VENDOR_PRESETS.find((vv) => vv.key === preset)!
-      await createLlmProvider(accessToken, {
+      const provider = await createLlmProvider(accessToken, {
         name: name.trim(),
         provider: v.provider,
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         openai_api_mode: v.openai_api_mode,
-        advanced_json: mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+        advanced_json: writeHeaderEntriesToAdvancedJSON(
+          mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
+          headers,
+        ),
       })
-      onCreated()
+      onCreated(provider)
     } catch (e) {
       setErr(isApiError(e) ? e.message : p.saveFailed)
     } finally {
@@ -387,115 +567,113 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
   }
 
   const fieldLabelCls = 'block text-[11px] font-medium text-[var(--c-placeholder)] mb-1 pl-[2px]'
-  const fieldInputCls = 'w-full rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 py-1.5 text-sm text-[var(--c-text-primary)] outline-none placeholder:text-[var(--c-placeholder)] focus:border-[var(--c-border)]'
 
-  return createPortal(
-    <div
-      className="overlay-fade-in fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: 'var(--c-overlay)' }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div
-        className="modal-enter flex w-[460px] flex-col gap-5 rounded-[14px] p-6"
-        style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)' }}
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="text-[15px] font-semibold text-[var(--c-text-heading)]">{p.addProvider}</h3>
-          <button
-            onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
+  return (
+    <SettingsModalFrame
+      open
+      title={p.addProvider}
+      onClose={onClose}
+      width={510}
+      footer={(
+        <>
+          <SettingsButton size="modal" variant="secondary" onClick={onClose}>
+            {p.cancel}
+          </SettingsButton>
+          <SettingsButton
+            size="modal"
+            variant="primary"
+            onClick={() => void handleSave()}
+            disabled={saving || !name.trim() || !apiKey.trim()}
+            icon={saving ? <Loader2 size={14} className="animate-spin" /> : undefined}
           >
-            <X size={14} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {saving ? p.saving : p.save}
+          </SettingsButton>
+        </>
+      )}
+    >
+        <div className="mt-6 grid grid-cols-2 gap-x-4 gap-y-4">
           <div>
             <label className={fieldLabelCls}>{p.providerName}</label>
-            <input
+            <SettingsInput
+              variant="md"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My Provider"
-              className={fieldInputCls}
             />
           </div>
           <div>
             <label className={fieldLabelCls}>{p.vendor}</label>
-            <VendorDropdown value={preset} onChange={setPreset} p={p} />
+            <VendorDropdown value={preset} onChange={setPreset} p={p} triggerClassName="h-[35px]" />
           </div>
           <div className="col-span-2">
             <label className={fieldLabelCls}>{p.apiKey}</label>
-            <input
+            <SettingsInput
+              variant="md"
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={p.apiKeyPlaceholder}
-              className={fieldInputCls}
             />
           </div>
           <div className="col-span-2">
             <label className={fieldLabelCls}>{p.baseUrl}</label>
-            <input
+            <SettingsInput
+              variant="md"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value.slice(0, 500))}
               placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
-              className={fieldInputCls}
               maxLength={500}
             />
-            {baseUrl.trim() && !baseUrl.trim().startsWith('https://') && !baseUrl.trim().startsWith('http://') && (
-              <span className="mt-1 block text-xs text-[var(--c-text-muted)]">需以 https:// 开头</span>
-            )}
           </div>
+          <AdvancedOptionsDisclosure
+            label={p.advancedOptions ?? p.advancedConfig}
+            open={advancedOpen}
+            onToggle={() => setAdvancedOpen((value) => !value)}
+          >
+            <div>
+              <label className={fieldLabelCls}>{p.headers ?? 'Headers'}</label>
+              <HeadersEditor
+                headers={headers}
+                onChange={setHeaders}
+                addLabel={p.addHeader ?? 'Add header'}
+                keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+                valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
+              />
+            </div>
+          </AdvancedOptionsDisclosure>
         </div>
 
         {err && <p className="mt-3 text-xs text-[var(--c-status-error-text)]">{err}</p>}
-
-        <div className="flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            {p.cancel}
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving || !name.trim() || !apiKey.trim()}
-            className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
-            style={{ background: 'var(--c-btn-bg)' }}
-          >
-            <span className="relative flex items-center justify-center">
-              <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-0' : 'opacity-100'}`}>{p.save}</span>
-              <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-100' : 'opacity-0'}`}>
-                <Loader2 size={14} className="animate-spin" />
-                {p.saving}
-              </span>
-            </span>
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+    </SettingsModalFrame>
   )
 }
 
 // -- Provider Detail --
 
-function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
+function ProviderDetail({
+  provider,
+  accessToken,
+  onUpdated,
+  p,
+  showTitle = true,
+  autoImportModels = false,
+  onAutoImportStarted,
+}: {
   provider: LlmProvider
   accessToken: string
   onUpdated: () => void
-  onDeleted: () => void
   p: ReturnType<typeof useLocale>['t']['adminProviders']
+  showTitle?: boolean
+  autoImportModels?: boolean
+  onAutoImportStarted?: () => void
 }) {
   const [formPreset, setFormPreset] = useState<VendorPresetKey>(toVendorKey(provider.provider, provider.openai_api_mode))
   const [formName, setFormName] = useState(provider.name)
   const [formApiKey, setFormApiKey] = useState('')
   const [formBaseUrl, setFormBaseUrl] = useState(provider.base_url ?? '')
-  const [saving, setSaving] = useState(false)
+  const [formHeaders, setFormHeaders] = useState<HeaderEntry[]>(() => readHeaderEntriesFromAdvancedJSON(provider.advanced_json))
   const [err, setErr] = useState('')
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [deleting, setDeleting] = useState(false)
+  const autoSaveTimerRef = useRef<number | null>(null)
   const readOnly = isManagedLocalProvider(provider)
 
   useEffect(() => {
@@ -503,136 +681,167 @@ function ProviderDetail({ provider, accessToken, onUpdated, onDeleted, p }: {
     setFormName(provider.name)
     setFormApiKey('')
     setFormBaseUrl(provider.base_url ?? '')
+    setFormHeaders(readHeaderEntriesFromAdvancedJSON(provider.advanced_json))
     setErr('')
-    setConfirmDelete(false)
-  }, [provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
+  }, [provider.advanced_json, provider.base_url, provider.id, provider.name, provider.openai_api_mode, provider.provider])
 
-  if (readOnly) {
-    const authModeLabel = localAuthModeLabel(provider, p)
-    return (
-      <div className="mx-auto min-w-0 max-w-2xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--c-border-subtle)] pb-4">
-          <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{provider.name}</h3>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
-              {p.localProvider}
-            </span>
-            <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
-              {p.readOnlyProvider}
-            </span>
-            {authModeLabel && (
-              <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
-                {authModeLabel}
-              </span>
-            )}
-          </div>
-        </div>
-        <ModelsSection provider={provider} accessToken={accessToken} onChanged={onUpdated} p={p} readOnly />
-      </div>
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current !== null) window.clearTimeout(autoSaveTimerRef.current)
+    }
+  }, [])
+
+  const autoSaveProvider = useCallback(async () => {
+    if (readOnly || !formName.trim()) return
+    const selected = VENDOR_PRESETS.find((v) => v.key === formPreset)
+    const nextBaseUrl = formBaseUrl.trim()
+    const apiKey = formApiKey.trim()
+    const providerChanged = selected?.provider !== provider.provider
+    const modeChanged = (selected?.openai_api_mode ?? null) !== (provider.openai_api_mode ?? null)
+    const nameChanged = formName.trim() !== provider.name
+    const baseUrlChanged = nextBaseUrl !== (provider.base_url ?? '')
+    const apiKeyChanged = apiKey !== ''
+    const nextAdvancedJSON = writeHeaderEntriesToAdvancedJSON(
+      mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
+      formHeaders,
     )
-  }
+    const advancedChanged = advancedJSONSignature(nextAdvancedJSON) !== advancedJSONSignature(provider.advanced_json)
+    if (!providerChanged && !modeChanged && !nameChanged && !baseUrlChanged && !apiKeyChanged && !advancedChanged) return
 
-  const handleSave = async () => {
-    setSaving(true)
     setErr('')
     try {
-      const selected = VENDOR_PRESETS.find((v) => v.key === formPreset)
       await updateLlmProvider(accessToken, provider.id, {
         name: formName.trim() || undefined,
-        api_key: formApiKey.trim() || undefined,
-        base_url: formBaseUrl.trim() || null,
+        api_key: apiKey || undefined,
+        base_url: nextBaseUrl || null,
         provider: selected?.provider,
         openai_api_mode: selected?.openai_api_mode ?? null,
-        advanced_json: mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
+        advanced_json: nextAdvancedJSON,
       })
       setFormApiKey('')
       onUpdated()
     } catch (e) {
       setErr(isApiError(e) ? e.message : p.saveFailed)
-    } finally {
-      setSaving(false)
     }
-  }
+  }, [accessToken, formApiKey, formBaseUrl, formHeaders, formName, formPreset, onUpdated, p.saveFailed, provider, readOnly])
 
-  const handleDelete = async () => {
-    setDeleting(true)
-    try {
-      await deleteLlmProvider(accessToken, provider.id)
-      onDeleted()
-    } catch (e) {
-      setErr(isApiError(e) ? e.message : p.saveFailed)
-      setDeleting(false)
-      setConfirmDelete(false)
+  useEffect(() => {
+    if (readOnly) return
+    if (autoSaveTimerRef.current !== null) window.clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null
+      void autoSaveProvider()
+    }, 650)
+    return () => {
+      if (autoSaveTimerRef.current !== null) {
+        window.clearTimeout(autoSaveTimerRef.current)
+        autoSaveTimerRef.current = null
+      }
     }
+  }, [autoSaveProvider, readOnly])
+
+  if (readOnly) {
+    const authModeLabel = localAuthModeLabel(provider, p)
+    return (
+      <div className="min-w-0 space-y-6">
+        {showTitle && <h3 className="pl-2.5 text-[19px] font-semibold leading-none text-[var(--c-text-heading)]">{provider.name}</h3>}
+        <ProviderDetailSection title={p.providerConfig ?? p.advancedConfig}>
+          <ProviderDetailCard>
+            <ProviderDetailRow label={p.providerName}>
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
+                  {p.localProvider}
+                </span>
+                <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
+                  {p.readOnlyProvider}
+                </span>
+                {authModeLabel && (
+                  <span className="rounded-md px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]" style={{ background: 'var(--c-bg-sub)' }}>
+                    {authModeLabel}
+                  </span>
+                )}
+              </div>
+            </ProviderDetailRow>
+          </ProviderDetailCard>
+        </ProviderDetailSection>
+        <ModelsSection provider={provider} accessToken={accessToken} onChanged={onUpdated} p={p} readOnly />
+      </div>
+    )
   }
 
   return (
-    <div className="mx-auto min-w-0 max-w-2xl space-y-6">
-      <h3 className="text-base font-semibold text-[var(--c-text-primary)]">{provider.name}</h3>
+      <div className="min-w-0 space-y-6">
+      {showTitle && <h3 className="pl-2.5 text-[19px] font-semibold leading-none text-[var(--c-text-heading)]">{provider.name}</h3>}
 
-      <div className="space-y-4">
-        <LabelField label={p.vendor}>
-          <VendorDropdown value={formPreset} onChange={setFormPreset} p={p} />
-        </LabelField>
-        <LabelField label={p.providerName}>
-          <input value={formName} onChange={(e) => setFormName(e.target.value)} className={INPUT_CLS} />
-        </LabelField>
-        <LabelField label={p.apiKey}>
-          <input type="password" value={formApiKey} onChange={(e) => setFormApiKey(e.target.value)} placeholder={provider.key_prefix ? `${provider.key_prefix}${'*'.repeat(40)}` : p.apiKeyPlaceholder} className={INPUT_CLS} />
-          {provider.key_prefix && <p className="mt-1 text-xs text-[var(--c-text-muted)]">{provider.key_prefix}{'*'.repeat(8)}</p>}
-        </LabelField>
-        <LabelField label={p.baseUrl}>
-          <input
-            value={formBaseUrl}
-            onChange={(e) => setFormBaseUrl(e.target.value.slice(0, 500))}
-            placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
-            className={INPUT_CLS}
-            maxLength={500}
-          />
-          {formBaseUrl.trim() && !formBaseUrl.trim().startsWith('https://') && !formBaseUrl.trim().startsWith('http://') && (
-            <p className="mt-1 text-xs text-[var(--c-text-muted)]">需以 https:// 开头</p>
-          )}
-        </LabelField>
-      </div>
+      <ProviderDetailSection title={p.providerConfig ?? p.advancedConfig}>
+        <ProviderDetailCard>
+          <ProviderDetailRow label={p.vendor}>
+            <VendorDropdown value={formPreset} onChange={setFormPreset} p={p} />
+          </ProviderDetailRow>
+          <ProviderDetailRow label={p.providerName}>
+            <SettingsInput value={formName} onChange={(e) => setFormName(e.target.value)} />
+          </ProviderDetailRow>
+          <ProviderDetailRow label={p.apiKey}>
+            <div>
+              <SettingsInput
+                type="password"
+                value={formApiKey}
+                onChange={(e) => setFormApiKey(e.target.value)}
+                placeholder={provider.key_prefix ? `${provider.key_prefix}${'*'.repeat(40)}` : p.apiKeyPlaceholder}
+              />
+            </div>
+          </ProviderDetailRow>
+          <ProviderDetailRow label={p.baseUrl}>
+            <SettingsInput
+              value={formBaseUrl}
+              onChange={(e) => setFormBaseUrl(e.target.value.slice(0, 500))}
+              placeholder={p.baseUrlPlaceholder ?? 'https://api.example.com/v1'}
+              maxLength={500}
+            />
+          </ProviderDetailRow>
+          <ProviderDetailRow label={p.headers ?? 'Headers'}>
+            <HeadersEditor
+              headers={formHeaders}
+              onChange={setFormHeaders}
+              addLabel={p.addHeader ?? 'Add header'}
+              keyPlaceholder={p.headerKeyPlaceholder ?? 'Header name'}
+              valuePlaceholder={p.headerValuePlaceholder ?? 'Header value'}
+            />
+          </ProviderDetailRow>
+        </ProviderDetailCard>
+        {err && <p className="pl-2.5 text-xs text-[var(--c-status-error-text)]">{err}</p>}
+      </ProviderDetailSection>
 
-      {err && <p className="text-xs text-[var(--c-status-error-text)]">{err}</p>}
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--c-border-subtle)] pb-4">
-        {confirmDelete ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-[var(--c-text-tertiary)]">{p.deleteProviderConfirm}</span>
-            <button onClick={() => void handleDelete()} disabled={deleting} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50">{p.deleteProvider}</button>
-            <button onClick={() => setConfirmDelete(false)} className="rounded-lg px-3 py-1.5 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]">{p.cancel}</button>
-          </div>
-        ) : (
-          <button onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--c-border-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-muted)] transition-colors duration-150 hover:border-red-500/30 hover:text-red-500">
-            <Trash2 size={12} />
-          </button>
-        )}
-        <button onClick={() => void handleSave()} disabled={saving || !formName.trim()} className="flex items-center justify-center rounded-lg px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50" style={{ background: 'var(--c-btn-bg)' }}>
-          <span className="relative flex items-center justify-center">
-            <span className={`flex items-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-0' : 'opacity-100'}`}>{p.save}</span>
-            <span className={`absolute inset-0 flex items-center justify-center gap-1.5 transition-opacity duration-150 ${saving ? 'opacity-100' : 'opacity-0'}`}>
-              <Loader2 size={14} className="animate-spin" />
-              {p.saving}
-            </span>
-          </span>
-        </button>
-      </div>
-
-      <ModelsSection provider={provider} accessToken={accessToken} onChanged={onUpdated} p={p} />
+      <ModelsSection
+        provider={provider}
+        accessToken={accessToken}
+        onChanged={onUpdated}
+        p={p}
+        autoImportModels={autoImportModels}
+        onAutoImportStarted={onAutoImportStarted}
+      />
     </div>
   )
 }
 
 // -- Models Section (same pattern as ModelConfigContent) --
 
-function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }: {
+function ModelsSection({
+  provider,
+  accessToken,
+  onChanged,
+  p,
+  readOnly = false,
+  autoImportModels = false,
+  onAutoImportStarted,
+}: {
   provider: LlmProvider
   accessToken: string
   onChanged: () => void
   p: ReturnType<typeof useLocale>['t']['adminProviders']
   readOnly?: boolean
+  autoImportModels?: boolean
+  onAutoImportStarted?: () => void
 }) {
   const { t } = useLocale()
   const [available, setAvailable] = useState<AvailableModel[] | null>(null)
@@ -735,6 +944,12 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
     }
   }
 
+  useEffect(() => {
+    if (!autoImportModels || readOnly) return
+    onAutoImportStarted?.()
+    void handleImportAll()
+  }, [autoImportModels, readOnly, onAutoImportStarted])
+
   const handleDeleteModel = useCallback(async (modelId: string) => {
     try {
       await deleteProviderModel(accessToken, provider.id, modelId)
@@ -783,7 +998,6 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
         advanced_json: payload.advancedJSON,
         tags: payload.tags,
       })
-      setEditingModel(null)
       onChanged()
     } catch (e) {
       throw new Error(isApiError(e) ? e.message : p.saveFailed)
@@ -794,6 +1008,14 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
   const importDisabled = importing || loadingAvailable || (hasLoadedAvailable && unconfiguredCount === 0)
   const deleteAllDisabled = deletingAll || provider.models.length === 0
   const sectionError = availableError ?? actionError
+  const importButtonLabel =
+    loadingAvailable || importing
+      ? (p.importing ?? '...')
+      : unconfiguredCount > 0
+      ? `${p.importAll ?? 'Import all'} (${unconfiguredCount})`
+      : hasLoadedAvailable
+        ? ''
+        : (p.importAll ?? 'Import models')
   const filteredModels = search.trim()
     ? provider.models.filter((pm) => pm.model.toLowerCase().includes(search.trim().toLowerCase()))
     : provider.models
@@ -820,38 +1042,39 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
   const visibleModels = filteredModels.slice(0, visibleCount)
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
+    <ProviderDetailSection title={p.modelsSection}>
+      <ProviderDetailCard>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+          <h4 className="text-[13px] font-medium text-[var(--c-text-primary)]">{p.modelsSection}</h4>
         {!readOnly && (
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+            <SettingsIconButton
+              label={p.deleteAll ?? 'Delete all'}
+              danger
               onClick={() => setShowDeleteAllConfirm(true)}
               disabled={deleteAllDisabled}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-[var(--c-text-muted)] transition-colors hover:border-red-500/30 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-              style={secondaryButtonBorderStyle}
             >
               {deletingAll ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-            </button>
-            <button
-              type="button"
+            </SettingsIconButton>
+            <SettingsButton
+              variant="secondary"
               onClick={() => void handleImportAll()}
               disabled={importDisabled}
-              className="button-secondary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--c-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-              style={secondaryButtonBorderStyle}
-            >
-              {loadingAvailable || importing
+              className={importButtonLabel || availableError ? undefined : 'w-[32px] px-0'}
+              icon={loadingAvailable || importing
                 ? <Loader2 size={12} className="animate-spin" />
                 : (
                     <>
                       {availableError && <X size={12} className="text-[var(--c-status-error-text)]" />}
-                      <Download size={12} />
+                      <Download
+                        size={12}
+                        className={availableError ? 'text-[var(--c-status-error-text)]' : undefined}
+                      />
                     </>
                   )}
-              {unconfiguredCount > 0 && !importing && !loadingAvailable && `${p.importAll ?? 'Import all'} (${unconfiguredCount})`}
-              {(loadingAvailable || importing) && (p.importing ?? '...')}
-            </button>
+            >
+              {importButtonLabel}
+            </SettingsButton>
             {sectionError && <ErrorDetailsButton error={sectionError} />}
             <ModelTestButton
               accessToken={accessToken}
@@ -859,24 +1082,24 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
               label={p.testModel ?? 'Test'}
               searchPlaceholder={p.searchProviders}
             />
-            <button onClick={() => setCreatingModel(true)} className="button-primary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] disabled:cursor-not-allowed disabled:opacity-40" style={{ background: 'var(--c-btn-bg)' }}>
+            <SettingsButton variant="primary" onClick={() => setCreatingModel(true)}>
               {p.addModel}
-            </button>
+            </SettingsButton>
           </div>
         )}
-      </div>
+        </div>
 
       {!readOnly && hasLoadedAvailable && !loadingAvailable && !availableError && available !== null && available.length === 0 && (
-        <p className="mt-2 text-xs text-[var(--c-text-muted)]">{t.models.noModelsAvailable}</p>
+        <p className="px-5 pb-4 text-xs text-[var(--c-text-muted)]">{t.models.noModelsAvailable}</p>
       )}
 
       {provider.models.length > 0 && (
-        <div className="mt-3">
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={p.searchProviders} className={INPUT_CLS + ' w-full'} />
+        <div className="px-5 pb-3">
+          <SettingsSearchInput value={search} onChange={(e) => setSearch(e.target.value)} placeholder={p.searchProviders} />
         </div>
       )}
 
-      <div className="mt-2 space-y-1 overflow-y-auto" style={{ maxHeight: '320px' }}>
+      <div className="overflow-y-auto px-5" style={{ maxHeight: '430px' }}>
         {provider.models.length === 0 ? (
           <p className="py-8 text-center text-sm text-[var(--c-text-muted)]">--</p>
         ) : filteredModels.length === 0 ? (
@@ -894,6 +1117,7 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
           ))
         )}
       </div>
+      </ProviderDetailCard>
 
       {!readOnly && editingModel !== null && (
       <ModelOptionsModal
@@ -921,6 +1145,10 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
           maxOutputTokens: p.maxOutputTokens ?? 'Max Output Tokens',
           providerOptionsJson: p.providerOptionsJson ?? 'Provider Options (JSON)',
           providerOptionsHint: p.providerOptionsHint ?? 'Only provider-specific fields belong here. Model capability fields are managed above.',
+          headers: p.headers ?? 'Headers',
+          addHeader: p.addHeader ?? 'Add header',
+          headerKeyPlaceholder: p.headerKeyPlaceholder ?? 'Header name',
+          headerValuePlaceholder: p.headerValuePlaceholder ?? 'Header value',
           save: p.save,
           cancel: p.cancel,
           reset: p.reset ?? 'Reset',
@@ -1006,7 +1234,7 @@ function ModelsSection({ provider, accessToken, onChanged, p, readOnly = false }
           loading={deletingAll}
         />
       )}
-    </div>
+    </ProviderDetailSection>
   )
 }
 
@@ -1019,7 +1247,7 @@ const ModelRow = memo(function ModelRow({ pm, onToggle, onEdit, onDelete, readOn
 }) {
   return (
     <div
-      className="group flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--c-border-subtle)] px-4 py-2.5"
+      className="group relative flex flex-wrap items-center justify-between gap-2 px-0 py-3 [&+&]:before:absolute [&+&]:before:left-0 [&+&]:before:right-0 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-['']"
       style={{ contentVisibility: 'auto', containIntrinsicBlockSize: '52px' }}
     >
       <div className="min-w-0 flex-1 flex items-center gap-1.5">
@@ -1028,24 +1256,27 @@ const ModelRow = memo(function ModelRow({ pm, onToggle, onEdit, onDelete, readOn
           <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
         )}
       </div>
-      <div className="flex w-full shrink-0 items-center justify-end gap-1.5 sm:w-auto">
+      <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
         {readOnly ? (
-          <PillToggle checked={pm.show_in_picker} onChange={() => onToggle(pm.id, pm.show_in_picker)} />
+          <SettingsSwitch checked={pm.show_in_picker} onChange={() => onToggle(pm.id, pm.show_in_picker)} />
         ) : (
           <>
-            <PillToggle checked={pm.show_in_picker} onChange={() => onToggle(pm.id, pm.show_in_picker)} />
-            <button
+            <SettingsSwitch checked={pm.show_in_picker} onChange={() => onToggle(pm.id, pm.show_in_picker)} />
+            <SettingsIconButton
+              label="Edit model"
+              variant="plain"
               onClick={() => onEdit(pm)}
-              className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]"
             >
               <SlidersHorizontal size={14} />
-            </button>
-            <button
+            </SettingsIconButton>
+            <SettingsIconButton
+              label="Delete model"
+              variant="plain"
+              danger
               onClick={() => onDelete(pm.id)}
-              className="rounded-md p-1.5 text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-red-500"
             >
               <Trash2 size={14} />
-            </button>
+            </SettingsIconButton>
           </>
         )}
       </div>
@@ -1053,11 +1284,34 @@ const ModelRow = memo(function ModelRow({ pm, onToggle, onEdit, onDelete, readOn
   )
 })
 
-function LabelField({ label, children }: { label: string; children: React.ReactNode }) {
+function ProviderDetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-[var(--c-text-tertiary)]">{label}</label>
+    <section className="flex flex-col gap-2.5">
+      <h4 className="pl-2.5 text-[13px] font-normal text-[var(--c-text-secondary)]">{title}</h4>
       {children}
+    </section>
+  )
+}
+
+function ProviderDetailCard({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={`overflow-hidden rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]${className ? ` ${className}` : ''}`}>
+      {children}
+    </div>
+  )
+}
+
+function ProviderDetailRow({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div className="relative grid items-center gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(260px,390px)] sm:gap-6 [&+&]:before:absolute [&+&]:before:left-5 [&+&]:before:right-5 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-['']">
+      <div className="min-w-0 text-[13px] font-medium text-[var(--c-text-primary)]">{label}</div>
+      <div className="min-w-0 sm:justify-self-end sm:w-full">{children}</div>
     </div>
   )
 }
@@ -1067,14 +1321,13 @@ function ErrorDetailsButton({ error }: { error: ProviderActionError }) {
 
   return (
     <div className="relative">
-      <button
-        type="button"
+      <SettingsButton
+        variant="danger"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2.5 text-xs text-[var(--c-status-error-text)] transition-colors hover:bg-[var(--c-bg-sub)]"
-        style={secondaryButtonBorderStyle}
+        style={{ color: 'var(--c-status-error-text)' }}
       >
         Error
-      </button>
+      </SettingsButton>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
@@ -1098,16 +1351,20 @@ function ErrorDetailsButton({ error }: { error: ProviderActionError }) {
   )
 }
 
-function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
+function ModelTestButton({ accessToken, provider, label, searchPlaceholder, iconOnly = false }: {
   accessToken: string
   provider: LlmProvider
   label: string
   searchPlaceholder: string
+  iconOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [testing, setTesting] = useState<string | null>(null)
   const [result, setResult] = useState<{ modelId: string; success: boolean; latency?: number; error?: ProviderActionError } | null>(null)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+  const triggerRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const pickerModels = useMemo(
     () => provider.models.filter((m) => m.show_in_picker),
@@ -1119,6 +1376,54 @@ function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
     const q = search.trim().toLowerCase()
     return q ? pickerModels.filter((m) => m.model.toLowerCase().includes(q)) : pickerModels
   }, [open, search, pickerModels])
+
+  const positionMenu = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger || typeof window === 'undefined') return
+    const rect = trigger.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const gap = 6
+    const margin = 12
+    const width = Math.min(260, Math.max(220, viewportWidth - margin * 2))
+    const estimatedHeight = Math.min(288, Math.max(92, pickerModels.length * 37 + 48))
+    const spaceBelow = viewportHeight - rect.bottom - margin - gap
+    const spaceAbove = rect.top - margin - gap
+    const openAbove = spaceBelow < Math.min(estimatedHeight, 180) && spaceAbove > spaceBelow
+    const maxHeight = Math.min(288, Math.max(92, openAbove ? spaceAbove : spaceBelow))
+    const top = openAbove ? Math.max(margin, rect.top - gap - maxHeight) : Math.min(rect.bottom + gap, viewportHeight - margin - maxHeight)
+    const left = Math.min(Math.max(margin, rect.right - width), viewportWidth - margin - width)
+    setMenuStyle({
+      position: 'fixed',
+      top,
+      left,
+      width,
+      maxHeight,
+      zIndex: 10000,
+    })
+  }, [pickerModels.length])
+
+  useEffect(() => {
+    if (!open) return
+    const closeOnPointer = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', closeOnPointer, true)
+    return () => document.removeEventListener('mousedown', closeOnPointer, true)
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    positionMenu()
+    window.addEventListener('resize', positionMenu)
+    window.addEventListener('scroll', positionMenu, true)
+    return () => {
+      window.removeEventListener('resize', positionMenu)
+      window.removeEventListener('scroll', positionMenu, true)
+    }
+  }, [open, positionMenu, filtered.length])
 
   const handleTest = async (model: LlmProviderModel) => {
     setTesting(model.id)
@@ -1138,36 +1443,57 @@ function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
     }
   }
 
+  const handleTrigger = () => {
+    if (result?.success && !testing) { setResult(null); return }
+    setOpen((prev) => {
+      if (!prev) {
+        setSearch('')
+        positionMenu()
+      }
+      return !prev
+    })
+  }
+
+  const icon = testing
+    ? <Loader2 size={12} className="animate-spin" />
+    : result
+      ? result.success
+        ? <AnimatedCheck size={12} color="var(--c-status-success-text)" />
+        : <X size={12} className="text-[var(--c-status-error-text)]" />
+      : <Zap size={12} strokeWidth={1.5} />
+
   return (
-    <div className="relative flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          if (result?.success && !testing) { setResult(null); return }
-          setOpen((prev) => { if (!prev) setSearch(''); return !prev })
-        }}
-        disabled={testing !== null || pickerModels.length === 0}
-        className="button-secondary inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-medium text-[var(--c-text-secondary)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-        style={secondaryButtonBorderStyle}
-      >
-        {testing
-          ? <Loader2 size={12} className="animate-spin" />
-          : result
-            ? result.success
-              ? <AnimatedCheck size={12} color="var(--c-status-success-text)" />
-              : <X size={12} className="text-[var(--c-status-error-text)]" />
-            : <Zap size={12} strokeWidth={1.5} />}
-        {label}
-      </button>
+    <div ref={triggerRef} className="relative flex items-center gap-2">
+      {iconOnly ? (
+        <SettingsIconButton
+          label={label}
+          onClick={handleTrigger}
+          disabled={testing !== null || pickerModels.length === 0}
+        >
+          {icon}
+        </SettingsIconButton>
+      ) : (
+        <SettingsButton
+          variant="secondary"
+          onClick={handleTrigger}
+          disabled={testing !== null || pickerModels.length === 0}
+          icon={icon}
+        >
+          {label}
+        </SettingsButton>
+      )}
       {result && !result.success && !testing && (
         <ErrorDetailsButton error={result.error ?? { message: 'Unknown error' }} />
       )}
-      {open && (
+      {open && createPortal(
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0" style={{ zIndex: 9999 }} onMouseDown={() => setOpen(false)} />
           <div
-            className="absolute right-0 top-[calc(100%+6px)] z-20 min-w-[220px] overflow-hidden dropdown-menu"
+            ref={menuRef}
+            className="dropdown-menu overflow-hidden"
+            onMouseDown={(event) => event.stopPropagation()}
             style={{
+              ...menuStyle,
               border: '0.5px solid var(--c-border-subtle)',
               borderRadius: '10px',
               padding: '4px',
@@ -1176,15 +1502,13 @@ function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
             }}
           >
             <div style={{ padding: '4px 4px 2px' }}>
-              <input
+              <SettingsSearchInput
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-md px-3 py-1.5 text-sm outline-none"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-deep)', color: 'var(--c-text-primary)' }}
               />
             </div>
-            <div className="max-h-[280px] overflow-y-auto py-1">
+            <div className="overflow-y-auto py-1" style={{ maxHeight: `calc(${String(menuStyle.maxHeight ?? 288)}px - 48px)` }}>
               {filtered.length === 0 ? (
                 <p className="px-3 py-2 text-sm text-[var(--c-text-muted)]">--</p>
               ) : filtered.map((model) => (
@@ -1204,7 +1528,8 @@ function ModelTestButton({ accessToken, provider, label, searchPlaceholder }: {
               ))}
             </div>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   )

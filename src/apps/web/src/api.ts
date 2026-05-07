@@ -1793,6 +1793,16 @@ export async function deleteLlmProvider(
   })
 }
 
+export async function copyLlmProvider(
+  accessToken: string,
+  id: string,
+): Promise<LlmProvider> {
+  return await apiFetch<LlmProvider>(withScope(`/v1/llm-providers/${id}/copy`, BYOK_SCOPE), {
+    method: 'POST',
+    accessToken,
+  })
+}
+
 export async function createProviderModel(
   accessToken: string,
   providerId: string,

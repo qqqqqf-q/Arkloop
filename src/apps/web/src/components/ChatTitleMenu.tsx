@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { ChevronDown, Glasses, Pencil, Share2, Star, Trash2 } from 'lucide-react'
 import { isDesktop } from '@arkloop/shared/desktop'
+import { ConfirmDialog } from '@arkloop/shared'
 import { useLocale } from '../contexts/LocaleContext'
 import { useChatSession } from '../contexts/chat-session'
 import { useAuth } from '../contexts/auth'
@@ -370,68 +371,15 @@ function ChatTitleMenuContent({ threadId }: { threadId: string | null }) {
         document.body,
       )}
 
-      {/* delete confirm dialog */}
-      {deleteConfirmOpen && createPortal(
-        <div
-          className="overlay-fade-in fixed inset-0 flex items-center justify-center"
-          style={{ zIndex: 10000, background: 'rgba(0,0,0,0.12)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setDeleteConfirmOpen(false) }}
-        >
-          <div
-            className="modal-enter"
-            style={{
-              background: 'var(--c-bg-page)',
-              border: '0.5px solid var(--c-border-subtle)',
-              borderRadius: '16px',
-              padding: '24px',
-              width: '320px',
-              boxShadow: 'var(--c-dropdown-shadow)',
-            }}
-          >
-            <p style={{ fontSize: '15px', fontWeight: 600, color: 'var(--c-text-primary)', marginBottom: '8px' }}>
-              {t.deleteThreadConfirmTitle}
-            </p>
-            <p style={{ fontSize: '13px', color: 'var(--c-text-secondary)', lineHeight: 1.55, marginBottom: '20px' }}>
-              {t.deleteThreadConfirmBody}
-            </p>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setDeleteConfirmOpen(false)}
-                className="hover:bg-[var(--c-bg-deep)]"
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: 'var(--c-text-secondary)',
-                  background: 'transparent',
-                  border: '0.5px solid var(--c-border-subtle)',
-                  cursor: 'pointer',
-                }}
-              >
-                {t.deleteThreadCancel}
-              </button>
-              <button
-                onClick={handleDeleteThread}
-                className="hover:opacity-85 active:opacity-70"
-                style={{
-                  padding: '7px 16px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#fff',
-                  background: '#ef4444',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                {t.deleteThreadConfirm}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title={t.deleteThreadConfirmTitle}
+        message={t.deleteThreadConfirmBody}
+        confirmLabel={t.deleteThreadConfirm}
+        cancelLabel={t.deleteThreadCancel}
+        onClose={() => setDeleteConfirmOpen(false)}
+        onConfirm={() => void handleDeleteThread()}
+      />
     </>
   )
 }

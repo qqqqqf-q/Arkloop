@@ -310,6 +310,93 @@ describe('copTimelinePayloadForSegment', () => {
     ])
   })
 
+  it('image_generate generic row 根据状态显示图片语义', () => {
+    const running = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [{
+          kind: 'call',
+          call: { toolCallId: 'img_1', toolName: 'image_generate', arguments: { prompt: 'a mountain at dawn' } },
+          seq: 1,
+        }],
+      },
+      { sources: [] },
+    )
+    const success = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [{
+          kind: 'call',
+          call: { toolCallId: 'img_2', toolName: 'image_generate', arguments: { prompt: 'a mountain at dawn' }, result: { url: 'https://example.test/image.png' } },
+          seq: 2,
+        }],
+      },
+      { sources: [] },
+    )
+    const failed = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [{
+          kind: 'call',
+          call: { toolCallId: 'img_3', toolName: 'image_generate', arguments: { prompt: 'a mountain at dawn' }, errorClass: 'quota exceeded' },
+          seq: 3,
+        }],
+      },
+      { sources: [] },
+    )
+
+    expect(running.genericTools?.[0]).toEqual(expect.objectContaining({
+      toolName: 'image_generate',
+      label: 'prompt: a mountain at dawn',
+      displayDescription: 'Generating image',
+      status: 'running',
+    }))
+    expect(success.genericTools?.[0]).toEqual(expect.objectContaining({
+      toolName: 'image_generate',
+      label: 'prompt: a mountain at dawn',
+      displayDescription: 'Generated image',
+      status: 'success',
+    }))
+    expect(failed.genericTools?.[0]).toEqual(expect.objectContaining({
+      toolName: 'image_generate',
+      label: 'prompt: a mountain at dawn',
+      displayDescription: 'Image generation failed',
+      status: 'failed',
+      errorMessage: 'quota exceeded',
+    }))
+    expect(running.genericTools?.[0]?.label).not.toContain('prompt=')
+  })
+
+  it('image_generate row 优先显示错误 message', () => {
+    const r = copTimelinePayloadForSegment(
+      {
+        type: 'cop',
+        title: null,
+        items: [{
+          kind: 'call',
+          call: {
+            toolCallId: 'img_1',
+            toolName: 'image_generate',
+            arguments: { prompt: 'a mountain at dawn', size: '1024x1024' },
+            errorClass: 'provider.retryable',
+            errorMessage: 'request failed after retry',
+          },
+          seq: 1,
+        }],
+      },
+      { sources: [] },
+    )
+
+    expect(r.genericTools?.[0]).toEqual(expect.objectContaining({
+      label: 'prompt: a mountain at dawn\nsize=1024x1024',
+      displayDescription: 'Image generation failed',
+      errorMessage: 'request failed after retry',
+    }))
+  })
+
   it('generic fallback 只显示结果摘要，不裸露 raw JSON', () => {
     const r = copTimelinePayloadForSegment(
       {

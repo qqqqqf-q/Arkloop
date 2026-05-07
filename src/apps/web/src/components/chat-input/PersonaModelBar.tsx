@@ -497,7 +497,7 @@ export function PersonaModelBar({
             accessToken={accessToken}
             value={selectedModel}
             onChange={onModelChange}
-            onAddApiKey={() => onOpenSettings?.('models')}
+            onAddModel={() => onOpenSettings?.('models')}
             variant={variant}
             controlHeight={isWorkMode ? 'default' : 'legacyChat'}
             thinkingEnabled={thinkingEnabled}

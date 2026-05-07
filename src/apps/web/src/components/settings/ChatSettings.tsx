@@ -6,9 +6,9 @@ import {
   updatePlatformSetting,
 } from '../../api-admin'
 import { bridgeClient } from '../../api-bridge'
-import { PillToggle } from '@arkloop/shared'
 import { useToast } from '@arkloop/shared'
 import type { DesktopSettingsHydrationSnapshot } from '../DesktopSettings'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 const DEFAULT_FALLBACK_WINDOW = 128_000
 
@@ -257,7 +257,7 @@ export function ChatSettings({
             <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{st.chatCompactEnableDesc}</p>
           </div>
           <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-            <PillToggle checked={autoOn} onChange={setAutoOn} forceHover={compactCardHovered} />
+            <SettingsSwitch checked={autoOn} onChange={setAutoOn} forceHover={compactCardHovered} />
           </div>
         </div>
 
@@ -339,7 +339,7 @@ export function ChatSettings({
             {execModeLoading ? (
               <div className="h-6 w-12 animate-pulse rounded-full bg-[var(--c-bg-deep)]" />
             ) : (
-              <PillToggle
+              <SettingsSwitch
                 checked={executionMode === 'vm'}
                 onChange={handleExecutionModeToggle}
                 forceHover={execCardHovered}

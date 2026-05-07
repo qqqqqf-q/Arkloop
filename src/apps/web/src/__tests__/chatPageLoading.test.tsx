@@ -669,6 +669,25 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
 }
 
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown
+  for (let i = 0; i < 10; i += 1) {
+    try {
+      assertion()
+      return
+    } catch (error) {
+      lastError = error
+    }
+    await act(async () => {
+      await flushMicrotasks()
+    })
+  }
+  if (lastError instanceof Error) {
+    throw lastError
+  }
+  assertion()
+}
+
 function flushAnimationFrame(): Promise<void> {
   return new Promise((resolve) => {
     requestAnimationFrame(() => resolve())
@@ -5653,8 +5672,21 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    const text = container.textContent ?? ''
-    expect(text).toContain('Search completed')
+    await act(async () => {
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+    expect(mockedWriteMessageSearchSteps).toHaveBeenCalledWith(
+      'msg-2',
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'search-1',
+          kind: 'searching',
+          status: 'done',
+          queries: ['arkloop'],
+        }),
+      ]),
+    )
 
     act(() => {
       root.unmount()
@@ -5784,6 +5816,8 @@ describe('ChatPage loading state', () => {
       root.render(renderTree())
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushMicrotasks()
+      await flushMicrotasks()
     })
 
     expect(mockedWriteMessageSearchSteps).toHaveBeenCalledWith(
@@ -5816,7 +5850,7 @@ describe('ChatPage loading state', () => {
         created_at: '2026-03-10T00:00:00Z',
       },
       {
-        id: 'msg-2',
+        id: 'msg-replay-rich-assistant',
         role: 'assistant',
         content: '',
         run_id: 'run-replay-rich',
@@ -5953,14 +5987,26 @@ describe('ChatPage loading state', () => {
     })
 
     expect(mockedListRunEvents).toHaveBeenCalledWith('token', 'run-replay-rich', { follow: false })
-    expect(mockedWriteMessageWidgets).toHaveBeenCalledWith('msg-2', [
+    await waitForAssertion(() => {
+      expect(mockedWriteMessageAssistantTurn).toHaveBeenCalledWith(
+        'msg-replay-rich-assistant',
+        expect.objectContaining({
+          segments: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'text',
+            }),
+          ]),
+        }),
+      )
+    })
+    expect(mockedWriteMessageWidgets).toHaveBeenCalledWith('msg-replay-rich-assistant', [
       {
         id: 'call-widget-rich',
         title: '状态卡片',
         html: '<div>ready</div>',
       },
     ])
-    expect(mockedWriteMessageCodeExecutions).toHaveBeenCalledWith('msg-2', [
+    expect(mockedWriteMessageCodeExecutions).toHaveBeenCalledWith('msg-replay-rich-assistant', [
       expect.objectContaining({
         id: 'call-exec-rich',
         code: 'pwd',
@@ -5968,16 +6014,6 @@ describe('ChatPage loading state', () => {
         status: 'success',
       }),
     ])
-    expect(mockedWriteMessageAssistantTurn).toHaveBeenCalledWith(
-      'msg-2',
-      expect.objectContaining({
-        segments: expect.arrayContaining([
-          expect.objectContaining({
-            type: 'text',
-          }),
-        ]),
-      }),
-    )
 
     act(() => {
       root.unmount()

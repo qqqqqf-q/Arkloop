@@ -407,6 +407,107 @@ func TestDesktopCreateHeartbeatRunUsesDiscordDMThreadContext(t *testing.T) {
 	}
 }
 
+func TestDesktopCreateHeartbeatRunUsesChannelOwnerWhenThreadOwnerMissing(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	channelID := uuid.New()
+	identityID := uuid.New()
+	personaID := uuid.New()
+	ownerUserID := uuid.New()
+	personaKey := "telegram-heartbeat-owner"
+
+	seedDesktopAccount(t, db, accountID)
+	seedDesktopProject(t, db, accountID, projectID)
+	seedDesktopThread(t, db, accountID, projectID, threadID)
+
+	if _, err := db.Exec(ctx,
+		`INSERT INTO users (id, username, email, status) VALUES ($1, $2, $3, 'active')`,
+		ownerUserID,
+		"heartbeat-owner-"+ownerUserID.String(),
+		"heartbeat-owner-"+ownerUserID.String()+"@test.local",
+	); err != nil {
+		t.Fatalf("insert owner user: %v", err)
+	}
+	if _, err := db.Exec(ctx,
+		`INSERT INTO personas (id, account_id, persona_key, version, display_name, prompt_md, tool_allowlist, tool_denylist, budgets_json, is_active)
+		 VALUES ($1, $2, $3, '1', 'Telegram Heartbeat Owner', 'prompt', '[]', '[]', '{}', 1)`,
+		personaID,
+		accountID,
+		personaKey,
+	); err != nil {
+		t.Fatalf("insert persona: %v", err)
+	}
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channels (id, account_id, channel_type, persona_id, owner_user_id, is_active, config_json)
+		 VALUES ($1, $2, 'telegram', $3, $4, 1, '{}')`,
+		channelID,
+		accountID,
+		personaID,
+		ownerUserID,
+	); err != nil {
+		t.Fatalf("insert channel: %v", err)
+	}
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata)
+		 VALUES ($1, 'telegram', 'chat-owner', '{}')`,
+		identityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+	if _, err := db.Exec(ctx,
+		`INSERT INTO channel_group_threads (channel_id, platform_chat_id, persona_id, thread_id)
+		 VALUES ($1, 'chat-owner', $2, $3)`,
+		channelID,
+		personaID,
+		threadID,
+	); err != nil {
+		t.Fatalf("insert channel group thread: %v", err)
+	}
+
+	row := ScheduledTriggerRow{
+		ID:                uuid.New(),
+		ChannelID:         channelID,
+		ChannelIdentityID: identityID,
+		PersonaKey:        personaKey,
+		AccountID:         accountID,
+		Model:             "owner-model",
+		IntervalMin:       15,
+		NextFireAt:        time.Now().UTC(),
+	}
+
+	resolved, err := (ScheduledTriggersRepository{}).ResolveHeartbeatThread(ctx, db, row)
+	if err != nil {
+		t.Fatalf("resolve heartbeat thread: %v", err)
+	}
+	if resolved == nil || resolved.CreatedByUserID == nil || *resolved.CreatedByUserID != ownerUserID {
+		t.Fatalf("expected heartbeat context owner %s, got %#v", ownerUserID, resolved)
+	}
+
+	result, err := DesktopCreateHeartbeatRun(ctx, db, row, "owner-model")
+	if err != nil {
+		t.Fatalf("desktop create heartbeat run: %v", err)
+	}
+
+	var runOwner string
+	if err := db.QueryRow(ctx, `SELECT created_by_user_id FROM runs WHERE id = $1`, result.RunID.String()).Scan(&runOwner); err != nil {
+		t.Fatalf("load created run owner: %v", err)
+	}
+	if runOwner != ownerUserID.String() {
+		t.Fatalf("unexpected run owner: got %s want %s", runOwner, ownerUserID)
+	}
+}
+
 func TestScheduledTriggersRepositoryUpsertHeartbeatPreservesNextFireAtOnConflict(t *testing.T) {
 	ctx := context.Background()
 

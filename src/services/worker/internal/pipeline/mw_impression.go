@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"arkloop/services/shared/runkind"
@@ -130,12 +131,12 @@ func formatImpressionInput(skeletonLines, leafLines []string) string {
 
 func buildImpressionInputFromFragments(fragments []memory.MemoryFragment) string {
 	var sb strings.Builder
-	sb.WriteString("以下是 bot 的记忆条目，请基于这些信息生成画像。\n\n")
+	sb.WriteString("以下是 bot 的记忆条目种子，请先基于这些线索主动检索，再生成画像。URI 只用于后续工具调用，不要写入最终画像。\n\n")
 	sb.WriteString("## 记忆条目\n")
 	count := 0
 	for _, fragment := range fragments {
-		title := strings.TrimSpace(firstNonEmptyString(fragment.Title, compactInline(fragment.Content, 80)))
-		content := compactInline(fragment.Content, 300)
+		title := strings.TrimSpace(firstNonEmptyString(fragment.Title, compactInline(firstNonEmptyString(fragment.Content, fragment.Abstract), 100)))
+		content := compactInline(firstNonEmptyString(fragment.Content, fragment.Abstract), 700)
 		if title == "" && content == "" {
 			continue
 		}
@@ -143,12 +144,36 @@ func buildImpressionInputFromFragments(fragments []memory.MemoryFragment) string
 		sb.WriteString("- 标题：")
 		sb.WriteString(title)
 		sb.WriteString("\n")
-		sb.WriteString("  内容：")
-		sb.WriteString(content)
-		sb.WriteString("\n")
+		writeImpressionField(&sb, "URI", fragment.URI)
+		writeImpressionField(&sb, "时间", fragment.RecordedAt)
+		writeImpressionField(&sb, "标签", strings.Join(fragment.Labels, ", "))
+		writeImpressionField(&sb, "重要度", formatImpressionScore(fragment.Score))
+		writeImpressionField(&sb, "摘要", compactInline(fragment.Abstract, 240))
+		writeImpressionField(&sb, "内容", content)
 	}
 	if count == 0 {
 		return ""
 	}
 	return strings.TrimRight(sb.String(), "\n") + "\n"
+}
+
+func writeImpressionField(sb *strings.Builder, label, value string) {
+	cleaned := strings.TrimSpace(value)
+	if cleaned == "" {
+		return
+	}
+	sb.WriteString("  ")
+	sb.WriteString(label)
+	sb.WriteString("：")
+	sb.WriteString(cleaned)
+	sb.WriteString("\n")
+}
+
+func formatImpressionScore(score float64) string {
+	if score == 0 {
+		return ""
+	}
+	formatted := strconv.FormatFloat(score, 'f', 3, 64)
+	formatted = strings.TrimRight(formatted, "0")
+	return strings.TrimRight(formatted, ".")
 }

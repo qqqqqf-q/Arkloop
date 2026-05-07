@@ -323,6 +323,7 @@ export const zh: LocaleStrings = {
       fieldSyncMode: '同步模式',
       fieldWorkspaceEnabled: '保存后在当前工作区启用',
       fieldIsActive: '启用',
+      statusChecked: '检查通过',
       enabledLabel: '已启用',
       disabledLabel: '未启用',
       actionCheck: '重检',

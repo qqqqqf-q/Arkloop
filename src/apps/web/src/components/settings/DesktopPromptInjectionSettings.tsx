@@ -10,7 +10,6 @@ import {
 } from '../../api-admin'
 import { bridgeClient, checkBridgeAvailable } from '../../api-bridge'
 import {
-  TabBar,
   AuditTab,
   SemanticSetupPanel,
   LayerCard,
@@ -21,6 +20,7 @@ import {
 } from '@arkloop/shared/components/prompt-injection'
 import { useToast } from '@arkloop/shared'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
+import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
 
 type Props = { accessToken: string }
 
@@ -132,7 +132,11 @@ export function DesktopPromptInjectionSettings({ accessToken }: Props) {
     <div className="flex max-w-[900px] flex-col gap-6 pb-10">
       <SettingsSectionHeader title={ts.title} description={ts.description} />
 
-      <TabBar tabs={tabItems} active={activeTab} onChange={setActiveTab} />
+      <SettingsSegmentedControl<Tab>
+        options={tabItems.map((item) => ({ value: item.key, label: item.label }))}
+        value={activeTab}
+        onChange={setActiveTab}
+      />
 
       {activeTab === 'layers' && (
         loading ? (

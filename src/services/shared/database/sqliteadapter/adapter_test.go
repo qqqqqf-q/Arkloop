@@ -207,6 +207,43 @@ func TestRepairMissingColumnsMigratesOldPlanMode(t *testing.T) {
 	}
 }
 
+func TestRepairMissingColumnsBackfillsChannelOwner(t *testing.T) {
+	t.Parallel()
+	pool := openTestDB(t)
+	ctx := context.Background()
+
+	if _, err := pool.Exec(ctx, `CREATE TABLE users (id TEXT PRIMARY KEY)`); err != nil {
+		t.Fatalf("create users: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE accounts (id TEXT PRIMARY KEY, owner_user_id TEXT)`); err != nil {
+		t.Fatalf("create accounts: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE channels (id TEXT PRIMARY KEY, account_id TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create old channels: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id) VALUES ('owner-1')`); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts (id, owner_user_id) VALUES ('account-1', 'owner-1')`); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO channels (id, account_id) VALUES ('channel-1', 'account-1')`); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+
+	if err := repairMissingColumns(ctx, pool.Unwrap()); err != nil {
+		t.Fatalf("repair missing columns: %v", err)
+	}
+
+	var ownerUserID string
+	if err := pool.QueryRow(ctx, `SELECT owner_user_id FROM channels WHERE id = 'channel-1'`).Scan(&ownerUserID); err != nil {
+		t.Fatalf("query channel owner: %v", err)
+	}
+	if ownerUserID != "owner-1" {
+		t.Fatalf("unexpected channel owner: got %q want owner-1", ownerUserID)
+	}
+}
+
 func TestMigrations_UpDown(t *testing.T) {
 	t.Parallel()
 	pool := openTestDB(t)

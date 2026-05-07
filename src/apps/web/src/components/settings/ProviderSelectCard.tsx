@@ -24,15 +24,22 @@ export function ProviderSelectCard({
   children,
 }: ProviderSelectCardProps) {
   const hasExtra = !!(badge || status || children)
+  const surface = selected
+    ? 'color-mix(in srgb, var(--c-bg-input) 97%, var(--c-text-primary) 3%)'
+    : 'var(--c-bg-input)'
+
   return (
     <div
-      className="rounded-xl transition-[border-color] duration-150"
+      className={[
+        'rounded-xl transition-[border-color,box-shadow,background-color] duration-180',
+        !selected && !disabled ? 'hover:[box-shadow:0_0_0_0.35px_var(--c-input-border-color-hover)]' : '',
+      ].filter(Boolean).join(' ')}
       style={{
         minWidth: 223,
         border: selected
           ? '1.5px solid var(--c-accent-send)'
           : '0.5px solid var(--c-input-border-color)',
-        background: 'var(--c-bg-input)',
+        background: surface,
         opacity: disabled ? 0.4 : 1,
       }}
     >
@@ -40,26 +47,8 @@ export function ProviderSelectCard({
         type="button"
         disabled={disabled}
         onClick={onSelect}
-        className="flex w-full items-center gap-3 rounded-xl px-4 text-left transition-all duration-150"
+        className="flex w-full items-center gap-3 rounded-xl px-4 text-left transition-colors duration-180"
         style={{ minHeight: hasExtra ? undefined : 60, paddingTop: hasExtra ? 12 : undefined, paddingBottom: hasExtra ? 12 : undefined }}
-        onMouseEnter={(e) => {
-          if (!selected && !disabled) {
-            const wrapper = e.currentTarget.parentElement
-            if (wrapper) {
-              wrapper.style.borderColor = 'var(--c-input-border-color-hover)'
-              wrapper.style.background = 'var(--c-bg-card-hover)'
-            }
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!selected) {
-            const wrapper = e.currentTarget.parentElement
-            if (wrapper) {
-              wrapper.style.borderColor = 'var(--c-input-border-color)'
-              wrapper.style.background = 'var(--c-bg-input)'
-            }
-          }
-        }}
       >
         <div
           className="shrink-0 self-center rounded-full transition-[border-width,border-color] duration-150"

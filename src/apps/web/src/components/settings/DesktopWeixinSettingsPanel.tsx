@@ -15,9 +15,10 @@ import {
   updateChannelBinding,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-import { PillToggle } from '@arkloop/shared'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import {
+  channelRowsCls,
+  ChannelDetailRow,
   BindingsCard,
   buildModelOptions,
   ListField,
@@ -27,10 +28,10 @@ import {
   resolvePersonaID,
   sameItems,
   SaveActions,
-  StatusBadge,
 } from './DesktopChannelSettingsShared'
 import { Loader2, RefreshCw } from 'lucide-react'
 import QRCode from 'qrcode'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 type Props = {
   accessToken: string
@@ -177,8 +178,6 @@ export function DesktopWeixinSettingsPanel({
   )
   const persistedDefaultModel = (channel?.config_json?.default_model as string | undefined) ?? ''
   const persistedBaseURL = (channel?.config_json?.base_url as string | undefined) ?? ''
-  const tokenConfigured = channel?.has_credentials === true || botToken.trim().length > 0
-
   const dirty = useMemo(() => {
     if ((channel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
@@ -348,7 +347,6 @@ export function DesktopWeixinSettingsPanel({
 
   const handleUnbind = async (binding: ChannelBindingResponse) => {
     if (!channel) return
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
       const nextBindings = await listChannelBindings(accessToken, channel.id)
@@ -394,7 +392,7 @@ export function DesktopWeixinSettingsPanel({
     <div className="flex flex-col gap-6">
       {error && (
         <div
-          className="rounded-xl px-4 py-3 text-sm"
+          className="rounded-xl px-5 py-3 text-sm"
           style={{
             border: '0.5px solid color-mix(in srgb, var(--c-status-error, #ef4444) 24%, transparent)',
             background: 'var(--c-status-error-bg, rgba(239,68,68,0.08))',
@@ -406,46 +404,16 @@ export function DesktopWeixinSettingsPanel({
       )}
 
       <div
-        className="rounded-2xl p-5"
+        className="overflow-hidden rounded-xl"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                  <svg width={18} height={18} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm5.34 2.867c-3.95-.093-7.332 2.836-7.332 6.547 0 3.622 3.263 6.572 7.242 6.572a7.1 7.1 0 0 0 2.07-.296.592.592 0 0 1 .518.074l1.388.812a.23.23 0 0 0 .12.039.215.215 0 0 0 .212-.215c0-.051-.02-.1-.035-.155l-.285-1.08a.43.43 0 0 1 .155-.484C22.048 19.708 23.2 18.158 23.2 16.41c0-3.622-2.855-6.434-6.262-7.552zm-3.215 3.98c.468 0 .848.386.848.86a.854.854 0 0 1-.848.86.854.854 0 0 1-.848-.86c0-.475.38-.86.848-.86zm4.804 0c.468 0 .848.386.848.86a.854.854 0 0 1-.848.86.854.854 0 0 1-.848-.86c0-.475.38-.86.848-.86z" />
-                  </svg>
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.weixin}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <StatusBadge active={enabled} label={enabled ? ct.active : ct.inactive} />
-                    <StatusBadge
-                      active={tokenConfigured}
-                      label={tokenConfigured ? ds.connectorConfigured : ds.connectorNotConfigured}
-                    />
-                    {qrStatus === 'confirmed' && !channelHasToken && (
-                      <span
-                        className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
-                        style={{
-                          background: 'var(--c-status-success-bg, rgba(34,197,94,0.1))',
-                          color: 'var(--c-status-success, #22c55e)',
-                        }}
-                      >
-                        {ct.weixinLoggedIn}
-                      </span>
-                    )}
-                  </div>
-                </div>
+        <div className="flex flex-col">
+          <div className={channelRowsCls}>
+            <ChannelDetailRow label={t.agentSettings.reasoningModes.enabled}>
+              <div className="flex justify-end">
+                <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
               </div>
-            </div>
-
-            <PillToggle checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+            </ChannelDetailRow>
             {/* QR Code Login */}
             <div className="md:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
@@ -683,7 +651,7 @@ export function DesktopWeixinSettingsPanel({
       />
 
       <div
-        className="rounded-2xl px-5 py-4"
+        className="rounded-xl px-5 py-4"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
         <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>

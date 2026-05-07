@@ -1,9 +1,9 @@
 import { Download, Github, MessageSquare, Trash2, X } from 'lucide-react'
-import { PillToggle } from '@arkloop/shared'
 import type { ViewSkill } from './types'
 import { formatDate } from './types'
 import { openExternal } from '../../openExternal'
 import { secondaryButtonBorderStyle, secondaryButtonSmCls, secondaryButtonXsCls } from '../buttonStyles'
+import { SettingsSwitch } from '../settings/_SettingsSwitch'
 
 type SkillTextSubset = {
   sourceOfficial: string
@@ -202,7 +202,7 @@ export function SkillDetailModal({
             <span className="text-xs text-[var(--c-text-tertiary)]">
               {platformAvailabilityLabel(item.platform_status) || (enabled ? skillText.enabledByDefault : skillText.disable)}
             </span>
-            <PillToggle
+            <SettingsSwitch
               checked={enabled}
               onChange={() => {
                 if (enabled) onDisable(item)

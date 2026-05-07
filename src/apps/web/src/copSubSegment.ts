@@ -2,7 +2,7 @@ import type { CopBlockItem } from './assistantTurnSegments'
 import { normalizeToolName, compactCommandLine } from './toolPresentation'
 import { isWebSearchToolName, webSearchQueriesFromArguments } from './webSearchTimelineFromAgentEvent'
 
-export type CopSegmentCategory = 'explore' | 'exec' | 'edit' | 'agent' | 'fetch' | 'search' | 'generic'
+export type CopSegmentCategory = 'explore' | 'exec' | 'edit' | 'agent' | 'fetch' | 'search' | 'image' | 'generic'
 
 export type CopSubSegment = {
   id: string
@@ -22,6 +22,7 @@ const AGENT_NAMES = new Set([
 ])
 const MUTATING_LSP = new Set(['rename'])
 const LOAD_TOOL_NAMES = new Set(['load_tools', 'load_skill'])
+const IMAGE_GENERATE_TOOL_NAME = 'image_generate'
 
 function isWebFetchToolName(toolName: string): boolean {
   const n = normalizeToolName(toolName).toLowerCase().replace(/-/g, '_')
@@ -39,6 +40,7 @@ export function categoryForTool(toolName: string): CopSegmentCategory {
   if (EDIT_NAMES.has(n)) return 'edit'
   if (AGENT_NAMES.has(n)) return 'agent'
   if (isWebFetchToolName(toolName)) return 'fetch'
+  if (isImageGenerateToolName(toolName)) return 'image'
   return 'generic'
 }
 
@@ -50,6 +52,7 @@ export function segmentLiveTitle(cat: CopSegmentCategory): string {
     case 'agent': return 'Agent running...'
     case 'fetch': return 'Fetching...'
     case 'search': return 'Searching...'
+    case 'image': return `${imageGenerateTitle('live')}...`
     case 'generic': return 'Working...'
   }
 }
@@ -61,6 +64,30 @@ function basename(path: string): string {
 
 function isLoadToolName(toolName: string): boolean {
   return LOAD_TOOL_NAMES.has(normalizeToolName(toolName))
+}
+
+function isImageGenerateToolName(toolName: string): boolean {
+  return normalizeToolName(toolName) === IMAGE_GENERATE_TOOL_NAME
+}
+
+function imageGenerateTitle(status: 'live' | 'success' | 'failed'): string {
+  switch (status) {
+    case 'live': return 'Generating image'
+    case 'success': return 'Generated image'
+    case 'failed': return 'Image generation failed'
+  }
+}
+
+function imageGenerateDoneTitle(total: number, failed: number): string {
+  if (failed > 0) return failed === 1 ? 'Image generation failed' : `${failed} image generations failed`
+  return total === 1 ? imageGenerateTitle('success') : `Generated ${total} images`
+}
+
+function imageGenerateCallsTitle(calls: ReadonlyArray<CallItem['call']>): string | null {
+  if (calls.length === 0) return null
+  if (!calls.every((call) => isImageGenerateToolName(call.toolName))) return null
+  const failed = calls.filter((call) => typeof call.errorClass === 'string' && call.errorClass.trim() !== '').length
+  return imageGenerateDoneTitle(calls.length, failed)
 }
 
 function countLoadToolsCall(call: CallItem['call']): number {
@@ -92,6 +119,9 @@ export function segmentCompletedTitle(seg: CopSubSegment): string {
     .filter((i): i is Extract<CopBlockItem, { kind: 'call' }> => i.kind === 'call')
     .map((i) => i.call)
   if (calls.length === 0) return 'Completed'
+
+  const imageTitle = imageGenerateCallsTitle(calls)
+  if (imageTitle) return imageTitle
 
   switch (seg.category) {
     case 'explore': {
@@ -135,6 +165,7 @@ export function segmentCompletedTitle(seg: CopSubSegment): string {
     }
     case 'fetch': return 'Fetch completed'
     case 'search': return webSearchCompletedTitle(calls)
+    case 'image': return imageGenerateCallsTitle(calls) ?? imageGenerateTitle('success')
     case 'generic': {
       if (calls.length === 1) {
         const t = calls[0]!.toolName
@@ -164,6 +195,8 @@ export type AggregatedCallStats = {
   webSearchQueries: string[]
   loadToolsCount: number
   loadSkillCount: number
+  imageCount: number
+  imageFailedCount: number
   genericCount: number
   byToolName: Map<string, number>
 }
@@ -197,6 +230,8 @@ export function aggregateCallStats(calls: ReadonlyArray<CallItem['call']>): Aggr
     webSearchQueries: [],
     loadToolsCount: 0,
     loadSkillCount: 0,
+    imageCount: 0,
+    imageFailedCount: 0,
     genericCount: 0,
     byToolName: new Map<string, number>(),
   }
@@ -241,6 +276,11 @@ export function aggregateCallStats(calls: ReadonlyArray<CallItem['call']>): Aggr
     if (cat === 'exec') { stats.execCount += 1; continue }
     if (cat === 'agent') { stats.agentCount += 1; continue }
     if (cat === 'fetch') { stats.fetchCount += 1; continue }
+    if (cat === 'image') {
+      stats.imageCount += 1
+      if (typeof c.errorClass === 'string' && c.errorClass.trim() !== '') stats.imageFailedCount += 1
+      continue
+    }
     stats.genericCount += 1
   }
   return stats
@@ -322,10 +362,11 @@ export function presentToProgressive(
   displayDescription?: string,
 ): string {
   const dd = (displayDescription ?? '').trim()
-  if (dd) return dd
   if (isWebSearchToolName(toolNameInput)) return webSearchLiveTitle(args)
   if (isWebFetchToolName(toolNameInput)) return webFetchLiveTitle(args)
   const toolName = normalizeToolName(toolNameInput)
+  if (toolName === IMAGE_GENERATE_TOOL_NAME) return imageGenerateTitle('live')
+  if (dd) return dd
   switch (toolName) {
     case 'read_file': {
       const path = (typeof args.file_path === 'string' && args.file_path)
@@ -386,6 +427,7 @@ function formatStatsParts(stats: AggregatedCallStats): string {
   if (stats.execCount > 0) parts.push(`Ran ${stats.execCount} ${pluralize(stats.execCount, 'command', 'commands')}`)
   if (stats.agentCount > 0) parts.push(`${stats.agentCount} agent ${pluralize(stats.agentCount, 'task', 'tasks')}`)
   if (stats.fetchCount > 0) parts.push(`${stats.fetchCount} ${pluralize(stats.fetchCount, 'fetch', 'fetches')}`)
+  if (stats.imageCount > 0) parts.push(imageGenerateDoneTitle(stats.imageCount, stats.imageFailedCount))
   const webSearchTitle = webSearchStatsTitle(stats)
   if (webSearchTitle) parts.push(webSearchTitle)
   return parts.join(', ')
@@ -417,6 +459,8 @@ function formatSingleCategoryTitle(cat: CopSegmentCategory, stats: AggregatedCal
       return stats.fetchCount === 1 ? 'Fetch completed' : `${stats.fetchCount} fetches completed`
     case 'search':
       return webSearchStatsTitle(stats) ?? 'Search completed'
+    case 'image':
+      return imageGenerateDoneTitle(total, stats.imageFailedCount)
     case 'generic':
       return `${total} ${pluralize(total, 'step', 'steps')} completed`
   }
@@ -479,6 +523,8 @@ export function aggregateMainTitle(
     return segments[0]!.title || 'Completed'
   }
   const stats = aggregateCallStats(allCalls)
+  const imageTitle = imageGenerateCallsTitle(allCalls)
+  if (imageTitle) return imageTitle
   const cats = Array.from(new Set(segments.map((s) => s.category)))
   if (cats.length === 1) return formatSingleCategoryTitle(cats[0]!, stats, allCalls.length)
   const parts = formatStatsParts(stats)

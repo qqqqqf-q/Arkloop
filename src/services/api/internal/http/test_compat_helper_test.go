@@ -244,6 +244,7 @@ type llmProviderModelResponse struct {
 	Model               string          `json:"model"`
 	Priority            int             `json:"priority"`
 	IsDefault           bool            `json:"is_default"`
+	ShowInPicker        bool            `json:"show_in_picker"`
 	Tags                []string        `json:"tags"`
 	WhenJSON            json.RawMessage `json:"when"`
 	AdvancedJSON        map[string]any  `json:"advanced_json,omitempty"`

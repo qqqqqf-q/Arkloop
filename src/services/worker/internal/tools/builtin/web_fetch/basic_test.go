@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	sharedoutbound "arkloop/services/shared/outboundurl"
 	"arkloop/services/worker/internal/tools"
 )
 
@@ -125,6 +126,8 @@ func TestBasicProviderRejectsBinaryContent(t *testing.T) {
 }
 
 func TestBasicProviderRejectsUnsafeFinalURL(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	provider := newBasicProviderForTest(func(req *http.Request) (*http.Response, error) {
 		resp := textResponse(req, "text/plain", "secret")
 		finalReq, err := http.NewRequest(http.MethodGet, "http://localhost/private", nil)

@@ -252,6 +252,105 @@ func (s *Service) CreateProvider(ctx context.Context, accountID uuid.UUID, scope
 	return Provider{Credential: cred, Models: []data.LlmRoute{}}, nil
 }
 
+func (s *Service) CopyProvider(ctx context.Context, accountID, providerID uuid.UUID, scope string, userID *uuid.UUID) (Provider, error) {
+	if err := s.requireWriteReady(); err != nil {
+		return Provider{}, err
+	}
+	ownerKind, ownerUserID := credentialOwner(scope, userID)
+	current, err := s.credentials.GetByID(ctx, ownerKind, ownerUserID, providerID)
+	if err != nil {
+		return Provider{}, err
+	}
+	if current == nil {
+		return Provider{}, ProviderNotFoundError{ID: providerID}
+	}
+	if current.SecretID == nil {
+		return Provider{}, ProviderSecretMissingError{ProviderID: providerID}
+	}
+	apiKey, err := s.secrets.DecryptByID(ctx, *current.SecretID)
+	if err != nil {
+		return Provider{}, err
+	}
+	if apiKey == nil || strings.TrimSpace(*apiKey) == "" {
+		return Provider{}, ProviderSecretMissingError{ProviderID: providerID}
+	}
+	models, err := s.routes.ListByCredential(ctx, accountID, providerID, scope)
+	if err != nil {
+		return Provider{}, err
+	}
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Provider{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	newProviderID := uuid.New()
+	secret, err := upsertProviderSecret(ctx, tx, s.secrets, ownerKind, ownerUserID, providerSecretName(newProviderID), strings.TrimSpace(*apiKey))
+	if err != nil {
+		return Provider{}, err
+	}
+	keyPrefix := computeKeyPrefix(*apiKey)
+	cred, err := s.credentials.WithTx(tx).Create(
+		ctx,
+		newProviderID,
+		ownerKind,
+		ownerUserID,
+		current.Provider,
+		current.Name+" copy",
+		&secret.ID,
+		&keyPrefix,
+		current.BaseURL,
+		current.OpenAIAPIMode,
+		cloneMap(current.AdvancedJSON),
+	)
+	if err != nil {
+		return Provider{}, err
+	}
+
+	txRoutes := s.routes.WithTx(tx)
+	routeAccountID := accountID
+	if scope == data.LlmRouteScopePlatform {
+		routeAccountID = uuid.Nil
+	}
+	copiedModels := make([]data.LlmRoute, 0, len(models))
+	for _, model := range models {
+		projectID := uuid.Nil
+		if model.ProjectID != nil {
+			projectID = *model.ProjectID
+		}
+		created, err := txRoutes.Create(ctx, data.CreateLlmRouteParams{
+			AccountID:           routeAccountID,
+			ProjectID:           projectID,
+			Scope:               scope,
+			CredentialID:        newProviderID,
+			Model:               model.Model,
+			Priority:            model.Priority,
+			IsDefault:           model.IsDefault,
+			ShowInPicker:        model.ShowInPicker,
+			Tags:                append([]string(nil), model.Tags...),
+			WhenJSON:            cloneRawJSON(model.WhenJSON),
+			AdvancedJSON:        cloneMap(model.AdvancedJSON),
+			Multiplier:          model.Multiplier,
+			CostPer1kInput:      model.CostPer1kInput,
+			CostPer1kOutput:     model.CostPer1kOutput,
+			CostPer1kCacheWrite: model.CostPer1kCacheWrite,
+			CostPer1kCacheRead:  model.CostPer1kCacheRead,
+		})
+		if err != nil {
+			return Provider{}, err
+		}
+		copiedModels = append(copiedModels, created)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Provider{}, err
+	}
+	s.availableModelsCache.invalidateProvider(newProviderID)
+	return Provider{Credential: cred, Models: copiedModels}, nil
+}
+
 func (s *Service) UpdateProvider(ctx context.Context, accountID, providerID uuid.UUID, scope string, userID *uuid.UUID, input UpdateProviderInput) (Provider, error) {
 	if err := s.requireWriteReady(); err != nil {
 		return Provider{}, err
@@ -756,4 +855,26 @@ func derefFloat(value *float64, fallback float64) float64 {
 		return fallback
 	}
 	return *value
+}
+
+func cloneMap(value map[string]any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(raw, &cloned); err != nil {
+		return value
+	}
+	return cloned
+}
+
+func cloneRawJSON(value json.RawMessage) json.RawMessage {
+	if value == nil {
+		return nil
+	}
+	return append(json.RawMessage(nil), value...)
 }

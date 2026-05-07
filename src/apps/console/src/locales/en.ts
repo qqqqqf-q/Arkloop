@@ -323,6 +323,7 @@ export const en: LocaleStrings = {
       fieldSyncMode: 'Sync Mode',
       fieldWorkspaceEnabled: 'Enable in current workspace after save',
       fieldIsActive: 'Enabled',
+      statusChecked: 'Checked',
       enabledLabel: 'Enabled',
       disabledLabel: 'Disabled',
       actionCheck: 'Recheck',

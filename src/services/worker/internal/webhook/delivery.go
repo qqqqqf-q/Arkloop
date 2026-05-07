@@ -59,12 +59,10 @@ func NewDeliveryHandler(pool *pgxpool.Pool, q queue.JobQueue, logger *slog.Logge
 	}, nil
 }
 
-// newSafeHTTPClient 创建阻断内网地址的 HTTP 客户端，防止 SSRF。
 func newSafeHTTPClient() *http.Client {
 	return sharedoutbound.DefaultPolicy().NewHTTPClient(deliveryTimeoutSec * time.Second)
 }
 
-// isPrivateIP 判断 IP 是否属于禁止访问的地址范围。
 func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false

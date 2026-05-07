@@ -5,6 +5,9 @@ import type { ThemeColorVars, ThemeDefinition } from '../../themes/types'
 import { BUILTIN_PRESETS } from '../../themes/presets'
 import { useLocale } from '../../contexts/LocaleContext'
 import { X, Download, Upload } from 'lucide-react'
+import { SettingsButton } from './_SettingsButton'
+import { SettingsInput } from './_SettingsInput'
+import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
 
 type Mode = 'dark' | 'light'
 
@@ -399,27 +402,14 @@ export function ThemeColorEditor({ onClose }: Props) {
       >
         <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.themeColorEditor}</span>
         <div className="flex items-center gap-2">
-          {/* Dark / Light mode toggle */}
-          <div
-            className="flex rounded-md p-[2px]"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-          >
-            {(['dark', 'light'] as Mode[]).map(m => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setEditMode(m)}
-                className="px-2.5 py-1 text-xs rounded transition-colors duration-100"
-                style={{
-                  background: editMode === m ? 'var(--c-bg-deep)' : 'transparent',
-                  color: editMode === m ? 'var(--c-text-heading)' : 'var(--c-text-tertiary)',
-                  fontWeight: editMode === m ? 500 : 400,
-                }}
-              >
-                {m === 'dark' ? t.themeDark : t.themeLight}
-              </button>
-            ))}
-          </div>
+          <SettingsSegmentedControl<Mode>
+            value={editMode}
+            onChange={setEditMode}
+            options={[
+              { value: 'dark', label: t.themeDark },
+              { value: 'light', label: t.themeLight },
+            ]}
+          />
           <button
             type="button"
             onClick={onClose}
@@ -470,28 +460,23 @@ export function ThemeColorEditor({ onClose }: Props) {
           className="flex items-center gap-2 px-4 py-2"
           style={{ borderTop: '0.5px solid var(--c-border-subtle)' }}
         >
-          <input
+          <SettingsInput
             type="text"
+            variant="sm"
             placeholder={t.customThemeNamePlaceholder}
             value={themeName}
             onChange={e => setThemeName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus
-            className="flex-1 rounded-lg px-3 py-1.5 text-xs outline-none"
-            style={{
-              background: 'var(--c-bg-input)',
-              border: '0.5px solid var(--c-border-subtle)',
-              color: 'var(--c-text-primary)',
-            }}
+            className="flex-1 text-xs"
           />
-          <button
-            type="button"
+          <SettingsButton
+            variant="primary"
             onClick={handleSave}
-            className="rounded-lg px-3 py-1.5 text-xs transition-colors"
-            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+            className="text-xs"
           >
             {t.saveAsCustom.replace('...', '')}
-          </button>
+          </SettingsButton>
           <button
             type="button"
             onClick={() => setShowSaveDialog(false)}
@@ -538,14 +523,13 @@ export function ThemeColorEditor({ onClose }: Props) {
               {t.exportTheme}
             </button>
             {/* Save As */}
-            <button
-              type="button"
+            <SettingsButton
+              variant="primary"
               onClick={() => setShowSaveDialog(true)}
-              className="rounded-lg px-3 py-1.5 text-xs transition-colors"
-              style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+              className="text-xs"
             >
               {t.saveAsCustom}
-            </button>
+            </SettingsButton>
           </div>
         </div>
       )}

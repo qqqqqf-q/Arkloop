@@ -3,6 +3,7 @@ import { AutoResizeTextarea, Modal } from '@arkloop/shared'
 import { SettingsLabel } from '../settings/_SettingsLabel'
 import { SettingsInput, settingsInputCls } from '../settings/_SettingsInput'
 import { SettingsSelect } from '../settings/_SettingsSelect'
+import { SettingsButton } from '../settings/_SettingsButton'
 import {
   type FormState,
   type Transport,
@@ -182,25 +183,23 @@ export function MCPFormModal({
 
         {/* Bottom Buttons */}
         <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
+          <SettingsButton
+            variant="secondary"
+            size="modal"
             onClick={onClose}
             disabled={saving}
-            className="rounded-lg px-4 py-1.5 text-sm text-[var(--c-text-secondary)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)]"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
             {copy.cancel}
-          </button>
-          <button
-            type="button"
+          </SettingsButton>
+          <SettingsButton
+            variant="primary"
+            size="modal"
             onClick={onSave}
             disabled={saving}
-            className="flex items-center justify-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition-[filter] duration-150 hover:[filter:brightness(1.12)] active:[filter:brightness(0.95)] disabled:opacity-50"
-            style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+            icon={saving ? <Loader2 size={14} className="animate-spin" /> : undefined}
           >
-            {saving && <Loader2 size={14} className="animate-spin" />}
             {saving ? copy.saving : editing ? copy.save : copy.create}
-          </button>
+          </SettingsButton>
         </div>
       </div>
     </Modal>

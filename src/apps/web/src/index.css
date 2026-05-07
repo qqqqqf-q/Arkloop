@@ -46,6 +46,12 @@ button:not(:disabled) {
   --font-weight-bold: var(--c-fw-700);
   --chat-input-area-height: 160px;
   --c-bg-page: #1E1D1C;
+  --c-background-image: none;
+  --c-background-image-opacity: 1;
+  --c-background-image-scrim-rgb: 0 0 0;
+  --c-background-image-scrim-alpha: calc(0.18 + ((1 - var(--c-background-image-opacity)) * 0.34));
+  --c-background-image-vignette-alpha: 0.22;
+  --c-bg-page-gradient-stop: var(--c-bg-page);
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
   --c-bg-sub: #1e1e1c;
@@ -156,6 +162,7 @@ button:not(:disabled) {
   --c-status-error-text: #f87171;
   --c-status-warning-text: #fbbf24;
   --c-status-success-text: #4ade80;
+  --c-danger-action-text: #ea4d3c;
   --c-status-danger-bg: rgba(239, 68, 68, 0.10);
   --c-status-danger-text: #f87171;
   --c-status-warn-bg: rgba(245, 158, 11, 0.12);
@@ -190,6 +197,8 @@ button:not(:disabled) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
     --c-bg-page: #F5F5F4;
+    --c-background-image-scrim-alpha: calc(0.10 + ((1 - var(--c-background-image-opacity)) * 0.28));
+    --c-background-image-vignette-alpha: 0.12;
     --c-bg-sidebar: #FAFAFA;
     --c-bg-deep: #EBEBEB;
     --c-bg-sub: #EBEBEB;
@@ -300,6 +309,7 @@ button:not(:disabled) {
     --c-status-error-text: #dc2626;
     --c-status-warning-text: #d97706;
     --c-status-success-text: #16a34a;
+    --c-danger-action-text: #ea4d3c;
     --c-status-danger-bg: #F1DEDB;
     --c-status-danger-text: #8A3327;
     --c-status-warn-bg: #F0E7D5;
@@ -314,6 +324,8 @@ button:not(:disabled) {
 :root[data-theme="light"] {
   color-scheme: light;
   --c-bg-page: #F5F5F4;
+  --c-background-image-scrim-alpha: calc(0.10 + ((1 - var(--c-background-image-opacity)) * 0.28));
+  --c-background-image-vignette-alpha: 0.12;
   --c-bg-sidebar: #FAFAFA;
   --c-bg-deep: #EBEBEB;
   --c-bg-sub: #EBEBEB;
@@ -425,6 +437,7 @@ button:not(:disabled) {
   --c-status-error-text: #dc2626;
   --c-status-warning-text: #d97706;
   --c-status-success-text: #16a34a;
+  --c-danger-action-text: #ea4d3c;
   --c-status-danger-bg: #F1DEDB;
   --c-status-danger-text: #8A3327;
   --c-status-warn-bg: #F0E7D5;
@@ -1278,15 +1291,16 @@ button:not(:disabled) {
 @keyframes modal-enter {
   from {
     opacity: 0;
-    transform: scale(0.92) translateY(12px);
+    transform: scale(0.93);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: scale(1);
   }
 }
 .modal-enter {
-  animation: modal-enter 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
+  animation: modal-enter 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform, opacity;
 }
 @keyframes overlay-fade-in {
@@ -1441,6 +1455,114 @@ button:not(:disabled) {
   background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: thinking-shimmer 3s ease-in-out infinite;
+}
+
+.app-viewport {
+  height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  .app-viewport {
+    height: 100dvh;
+  }
+}
+
+.theme-background-root {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.theme-background-root > :not(.theme-background-layer) {
+  position: relative;
+  z-index: 1;
+}
+
+.theme-background-layer {
+  display: none;
+}
+
+.theme-surface-page {
+  background-color: var(--c-bg-page);
+}
+
+.theme-surface-sidebar {
+  background-color: var(--c-bg-sidebar);
+}
+
+:root[data-background-image="custom"] {
+  --c-bg-page-gradient-stop: color-mix(in srgb, var(--c-bg-page) 90%, transparent);
+}
+
+:root[data-background-image="custom"] .theme-background-layer {
+  background-image:
+    linear-gradient(
+      rgb(var(--c-background-image-scrim-rgb) / var(--c-background-image-scrim-alpha)),
+      rgb(var(--c-background-image-scrim-rgb) / var(--c-background-image-scrim-alpha))
+    ),
+    radial-gradient(
+      ellipse at center,
+      rgb(var(--c-background-image-scrim-rgb) / 0) 36%,
+      rgb(var(--c-background-image-scrim-rgb) / var(--c-background-image-vignette-alpha)) 100%
+    ),
+    var(--c-background-image);
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-size: 100% 100%, 100% 100%, cover;
+  background-position: center, center, center;
+  background-repeat: no-repeat;
+}
+
+@supports (color: color-mix(in srgb, black, white)) {
+  :root[data-background-image="custom"] .theme-surface-page {
+    background-color: color-mix(in srgb, var(--c-bg-page) 76%, transparent);
+  }
+
+  :root[data-background-image="custom"] .theme-surface-sidebar {
+    background-color: color-mix(in srgb, var(--c-bg-sidebar) 88%, transparent);
+  }
+
+  :root[data-background-image="custom"] .theme-surface-page .theme-surface-page {
+    background-color: transparent;
+  }
+}
+
+.background-opacity-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--c-accent);
+  border: 2px solid var(--c-bg-menu);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.24);
+}
+
+.background-opacity-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--c-accent);
+  border: 2px solid var(--c-bg-menu);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.24);
+}
+
+.background-opacity-range:focus-visible {
+  outline: none;
+}
+
+.background-opacity-range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--c-bg-menu),
+    0 0 0 4px var(--c-accent);
+}
+
+.background-opacity-range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 2px var(--c-bg-menu),
+    0 0 0 4px var(--c-accent);
 }
 
 @layer base {
@@ -1648,15 +1770,15 @@ button:not(:disabled) {
 }
 
 @keyframes toast-slide-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0)  scale(1); }
+  from { opacity: 0; transform: translateX(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0)  scale(1); }
 }
 @keyframes toast-slide-out {
-  from { opacity: 1; transform: translateY(0)  scale(1); }
-  to   { opacity: 0; transform: translateY(4px) scale(0.96); }
+  from { opacity: 1; transform: translateX(0)  scale(1); }
+  to   { opacity: 0; transform: translateX(8px) scale(0.98); }
 }
 .toast-enter {
-  animation: toast-slide-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: toast-slide-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .toast-exit {
   animation: toast-slide-out 0.16s ease-in forwards;

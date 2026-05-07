@@ -472,7 +472,10 @@ func loadTelegramSelectorCandidates(ctx context.Context, db data.Querier, accoun
 		}
 		candidates = append(candidates, item)
 	}
-	return candidates, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return appendLocalTelegramSelectorCandidates(ctx, candidates), nil
 }
 
 func parseTagsFromDB(raw []byte) []string {
@@ -1519,7 +1522,7 @@ func (c telegramConnector) resolveTelegramThreadID(
 			slog.InfoContext(ctx, "tg_stale_dm_binding", "thread_id", threadMap.ThreadID, "channel_id", ch.ID, "platform_thread_id", platformThreadID)
 			_ = dmRepo.DeleteByBinding(ctx, ch.ID, identity.ID, personaID, platformThreadID)
 		}
-		thread, err := threadRepoTx.Create(ctx, ch.AccountID, identity.UserID, projectID, nil, false)
+		thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, nil, false)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -1541,7 +1544,7 @@ func (c telegramConnector) resolveTelegramThreadID(
 		slog.InfoContext(ctx, "tg_stale_group_binding", "thread_id", threadMap.ThreadID, "channel_id", ch.ID)
 		_ = groupRepo.DeleteByBinding(ctx, ch.ID, incoming.PlatformChatID, personaID)
 	}
-	thread, err := threadRepoTx.Create(ctx, ch.AccountID, nil, projectID, nil, false)
+	thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, nil, false)
 	if err != nil {
 		return uuid.Nil, err
 	}

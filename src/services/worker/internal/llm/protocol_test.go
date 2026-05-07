@@ -5,9 +5,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	sharedoutbound "arkloop/services/shared/outboundurl"
 )
 
 func TestResolveOpenAIProtocolConfig_AutoAddsFallback(t *testing.T) {
@@ -84,6 +87,56 @@ func TestNewGatewayFromResolvedConfig_AnthropicUsesExplicitPathBase(t *testing.T
 	}
 	if path := anthropicGateway.transport.endpoint("/v1/messages"); path != "https://api.minimaxi.com/anthropic/v1/messages" {
 		t.Fatalf("unexpected anthropic endpoint: %q", path)
+	}
+}
+
+func TestProtocolHTTPClientAllowsLoopbackWhenProtectionDisabled(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "false")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := newProtocolHTTPClient(sharedoutbound.DefaultPolicy(), time.Second)
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do() error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("unexpected status: %s", resp.Status)
+	}
+}
+
+func TestProtocolHTTPClientRejectsLoopbackWhenProtectionEnabled(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "false")
+
+	client := newProtocolHTTPClient(sharedoutbound.DefaultPolicy(), time.Second)
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/v1/models", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	_, err = client.Do(req)
+	assertOutboundDeniedReason(t, err, "insecure_scheme_denied")
+}
+
+func assertOutboundDeniedReason(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	var denied sharedoutbound.DeniedError
+	if !errors.As(err, &denied) {
+		t.Fatalf("expected DeniedError, got %T: %v", err, err)
+	}
+	if denied.Reason != want {
+		t.Fatalf("Reason = %q, want %q", denied.Reason, want)
 	}
 }
 

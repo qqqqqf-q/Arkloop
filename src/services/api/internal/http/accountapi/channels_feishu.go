@@ -1015,7 +1015,7 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 	if model := strings.TrimSpace(cfg.DefaultModel); model != "" {
 		runData["model"] = model
 	}
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, identity.UserID, "run.started", runData)
+	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
 	if err != nil {
 		return err
 	}
@@ -1158,7 +1158,7 @@ func (c *feishuConnector) resolveFeishuThreadID(
 			}
 			_ = dmRepo.DeleteByBinding(ctx, ch.ID, identity.ID, personaID, "")
 		}
-		thread, err := threadRepoTx.Create(ctx, ch.AccountID, identity.UserID, projectID, buildTitle(), false)
+		thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, buildTitle(), false)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -1184,7 +1184,7 @@ func (c *feishuConnector) resolveFeishuThreadID(
 		}
 		_ = groupRepo.DeleteByBinding(ctx, ch.ID, groupKey, personaID)
 	}
-	thread, err := threadRepoTx.Create(ctx, ch.AccountID, nil, projectID, buildTitle(), false)
+	thread, err := threadRepoTx.Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, buildTitle(), false)
 	if err != nil {
 		return uuid.Nil, err
 	}

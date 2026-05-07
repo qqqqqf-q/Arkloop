@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
-import { ChevronDown, Monitor, Sun, Moon } from 'lucide-react'
+import { Monitor, Sun, Moon } from 'lucide-react'
 import type { Locale } from '../../locales'
 import type { Theme } from '@arkloop/shared/contexts/theme'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -9,6 +9,7 @@ import { readGtdEnabled, writeGtdEnabled } from '../../storage'
 import { FontSettings } from './FontSettings'
 import { ThemePresetPicker } from './ThemePresetPicker'
 import { ThemeColorEditor } from './ThemeColorEditor'
+import { SettingsSelect } from './_SettingsSelect'
 
 const LOCALE_OPTIONS: { value: Locale; label: string }[] = [
   { value: 'zh', label: '\u4e2d\u6587' },
@@ -19,81 +20,27 @@ export function LanguageContent({
   locale,
   setLocale,
   label,
+  showLabel = true,
+  triggerClassName = 'h-9 w-[240px]',
 }: {
   locale: Locale
   setLocale: (l: Locale) => void
   label: string
+  showLabel?: boolean
+  triggerClassName?: string
 }) {
-  const [open, setOpen] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
-  const currentLabel = LOCALE_OPTIONS.find(o => o.value === locale)?.label ?? locale
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (
-        menuRef.current?.contains(e.target as Node) ||
-        btnRef.current?.contains(e.target as Node)
-      ) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-[var(--c-text-heading)]">{label}</span>
-      <div className="relative">
-        <button
-          ref={btnRef}
-          type="button"
-          onClick={() => setOpen(v => !v)}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          className="flex h-9 w-[240px] items-center justify-between rounded-lg px-3 text-sm text-[var(--c-text-secondary)]"
-          style={{
-            border: `0.5px solid ${hovered ? 'var(--c-border-mid)' : 'var(--c-border-subtle)'}`,
-            background: hovered ? 'var(--c-bg-deep)' : 'var(--c-bg-page)',
-            transition: 'border-color 0.15s, background-color 0.15s',
-          }}
-        >
-          <span>{currentLabel}</span>
-          <ChevronDown size={13} />
-        </button>
-        {open && (
-          <div
-            ref={menuRef}
-            className="dropdown-menu absolute left-0 top-[calc(100%+4px)] z-50"
-            style={{
-              border: '0.5px solid var(--c-border-subtle)',
-              borderRadius: '10px',
-              padding: '4px',
-              background: 'var(--c-bg-menu)',
-              width: '240px',
-              boxShadow: 'var(--c-dropdown-shadow)',
-            }}
-          >
-            {LOCALE_OPTIONS.map(({ value, label: optLabel }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => { setLocale(value); setOpen(false) }}
-                className="flex w-full items-center px-3 py-2 text-sm transition-colors duration-100 bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
-                style={{
-                  borderRadius: '8px',
-                  fontWeight: locale === value ? 600 : 400,
-                  color: locale === value ? 'var(--c-text-heading)' : 'var(--c-text-secondary)',
-                }}
-              >
-                {optLabel}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {showLabel && (
+        <span className="text-sm font-medium text-[var(--c-text-heading)]">{label}</span>
+      )}
+      <SettingsSelect
+        value={locale}
+        options={LOCALE_OPTIONS}
+        onChange={(value) => setLocale(value as Locale)}
+        triggerClassName={triggerClassName}
+        fitContent
+      />
     </div>
   )
 }
@@ -148,24 +95,9 @@ export function ThemeContent({
   )
 }
 
-function useResolvedLight(): boolean {
-  const { theme } = useTheme()
-  const [systemLight, setSystemLight] = useState(
-    () => window.matchMedia('(prefers-color-scheme: light)').matches,
-  )
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: light)')
-    const handler = (e: MediaQueryListEvent) => setSystemLight(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [])
-  return theme === 'light' || (theme === 'system' && systemLight)
-}
-
 // Mini preview renders ─────────────────────────────────────────────────────
 
-function LightPreview({ hovered }: { hovered?: boolean }) {
-  const isLight = useResolvedLight()
+function LightPreview() {
   return (
     <div className="relative flex h-full w-full" style={{ background: '#F5F5F4' }}>
       <div style={{ width: 22, flexShrink: 0, background: '#EBEBEB' }} />
@@ -175,22 +107,11 @@ function LightPreview({ hovered }: { hovered?: boolean }) {
         <div style={{ height: 5, width: '65%', background: '#C8C8C6', borderRadius: 2 }} />
         <div style={{ marginTop: 'auto', height: 9, background: '#E0E0DE', borderRadius: 4 }} />
       </div>
-      <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          background: isLight
-            ? (hovered ? 'rgba(255,255,255,0.25)' : 'transparent')
-            : (hovered ? 'transparent' : 'rgba(0,0,0,0.15)'),
-          transition: 'background-color 0.2s',
-          pointerEvents: 'none',
-        }}
-      />
     </div>
   )
 }
 
-function DarkPreview(_: { hovered: boolean }) {
+function DarkPreview() {
   return (
     <div className="flex h-full w-full" style={{ background: '#1E1D1C' }}>
       <div style={{ width: 22, flexShrink: 0, background: '#141413' }} />
@@ -204,7 +125,7 @@ function DarkPreview(_: { hovered: boolean }) {
   )
 }
 
-function SystemPreview(_: { hovered: boolean }) {
+function SystemPreview() {
   return (
     <div className="flex h-full w-full overflow-hidden">
       {/* light half */}
@@ -231,12 +152,12 @@ function SystemPreview(_: { hovered: boolean }) {
   )
 }
 
-export function ThemeModePicker() {
+export function ThemeModePicker({ showLabel = true }: { showLabel?: boolean }) {
   const { t } = useLocale()
   const { theme, setTheme } = useTheme()
   const [hoveredValue, setHoveredValue] = useState<Theme | null>(null)
 
-  const options: { value: Theme; label: string; Preview: (props: { hovered: boolean }) => React.JSX.Element }[] = [
+  const options: { value: Theme; label: string; Preview: () => React.JSX.Element }[] = [
     { value: 'light',  label: t.themeLight,  Preview: LightPreview  },
     { value: 'dark',   label: t.themeDark,   Preview: DarkPreview   },
     { value: 'system', label: t.themeSystem, Preview: SystemPreview },
@@ -244,7 +165,9 @@ export function ThemeModePicker() {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.appearance}</span>
+      {showLabel && (
+        <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.appearance}</span>
+      )}
       <div className="flex gap-3">
         {options.map(({ value, label, Preview }) => {
           const active = theme === value
@@ -265,17 +188,13 @@ export function ThemeModePicker() {
                   borderRadius: 10,
                   overflow: 'hidden',
                   border: active
-                    ? '0.5px solid var(--c-border-mid)'
-                    : hovered
-                      ? '0.5px solid var(--c-border-mid)'
-                      : '0.5px solid var(--c-border-subtle)',
-                  outline: active ? '1.5px solid var(--c-accent)' : 'none',
-                  outlineOffset: '-1px',
-                  transition: 'border-color 0.15s, outline-color 0.15s',
+                    ? '1.5px solid var(--c-btn-bg)'
+                    : `1.5px solid ${hovered ? 'var(--c-input-border-color-hover)' : 'var(--c-input-border-color)'}`,
+                  transition: 'border-color 0.14s ease-out',
                   flexShrink: 0,
                 }}
               >
-                <Preview hovered={hovered} />
+                <Preview />
               </div>
               <span
                 className="text-xs"
@@ -343,9 +262,10 @@ function GtdPreview() {
   )
 }
 
-export function SidebarGroupingPicker() {
+export function SidebarGroupingPicker({ showLabel = true }: { showLabel?: boolean }) {
   const { t } = useLocale()
   const [gtdEnabled, setGtdEnabled] = useState(() => readGtdEnabled())
+  const [hoveredValue, setHoveredValue] = useState<boolean | null>(null)
 
   const options: { value: boolean; label: string; Preview: () => React.JSX.Element }[] = [
     { value: false, label: t.sidebarGroupingNormal, Preview: NormalPreview },
@@ -354,19 +274,31 @@ export function SidebarGroupingPicker() {
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.sidebarGrouping}</span>
-      <span className="text-xs text-[var(--c-text-tertiary)]">{t.sidebarGroupingDesc}</span>
+      {showLabel && (
+        <>
+          <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.sidebarGrouping}</span>
+          <span className="text-xs text-[var(--c-text-tertiary)]">{t.sidebarGroupingDesc}</span>
+        </>
+      )}
       <div className="flex gap-3">
         {options.map(({ value, label, Preview }) => {
           const active = gtdEnabled === value
+          const hovered = hoveredValue === value
           return (
             <button
               key={String(value)}
               type="button"
+              onMouseEnter={() => setHoveredValue(value)}
+              onMouseLeave={() => setHoveredValue(null)}
               onClick={() => {
+                if (gtdEnabled === value) return
                 setGtdEnabled(value)
                 writeGtdEnabled(value)
                 window.dispatchEvent(new CustomEvent('arkloop:gtd-enabled-changed', { detail: value }))
+                window.dispatchEvent(new StorageEvent('storage', {
+                  key: 'arkloop:web:gtd_enabled',
+                  newValue: String(value),
+                }))
               }}
               className="flex flex-col items-center gap-2"
             >
@@ -377,11 +309,9 @@ export function SidebarGroupingPicker() {
                   borderRadius: 10,
                   overflow: 'hidden',
                   border: active
-                    ? '0.5px solid var(--c-border-mid)'
-                    : '0.5px solid var(--c-border-subtle)',
-                  outline: active ? '1.5px solid var(--c-accent)' : 'none',
-                  outlineOffset: '-1px',
-                  transition: 'border-color 0.15s, outline-color 0.15s',
+                    ? '1.5px solid var(--c-btn-bg)'
+                    : `1.5px solid ${hovered ? 'var(--c-input-border-color-hover)' : 'var(--c-input-border-color)'}`,
+                  transition: 'border-color 0.14s ease-out',
                   flexShrink: 0,
                 }}
               >

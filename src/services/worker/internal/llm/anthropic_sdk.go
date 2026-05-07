@@ -224,7 +224,7 @@ func (g *anthropicSDKGateway) streamAttempt(ctx context.Context, request Request
 	}
 	if err := stream.Err(); err != nil {
 		if attempt == 0 {
-			if id, ok := anthropicSDKDetectQuirk(err); ok {
+			if id, ok := anthropicSDKDetectQuirk(err, responseCapture); ok {
 				if emitErr := yield(StreamQuirkLearned{LlmCallID: llmCallID, ProviderKind: "anthropic", QuirkID: string(id)}); emitErr != nil {
 					return emitErr
 				}
@@ -278,13 +278,24 @@ func isDeepSeekAnthropicBaseURL(baseURL string) bool {
 	return strings.Contains(baseURL, "api.deepseek.com")
 }
 
-func anthropicSDKDetectQuirk(err error) (QuirkID, bool) {
+func anthropicSDKDetectQuirk(err error, responseCapture *providerResponseCapture) (QuirkID, bool) {
+	status := 0
+	rawBody := ""
 	var apiErr *anthropic.Error
-	if !errors.As(err, &apiErr) {
-		return "", false
+	if errors.As(err, &apiErr) {
+		status = apiErr.StatusCode
+		rawBody = string(apiErr.DumpResponse(true))
 	}
-	rawBody := string(apiErr.DumpResponse(true))
-	return detectQuirk(apiErr.StatusCode, rawBody, anthropicQuirks)
+	if responseCapture != nil {
+		details := responseCapture.details()
+		if status == 0 {
+			status, _ = details["status_code"].(int)
+		}
+		if tail, _ := details["provider_response_tail"].(string); strings.TrimSpace(tail) != "" {
+			rawBody += "\n" + tail
+		}
+	}
+	return detectQuirk(status, rawBody, anthropicQuirks)
 }
 
 func (g *anthropicSDKGateway) messageParams(request Request) (anthropic.MessageNewParams, map[string]any, int, error) {

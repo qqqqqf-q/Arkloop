@@ -26,6 +26,7 @@ export function CopTimelineSegment({
   defaultExpanded,
   hideHeader,
   compactNarrativeEnd = false,
+  flattenSingleItem = false,
   onOpenCodeExecution,
   activeCodeExecutionId,
   onOpenSubAgent,
@@ -39,6 +40,7 @@ export function CopTimelineSegment({
   defaultExpanded: boolean
   hideHeader?: boolean
   compactNarrativeEnd?: boolean
+  flattenSingleItem?: boolean
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   onOpenSubAgent?: (agent: SubAgentRef) => void
@@ -121,8 +123,10 @@ export function CopTimelineSegment({
 
   if (hideHeader) {
     return (
-      <div style={{ position: 'relative', paddingTop: 6, paddingLeft: editOnly || exploreCard ? 0 : COP_TIMELINE_CONTENT_PADDING_LEFT_PX, paddingBottom: endsWithNarrative ? 0 : EXPLORE_BOTTOM_PAD }}>
-        {exploreCard ? (
+      <div style={{ position: 'relative', paddingTop: flattenSingleItem ? 0 : 6, paddingLeft: editOnly || exploreCard || flattenSingleItem ? 0 : COP_TIMELINE_CONTENT_PADDING_LEFT_PX, paddingBottom: flattenSingleItem || endsWithNarrative ? 0 : EXPLORE_BOTTOM_PAD }}>
+        {flattenSingleItem && segment.items.length === 1 ? (
+          renderItem(segment.items[0]!, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, accessToken, baseUrl, typography)
+        ) : exploreCard ? (
           <div
             style={{
               borderRadius: 8,
@@ -357,7 +361,7 @@ function renderItem(
 
   const gen = pool.genericTools.get(toolCallId)
   if (gen) {
-    return <ExecutionCard variant="fileop" toolName={gen.toolName} label={gen.label} output={gen.output} status={gen.status} errorMessage={gen.errorMessage} smooth={live && gen.status === 'running'} />
+    return <ExecutionCard variant="fileop" toolName={gen.toolName} label={gen.label} displayDescription={gen.displayDescription} output={gen.output} status={gen.status} errorMessage={gen.errorMessage} smooth={live && gen.status === 'running'} />
   }
 
   const step = pool.steps.get(toolCallId)

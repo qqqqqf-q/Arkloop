@@ -527,7 +527,7 @@ func TestCreateTelegramChannelRejectsInvalidDefaultModelSelector(t *testing.T) {
 			"persona_id":   env.personaID.String(),
 			"config_json": map[string]any{
 				"private_allowed_user_ids": []string{"10001"},
-				"default_model":    "bad^selector",
+				"default_model":            "bad^selector",
 			},
 		},
 		authHeader(env.accessToken),
@@ -1365,7 +1365,7 @@ func TestTelegramWebhookSendsImmediateTypingForReplyableMessage(t *testing.T) {
 
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient(server.URL, server.Client()))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
-		"private_allowed_user_ids":          []string{"10001"},
+		"private_allowed_user_ids":  []string{"10001"},
 		"telegram_typing_indicator": true,
 	})
 
@@ -1409,7 +1409,7 @@ func TestTelegramWebhookHeartbeatCommandDoesNotSendImmediateTyping(t *testing.T)
 
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient(server.URL, server.Client()))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
-		"private_allowed_user_ids":          []string{"10001"},
+		"private_allowed_user_ids":  []string{"10001"},
 		"telegram_typing_indicator": true,
 		"bot_username":              "arkloopbot",
 	})
@@ -1453,7 +1453,7 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	}
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"private_allowed_user_ids": []string{"10001"},
-		"bot_username":     "arkloopbot",
+		"bot_username":             "arkloopbot",
 	})
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
 
@@ -1511,6 +1511,20 @@ func TestTelegramWebhookGroupMessagePassiveAndActive(t *testing.T) {
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM messages`, 2)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM runs`, 1)
 	assertCountAccount(t, env.pool, `SELECT COUNT(*) FROM jobs`, 1)
+
+	var runOwner uuid.UUID
+	var threadOwner uuid.UUID
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT r.created_by_user_id, t.created_by_user_id
+		  FROM runs r
+		  JOIN threads t ON t.id = r.thread_id
+		 LIMIT 1`,
+	).Scan(&runOwner, &threadOwner); err != nil {
+		t.Fatalf("query group run owner: %v", err)
+	}
+	if runOwner != env.userID || threadOwner != env.userID {
+		t.Fatalf("expected group run and thread to use channel owner, run=%s thread=%s owner=%s", runOwner, threadOwner, env.userID)
+	}
 
 	var payloadJSON []byte
 	if err := env.pool.QueryRow(context.Background(), `SELECT payload_json::text::jsonb FROM jobs LIMIT 1`).Scan(&payloadJSON); err != nil {
@@ -1582,7 +1596,7 @@ func TestTelegramWebhookGroupBurstPromotesPassiveAndMergesFollowup(t *testing.T)
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"private_allowed_user_ids": []string{"10001"},
-		"bot_username":     "arkloopbot",
+		"bot_username":             "arkloopbot",
 	})
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
 
@@ -1685,7 +1699,7 @@ func TestTelegramWebhookMediaGroupPassiveMergesIntoPendingBatch(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"private_allowed_user_ids": []string{"10001"},
-		"bot_username":     "arkloopbot",
+		"bot_username":             "arkloopbot",
 	})
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
 
@@ -2964,7 +2978,7 @@ func TestTelegramWebhookGroupNewDeniedWithoutBind(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"private_allowed_user_ids": []string{"10001"},
-		"bot_username":     "arkloopbot",
+		"bot_username":             "arkloopbot",
 	})
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
 
@@ -3022,7 +3036,7 @@ func TestTelegramWebhookGroupNewClearsBindingWhenBound(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannelWithConfig(t, env, "bot-token", map[string]any{
 		"private_allowed_user_ids": []string{"10001"},
-		"bot_username":     "arkloopbot",
+		"bot_username":             "arkloopbot",
 	})
 	headers := map[string]string{"X-Telegram-Bot-Api-Secret-Token": derefString(t, channel.WebhookSecret)}
 

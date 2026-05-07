@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ExternalLink, MessageCircle } from 'lucide-react'
-import { openExternal } from '../../openExternal'
 import {
   type ChannelBindingResponse,
   type ChannelResponse,
@@ -15,8 +13,9 @@ import {
   updateChannelBinding,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
-import { PillToggle } from '@arkloop/shared'
 import {
+  channelRowsCls,
+  ChannelDetailRow,
   BindingsCard,
   buildModelOptions,
   inputCls,
@@ -27,9 +26,9 @@ import {
   resolvePersonaID,
   sameItems,
   SaveActions,
-  StatusBadge,
   TokenField,
 } from './DesktopChannelSettingsShared'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 type Props = {
   accessToken: string
@@ -264,7 +263,6 @@ export function DesktopQQBotSettingsPanel({
 
   const handleUnbind = async (binding: ChannelBindingResponse) => {
     if (!channel) return
-    if (!confirm(ct.unbindConfirm)) return
     try {
       await deleteChannelBinding(accessToken, channel.id, binding.binding_id)
       await refreshBindings()
@@ -306,7 +304,7 @@ export function DesktopQQBotSettingsPanel({
     <div className="flex flex-col gap-6">
       {error && (
         <div
-          className="rounded-xl px-4 py-3 text-sm"
+          className="rounded-xl px-5 py-3 text-sm"
           style={{
             border: '0.5px solid color-mix(in srgb, var(--c-status-error) 24%, transparent)',
             background: 'var(--c-status-error-bg)',
@@ -318,55 +316,16 @@ export function DesktopQQBotSettingsPanel({
       )}
 
       <div
-        className="rounded-2xl p-5"
+        className="overflow-hidden rounded-xl"
         style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
       >
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--c-bg-deep)] text-[var(--c-text-secondary)]">
-                  <MessageCircle size={18} />
-                </span>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.qq}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <StatusBadge active={enabled} label={enabled ? ct.active : ct.inactive} />
-                    <StatusBadge
-                      active={credentialConfigured}
-                      label={credentialConfigured ? ds.connectorConfigured : ds.connectorNotConfigured}
-                    />
-                  </div>
-                </div>
+        <div className="flex flex-col">
+          <div className={channelRowsCls}>
+            <ChannelDetailRow label={t.agentSettings.reasoningModes.enabled}>
+              <div className="flex justify-end">
+                <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
               </div>
-            </div>
-
-            <PillToggle checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
-          </div>
-
-          <div
-            className="rounded-xl px-4 py-3"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-sub)' }}
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="text-xs font-medium text-[var(--c-text-heading)]">{ct.qqBotOfficialIntro}</div>
-              <button
-                type="button"
-                onClick={() => openExternal('https://q.qq.com/qqbot/')}
-                className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--c-text-secondary)] underline underline-offset-2 hover:text-[var(--c-text-primary)]"
-              >
-                <ExternalLink size={13} />
-                {ct.qqBotOfficialPortal}
-              </button>
-            </div>
-            <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs leading-5 text-[var(--c-text-tertiary)]">
-              {ct.qqBotSetupSteps.map((step) => (
-                <li key={step}>{step}</li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
+            </ChannelDetailRow>
             <div className="md:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
                 {ct.qqBotAppID}

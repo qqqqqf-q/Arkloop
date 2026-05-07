@@ -82,6 +82,7 @@ export interface LocaleStrings {
   themeLight: string;
   themeDark: string;
   // appearance tab
+  themeModeSection: string;
   fontSection: string;
   fontBody: string;
   fontCode: string;
@@ -91,6 +92,7 @@ export interface LocaleStrings {
   fontSizeRelaxed: string;
   themePresetSection: string;
   themePresetDefault: string;
+  themePresetCustomBackground: string;
   themePresetRetinaBurn: string;
   themeColorEditor: string;
   colorGroupBackgrounds: string;
@@ -111,6 +113,19 @@ export interface LocaleStrings {
   exportTheme: string;
   deleteCustomTheme: string;
   myThemes: string;
+  backgroundImageSection: string;
+  backgroundImageUpload: string;
+  backgroundImageReplace: string;
+  backgroundImageRemove: string;
+  backgroundImageEmpty: string;
+  backgroundImageInvalid: string;
+  backgroundImageTooLarge: string;
+  backgroundImageLoadFailed: string;
+  backgroundImageSaveFailed: string;
+  backgroundImageOpacity: string;
+  backgroundImageReset: string;
+  backgroundImageCancel: string;
+  backgroundImageApply: string;
   skills: {
     title: string;
     subtitle: string;
@@ -178,6 +193,9 @@ export interface LocaleStrings {
     deleteConflict: string;
     candidatesTitle: string;
     chooseCandidate: string;
+    selectAllCandidates: string;
+    clearAllCandidates: string;
+    importSelectedCandidates: (count: number) => string;
     installSuccess: (name: string) => string;
     removeSuccess: (name: string) => string;
     updateSuccess: (name: string) => string;
@@ -784,7 +802,7 @@ export interface LocaleStrings {
   modelPicker: {
     defaultLabel: string
     addProviderFirst: string
-    addApiKey: string
+    addModel: string
     byokSection: string
     noByok: string
     searchPlaceholder: string
@@ -900,7 +918,25 @@ export interface LocaleStrings {
     // general settings
     profileSection: string;
     localModeLabel: string;
+    languageRegionSection: string;
+    supportSection: string;
     appearanceSection: string;
+    startupWindowSection: string;
+    startupOpen: string;
+    startupOpenLastWorkspace: string;
+    startupOpenHome: string;
+    closeWindow: string;
+    closeWindowKeepBackground: string;
+    closeWindowQuit: string;
+    launchAtLogin: string;
+    notificationsSection: string;
+    desktopNotifications: string;
+    desktopNotificationsDesc: string;
+    productUpdateNotifications: string;
+    productUpdateNotificationsDesc: string;
+    backgroundToolsSection: string;
+    keepScreenAwake: string;
+    keepScreenAwakeDesc: string;
     // placeholder pages
     mcpTitle: string;
     mcpDesc: string;
@@ -1323,8 +1359,15 @@ export interface LocaleStrings {
   // admin providers/models settings (ported from console-lite)
   adminProviders: {
     title: string;
+    providersPageTitle?: string;
+    providersPageDesc?: string;
+    filterAll?: string;
+    filterEnabled?: string;
+    filterLocal?: string;
+    filterCloud?: string;
     addProvider: string;
     editProvider: string;
+    copyProvider?: string;
     deleteProvider: string;
     deleteProviderConfirm: string;
     localProvider: string;
@@ -1341,6 +1384,11 @@ export interface LocaleStrings {
     apiKeyHintGemini: string;
     baseUrl: string;
     baseUrlPlaceholder: string;
+    advancedOptions?: string;
+    headers?: string;
+    addHeader?: string;
+    headerKeyPlaceholder?: string;
+    headerValuePlaceholder?: string;
     save: string;
     saving: string;
     cancel: string;
@@ -1375,6 +1423,7 @@ export interface LocaleStrings {
     openVikingBackendAzure: string;
     openVikingBackendVolcengine: string;
     openVikingBackendLiteLLM: string;
+    providerConfig?: string;
     advancedConfig: string;
     searchProviders: string;
     testModel?: string;

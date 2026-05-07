@@ -116,7 +116,7 @@ describe('ModelPicker', () => {
             accessToken="token"
             value={null}
             onChange={onChange}
-            onAddApiKey={vi.fn()}
+            onAddModel={vi.fn()}
             thinkingEnabled={'off'}
             onThinkingChange={vi.fn()}
           />
@@ -149,7 +149,7 @@ describe('ModelPicker', () => {
     })
 
     expect(onChange).toHaveBeenCalledWith('cery^claude-sonnet-4-6')
-    expect(container.textContent).toContain('添加 API Key')
+    expect(container.textContent).toContain('添加模型')
     expect(
       Array.from(container.querySelectorAll('button')).some(
         (button) => button.textContent?.trim() === 'claude-sonnet-4-6',
@@ -161,7 +161,7 @@ describe('ModelPicker', () => {
       await flushMicrotasks()
     })
 
-    expect(container.textContent).not.toContain('添加 API Key')
+    expect(container.textContent).not.toContain('添加模型')
     expect(
       Array.from(container.querySelectorAll('button')).some(
         (button) => button.textContent?.trim() === 'claude-sonnet-4-6',
@@ -187,7 +187,7 @@ describe('ModelPicker', () => {
             accessToken="token"
             value="cery^claude-sonnet-4-6"
             onChange={vi.fn()}
-            onAddApiKey={vi.fn()}
+            onAddModel={vi.fn()}
             thinkingEnabled="off"
             onThinkingChange={onThinkingChange}
           />
@@ -268,7 +268,7 @@ describe('ModelPicker', () => {
             accessToken="token"
             value="cery^claude-sonnet-4-6"
             onChange={onChange}
-            onAddApiKey={vi.fn()}
+            onAddModel={vi.fn()}
             thinkingEnabled="high"
             onThinkingChange={vi.fn()}
           />

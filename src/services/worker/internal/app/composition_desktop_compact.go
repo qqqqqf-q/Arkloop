@@ -52,6 +52,21 @@ func resolveDesktopContextCompact(ctx context.Context, db data.DesktopDB) (pipel
 	}, nil
 }
 
+func resolveDesktopLLMRetry(ctx context.Context, db data.DesktopDB) (int, int) {
+	registry := sharedconfig.DefaultRegistry()
+	if db == nil {
+		return desktopResolvePositiveInt(ctx, nil, registry, "llm.retry.max_attempts", sharedconfig.Scope{}, 3),
+			desktopResolvePositiveInt(ctx, nil, registry, "llm.retry.base_delay_ms", sharedconfig.Scope{}, 1000)
+	}
+	resolver, err := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(db), nil, 0)
+	if err != nil {
+		return 3, 1000
+	}
+	scope := sharedconfig.Scope{}
+	return desktopResolvePositiveInt(ctx, resolver, registry, "llm.retry.max_attempts", scope, 3),
+		desktopResolvePositiveInt(ctx, resolver, registry, "llm.retry.base_delay_ms", scope, 1000)
+}
+
 func desktopResolveBool(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort bool) bool {
 	fallback := lastResort
 	if registry != nil {

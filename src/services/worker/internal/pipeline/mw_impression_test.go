@@ -281,10 +281,14 @@ func TestImpressionPrepareMiddlewareUsesFragmentsWhenAvailable(t *testing.T) {
 	uid := uuid.New()
 	provider := &impressionFragmentProviderStub{
 		fragments: []memory.MemoryFragment{{
-			ID:      "mem-1",
-			URI:     "nowledge://memory/mem-1",
-			Title:   "Owner preference",
-			Content: "回答保持简洁，聚焦后端语义和真实数据闭环。",
+			ID:         "mem-1",
+			URI:        "nowledge://memory/mem-1",
+			Title:      "Owner preference",
+			Content:    "回答保持简洁，聚焦后端语义和真实数据闭环。",
+			Abstract:   "owner 偏好简洁、真实数据闭环的后端讨论。",
+			Score:      0.875,
+			Labels:     []string{"preference", "backend"},
+			RecordedAt: "2026-05-06T18:20:17Z",
 		}},
 	}
 
@@ -314,6 +318,21 @@ func TestImpressionPrepareMiddlewareUsesFragmentsWhenAvailable(t *testing.T) {
 		}
 		if !strings.Contains(text, "Owner preference") || !strings.Contains(text, "后端语义和真实数据闭环") {
 			t.Fatalf("expected fragment title and content, got %q", text)
+		}
+		if !strings.Contains(text, "URI：nowledge://memory/mem-1") {
+			t.Fatalf("expected fragment uri for follow-up reads, got %q", text)
+		}
+		if !strings.Contains(text, "时间：2026-05-06T18:20:17Z") {
+			t.Fatalf("expected fragment recorded time, got %q", text)
+		}
+		if !strings.Contains(text, "标签：preference, backend") {
+			t.Fatalf("expected fragment labels, got %q", text)
+		}
+		if !strings.Contains(text, "重要度：0.875") {
+			t.Fatalf("expected fragment score, got %q", text)
+		}
+		if !strings.Contains(text, "摘要：owner 偏好简洁、真实数据闭环的后端讨论。") {
+			t.Fatalf("expected fragment abstract, got %q", text)
 		}
 		return nil
 	})

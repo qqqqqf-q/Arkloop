@@ -234,12 +234,16 @@ func isPublicSearchResultURL(parsed *url.URL) bool {
 	if host == "" {
 		return false
 	}
+	policy := sharedoutbound.DefaultPolicy()
+	if !policy.ProtectionEnabled {
+		return true
+	}
 	lowered := strings.ToLower(strings.Trim(host, "."))
 	if lowered == "localhost" || strings.HasSuffix(lowered, ".localhost") {
 		return false
 	}
 	if ip := sharedoutbound.ParseIP(host); ip.IsValid() {
-		return sharedoutbound.DefaultPolicy().EnsureIPAllowed(ip) == nil
+		return policy.EnsureIPAllowed(ip) == nil
 	}
 	return true
 }

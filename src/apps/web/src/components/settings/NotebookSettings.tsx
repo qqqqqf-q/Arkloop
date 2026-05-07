@@ -7,6 +7,8 @@ import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import type { MemoryEntry } from '@arkloop/shared/desktop'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
+import { SettingsButton } from './_SettingsButton'
+import { settingsInputCls } from './_SettingsInput'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { getDesktopMemoryApi } from '../../desktopMemoryApi'
 
@@ -87,18 +89,17 @@ function EntryCard({
                   if (e.key === 'Escape') { cancelEdit() }
                 }}
                 rows={3}
-                className="w-full resize-none rounded-lg px-2 py-1.5 text-sm text-[var(--c-text-primary)] outline-none"
-                style={{ border: '1px solid var(--c-border)', background: 'var(--c-bg-input)' }}
+                className={`${settingsInputCls('md')} h-auto min-h-[84px] resize-none py-2`}
               />
               <div className="flex items-center gap-2">
-                <button
+                <SettingsButton
+                  variant="primary"
                   onClick={() => void saveEdit()}
                   disabled={saving || !editValue.trim()}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[var(--c-btn-bg)] px-4 py-1.5 text-sm font-medium text-[var(--c-btn-text)] transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                  icon={saving ? <SpinnerIcon /> : undefined}
                 >
-                  {saving && <SpinnerIcon />}
                   Save
-                </button>
+                </SettingsButton>
                 <button
                   onClick={cancelEdit}
                   className={secondaryButtonSmCls}
@@ -390,18 +391,17 @@ export function NotebookSettings({ accessToken }: Props) {
           }}
           placeholder={ds.notebookAddPlaceholder}
           rows={4}
-          className="w-full resize-none rounded-lg px-3 py-2.5 text-sm text-[var(--c-text-primary)] placeholder:text-[var(--c-text-muted)] outline-none"
-          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-input)' }}
+          className={`${settingsInputCls('md')} h-auto min-h-[108px] resize-none py-2.5`}
         />
-        <button
+        <SettingsButton
+          variant="primary"
           onClick={() => void handleAdd()}
           disabled={adding || !addContent.trim()}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium transition-[filter] hover:[filter:brightness(1.08)] disabled:opacity-40"
-          style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)' }}
+          className="w-full"
+          icon={adding ? <SpinnerIcon /> : <Plus size={14} />}
         >
-          {adding ? <SpinnerIcon /> : <Plus size={14} />}
           {ds.notebookAddButton}
-        </button>
+        </SettingsButton>
       </div>
 
       {/* notebook preview card */}
@@ -442,12 +442,14 @@ export function NotebookSettings({ accessToken }: Props) {
                 <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
               </button>
               {entries.length > 0 && (
-                <button
+                <SettingsButton
+                  variant="danger"
                   onClick={() => setConfirmClearAll(true)}
-                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-400 transition-colors hover:bg-red-500/10"
+                  className="text-xs"
+                  icon={<Trash2 size={12} />}
                 >
-                  <Trash2 size={12} />{ds.memoryClearAll}
-                </button>
+                  {ds.memoryClearAll}
+                </SettingsButton>
               )}
             </div>
           </div>

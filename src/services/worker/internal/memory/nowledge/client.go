@@ -190,14 +190,15 @@ type Client struct {
 }
 
 func NewClient(cfg Config) *Client {
-	baseURL, err := sharedoutbound.DefaultPolicy().NormalizeBaseURL(strings.TrimSpace(cfg.BaseURL))
+	policy := sharedoutbound.DefaultPolicy()
+	baseURL, err := policy.NormalizeBaseURL(strings.TrimSpace(cfg.BaseURL))
 	if err != nil {
 		baseURL = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
 	}
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  strings.TrimSpace(cfg.APIKey),
-		http:    sharedoutbound.DefaultPolicy().NewHTTPClient(time.Duration(cfg.resolvedTimeoutMs()) * time.Millisecond),
+		http:    policy.NewHTTPClient(time.Duration(cfg.resolvedTimeoutMs()) * time.Millisecond),
 	}
 }
 

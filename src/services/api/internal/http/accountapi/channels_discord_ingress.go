@@ -491,7 +491,7 @@ func (c discordConnector) resolveDiscordDMThreadID(
 	if threadMap != nil {
 		return threadMap.ThreadID, nil
 	}
-	thread, err := c.threadRepo.WithTx(tx).Create(ctx, ch.AccountID, identity.UserID, projectID, nil, false)
+	thread, err := c.threadRepo.WithTx(tx).Create(ctx, ch.AccountID, channelOwnerUserID(ch), projectID, nil, false)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -713,7 +713,7 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		ctx,
 		ch.AccountID,
 		*latestEntry.ThreadID,
-		identity.UserID,
+		channelOwnerUserID(ch),
 		"run.started",
 		runStartedData,
 	)

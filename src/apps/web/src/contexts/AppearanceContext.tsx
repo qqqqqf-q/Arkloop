@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeColorVars, ThemeDefinition } from '../themes/types'
+import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeColorVars, ThemeDefinition, ThemeBackgroundImage } from '../themes/types'
 import { BUILTIN_PRESETS } from '../themes/presets'
 import {
   readFontSettingsFromStorage,
@@ -13,6 +13,10 @@ import {
   writeCustomThemesToStorage,
   readCustomBodyFontFromStorage,
   writeCustomBodyFontToStorage,
+  readBackgroundImageFromStorage,
+  writeBackgroundImageToStorage,
+  readBackgroundImageOpacityFromStorage,
+  writeBackgroundImageOpacityToStorage,
 } from '../storage'
 
 // Font stacks
@@ -67,6 +71,10 @@ type AppearanceContextValue = {
   customThemes: Record<string, ThemeDefinition>
   saveCustomTheme: (def: ThemeDefinition) => void
   deleteCustomTheme: (id: string) => void
+  backgroundImage: ThemeBackgroundImage | null
+  setBackgroundImage: (image: ThemeBackgroundImage | null) => boolean
+  backgroundImageOpacity: number
+  setBackgroundImageOpacity: (opacity: number) => void
   // Live preview for the color editor
   setPreviewVars: (vars: PreviewVars) => void
   // Resolved active theme vars (for initializing the editor)
@@ -84,6 +92,8 @@ function buildStyleContent(
   customThemes: Record<string, ThemeDefinition>,
   customThemeId: string | null,
   previewVars: PreviewVars,
+  backgroundImage: ThemeBackgroundImage | null,
+  backgroundImageOpacity: number,
 ): string {
   const fontStack = fontFamily === 'custom' && customBodyFont
     ? `'${customBodyFont}', system-ui, sans-serif`
@@ -108,7 +118,12 @@ function buildStyleContent(
     }
   }
 
-  const fontVars = `  --c-font-body: ${fontStack};\n  --c-font-code: ${codeStack};\n  --c-font-size-base: ${sizeVal};`
+  const activeBackgroundImage = preset === 'background-image' ? backgroundImage : null
+  const backgroundImageVar = activeBackgroundImage
+    ? `  --c-background-image: url(${JSON.stringify(activeBackgroundImage.dataUrl)});`
+    : '  --c-background-image: none;'
+  const normalizedOpacity = Math.min(Math.max(Math.round(backgroundImageOpacity), 0), 100) / 100
+  const fontVars = `  --c-font-body: ${fontStack};\n  --c-font-code: ${codeStack};\n  --c-font-size-base: ${sizeVal};\n${backgroundImageVar}\n  --c-background-image-opacity: ${normalizedOpacity};`
 
   const toCssVars = (vars: Partial<ThemeColorVars>) =>
     Object.entries(vars).map(([k, v]) => `  ${k}: ${v};`).join('\n')
@@ -165,6 +180,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [themePreset, setThemePresetState] = useState<ThemePreset>(readThemePresetFromStorage)
   const [customThemeId, setCustomThemeIdState] = useState<string | null>(readCustomThemeIdFromStorage)
   const [customThemes, setCustomThemesState] = useState<Record<string, ThemeDefinition>>(readCustomThemesFromStorage)
+  const [backgroundImage, setBackgroundImageState] = useState<ThemeBackgroundImage | null>(readBackgroundImageFromStorage)
+  const [backgroundImageOpacity, setBackgroundImageOpacityState] = useState(readBackgroundImageOpacityFromStorage)
   const [previewVars, setPreviewVarsState] = useState<PreviewVars>(null)
   const styleRef = useRef<HTMLStyleElement | null>(null)
 
@@ -186,6 +203,17 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     }
   }, [fontFamily])
 
+  useEffect(() => {
+    if (themePreset === 'background-image' && backgroundImage) {
+      document.documentElement.dataset.backgroundImage = 'custom'
+    } else {
+      delete document.documentElement.dataset.backgroundImage
+    }
+    return () => {
+      delete document.documentElement.dataset.backgroundImage
+    }
+  }, [backgroundImage, themePreset])
+
   // Inject remote font link tags for presets that are not bundled locally.
   useEffect(() => {
     if (fontFamily !== 'default' && fontFamily !== 'inter' && fontFamily !== 'system' && fontFamily !== 'custom' && fontFamily !== 'serif') loadRemoteFont(fontFamily)
@@ -199,8 +227,10 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       fontFamily, customBodyFont, codeFontFamily, fontSize,
       themePreset, customThemes, customThemeId,
       previewVars,
+      backgroundImage,
+      backgroundImageOpacity,
     )
-  }, [fontFamily, customBodyFont, codeFontFamily, fontSize, themePreset, customThemes, customThemeId, previewVars])
+  }, [fontFamily, customBodyFont, codeFontFamily, fontSize, themePreset, customThemes, customThemeId, previewVars, backgroundImage, backgroundImageOpacity])
 
   const setFontFamily = useCallback((f: FontFamily) => {
     setFontFamilyState(f)
@@ -263,13 +293,26 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     }
   }, [codeFontFamily, fontSize])
 
+  const setBackgroundImage = useCallback((image: ThemeBackgroundImage | null) => {
+    const ok = writeBackgroundImageToStorage(image)
+    if (!ok) return false
+    setBackgroundImageState(image)
+    return true
+  }, [])
+
+  const setBackgroundImageOpacity = useCallback((opacity: number) => {
+    const next = Math.min(Math.max(Math.round(opacity), 0), 100)
+    setBackgroundImageOpacityState(next)
+    writeBackgroundImageOpacityToStorage(next)
+  }, [])
+
   const setPreviewVars = useCallback((vars: PreviewVars) => {
     setPreviewVarsState(vars)
   }, [])
 
   // Compute current active theme vars (used to initialize the editor)
   const activeThemeVars = (() => {
-    if (themePreset === 'default') return { dark: {}, light: {} }
+    if (themePreset === 'default' || themePreset === 'background-image') return { dark: {}, light: {} }
     if (themePreset === 'custom' && customThemeId && customThemes[customThemeId]) {
       return { dark: customThemes[customThemeId].dark, light: customThemes[customThemeId].light }
     }
@@ -285,6 +328,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       themePreset, setThemePreset,
       customThemeId, setActiveCustomTheme,
       customThemes, saveCustomTheme, deleteCustomTheme,
+      backgroundImage, setBackgroundImage,
+      backgroundImageOpacity, setBackgroundImageOpacity,
       setPreviewVars,
       activeThemeVars,
     }}>

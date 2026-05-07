@@ -97,6 +97,13 @@ func requireEntitlementInt(
 	return true
 }
 
+func channelOwnerUserID(ch data.Channel) *uuid.UUID {
+	if ch.OwnerUserID != nil && *ch.OwnerUserID != uuid.Nil {
+		return ch.OwnerUserID
+	}
+	return nil
+}
+
 func authorizeRunOrAudit(
 	w nethttp.ResponseWriter,
 	r *nethttp.Request,

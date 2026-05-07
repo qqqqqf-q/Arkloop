@@ -19,7 +19,7 @@ import {
   setSpawnProfile,
   type LlmProvider,
 } from '../../api'
-import { secondaryButtonBorderStyle, secondaryButtonXsCls, primaryButtonSmCls } from '../buttonStyles'
+import { SettingsButton, SettingsIconButton } from './_SettingsButton'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsLabel } from './_SettingsLabel'
 import { SettingsModelDropdown } from './SettingsModelDropdown'
@@ -289,26 +289,21 @@ function OVModuleCard({
             {statusLineText}
           </span>
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
+            <SettingsIconButton
+              label={ds.memoryRetryModuleList}
               onClick={() => onRefreshModules()}
               disabled={actionInProgress}
-              className={`${secondaryButtonXsCls} rounded-md px-2`}
-              style={secondaryButtonBorderStyle}
               title={ds.memoryRetryModuleList}
             >
               <RefreshCw size={14} className={statusChecking ? 'animate-spin' : ''} />
-            </button>
+            </SettingsIconButton>
             {action && statusReady && (
-              <button
-                type="button"
+              <SettingsButton
                 onClick={() => onAction(action)}
                 disabled={actionInProgress}
-                className={`${secondaryButtonXsCls} rounded-md`}
-                style={secondaryButtonBorderStyle}
               >
                 {actionInProgress ? <SpinnerIcon /> : actionLabel(action, ds)}
-              </button>
+              </SettingsButton>
             )}
           </div>
         </div>
@@ -402,14 +397,14 @@ function OVConfigForm({ ov, providers, loadingProviders, onChange, onSave, savin
       </div>
 
       <div className="flex items-center justify-end gap-3">
-        <button
+        <SettingsButton
+          variant="primary"
           onClick={onSave}
           disabled={saving}
-          className="flex items-center gap-2 rounded-lg bg-[var(--c-btn-bg)] px-4 py-2 text-sm font-medium text-[var(--c-btn-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
+          icon={saving ? <SpinnerIcon /> : undefined}
         >
-          {saving && <SpinnerIcon />}
           {saving ? ds.memoryConfiguring : ds.memoryConfigureSave}
-        </button>
+        </SettingsButton>
         {saveResult === 'ok' && (
           <span className="flex items-center gap-1.5 text-xs text-green-400">
             <CheckCircle size={13} />{ds.memoryConfigured}
@@ -889,16 +884,14 @@ export function MemoryConfigModal({ open, onClose, accessToken, memConfig, onCon
             </div>
 
             <div className="flex justify-end">
-              <button
-                type="button"
+              <SettingsButton
+                variant="primary"
                 onClick={() => void handleSaveNowledge()}
                 disabled={configuring}
-                className={primaryButtonSmCls}
-                style={{ background: 'var(--c-btn-bg)' }}
+                icon={configuring ? <SpinnerIcon /> : undefined}
               >
-                {configuring ? <SpinnerIcon /> : null}
                 {configureResult === 'ok' ? ds.memoryNowledgeSaved : ds.memoryConfigureButton}
-              </button>
+              </SettingsButton>
             </div>
           </div>
         )}

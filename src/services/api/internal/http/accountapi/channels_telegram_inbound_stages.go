@@ -711,20 +711,21 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		defaultModel = preferredModel
 	}
 
+	incomingFromLedger := buildTelegramIncomingFromLedger(latestEntry)
 	runStartedData := buildTelegramRunStartedData(
 		personaRef,
 		defaultModel,
 		reasoningMode,
 		ch.ID,
 		*latestEntry.SenderChannelIdentityID,
-		buildTelegramIncomingFromLedger(latestEntry),
+		incomingFromLedger,
 	)
 	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,
 		ch.AccountID,
 		*latestEntry.ThreadID,
-		msg.CreatedByUserID,
+		channelOwnerUserID(ch),
 		"run.started",
 		runStartedData,
 	)
@@ -739,7 +740,7 @@ func (c telegramConnector) continueTelegramInboundDispatch(
 		data.RunExecuteJobType,
 		map[string]any{
 			"source":           "telegram",
-			"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, *latestEntry.SenderChannelIdentityID, buildTelegramIncomingFromLedger(latestEntry)),
+			"channel_delivery": buildTelegramChannelDeliveryPayload(ch.ID, *latestEntry.SenderChannelIdentityID, incomingFromLedger),
 		},
 		nil,
 	); err != nil {

@@ -7,6 +7,8 @@ function toolCall(
   toolName: string,
   seq: number,
   args: Record<string, unknown> = {},
+  result?: unknown,
+  errorClass?: string,
 ): CopBlockItem {
   return {
     kind: 'call',
@@ -14,10 +16,45 @@ function toolCall(
       toolCallId: id,
       toolName,
       arguments: args,
+      result,
+      errorClass,
     },
     seq,
   }
 }
+
+describe('copSubSegment image generation titles', () => {
+  it('image_generate live 标题显示图片生成语义', () => {
+    const segments = buildSubSegments([
+      toolCall('img1', 'image_generate', 1, { prompt: 'a mountain at dawn' }),
+    ])
+    const openSegment = {
+      ...segments[0]!,
+      status: 'open' as const,
+      title: 'Working...',
+    }
+
+    expect(categoryForTool('image_generate')).toBe('image')
+    expect(presentToProgressive('image_generate', { prompt: 'a mountain at dawn' })).toBe('Generating image')
+    expect(aggregateMainTitle([openSegment], true, false)).toBe('Generating image...')
+    expect(aggregateMainTitle([openSegment], true, false)).not.toContain('image_generate')
+  })
+
+  it('image_generate 完成和失败标题不退化为 step completed', () => {
+    const successSegments = buildSubSegments([
+      toolCall('img1', 'image_generate', 1, { prompt: 'a mountain at dawn' }, { image: 'ok' }),
+    ])
+    const failedSegments = buildSubSegments([
+      toolCall('img2', 'image_generate', 1, { prompt: 'a mountain at dawn' }, undefined, 'quota exceeded'),
+    ])
+
+    expect(successSegments[0]?.title).toBe('Generated image')
+    expect(aggregateMainTitle(successSegments, false, true)).toBe('Generated image')
+    expect(aggregateMainTitle(successSegments, false, true)).not.toBe('1 step completed')
+    expect(failedSegments[0]?.title).toBe('Image generation failed')
+    expect(aggregateMainTitle(failedSegments, false, true)).toBe('Image generation failed')
+  })
+})
 
 describe('copSubSegment web search titles', () => {
   it('把 web_search 归为搜索分类，而不是 generic', () => {

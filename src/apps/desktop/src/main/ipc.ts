@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, Notification } from 'electron'
 import http from 'http'
 import os from 'os'
 import { DatabaseSync } from 'node:sqlite'
@@ -37,6 +37,7 @@ type DesktopController = {
   applyConfigUpdate: (config: AppConfig, options?: ApplyConfigUpdateOptions) => Promise<AppConfig>
   restartLocalSidecar: () => Promise<SidecarRuntime>
   getSidecarRuntime: () => Promise<SidecarRuntime>
+  setKeepAwakeSessionActive: (active: boolean) => void
 }
 
 let desktopSessionAccessToken = ''
@@ -436,6 +437,27 @@ export function registerIpcHandlers(
     } catch {
       return os.hostname()
     }
+  })
+
+  ipcMain.handle('arkloop:notifications:is-supported', () => {
+    return Notification.isSupported()
+  })
+
+  ipcMain.handle('arkloop:notifications:show', (_event, input: { title?: string; body?: string }) => {
+    if (!Notification.isSupported()) return { ok: false }
+    const title = typeof input?.title === 'string' && input.title.trim()
+      ? input.title.trim().slice(0, 120)
+      : 'Arkloop'
+    const body = typeof input?.body === 'string' && input.body.trim()
+      ? input.body.trim().slice(0, 240)
+      : undefined
+    new Notification({ title, body }).show()
+    return { ok: true }
+  })
+
+  ipcMain.handle('arkloop:power:set-session-active', (_event, active: boolean) => {
+    controller.setKeepAwakeSessionActive(active === true)
+    return { ok: true }
   })
 
   ipcMain.handle('arkloop:window:minimize', () => {

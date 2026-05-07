@@ -335,7 +335,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         channels: 'channels',
         connection: 'advanced',
         voice: 'advanced',
-        updates: 'about',
+        updates: 'general',
       }
       const advancedKeyMap: Partial<Record<string, AdvancedSettingsKey>> = {
         voice: 'voice',

@@ -583,8 +583,12 @@ SELECT cgt.thread_id, cgt.channel_id
 
 	var creator uuid.NullUUID
 	err = db.QueryRow(ctx,
-		`SELECT created_by_user_id FROM threads WHERE id = $1`,
+		`SELECT COALESCE(t.created_by_user_id, ch.owner_user_id)
+		   FROM threads t
+		   JOIN channels ch ON ch.id = $2
+		  WHERE t.id = $1`,
 		threadIDStr,
+		channelID,
 	).Scan(&creator)
 	if err != nil {
 		if isNoRows(err) {

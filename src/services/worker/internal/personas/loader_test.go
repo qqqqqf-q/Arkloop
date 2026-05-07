@@ -80,6 +80,24 @@ func TestLoadRegistryLoadsImpressionBuilderMaxOutputTokens(t *testing.T) {
 	if def.Budgets.MaxOutputTokens == nil || *def.Budgets.MaxOutputTokens != 32768 {
 		t.Fatalf("expected impression-builder max_output_tokens 32768, got %#v", def.Budgets.MaxOutputTokens)
 	}
+	toolsByName := make(map[string]bool, len(def.CoreTools))
+	for _, name := range def.CoreTools {
+		toolsByName[name] = true
+	}
+	for _, name := range []string{"memory_list", "memory_search", "memory_read", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline", "notebook_read"} {
+		if !toolsByName[name] {
+			t.Fatalf("expected impression-builder core tool %q, got %#v", name, def.CoreTools)
+		}
+	}
+	allowedTools := make(map[string]bool, len(def.ToolAllowlist))
+	for _, name := range def.ToolAllowlist {
+		allowedTools[name] = true
+	}
+	for _, name := range []string{"memory_write", "memory_edit", "memory_forget", "memory_context", "notebook_write", "notebook_edit", "notebook_forget"} {
+		if allowedTools[name] {
+			t.Fatalf("impression-builder should not allow side-effect tool %q", name)
+		}
+	}
 }
 
 func TestResolvePersonaVersionMismatch(t *testing.T) {

@@ -9,6 +9,8 @@ import {
 import { useLocale } from '../../contexts/LocaleContext'
 import { useToast } from '@arkloop/shared'
 import { CopyIconButton } from '../CopyIconButton'
+import { SettingsButton } from './_SettingsButton'
+import { SettingsInput } from './_SettingsInput'
 
 export function AccountContent({
   me,
@@ -261,29 +263,25 @@ export function ProfileContent({
                 {verifySent && (
                   <div className="mt-2 flex flex-col gap-2">
                     <div className="flex items-center gap-2">
-                      <input
+                      <SettingsInput
                         type="text"
+                        variant="sm"
                         inputMode="numeric"
                         maxLength={6}
                         value={verifyCode}
                         onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ''))}
                         placeholder={t.emailVerifyCodePlaceholder}
-                        className="h-8 w-28 rounded-lg px-3 text-sm text-[var(--c-text-heading)]"
-                        style={{
-                          border: '0.5px solid var(--c-border-subtle)',
-                          background: 'var(--c-bg-deep)',
-                          outline: 'none',
-                          letterSpacing: verifyCode ? '4px' : 'normal',
-                        }}
+                        className="w-28"
+                        style={{ letterSpacing: verifyCode ? '4px' : 'normal' }}
                       />
-                      <button
+                      <SettingsButton
+                        variant="primary"
                         onClick={() => void handleConfirmVerify()}
                         disabled={verifyCode.length !== 6 || verifying}
-                        className="flex h-8 items-center rounded-lg px-3 text-xs font-medium transition-colors disabled:opacity-50"
-                        style={{ background: 'var(--c-btn-bg)', color: 'var(--c-btn-text)', cursor: 'pointer' }}
+                        className="text-xs"
                       >
                         {verifying ? '...' : t.emailVerifyConfirmBtn}
-                      </button>
+                      </SettingsButton>
                     </div>
                     {verifyError && (
                       <span className="text-xs" style={{ color: 'var(--c-status-warn-text)' }}>

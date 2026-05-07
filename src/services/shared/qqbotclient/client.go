@@ -91,7 +91,7 @@ func (c *Client) GetAccessToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -134,7 +134,7 @@ func (c *Client) GetGatewayURL(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
@@ -199,7 +199,7 @@ func (c *Client) SendText(ctx context.Context, scope, target, content, msgID str
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (l *GatewayListener) connectAndRead(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("qqbot gateway dial: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	var heartbeatCancel context.CancelFunc
 	defer func() {

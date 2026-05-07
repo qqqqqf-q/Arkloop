@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink, Github, HardDrive } from 'lucide-react'
 import { getDesktopApi, getDesktopAppVersion, type DesktopAdvancedOverview } from '@arkloop/shared/desktop'
-import { Button, PillToggle } from '@arkloop/shared'
 import { useLocale } from '../../contexts/LocaleContext'
 import { openExternal } from '../../openExternal'
 import { readDeveloperMode, writeDeveloperMode } from '../../storage'
 import { SettingsSection } from './_SettingsSection'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { UpdateSettingsContent } from './UpdateSettings'
+import { SettingsSwitch } from './_SettingsSwitch'
+import { SettingsButton } from './_SettingsButton'
 
 export function AboutSettings({ accessToken: _accessToken }: { accessToken: string }) {
   const { t } = useLocale()
@@ -87,16 +88,15 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
           </div>
           <div className="flex basis-full flex-wrap gap-2 xl:ml-auto xl:basis-auto xl:justify-end">
             {links.map((link) => (
-              <Button
+              <SettingsButton
                 key={link.url}
                 onClick={() => openExternal(link.url)}
-                variant="outline"
-                size="sm"
+                variant="secondary"
                 className="shrink-0"
+                icon={link.label === 'GitHub' ? <Github size={14} /> : <ExternalLink size={14} />}
               >
-                {link.label === 'GitHub' ? <Github size={14} /> : <ExternalLink size={14} />}
-                <span>{link.label}</span>
-              </Button>
+                {link.label}
+              </SettingsButton>
             ))}
           </div>
         </div>
@@ -118,7 +118,7 @@ export function AboutSettings({ accessToken: _accessToken }: { accessToken: stri
             <div className="text-sm font-medium text-[var(--c-text-primary)]">{ds.developerTitle}</div>
             <div className="text-xs text-[var(--c-text-muted)]">{ds.developerDesc}</div>
           </div>
-          <PillToggle
+          <SettingsSwitch
             checked={devMode}
             onChange={(next) => {
               setDevMode(next)

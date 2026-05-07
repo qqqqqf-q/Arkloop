@@ -7,10 +7,14 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	sharedoutbound "arkloop/services/shared/outboundurl"
+
 	"github.com/google/uuid"
 )
 
 func TestIsPrivateIP(t *testing.T) {
+	t.Setenv(sharedoutbound.ProtectionEnabledEnv, "true")
+
 	cases := []struct {
 		name   string
 		ip     string
@@ -147,9 +151,9 @@ func TestParseDeliveryPayload(t *testing.T) {
 
 	validRaw := func() map[string]any {
 		return map[string]any{
-			"account_id":   accountID.String(),
-			"run_id":   runID.String(),
-			"trace_id": "trace-123",
+			"account_id": accountID.String(),
+			"run_id":     runID.String(),
+			"trace_id":   "trace-123",
 			"payload": map[string]any{
 				"endpoint_id": endpointID.String(),
 				"delivery_id": deliveryID.String(),

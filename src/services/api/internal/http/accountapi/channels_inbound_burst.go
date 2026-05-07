@@ -433,7 +433,7 @@ func (r channelInboundBurstRunner) recoverBatch(
 		ctx,
 		ch.AccountID,
 		openBatch.ThreadID,
-		message.CreatedByUserID,
+		channelOwnerUserID(ch),
 		"run.started",
 		runStartedData,
 	)
