@@ -55,6 +55,7 @@ const MainViewport = memo(function MainViewport({
     <main
       className="relative flex min-w-0 flex-1 flex-col overflow-y-auto"
       style={{ scrollbarGutter: "stable" }}
+      data-testid="workspace-host"
     >
       <Outlet />
       {notificationsOpen && (

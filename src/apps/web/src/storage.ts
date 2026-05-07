@@ -616,11 +616,13 @@ export function readPluginBrowserSessionMap(): PluginBrowserSessionMap {
     const raw = localStorage.getItem(PLUGIN_BROWSER_SESSION_KEY)
     if (!raw) return {}
     const parsed = JSON.parse(raw) as Record<string, unknown>
-    return Object.fromEntries(
-      Object.entries(parsed).filter(
-        ([, value]) => typeof value === 'string' && value.trim() !== '',
-      ),
-    )
+    const next: PluginBrowserSessionMap = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string' && value.trim() !== '') {
+        next[key] = value
+      }
+    }
+    return next
   } catch {
     return {}
   }

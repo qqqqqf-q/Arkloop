@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { BrowserTabsProvider } from '../contexts/browser-tabs'
+import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import { PluginHostPage } from '../plugins/PluginHostPage'
 import { PluginRuntimeProvider } from '../plugins/runtime'
 
@@ -35,11 +37,15 @@ describe('PluginHostPage', () => {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={['/plugins/sample-plugin']}>
-          <PluginRuntimeProvider>
-            <Routes>
-              <Route path="/plugins/:pluginId" element={<PluginHostPage />} />
-            </Routes>
-          </PluginRuntimeProvider>
+          <BrowserTabsProvider>
+            <PluginRuntimeProvider>
+              <PluginBrowserSessionProvider>
+                <Routes>
+                  <Route path="/plugins/:pluginId" element={<PluginHostPage />} />
+                </Routes>
+              </PluginBrowserSessionProvider>
+            </PluginRuntimeProvider>
+          </BrowserTabsProvider>
         </MemoryRouter>,
       )
       await Promise.resolve()
