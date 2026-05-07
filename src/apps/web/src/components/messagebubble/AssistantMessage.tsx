@@ -91,12 +91,12 @@ export function AssistantActionBar({
         ...(!isLast ? { transform: 'translateY(-8px)' } : {}),
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
         <CopyIconButton
           onCopy={handleCopy}
-          size={16}
+          size={14}
           hoverBackground="var(--c-bg-deep)"
-          className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+          className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           resetDelay={1500}
         />
         {!isDesktop() && (
@@ -105,9 +105,9 @@ export function AssistantActionBar({
               onClick={onShare}
               disabled={!onShare || shareState === 'sharing'}
               hoverBackground="var(--c-bg-deep)"
-              className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onShare && shareState !== 'sharing' ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
             >
-              {shareState === 'shared' ? <Check size={16} /> : <Share2 size={16} />}
+              {shareState === 'shared' ? <Check size={14} /> : <Share2 size={14} />}
             </ActionIconButton>
             <span
               className="absolute -top-7 left-1/2 -translate-x-1/2 rounded px-1.5 py-0.5 text-[11px]"
@@ -132,18 +132,18 @@ export function AssistantActionBar({
           disabled={!onFork}
           tooltip="Fork"
           hoverBackground="var(--c-bg-deep)"
-          className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
+          className={`flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
         >
-          <Split size={16} />
+          <Split size={14} />
         </ActionIconButton>
         {onViewRunDetail && (
           <ActionIconButton
             onClick={onViewRunDetail}
             tooltip={t.desktopSettings.viewRunDetail}
             hoverBackground="var(--c-bg-deep)"
-            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           >
-            <Terminal size={16} />
+            <Terminal size={14} />
           </ActionIconButton>
         )}
         {webSources && webSources.length > 0 && onShowSources && (

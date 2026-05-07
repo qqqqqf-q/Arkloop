@@ -418,25 +418,25 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
         >
           <CopyIconButton
             onCopy={handleCopy}
-            size={16}
+            size={14}
             tooltip={t.copyAction}
             hoverBackground="var(--c-bg-deep)"
-            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           />
           <RefreshIconButton
             onRefresh={onRetry!}
             disabled={!onRetry}
-            size={16}
+            size={14}
             tooltip={t.retryAction}
-            className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
+            className={`flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
           />
           <ActionIconButton
             onClick={handleEditStart}
             tooltip={t.editAction}
             hoverBackground="var(--c-bg-deep)"
-            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           >
-            <Pencil size={16} />
+            <Pencil size={14} />
           </ActionIconButton>
           <div style={{ marginLeft: '12px', marginBottom: '0px' }}>
             <MessageDate createdAt={message.createdAt} isWorkMode={isWorkMode} />
