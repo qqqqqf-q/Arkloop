@@ -2013,8 +2013,6 @@ export function Sidebar({
           transition: "width 280ms cubic-bezier(0.16,1,0.3,1)",
           willChange: "width",
           borderRight: "0.5px solid var(--c-border)",
-          borderTopRightRadius: "12px",
-          borderBottomRightRadius: "12px",
         }}
       >
         {/* Desktop title bar spacer */}
