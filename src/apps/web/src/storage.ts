@@ -546,13 +546,13 @@ export function writeThemeToStorage(theme: Theme): void {
 }
 
 export function readAppModeFromStorage(): AppMode {
-  if (!canUseLocalStorage()) return 'chat'
+  if (!canUseLocalStorage()) return 'work'
   try {
     const raw = localStorage.getItem(APP_MODE_KEY)
     if (raw === 'chat' || raw === 'work') return raw
-    return 'chat'
+    return 'work'
   } catch {
-    return 'chat'
+    return 'work'
   }
 }
 

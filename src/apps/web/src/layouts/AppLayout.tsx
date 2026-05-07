@@ -388,7 +388,7 @@ export function AppLayout() {
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => toggleSidebar('titlebar')}
             appMode={activeAppMode}
-            showIncognitoToggle={activeAppMode !== 'work'}
+            showIncognitoToggle={false}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
             hasAppUpdate={hasAppUpdate}
