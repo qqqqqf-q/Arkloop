@@ -176,10 +176,10 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
 
   if (editing) {
     return (
-      <div style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '663px' }}>
           {fileNames.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
               {fileNames.map((name) => (
                 <div
                   key={name}
@@ -227,7 +227,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
               }}
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <button
               onClick={handleEditCancel}
               style={{
@@ -268,14 +268,14 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
 
   return (
     <div
-      style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}
+      style={{ display: 'flex', justifyContent: 'flex-end' }}
     >
       <div
-        style={{ display: 'flex', flexDirection: 'column', alignItems: isWorkMode ? 'flex-start' : 'flex-end', maxWidth: '663px' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '663px' }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isWorkMode ? 'flex-start' : 'flex-end', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
         {(imageAttachments.length > 0 || pastedAttachments.length > 0) && accessToken && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end' }}>
             {imageAttachments.map((part) => (
               <ImageThumbnailCard
                 key={part.attachment.key}
@@ -299,7 +299,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
           </div>
         )}
         {fileAttachments.length > 0 && accessToken && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             {fileAttachments.map((part) => (
               <ArtifactDownload
                 key={part.attachment.key}
@@ -311,7 +311,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
           </div>
         )}
         {((!accessToken && fileNames.length > 0) || (fileAttachments.length === 0 && imageAttachments.length === 0 && pastedAttachments.length === 0 && fileNames.length > 0)) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             {fileNames.map((name) => (
               <div
                 key={name}
