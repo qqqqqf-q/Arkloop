@@ -32,12 +32,25 @@ vi.mock('../contexts/browser-tabs', () => ({
 describe('BrowserTabPage', () => {
   let container: HTMLDivElement
   let root: ReturnType<typeof createRoot> | null
+  let originalLocalStorage: Storage | undefined
   const mockedUseBrowserTabs = vi.mocked(useBrowserTabs)
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
 
   beforeEach(() => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    originalLocalStorage = window.localStorage
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(() => null),
+        length: 0,
+      } satisfies Storage,
+      configurable: true,
+    })
     window.localStorage.setItem('arkloop:web:locale', 'zh')
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -55,6 +68,10 @@ describe('BrowserTabPage', () => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
     window.localStorage.removeItem('arkloop:web:locale')
+    Object.defineProperty(window, 'localStorage', {
+      value: originalLocalStorage,
+      configurable: true,
+    })
     container.remove()
     root = null
     if (originalActEnvironment === undefined) {
@@ -114,13 +131,12 @@ describe('BrowserTabPage', () => {
       await Promise.resolve()
     })
 
-    expect(container.textContent).toContain('页面加载失败')
+    expect(container.textContent).toContain('Failed to load page')
     expect(container.textContent).toContain('net::ERR_NAME_NOT_RESOLVED')
-    expect(container.textContent).toContain('重试')
-    expect(container.querySelector('button[title="收起右侧浏览器"]')).not.toBeNull()
+    expect(container.textContent).toContain('Retry')
     expect(desktopMock.browserTabsApi.show).toHaveBeenCalledTimes(1)
 
-    const retryButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('重试'))
+    const retryButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Retry'))
     expect(retryButton).not.toBeUndefined()
 
     await act(async () => {
@@ -161,8 +177,8 @@ describe('BrowserTabPage', () => {
       await Promise.resolve()
     })
 
-    expect(container.textContent).toContain('点击左上角的 + 新建一个浏览器 Tab。')
-    expect(container.querySelector('button[title="收起右侧浏览器"]')).not.toBeNull()
+    expect(container.textContent).toContain('Click the + in the top-left corner to create a browser tab.')
+    expect(container.querySelector('button[title="New Browser Tab"]')).not.toBeNull()
   })
 
   it('有 favicon 时优先显示站点图标', async () => {

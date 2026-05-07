@@ -1,4 +1,5 @@
 import { BrowserView, BrowserWindow, shell } from 'electron'
+import { buildBrowserTabFailureFallbackUrl } from './browser-tab-fallback'
 
 export type BrowserTabState = {
   id: string
@@ -154,12 +155,14 @@ function updateBrowserTabState(tabId: string, updater: (current: BrowserTabState
 function syncStateFromWebContents(tabId: string): void {
   const record = getBrowserTabRecord(tabId)
   const title = record.view.webContents.getTitle().trim()
-  const url = record.view.webContents.getURL().trim()
+  const webContentsUrl = record.view.webContents.getURL().trim()
   updateBrowserTabState(tabId, (current) => ({
     ...current,
     title: title || current.title,
-    url: url || current.url,
-    faviconUrl: current.faviconUrl ?? getFallbackFaviconUrl(url || current.url),
+    url: parseHttpUrl(webContentsUrl)?.toString() ?? current.url,
+    faviconUrl:
+      current.faviconUrl ??
+      getFallbackFaviconUrl(parseHttpUrl(webContentsUrl)?.toString() ?? current.url),
     loading: record.view.webContents.isLoading(),
     canGoBack: record.view.webContents.canGoBack(),
     canGoForward: record.view.webContents.canGoForward(),
@@ -220,6 +223,11 @@ function createBrowserView(tabId: string): BrowserView {
       canGoBack: view.webContents.canGoBack(),
       canGoForward: view.webContents.canGoForward(),
     }))
+    const fallbackUrl = buildBrowserTabFailureFallbackUrl(
+      validatedURL?.trim() || getBrowserTabRecord(tabId).state.url,
+      errorDescription || '页面加载失败',
+    )
+    void view.webContents.loadURL(fallbackUrl).catch(() => {})
   })
   view.webContents.on('will-navigate', (event, url) => {
     if (parseHttpUrl(url)) return
