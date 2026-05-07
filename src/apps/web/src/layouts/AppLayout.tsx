@@ -72,7 +72,7 @@ type LayoutMainProps = {
   onToggleBrowserPanel: () => void
   browserFullscreen: boolean
   onToggleBrowserFullscreen: () => void
-  title?: string
+  currentThread?: import('../api').ThreadResponse | null
 }
 
 const LayoutMain = memo(function LayoutMain({
@@ -90,7 +90,7 @@ const LayoutMain = memo(function LayoutMain({
   onToggleBrowserPanel,
   browserFullscreen,
   onToggleBrowserFullscreen,
-  title,
+  currentThread,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
   const { setCreditsBalance } = useCredits()
@@ -188,7 +188,7 @@ const LayoutMain = memo(function LayoutMain({
                   browserPanelOpen={browserPanelOpen}
                   onSetAppMode={onSetAppMode}
                   onToggleBrowserPanel={onToggleBrowserPanel}
-                  title={title}
+                  currentThread={currentThread}
                 />
               )}
               <MainViewport
@@ -428,7 +428,7 @@ export function AppLayout() {
             onToggleBrowserPanel={toggleBrowserPanel}
             browserFullscreen={browserFullscreen}
             onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
-            title={currentThread?.title ?? undefined}
+            currentThread={currentThread}
           />
         </div>
       </div>
