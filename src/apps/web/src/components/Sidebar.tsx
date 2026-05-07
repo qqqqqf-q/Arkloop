@@ -1788,7 +1788,7 @@ export function Sidebar({
             }}
             className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-icon)] transition-[background-color,color,transform] duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)] active:scale-[0.96]"
           >
-            <Bolt size={13} />
+            <Bolt size={18} />
           </button>
         </div>
       </div>
