@@ -76,3 +76,4 @@ release-files/
 /ark
 .cache
 .gstack/
+.worktrees/
