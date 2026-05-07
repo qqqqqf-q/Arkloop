@@ -81,6 +81,7 @@ import {
   clearWorkFolder,
   writeWorkFolder,
 } from "../storage";
+import { PluginSidebarSection } from "../plugins/PluginSidebarSection";
 
 type Props = {
   threads: ThreadResponse[];
@@ -2167,6 +2168,7 @@ export function Sidebar({
           style={{ transition: "opacity 150ms ease" }}
           inert={collapsed || undefined}
         >
+          <PluginSidebarSection />
           {!isWorkMode && !gtdEnabled && (
             <div className="mb-[12px] mt-1 flex shrink-0 items-center gap-2 px-2">
               <h3

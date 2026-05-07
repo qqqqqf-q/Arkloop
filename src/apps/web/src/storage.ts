@@ -21,6 +21,8 @@ export {
 const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
+const PLUGIN_RUNTIME_STATE_KEY = 'arkloop:web:plugin-runtime'
+const PLUGIN_BROWSER_SESSION_KEY = 'arkloop:web:plugin-browser-sessions'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
 const APP_MODE_KEY = 'arkloop:web:app_mode'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
@@ -66,6 +68,14 @@ export const SEARCH_PERSONA_KEY = 'extended-search'
 export const WORK_PERSONA_KEY = 'work'
 
 export type AppMode = 'chat' | 'work'
+export type StoredPluginPresentation = 'route' | 'embedded-browser' | 'hybrid'
+
+export type PluginRuntimeStorageState = {
+  lastPluginId: string | null
+  presentationByPluginId: Record<string, StoredPluginPresentation>
+}
+
+export type PluginBrowserSessionMap = Record<string, string>
 
 export type InputDraftScope = {
   ownerKey?: string | null
@@ -562,6 +572,68 @@ export function writeAppModeToStorage(mode: AppMode): void {
     localStorage.setItem(APP_MODE_KEY, mode)
   } catch {
     // 忽略存储失败
+  }
+}
+
+export function readPluginRuntimeState(): PluginRuntimeStorageState {
+  if (!canUseLocalStorage()) {
+    return { lastPluginId: null, presentationByPluginId: {} }
+  }
+  try {
+    const raw = localStorage.getItem(PLUGIN_RUNTIME_STATE_KEY)
+    if (!raw) return { lastPluginId: null, presentationByPluginId: {} }
+    const parsed = JSON.parse(raw) as Partial<PluginRuntimeStorageState>
+    return {
+      lastPluginId: typeof parsed.lastPluginId === 'string' ? parsed.lastPluginId : null,
+      presentationByPluginId:
+        typeof parsed.presentationByPluginId === 'object' && parsed.presentationByPluginId
+          ? Object.fromEntries(
+              Object.entries(parsed.presentationByPluginId).filter(([, value]) =>
+                value === 'route' ||
+                value === 'embedded-browser' ||
+                value === 'hybrid',
+              ),
+            )
+          : {},
+    }
+  } catch {
+    return { lastPluginId: null, presentationByPluginId: {} }
+  }
+}
+
+export function writePluginRuntimeState(state: PluginRuntimeStorageState): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(PLUGIN_RUNTIME_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // ignore
+  }
+}
+
+export function readPluginBrowserSessionMap(): PluginBrowserSessionMap {
+  if (!canUseLocalStorage()) return {}
+  try {
+    const raw = localStorage.getItem(PLUGIN_BROWSER_SESSION_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const next: PluginBrowserSessionMap = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string' && value.trim() !== '') {
+        next[key] = value
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+export function writePluginBrowserSessionMap(map: PluginBrowserSessionMap): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(PLUGIN_BROWSER_SESSION_KEY, JSON.stringify(map))
+  } catch {
+    // ignore
   }
 }
 

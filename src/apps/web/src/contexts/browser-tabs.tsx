@@ -22,8 +22,8 @@ type BrowserTabsContextValue = {
   openBrowserPanel: () => void
   closeBrowserPanel: () => void
   toggleBrowserPanel: () => void
-  createBrowserTab: () => Promise<string | null>
-  activateBrowserTab: (tabId: string) => void
+  createBrowserTab: (options?: { openPanel?: boolean }) => Promise<string | null>
+  activateBrowserTab: (tabId: string, options?: { openPanel?: boolean }) => void
   closeBrowserTab: (tabId: string) => Promise<void>
   navigateBrowserTab: (tabId: string, url?: string) => Promise<DesktopBrowserTab | null>
   reloadBrowserTab: (tabId: string) => Promise<DesktopBrowserTab | null>
@@ -48,7 +48,12 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [activeBrowserTabId, setActiveBrowserTabId] = useState<string | null>(null)
   const [draftUrls, setDraftUrls] = useState<Record<string, string>>({})
+  const draftUrlsRef = useRef<Record<string, string>>({})
   const recentTabIdsRef = useRef<string[]>([])
+
+  useEffect(() => {
+    draftUrlsRef.current = draftUrls
+  }, [draftUrls])
 
   useEffect(() => {
     if (!desktop) {
@@ -151,18 +156,18 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
     })
   }, [tabs])
 
-  const createBrowserTab = useCallback(async () => {
+  const createBrowserTab = useCallback(async (options?: { openPanel?: boolean }) => {
     const api = getDesktopApi()
     if (!api?.browserTabs) return null
     const tab = await api.browserTabs.create()
     setDraftUrls((current) => ({ ...current, [tab.id]: tab.url }))
-    setPanelOpen(true)
+    setPanelOpen(options?.openPanel ?? true)
     setActiveBrowserTabId(tab.id)
     return tab.id
   }, [])
 
-  const activateBrowserTab = useCallback((tabId: string) => {
-    setPanelOpen(true)
+  const activateBrowserTab = useCallback((tabId: string, options?: { openPanel?: boolean }) => {
+    setPanelOpen((current) => (options?.openPanel ?? true) ? true : current)
     setActiveBrowserTabId(tabId)
   }, [])
 
@@ -190,10 +195,10 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   const navigateBrowserTab = useCallback(async (tabId: string, url?: string) => {
     const api = getDesktopApi()
     if (!api?.browserTabs) return null
-    const targetUrl = (url ?? draftUrls[tabId] ?? '').trim()
+    const targetUrl = (url ?? draftUrlsRef.current[tabId] ?? '').trim()
     setDraftUrls((current) => ({ ...current, [tabId]: targetUrl }))
     return await api.browserTabs.navigate(tabId, targetUrl)
-  }, [draftUrls])
+  }, [])
 
   const reloadBrowserTab = useCallback(async (tabId: string) => {
     const api = getDesktopApi()
