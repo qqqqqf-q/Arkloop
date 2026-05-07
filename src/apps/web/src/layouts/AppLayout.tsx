@@ -198,14 +198,20 @@ const LayoutMain = memo(function LayoutMain({
             )}
             {desktop && browserPanelOpen && !browserFullscreen && (
               <div
-                className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors"
+                className="flex shrink-0 cursor-col-resize"
+                style={{ width: '6px', marginLeft: '-3px', marginRight: '-3px', zIndex: 10 }}
                 onMouseDown={handleMouseDown}
-              />
+              >
+                <div className="w-1 h-full bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors mx-auto" />
+              </div>
             )}
             {desktop && browserPanelOpen && (
               <aside
-                className="flex min-h-0 min-w-0 shrink-0 border-l border-[var(--c-border-subtle)] bg-[var(--c-bg-page)]"
-                style={{ flex: browserFullscreen ? '1 1 100%' : `0 0 ${100 - chatRatio}%` }}
+                className="flex min-h-0 min-w-0 shrink-0 bg-[var(--c-bg-page)]"
+                style={{ 
+                  flex: browserFullscreen ? '1 1 100%' : `0 0 ${100 - chatRatio}%`,
+                  borderLeft: browserFullscreen ? 'none' : '0.5px solid var(--c-border-subtle)'
+                }}
               >
                 <BrowserTabPage
                   browserFullscreen={browserFullscreen}
