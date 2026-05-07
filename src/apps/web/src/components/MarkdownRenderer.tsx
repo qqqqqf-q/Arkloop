@@ -572,7 +572,7 @@ function WithCitations({ children, prefix }: { children: ReactNode; prefix: stri
 type TypographyMode = 'default' | 'work'
 
 function buildMarkdownComponents(compact: boolean, typography: TypographyMode): Components {
-  const defaultBodyFontSize = compact ? '13.5px' : '15px'
+  const defaultBodyFontSize = compact ? '13.5px' : '14px'
   const workBodyFontSize = '16px'
   const paragraphFontSize = typography === 'work' ? workBodyFontSize : defaultBodyFontSize
   const heading1FontSize = defaultBodyFontSize
