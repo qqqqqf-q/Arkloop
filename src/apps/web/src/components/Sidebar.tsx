@@ -1731,11 +1731,6 @@ export function Sidebar({
       {/* Bottom area */}
       <div
         className="mt-auto px-2 pb-2 pt-1"
-        style={{
-          borderTop: '1px solid var(--c-border)',
-          borderTopColor: collapsed ? 'transparent' : 'var(--c-border)',
-          transition: 'border-top-color 280ms cubic-bezier(0.16,1,0.3,1)',
-        }}
       >
         {!collapsed && !isLocalMode() && (
           <button
