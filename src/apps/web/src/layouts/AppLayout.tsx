@@ -196,27 +196,31 @@ const LayoutMain = memo(function LayoutMain({
               />
               </div>
             )}
-            {desktop && browserPanelOpen && !browserFullscreen && (
-              <div
-                className="flex shrink-0 cursor-col-resize"
-                style={{ width: '6px', marginLeft: '-3px', marginRight: '-3px', zIndex: 10 }}
-                onMouseDown={handleMouseDown}
-              >
-                <div className="w-1 h-full bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors mx-auto" />
-              </div>
-            )}
             {desktop && browserPanelOpen && (
               <aside
-                className="flex min-h-0 min-w-0 shrink-0 bg-[var(--c-bg-page)]"
+                className="flex min-h-0 min-w-0 shrink-0 bg-[var(--c-bg-page)] relative"
                 style={{ 
                   flex: browserFullscreen ? '1 1 100%' : `0 0 ${100 - chatRatio}%`,
-                  borderLeft: browserFullscreen ? 'none' : '0.5px solid var(--c-border-subtle)'
                 }}
               >
-                <BrowserTabPage
-                  browserFullscreen={browserFullscreen}
-                  onToggleBrowserFullscreen={onToggleBrowserFullscreen}
-                />
+                {!browserFullscreen && (
+                  <div
+                    className="absolute left-0 top-0 bottom-0 cursor-col-resize"
+                    style={{ width: '12px', marginLeft: '-6px', zIndex: 10 }}
+                    onMouseDown={handleMouseDown}
+                  >
+                    <div 
+                      className="absolute right-0 top-0 bottom-0 w-[3px] bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors"
+                      style={{ right: '3px' }}
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0" style={{ borderLeft: browserFullscreen ? 'none' : '0.5px solid var(--c-border-subtle)' }}>
+                  <BrowserTabPage
+                    browserFullscreen={browserFullscreen}
+                    onToggleBrowserFullscreen={onToggleBrowserFullscreen}
+                  />
+                </div>
               </aside>
             )}
           </div>
