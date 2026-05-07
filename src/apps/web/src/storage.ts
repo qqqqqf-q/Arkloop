@@ -22,6 +22,7 @@ const ACTIVE_THREAD_ID_KEY = 'arkloop:web:active_thread_id'
 const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
 const PLUGIN_RUNTIME_STATE_KEY = 'arkloop:web:plugin-runtime'
+const PLUGIN_BROWSER_SESSION_KEY = 'arkloop:web:plugin-browser-sessions'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
 const APP_MODE_KEY = 'arkloop:web:app_mode'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
@@ -73,6 +74,8 @@ export type PluginRuntimeStorageState = {
   lastPluginId: string | null
   presentationByPluginId: Record<string, StoredPluginPresentation>
 }
+
+export type PluginBrowserSessionMap = Record<string, string>
 
 export type InputDraftScope = {
   ownerKey?: string | null
@@ -602,6 +605,31 @@ export function writePluginRuntimeState(state: PluginRuntimeStorageState): void 
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(PLUGIN_RUNTIME_STATE_KEY, JSON.stringify(state))
+  } catch {
+    // ignore
+  }
+}
+
+export function readPluginBrowserSessionMap(): PluginBrowserSessionMap {
+  if (!canUseLocalStorage()) return {}
+  try {
+    const raw = localStorage.getItem(PLUGIN_BROWSER_SESSION_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([, value]) => typeof value === 'string' && value.trim() !== '',
+      ),
+    )
+  } catch {
+    return {}
+  }
+}
+
+export function writePluginBrowserSessionMap(map: PluginBrowserSessionMap): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(PLUGIN_BROWSER_SESSION_KEY, JSON.stringify(map))
   } catch {
     // ignore
   }

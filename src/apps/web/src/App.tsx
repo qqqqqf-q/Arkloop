@@ -11,6 +11,7 @@ import { AppUIProvider } from './contexts/app-ui'
 import { CreditsProvider } from './contexts/credits'
 import { BrowserTabsProvider } from './contexts/browser-tabs'
 import { PluginRuntimeProvider } from './plugins/runtime'
+import { PluginBrowserSessionProvider } from './plugins/browser-session'
 import { SharePage } from './components/SharePage'
 import { VerifyEmailPage } from './components/VerifyEmailPage'
 import { OnboardingWizard } from './components/OnboardingWizard'
@@ -354,9 +355,11 @@ function App() {
                 <AppUIProvider>
                   <BrowserTabsProvider>
                     <PluginRuntimeProvider>
-                      <CreditsProvider>
-                        <AppLayout />
-                      </CreditsProvider>
+                      <PluginBrowserSessionProvider>
+                        <CreditsProvider>
+                          <AppLayout />
+                        </CreditsProvider>
+                      </PluginBrowserSessionProvider>
                     </PluginRuntimeProvider>
                   </BrowserTabsProvider>
                 </AppUIProvider>
