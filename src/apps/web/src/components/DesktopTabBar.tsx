@@ -190,6 +190,7 @@ export function DesktopTabBar({
                 className="flex items-center gap-1"
               >
                 <button
+                  ref={titleChevronRef}
                   onClick={openTitleMenu}
                   className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-[var(--c-text-primary)] hover:bg-[var(--c-bg-deep)] transition-colors"
                   style={{ maxWidth: '280px' }}
