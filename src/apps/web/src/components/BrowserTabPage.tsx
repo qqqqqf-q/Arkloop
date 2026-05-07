@@ -58,7 +58,7 @@ export function BrowserTabPage({ browserFullscreen = false, onToggleBrowserFulls
     goForwardBrowserTab,
   } = useBrowserTabs()
   const hostRef = useRef<HTMLDivElement>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [_submitting, setSubmitting] = useState(false)
   const [failedFavicons, setFailedFavicons] = useState<Record<string, string>>({})
   const [inputFocused, setInputFocused] = useState(false)
   const draftUrl = activeBrowserTabId ? getDraftUrl(activeBrowserTabId) : ''

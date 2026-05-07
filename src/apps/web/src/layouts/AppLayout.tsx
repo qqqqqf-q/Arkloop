@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { isDesktop, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
@@ -101,6 +101,9 @@ const LayoutMain = memo(function LayoutMain({
     closeSettings,
   } = useSettingsUI()
   const { notificationsOpen, closeNotifications, markNotificationRead } = useNotificationsUI()
+  const [chatRatio, setChatRatio] = useState(50)
+  const isDragging = useRef(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!isPerfDebugEnabled()) return
@@ -113,6 +116,32 @@ const LayoutMain = memo(function LayoutMain({
       pathname,
     })
   })
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const ratio = Math.max(20, Math.min(80, (x / rect.width) * 100))
+      setChatRatio(ratio)
+    }
+
+    const handleMouseUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [])
 
   return (
     <>
@@ -146,10 +175,10 @@ const LayoutMain = memo(function LayoutMain({
           onTrySkill={onTrySkill}
         />
       ) : (
-        <div className="relative flex min-w-0 flex-1 overflow-hidden">
+        <div ref={containerRef} className="relative flex min-w-0 flex-1 overflow-hidden">
           <div className="flex min-w-0 flex-1 overflow-hidden">
             {!browserFullscreen && (
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden" style={{ flex: browserPanelOpen ? '1 1 50%' : '1 1 100%' }}>
+              <div className="flex min-w-0 flex-col overflow-hidden" style={{ flex: browserPanelOpen ? `0 0 ${chatRatio}%` : '1 1 100%' }}>
               {desktop && (
                 <DesktopTabBar
                   appMode={appMode}
@@ -167,10 +196,16 @@ const LayoutMain = memo(function LayoutMain({
               />
               </div>
             )}
+            {desktop && browserPanelOpen && !browserFullscreen && (
+              <div
+                className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-[var(--c-border-subtle)] transition-colors"
+                onMouseDown={handleMouseDown}
+              />
+            )}
             {desktop && browserPanelOpen && (
               <aside
                 className="flex min-h-0 min-w-0 shrink-0 border-l border-[var(--c-border-subtle)] bg-[var(--c-bg-page)]"
-                style={{ flex: browserFullscreen ? '1 1 100%' : '1 1 50%' }}
+                style={{ flex: browserFullscreen ? '1 1 100%' : `0 0 ${100 - chatRatio}%` }}
               >
                 <BrowserTabPage
                   browserFullscreen={browserFullscreen}
