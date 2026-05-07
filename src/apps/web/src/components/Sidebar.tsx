@@ -1482,7 +1482,7 @@ export function Sidebar({
     </div>,
     document.body,
   ) : null
-  const navButtonClass = 'group flex h-[32px] w-full items-center gap-[10px] overflow-hidden whitespace-nowrap rounded-lg px-[8px] text-[15px] text-[var(--c-text-secondary)] transition-colors duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]'
+  const navButtonClass = 'group flex h-[32px] w-full items-center gap-[10px] overflow-hidden whitespace-nowrap rounded-lg px-[8px] text-[13px] text-[var(--c-text-secondary)] transition-colors duration-[60ms] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]'
   const navButtonStyle = { fontWeight: 'var(--c-sidebar-nav-weight)' }
   const navLabelClass = 'min-w-0 overflow-hidden whitespace-nowrap transition-opacity duration-100'
   const newThreadNavLabel = isWorkMode ? t.newTask : t.newChat
