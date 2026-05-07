@@ -86,7 +86,7 @@ export function AssistantActionBar({
     <div
       className={isLast ? '' : 'pointer-events-none opacity-0 group-hover/turn:pointer-events-auto group-hover/turn:opacity-100 transition-[opacity] duration-[180ms] ease-out'}
       style={{
-        marginTop: '4px',
+        marginTop: '2px',
         marginLeft: '-6px',
         ...(!isLast ? { transform: 'translateY(-8px)' } : {}),
       }}

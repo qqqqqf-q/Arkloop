@@ -413,7 +413,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
             display: 'flex',
             alignItems: 'center',
             gap: '2px',
-            marginTop: '8px',
+            marginTop: '4px',
           }}
         >
           <CopyIconButton
