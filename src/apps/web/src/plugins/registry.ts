@@ -9,7 +9,7 @@ export const builtinPlugins: PluginDefinition[] = [
     nav: { section: 'workspace', order: 100 },
     shell: { mode: 'plugin-workspace' },
     presentation: {
-      default: 'route',
+      default: 'hybrid',
       supported: ['route', 'embedded-browser', 'hybrid'],
     },
     surfaces: {

@@ -48,7 +48,12 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [activeBrowserTabId, setActiveBrowserTabId] = useState<string | null>(null)
   const [draftUrls, setDraftUrls] = useState<Record<string, string>>({})
+  const draftUrlsRef = useRef<Record<string, string>>({})
   const recentTabIdsRef = useRef<string[]>([])
+
+  useEffect(() => {
+    draftUrlsRef.current = draftUrls
+  }, [draftUrls])
 
   useEffect(() => {
     if (!desktop) {
@@ -190,10 +195,10 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   const navigateBrowserTab = useCallback(async (tabId: string, url?: string) => {
     const api = getDesktopApi()
     if (!api?.browserTabs) return null
-    const targetUrl = (url ?? draftUrls[tabId] ?? '').trim()
+    const targetUrl = (url ?? draftUrlsRef.current[tabId] ?? '').trim()
     setDraftUrls((current) => ({ ...current, [tabId]: targetUrl }))
     return await api.browserTabs.navigate(tabId, targetUrl)
-  }, [draftUrls])
+  }, [])
 
   const reloadBrowserTab = useCallback(async (tabId: string) => {
     const api = getDesktopApi()
