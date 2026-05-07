@@ -69,7 +69,7 @@ type PluginDefinition = {
   surfaces: {
     mount?: React.ComponentType<PluginComponentProps>
     resolveBrowserUrl?: (ctx: PluginContext) => Promise<string> | string
-    browserPlacement?: "main" | "sidecar"
+    browserPlacement?: "sidecar"
   }
   guards?: {
     featureFlag?: string
@@ -85,9 +85,9 @@ type PluginDefinition = {
 ### 语义
 - `shell.mode = plugin-main`：插件替换主内容区，但沿用默认工作区框架。
 - `shell.mode = plugin-workspace`：插件接管整个右侧工作区，自定义头部、分栏和 sidecar 布局。
-- `presentation = route`：渲染 Arkloop 内部 React UI。
-- `presentation = embedded-browser`：渲染浏览器容器，主区或 sidecar 由 `browserPlacement` 决定。
-- `presentation = hybrid`：同时使用插件 React UI 与浏览器容器。
+- `presentation = route`：主区域渲染插件页面，不显示浏览器地址栏、tab、前进后退等浏览器 chrome。
+- `presentation = embedded-browser`：打开全局右侧扩展浏览器，并进入浏览器 takeover；中间 chat/workspace 主区隐藏。
+- `presentation = hybrid`：保留中间 chat/workspace 主区，同时打开全局右侧扩展浏览器。
 
 ## 运行时组件
 
@@ -100,11 +100,13 @@ type PluginDefinition = {
 - 管理当前激活插件、展示模式与轻量 UI 状态。
 - 暴露统一入口 `openPlugin(pluginId)`。
 - 负责插件切换时的生命周期调用。
+- `route` 插件进入 `/plugins/:pluginId` 路由；`embedded-browser` 与 `hybrid` 保留当前 workspace/chat 路由。
+- 浏览器型插件的 active 状态应绑定当前上下文路径；切到其他对话或其他工作区后自动解除 active。
 
 ### PluginHostPage
 - 作为统一插件路由入口，建议路径为 `/plugins/:pluginId`。
 - 根据 `pluginId` 查找插件定义。
-- 根据 `shell.mode` 与 `presentation` 选择渲染器。
+- 主要承载 `route` 类插件页面；浏览器驱动型插件不要求跳入该路由。
 
 ### PluginBrowserSession
 - 维护 `pluginId -> browserTabId` 映射。
@@ -120,12 +122,15 @@ type PluginDefinition = {
 
 ### 路由
 - 在主应用路由树中新增统一插件入口 `/plugins/:pluginId`。
-- 路由只表达“当前进入哪个插件”，不承载具体渲染模式决策。
+- `route` 插件使用该入口表达“当前进入哪个插件”。
+- `embedded-browser` 与 `hybrid` 插件保留当前 thread/workspace 路由，由运行时和布局层决定浏览器呈现。
 
 ### 工作区布局
 - 将当前“聊天主区 + 可选浏览器面板”抽象为“工作区内容 + 可选 sidecar 容器”。
 - 默认聊天工作区和插件工作区复用同一个 `Workspace Host` 外壳。
-- 插件若声明 `plugin-workspace`，则其宿主负责整块右侧区域的编排。
+- `route` 插件若声明 `plugin-workspace`，则其宿主负责整块右侧区域的编排。
+- `hybrid` 通过保留 `Workspace Host` 主区并打开右侧浏览器 sidecar 实现。
+- `embedded-browser` 通过打开右侧浏览器 sidecar 并让其 fullscreen takeover 实现。
 
 ### 桌面浏览器容器
 - 继续复用现有 `BrowserTabsProvider`、`BrowserTabPage` 与 Electron `BrowserView` 管理器。
@@ -139,14 +144,14 @@ type PluginDefinition = {
 - 适合内部 UI 完整、无需外部网页承载的插件。
 
 ### Embedded Browser
-- 插件打开桌面浏览器容器。
-- 若 `browserPlacement = main`，浏览器容器直接占据插件工作区主表面。
-- 若 `browserPlacement = sidecar`，主区可显示插件控制面板。
+- 插件打开桌面右侧扩展浏览器。
+- 浏览器进入 fullscreen takeover，隐藏中间 chat/workspace 主区。
+- 适合“网页本体就是主要工作界面”的插件。
 
 ### Hybrid
-- 插件主区显示 React UI。
-- 插件 sidecar 显示浏览器容器。
-- 适合“左侧控制台 + 右侧目标页面”一类工作台插件。
+- 中间 chat/workspace 主区保持可见。
+- 右侧扩展浏览器同时显示。
+- 适合“对话或上下文区 + 目标页面”一类工作台插件。
 
 ## 状态持久化
 - 使用独立的插件运行时存储，不混入聊天线程状态。
@@ -187,4 +192,4 @@ type PluginDefinition = {
 ## 决策摘要
 - 首期目标：桌面端、内建插件、工作区级替换。
 - 最大替换边界：`Sidebar` 右侧的 `Workspace Host`。
-- 默认策略：插件通过统一路由进入，通过宿主决定展示方式，通过会话层复用浏览器容器。
+- 默认策略：`route` 插件通过统一路由进入；`embedded-browser` 与 `hybrid` 保留当前 workspace 路由，通过布局层和会话层复用右侧浏览器容器。
