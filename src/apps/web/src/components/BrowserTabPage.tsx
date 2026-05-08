@@ -34,9 +34,10 @@ function getDomain(rawUrl: string): string {
   }
 }
 
-type BrowserTabPageProps = {
+export type BrowserTabPageProps = {
   browserFullscreen?: boolean
   onToggleBrowserFullscreen?: () => void
+  onClosePanel?: () => void
   embedded?: boolean
   forcedTabId?: string | null
   forcePanelOpen?: boolean
@@ -45,6 +46,7 @@ type BrowserTabPageProps = {
 export function BrowserTabPage({
   browserFullscreen = false,
   onToggleBrowserFullscreen,
+  onClosePanel,
   embedded = false,
   forcedTabId = null,
   forcePanelOpen = false,
@@ -283,7 +285,7 @@ export function BrowserTabPage({
             type="button"
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-(--c-text-tertiary) transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
             title={t.browserPanelCollapse}
-            onClick={closeBrowserPanel}
+            onClick={onClosePanel ?? closeBrowserPanel}
           >
             <PanelRightClose size={16} />
           </button>

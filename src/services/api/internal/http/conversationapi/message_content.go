@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	maxUserMessageTextRunes        = 20000
+	maxUserMessageTextRunes        = 100000
 	maxUserMessageProjectionRunes  = 20000
 	maxMessageAttachmentCount      = 8
 	maxMessageAttachmentTotalBytes = 20 << 20

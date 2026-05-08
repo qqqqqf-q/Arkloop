@@ -101,6 +101,7 @@ type LayoutMainProps = {
   onSetAppMode: (mode: import("../storage").AppMode) => void;
   browserPanelOpen: boolean;
   onToggleBrowserPanel: () => void;
+  onCloseBrowserPanel: () => void;
   browserFullscreen: boolean;
   onToggleBrowserFullscreen: () => void;
   currentThread?: import("../api").ThreadResponse | null;
@@ -119,6 +120,7 @@ const LayoutMain = memo(function LayoutMain({
   onSetAppMode,
   browserPanelOpen,
   onToggleBrowserPanel,
+  onCloseBrowserPanel,
   browserFullscreen,
   onToggleBrowserFullscreen,
   currentThread,
@@ -257,6 +259,7 @@ const LayoutMain = memo(function LayoutMain({
                 <BrowserTabPage
                   browserFullscreen={browserFullscreen}
                   forcePanelOpen={browserPanelOpen}
+                  onClosePanel={onCloseBrowserPanel}
                   onToggleBrowserFullscreen={onToggleBrowserFullscreen}
                 />
               </div>
@@ -305,7 +308,8 @@ export function AppLayout() {
     closeBrowserPanel,
     navigateBrowserTab,
   } = useBrowserTabs();
-  const { activePlugin, activePluginPresentation } = usePluginRuntime();
+  const { activePlugin, activePluginPresentation, deactivateActivePlugin } =
+    usePluginRuntime();
   const { ensureBrowserSession } = usePluginBrowserSession();
   useCredits();
   const { t } = useLocale();
@@ -338,6 +342,19 @@ export function AppLayout() {
     : pluginUsesBrowserPanel
       ? false
       : browserFullscreen;
+  const handleCollapseBrowserPanel = useCallback(() => {
+    if (pluginUsesBrowserPanel) {
+      deactivateActivePlugin();
+      setBrowserFullscreen(false);
+      closeBrowserPanel();
+      return;
+    }
+    closeBrowserPanel();
+  }, [
+    closeBrowserPanel,
+    deactivateActivePlugin,
+    pluginUsesBrowserPanel,
+  ]);
 
   // app updater
   useEffect(() => {
@@ -632,6 +649,7 @@ export function AppLayout() {
                 onSetAppMode={handleTitleBarSetAppMode}
                 browserPanelOpen={effectiveBrowserPanelOpen}
                 onToggleBrowserPanel={toggleBrowserPanel}
+                onCloseBrowserPanel={handleCollapseBrowserPanel}
                 browserFullscreen={effectiveBrowserFullscreen}
                 onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
                 currentThread={currentThread}

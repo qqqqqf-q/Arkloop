@@ -21,6 +21,7 @@ type PluginRuntimeContextValue = {
   getPresentationForPlugin: (pluginId: string) => PluginPresentation | null
   openPlugin: (pluginId: string, presentation?: PluginPresentation) => Promise<void>
   setPresentationForPlugin: (pluginId: string, presentation: PluginPresentation) => void
+  deactivateActivePlugin: () => void
 }
 
 const PluginRuntimeContext = createContext<PluginRuntimeContextValue | null>(null)
@@ -90,6 +91,11 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
     [activePluginId],
   )
 
+  const deactivateActivePlugin = useCallback(() => {
+    setActivePluginId(null)
+    setActivePluginContextPath(null)
+  }, [])
+
   const openPlugin = useCallback(
     async (pluginId: string, presentation?: PluginPresentation) => {
       const plugin = getBuiltinPluginById(pluginId)
@@ -135,8 +141,15 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
         null,
       openPlugin,
       setPresentationForPlugin,
+      deactivateActivePlugin,
     }),
-    [activePluginId, openPlugin, presentationByPluginId, setPresentationForPlugin],
+    [
+      activePluginId,
+      deactivateActivePlugin,
+      openPlugin,
+      presentationByPluginId,
+      setPresentationForPlugin,
+    ],
   )
 
   return <PluginRuntimeContext.Provider value={value}>{children}</PluginRuntimeContext.Provider>

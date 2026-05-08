@@ -312,4 +312,57 @@ describe('AppLayout plugin workspace takeover', () => {
     expect(container.querySelector('[data-testid="chat-view"]')).toBeNull()
     expect(container.querySelectorAll('[data-testid="browser-tab-page"]')).toHaveLength(1)
   })
+
+  it('exits browser plugin takeover when collapsing the browser panel', async () => {
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ToastProvider>
+            <MemoryRouter initialEntries={['/']}>
+              <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
+                <ThreadListProvider>
+                  <AppUIProvider>
+                    <BrowserTabsProvider>
+                      <PluginRuntimeProvider>
+                        <PluginBrowserSessionProvider>
+                          <CreditsProvider>
+                            <PluginOpener pluginId="sample-browser-plugin" />
+                            <LocationProbe />
+                            <Routes>
+                              <Route element={<AppLayout />}>
+                                <Route path="/" element={<div data-testid="chat-view">Chat view</div>} />
+                                <Route
+                                  path="/plugins/:pluginId"
+                                  element={<PluginHostPage />}
+                                />
+                              </Route>
+                            </Routes>
+                          </CreditsProvider>
+                        </PluginBrowserSessionProvider>
+                      </PluginRuntimeProvider>
+                    </BrowserTabsProvider>
+                  </AppUIProvider>
+                </ThreadListProvider>
+              </AuthProvider>
+            </MemoryRouter>
+          </ToastProvider>
+        </LocaleProvider>,
+      )
+      await flushPluginBrowserEffects()
+    })
+
+    expect(container.querySelector('[data-testid="workspace-host"]')).toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')).toBeNull()
+
+    await act(async () => {
+      container
+        .querySelector('button[title="收起右侧浏览器"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushPluginBrowserEffects()
+    })
+
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/')
+    expect(container.querySelector('[data-testid="workspace-host"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="chat-view"]')?.textContent).toContain('Chat view')
+  })
 })
