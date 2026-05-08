@@ -540,16 +540,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return () => cancelAnimationFrame(id)
   }, [persistSelectedPersona, searchMode, selectedPersonaKey])
 
-  // sync persona when appMode changes
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      if (appMode === 'work' && selectedPersonaKey !== WORK_PERSONA_KEY) {
-        persistSelectedPersona(WORK_PERSONA_KEY)
-      } else if (appMode !== 'work' && selectedPersonaKey === WORK_PERSONA_KEY) {
-        persistSelectedPersona(DEFAULT_PERSONA_KEY)
-      }
-    })
-    return () => cancelAnimationFrame(id)
+  // 模式切换时在首帧前同步 persona
+  useLayoutEffect(() => {
+    if (appMode === 'work' && selectedPersonaKey !== WORK_PERSONA_KEY) {
+      persistSelectedPersona(WORK_PERSONA_KEY)
+    } else if (appMode !== 'work' && selectedPersonaKey === WORK_PERSONA_KEY) {
+      persistSelectedPersona(DEFAULT_PERSONA_KEY)
+    }
   }, [persistSelectedPersona, appMode, selectedPersonaKey])
 
   const typewriterTarget = placeholder
