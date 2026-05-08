@@ -238,9 +238,38 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: replyText}, nil
 		}
 		if ok && strings.HasPrefix(cmd, "/heartbeat") {
-			heartbeatIdentity := identity
-			if groupIdentity != nil {
-				heartbeatIdentity = *groupIdentity
+			if groupIdentity == nil {
+				if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
+					return nil, err
+				}
+				if err := commitTx(); err != nil {
+					return nil, err
+				}
+				return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: "无权限。"}, nil
+			}
+			if c.channelIdentityLinksRepo != nil {
+				hasLink, err := c.channelIdentityLinksRepo.WithTx(tx).HasLink(ctx, ch.ID, identity.ID)
+				if err != nil {
+					return nil, err
+				}
+				if !hasLink {
+					if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
+						return nil, err
+					}
+					if err := commitTx(); err != nil {
+						return nil, err
+					}
+					return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: "当前账号未关联此接入。请使用 /bind <code> 关联。"}, nil
+				}
+			}
+			if !isChannelOwnerIdentity(ch, identity) {
+				if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
+					return nil, err
+				}
+				if err := commitTx(); err != nil {
+					return nil, err
+				}
+				return &telegramInboundStageAResult{finalState: inboundStateCommandHandled, replyText: "无权限。"}, nil
 			}
 			replyText, err := handleTelegramHeartbeatCommand(
 				ctx,
@@ -249,16 +278,17 @@ func (c telegramConnector) persistTelegramInboundStageA(
 				ch.AccountID,
 				ch.PersonaID,
 				cfg.DefaultModel,
-				heartbeatIdentity,
+				identity,
+				*groupIdentity,
 				incoming.CommandText,
-				c.channelIdentitiesRepo,
+				c.channelIdentityLinksRepo,
 				c.personasRepo,
 				c.entitlementSvc,
 			)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &heartbeatIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
+			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &groupIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
 			}
 			if err := commitTx(); err != nil {

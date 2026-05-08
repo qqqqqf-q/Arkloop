@@ -12,7 +12,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/discordbot"
-	"github.com/google/uuid"
 )
 
 func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) {
@@ -85,43 +84,45 @@ func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) 
 	}
 
 	heartbeatReq := map[string]any{
-		"heartbeat_enabled":          true,
-		"heartbeat_interval_minutes": 12,
-		"heartbeat_model":            "gpt-5.4",
+		"heartbeat_enabled":                 true,
+		"heartbeat_interval_minutes":        12,
+		"heartbeat_model":                   "gpt-5.4",
+		"heartbeat_target_platform_chat_id": "discord-channel-1",
 	}
 	updateResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPatch,
+		"/v1/channels/"+channel.ID.String()+"/bindings/"+ownerBinding.BindingID,
+		heartbeatReq,
+		authHeader(env.accessToken),
+	)
+	if updateResp.Code != nethttp.StatusOK {
+		t.Fatalf("owner heartbeat update: %d %s", updateResp.Code, updateResp.Body.String())
+	}
+
+	var updatedOwnerBinding channelBindingResponse
+	if err := json.Unmarshal(updateResp.Body.Bytes(), &updatedOwnerBinding); err != nil {
+		t.Fatalf("decode owner heartbeat response: %v", err)
+	}
+	if !updatedOwnerBinding.HeartbeatEnabled || updatedOwnerBinding.HeartbeatIntervalMinutes != 12 {
+		t.Fatalf("unexpected owner heartbeat config: %#v", updatedOwnerBinding)
+	}
+	if updatedOwnerBinding.HeartbeatModel == nil || *updatedOwnerBinding.HeartbeatModel != "gpt-5.4" {
+		t.Fatalf("unexpected owner heartbeat model: %#v", updatedOwnerBinding)
+	}
+	if updatedOwnerBinding.HeartbeatTargetCount != 1 {
+		t.Fatalf("unexpected heartbeat target count: %#v", updatedOwnerBinding)
+	}
+
+	updateResp = doJSONAccount(
 		env.handler,
 		nethttp.MethodPatch,
 		"/v1/channels/"+channel.ID.String()+"/bindings/"+adminBinding.BindingID,
 		heartbeatReq,
 		authHeader(env.accessToken),
 	)
-	if updateResp.Code != nethttp.StatusOK {
-		t.Fatalf("update heartbeat: %d %s", updateResp.Code, updateResp.Body.String())
-	}
-
-	var updatedAdminBinding channelBindingResponse
-	if err := json.Unmarshal(updateResp.Body.Bytes(), &updatedAdminBinding); err != nil {
-		t.Fatalf("decode update response: %v", err)
-	}
-	if !updatedAdminBinding.HeartbeatEnabled || updatedAdminBinding.HeartbeatIntervalMinutes != 12 {
-		t.Fatalf("unexpected heartbeat config in response: %#v", updatedAdminBinding)
-	}
-	if updatedAdminBinding.HeartbeatModel == nil || *updatedAdminBinding.HeartbeatModel != "gpt-5.4" {
-		t.Fatalf("unexpected heartbeat model in response: %#v", updatedAdminBinding)
-	}
-	trigger, err := (data.ScheduledTriggersRepository{}).GetHeartbeat(context.Background(), env.pool, channel.ID, uuid.MustParse(updatedAdminBinding.ChannelIdentityID))
-	if err != nil {
-		t.Fatalf("get heartbeat trigger: %v", err)
-	}
-	if trigger == nil {
-		t.Fatal("expected heartbeat trigger to be created immediately")
-	}
-	if trigger.PersonaKey != "discord-persona" {
-		t.Fatalf("unexpected heartbeat persona key: %q", trigger.PersonaKey)
-	}
-	if trigger.Model != "gpt-5.4" || trigger.IntervalMin != 12 {
-		t.Fatalf("unexpected heartbeat trigger config: model=%q interval=%d", trigger.Model, trigger.IntervalMin)
+	if updateResp.Code != nethttp.StatusUnprocessableEntity {
+		t.Fatalf("non-owner heartbeat update should be rejected: %d %s", updateResp.Code, updateResp.Body.String())
 	}
 
 	makeOwnerResp := doJSONAccount(
@@ -157,9 +158,15 @@ func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) 
 	if !adminBinding.IsOwner {
 		t.Fatalf("expected admin to become owner: %#v", adminBinding)
 	}
+	if !adminBinding.HeartbeatEnabled || adminBinding.HeartbeatIntervalMinutes != 12 {
+		t.Fatalf("expected heartbeat config to follow owner role: %#v", adminBinding)
+	}
+	if ownerBinding.HeartbeatEnabled {
+		t.Fatalf("expected former owner heartbeat config to be cleared: %#v", ownerBinding)
+	}
 }
 
-func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
+func TestChannelBindingsOwnerDeleteRemovesBindingAndHeartbeats(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, discordbot.NewClient("", nil))
 	channel := createActiveDiscordChannelWithConfig(t, env, "discord-owner-block-token", map[string]any{})
 
@@ -189,6 +196,21 @@ func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
 		t.Fatalf("expected 1 binding, got %d", len(listBody))
 	}
 
+	heartbeatResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodPatch,
+		"/v1/channels/"+channel.ID.String()+"/bindings/"+listBody[0].BindingID,
+		map[string]any{
+			"heartbeat_enabled":                 true,
+			"heartbeat_interval_minutes":        12,
+			"heartbeat_target_platform_chat_id": "discord-owner-delete-channel",
+		},
+		authHeader(env.accessToken),
+	)
+	if heartbeatResp.Code != nethttp.StatusOK {
+		t.Fatalf("enable owner heartbeat: %d %s", heartbeatResp.Code, heartbeatResp.Body.String())
+	}
+
 	deleteResp := doJSONAccount(
 		env.handler,
 		nethttp.MethodDelete,
@@ -196,8 +218,42 @@ func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
 		nil,
 		authHeader(env.accessToken),
 	)
-	if deleteResp.Code != nethttp.StatusConflict {
+	if deleteResp.Code != nethttp.StatusOK {
 		t.Fatalf("delete owner binding: %d %s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	listResp = doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list bindings after owner delete: %d %s", listResp.Code, listResp.Body.String())
+	}
+	listBody = nil
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode bindings response after owner delete: %v", err)
+	}
+	if len(listBody) != 0 {
+		t.Fatalf("expected owner binding removed, got %#v", listBody)
+	}
+	var linkedUserID *string
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT ci.user_id::text
+		   FROM channel_identities ci
+		  WHERE ci.channel_type = $1
+		    AND ci.platform_subject_id = $2`,
+		"discord",
+		"u-owner-block",
+	).Scan(&linkedUserID); err != nil {
+		t.Fatalf("query owner identity user id: %v", err)
+	}
+	if linkedUserID != nil {
+		t.Fatalf("expected platform identity user link cleared, got %q", *linkedUserID)
+	}
+	targetCount, err := (data.ScheduledTriggersRepository{}).CountHeartbeatTargetsByChannel(context.Background(), env.pool, channel.ID)
+	if err != nil {
+		t.Fatalf("count heartbeat targets: %v", err)
+	}
+	if targetCount != 0 {
+		t.Fatalf("expected owner heartbeat targets removed, got %d", targetCount)
 	}
 }
 

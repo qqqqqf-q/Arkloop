@@ -265,6 +265,8 @@ func compactTelegramGroupEnvelopeBurstOrderedParts(tail []llm.Message) ([]llm.Co
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
 			quoteText:    strings.TrimSpace(item.meta["quote-text"]),
 			forwardFrom:  strings.TrimSpace(item.meta["forward-from"]),
+			mentionsBot:  envelopeMetaBool(item.meta, "mentions-bot"),
+			isReplyToBot: envelopeMetaBool(item.meta, "is-reply-to-bot"),
 		}
 		line := renderCompactTelegramBurstLine(item.time, formatMessageIDSuffix(singleMessageIDSlice(item.messageID)), item.speaker, entry)
 		if i == 0 {
@@ -308,6 +310,8 @@ type telegramCompactBurstEntry struct {
 	replyPreview string
 	quoteText    string
 	forwardFrom  string
+	mentionsBot  bool
+	isReplyToBot bool
 }
 
 type telegramCompactBurstBlock struct {
@@ -394,6 +398,8 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
 			quoteText:    strings.TrimSpace(item.meta["quote-text"]),
 			forwardFrom:  strings.TrimSpace(item.meta["forward-from"]),
+			mentionsBot:  envelopeMetaBool(item.meta, "mentions-bot"),
+			isReplyToBot: envelopeMetaBool(item.meta, "is-reply-to-bot"),
 		}
 		if len(blocks) > 0 && blocks[len(blocks)-1].speaker == speaker {
 			blocks[len(blocks)-1].endTime = ts
@@ -520,6 +526,10 @@ func commonEnvelopeValue(items []telegramEnvelopeMessage, key string) string {
 	return first
 }
 
+func envelopeMetaBool(meta map[string]string, key string) bool {
+	return strings.EqualFold(strings.TrimSpace(meta[key]), "true")
+}
+
 func compactTelegramEnvelopeBody(meta map[string]string, body string) string {
 	cleaned := strings.TrimSpace(body)
 	title := strings.TrimSpace(meta["conversation-title"])
@@ -592,12 +602,13 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 		fwdLine = "[Fwd: " + entry.forwardFrom + "]"
 	}
 	if text == "" && replyLine == "" && fwdLine == "" {
-		return fmt.Sprintf("[%s%s] %s", ts, msgIDSuffix, speaker)
+		return fmt.Sprintf("[%s%s%s] %s", ts, msgIDSuffix, formatCompactTriggerSuffix(entry), speaker)
 	}
 	var sb strings.Builder
 	sb.WriteString("[")
 	sb.WriteString(ts)
 	sb.WriteString(msgIDSuffix)
+	sb.WriteString(formatCompactTriggerSuffix(entry))
 	sb.WriteString("] ")
 	sb.WriteString(strings.TrimSpace(speaker))
 	sb.WriteString(": ")
@@ -635,7 +646,7 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 		entries = append(entries, telegramCompactBurstEntry{
 			body: strings.TrimSpace(e.body), time: e.time, messageID: e.messageID,
 			replyToID: e.replyToID, replyPreview: e.replyPreview, quoteText: e.quoteText,
-			forwardFrom: e.forwardFrom,
+			forwardFrom: e.forwardFrom, mentionsBot: e.mentionsBot, isReplyToBot: e.isReplyToBot,
 		})
 	}
 	tsRange := compactTelegramBurstRange(block.startTime, block.endTime)
@@ -678,6 +689,7 @@ func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []str
 	if entry.messageID != "" {
 		header += " #" + entry.messageID
 	}
+	header += formatCompactTriggerSuffix(entry)
 	header += "]"
 	if len(details) == 0 {
 		return []string{header}
@@ -686,6 +698,20 @@ func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []str
 	lines = append(lines, header+" "+details[0])
 	lines = append(lines, details[1:]...)
 	return lines
+}
+
+func formatCompactTriggerSuffix(entry telegramCompactBurstEntry) string {
+	var flags []string
+	if entry.mentionsBot {
+		flags = append(flags, "mentions-bot")
+	}
+	if entry.isReplyToBot {
+		flags = append(flags, "is-reply-to-bot")
+	}
+	if len(flags) == 0 {
+		return ""
+	}
+	return " " + strings.Join(flags, " ")
 }
 
 func formatMessageIDSuffix(ids []string) string {

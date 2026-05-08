@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Check, Eye, EyeOff, Link2, Loader2, Plus, X } from 'lucide-react'
 import { ConfirmDialog } from '@arkloop/shared'
@@ -8,6 +8,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { secondaryButtonBorderStyle, secondaryButtonSmCls } from '../buttonStyles'
 import { settingsInputCls } from './_SettingsInput'
 import { SettingsSelect } from './_SettingsSelect'
+import { SettingsSwitch } from './_SettingsSwitch'
 
 export type ModelOption = { value: string; label: string }
 
@@ -249,7 +250,7 @@ function BindingRoleBadge({
   )
 }
 
-function BindingHeartbeatEditor({
+function BindingAccountRow({
   binding,
   ownerLabel,
   adminLabel,
@@ -259,25 +260,18 @@ function BindingHeartbeatEditor({
   cancelLabel,
   onMakeOwner,
   onUnbind,
-  onOwnerUnbindAttempt,
+  children,
 }: {
   binding: ChannelBindingResponse
-  modelOptions: ModelOption[]
-  enabledLabel: string
-  intervalLabel: string
-  modelLabel: string
-  saveLabel: string
-  savingLabel: string
   ownerLabel: string
   adminLabel: string
   setOwnerLabel: string
   unbindLabel: string
   unbindConfirmLabel: string
   cancelLabel: string
-  onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
   onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
   onUnbind: (binding: ChannelBindingResponse) => Promise<void>
-  onOwnerUnbindAttempt: () => void
+  children?: ReactNode
 }) {
   const [promotingOwner, setPromotingOwner] = useState(false)
   const [confirmUnbind, setConfirmUnbind] = useState(false)
@@ -334,19 +328,14 @@ function BindingHeartbeatEditor({
             <button
               type="button"
               aria-label={`${unbindLabel} ${binding.display_name || binding.platform_subject_id}`}
-              onClick={() => {
-                if (binding.is_owner) {
-                  onOwnerUnbindAttempt()
-                  return
-                }
-                setConfirmUnbind(true)
-              }}
+              onClick={() => setConfirmUnbind(true)}
               className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
             >
               {unbindLabel}
             </button>
           </div>
         </div>
+        {children}
       </div>
       <ConfirmDialog
         open={confirmUnbind}
@@ -359,6 +348,175 @@ function BindingHeartbeatEditor({
         onConfirm={() => void handleConfirmUnbind()}
       />
     </>
+  )
+}
+
+function BindingHeartbeatEditor({
+  binding,
+  modelOptions,
+  enabledLabel,
+  intervalLabel,
+  modelLabel,
+  saveLabel,
+  savingLabel,
+  onSaveHeartbeat,
+  requiresHeartbeatTarget = false,
+  targetLabel,
+  targetPlaceholder,
+  targetCreateLabel,
+  targetCreatingLabel,
+  targetMissingLabel,
+  onCreateHeartbeatTarget,
+}: {
+  binding: ChannelBindingResponse
+  modelOptions: ModelOption[]
+  enabledLabel: string
+  intervalLabel: string
+  modelLabel: string
+  saveLabel: string
+  savingLabel: string
+  onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
+  requiresHeartbeatTarget?: boolean
+  targetLabel?: string
+  targetPlaceholder?: string
+  targetCreateLabel?: string
+  targetCreatingLabel?: string
+  targetMissingLabel?: string
+  onCreateHeartbeatTarget?: (
+    binding: ChannelBindingResponse,
+    next: { platformChatID: string; enabled: boolean; interval: number; model: string },
+  ) => Promise<void>
+}) {
+  const [heartbeatEnabled, setHeartbeatEnabled] = useState(binding.heartbeat_enabled)
+  const [heartbeatInterval, setHeartbeatInterval] = useState(String(binding.heartbeat_interval_minutes || 30))
+  const [heartbeatModel, setHeartbeatModel] = useState(binding.heartbeat_model ?? '')
+  const [savingHeartbeat, setSavingHeartbeat] = useState(false)
+  const [targetPlatformChatID, setTargetPlatformChatID] = useState('')
+  const [creatingTarget, setCreatingTarget] = useState(false)
+
+  useEffect(() => {
+    setHeartbeatEnabled(binding.heartbeat_enabled)
+    setHeartbeatInterval(String(binding.heartbeat_interval_minutes || 30))
+    setHeartbeatModel(binding.heartbeat_model ?? '')
+  }, [binding.heartbeat_enabled, binding.heartbeat_interval_minutes, binding.heartbeat_model])
+
+  const normalizedHeartbeatInterval = useMemo(() => {
+    const parsed = Number.parseInt(heartbeatInterval, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 30
+  }, [heartbeatInterval])
+
+  const heartbeatDirty =
+    heartbeatEnabled !== binding.heartbeat_enabled ||
+    normalizedHeartbeatInterval !== (binding.heartbeat_interval_minutes || 30) ||
+    heartbeatModel !== (binding.heartbeat_model ?? '')
+  const hasHeartbeatTarget = (binding.heartbeat_target_count ?? 0) > 0
+  const heartbeatSaveBlocked = requiresHeartbeatTarget && heartbeatEnabled && !hasHeartbeatTarget
+
+  const handleSaveHeartbeat = async () => {
+    setSavingHeartbeat(true)
+    try {
+      await onSaveHeartbeat(binding, {
+        enabled: heartbeatEnabled,
+        interval: normalizedHeartbeatInterval,
+        model: heartbeatModel,
+      })
+    } finally {
+      setSavingHeartbeat(false)
+    }
+  }
+  const handleCreateHeartbeatTarget = async () => {
+    const platformChatID = targetPlatformChatID.trim()
+    if (!platformChatID || !onCreateHeartbeatTarget) return
+    setCreatingTarget(true)
+    try {
+      await onCreateHeartbeatTarget(binding, {
+        platformChatID,
+        enabled: true,
+        interval: normalizedHeartbeatInterval,
+        model: heartbeatModel,
+      })
+      setTargetPlatformChatID('')
+      setHeartbeatEnabled(true)
+    } finally {
+      setCreatingTarget(false)
+    }
+  }
+
+  return (
+    <div
+      className="mt-4 grid gap-3 rounded-[7px] px-3 py-3"
+      style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-sub)' }}
+    >
+      <div className="grid gap-3 sm:grid-cols-[auto_minmax(88px,120px)_minmax(160px,1fr)_auto] sm:items-center">
+        <div className="flex items-center justify-between gap-3 sm:justify-start">
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">{enabledLabel}</span>
+          <SettingsSwitch
+            checked={heartbeatEnabled}
+            onChange={setHeartbeatEnabled}
+          />
+        </div>
+        <label className="grid gap-1">
+          <span className="text-[11px] font-medium text-[var(--c-text-muted)]">{intervalLabel}</span>
+          <input
+            type="number"
+            min={1}
+            value={heartbeatInterval}
+            onChange={(event) => setHeartbeatInterval(event.target.value)}
+            className={`${inputCls} h-8`}
+          />
+        </label>
+        <div className="grid gap-1">
+          <span className="text-[11px] font-medium text-[var(--c-text-muted)]">{modelLabel}</span>
+          <ModelDropdown
+            value={heartbeatModel}
+            options={modelOptions}
+            placeholder={modelLabel}
+            onChange={setHeartbeatModel}
+          />
+        </div>
+        <button
+          type="button"
+          disabled={savingHeartbeat || !heartbeatDirty || heartbeatSaveBlocked}
+          onClick={() => void handleSaveHeartbeat()}
+          className={`${secondaryButtonSmCls} h-8 self-end`}
+          style={secondaryButtonBorderStyle}
+        >
+          {savingHeartbeat && <Loader2 size={14} className="animate-spin" />}
+          {savingHeartbeat ? savingLabel : saveLabel}
+        </button>
+      </div>
+      {requiresHeartbeatTarget && (
+        <div className="grid gap-2">
+          {!hasHeartbeatTarget && targetMissingLabel && (
+            <p className="text-[11px] leading-relaxed text-[var(--c-text-muted)]">{targetMissingLabel}</p>
+          )}
+          {onCreateHeartbeatTarget && (
+            <label className="grid gap-1">
+              {targetLabel && <span className="text-[11px] font-medium text-[var(--c-text-muted)]">{targetLabel}</span>}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={targetPlatformChatID}
+                  onChange={(event) => setTargetPlatformChatID(event.target.value)}
+                  placeholder={targetPlaceholder}
+                  className={`${inputCls} h-8`}
+                />
+                <button
+                  type="button"
+                  disabled={creatingTarget || targetPlatformChatID.trim() === ''}
+                  onClick={() => void handleCreateHeartbeatTarget()}
+                  className={`${secondaryButtonSmCls} h-8 shrink-0`}
+                  style={secondaryButtonBorderStyle}
+                >
+                  {creatingTarget && <Loader2 size={14} className="animate-spin" />}
+                  {creatingTarget ? targetCreatingLabel : targetCreateLabel}
+                </button>
+              </div>
+            </label>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -379,12 +537,18 @@ export function BindingsCard({
   heartbeatModelLabel,
   heartbeatSaveLabel,
   heartbeatSavingLabel,
+  heartbeatRequiresTarget,
+  heartbeatTargetLabel,
+  heartbeatTargetPlaceholder,
+  heartbeatTargetCreateLabel,
+  heartbeatTargetCreatingLabel,
+  heartbeatTargetMissingLabel,
   modelOptions,
   onGenerate,
   onUnbind,
   onMakeOwner,
   onSaveHeartbeat,
-  onOwnerUnbindAttempt,
+  onCreateHeartbeatTarget,
 }: {
   title: string
   bindings: ChannelBindingResponse[]
@@ -402,14 +566,24 @@ export function BindingsCard({
   heartbeatModelLabel: string
   heartbeatSaveLabel: string
   heartbeatSavingLabel: string
+  heartbeatRequiresTarget?: boolean
+  heartbeatTargetLabel?: string
+  heartbeatTargetPlaceholder?: string
+  heartbeatTargetCreateLabel?: string
+  heartbeatTargetCreatingLabel?: string
+  heartbeatTargetMissingLabel?: string
   modelOptions: ModelOption[]
   onGenerate: () => void
   onUnbind: (binding: ChannelBindingResponse) => Promise<void>
   onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
   onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
-  onOwnerUnbindAttempt: () => void
+  onCreateHeartbeatTarget?: (
+    binding: ChannelBindingResponse,
+    next: { platformChatID: string; enabled: boolean; interval: number; model: string },
+  ) => Promise<void>
 }) {
   const { t } = useLocale()
+
   return (
     <div
       className="overflow-hidden rounded-xl"
@@ -446,26 +620,38 @@ export function BindingsCard({
         ) : (
           <div>
             {bindings.map((binding) => (
-              <BindingHeartbeatEditor
+              <BindingAccountRow
                 key={binding.binding_id}
                 binding={binding}
-                modelOptions={modelOptions}
-                enabledLabel={heartbeatEnabledLabel}
-                intervalLabel={heartbeatIntervalLabel}
-                modelLabel={heartbeatModelLabel}
-                saveLabel={heartbeatSaveLabel}
-                savingLabel={heartbeatSavingLabel}
                 ownerLabel={ownerLabel}
                 adminLabel={adminLabel}
                 setOwnerLabel={setOwnerLabel}
                 unbindLabel={unbindLabel}
                 unbindConfirmLabel={t.channels.unbindConfirm}
                 cancelLabel={t.channels.cancel}
-                onSaveHeartbeat={onSaveHeartbeat}
                 onMakeOwner={onMakeOwner}
                 onUnbind={onUnbind}
-                onOwnerUnbindAttempt={onOwnerUnbindAttempt}
-              />
+              >
+                {binding.is_owner && (
+                  <BindingHeartbeatEditor
+                    binding={binding}
+                    modelOptions={modelOptions}
+                    enabledLabel={heartbeatEnabledLabel}
+                    intervalLabel={heartbeatIntervalLabel}
+                    modelLabel={heartbeatModelLabel}
+                    saveLabel={heartbeatSaveLabel}
+                    savingLabel={heartbeatSavingLabel}
+                    requiresHeartbeatTarget={heartbeatRequiresTarget}
+                    targetLabel={heartbeatTargetLabel}
+                    targetPlaceholder={heartbeatTargetPlaceholder}
+                    targetCreateLabel={heartbeatTargetCreateLabel}
+                    targetCreatingLabel={heartbeatTargetCreatingLabel}
+                    targetMissingLabel={heartbeatTargetMissingLabel}
+                    onSaveHeartbeat={onSaveHeartbeat}
+                    onCreateHeartbeatTarget={onCreateHeartbeatTarget}
+                  />
+                )}
+              </BindingAccountRow>
             ))}
           </div>
         )}

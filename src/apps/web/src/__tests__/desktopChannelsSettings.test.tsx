@@ -113,14 +113,27 @@ async function loadChannelsSubject() {
     return {
       ...actual,
       listChannels: vi.fn(),
+      listChannelBindings: vi.fn().mockResolvedValue([]),
       listMyChannelIdentities: vi.fn(),
       listChannelPersonas: vi.fn(),
       listLlmProviders: vi.fn(),
       createChannel: vi.fn(),
       updateChannel: vi.fn(),
+      updateChannelBinding: vi.fn(),
       verifyChannel: vi.fn(),
       createChannelBindCode: vi.fn(),
+      deleteChannelBinding: vi.fn(),
       unbindChannelIdentity: vi.fn(),
+      getNapCatStatus: vi.fn().mockResolvedValue({
+        platform: 'linux',
+        installed: false,
+        running: false,
+        logged_in: false,
+      }),
+      napCatDownload: vi.fn(),
+      napCatRefreshQR: vi.fn(),
+      napCatFetchQRCode: vi.fn(),
+      napCatQuickLogin: vi.fn(),
       isApiError: vi.fn(() => false),
     }
   })
@@ -512,6 +525,256 @@ describe('DesktopChannelsSettings', () => {
     expect(document.body.textContent).toContain('Arkloop DM')
     expect(document.body.textContent).toContain('@arkloop_bot')
     expect(document.body.textContent).toContain('app-123')
+  })
+
+  it('QQ OneBot 保存 Bot 名称到 bot_name 配置', async () => {
+    const { api, DesktopChannelsSettings, LocaleProvider } = await loadChannelsSubject()
+    vi.mocked(api.listChannels).mockResolvedValue([
+      {
+        id: 'qq-1',
+        account_id: 'acc-1',
+        channel_type: 'qq',
+        persona_id: 'persona-1',
+        webhook_url: null,
+        is_active: false,
+        config_json: {
+          onebot_ws_url: 'ws://127.0.0.1:6098',
+        },
+        has_credentials: true,
+        created_at: '2026-03-26T00:00:00Z',
+        updated_at: '2026-03-26T00:00:00Z',
+      },
+    ])
+    vi.mocked(api.listChannelBindings).mockResolvedValue([])
+    vi.mocked(api.listMyChannelIdentities).mockResolvedValue([])
+    vi.mocked(api.listChannelPersonas).mockResolvedValue([
+      {
+        id: 'persona-1',
+        persona_key: 'normal',
+        version: '1',
+        display_name: 'Normal',
+        source: 'project',
+      } as never,
+    ])
+    vi.mocked(api.listLlmProviders).mockResolvedValue([])
+    vi.mocked(api.getNapCatStatus).mockResolvedValue({
+      platform: 'linux',
+      installed: false,
+      running: false,
+      logged_in: false,
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopChannelsSettings accessToken="token" />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    const qqTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('QQ (OneBot)'))
+    await act(async () => {
+      qqTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const botNameInput = Array.from(document.body.querySelectorAll('input'))
+      .find((input) => input.getAttribute('placeholder') === '草洛') as HTMLInputElement
+    expect(botNameInput).toBeTruthy()
+
+    await act(async () => {
+      setInputValue(botNameInput, '草洛')
+    })
+    await flushEffects()
+
+    const saveButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.trim() === '保存')
+    await act(async () => {
+      saveButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(api.updateChannel).toHaveBeenCalledWith('token', 'qq-1', {
+      persona_id: 'persona-1',
+      is_active: false,
+      config_json: {
+        onebot_ws_url: 'ws://127.0.0.1:6098',
+        allowed_user_ids: [],
+        allowed_group_ids: [],
+        bot_name: '草洛',
+      },
+    })
+  })
+
+  it('QQ OneBot 可以按群号创建 Heartbeat 目标', async () => {
+    const { api, DesktopChannelsSettings, LocaleProvider } = await loadChannelsSubject()
+    vi.mocked(api.listChannels).mockResolvedValue([
+      {
+        id: 'qq-1',
+        account_id: 'acc-1',
+        channel_type: 'qq',
+        persona_id: 'persona-1',
+        webhook_url: null,
+        is_active: true,
+        config_json: {},
+        has_credentials: true,
+        created_at: '2026-03-26T00:00:00Z',
+        updated_at: '2026-03-26T00:00:00Z',
+      },
+    ])
+    vi.mocked(api.listChannelBindings).mockResolvedValue([
+      {
+        binding_id: 'bind-1',
+        channel_identity_id: 'identity-1',
+        display_name: 'kilock',
+        platform_subject_id: '731052835',
+        is_owner: true,
+        heartbeat_enabled: false,
+        heartbeat_interval_minutes: 30,
+        heartbeat_model: null,
+        heartbeat_target_count: 0,
+      },
+    ])
+    vi.mocked(api.listMyChannelIdentities).mockResolvedValue([])
+    vi.mocked(api.listChannelPersonas).mockResolvedValue([
+      {
+        id: 'persona-1',
+        persona_key: 'normal',
+        version: '1',
+        display_name: 'Normal',
+        source: 'project',
+      } as never,
+    ])
+    vi.mocked(api.listLlmProviders).mockResolvedValue([])
+    vi.mocked(api.getNapCatStatus).mockResolvedValue({
+      platform: 'linux',
+      installed: false,
+      running: false,
+      logged_in: false,
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopChannelsSettings accessToken="token" />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    const qqTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('QQ (OneBot)'))
+    await act(async () => {
+      qqTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(document.body.textContent).toContain('/heartbeat on')
+    const groupInput = Array.from(document.body.querySelectorAll('input'))
+      .find((input) => input.getAttribute('placeholder') === 'QQ 群号') as HTMLInputElement
+    expect(groupInput).toBeTruthy()
+
+    await act(async () => {
+      setInputValue(groupInput, '756733070')
+    })
+    await flushEffects()
+
+    const createButton = Array.from(groupInput.parentElement?.querySelectorAll('button') ?? [])
+      .find((button) => button.textContent?.trim() === '创建')
+    await act(async () => {
+      createButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(api.updateChannelBinding).toHaveBeenCalledWith('token', 'qq-1', 'bind-1', {
+      heartbeat_enabled: true,
+      heartbeat_interval_minutes: 30,
+      heartbeat_model: '',
+      heartbeat_target_platform_chat_id: '756733070',
+    })
+  })
+
+  it('QQ OneBot owner 可以解除关联', async () => {
+    const { api, DesktopChannelsSettings, LocaleProvider } = await loadChannelsSubject()
+    const ownerBinding = {
+      binding_id: 'bind-1',
+      channel_identity_id: 'identity-1',
+      display_name: 'kilock',
+      platform_subject_id: '731052835',
+      is_owner: true,
+      heartbeat_enabled: false,
+      heartbeat_interval_minutes: 30,
+      heartbeat_model: null,
+      heartbeat_target_count: 0,
+    }
+    vi.mocked(api.listChannels).mockResolvedValue([
+      {
+        id: 'qq-1',
+        account_id: 'acc-1',
+        channel_type: 'qq',
+        persona_id: 'persona-1',
+        webhook_url: null,
+        is_active: true,
+        config_json: {},
+        has_credentials: true,
+        created_at: '2026-03-26T00:00:00Z',
+        updated_at: '2026-03-26T00:00:00Z',
+      },
+    ])
+    vi.mocked(api.listChannelBindings)
+      .mockResolvedValueOnce([ownerBinding])
+      .mockResolvedValueOnce([])
+    vi.mocked(api.listMyChannelIdentities).mockResolvedValue([])
+    vi.mocked(api.listChannelPersonas).mockResolvedValue([
+      {
+        id: 'persona-1',
+        persona_key: 'normal',
+        version: '1',
+        display_name: 'Normal',
+        source: 'project',
+      } as never,
+    ])
+    vi.mocked(api.listLlmProviders).mockResolvedValue([])
+    vi.mocked(api.getNapCatStatus).mockResolvedValue({
+      platform: 'linux',
+      installed: false,
+      running: false,
+      logged_in: false,
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopChannelsSettings accessToken="token" />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    const qqTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('QQ (OneBot)'))
+    await act(async () => {
+      qqTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const unbindButton = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === '解除关联 kilock')
+    expect(unbindButton).toBeTruthy()
+
+    await act(async () => {
+      unbindButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const confirmButtons = Array.from(document.body.querySelectorAll('button'))
+      .filter((button) => button.textContent?.trim() === '解除关联')
+    const confirmButton = confirmButtons[confirmButtons.length - 1]
+    await act(async () => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(api.deleteChannelBinding).toHaveBeenCalledWith('token', 'qq-1', 'bind-1')
+    expect(document.body.textContent).not.toContain('kilock')
   })
 
   it('可以创建飞书官方渠道并提交官方接入配置', async () => {

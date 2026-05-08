@@ -774,6 +774,12 @@ export interface LocaleStrings {
     qqOneBotHTTPUrlPlaceholder: string
     qqOneBotToken: string
     qqOneBotTokenPlaceholder: string
+    qqBotName: string
+    qqBotNamePlaceholder: string
+    qqHeartbeatGroup: string
+    qqHeartbeatGroupPlaceholder: string
+    qqHeartbeatGroupCreate: string
+    qqHeartbeatGroupMissing: string
     qqOneBotAutoFilled: string
     qqExternalOneBotHint: string
     weixin: string

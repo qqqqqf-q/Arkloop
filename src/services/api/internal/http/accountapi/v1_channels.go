@@ -135,6 +135,8 @@ func channelEntry(
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
+	channelGroupThreadsRepo *data.ChannelGroupThreadsRepository,
+	threadRepo *data.ThreadRepository,
 	personasRepo *data.PersonasRepository,
 	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
@@ -197,6 +199,8 @@ func channelEntry(
 				channelIdentityLinksRepo,
 				channelIdentitiesRepo,
 				channelDMThreadsRepo,
+				channelGroupThreadsRepo,
+				threadRepo,
 				apiKeysRepo,
 				pool,
 			); handled {

@@ -22,6 +22,17 @@ func tgGroupRC(msgs []llm.Message, ids []uuid.UUID) *RunContext {
 	}
 }
 
+func qqGroupRC(msgs []llm.Message, ids []uuid.UUID) *RunContext {
+	return &RunContext{
+		ChannelContext: &ChannelContext{
+			ChannelType:      "qq",
+			ConversationType: "group",
+		},
+		Messages:         msgs,
+		ThreadMessageIDs: ids,
+	}
+}
+
 func TestNewChannelTelegramGroupUserMergeMiddleware_skipsNonTelegram(t *testing.T) {
 	mw := NewChannelTelegramGroupUserMergeMiddleware()
 	id1, id2 := uuid.New(), uuid.New()
@@ -225,6 +236,50 @@ time: "2026-03-28T13:31:16Z"
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
+		}
+	}
+}
+
+func TestNewChannelTelegramGroupUserMergeMiddleware_preservesQQTriggerFlags(t *testing.T) {
+	mw := NewChannelTelegramGroupUserMergeMiddleware()
+	msgs := []llm.Message{
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "GroupUser"
+channel: "qq"
+conversation-type: "group"
+sender-ref: "3e4496b5-9544-4669-b4a7-790b11224c3e"
+message-id: "1676659135"
+mentions-bot: true
+time: "2026-05-07T06:07:53Z"
+---
+direct mention`}}},
+		{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: `---
+display-name: "ReplyUser"
+channel: "qq"
+conversation-type: "group"
+sender-ref: "509cb603-ae05-43f1-be4b-a8728a68e16f"
+message-id: "1676659136"
+is-reply-to-bot: true
+time: "2026-05-07T06:07:54Z"
+---
+reply to bot`}}},
+	}
+	ids := []uuid.UUID{uuid.New(), uuid.New()}
+	rc := qqGroupRC(msgs, ids)
+
+	_ = mw(context.Background(), rc, func(context.Context, *RunContext) error { return nil })
+
+	if len(rc.Messages) != 1 {
+		t.Fatalf("expected 1 merged user message, got %d", len(rc.Messages))
+	}
+	text := llm.VisibleMessageText(rc.Messages[0])
+	for _, want := range []string{
+		`Qq group`,
+		`[06:07:53 #1676659135 mentions-bot] GroupUser: direct mention`,
+		`[06:07:54 #1676659136 is-reply-to-bot] ReplyUser: reply to bot`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected compacted QQ burst to contain %q, got %q", want, text)
 		}
 	}
 }

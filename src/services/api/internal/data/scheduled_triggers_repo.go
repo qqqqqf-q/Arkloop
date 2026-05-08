@@ -219,6 +219,74 @@ func (ScheduledTriggersRepository) DeleteHeartbeat(
 	return err
 }
 
+func (ScheduledTriggersRepository) DeleteHeartbeatsByChannel(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	_, err := db.Exec(ctx,
+		`DELETE FROM scheduled_triggers WHERE channel_id = $1 AND trigger_kind = 'heartbeat'`,
+		channelID,
+	)
+	return err
+}
+
+func (ScheduledTriggersRepository) ListHeartbeatIdentityIDsByChannel(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+) ([]uuid.UUID, error) {
+	if channelID == uuid.Nil {
+		return nil, errors.New("channel_id must not be empty")
+	}
+	rows, err := db.Query(ctx,
+		`SELECT channel_identity_id
+		   FROM scheduled_triggers
+		  WHERE channel_id = $1
+		    AND trigger_kind = 'heartbeat'
+		  ORDER BY created_at ASC`,
+		channelID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []uuid.UUID
+	for rows.Next() {
+		var identityID uuid.UUID
+		if err := rows.Scan(&identityID); err != nil {
+			return nil, err
+		}
+		out = append(out, identityID)
+	}
+	return out, rows.Err()
+}
+
+func (ScheduledTriggersRepository) CountHeartbeatTargetsByChannel(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+) (int, error) {
+	if channelID == uuid.Nil {
+		return 0, errors.New("channel_id must not be empty")
+	}
+	var count int
+	err := db.QueryRow(ctx,
+		`SELECT CAST(COUNT(*) AS INTEGER)
+		   FROM scheduled_triggers st
+		   JOIN channel_identities ci ON ci.id = st.channel_identity_id
+		  WHERE st.channel_id = $1
+		    AND st.trigger_kind = 'heartbeat'
+		    AND ci.user_id IS NULL`,
+		channelID,
+	).Scan(&count)
+	return count, err
+}
+
 // SyncHeartbeatConfig updates an existing trigger's interval/model for the given channel binding.
 // Missing rows are ignored because the scheduler will create them after the next successful run.
 func (ScheduledTriggersRepository) SyncHeartbeatConfig(
@@ -253,6 +321,37 @@ func (ScheduledTriggersRepository) SyncHeartbeatConfig(
 		nextFire,
 		channelID,
 		channelIdentityID,
+	)
+	return err
+}
+
+func (ScheduledTriggersRepository) SyncHeartbeatConfigByChannel(
+	ctx context.Context,
+	db Querier,
+	channelID uuid.UUID,
+	model string,
+	intervalMin int,
+) error {
+	if channelID == uuid.Nil {
+		return errors.New("channel_id must not be empty")
+	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
+	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
+	_, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET interval_min = $1,
+		       model = $2,
+		       next_fire_at = CASE
+		           WHEN interval_min <> $1 THEN $3
+		           ELSE next_fire_at
+		       END,
+		       updated_at = now()
+		 WHERE channel_id = $4
+		   AND trigger_kind = 'heartbeat'`,
+		intervalMin,
+		model,
+		nextFire,
+		channelID,
 	)
 	return err
 }

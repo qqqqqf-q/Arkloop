@@ -69,6 +69,7 @@ export function DesktopQQSettingsPanel({
   const [onebotHTTPUrl, setOnebotHTTPUrl] = useState((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
   const [onebotToken, setOnebotToken] = useState((channel?.config_json?.onebot_token as string | undefined) ?? '')
   const [autoLoginUin, setAutoLoginUin] = useState((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
+  const [botName, setBotName] = useState((channel?.config_json?.bot_name as string | undefined) ?? '')
   const refreshBindings = useCallback(async () => {
     if (!channel?.id) {
       setBindings([])
@@ -77,7 +78,7 @@ export function DesktopQQSettingsPanel({
     try {
       setBindings(await listChannelBindings(accessToken, channel.id))
     } catch {
-      setBindings([])
+      return
     }
   }, [accessToken, channel?.id])
 
@@ -93,6 +94,7 @@ export function DesktopQQSettingsPanel({
     setOnebotHTTPUrl((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
     setOnebotToken((channel?.config_json?.onebot_token as string | undefined) ?? '')
     setAutoLoginUin((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
+    setBotName((channel?.config_json?.bot_name as string | undefined) ?? '')
   }, [channel, personas])
 
   useEffect(() => {
@@ -128,6 +130,7 @@ export function DesktopQQSettingsPanel({
   const persistedOnebotHTTPUrl = (channel?.config_json?.onebot_http_url as string | undefined) ?? ''
   const persistedOnebotToken = (channel?.config_json?.onebot_token as string | undefined) ?? ''
   const persistedAutoLoginUin = (channel?.config_json?.auto_login_uin as string | undefined) ?? ''
+  const persistedBotName = (channel?.config_json?.bot_name as string | undefined) ?? ''
   const dirty = useMemo(() => {
     if ((channel?.is_active ?? false) !== enabled) return true
     if (effectivePersonaID !== personaID) return true
@@ -138,8 +141,10 @@ export function DesktopQQSettingsPanel({
     if (onebotHTTPUrl !== persistedOnebotHTTPUrl) return true
     if (onebotToken !== persistedOnebotToken) return true
     if (autoLoginUin !== persistedAutoLoginUin) return true
+    if (botName !== persistedBotName) return true
     return false
   }, [
+    botName,
     channel,
     defaultModel,
     effectiveAllowedUserIDs,
@@ -158,6 +163,7 @@ export function DesktopQQSettingsPanel({
     persistedOnebotToken,
     autoLoginUin,
     persistedAutoLoginUin,
+    persistedBotName,
   ])
   const canSave = dirty || channel === null
 
@@ -212,6 +218,8 @@ export function DesktopQQSettingsPanel({
       else delete configJSON.onebot_token
       if (autoLoginUin.trim()) configJSON.auto_login_uin = autoLoginUin.trim()
       else delete configJSON.auto_login_uin
+      if (botName.trim()) configJSON.bot_name = botName.trim()
+      else delete configJSON.bot_name
 
       if (channel == null) {
         const created = await createChannel(accessToken, {
@@ -331,6 +339,24 @@ export function DesktopQQSettingsPanel({
       setError(ct.saveFailed)
     }
   }
+  const handleCreateHeartbeatTarget = async (
+    binding: ChannelBindingResponse,
+    next: { platformChatID: string; enabled: boolean; interval: number; model: string },
+  ) => {
+    if (!channel) return
+    setError('')
+    try {
+      await updateChannelBinding(accessToken, channel.id, binding.binding_id, {
+        heartbeat_enabled: next.enabled,
+        heartbeat_interval_minutes: next.interval,
+        heartbeat_model: next.model,
+        heartbeat_target_platform_chat_id: next.platformChatID,
+      })
+      await refreshBindings()
+    } catch {
+      setError(ct.saveFailed)
+    }
+  }
 
   const isWindows = napCatStatus?.platform === 'windows'
 
@@ -404,31 +430,31 @@ export function DesktopQQSettingsPanel({
                 onChange={(v) => { setOnebotToken(v); setSaved(false) }}
               />
             </ChannelDetailRow>
-            {/* access control card */}
-            <div className="md:col-span-2">
-              <div
-                className="relative px-5 py-4"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-              >
-                <div className="mb-4">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.accessControl}</div>
-                </div>
-
-                <div className="mb-4">
-                  <ListField
-                    label={ct.qqAllowedUsers}
-                    values={allowedUserIDs}
-                    inputValue={allowedUserInput}
-                    placeholder={ct.qqAllowedUsersPlaceholder}
-                    addLabel={t.skills.add}
-                    onInputChange={setAllowedUserInput}
-                    onAdd={handleAddAllowedUsers}
-                    onRemove={(value) => {
-                      setAllowedUserIDs((current) => current.filter((item) => item !== value))
-                      setSaved(false)
-                    }}
-                  />
-                </div>
+            <ChannelDetailRow label={ct.qqBotName}>
+              <input
+                type="text"
+                value={botName}
+                onChange={(e) => { setBotName(e.target.value); setSaved(false) }}
+                placeholder={ct.qqBotNamePlaceholder}
+                disabled={saving}
+                className={inputCls}
+              />
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.accessControl}>
+              <div className="flex flex-col gap-4">
+                <ListField
+                  label={ct.qqAllowedUsers}
+                  values={allowedUserIDs}
+                  inputValue={allowedUserInput}
+                  placeholder={ct.qqAllowedUsersPlaceholder}
+                  addLabel={t.skills.add}
+                  onInputChange={setAllowedUserInput}
+                  onAdd={handleAddAllowedUsers}
+                  onRemove={(value) => {
+                    setAllowedUserIDs((current) => current.filter((item) => item !== value))
+                    setSaved(false)
+                  }}
+                />
 
                 <ListField
                   label={ct.qqAllowedGroups}
@@ -444,7 +470,7 @@ export function DesktopQQSettingsPanel({
                   }}
                 />
               </div>
-            </div>
+            </ChannelDetailRow>
 
             <div className="md:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
@@ -498,22 +524,19 @@ export function DesktopQQSettingsPanel({
         heartbeatModelLabel={ct.heartbeatModel}
         heartbeatSaveLabel={ct.save}
         heartbeatSavingLabel={ct.saving}
+        heartbeatRequiresTarget
+        heartbeatTargetLabel={ct.qqHeartbeatGroup}
+        heartbeatTargetPlaceholder={ct.qqHeartbeatGroupPlaceholder}
+        heartbeatTargetCreateLabel={ct.qqHeartbeatGroupCreate}
+        heartbeatTargetCreatingLabel={ct.saving}
+        heartbeatTargetMissingLabel={ct.qqHeartbeatGroupMissing}
         modelOptions={modelOptions}
         onGenerate={() => void handleGenerateBindCode()}
         onUnbind={(binding) => handleUnbind(binding)}
         onMakeOwner={(binding) => handleMakeOwner(binding)}
         onSaveHeartbeat={(binding, next) => handleSaveHeartbeat(binding, next)}
-        onOwnerUnbindAttempt={() => setError(ct.ownerUnbindBlocked)}
+        onCreateHeartbeatTarget={(binding, next) => handleCreateHeartbeatTarget(binding, next)}
       />
-
-      <div
-        className="rounded-xl px-5 py-4"
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-      >
-        <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.heartbeatCardTitle}</div>
-        <p className="mt-1.5 text-xs leading-relaxed text-[var(--c-text-muted)]">{ct.heartbeatCardDesc}</p>
-        <p className="mt-1.5 text-xs text-[var(--c-text-muted)]">{ct.heartbeatCardHint}</p>
-      </div>
 
       <SaveActions
         saving={saving}

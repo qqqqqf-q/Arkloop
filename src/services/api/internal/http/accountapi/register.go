@@ -126,7 +126,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 		deps.Pool,
 	))
 	mux.HandleFunc("/v1/channels", channelsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelsRepo, deps.PersonasRepo, deps.EntitlementService, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool, deps.AppBaseURL, deps.TelegramBotClient, deps.DiscordBotClient, deps.TelegramMode))
-	mux.HandleFunc("/v1/channels/", channelEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelsRepo, deps.ChannelIdentityLinksRepo, deps.ChannelIdentitiesRepo, deps.ChannelDMThreadsRepo, deps.PersonasRepo, deps.EntitlementService, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool, deps.TelegramBotClient, deps.DiscordBotClient, deps.TelegramMode))
+	mux.HandleFunc("/v1/channels/", channelEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelsRepo, deps.ChannelIdentityLinksRepo, deps.ChannelIdentitiesRepo, deps.ChannelDMThreadsRepo, deps.ChannelGroupThreadsRepo, deps.ThreadRepo, deps.PersonasRepo, deps.EntitlementService, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool, deps.TelegramBotClient, deps.DiscordBotClient, deps.TelegramMode))
 	mux.HandleFunc("/v1/me/channel-binds", channelBindsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelBindCodesRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/me/channel-identities", channelIdentitiesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelIdentitiesRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/me/channel-identities/", channelIdentityEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.APIKeysRepo, deps.Pool))

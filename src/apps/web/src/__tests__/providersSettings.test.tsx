@@ -41,6 +41,14 @@ async function loadSubject() {
       isApiError: () => false,
     }
   })
+  vi.doMock('../storage', async () => {
+    const actual = await vi.importActual<typeof import('../storage')>('../storage')
+    return {
+      ...actual,
+      readLocaleFromStorage: vi.fn(() => 'zh'),
+      writeLocaleToStorage: vi.fn(),
+    }
+  })
 
   const { ProvidersSettings } = await import('../components/settings/ProvidersSettings')
   const { LocaleProvider } = await import('../contexts/LocaleContext')

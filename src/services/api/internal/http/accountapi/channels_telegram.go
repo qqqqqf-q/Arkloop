@@ -589,7 +589,8 @@ func syncTelegramHeartbeatTrigger(
 	accountID uuid.UUID,
 	channelID uuid.UUID,
 	personaID *uuid.UUID,
-	identityID uuid.UUID,
+	targetIdentityID uuid.UUID,
+	configIdentityID uuid.UUID,
 	fallbackModel string,
 	allowUserScoped bool,
 	personasRepo *data.PersonasRepository,
@@ -597,21 +598,17 @@ func syncTelegramHeartbeatTrigger(
 	if tx == nil || personasRepo == nil {
 		return fmt.Errorf("heartbeat scheduling dependencies not configured")
 	}
-	var enabledInt int
-	var intervalMin int
-	var model string
-	if err := tx.QueryRow(
-		ctx,
-		`SELECT heartbeat_enabled, heartbeat_interval_minutes, heartbeat_model
-		   FROM channel_identities WHERE id = $1`,
-		identityID,
-	).Scan(&enabledInt, &intervalMin, &model); err != nil {
+	linksRepo, err := data.NewChannelIdentityLinksRepository(tx)
+	if err != nil {
 		return err
 	}
-	enabled := enabledInt != 0
+	enabled, intervalMin, model, exists, err := linksRepo.GetHeartbeatConfig(ctx, channelID, configIdentityID)
+	if err != nil {
+		return err
+	}
 	repo := data.ScheduledTriggersRepository{}
-	if !enabled {
-		return repo.DeleteHeartbeat(ctx, tx, channelID, identityID)
+	if !exists || !enabled {
+		return repo.DeleteHeartbeat(ctx, tx, channelID, targetIdentityID)
 	}
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -635,7 +632,7 @@ func syncTelegramHeartbeatTrigger(
 		tx,
 		accountID,
 		channelID,
-		identityID,
+		targetIdentityID,
 		persona.PersonaKey,
 		model,
 		intervalMin,
@@ -652,7 +649,19 @@ func syncTelegramChannelHeartbeatTriggers(
 	allowUserScoped bool,
 	personasRepo *data.PersonasRepository,
 ) error {
-	identityIDs, err := loadTelegramChannelGroupIdentityIDs(ctx, tx, channelID)
+	linksRepo, err := data.NewChannelIdentityLinksRepository(tx)
+	if err != nil {
+		return err
+	}
+	ownerBinding, err := linksRepo.GetOwnerBinding(ctx, accountID, channelID)
+	if err != nil {
+		return err
+	}
+	repo := data.ScheduledTriggersRepository{}
+	if ownerBinding == nil || !ownerBinding.HeartbeatEnabled {
+		return repo.DeleteHeartbeatsByChannel(ctx, tx, channelID)
+	}
+	identityIDs, err := repo.ListHeartbeatIdentityIDsByChannel(ctx, tx, channelID)
 	if err != nil {
 		return err
 	}
@@ -664,6 +673,7 @@ func syncTelegramChannelHeartbeatTriggers(
 			channelID,
 			personaID,
 			identityID,
+			ownerBinding.ChannelIdentityID,
 			defaultModel,
 			allowUserScoped,
 			personasRepo,
@@ -675,43 +685,7 @@ func syncTelegramChannelHeartbeatTriggers(
 }
 
 func deleteTelegramChannelHeartbeatTriggers(ctx context.Context, tx pgx.Tx, channelID uuid.UUID) error {
-	identityIDs, err := loadTelegramChannelGroupIdentityIDs(ctx, tx, channelID)
-	if err != nil {
-		return err
-	}
-	repo := data.ScheduledTriggersRepository{}
-	for _, identityID := range identityIDs {
-		if err := repo.DeleteHeartbeat(ctx, tx, channelID, identityID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func loadTelegramChannelGroupIdentityIDs(ctx context.Context, db data.Querier, channelID uuid.UUID) ([]uuid.UUID, error) {
-	rows, err := db.Query(ctx, `
-		SELECT DISTINCT ci.id
-		  FROM channel_group_threads cgt
-		  JOIN channel_identities ci
-		    ON ci.channel_type = 'telegram'
-		   AND ci.platform_subject_id = cgt.platform_chat_id
-		 WHERE cgt.channel_id = $1`,
-		channelID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []uuid.UUID
-	for rows.Next() {
-		var identityID uuid.UUID
-		if err := rows.Scan(&identityID); err != nil {
-			return nil, err
-		}
-		out = append(out, identityID)
-	}
-	return out, rows.Err()
+	return (data.ScheduledTriggersRepository{}).DeleteHeartbeatsByChannel(ctx, tx, channelID)
 }
 
 func firstNonEmptySelector(values ...string) string {
@@ -1773,6 +1747,13 @@ func trimOptional(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
+func isChannelOwnerIdentity(channel data.Channel, identity data.ChannelIdentity) bool {
+	return channel.OwnerUserID != nil &&
+		*channel.OwnerUserID != uuid.Nil &&
+		identity.UserID != nil &&
+		*identity.UserID == *channel.OwnerUserID
+}
+
 func handleTelegramCommand(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -2050,9 +2031,10 @@ func handleTelegramHeartbeatCommand(
 	accountID uuid.UUID,
 	personaID *uuid.UUID,
 	defaultModel string,
-	identity data.ChannelIdentity,
+	configIdentity data.ChannelIdentity,
+	targetIdentity data.ChannelIdentity,
 	rawText string,
-	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
+	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	personasRepo *data.PersonasRepository,
 	entSvc *entitlement.Service,
 ) (string, error) {
@@ -2062,9 +2044,27 @@ func handleTelegramHeartbeatCommand(
 		return "", err
 	}
 
-	enabled, intervalMin, model, err := channelIdentitiesRepo.WithTx(tx).GetHeartbeatConfig(ctx, identity.ID)
+	if channelIdentityLinksRepo == nil {
+		return "", fmt.Errorf("channel identity links repo not configured")
+	}
+	linksRepo := channelIdentityLinksRepo.WithTx(tx)
+	enabled, intervalMin, model, exists, err := linksRepo.GetHeartbeatConfig(ctx, channelID, configIdentity.ID)
 	if err != nil {
 		return "", err
+	}
+	ensureBindingID := func() (uuid.UUID, error) {
+		link, linkErr := linksRepo.Upsert(ctx, channelID, configIdentity.ID)
+		if linkErr != nil {
+			return uuid.Nil, linkErr
+		}
+		return link.ID, nil
+	}
+	saveHeartbeat := func(nextEnabled bool, nextInterval int, nextModel string) error {
+		bindingID, bindErr := ensureBindingID()
+		if bindErr != nil {
+			return bindErr
+		}
+		return linksRepo.UpdateHeartbeatConfig(ctx, bindingID, nextEnabled, nextInterval, nextModel)
 	}
 
 	if len(parts) == 1 {
@@ -2088,18 +2088,20 @@ func handleTelegramHeartbeatCommand(
 		if err := validateTelegramModelSelector(ctx, tx, accountID, firstNonEmptySelector(model, defaultModel), allowUserScoped); err != nil {
 			return "当前心跳模型无效，请先重新设置 /heartbeat model <模型选择器>。", nil
 		}
-		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, true, intervalMin, model); err != nil {
+		if err := saveHeartbeat(true, intervalMin, model); err != nil {
 			return "", err
 		}
-		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
+		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, targetIdentity.ID, configIdentity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
 			return "", err
 		}
 		return "心跳已开启。", nil
 	case "off":
-		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, false, intervalMin, model); err != nil {
-			return "", err
+		if exists {
+			if err := saveHeartbeat(false, intervalMin, model); err != nil {
+				return "", err
+			}
 		}
-		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
+		if err := (data.ScheduledTriggersRepository{}).DeleteHeartbeatsByChannel(ctx, tx, channelID); err != nil {
 			return "", err
 		}
 		return "心跳已关闭。", nil
@@ -2114,11 +2116,17 @@ func handleTelegramHeartbeatCommand(
 		if err := validateTelegramModelSelector(ctx, tx, accountID, firstNonEmptySelector(model, defaultModel), allowUserScoped); err != nil {
 			return "当前心跳模型无效，请先重新设置 /heartbeat model <模型选择器>。", nil
 		}
-		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, enabled, n, model); err != nil {
+		if err := saveHeartbeat(enabled, n, model); err != nil {
 			return "", err
 		}
-		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
-			return "", err
+		if enabled {
+			if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, targetIdentity.ID, configIdentity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
+				return "", err
+			}
+			syncModel := firstNonEmptySelector(model, defaultModel)
+			if err := (data.ScheduledTriggersRepository{}).SyncHeartbeatConfigByChannel(ctx, tx, channelID, syncModel, n); err != nil {
+				return "", err
+			}
 		}
 		return fmt.Sprintf("心跳最长间隔已设为 %d 分钟。", n), nil
 	case "model":
@@ -2129,11 +2137,17 @@ func handleTelegramHeartbeatCommand(
 		if err := validateTelegramModelSelector(ctx, tx, accountID, newModel, allowUserScoped); err != nil {
 			return fmt.Sprintf("模型选择器无效：%s。", strings.TrimSpace(newModel)), nil
 		}
-		if err := channelIdentitiesRepo.WithTx(tx).UpdateHeartbeatConfig(ctx, identity.ID, enabled, intervalMin, newModel); err != nil {
+		if err := saveHeartbeat(enabled, intervalMin, newModel); err != nil {
 			return "", err
 		}
-		if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, identity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
-			return "", err
+		if enabled {
+			if err := syncTelegramHeartbeatTrigger(ctx, tx, accountID, channelID, personaID, targetIdentity.ID, configIdentity.ID, defaultModel, allowUserScoped, personasRepo); err != nil {
+				return "", err
+			}
+			syncModel := firstNonEmptySelector(newModel, defaultModel)
+			if err := (data.ScheduledTriggersRepository{}).SyncHeartbeatConfigByChannel(ctx, tx, channelID, syncModel, intervalMin); err != nil {
+				return "", err
+			}
 		}
 		if newModel == "" {
 			return "心跳模型已设为跟随对话。", nil

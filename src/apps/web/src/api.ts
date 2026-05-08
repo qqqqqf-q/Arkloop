@@ -2175,6 +2175,7 @@ export type ChannelBindingResponse = {
   heartbeat_enabled: boolean
   heartbeat_interval_minutes: number
   heartbeat_model: string | null
+  heartbeat_target_count: number
 }
 
 export type UpdateChannelBindingRequest = {
@@ -2182,6 +2183,7 @@ export type UpdateChannelBindingRequest = {
   heartbeat_enabled?: boolean
   heartbeat_interval_minutes?: number
   heartbeat_model?: string | null
+  heartbeat_target_platform_chat_id?: string
 }
 
 export async function createChannelBindCode(accessToken: string, channelType?: string): Promise<BindCodeResponse> {

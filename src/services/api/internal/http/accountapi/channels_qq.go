@@ -353,6 +353,34 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		cmdText := stripLeadingMention(text)
 		if cmd, ok := telegramCommandBase(cmdText, ""); ok {
 			switch {
+			case cmd == "/bind":
+				parts := strings.Fields(cmdText)
+				replyText := "用法：/bind <code>"
+				if len(parts) >= 2 {
+					var bindErr error
+					replyText, bindErr = bindChannelIdentity(
+						ctx,
+						tx,
+						&ch,
+						identity,
+						parts[1],
+						"QQ",
+						c.channelBindCodesRepo,
+						c.channelIdentitiesRepo,
+						c.channelIdentityLinksRepo,
+						c.channelDMThreadsRepo,
+						c.threadRepo,
+					)
+					if bindErr != nil {
+						return bindErr
+					}
+				}
+				if err := commitTx(); err != nil {
+					return err
+				}
+				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
+				return nil
+
 			case cmd == "/new":
 				replyText := c.handleQQGroupNew(ctx, tx, ch, cfg, identity, platformChatID)
 				if err := commitTx(); err != nil {
@@ -373,6 +401,26 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				return nil
 
 			case strings.HasPrefix(cmd, "/heartbeat"):
+				if c.channelIdentityLinksRepo != nil {
+					hasLink, err := c.channelIdentityLinksRepo.WithTx(tx).HasLink(ctx, ch.ID, identity.ID)
+					if err != nil {
+						return err
+					}
+					if !hasLink {
+						if err := commitTx(); err != nil {
+							return err
+						}
+						c.sendQQReply(ctx, cfg, "group", platformChatID, "当前账号未关联此接入。请使用 /bind <code> 关联。")
+						return nil
+					}
+				}
+				if !isChannelOwnerIdentity(ch, identity) {
+					if err := commitTx(); err != nil {
+						return err
+					}
+					c.sendQQReply(ctx, cfg, "group", platformChatID, "无权限。")
+					return nil
+				}
 				groupIdentity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
 				if err != nil {
 					return err
@@ -381,9 +429,10 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 					ctx, tx,
 					ch.ID, ch.AccountID, ch.PersonaID,
 					cfg.DefaultModel,
+					identity,
 					groupIdentity,
 					cmdText,
-					c.channelIdentitiesRepo,
+					c.channelIdentityLinksRepo,
 					c.personasRepo,
 					nil,
 				)
@@ -547,25 +596,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	jobPayload := map[string]any{
-		"source": "qq",
-		"channel_delivery": map[string]any{
-			"channel_id":   ch.ID.String(),
-			"channel_type": "qq",
-			"conversation_ref": map[string]any{
-				"target": platformChatID,
-			},
-			"inbound_message_ref": map[string]any{
-				"message_id": incoming.PlatformMsgID,
-			},
-			"trigger_message_ref": map[string]any{
-				"message_id": incoming.PlatformMsgID,
-			},
-			"platform_chat_id":           platformChatID,
-			"platform_message_id":        incoming.PlatformMsgID,
-			"sender_channel_identity_id": identity.ID.String(),
-			"conversation_type":          chatType,
-			"message_type":               chatType,
-		},
+		"source":           "qq",
+		"channel_delivery": buildQQChannelDeliveryPayload(ch.ID, identity.ID, platformChatID, chatType, incoming),
 	}
 	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
 		return err
@@ -1050,10 +1082,46 @@ func buildQQEnvelopeText(identityID uuid.UUID, displayName, chatType, body strin
 	if incoming.MentionsBot {
 		lines = append(lines, `mentions-bot: true`)
 	}
+	if incoming.IsReplyToBot {
+		lines = append(lines, `is-reply-to-bot: true`)
+	}
 	if ts != "" {
 		lines = append(lines, fmt.Sprintf(`time: "%s"`, ts))
 	}
 	return "---\n" + strings.Join(lines, "\n") + "\n---\n" + body
+}
+
+func buildQQChannelDeliveryPayload(
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	platformChatID string,
+	chatType string,
+	incoming qqIncomingMessage,
+) map[string]any {
+	payload := map[string]any{
+		"channel_id":   channelID.String(),
+		"channel_type": "qq",
+		"conversation_ref": map[string]any{
+			"target": platformChatID,
+		},
+		"inbound_message_ref": map[string]any{
+			"message_id": incoming.PlatformMsgID,
+		},
+		"trigger_message_ref": map[string]any{
+			"message_id": incoming.PlatformMsgID,
+		},
+		"platform_chat_id":           platformChatID,
+		"platform_message_id":        incoming.PlatformMsgID,
+		"sender_channel_identity_id": channelIdentityID.String(),
+		"conversation_type":          chatType,
+		"message_type":               chatType,
+		"mentions_bot":               incoming.MentionsBot,
+		"is_reply_to_bot":            incoming.IsReplyToBot,
+	}
+	if incoming.ReplyToMsgID != nil && strings.TrimSpace(*incoming.ReplyToMsgID) != "" {
+		payload["inbound_reply_to_message_id"] = strings.TrimSpace(*incoming.ReplyToMsgID)
+	}
+	return payload
 }
 
 func escapeEnvelopeValue(value string) string {

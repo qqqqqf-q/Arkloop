@@ -560,6 +560,7 @@ func TestUpdateTelegramChannelRejectsInvalidDefaultModelSelector(t *testing.T) {
 func TestTelegramHeartbeatModelRejectsInvalidSelectorWithoutPersisting(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+	bindTelegramOwnerIdentityForTest(t, env, channel, "10001")
 
 	payload := map[string]any{
 		"message": map[string]any{
@@ -589,16 +590,22 @@ func TestTelegramHeartbeatModelRejectsInvalidSelectorWithoutPersisting(t *testin
 		t.Fatalf("webhook status: %d %s", resp.Code, resp.Body.String())
 	}
 
-	var heartbeatModel string
+	var linkCount int
 	if err := env.pool.QueryRow(
 		context.Background(),
-		`SELECT heartbeat_model FROM channel_identities WHERE channel_type = 'telegram' AND platform_subject_id = $1`,
+		`SELECT COUNT(*)
+		   FROM channel_identity_links cil
+		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
+		  WHERE cil.channel_id = $1
+		    AND ci.channel_type = 'telegram'
+		    AND ci.platform_subject_id = $2`,
+		channel.ID,
 		"-100123",
-	).Scan(&heartbeatModel); err != nil {
-		t.Fatalf("query heartbeat model: %v", err)
+	).Scan(&linkCount); err != nil {
+		t.Fatalf("query heartbeat binding count: %v", err)
 	}
-	if strings.TrimSpace(heartbeatModel) != "" {
-		t.Fatalf("expected heartbeat_model to remain empty, got %q", heartbeatModel)
+	if linkCount != 0 {
+		t.Fatalf("expected invalid heartbeat model to leave no binding config, got %d", linkCount)
 	}
 }
 
@@ -606,6 +613,7 @@ func TestTelegramHeartbeatOnCreatesScheduledTriggerImmediately(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	seedTelegramSelectorRoute(t, env, "demo-cred", "gpt-5-mini")
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+	bindTelegramOwnerIdentityForTest(t, env, channel, "10001")
 
 	setModelPayload := map[string]any{
 		"message": map[string]any{
@@ -679,11 +687,44 @@ func TestTelegramHeartbeatOnCreatesScheduledTriggerImmediately(t *testing.T) {
 	if gotInterval != 30 {
 		t.Fatalf("unexpected scheduled trigger interval: %d", gotInterval)
 	}
+
+	var linkEnabled int
+	var linkInterval int
+	var linkModel string
+	if err := env.pool.QueryRow(
+		context.Background(),
+		`SELECT cil.heartbeat_enabled, cil.heartbeat_interval_minutes, cil.heartbeat_model
+		   FROM channel_identity_links cil
+		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
+		  WHERE cil.channel_id = $1
+		    AND ci.channel_type = 'telegram'
+		    AND ci.platform_subject_id = $2`,
+		channel.ID,
+		"10001",
+	).Scan(&linkEnabled, &linkInterval, &linkModel); err != nil {
+		t.Fatalf("query heartbeat binding config: %v", err)
+	}
+	if linkEnabled != 1 || linkInterval != 30 || linkModel != "demo-cred^gpt-5-mini" {
+		t.Fatalf("unexpected heartbeat binding config: enabled=%d interval=%d model=%q", linkEnabled, linkInterval, linkModel)
+	}
+
+	listResp := doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list heartbeat binding: %d %s", listResp.Code, listResp.Body.String())
+	}
+	var bindings []channelBindingResponse
+	if err := json.Unmarshal(listResp.Body.Bytes(), &bindings); err != nil {
+		t.Fatalf("decode heartbeat binding response: %v", err)
+	}
+	if len(bindings) != 1 || !bindings[0].IsOwner || !bindings[0].HeartbeatEnabled || bindings[0].PlatformSubjectID != "10001" {
+		t.Fatalf("unexpected heartbeat binding response: %#v", bindings)
+	}
 }
 
 func TestUpdateTelegramChannelInactiveDeletesScheduledTriggerImmediately(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+	bindTelegramOwnerIdentityForTest(t, env, channel, "10001")
 
 	enablePayload := map[string]any{
 		"message": map[string]any{
@@ -729,6 +770,7 @@ func TestUpdateTelegramChannelInactiveDeletesScheduledTriggerImmediately(t *test
 func TestDeleteTelegramChannelDeletesScheduledTriggerImmediately(t *testing.T) {
 	env := setupTelegramChannelsTestEnv(t, telegrambot.NewClient("https://api.telegram.org", nil))
 	channel := createActiveTelegramChannel(t, env, "bot-token", []string{"10001"}, "")
+	bindTelegramOwnerIdentityForTest(t, env, channel, "10001")
 
 	enablePayload := map[string]any{
 		"message": map[string]any{
@@ -3464,6 +3506,31 @@ func createActiveTelegramChannel(t *testing.T, env telegramChannelsTestEnv, botT
 		config["default_model"] = strings.TrimSpace(defaultModel)
 	}
 	return createActiveTelegramChannelWithConfig(t, env, botToken, config)
+}
+
+func bindTelegramOwnerIdentityForTest(t *testing.T, env telegramChannelsTestEnv, channel data.Channel, platformUserID string) data.ChannelIdentity {
+	t.Helper()
+	identitiesRepo, err := data.NewChannelIdentitiesRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identities repo: %v", err)
+	}
+	linksRepo, err := data.NewChannelIdentityLinksRepository(env.pool)
+	if err != nil {
+		t.Fatalf("channel identity links repo: %v", err)
+	}
+	displayName := "Alice"
+	identity, err := identitiesRepo.Upsert(context.Background(), channel.ChannelType, platformUserID, &displayName, nil, nil)
+	if err != nil {
+		t.Fatalf("upsert owner identity: %v", err)
+	}
+	if err := identitiesRepo.UpdateUserID(context.Background(), identity.ID, &env.userID); err != nil {
+		t.Fatalf("bind owner identity: %v", err)
+	}
+	if _, err := linksRepo.Upsert(context.Background(), channel.ID, identity.ID); err != nil {
+		t.Fatalf("link owner identity: %v", err)
+	}
+	identity.UserID = &env.userID
+	return identity
 }
 
 func newTelegramConnectorForTest(t *testing.T, env telegramChannelsTestEnv, botClient *telegrambot.Client) telegramConnector {

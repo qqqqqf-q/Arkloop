@@ -2,6 +2,8 @@ package accountapi
 
 import (
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestTelegramCommandBaseWorksForQQ(t *testing.T) {
@@ -212,6 +214,20 @@ func TestBuildQQEnvelopeText(t *testing.T) {
 		}
 	})
 
+	t.Run("group message with reply-to-bot", func(t *testing.T) {
+		incoming := qqIncomingMessage{
+			PlatformMsgID: "67891",
+			ChatType:      "group",
+			IsReplyToBot:  true,
+		}
+		result := buildQQEnvelopeText(
+			[16]byte{4}, "GroupUser", "group", "reply bot", 0, incoming,
+		)
+		if !contains(result, `is-reply-to-bot: true`) {
+			t.Fatalf("expected is-reply-to-bot in envelope, got:\n%s", result)
+		}
+	})
+
 	t.Run("message with reply-to", func(t *testing.T) {
 		replyID := "11111"
 		incoming := qqIncomingMessage{
@@ -226,6 +242,31 @@ func TestBuildQQEnvelopeText(t *testing.T) {
 			t.Fatalf("expected reply-to-message-id in envelope, got:\n%s", result)
 		}
 	})
+}
+
+func TestBuildQQChannelDeliveryPayloadPreservesTriggerFlags(t *testing.T) {
+	channelID := uuid.New()
+	identityID := uuid.New()
+	replyID := "11111"
+	incoming := qqIncomingMessage{
+		PlatformMsgID: "67890",
+		ChatType:      "group",
+		MentionsBot:   true,
+		IsReplyToBot:  true,
+		ReplyToMsgID:  &replyID,
+	}
+
+	payload := buildQQChannelDeliveryPayload(channelID, identityID, "group-1", "group", incoming)
+
+	if payload["channel_id"] != channelID.String() || payload["sender_channel_identity_id"] != identityID.String() {
+		t.Fatalf("unexpected ids in payload: %#v", payload)
+	}
+	if payload["mentions_bot"] != true || payload["is_reply_to_bot"] != true {
+		t.Fatalf("expected trigger flags in payload: %#v", payload)
+	}
+	if payload["inbound_reply_to_message_id"] != replyID {
+		t.Fatalf("expected inbound reply id in payload: %#v", payload)
+	}
 }
 
 func contains(s, substr string) bool {

@@ -32,6 +32,7 @@ type ChannelBinding struct {
 	HeartbeatEnabled         bool
 	HeartbeatIntervalMinutes int
 	HeartbeatModel           string
+	HeartbeatTargetCount     int
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
 }
@@ -110,6 +111,14 @@ func (r *ChannelIdentityLinksRepository) GetBinding(
 		        COALESCE(cil.heartbeat_enabled, 0),
 		        COALESCE(cil.heartbeat_interval_minutes, 30),
 		        COALESCE(cil.heartbeat_model, ''),
+		        (
+		            SELECT CAST(COUNT(*) AS INTEGER)
+		              FROM scheduled_triggers st
+		              JOIN channel_identities target_ci ON target_ci.id = st.channel_identity_id
+		             WHERE st.channel_id = cil.channel_id
+		               AND st.trigger_kind = 'heartbeat'
+		               AND target_ci.user_id IS NULL
+		        ),
 		        cil.created_at,
 		        cil.updated_at
 		   FROM channel_identity_links cil
@@ -117,7 +126,8 @@ func (r *ChannelIdentityLinksRepository) GetBinding(
 		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
 		  WHERE cil.id = $1
 		    AND cil.channel_id = $2
-		    AND ch.account_id = $3`,
+		    AND ch.account_id = $3
+		    AND ci.user_id IS NOT NULL`,
 		bindingID,
 		channelID,
 		accountID,
@@ -151,6 +161,14 @@ func (r *ChannelIdentityLinksRepository) ListBindings(
 		        COALESCE(cil.heartbeat_enabled, 0),
 		        COALESCE(cil.heartbeat_interval_minutes, 30),
 		        COALESCE(cil.heartbeat_model, ''),
+		        (
+		            SELECT CAST(COUNT(*) AS INTEGER)
+		              FROM scheduled_triggers st
+		              JOIN channel_identities target_ci ON target_ci.id = st.channel_identity_id
+		             WHERE st.channel_id = cil.channel_id
+		               AND st.trigger_kind = 'heartbeat'
+		               AND target_ci.user_id IS NULL
+		        ),
 		        cil.created_at,
 		        cil.updated_at
 		   FROM channel_identity_links cil
@@ -158,6 +176,7 @@ func (r *ChannelIdentityLinksRepository) ListBindings(
 		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
 		  WHERE cil.channel_id = $1
 		    AND ch.account_id = $2
+		    AND ci.user_id IS NOT NULL
 		  ORDER BY is_owner DESC, cil.created_at ASC`,
 		channelID,
 		accountID,
@@ -197,12 +216,21 @@ func (r *ChannelIdentityLinksRepository) ListBindingsByIdentity(
 		        COALESCE(cil.heartbeat_enabled, 0),
 		        COALESCE(cil.heartbeat_interval_minutes, 30),
 		        COALESCE(cil.heartbeat_model, ''),
+		        (
+		            SELECT CAST(COUNT(*) AS INTEGER)
+		              FROM scheduled_triggers st
+		              JOIN channel_identities target_ci ON target_ci.id = st.channel_identity_id
+		             WHERE st.channel_id = cil.channel_id
+		               AND st.trigger_kind = 'heartbeat'
+		               AND target_ci.user_id IS NULL
+		        ),
 		        cil.created_at,
 		        cil.updated_at
 		   FROM channel_identity_links cil
 		   JOIN channels ch ON ch.id = cil.channel_id
 		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
 		  WHERE cil.channel_identity_id = $1
+		    AND ci.user_id IS NOT NULL
 		  ORDER BY cil.created_at ASC`,
 		channelIdentityID,
 	)
@@ -220,6 +248,54 @@ func (r *ChannelIdentityLinksRepository) ListBindingsByIdentity(
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (r *ChannelIdentityLinksRepository) GetOwnerBinding(
+	ctx context.Context,
+	accountID uuid.UUID,
+	channelID uuid.UUID,
+) (*ChannelBinding, error) {
+	item, err := scanChannelBinding(r.db.QueryRow(
+		ctx,
+		`SELECT cil.id,
+		        cil.channel_id,
+		        ci.id,
+		        ci.user_id,
+		        ci.display_name,
+		        ci.platform_subject_id,
+		        TRUE AS is_owner,
+		        COALESCE(cil.heartbeat_enabled, 0),
+		        COALESCE(cil.heartbeat_interval_minutes, 30),
+		        COALESCE(cil.heartbeat_model, ''),
+		        (
+		            SELECT CAST(COUNT(*) AS INTEGER)
+		              FROM scheduled_triggers st
+		              JOIN channel_identities target_ci ON target_ci.id = st.channel_identity_id
+		             WHERE st.channel_id = cil.channel_id
+		               AND st.trigger_kind = 'heartbeat'
+		               AND target_ci.user_id IS NULL
+		        ),
+		        cil.created_at,
+		        cil.updated_at
+		   FROM channel_identity_links cil
+		   JOIN channels ch ON ch.id = cil.channel_id
+		   JOIN channel_identities ci ON ci.id = cil.channel_identity_id
+		  WHERE cil.channel_id = $1
+		    AND ch.account_id = $2
+		    AND ch.owner_user_id IS NOT NULL
+		    AND ci.user_id = ch.owner_user_id
+		  ORDER BY cil.created_at ASC
+		  LIMIT 1`,
+		channelID,
+		accountID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("channel_identity_links.GetOwnerBinding: %w", err)
+	}
+	return &item, nil
 }
 
 func (r *ChannelIdentityLinksRepository) HasLink(
@@ -243,6 +319,35 @@ func (r *ChannelIdentityLinksRepository) HasLink(
 		return false, fmt.Errorf("channel_identity_links.HasLink: %w", err)
 	}
 	return exists, nil
+}
+
+func (r *ChannelIdentityLinksRepository) GetHeartbeatConfig(
+	ctx context.Context,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+) (bool, int, string, bool, error) {
+	var enabledInt int
+	var intervalMinutes int
+	var model string
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT COALESCE(heartbeat_enabled, 0),
+		        COALESCE(heartbeat_interval_minutes, $3),
+		        COALESCE(heartbeat_model, '')
+		   FROM channel_identity_links
+		  WHERE channel_id = $1
+		    AND channel_identity_id = $2`,
+		channelID,
+		channelIdentityID,
+		runkind.DefaultHeartbeatIntervalMinutes,
+	).Scan(&enabledInt, &intervalMinutes, &model)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, runkind.DefaultHeartbeatIntervalMinutes, "", false, nil
+	}
+	if err != nil {
+		return false, 0, "", false, fmt.Errorf("channel_identity_links.GetHeartbeatConfig: %w", err)
+	}
+	return enabledInt != 0, intervalMinutes, model, true, nil
 }
 
 func (r *ChannelIdentityLinksRepository) DeleteBinding(
@@ -342,6 +447,7 @@ func scanChannelBinding(row interface{ Scan(dest ...any) error }) (ChannelBindin
 		&enabledInt,
 		&item.HeartbeatIntervalMinutes,
 		&item.HeartbeatModel,
+		&item.HeartbeatTargetCount,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
