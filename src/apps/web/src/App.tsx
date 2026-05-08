@@ -32,6 +32,8 @@ import {
   setAccessTokenHandler,
   setSessionExpiredHandler,
   restoreAccessSession,
+  logAuthDebug,
+  tokenClaimsForDebug,
 } from './api'
 import { setClientApp } from '@arkloop/shared/api'
 import {
@@ -184,19 +186,29 @@ function App() {
 
     setClientApp('web')
     setUnauthenticatedHandler(() => {
+      logAuthDebug('app_unauthenticated_handler')
       clearAccessTokenFromStorage()
       clearActiveThreadIdInStorage()
       setAccessToken(null)
     })
     setAccessTokenHandler((token: string) => {
+      logAuthDebug('app_access_token_handler', {
+        has_access_token_after: !!token,
+      })
       writeAccessTokenToStorage(token)
       setAccessToken(token)
     })
     setSessionExpiredHandler(() => {
+      logAuthDebug('app_session_expired_handler')
       addToast(t.sessionExpired, 'warn')
     })
 
     const localMode = isLocalMode()
+    logAuthDebug('app_auth_effect', {
+      local_mode: localMode,
+      sidecar_checked: sidecarChecked,
+      onboarding_done: onboardingDone,
+    })
     if (!sidecarChecked || onboardingDone === null) {
       setAuthChecked(false)
       return () => {
@@ -213,6 +225,9 @@ function App() {
     // Local 模式: local trust 只用于换取正常 session，业务 API 继续使用 JWT。
     if (localMode) {
       const desktopToken = getDesktopAccessToken()?.trim()
+      logAuthDebug('local_session_prepare', {
+        has_desktop_token: !!desktopToken,
+      })
       if (!desktopToken) {
         clearAccessTokenFromStorage()
         setAccessToken(null)
@@ -225,12 +240,23 @@ function App() {
       createLocalSession(desktopToken, controller.signal)
         .then((resp) => {
           if (controller.signal.aborted) return
+          logAuthDebug('local_session_ok', {
+            has_access_token_after: !!resp.access_token,
+            token_claims: tokenClaimsForDebug(resp.access_token) ?? undefined,
+          })
           writeAccessTokenToStorage(resp.access_token)
           setAccessToken(resp.access_token)
         })
         .catch((err) => {
           if (controller.signal.aborted) return
           if (err instanceof Error && err.name === 'AbortError') return
+          logAuthDebug('local_session_fail', {
+            error_name: err instanceof Error ? err.name : 'unknown',
+            error_message: err instanceof Error ? err.message : String(err),
+            error_status: isApiError(err) ? err.status : undefined,
+            error_code: isApiError(err) ? err.code : undefined,
+            trace_id: isApiError(err) ? err.traceId : undefined,
+          })
           clearAccessTokenFromStorage()
           setAccessToken(null)
         })
@@ -250,10 +276,21 @@ function App() {
     })
       .then((resp) => {
         if (controller.signal.aborted) return
+        logAuthDebug('startup_restore_ok', {
+          has_access_token_after: !!resp.access_token,
+          token_claims: tokenClaimsForDebug(resp.access_token) ?? undefined,
+        })
         writeAccessTokenToStorage(resp.access_token)
         setAccessToken(resp.access_token)
       })
       .catch((err) => {
+        logAuthDebug('startup_restore_fail', {
+          error_name: err instanceof Error ? err.name : 'unknown',
+          error_message: err instanceof Error ? err.message : String(err),
+          error_status: isApiError(err) ? err.status : undefined,
+          error_code: isApiError(err) ? err.code : undefined,
+          trace_id: isApiError(err) ? err.traceId : undefined,
+        })
         if (isApiError(err) && (err.status === 401 || err.status === 403)) return
         if (err instanceof Error && err.name === 'AbortError') return
       })

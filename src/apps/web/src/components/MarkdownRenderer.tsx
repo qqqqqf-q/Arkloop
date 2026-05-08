@@ -20,6 +20,7 @@ import { DocumentCard } from './DocumentCard'
 import { useActiveArtifactKey } from '../contexts/panels'
 import { recordPerfCount, recordPerfValue } from '../perfDebug'
 import { handleExternalAnchorClick } from '../openExternal'
+import { StreamingMarkdown } from './streaming-markdown/StreamingMarkdown'
 
 type ArtifactsContextValue = {
   artifacts: ArtifactRef[]
@@ -817,14 +818,25 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
           className={`md-content${compact ? ' md-content--compact' : ''}${trimTrailingMargin ? ' md-content--trim-trailing' : ''}`}
           style={{ maxWidth: '100%', fontWeight: 350 }}
         >
-          <ReactMarkdown
-            remarkPlugins={remarkPlugins}
-            rehypePlugins={rehypePlugins}
-            components={mdComponents}
-            urlTransform={artifactUrlTransform}
-          >
-            {normalizedContent}
-          </ReactMarkdown>
+          {streaming ? (
+            <StreamingMarkdown
+              components={mdComponents}
+              rehypePlugins={rehypePlugins}
+              remarkPlugins={remarkPlugins}
+              urlTransform={artifactUrlTransform}
+            >
+              {normalizedContent}
+            </StreamingMarkdown>
+          ) : (
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              components={mdComponents}
+              urlTransform={artifactUrlTransform}
+            >
+              {normalizedContent}
+            </ReactMarkdown>
+          )}
         </div>
       </WebSourcesContext.Provider>
     </ArtifactsContext.Provider>

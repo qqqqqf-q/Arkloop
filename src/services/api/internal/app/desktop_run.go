@@ -11,6 +11,7 @@ import (
 	nethttp "net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,12 @@ import (
 	"arkloop/services/shared/telegrambot"
 )
 
+const (
+	defaultDesktopAccessTokenTTLSeconds  = 3600
+	defaultDesktopRefreshTokenTTLSeconds = 86400
+	desktopAccessTokenTTLEnv             = "ARKLOOP_DESKTOP_ACCESS_TOKEN_TTL_SECONDS"
+)
+
 func desktopJWTSecretValue(dataDir string) (string, error) {
 	if v := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_JWT_SECRET")); v != "" {
 		return v, nil
@@ -64,6 +71,18 @@ func desktopJWTSecretValue(dataDir string) (string, error) {
 		return "", fmt.Errorf("write jwt.secret: %w", err)
 	}
 	return secret, nil
+}
+
+func desktopAccessTokenTTLSeconds() (int, error) {
+	raw := strings.TrimSpace(os.Getenv(desktopAccessTokenTTLEnv))
+	if raw == "" {
+		return defaultDesktopAccessTokenTTLSeconds, nil
+	}
+	ttl, err := strconv.Atoi(raw)
+	if err != nil || ttl <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", desktopAccessTokenTTLEnv)
+	}
+	return ttl, nil
 }
 
 // RunDesktop starts the desktop-mode API server, blocking until ctx is cancelled or an error occurs.
@@ -380,7 +399,11 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("jwt secret: %w", err)
 	}
-	tokenService, err := auth.NewJwtAccessTokenService(jwtSecret, 3600, 86400)
+	accessTokenTTLSeconds, err := desktopAccessTokenTTLSeconds()
+	if err != nil {
+		return fmt.Errorf("access token ttl: %w", err)
+	}
+	tokenService, err := auth.NewJwtAccessTokenService(jwtSecret, accessTokenTTLSeconds, defaultDesktopRefreshTokenTTLSeconds)
 	if err != nil {
 		return fmt.Errorf("init token service: %w", err)
 	}

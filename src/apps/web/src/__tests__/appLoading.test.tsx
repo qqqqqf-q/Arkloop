@@ -13,12 +13,14 @@ const {
   setAccessTokenHandler,
   setSessionExpiredHandler,
   setClientApp,
+  logAuthDebug,
 } = vi.hoisted(() => ({
   restoreAccessSession: vi.fn(),
   setUnauthenticatedHandler: vi.fn(),
   setAccessTokenHandler: vi.fn(),
   setSessionExpiredHandler: vi.fn(),
   setClientApp: vi.fn(),
+  logAuthDebug: vi.fn(),
 }))
 
 vi.mock('../api', async (importOriginal) => {
@@ -29,6 +31,7 @@ vi.mock('../api', async (importOriginal) => {
     setUnauthenticatedHandler,
     setAccessTokenHandler,
     setSessionExpiredHandler,
+    logAuthDebug,
   }
 })
 
@@ -63,6 +66,7 @@ describe('App loading state', () => {
     setAccessTokenHandler.mockReset()
     setSessionExpiredHandler.mockReset()
     setClientApp.mockReset()
+    logAuthDebug.mockReset()
     restoreAccessSession.mockReturnValue(new Promise(() => {}))
   })
 

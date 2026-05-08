@@ -226,7 +226,7 @@ describe('MarkdownRenderer', () => {
   it('流式纯文本时仍保持 markdown 容器结构稳定', () => {
     const html = renderMarkdown('plain text only\nnext line', { streaming: true })
 
-    expect(html).toContain('plain text only')
+    expect(html).toContain('stream-char')
     expect(html).toContain('<p ')
   })
 
@@ -234,6 +234,25 @@ describe('MarkdownRenderer', () => {
     const html = renderMarkdown('**bold** text', { streaming: true })
 
     expect(html).toContain('<strong')
+  })
+
+  it('流式 markdown 应启用字符级渐显渲染', () => {
+    const html = renderMarkdown('第一段\n\n第二段', { streaming: true })
+
+    expect(html).toContain('md-stream-content')
+    expect(html).toContain('stream-char')
+    expect(html).toContain('>第</span>')
+    expect(html).toContain('>一</span>')
+    expect(html).toContain('>段</span>')
+  })
+
+  it('流式代码块中有空行时不应拆坏 fenced code', () => {
+    const html = renderMarkdown('```python\nprint("a")\n\nprint("b")\n```', { streaming: true })
+
+    expect(html).toContain('>python<')
+    expect(html).toContain('print(&quot;a&quot;)')
+    expect(html).toContain('print(&quot;b&quot;)')
+    expect(html).not.toContain('stream-char')
   })
 
   it('应修复被压成单段的 GFM 表格行', () => {

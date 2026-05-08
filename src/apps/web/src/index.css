@@ -722,6 +722,36 @@ button:not(:disabled) {
   margin-bottom: 0 !important;
 }
 
+.md-stream-content .stream-char {
+  opacity: 0;
+  animation-name: md-stream-char-fade;
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.33, 0, 0.67, 1);
+  animation-fill-mode: forwards;
+}
+
+.md-stream-content .stream-char-revealed {
+  opacity: 1;
+  animation: none;
+}
+
+.md-stream-content .katex-display .katex-html span {
+  mask: none !important;
+  animation: none !important;
+}
+
+@keyframes md-stream-char-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-stream-content .stream-char {
+    opacity: 1;
+    animation: none;
+  }
+}
+
 .cop-timeline-root {
   --c-cop-row-fg: var(--c-text-tertiary);
   --c-cop-row-hover-fg: var(--c-text-primary);

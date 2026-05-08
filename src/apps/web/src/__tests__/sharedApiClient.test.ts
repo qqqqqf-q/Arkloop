@@ -64,4 +64,28 @@ describe('shared auth client', () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(3)
   })
+
+  it('desktop local 模式续期使用 local-session 而不是 refresh cookie', async () => {
+    vi.stubGlobal('__ARKLOOP_DESKTOP__', {
+      getMode: () => 'local',
+      getApiBaseUrl: () => 'http://127.0.0.1:19002',
+      getAccessToken: () => 'arkloop-desktop-token',
+    })
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ access_token: 'local-jwt', token_type: 'bearer' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { refreshAccessToken } = await import('@arkloop/shared')
+
+    await expect(refreshAccessToken()).resolves.toEqual({
+      access_token: 'local-jwt',
+      token_type: 'bearer',
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://127.0.0.1:19002/v1/auth/local-session')
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('include')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer arkloop-desktop-token')
+  })
 })

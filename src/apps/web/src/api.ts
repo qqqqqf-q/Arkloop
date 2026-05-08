@@ -9,6 +9,8 @@ export {
   setSessionExpiredHandler,
   refreshAccessToken,
   restoreAccessSession,
+  logAuthDebug,
+  tokenClaimsForDebug,
 } from '@arkloop/shared/api'
 
 export type { LoginRequest, LoginResponse } from '@arkloop/shared/api/types'

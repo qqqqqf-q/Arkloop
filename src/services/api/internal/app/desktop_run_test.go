@@ -30,3 +30,20 @@ func TestDesktopJWTSecretValuePersistsGeneratedSecret(t *testing.T) {
 		t.Fatalf("jwt.secret mode = %o, want 600", info.Mode().Perm())
 	}
 }
+
+func TestDesktopAccessTokenTTLSeconds(t *testing.T) {
+	t.Setenv(desktopAccessTokenTTLEnv, "")
+	if got, err := desktopAccessTokenTTLSeconds(); err != nil || got != defaultDesktopAccessTokenTTLSeconds {
+		t.Fatalf("default ttl = %d, %v", got, err)
+	}
+
+	t.Setenv(desktopAccessTokenTTLEnv, "30")
+	if got, err := desktopAccessTokenTTLSeconds(); err != nil || got != 30 {
+		t.Fatalf("override ttl = %d, %v", got, err)
+	}
+
+	t.Setenv(desktopAccessTokenTTLEnv, "0")
+	if _, err := desktopAccessTokenTTLSeconds(); err == nil {
+		t.Fatal("expected invalid ttl error")
+	}
+}
