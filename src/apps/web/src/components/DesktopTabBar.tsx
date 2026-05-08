@@ -145,7 +145,6 @@ export function DesktopTabBar({
       <div
         className="flex h-12 shrink-0 items-center gap-2 px-3"
         style={{
-          borderBottom: '0.5px solid var(--c-border-subtle)',
           background: 'var(--c-bg-page)',
         }}
       >

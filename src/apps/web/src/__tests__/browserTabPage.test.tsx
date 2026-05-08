@@ -282,4 +282,62 @@ describe('BrowserTabPage', () => {
 
     expect(container.querySelector('img[src="https://www.163.com/favicon.ico"]')).not.toBeNull()
   })
+
+  it('tab strip 下边线隐藏，但地址栏工具条下边线保留', async () => {
+    mockedUseBrowserTabs.mockReturnValue({
+      initialized: true,
+      tabs: [{
+        id: 'browser-a',
+        title: 'Arkloop',
+        url: 'https://arkloop.test/',
+        faviconUrl: null,
+        loading: false,
+        error: null,
+        canGoBack: false,
+        canGoForward: false,
+      }],
+      panelOpen: true,
+      activeBrowserTabId: 'browser-a',
+      activeBrowserTab: {
+        id: 'browser-a',
+        title: 'Arkloop',
+        url: 'https://arkloop.test/',
+        faviconUrl: null,
+        loading: false,
+        error: null,
+        canGoBack: false,
+        canGoForward: false,
+      },
+      getDraftUrl: vi.fn(() => 'arkloop.test'),
+      setDraftUrl: vi.fn(),
+      openBrowserPanel: vi.fn(),
+      closeBrowserPanel: vi.fn(),
+      toggleBrowserPanel: vi.fn(),
+      createBrowserTab: vi.fn(() => Promise.resolve(null)),
+      activateBrowserTab: vi.fn(),
+      closeBrowserTab: vi.fn(() => Promise.resolve()),
+      navigateBrowserTab: vi.fn(() => Promise.resolve(null)),
+      reloadBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goBackBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goForwardBrowserTab: vi.fn(() => Promise.resolve(null)),
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <BrowserTabPage />
+        </LocaleProvider>,
+      )
+      await Promise.resolve()
+    })
+
+    const addressInput = container.querySelector('input[placeholder="输入 URL"]')
+    const addressBarRow = addressInput?.closest('form')?.parentElement as HTMLDivElement | null
+    const tabStripRow = container.querySelector('[title="New Browser Tab"]')?.closest('div[class*="h-12"]') as HTMLDivElement | null
+
+    expect(tabStripRow).not.toBeNull()
+    expect(addressBarRow).not.toBeNull()
+    expect(tabStripRow?.style.borderBottom).toBe('')
+    expect(addressBarRow?.style.borderBottom).toBe('0.5px solid var(--c-border-subtle)')
+  })
 })

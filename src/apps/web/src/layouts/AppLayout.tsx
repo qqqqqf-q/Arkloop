@@ -200,8 +200,8 @@ const LayoutMain = memo(function LayoutMain({
 
       <div
         ref={containerRef}
-        className="relative flex min-w-0 flex-1 overflow-hidden rounded-l-xl"
-        style={{ border: "0.5px solid var(--c-border-subtle)" }}
+        className="relative flex min-w-0 flex-1 overflow-hidden"
+        style={{ borderLeft: "0.5px solid var(--c-border-subtle)" }}
       >
         <div className="flex min-w-0 flex-1 overflow-hidden">
           {!browserFullscreen && (
@@ -279,7 +279,7 @@ export function AppLayout() {
     togglePrivateMode,
     getFilteredThreads,
   } = useThreadList();
-  const { sidebarCollapsed, sidebarHiddenByWidth, toggleSidebar } =
+  const { sidebarHidden, sidebarHiddenByWidth, toggleSidebar } =
     useSidebarUI();
   const {
     isSearchMode,
@@ -579,9 +579,10 @@ export function AppLayout() {
         <div className="theme-background-layer" aria-hidden="true" />
         {desktop && (
           <DesktopTitleBar
-            sidebarCollapsed={sidebarCollapsed}
+            sidebarHidden={sidebarHidden}
             onToggleSidebar={() => toggleSidebar("titlebar")}
             appMode={activeAppMode}
+            showSidebarControls={!settingsOpen}
             showIncognitoToggle={false}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
@@ -609,7 +610,7 @@ export function AppLayout() {
             />
           ) : (
             <>
-              {!sidebarHiddenByWidth && (
+              {!sidebarHiddenByWidth && !sidebarHidden && (
                 <Sidebar
                   threads={filteredThreads}
                   onNewThread={handleNewThread}

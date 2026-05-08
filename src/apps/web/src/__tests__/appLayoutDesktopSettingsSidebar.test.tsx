@@ -11,6 +11,8 @@ import { ThreadListProvider } from '../contexts/thread-list'
 import { AppUIProvider, useSettingsUI } from '../contexts/app-ui'
 import { CreditsProvider } from '../contexts/credits'
 import { BrowserTabsProvider } from '../contexts/browser-tabs'
+import { PluginRuntimeProvider } from '../plugins/runtime'
+import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import {
   getMe,
   getMyCredits,
@@ -166,10 +168,12 @@ describe('AppLayout desktop settings sidebar replacement', () => {
     }
   })
 
-  it('打开桌面设置后应使用设置侧栏而不是继续显示 app 侧栏', async () => {
+  async function renderLayout(options?: { openSettingsOnMount?: boolean }) {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
+
+    const shell = options?.openSettingsOnMount ? <OutletShell /> : <Outlet />
 
     await act(async () => {
       root.render(
@@ -180,15 +184,19 @@ describe('AppLayout desktop settings sidebar replacement', () => {
                 <ThreadListProvider>
                   <AppUIProvider>
                     <BrowserTabsProvider>
-                      <CreditsProvider>
-                        <Routes>
-                          <Route element={<AppLayout />}>
-                            <Route element={<OutletShell />}>
-                              <Route index element={<div>chat body</div>} />
-                            </Route>
-                          </Route>
-                        </Routes>
-                      </CreditsProvider>
+                      <PluginRuntimeProvider>
+                        <PluginBrowserSessionProvider>
+                          <CreditsProvider>
+                            <Routes>
+                              <Route element={<AppLayout />}>
+                                <Route element={shell}>
+                                  <Route index element={<div>chat body</div>} />
+                                </Route>
+                              </Route>
+                            </Routes>
+                          </CreditsProvider>
+                        </PluginBrowserSessionProvider>
+                      </PluginRuntimeProvider>
                     </BrowserTabsProvider>
                   </AppUIProvider>
                 </ThreadListProvider>
@@ -201,9 +209,43 @@ describe('AppLayout desktop settings sidebar replacement', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
+    return { container, root }
+  }
+
+  it('打开桌面设置后应使用设置侧栏而不是继续显示 app 侧栏', async () => {
+    const { container, root } = await renderLayout({ openSettingsOnMount: true })
+
     expect(container.textContent).toContain('设置')
     expect(container.textContent).toContain('通用')
     expect(container.textContent).not.toContain('无痕模式下，会话不会保存到历史记录')
+    expect(
+      container.querySelector('[data-testid="desktop-titlebar-sidebar-controls"]'),
+    ).toBeNull()
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('点击顶部按钮后应完全隐藏 app 侧边栏，但保留顶部按钮组', async () => {
+    const { container, root } = await renderLayout()
+
+    expect(container.querySelector('[data-testid="app-sidebar"]')).not.toBeNull()
+    const toggleButton = container.querySelector(
+      '[data-testid="desktop-titlebar-toggle-sidebar"]',
+    )
+    expect(toggleButton).not.toBeNull()
+
+    await act(async () => {
+      toggleButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    expect(container.querySelector('[data-testid="app-sidebar"]')).toBeNull()
+    expect(
+      container.querySelector('[data-testid="desktop-titlebar-sidebar-controls"]'),
+    ).not.toBeNull()
 
     act(() => {
       root.unmount()

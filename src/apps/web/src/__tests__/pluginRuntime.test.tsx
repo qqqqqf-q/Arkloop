@@ -86,6 +86,22 @@ describe('PluginRuntimeProvider', () => {
     expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/plugins/sample-page-plugin')
   })
 
+  it('does not restore an active plugin highlight on cold start outside plugin context', async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <PluginRuntimeProvider>
+            <Probe />
+          </PluginRuntimeProvider>
+        </MemoryRouter>,
+      )
+      await Promise.resolve()
+    })
+
+    expect(container.querySelector('[data-testid="path"]')?.textContent).toBe('/t/thread-1')
+    expect(container.querySelector('[data-testid="active"]')?.textContent).toBe('none')
+  })
+
   it('keeps the current workspace route when opening a browser plugin', async () => {
     await act(async () => {
       root.render(

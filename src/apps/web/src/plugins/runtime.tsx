@@ -28,9 +28,7 @@ const PluginRuntimeContext = createContext<PluginRuntimeContextValue | null>(nul
 export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [activePluginId, setActivePluginId] = useState<string | null>(
-    () => readPluginRuntimeState().lastPluginId,
-  )
+  const [activePluginId, setActivePluginId] = useState<string | null>(null)
   const [activePluginContextPath, setActivePluginContextPath] = useState<string | null>(null)
   const [presentationByPluginId, setPresentationByPluginId] = useState<
     Record<string, PluginPresentation>
@@ -42,6 +40,19 @@ export function PluginRuntimeProvider({ children }: { children: ReactNode }) {
     const nextPath = `${location.pathname}${location.search}${location.hash}` || '/'
     lastWorkspacePathRef.current = nextPath
   }, [location.hash, location.pathname, location.search])
+
+  useEffect(() => {
+    if (!location.pathname.startsWith('/plugins/')) return
+    const pluginId = decodeURIComponent(location.pathname.slice('/plugins/'.length))
+    const plugin = getBuiltinPluginById(pluginId)
+    if (!plugin) {
+      setActivePluginId(null)
+      setActivePluginContextPath(null)
+      return
+    }
+    setActivePluginId(plugin.id)
+    setActivePluginContextPath(`/plugins/${encodeURIComponent(plugin.id)}`)
+  }, [location.pathname])
 
   useEffect(() => {
     if (!activePluginId) return

@@ -2000,6 +2000,7 @@ export function Sidebar({
     <>
       <aside
         ref={asideRef}
+        data-testid="app-sidebar"
         className={[
           "theme-surface-sidebar flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]",
           collapsed

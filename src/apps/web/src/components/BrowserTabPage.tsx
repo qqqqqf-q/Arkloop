@@ -147,14 +147,14 @@ export function BrowserTabPage({
   if (!desktop || !browserApi) {
     return (
       <div
-        className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6"
+        className="flex h-full min-h-0 items-center justify-center bg-(--c-bg-page) p-6"
         data-testid="browser-tab-page"
       >
         <div
-          className="max-w-md rounded-2xl bg-[var(--c-bg-sub)] p-6 text-center"
+          className="max-w-md rounded-2xl bg-(--c-bg-sub) p-6 text-center"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
         >
-          <p className="text-sm text-[var(--c-text-secondary)]">{t.browserTabOnlyDesktop}</p>
+          <p className="text-sm text-(--c-text-secondary)">{t.browserTabOnlyDesktop}</p>
         </div>
       </div>
     )
@@ -176,14 +176,14 @@ export function BrowserTabPage({
   if (!resolvedActiveBrowserTab && tabs.length > 0) {
     return (
       <div
-        className="flex h-full min-h-0 items-center justify-center bg-[var(--c-bg-page)] p-6"
+        className="flex h-full min-h-0 items-center justify-center bg-(--c-bg-page) p-6"
         data-testid="browser-tab-page"
       >
         <div
-          className="max-w-md rounded-2xl bg-[var(--c-bg-sub)] p-6 text-center"
+          className="max-w-md rounded-2xl bg-(--c-bg-sub) p-6 text-center"
           style={{ border: '0.5px solid var(--c-border-subtle)' }}
         >
-          <p className="text-sm text-[var(--c-text-secondary)]">{t.browserTabMissing}</p>
+          <p className="text-sm text-(--c-text-secondary)">{t.browserTabMissing}</p>
         </div>
       </div>
     )
@@ -191,12 +191,11 @@ export function BrowserTabPage({
 
   return (
     <div
-      className="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--c-bg-page)]"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col bg-(--c-bg-page)"
       data-testid="browser-tab-page"
     >
       <div
         className="flex h-12 shrink-0 items-center gap-2 px-3"
-        style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div
@@ -221,7 +220,7 @@ export function BrowserTabPage({
                       event.stopPropagation()
                       void closeBrowserTab(tab.id)
                     }}
-                    className="flex h-full w-8 shrink-0 items-center justify-center rounded-l-[10px] text-[var(--c-text-tertiary)] transition-colors group-hover:text-[var(--c-text-primary)]"
+                    className="flex h-full w-8 shrink-0 items-center justify-center rounded-l-[10px] text-(--c-text-tertiary) transition-colors group-hover:text-[var(--c-text-primary)]"
                     title="Close browser tab"
                     aria-label="Close browser tab"
                   >
@@ -262,7 +261,7 @@ export function BrowserTabPage({
           </div>
           <button
             type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-(--c-text-tertiary) transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
             title={t.newBrowserTab}
             onClick={() => { void createBrowserTab({ openPanel: !embedded }) }}
           >
@@ -272,7 +271,7 @@ export function BrowserTabPage({
         {!embedded && onToggleBrowserFullscreen && (
           <button
             type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-(--c-text-tertiary) transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
             title={browserFullscreen ? '退出全屏' : '全屏'}
             onClick={onToggleBrowserFullscreen}
           >
@@ -282,7 +281,7 @@ export function BrowserTabPage({
         {!embedded && (
           <button
             type="button"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-(--c-text-tertiary) transition-colors hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]"
             title={t.browserPanelCollapse}
             onClick={closeBrowserPanel}
           >
@@ -298,7 +297,7 @@ export function BrowserTabPage({
         >
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-(--c-text-secondary) transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!resolvedActiveBrowserTab.canGoBack}
           onClick={() => void goBackBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Back"
@@ -307,7 +306,7 @@ export function BrowserTabPage({
         </button>
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-(--c-text-secondary) transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={!resolvedActiveBrowserTab.canGoForward}
           onClick={() => void goForwardBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Forward"
@@ -316,7 +315,7 @@ export function BrowserTabPage({
         </button>
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-(--c-text-secondary) transition-colors hover:bg-[var(--c-bg-sub)] disabled:cursor-not-allowed disabled:opacity-45"
           disabled={resolvedActiveBrowserTab.loading}
           onClick={() => void reloadBrowserTab(resolvedActiveBrowserTabId)}
           aria-label="Reload"
@@ -336,7 +335,7 @@ export function BrowserTabPage({
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
             placeholder="输入 URL"
-            className="h-9 min-w-0 flex-1 rounded-lg bg-transparent px-4 text-sm text-[var(--c-text-primary)] outline-none hover:bg-[var(--c-bg-input)] focus:bg-transparent focus:border-[var(--c-border-subtle)] border border-transparent transition-colors"
+            className="h-9 min-w-0 flex-1 rounded-lg bg-transparent px-4 text-sm text-(--c-text-primary) outline-none hover:bg-[var(--c-bg-input)] focus:bg-transparent focus:border-[var(--c-border-subtle)] border border-transparent transition-colors"
             style={{ textAlign: inputFocused ? 'left' : 'center' }}
           />
         </form>
@@ -345,13 +344,13 @@ export function BrowserTabPage({
 
       {resolvedActiveBrowserTab?.error && (
         <div
-          className="mx-4 mt-3 flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-sm text-[var(--c-status-error)]"
+          className="mx-4 mt-3 flex shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-sm text-(--c-status-error)"
           style={{ background: 'color-mix(in srgb, var(--c-status-error) 12%, transparent)' }}
         >
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="font-medium">{t.browserTabLoadFailed}</p>
-            <p className="mt-1 break-words text-[var(--c-text-secondary)]">{resolvedActiveBrowserTab.error}</p>
+            <p className="mt-1 break-words text-(--c-text-secondary)">{resolvedActiveBrowserTab.error}</p>
             <div className="mt-2">
               <Button variant="outline" size="sm" onClick={() => void submitNavigation()}>
                 {t.browserTabRetry}

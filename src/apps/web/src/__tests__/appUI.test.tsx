@@ -153,6 +153,7 @@ describe('AppUIProvider sidebar state', () => {
 describe('DesktopTitleBar update entry', () => {
   let container: HTMLDivElement
   let root: ReturnType<typeof createRoot> | null
+  let originalLocalStorage: Storage
 
   const actEnvironment = globalThis as typeof globalThis & {
     IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -170,6 +171,15 @@ describe('DesktopTitleBar update entry', () => {
   })
 
   beforeEach(() => {
+    originalLocalStorage = window.localStorage
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      } satisfies Partial<Storage>,
+    })
     desktopMock.isDesktop.mockReturnValue(true)
     desktopMock.platform.mockReturnValue('darwin')
     window.localStorage.setItem('arkloop:web:locale', 'zh')
@@ -184,6 +194,10 @@ describe('DesktopTitleBar update entry', () => {
       act(() => root!.unmount())
     }
     window.localStorage.removeItem('arkloop:web:locale')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage,
+    })
     container.remove()
     root = null
     if (originalActEnvironment === undefined) {
@@ -203,7 +217,7 @@ describe('DesktopTitleBar update entry', () => {
       root!.render(
         <LocaleProvider>
           <DesktopTitleBar
-            sidebarCollapsed={false}
+            sidebarHidden={false}
             onToggleSidebar={() => {}}
             appMode="chat"
             showIncognitoToggle={false}
@@ -269,7 +283,7 @@ describe('DesktopTitleBar update entry', () => {
       root!.render(
         <LocaleProvider>
           <DesktopTitleBar
-            sidebarCollapsed={false}
+            sidebarHidden={false}
             onToggleSidebar={() => {}}
             appMode="chat"
             showIncognitoToggle={false}
