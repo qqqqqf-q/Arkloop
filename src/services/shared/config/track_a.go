@@ -186,7 +186,7 @@ func RegisterTrackA(r *Registry) error {
 		{
 			Key:         "llm.retry.max_attempts",
 			Type:        TypeInt,
-			Default:     "10",
+			Default:     "3",
 			Description: "LLM 重试最大次数",
 			Sensitive:   false,
 			Scope:       ScopePlatform,

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -1792,30 +1791,13 @@ func recordRunEnd(ctx context.Context, recorder *rollout.Recorder, status string
 	appendRolloutSync(ctx, recorder, MakeRunEnd(status))
 }
 
-const maxRetryBackoffMs = 60_000
-
-// retryBackoffMs 计算带 full jitter 的指数退避等待时长，最大 60s。
+// retryBackoffMs 计算指数退避等待时长，最大 60s。
 func retryBackoffMs(baseMs, attempt int) int {
-	return retryBackoffMsWithRand(baseMs, attempt, func(n int) int {
-		return rand.IntN(n)
-	})
-}
-
-func retryBackoffMsWithRand(baseMs, attempt int, randIntN func(int) int) int {
-	if baseMs <= 0 {
-		baseMs = 1000
+	ms := baseMs * (1 << (attempt - 1))
+	if ms > 60_000 {
+		ms = 60_000
 	}
-	if attempt <= 0 {
-		attempt = 1
-	}
-	capMs := baseMs * (1 << (attempt - 1))
-	if capMs > maxRetryBackoffMs {
-		capMs = maxRetryBackoffMs
-	}
-	if randIntN == nil {
-		return capMs
-	}
-	return randIntN(capMs + 1)
+	return ms
 }
 
 func (l *Loop) runSingleTurn(

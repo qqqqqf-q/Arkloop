@@ -335,7 +335,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
-	llmRetryMaxAttempts := 10
+	llmRetryMaxAttempts := 3
 	llmRetryBaseDelayMs := 1000
 	if configResolver != nil {
 		m, err := configResolver.ResolvePrefix(ctx, "llm.retry.", sharedconfig.Scope{})
