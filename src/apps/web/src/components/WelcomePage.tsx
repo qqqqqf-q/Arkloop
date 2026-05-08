@@ -418,7 +418,7 @@ export function WelcomePage() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="theme-surface-page theme-chat-surface flex h-full flex-col bg-[var(--c-bg-page)]">
       {/* 顶部 header */}
       <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
         {!isDesktop() && (
@@ -497,7 +497,6 @@ export function WelcomePage() {
 
         <div className="w-full max-w-[675px]">
           <ChatInput
-            key={`welcome:${appMode}:${isSearchMode ? 'search' : 'default'}`}
             ref={chatInputRef}
             onSubmit={handleSubmit}
             placeholder={isSearchMode ? '今天有什么想搜索的吗？' : t.chatPlaceholder}

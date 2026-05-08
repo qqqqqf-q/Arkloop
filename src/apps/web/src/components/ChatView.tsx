@@ -2490,7 +2490,6 @@ export const ChatView = memo(function ChatView() {
 
   const chatInputEl = useMemo(() => (
     <ChatInput
-      key={`${threadId ?? '__no_thread__'}:${effectiveAppMode}:${isSearchThread ? 'search' : 'default'}`}
       ref={chatInputRef}
       onSubmit={handleSend}
       onCancel={handleCancel}
@@ -2629,13 +2628,13 @@ export const ChatView = memo(function ChatView() {
   }
 
   return (
-    <div className="theme-surface-page relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
+    <div className="theme-surface-page theme-chat-surface relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg-page)]">
       <ChatTitleMenu />
 
       {/* 主体区域：消息 + 输入 + 可选的 sources 侧边面板 */}
       <div className="relative flex flex-1 min-h-0">
         <div className="relative flex flex-1 min-w-0 flex-col">
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-bg-page-gradient-stop, var(--c-bg-page)), transparent)' }} />
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />
           {/* 消息列表 */}
           <div
             ref={scrollContainerRef}
@@ -2757,7 +2756,7 @@ export const ChatView = memo(function ChatView() {
           left: 0,
           right: 0,
           zIndex: 10,
-          background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page-gradient-stop, var(--c-bg-page)) 24px)',
+          background: 'linear-gradient(to bottom, transparent 0%, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))) 24px)',
         } as React.CSSProperties}
         className="flex w-full flex-col items-center gap-2"
       >

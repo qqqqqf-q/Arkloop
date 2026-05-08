@@ -52,6 +52,7 @@ button:not(:disabled) {
   --c-background-image-scrim-alpha: calc(0.18 + ((1 - var(--c-background-image-opacity)) * 0.34));
   --c-background-image-vignette-alpha: 0.22;
   --c-bg-page-gradient-stop: var(--c-bg-page);
+  --c-chat-bg-gradient-stop: var(--c-bg-page-gradient-stop);
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
   --c-bg-sub: #1e1e1c;
@@ -1557,6 +1558,14 @@ button:not(:disabled) {
 
   :root[data-background-image="custom"] .theme-surface-page .theme-surface-page {
     background-color: transparent;
+  }
+
+  :root[data-background-image="custom"] {
+    --c-chat-bg-gradient-stop: color-mix(in srgb, var(--c-bg-page) 42%, transparent);
+  }
+
+  :root[data-background-image="custom"] .theme-chat-surface {
+    background-color: color-mix(in srgb, var(--c-bg-page) 42%, transparent);
   }
 }
 
