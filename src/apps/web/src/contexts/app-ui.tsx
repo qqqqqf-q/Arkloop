@@ -30,6 +30,7 @@ import { useAuth } from './auth'
 
 export interface AppUIContextValue {
   sidebarCollapsed: boolean
+  sidebarHidden: boolean
   sidebarHiddenByWidth: boolean
   rightPanelOpen: boolean
   isSearchMode: boolean
@@ -65,7 +66,12 @@ export interface AppUIContextValue {
 
 type SidebarUIContextValue = Pick<
   AppUIContextValue,
-  'sidebarCollapsed' | 'sidebarHiddenByWidth' | 'rightPanelOpen' | 'toggleSidebar' | 'setRightPanelOpen'
+  | 'sidebarCollapsed'
+  | 'sidebarHidden'
+  | 'sidebarHiddenByWidth'
+  | 'rightPanelOpen'
+  | 'toggleSidebar'
+  | 'setRightPanelOpen'
 >
 type RightPanelActionsContextValue = Pick<AppUIContextValue, 'setRightPanelOpen'>
 
@@ -99,6 +105,7 @@ function AppUIProviders({
   const sidebarValue = useMemo<SidebarUIContextValue>(
     () => ({
       sidebarCollapsed: value.sidebarCollapsed,
+      sidebarHidden: value.sidebarHidden,
       sidebarHiddenByWidth: value.sidebarHiddenByWidth,
       rightPanelOpen: value.rightPanelOpen,
       toggleSidebar: value.toggleSidebar,
@@ -106,6 +113,7 @@ function AppUIProviders({
     }),
     [
       value.sidebarCollapsed,
+      value.sidebarHidden,
       value.sidebarHiddenByWidth,
       value.rightPanelOpen,
       value.toggleSidebar,
@@ -234,8 +242,10 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const usesHashRouting = window.location.protocol === 'file:'
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
+  const [sidebarHidden, setSidebarHidden] = useState(false)
   const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 560)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
+  const sidebarHiddenRef = useRef(sidebarHidden)
   const autoCollapsedByWidthRef = useRef(window.innerWidth < 1200)
   const manualSidebarCollapsedRef = useRef<boolean | null>(null)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
@@ -280,6 +290,13 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   }, [usesHashRouting])
 
   const toggleSidebar = useCallback((source: 'sidebar' | 'titlebar' = 'sidebar') => {
+    if (source === 'titlebar') {
+      const hidden = sidebarHiddenRef.current
+      const nextHidden = !hidden
+      sidebarHiddenRef.current = nextHidden
+      setSidebarHidden(nextHidden)
+      return
+    }
     const collapsed = sidebarCollapsedRef.current
     const nextCollapsed = !collapsed
     if (isPerfDebugEnabled() && typeof performance !== 'undefined') {
@@ -428,6 +445,10 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   }, [sidebarCollapsed])
 
   useEffect(() => {
+    sidebarHiddenRef.current = sidebarHidden
+  }, [sidebarHidden])
+
+  useEffect(() => {
     const lifecycle = sidebarLifecycleRef.current
     if (!lifecycle || typeof performance === 'undefined') return
     const commitDuration = performance.now() - lifecycle.startedAt
@@ -572,6 +593,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AppUIContextValue>(() => ({
     sidebarCollapsed,
+    sidebarHidden,
     sidebarHiddenByWidth,
     rightPanelOpen,
     isSearchMode,
@@ -604,6 +626,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     triggerTitleBarIncognitoClick,
   }), [
     sidebarCollapsed,
+    sidebarHidden,
     sidebarHiddenByWidth,
     rightPanelOpen,
     isSearchMode,

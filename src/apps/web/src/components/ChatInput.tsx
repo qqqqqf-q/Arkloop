@@ -939,7 +939,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               maxHeight={300}
               style={{
                 fontFamily: 'inherit',
-                fontSize: '16px',
+                fontSize: '14px',
                 fontWeight: 310,
                 ...(variant === 'chat' ? { lineHeight: 1.45 as const } : {}),
                 color: 'var(--c-text-primary)',
@@ -1061,7 +1061,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   style={{
                     display: 'block',
                     fontFamily: 'inherit',
-                    fontSize: '16px',
+                    fontSize: '14px',
                     fontWeight: 310,
                     lineHeight: 1.45 as const,
                     color: 'var(--c-text-primary)',

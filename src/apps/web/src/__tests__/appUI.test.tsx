@@ -153,6 +153,7 @@ describe('AppUIProvider sidebar state', () => {
 describe('DesktopTitleBar update entry', () => {
   let container: HTMLDivElement
   let root: ReturnType<typeof createRoot> | null
+  let originalLocalStorage: Storage
 
   const actEnvironment = globalThis as typeof globalThis & {
     IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -170,8 +171,18 @@ describe('DesktopTitleBar update entry', () => {
   })
 
   beforeEach(() => {
+    originalLocalStorage = window.localStorage
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      } satisfies Partial<Storage>,
+    })
     desktopMock.isDesktop.mockReturnValue(true)
     desktopMock.platform.mockReturnValue('darwin')
+    window.localStorage.setItem('arkloop:web:locale', 'zh')
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     container = document.createElement('div')
     document.body.appendChild(container)
@@ -182,6 +193,11 @@ describe('DesktopTitleBar update entry', () => {
     if (root) {
       act(() => root!.unmount())
     }
+    window.localStorage.removeItem('arkloop:web:locale')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: originalLocalStorage,
+    })
     container.remove()
     root = null
     if (originalActEnvironment === undefined) {
@@ -201,11 +217,9 @@ describe('DesktopTitleBar update entry', () => {
       root!.render(
         <LocaleProvider>
           <DesktopTitleBar
-            sidebarCollapsed={false}
+            sidebarHidden={false}
             onToggleSidebar={() => {}}
             appMode="chat"
-            onSetAppMode={() => {}}
-            availableModes={['chat', 'work']}
             showIncognitoToggle={false}
             hasAppUpdate={hasAppUpdate}
             appUpdateState={state}
@@ -260,5 +274,35 @@ describe('DesktopTitleBar update entry', () => {
 
     await renderTitleBar(appUpdateState('downloaded'), true)
     expect(container.querySelector('button[title="已可安装"], button[title="Ready to install"]')).not.toBeNull()
+  })
+
+  it('标题栏只保留系统级控件，不再渲染 chat/work 与浏览器页签', async () => {
+    desktopMock.platform.mockReturnValue('win32')
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopTitleBar
+            sidebarHidden={false}
+            onToggleSidebar={() => {}}
+            appMode="chat"
+            showIncognitoToggle={false}
+            hasAppUpdate={false}
+            appUpdateState={appUpdateState('idle')}
+            onCheckAppUpdate={() => {}}
+            onDownloadApp={() => {}}
+            onInstallApp={() => {}}
+          />
+        </LocaleProvider>,
+      )
+    })
+
+    expect(container.textContent).not.toContain('Chat')
+    expect(container.textContent).not.toContain('Work')
+    expect(container.textContent).not.toContain('Arkloop Docs')
+    expect(container.querySelector('button[title="新建网页 Tab"]')).toBeNull()
+    expect(container.querySelector('button[title="Close browser tab"]')).toBeNull()
+    expect(container.querySelector('button[title="Minimize"]')).not.toBeNull()
+    expect(container.querySelector('button[title="Close"]')).not.toBeNull()
   })
 })

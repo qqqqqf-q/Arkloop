@@ -1,0 +1,5 @@
+skill_key: scopai
+version: "1"
+display_name: ScopAI Social Media Analysis
+description: Social media data analysis CLI — search, import, download comments/media, and run multi-step strategy analysis.
+instruction_path: SKILL.md

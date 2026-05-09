@@ -176,10 +176,10 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
 
   if (editing) {
     return (
-      <div style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '663px' }}>
           {fileNames.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
               {fileNames.map((name) => (
                 <div
                   key={name}
@@ -219,7 +219,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
                 outline: 'none',
                 resize: 'none',
                 color: 'var(--c-text-primary)',
-                fontSize: '16px',
+                fontSize: '14px',
                 lineHeight: 1.6,
                 letterSpacing: '-0.64px',
                 fontFamily: 'inherit',
@@ -227,7 +227,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
               }}
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
             <button
               onClick={handleEditCancel}
               style={{
@@ -268,14 +268,14 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
 
   return (
     <div
-      style={{ display: 'flex', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}
+      style={{ display: 'flex', justifyContent: 'flex-end' }}
     >
       <div
-        style={{ display: 'flex', flexDirection: 'column', alignItems: isWorkMode ? 'flex-start' : 'flex-end', maxWidth: '663px' }}
+        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', maxWidth: '663px' }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: isWorkMode ? 'flex-start' : 'flex-end', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
         {(imageAttachments.length > 0 || pastedAttachments.length > 0) && accessToken && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'flex-end' }}>
             {imageAttachments.map((part) => (
               <ImageThumbnailCard
                 key={part.attachment.key}
@@ -299,7 +299,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
           </div>
         )}
         {fileAttachments.length > 0 && accessToken && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             {fileAttachments.map((part) => (
               <ArtifactDownload
                 key={part.attachment.key}
@@ -311,7 +311,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
           </div>
         )}
         {((!accessToken && fileNames.length > 0) || (fileAttachments.length === 0 && imageAttachments.length === 0 && pastedAttachments.length === 0 && fileNames.length > 0)) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: isWorkMode ? 'flex-start' : 'flex-end' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'flex-end' }}>
             {fileNames.map((name) => (
               <div
                 key={name}
@@ -351,7 +351,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
                 '--user-prompt-enter-scale': String(USER_PROMPT_ENTER_BASE_SCALE),
                 borderRadius: isWorkMode ? '12px 12px 12px 8px' : '12px',
                 padding: '10px 16px',
-                fontSize: '16.5px',
+                fontSize: '14px',
                 fontWeight: 300,
                 lineHeight: 1.6,
                 letterSpacing: '-0.64px',
@@ -413,30 +413,30 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
             display: 'flex',
             alignItems: 'center',
             gap: '2px',
-            marginTop: '8px',
+            marginTop: '4px',
           }}
         >
           <CopyIconButton
             onCopy={handleCopy}
-            size={16}
+            size={14}
             tooltip={t.copyAction}
             hoverBackground="var(--c-bg-deep)"
-            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           />
           <RefreshIconButton
             onRefresh={onRetry!}
             disabled={!onRetry}
-            size={16}
+            size={14}
             tooltip={t.retryAction}
-            className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
+            className={`flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onRetry ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
           />
           <ActionIconButton
             onClick={handleEditStart}
             tooltip={t.editAction}
             hoverBackground="var(--c-bg-deep)"
-            className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
+            className="flex h-7 w-7 items-center justify-center rounded-[6px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           >
-            <Pencil size={16} />
+            <Pencil size={14} />
           </ActionIconButton>
           <div style={{ marginLeft: '12px', marginBottom: '0px' }}>
             <MessageDate createdAt={message.createdAt} isWorkMode={isWorkMode} />

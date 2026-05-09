@@ -1,5 +1,6 @@
 .idea/
 .vscode/
+.trae/
 node_modules/
 
 Thumbs.db
@@ -76,3 +77,7 @@ release-files/
 /ark
 .cache
 .gstack/
+.worktrees/
+
+# superpowers docs
+docs/superpowers/

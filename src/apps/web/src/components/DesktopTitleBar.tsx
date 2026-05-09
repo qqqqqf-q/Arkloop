@@ -17,7 +17,6 @@ import { getDesktopApi, getDesktopPlatform, isDesktop } from '@arkloop/shared/de
 import type { AppUpdaterState } from '@arkloop/shared/desktop'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { Button } from '@arkloop/shared'
-import { ModeSwitch } from './ModeSwitch'
 import { useLocale } from '../contexts/LocaleContext'
 import type { AppMode } from '../storage'
 import type { SettingsTab } from './SettingsModal'
@@ -31,11 +30,10 @@ const MAC_TITLEBAR_LEFT_PADDING = 76
 const DESKTOP_ICON_RAIL_LEFT_PADDING = 8
 
 type Props = {
-  sidebarCollapsed: boolean
+  sidebarHidden: boolean
   onToggleSidebar: () => void
   appMode: AppMode
-  onSetAppMode: (mode: AppMode) => void
-  availableModes: AppMode[]
+  showSidebarControls?: boolean
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
@@ -50,11 +48,10 @@ type Props = {
 }
 
 export function DesktopTitleBar({
-  sidebarCollapsed,
+  sidebarHidden,
   onToggleSidebar,
   appMode,
-  onSetAppMode,
-  availableModes,
+  showSidebarControls = true,
   showIncognitoToggle = true,
   isPrivateMode,
   onTogglePrivateMode,
@@ -166,10 +163,9 @@ export function DesktopTitleBar({
 
   return (
     <div
-      className="relative grid shrink-0 items-center"
+      className="relative flex shrink-0 items-center justify-between"
       style={{
         height: titleBarHeight,
-        gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
         paddingLeft: `${isMac ? MAC_TITLEBAR_LEFT_PADDING : DESKTOP_ICON_RAIL_LEFT_PADDING}px`,
         paddingRight: isWindows ? 0 : '12px',
         background: isWindows
@@ -180,58 +176,52 @@ export function DesktopTitleBar({
       } as React.CSSProperties}
     >
       {/* sidebar and history controls */}
-      <div
-        className={isWindows ? 'flex min-w-0 items-center gap-1.5 justify-self-start' : 'flex min-w-0 items-center gap-1 self-start justify-self-start pt-[6px]'}
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <button
-          onClick={() => {
-            endPerfTrace(sidebarToggleTrace.current, {
-              phase: 'click',
-              collapsed: sidebarCollapsed,
-              appMode,
-            })
-            sidebarToggleTrace.current = null
-            onToggleSidebar()
-          }}
-          onPointerDown={() => {
-            sidebarToggleTrace.current = beginPerfTrace('desktop_titlebar_sidebar_interaction', {
-              phase: 'pointerdown',
-              collapsed: sidebarCollapsed,
-              appMode,
-            })
-          }}
-          onPointerLeave={() => {
-            sidebarToggleTrace.current = null
-          }}
-          className={btnCls}
+      {showSidebarControls ? (
+        <div
+          data-testid="desktop-titlebar-sidebar-controls"
+          className={isWindows ? 'flex min-w-0 items-center gap-1.5 justify-self-start' : 'flex min-w-0 items-center gap-1 self-start justify-self-start pt-[6px]'}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
-        <button onClick={() => window.history.back()} className={btnCls}>
-          <ChevronLeft size={17} />
-        </button>
-        <button onClick={() => window.history.forward()} className={btnCls}>
-          <ChevronRight size={17} />
-        </button>
-      </div>
-
-      {/* centered mode switch */}
-      <div
-        className="min-w-0 translate-y-px justify-self-center"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <ModeSwitch
-          mode={appMode}
-          onChange={onSetAppMode}
-          labels={{ chat: t.modeChat, work: t.modeWork }}
-          availableModes={availableModes}
-        />
-      </div>
+          <button
+            type="button"
+            data-testid="desktop-titlebar-toggle-sidebar"
+            onClick={() => {
+              endPerfTrace(sidebarToggleTrace.current, {
+                phase: 'click',
+                collapsed: sidebarHidden,
+                appMode,
+              })
+              sidebarToggleTrace.current = null
+              onToggleSidebar()
+            }}
+            onPointerDown={() => {
+              sidebarToggleTrace.current = beginPerfTrace('desktop_titlebar_sidebar_interaction', {
+                phase: 'pointerdown',
+                collapsed: sidebarHidden,
+                appMode,
+              })
+            }}
+            onPointerLeave={() => {
+              sidebarToggleTrace.current = null
+            }}
+            className={btnCls}
+          >
+            {sidebarHidden ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+          <button type="button" onClick={() => window.history.back()} className={btnCls}>
+            <ChevronLeft size={17} />
+          </button>
+          <button type="button" onClick={() => window.history.forward()} className={btnCls}>
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      ) : (
+        <div />
+      )}
 
       {/* app actions and window controls */}
       <div
-        className={isWindows ? 'flex min-w-0 items-stretch justify-end self-stretch justify-self-end' : 'flex min-w-0 items-center justify-end justify-self-end'}
+        className={isWindows ? 'ml-auto flex min-w-0 items-stretch justify-end self-stretch' : 'ml-auto flex min-w-0 items-center justify-end'}
         style={{
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}

@@ -94,6 +94,13 @@ export function BrowserTabPage({
     })
   }, [tabs])
 
+  useEffect(() => {
+    if (inputFocused || !resolvedActiveBrowserTabId || !resolvedActiveBrowserTab) return
+    if (resolvedActiveBrowserTab.loading) return
+    if (draftUrl === resolvedActiveBrowserTab.url) return
+    setDraftUrl(resolvedActiveBrowserTabId, resolvedActiveBrowserTab.url)
+  }, [draftUrl, inputFocused, resolvedActiveBrowserTab, resolvedActiveBrowserTabId, setDraftUrl])
+
   const showEmbeddedBrowser = desktop && Boolean(
     resolvedActiveBrowserTabId &&
     resolvedActiveBrowserTab &&
