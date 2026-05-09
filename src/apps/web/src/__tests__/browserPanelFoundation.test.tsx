@@ -167,4 +167,22 @@ describe('browser panel foundation', () => {
 
     expect(container.textContent).toContain('桌面端')
   })
+
+  it('initializes cleanly without opening the panel in non-desktop mode', async () => {
+    desktopMock.isDesktop.mockReturnValue(false)
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/']}>
+          <BrowserTabsProvider>
+            <BrowserTabsProbe />
+          </BrowserTabsProvider>
+        </MemoryRouter>,
+      )
+      await Promise.resolve()
+    })
+
+    expect(container.querySelector('[data-testid="panel-state"]')?.textContent).toBe('closed')
+    expect(container.querySelector('[data-testid="active-tab"]')?.textContent).toBe('none')
+  })
 })
