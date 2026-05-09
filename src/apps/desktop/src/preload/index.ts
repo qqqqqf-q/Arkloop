@@ -287,6 +287,24 @@ export type UpdaterStatus = {
 
 export type UpdaterComponent = 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
 
+export type DesktopBrowserTab = {
+  id: string
+  title: string
+  url: string
+  faviconUrl: string | null
+  loading: boolean
+  error: string | null
+  canGoBack: boolean
+  canGoForward: boolean
+}
+
+export type DesktopBrowserTabBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export type ArkloopDesktopApi = {
   isDesktop: true
   config: {
@@ -380,6 +398,19 @@ export type ArkloopDesktopApi = {
   fs: {
     listDir: (folderPath: string, subPath?: string) => Promise<LocalDirResult>
     readFile: (folderPath: string, relativePath: string) => Promise<LocalFileResult>
+  }
+  browserTabs: {
+    list: () => Promise<{ tabs: DesktopBrowserTab[] }>
+    create: () => Promise<DesktopBrowserTab>
+    close: (tabId: string) => Promise<{ tabs: DesktopBrowserTab[] }>
+    navigate: (tabId: string, url: string) => Promise<DesktopBrowserTab>
+    reload: (tabId: string) => Promise<DesktopBrowserTab>
+    goBack: (tabId: string) => Promise<DesktopBrowserTab>
+    goForward: (tabId: string) => Promise<DesktopBrowserTab>
+    show: (tabId: string, bounds: DesktopBrowserTabBounds) => Promise<{ ok: boolean }>
+    hide: () => Promise<{ ok: boolean }>
+    syncBounds: (tabId: string, bounds: DesktopBrowserTabBounds) => Promise<{ ok: boolean }>
+    onStateChanged: (callback: (state: { tabs: DesktopBrowserTab[] }) => void) => () => void
   }
 }
 
@@ -588,6 +619,24 @@ const api: ArkloopDesktopApi = {
   fs: {
     listDir: (folderPath: string, subPath = '/') => ipcRenderer.invoke('arkloop:fs:list-dir', folderPath, subPath),
     readFile: (folderPath: string, relativePath: string) => ipcRenderer.invoke('arkloop:fs:read-file', folderPath, relativePath),
+  },
+
+  browserTabs: {
+    list: () => ipcRenderer.invoke('arkloop:browser-tabs:list'),
+    create: () => ipcRenderer.invoke('arkloop:browser-tabs:create'),
+    close: (tabId: string) => ipcRenderer.invoke('arkloop:browser-tabs:close', tabId),
+    navigate: (tabId: string, url: string) => ipcRenderer.invoke('arkloop:browser-tabs:navigate', tabId, url),
+    reload: (tabId: string) => ipcRenderer.invoke('arkloop:browser-tabs:reload', tabId),
+    goBack: (tabId: string) => ipcRenderer.invoke('arkloop:browser-tabs:go-back', tabId),
+    goForward: (tabId: string) => ipcRenderer.invoke('arkloop:browser-tabs:go-forward', tabId),
+    show: (tabId: string, bounds: DesktopBrowserTabBounds) => ipcRenderer.invoke('arkloop:browser-tabs:show', tabId, bounds),
+    hide: () => ipcRenderer.invoke('arkloop:browser-tabs:hide'),
+    syncBounds: (tabId: string, bounds: DesktopBrowserTabBounds) => ipcRenderer.invoke('arkloop:browser-tabs:sync-bounds', tabId, bounds),
+    onStateChanged: (callback) => {
+      const handler = (_event: Electron.IpcRendererEvent, state: { tabs: DesktopBrowserTab[] }) => callback(state)
+      ipcRenderer.on('arkloop:browser-tabs:state', handler)
+      return () => ipcRenderer.removeListener('arkloop:browser-tabs:state', handler)
+    },
   },
 }
 

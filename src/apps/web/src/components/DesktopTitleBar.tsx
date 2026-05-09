@@ -8,6 +8,8 @@ import {
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Square,
   X,
 } from 'lucide-react'
@@ -43,6 +45,8 @@ type Props = {
   onDownloadApp?: () => void
   onInstallApp?: () => void
   onOpenSettings?: (tab?: SettingsTab | 'voice') => void
+  browserPanelOpen?: boolean
+  onToggleBrowserPanel?: () => void
 }
 
 export function DesktopTitleBar({
@@ -60,6 +64,8 @@ export function DesktopTitleBar({
   onDownloadApp,
   onInstallApp,
   onOpenSettings,
+  browserPanelOpen = false,
+  onToggleBrowserPanel,
 }: Props) {
   const { t } = useLocale()
   const sidebarToggleTrace = useRef<ReturnType<typeof beginPerfTrace>>(null)
@@ -231,6 +237,15 @@ export function DesktopTitleBar({
         } as React.CSSProperties}
       >
         <div className={isWindows ? 'flex items-center justify-end gap-1 pr-2' : 'flex items-center justify-end'}>
+          {onToggleBrowserPanel && (
+            <button
+              onClick={onToggleBrowserPanel}
+              title={browserPanelOpen ? t.browserPanelCollapse : t.browserPanelExpand}
+              className={btnCls}
+            >
+              {browserPanelOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+            </button>
+          )}
           {showIncognitoToggle && onTogglePrivateMode && (
             <button
               onClick={onTogglePrivateMode}

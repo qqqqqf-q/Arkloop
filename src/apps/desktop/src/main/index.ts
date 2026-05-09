@@ -25,6 +25,7 @@ import { setupAppUpdater } from './app-updater'
 import { setupMainProcessLogging, getDesktopLogDir } from './logging'
 import { syncLocalVersions } from './updater'
 import { ensureBrowserSearchServer, closeBrowserSearchServer } from './browser-search'
+import { initializeBrowserTabs, setBrowserTabsStateListener, closeAllBrowserTabs, listBrowserTabs } from './browser-tabs'
 import type { AppConfig, ApplyConfigUpdateOptions } from './types'
 
 app.setName('Arkloop')
@@ -193,6 +194,13 @@ function syncBridgeBaseUrlToRenderer(bridgeBaseUrl: string): void {
   const win = getWindow()
   if (win) {
     win.webContents.send('arkloop:bridge:url-changed', bridgeBaseUrl)
+  }
+}
+
+function syncBrowserTabsToRenderer(snapshot: { tabs: import('./browser-tabs').BrowserTabState[] }): void {
+  const win = getWindow()
+  if (win) {
+    win.webContents.send('arkloop:browser-tabs:state', snapshot)
   }
 }
 
@@ -504,6 +512,8 @@ if (!hasSingleInstanceLock) {
     setBridgeUrlListener((bridgeBaseUrl) => {
       syncBridgeBaseUrlToRenderer(bridgeBaseUrl)
     })
+    initializeBrowserTabs(getWindow)
+    setBrowserTabsStateListener(syncBrowserTabsToRenderer)
 
     registerIpcHandlers(getWindow, {
       applyConfigUpdate,
@@ -533,6 +543,7 @@ if (!hasSingleInstanceLock) {
         syncRuntimeToRenderer(getSidecarRuntime())
         syncConfigToRenderer(loadConfig())
         syncBridgeBaseUrlToRenderer(getBridgeBaseUrl())
+        syncBrowserTabsToRenderer(listBrowserTabs())
       }
     })()
     mainWindow.webContents.once('dom-ready', pushEmbeddedStateToRendererOnce)
@@ -576,6 +587,7 @@ if (!hasSingleInstanceLock) {
     void (async () => {
       destroyTray()
       try {
+        closeAllBrowserTabs()
         const cfg = loadConfig()
         if (cfg.mode === 'local') {
           await stopBridgeOpenvikingIfNeeded(cfg.memory)
