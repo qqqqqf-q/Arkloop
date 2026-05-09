@@ -452,7 +452,7 @@ export const zh: LocaleStrings = {
   browserTabLoadFailed: "页面加载失败",
   browserTabRetry: "重试",
   browserTabEmptyState: "输入网址后即可在当前页签中打开网页。",
-  newTask: "新任务",
+  newTask: "新建任务",
   tasks: "任务",
   tasksEmpty: "暂无任务记录",
   workGreeting: "今天要完成什么？",

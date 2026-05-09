@@ -1,5 +1,6 @@
 .idea/
 .vscode/
+.trae/
 node_modules/
 
 Thumbs.db

@@ -32,7 +32,7 @@ title: "配置参考"
 | limit.team_members | int | both | 0 | false | Team 成员数量上限，0 表示不限 |
 | llm.max_response_bytes | int | platform | 16384 | false | LLM Provider HTTP 响应读取上限（字节） |
 | llm.retry.base_delay_ms | int | platform | 1000 | false | LLM 重试基础延迟（毫秒） |
-| llm.retry.max_attempts | int | platform | 3 | false | LLM 重试最大次数 |
+| llm.retry.max_attempts | int | platform | 10 | false | LLM 重试最大次数 |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
 | openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
 | openviking.root_api_key | string | platform |  | true | OpenViking Root API Key |

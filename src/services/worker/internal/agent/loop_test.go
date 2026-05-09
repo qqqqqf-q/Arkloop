@@ -2050,21 +2050,27 @@ func TestCompactToolResultsWithStateKeepsReplacementStableAcrossTurns(t *testing
 	}
 }
 
-func TestRetryBackoffMsCapsAt60Seconds(t *testing.T) {
-	got := []int{
-		retryBackoffMs(1000, 1),
-		retryBackoffMs(1000, 2),
-		retryBackoffMs(1000, 3),
-		retryBackoffMs(1000, 4),
-		retryBackoffMs(1000, 5),
-		retryBackoffMs(1000, 6),
-		retryBackoffMs(1000, 7),
-	}
-	want := []int{1000, 2000, 4000, 8000, 16000, 32000, 60000}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("attempt %d: got %d want %d", i+1, got[i], want[i])
+func TestRetryBackoffMsUsesFullJitterWithinCap(t *testing.T) {
+	got := retryBackoffMsWithRand(1000, 3, func(n int) int {
+		if n != 4001 {
+			t.Fatalf("rand upper bound = %d, want 4001", n)
 		}
+		return 1375
+	})
+	if got != 1375 {
+		t.Fatalf("retryBackoffMsWithRand() = %d, want 1375", got)
+	}
+}
+
+func TestRetryBackoffMsCapsBeforeApplyingJitter(t *testing.T) {
+	got := retryBackoffMsWithRand(1000, 10, func(n int) int {
+		if n != 60001 {
+			t.Fatalf("rand upper bound = %d, want 60001", n)
+		}
+		return 60000
+	})
+	if got != 60000 {
+		t.Fatalf("retryBackoffMsWithRand() = %d, want 60000", got)
 	}
 }
 

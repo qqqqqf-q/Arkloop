@@ -288,8 +288,8 @@ func TestResolveDesktopLLMRetryReadsPlatformSettings(t *testing.T) {
 	mustExecDesktopSQL(t, db, `CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 
 	maxAttempts, baseDelayMs := resolveDesktopLLMRetry(ctx, db)
-	if maxAttempts != 3 || baseDelayMs != 1000 {
-		t.Fatalf("default retry config = (%d, %d), want (3, 1000)", maxAttempts, baseDelayMs)
+	if maxAttempts != 10 || baseDelayMs != 1000 {
+		t.Fatalf("default retry config = (%d, %d), want (10, 1000)", maxAttempts, baseDelayMs)
 	}
 
 	for key, value := range map[string]string{

@@ -42,36 +42,54 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const desktop = isDesktop()
+  const browserApi = desktop ? getDesktopApi()?.browserTabs ?? null : null
   const legacyBrowserTabId = readBrowserTabId(location.pathname)
-  const [initialized, setInitialized] = useState(!desktop)
+  const [initialized, setInitialized] = useState(!desktop || !browserApi)
   const [tabs, setTabs] = useState<DesktopBrowserTab[]>([])
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [activeBrowserTabId, setActiveBrowserTabId] = useState<string | null>(null)
+  const [panelOpen, setPanelOpen] = useState(Boolean(legacyBrowserTabId))
+  const [activeBrowserTabId, setActiveBrowserTabId] = useState<string | null>(legacyBrowserTabId)
+  const [recentTabIds, setRecentTabIds] = useState<string[]>(legacyBrowserTabId ? [legacyBrowserTabId] : [])
   const [draftUrls, setDraftUrls] = useState<Record<string, string>>({})
   const draftUrlsRef = useRef<Record<string, string>>({})
-  const recentTabIdsRef = useRef<string[]>([])
+
+  const mergedDraftUrls = useMemo(() => {
+    const next: Record<string, string> = {}
+    for (const tab of tabs) {
+      next[tab.id] = draftUrls[tab.id] ?? tab.url
+    }
+    return next
+  }, [draftUrls, tabs])
+
+  const resolvedActiveBrowserTabId = useMemo(() => {
+    if (!initialized) return activeBrowserTabId
+    if (!activeBrowserTabId) return activeBrowserTabId
+    if (tabs.some((tab) => tab.id === activeBrowserTabId)) return activeBrowserTabId
+    const nextRecentTabId = recentTabIds.find((id) => tabs.some((tab) => tab.id === id))
+    if (nextRecentTabId) return nextRecentTabId
+    return tabs[0]?.id ?? null
+  }, [activeBrowserTabId, initialized, recentTabIds, tabs])
+
+  const resolvedPanelOpen = useMemo(() => {
+    if (!initialized) return panelOpen
+    if (!panelOpen) return false
+    if (tabs.length > 0) return true
+    return activeBrowserTabId == null
+  }, [activeBrowserTabId, initialized, panelOpen, tabs.length])
 
   useEffect(() => {
-    draftUrlsRef.current = draftUrls
-  }, [draftUrls])
+    draftUrlsRef.current = mergedDraftUrls
+  }, [mergedDraftUrls])
 
   useEffect(() => {
     if (!desktop) {
-      setInitialized(true)
-      setTabs([])
-      setPanelOpen(false)
-      setActiveBrowserTabId(null)
       return
     }
-    const api = getDesktopApi()
-    if (!api?.browserTabs) {
-      setInitialized(true)
-      setTabs([])
+    if (!browserApi) {
       return
     }
 
     let cancelled = false
-    api.browserTabs.list()
+    browserApi.list()
       .then((snapshot) => {
         if (cancelled) return
         setTabs(snapshot.tabs)
@@ -83,7 +101,7 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
         setInitialized(true)
       })
 
-    const unsubscribe = api.browserTabs.onStateChanged((snapshot) => {
+    const unsubscribe = browserApi.onStateChanged((snapshot) => {
       if (cancelled) return
       setTabs(snapshot.tabs)
     })
@@ -92,46 +110,15 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
       cancelled = true
       unsubscribe?.()
     }
-  }, [desktop])
-
-  useEffect(() => {
-    setDraftUrls((current) => {
-      const next: Record<string, string> = {}
-      for (const tab of tabs) {
-        next[tab.id] = current[tab.id] ?? tab.url
-      }
-      return next
-    })
-  }, [tabs])
-
-  useEffect(() => {
-    if (!activeBrowserTabId) return
-    recentTabIdsRef.current = [
-      activeBrowserTabId,
-      ...recentTabIdsRef.current.filter((tabId) => tabId !== activeBrowserTabId),
-    ]
-  }, [activeBrowserTabId])
+  }, [browserApi, desktop])
 
   useEffect(() => {
     if (!initialized) return
     if (!legacyBrowserTabId) return
-    setPanelOpen(true)
-    setActiveBrowserTabId(legacyBrowserTabId)
     navigate('/', { replace: true })
   }, [initialized, legacyBrowserTabId, navigate])
 
-  useEffect(() => {
-    if (!initialized) return
-    if (!activeBrowserTabId) return
-    if (tabs.some((tab) => tab.id === activeBrowserTabId)) return
-    const nextRecentTabId = recentTabIdsRef.current.find((id) => tabs.some((tab) => tab.id === id))
-    setActiveBrowserTabId(nextRecentTabId ?? tabs[0]?.id ?? null)
-    if (tabs.length === 0) {
-      setPanelOpen(false)
-    }
-  }, [activeBrowserTabId, initialized, tabs])
-
-  const getDraftUrl = useCallback((tabId: string) => draftUrls[tabId] ?? '', [draftUrls])
+  const getDraftUrl = useCallback((tabId: string) => mergedDraftUrls[tabId] ?? '', [mergedDraftUrls])
 
   const setDraftUrl = useCallback((tabId: string, value: string) => {
     setDraftUrls((current) => ({ ...current, [tabId]: value }))
@@ -139,8 +126,8 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
 
   const openBrowserPanel = useCallback(() => {
     setPanelOpen(true)
-    setActiveBrowserTabId((current) => current ?? recentTabIdsRef.current[0] ?? tabs[0]?.id ?? null)
-  }, [tabs])
+    setActiveBrowserTabId((current) => current ?? recentTabIds[0] ?? tabs[0]?.id ?? null)
+  }, [recentTabIds, tabs])
 
   const closeBrowserPanel = useCallback(() => {
     setPanelOpen(false)
@@ -150,17 +137,18 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
     setPanelOpen((current) => {
       const next = !current
       if (next) {
-        setActiveBrowserTabId((active) => active ?? recentTabIdsRef.current[0] ?? tabs[0]?.id ?? null)
+        setActiveBrowserTabId((active) => active ?? recentTabIds[0] ?? tabs[0]?.id ?? null)
       }
       return next
     })
-  }, [tabs])
+  }, [recentTabIds, tabs])
 
   const createBrowserTab = useCallback(async (options?: { openPanel?: boolean }) => {
     const api = getDesktopApi()
     if (!api?.browserTabs) return null
     const tab = await api.browserTabs.create()
     setDraftUrls((current) => ({ ...current, [tab.id]: tab.url }))
+    setRecentTabIds((current) => [tab.id, ...current.filter((existingId) => existingId !== tab.id)])
     setPanelOpen(options?.openPanel ?? true)
     setActiveBrowserTabId(tab.id)
     return tab.id
@@ -168,6 +156,7 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
 
   const activateBrowserTab = useCallback((tabId: string, options?: { openPanel?: boolean }) => {
     setPanelOpen((current) => (options?.openPanel ?? true) ? true : current)
+    setRecentTabIds((current) => [tabId, ...current.filter((existingId) => existingId !== tabId)])
     setActiveBrowserTabId(tabId)
   }, [])
 
@@ -180,17 +169,18 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
       delete next[tabId]
       return next
     })
-    recentTabIdsRef.current = recentTabIdsRef.current.filter((id) => id !== tabId)
+    const remainingRecentTabIds = recentTabIds.filter((id) => id !== tabId)
+    setRecentTabIds(remainingRecentTabIds)
+    const nextRecentTabId = remainingRecentTabIds.find((id) => snapshot.tabs.some((tab) => tab.id === id))
     setTabs(snapshot.tabs)
     if (activeBrowserTabId === tabId) {
-      const nextRecentTabId = recentTabIdsRef.current.find((id) => snapshot.tabs.some((tab) => tab.id === id))
       const fallbackTabId = nextRecentTabId ?? snapshot.tabs[0]?.id ?? null
       setActiveBrowserTabId(fallbackTabId)
       if (!fallbackTabId) {
         setPanelOpen(false)
       }
     }
-  }, [activeBrowserTabId])
+  }, [activeBrowserTabId, recentTabIds])
 
   const navigateBrowserTab = useCallback(async (tabId: string, url?: string) => {
     const api = getDesktopApi()
@@ -219,15 +209,15 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const activeBrowserTab = useMemo(
-    () => activeBrowserTabId ? tabs.find((tab) => tab.id === activeBrowserTabId) ?? null : null,
-    [activeBrowserTabId, tabs],
+    () => resolvedActiveBrowserTabId ? tabs.find((tab) => tab.id === resolvedActiveBrowserTabId) ?? null : null,
+    [resolvedActiveBrowserTabId, tabs],
   )
 
   const value = useMemo<BrowserTabsContextValue>(() => ({
     initialized,
     tabs,
-    panelOpen,
-    activeBrowserTabId,
+    panelOpen: resolvedPanelOpen,
+    activeBrowserTabId: resolvedActiveBrowserTabId,
     activeBrowserTab,
     getDraftUrl,
     setDraftUrl,
@@ -243,7 +233,6 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
     goForwardBrowserTab,
   }), [
     activeBrowserTab,
-    activeBrowserTabId,
     activateBrowserTab,
     closeBrowserTab,
     createBrowserTab,
@@ -251,10 +240,11 @@ export function BrowserTabsProvider({ children }: { children: ReactNode }) {
     goBackBrowserTab,
     goForwardBrowserTab,
     initialized,
-    panelOpen,
     navigateBrowserTab,
     openBrowserPanel,
     reloadBrowserTab,
+    resolvedActiveBrowserTabId,
+    resolvedPanelOpen,
     setDraftUrl,
     closeBrowserPanel,
     tabs,

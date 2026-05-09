@@ -603,6 +603,15 @@ export function AppLayout() {
             showIncognitoToggle={false}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
+            browserPanelOpen={effectiveBrowserPanelOpen}
+            onToggleBrowserPanel={() => {
+              if (effectiveBrowserPanelOpen) {
+                handleCollapseBrowserPanel();
+                return;
+              }
+              setBrowserFullscreen(false);
+              toggleBrowserPanel();
+            }}
             hasAppUpdate={hasAppUpdate}
             onCheckAppUpdate={handleCheckAppUpdate}
             appUpdateState={appUpdateState}

@@ -807,6 +807,7 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
 
   const appUIValue: AppUIContextValue = {
     sidebarCollapsed: false,
+    sidebarHidden: false,
     sidebarHiddenByWidth: false,
     rightPanelOpen: false,
     isSearchMode: false,

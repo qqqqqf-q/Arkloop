@@ -30,6 +30,7 @@ type BrowserTabsSnapshot = {
 
 const browserTabs = new Map<string, BrowserTabRecord>()
 const FAILED_LOAD_IGNORED_CODES = new Set([-3])
+const SAFE_EXTERNAL_PROTOCOLS = new Set(['mailto:'])
 
 let getWindowRef: (() => BrowserWindow | null) | null = null
 let visibleTabId: string | null = null
@@ -62,6 +63,16 @@ function parseHttpUrl(rawUrl: string): URL | null {
   try {
     const parsed = new URL(rawUrl)
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed
+    }
+  } catch {}
+  return null
+}
+
+function parseSafeExternalUrl(rawUrl: string): URL | null {
+  try {
+    const parsed = new URL(rawUrl)
+    if (SAFE_EXTERNAL_PROTOCOLS.has(parsed.protocol)) {
       return parsed
     }
   } catch {}
@@ -196,7 +207,10 @@ function createBrowserView(tabId: string): BrowserView {
       })
       return { action: 'deny' }
     }
-    void shell.openExternal(url).catch(() => {})
+    const safeExternalUrl = parseSafeExternalUrl(url)
+    if (safeExternalUrl) {
+      void shell.openExternal(safeExternalUrl.toString()).catch(() => {})
+    }
     return { action: 'deny' }
   })
 
@@ -232,7 +246,10 @@ function createBrowserView(tabId: string): BrowserView {
   view.webContents.on('will-navigate', (event, url) => {
     if (parseHttpUrl(url)) return
     event.preventDefault()
-    void shell.openExternal(url).catch(() => {})
+    const safeExternalUrl = parseSafeExternalUrl(url)
+    if (safeExternalUrl) {
+      void shell.openExternal(safeExternalUrl.toString()).catch(() => {})
+    }
   })
 
   return view

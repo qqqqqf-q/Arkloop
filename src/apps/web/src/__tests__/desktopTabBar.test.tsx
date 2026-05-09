@@ -41,7 +41,7 @@ const currentThread: ThreadResponse = {
   created_at: '2026-05-08T00:00:00Z',
   active_run_id: null,
   is_private: false,
-  collaboration_mode: 'manual',
+  collaboration_mode: 'default',
   collaboration_mode_revision: 1,
   learning_mode_enabled: false,
 }
