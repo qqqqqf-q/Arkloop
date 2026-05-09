@@ -340,4 +340,106 @@ describe('BrowserTabPage', () => {
     expect(tabStripRow?.style.borderBottom).toBe('')
     expect(addressBarRow?.style.borderBottom).toBe('0.5px solid var(--c-border-subtle)')
   })
+
+  it('未聚焦地址栏时会在页签 URL 更新后同步草稿地址', async () => {
+    const setDraftUrl = vi.fn()
+
+    mockedUseBrowserTabs.mockReturnValue({
+      initialized: true,
+      tabs: [{
+        id: 'browser-a',
+        title: 'Typed Host',
+        url: 'https://typed.test/',
+        faviconUrl: null,
+        loading: true,
+        error: null,
+        canGoBack: false,
+        canGoForward: false,
+      }],
+      panelOpen: true,
+      activeBrowserTabId: 'browser-a',
+      activeBrowserTab: {
+        id: 'browser-a',
+        title: 'Typed Host',
+        url: 'https://typed.test/',
+        faviconUrl: null,
+        loading: true,
+        error: null,
+        canGoBack: false,
+        canGoForward: false,
+      },
+      getDraftUrl: vi.fn(() => 'typed.test'),
+      setDraftUrl,
+      openBrowserPanel: vi.fn(),
+      closeBrowserPanel: vi.fn(),
+      toggleBrowserPanel: vi.fn(),
+      createBrowserTab: vi.fn(() => Promise.resolve(null)),
+      activateBrowserTab: vi.fn(),
+      closeBrowserTab: vi.fn(() => Promise.resolve()),
+      navigateBrowserTab: vi.fn(() => Promise.resolve(null)),
+      reloadBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goBackBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goForwardBrowserTab: vi.fn(() => Promise.resolve(null)),
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <BrowserTabPage />
+        </LocaleProvider>,
+      )
+      await Promise.resolve()
+    })
+
+    expect(setDraftUrl).not.toHaveBeenCalled()
+
+    mockedUseBrowserTabs.mockReturnValue({
+      initialized: true,
+      tabs: [{
+        id: 'browser-a',
+        title: 'Redirected Host',
+        url: 'https://redirected.test/',
+        faviconUrl: null,
+        loading: false,
+        error: null,
+        canGoBack: true,
+        canGoForward: false,
+      }],
+      panelOpen: true,
+      activeBrowserTabId: 'browser-a',
+      activeBrowserTab: {
+        id: 'browser-a',
+        title: 'Redirected Host',
+        url: 'https://redirected.test/',
+        faviconUrl: null,
+        loading: false,
+        error: null,
+        canGoBack: true,
+        canGoForward: false,
+      },
+      getDraftUrl: vi.fn(() => 'typed.test'),
+      setDraftUrl,
+      openBrowserPanel: vi.fn(),
+      closeBrowserPanel: vi.fn(),
+      toggleBrowserPanel: vi.fn(),
+      createBrowserTab: vi.fn(() => Promise.resolve(null)),
+      activateBrowserTab: vi.fn(),
+      closeBrowserTab: vi.fn(() => Promise.resolve()),
+      navigateBrowserTab: vi.fn(() => Promise.resolve(null)),
+      reloadBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goBackBrowserTab: vi.fn(() => Promise.resolve(null)),
+      goForwardBrowserTab: vi.fn(() => Promise.resolve(null)),
+    })
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <BrowserTabPage />
+        </LocaleProvider>,
+      )
+      await Promise.resolve()
+    })
+
+    expect(setDraftUrl).toHaveBeenCalledWith('browser-a', 'https://redirected.test/')
+  })
 })
