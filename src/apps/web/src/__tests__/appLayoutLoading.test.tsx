@@ -10,7 +10,8 @@ import { ThreadListProvider, useThreadList } from '../contexts/thread-list'
 import { AppUIProvider } from '../contexts/app-ui'
 import { BrowserTabsProvider } from '../contexts/browser-tabs'
 import { CreditsProvider } from '../contexts/credits'
-import { BrowserTabsProvider } from '../contexts/browser-tabs'
+import { PluginRuntimeProvider } from '../plugins/runtime'
+import { PluginBrowserSessionProvider } from '../plugins/browser-session'
 import { getMe, listThreads, getMyCredits, streamThreadRunStateEvents, updateThreadMode, updateThreadSidebarState, type ThreadResponse } from '../api'
 import {
   readGtdArchivedThreadIds,
@@ -193,17 +194,21 @@ describe('AppLayout loading state', () => {
               <ThreadListProvider>
                 <AppUIProvider>
                   <BrowserTabsProvider>
-                    <CreditsProvider>
-                      <Routes>
-                        <Route
-                          element={<AppLayout />}
-                        >
-                          <Route element={<OutletShell />}>
-                            <Route index element={<div>home</div>} />
-                          </Route>
-                        </Route>
-                      </Routes>
-                    </CreditsProvider>
+                    <PluginRuntimeProvider>
+                      <PluginBrowserSessionProvider>
+                        <CreditsProvider>
+                          <Routes>
+                            <Route
+                              element={<AppLayout />}
+                            >
+                              <Route element={<OutletShell />}>
+                                <Route index element={<div>home</div>} />
+                              </Route>
+                            </Route>
+                          </Routes>
+                        </CreditsProvider>
+                      </PluginBrowserSessionProvider>
+                    </PluginRuntimeProvider>
                   </BrowserTabsProvider>
                 </AppUIProvider>
               </ThreadListProvider>

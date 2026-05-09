@@ -77,3 +77,6 @@ release-files/
 .cache
 .gstack/
 .worktrees/
+
+# superpowers docs
+docs/superpowers/

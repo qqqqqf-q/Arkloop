@@ -35,17 +35,17 @@ describe('MarkdownRenderer', () => {
   it('默认字号应保持 Chat 旧行为', () => {
     const html = renderMarkdown('# 一级标题\n\n正文\n\n- 列表项')
 
-    expect(html).toMatch(/<h1 style="[^"]*font-size:16\.5px/)
-    expect(html).toMatch(/<p style="[^"]*font-size:16\.5px/)
-    expect(html).toMatch(/<ul style="[^"]*font-size:16\.5px/)
+    expect(html).toMatch(/<h1 style="[^"]*font-size:14px/)
+    expect(html).toMatch(/<p style="[^"]*font-size:14px/)
+    expect(html).toMatch(/<ul style="[^"]*font-size:14px/)
   })
 
   it('Work 字号应只调整正文，不改变 Markdown 一级标题', () => {
     const html = renderMarkdown('# 一级标题\n\n正文\n\n- 列表项', { typography: 'work' })
 
-    expect(html).toMatch(/<h1 style="[^"]*font-size:16\.5px/)
-    expect(html).toMatch(/<p style="[^"]*font-size:16px/)
-    expect(html).toMatch(/<ul style="[^"]*font-size:16px/)
+    expect(html).toMatch(/<h1 style="[^"]*font-size:14px/)
+    expect(html).toMatch(/<p style="[^"]*font-size:14px/)
+    expect(html).toMatch(/<ul style="[^"]*font-size:14px/)
   })
 
   it('应解析大小写混合的 Web: 引用并关联到来源', () => {
