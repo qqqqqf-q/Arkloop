@@ -1,7 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { isDesktop, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
+import { BrowserTabPage } from '../components/BrowserTabPage'
 import { Sidebar } from '../components/Sidebar'
 import { DesktopTitleBar } from '../components/DesktopTitleBar'
 import { SettingsModal, type SettingsTab } from '../components/SettingsModal'
@@ -24,6 +25,7 @@ import {
   useTitleBarIncognitoUI,
 } from '../contexts/app-ui'
 import { useCredits } from '../contexts/credits'
+import { useBrowserTabs } from '../contexts/browser-tabs'
 import { isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
 
 const MainViewport = memo(function MainViewport({
@@ -63,6 +65,13 @@ type LayoutMainProps = {
   onSearchClose: () => void
   onMeUpdated: (m: import('../api').MeResponse) => void
   onTrySkill: (prompt: string) => void
+  browserPanelOpen: boolean
+  browserFullscreen: boolean
+  chatRatio: number
+  containerRef: React.RefObject<HTMLDivElement | null>
+  onResizeStart: (event: React.MouseEvent) => void
+  onCloseBrowserPanel: () => void
+  onToggleBrowserFullscreen: () => void
 }
 
 const LayoutMain = memo(function LayoutMain({
@@ -74,6 +83,13 @@ const LayoutMain = memo(function LayoutMain({
   onSearchClose,
   onMeUpdated,
   onTrySkill,
+  browserPanelOpen,
+  browserFullscreen,
+  chatRatio,
+  containerRef,
+  onResizeStart,
+  onCloseBrowserPanel,
+  onToggleBrowserFullscreen,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
   const { setCreditsBalance } = useCredits()
@@ -131,13 +147,55 @@ const LayoutMain = memo(function LayoutMain({
           onTrySkill={onTrySkill}
         />
       ) : (
-        <div className="relative flex min-w-0 flex-1 overflow-hidden">
-          <MainViewport
-            accessToken={accessToken}
-            notificationsOpen={notificationsOpen}
-            closeNotifications={closeNotifications}
-            markNotificationRead={markNotificationRead}
-          />
+        <div
+          ref={containerRef}
+          className="relative flex min-w-0 flex-1 overflow-hidden"
+          style={{ borderLeft: '0.5px solid var(--c-border-subtle)' }}
+        >
+          {!browserFullscreen && (
+            <div
+              className="flex min-w-0 flex-1 flex-col overflow-hidden"
+              style={{ flex: browserPanelOpen ? `0 0 ${chatRatio}%` : '1 1 100%' }}
+            >
+              <MainViewport
+                accessToken={accessToken}
+                notificationsOpen={notificationsOpen}
+                closeNotifications={closeNotifications}
+                markNotificationRead={markNotificationRead}
+              />
+            </div>
+          )}
+
+          {desktop && browserPanelOpen && (
+            <aside
+              className="relative flex min-h-0 min-w-0 shrink-0 bg-(--c-bg-page)"
+              style={{ flex: browserFullscreen ? '1 1 100%' : `0 0 ${100 - chatRatio}%` }}
+            >
+              {!browserFullscreen && (
+                <div
+                  className="absolute inset-y-0 left-0 cursor-col-resize"
+                  style={{ width: '12px', marginLeft: '-6px', zIndex: 10 }}
+                  onMouseDown={onResizeStart}
+                >
+                  <div
+                    className="absolute inset-y-0 right-0 w-[3px] bg-transparent transition-colors hover:bg-(--c-border-subtle)"
+                    style={{ right: '3px' }}
+                  />
+                </div>
+              )}
+              <div
+                className="min-w-0 flex-1"
+                style={{ borderLeft: browserFullscreen ? 'none' : '0.5px solid var(--c-border-subtle)' }}
+              >
+                <BrowserTabPage
+                  browserFullscreen={browserFullscreen}
+                  forcePanelOpen={browserPanelOpen}
+                  onClosePanel={onCloseBrowserPanel}
+                  onToggleBrowserFullscreen={onToggleBrowserFullscreen}
+                />
+              </div>
+            </aside>
+          )}
         </div>
       )}
     </>
@@ -165,9 +223,14 @@ export function AppLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const desktop = isDesktop()
+  const { panelOpen: browserPanelOpen, toggleBrowserPanel, closeBrowserPanel } = useBrowserTabs()
 
   const [appUpdateState, setAppUpdateState] = useState<import('@arkloop/shared/desktop').AppUpdaterState | null>(null)
   const [productUpdateNotifications, setProductUpdateNotifications] = useState(true)
+  const [browserFullscreen, setBrowserFullscreen] = useState(false)
+  const [chatRatio, setChatRatio] = useState(50)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const isDragging = useRef(false)
 
   // app updater
   useEffect(() => {
@@ -204,6 +267,41 @@ export function AppLayout() {
     const api = getDesktopApi()
     void api?.appUpdater?.install().catch(() => {})
   }, [])
+
+  const handleToggleBrowserFullscreen = useCallback(() => {
+    setBrowserFullscreen((prev) => !prev)
+  }, [])
+
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    event.preventDefault()
+    isDragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return
+      const rect = containerRef.current.getBoundingClientRect()
+      const x = moveEvent.clientX - rect.left
+      const ratio = Math.max(20, Math.min(80, (x / rect.width) * 100))
+      setChatRatio(ratio)
+    }
+
+    const handleMouseUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [])
+
+  const handleCloseBrowserPanel = useCallback(() => {
+    setBrowserFullscreen(false)
+    closeBrowserPanel()
+  }, [closeBrowserPanel])
 
   const handleTitleBarOpenSettings = useCallback((tab?: SettingsTab | 'voice') => {
     openSettings(tab)
@@ -285,7 +383,7 @@ export function AppLayout() {
 
   return (
     <TimeZoneProvider userTimeZone={me?.timezone ?? null} accountTimeZone={me?.account_timezone ?? null}>
-      <div className="theme-background-root app-viewport flex flex-col overflow-hidden bg-[var(--c-bg-page)]">
+      <div className="theme-background-root app-viewport flex flex-col overflow-hidden bg-(--c-bg-page)">
         <div className="theme-background-layer" aria-hidden="true" />
         {desktop && (
           <DesktopTitleBar
@@ -297,6 +395,15 @@ export function AppLayout() {
             showIncognitoToggle={activeAppMode !== 'work'}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
+            browserPanelOpen={browserPanelOpen}
+            onToggleBrowserPanel={() => {
+              if (browserPanelOpen) {
+                handleCloseBrowserPanel()
+                return
+              }
+              setBrowserFullscreen(false)
+              toggleBrowserPanel()
+            }}
             hasAppUpdate={hasAppUpdate}
             onCheckAppUpdate={handleCheckAppUpdate}
             appUpdateState={appUpdateState}
@@ -325,6 +432,13 @@ export function AppLayout() {
             onSearchClose={handleCloseSearch}
             onMeUpdated={updateMe}
             onTrySkill={handleTrySkill}
+            browserPanelOpen={browserPanelOpen}
+            browserFullscreen={browserFullscreen}
+            chatRatio={chatRatio}
+            containerRef={containerRef}
+            onResizeStart={handleMouseDown}
+            onCloseBrowserPanel={handleCloseBrowserPanel}
+            onToggleBrowserFullscreen={handleToggleBrowserFullscreen}
           />
         </div>
       </div>

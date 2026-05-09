@@ -9,6 +9,7 @@ import { AuthProvider } from './contexts/auth'
 import { ThreadListProvider } from './contexts/thread-list'
 import { AppUIProvider } from './contexts/app-ui'
 import { CreditsProvider } from './contexts/credits'
+import { BrowserTabsProvider } from './contexts/browser-tabs'
 import { SharePage } from './components/SharePage'
 import { VerifyEmailPage } from './components/VerifyEmailPage'
 import { OnboardingWizard } from './components/OnboardingWizard'
@@ -386,9 +387,11 @@ function App() {
             <AuthProvider accessToken={accessToken} onLoggedOut={handleLoggedOut}>
               <ThreadListProvider>
                 <AppUIProvider>
-                  <CreditsProvider>
-                    <AppLayout />
-                  </CreditsProvider>
+                  <BrowserTabsProvider>
+                    <CreditsProvider>
+                      <AppLayout />
+                    </CreditsProvider>
+                  </BrowserTabsProvider>
                 </AppUIProvider>
               </ThreadListProvider>
             </AuthProvider>

@@ -410,6 +410,18 @@ export interface LocaleStrings {
   // mode switch
   modeChat: string;
   modeWork: string;
+  modeBrowser: string;
+  newBrowserTab: string;
+  browserPanelExpand: string;
+  browserPanelCollapse: string;
+  browserPanelEmptyState: string;
+  browserTabOnlyDesktop: string;
+  browserTabMissing: string;
+  browserTabInputPlaceholder: string;
+  browserTabOpen: string;
+  browserTabLoadFailed: string;
+  browserTabRetry: string;
+  browserTabEmptyState: string;
   // work mode sidebar
   newTask: string;
   tasks: string;
