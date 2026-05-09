@@ -39,13 +39,13 @@ afterEach(() => {
   }
 })
 
-function toggleButtonForLabel(text: string): HTMLButtonElement {
-  const label = Array.from(container.querySelectorAll('div')).find((item) => item.textContent?.includes(text))
+function toggleSwitchForLabel(text: string): HTMLInputElement {
+  const label = Array.from(container.querySelectorAll('div.text-sm')).find((item) => item.textContent?.trim() === text)
   if (!label) throw new Error(`label not found: ${text}`)
   const row = label.closest('div[class*="justify-between"]') ?? label.parentElement?.parentElement
-  const button = row?.querySelector('button')
-  if (!button) throw new Error(`button not found for: ${text}`)
-  return button as HTMLButtonElement
+  const input = row?.querySelector('input[type="checkbox"]')
+  if (!input) throw new Error(`switch not found for: ${text}`)
+  return input as HTMLInputElement
 }
 
 describe('DeveloperSettings', () => {
@@ -78,19 +78,6 @@ describe('DeveloperSettings', () => {
       return {
         ...actual,
         useToast: () => ({ addToast }),
-        PillToggle: ({
-          checked,
-          disabled,
-          onChange,
-        }: {
-          checked: boolean
-          disabled?: boolean
-          onChange: (next: boolean) => void
-        }) => (
-          <button type="button" disabled={disabled} onClick={() => onChange(!checked)}>
-            {checked ? 'ON' : 'OFF'}
-          </button>
-        ),
       }
     })
 
@@ -107,7 +94,7 @@ describe('DeveloperSettings', () => {
     await flushEffects()
 
     expect(getAccountSettings).toHaveBeenCalledWith('token')
-    expect(toggleButtonForLabel('Pipeline Trace').textContent).toContain('ON')
+    expect(toggleSwitchForLabel('Pipeline Trace').checked).toBe(true)
   })
 
   it('切换失败时回滚并提示错误', async () => {
@@ -140,19 +127,6 @@ describe('DeveloperSettings', () => {
       return {
         ...actual,
         useToast: () => ({ addToast }),
-        PillToggle: ({
-          checked,
-          disabled,
-          onChange,
-        }: {
-          checked: boolean
-          disabled?: boolean
-          onChange: (next: boolean) => void
-        }) => (
-          <button type="button" disabled={disabled} onClick={() => onChange(!checked)}>
-            {checked ? 'ON' : 'OFF'}
-          </button>
-        ),
       }
     })
 
@@ -168,16 +142,16 @@ describe('DeveloperSettings', () => {
     })
     await flushEffects()
 
-    const pipelineButton = toggleButtonForLabel('Pipeline Trace')
-    expect(pipelineButton.textContent).toContain('OFF')
+    const pipelineSwitch = toggleSwitchForLabel('Pipeline Trace')
+    expect(pipelineSwitch.checked).toBe(false)
 
     await act(async () => {
-      pipelineButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      pipelineSwitch.click()
     })
     await flushEffects()
 
     expect(updateAccountSettings).toHaveBeenCalledWith('token', { pipeline_trace_enabled: true })
-    expect(toggleButtonForLabel('Pipeline Trace').textContent).toContain('OFF')
+    expect(toggleSwitchForLabel('Pipeline Trace').checked).toBe(false)
     expect(addToast).toHaveBeenCalledWith('save failed', 'error')
   })
 
@@ -211,19 +185,6 @@ describe('DeveloperSettings', () => {
       return {
         ...actual,
         useToast: () => ({ addToast }),
-        PillToggle: ({
-          checked,
-          disabled,
-          onChange,
-        }: {
-          checked: boolean
-          disabled?: boolean
-          onChange: (next: boolean) => void
-        }) => (
-          <button type="button" disabled={disabled} onClick={() => onChange(!checked)}>
-            {checked ? 'ON' : 'OFF'}
-          </button>
-        ),
       }
     })
 
@@ -239,21 +200,15 @@ describe('DeveloperSettings', () => {
     })
     await flushEffects()
 
-    const cacheLabel = Array.from(container.querySelectorAll('div.text-sm')).find((item) => item.textContent === 'Prompt Cache 调试')
-    if (!cacheLabel) throw new Error('Prompt Cache 调试 label not found')
-    const cacheRow = cacheLabel.closest('div[class*="justify-between"]') as HTMLElement | null
-    const cacheButton = cacheRow?.querySelector('button') as HTMLButtonElement | null
-    if (!cacheButton) throw new Error('cache button not found')
-    expect(cacheButton.textContent).toContain('OFF')
+    const cacheSwitch = toggleSwitchForLabel('Prompt Cache 调试')
+    expect(cacheSwitch.checked).toBe(false)
 
     await act(async () => {
-      cacheButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      cacheSwitch.click()
     })
     await flushEffects()
 
     expect(updateAccountSettings).toHaveBeenCalledWith('token', { prompt_cache_debug_enabled: true })
-    const cacheLabelAfter = Array.from(container.querySelectorAll('div.text-sm')).find((item) => item.textContent === 'Prompt Cache 调试')
-    const cacheRowAfter = cacheLabelAfter?.closest('div[class*="justify-between"]') as HTMLElement | null
-    expect(cacheRowAfter?.querySelector('button')?.textContent).toContain('ON')
+    expect(toggleSwitchForLabel('Prompt Cache 调试').checked).toBe(true)
   })
 })
