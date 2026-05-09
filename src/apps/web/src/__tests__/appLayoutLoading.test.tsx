@@ -8,6 +8,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { AuthProvider } from '../contexts/auth'
 import { ThreadListProvider, useThreadList } from '../contexts/thread-list'
 import { AppUIProvider } from '../contexts/app-ui'
+import { BrowserTabsProvider } from '../contexts/browser-tabs'
 import { CreditsProvider } from '../contexts/credits'
 import { getMe, listThreads, getMyCredits, streamThreadRunStateEvents, updateThreadMode, updateThreadSidebarState, type ThreadResponse } from '../api'
 import {
@@ -190,17 +191,19 @@ describe('AppLayout loading state', () => {
             <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
               <ThreadListProvider>
                 <AppUIProvider>
-                  <CreditsProvider>
-                    <Routes>
-                      <Route
-                        element={<AppLayout />}
-                      >
-                        <Route element={<OutletShell />}>
-                          <Route index element={<div>home</div>} />
+                  <BrowserTabsProvider>
+                    <CreditsProvider>
+                      <Routes>
+                        <Route
+                          element={<AppLayout />}
+                        >
+                          <Route element={<OutletShell />}>
+                            <Route index element={<div>home</div>} />
+                          </Route>
                         </Route>
-                      </Route>
-                    </Routes>
-                  </CreditsProvider>
+                      </Routes>
+                    </CreditsProvider>
+                  </BrowserTabsProvider>
                 </AppUIProvider>
               </ThreadListProvider>
             </AuthProvider>
