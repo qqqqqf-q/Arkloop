@@ -236,7 +236,7 @@ describe('DesktopTitleBar update entry', () => {
     await renderTitleBar(appUpdateState('available'), true)
 
     const titleBar = container.firstElementChild as HTMLElement | null
-    expect(titleBar?.style.paddingLeft).toBe('8px')
+    expect(titleBar?.style.paddingLeft).toBe('12px')
     expect(container.querySelector('button[title="Minimize"]')).toBeNull()
   })
 
@@ -246,7 +246,7 @@ describe('DesktopTitleBar update entry', () => {
     await renderTitleBar(appUpdateState('available'), true)
 
     const titleBar = container.firstElementChild as HTMLElement | null
-    expect(titleBar?.style.paddingLeft).toBe('8px')
+    expect(titleBar?.style.paddingLeft).toBe('12px')
     expect(container.querySelector('button[title="Minimize"]')).toBeNull()
   })
 

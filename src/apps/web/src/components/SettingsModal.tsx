@@ -86,7 +86,7 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
-        className="modal-enter flex overflow-hidden rounded-2xl shadow-2xl bg-[var(--c-bg-page)]"
+        className="theme-surface-page modal-enter flex overflow-hidden rounded-2xl bg-[var(--c-bg-page)] shadow-2xl"
         style={{
           width: '832px',
           height: '624px',
@@ -95,7 +95,7 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
       >
         {/* nav */}
         <div
-          className="flex w-[200px] shrink-0 flex-col py-4 bg-[var(--c-bg-sidebar)]"
+          className="theme-surface-sidebar flex w-[200px] shrink-0 flex-col bg-[var(--c-bg-sidebar)] py-4"
           style={{ borderRight: '0.5px solid rgba(0,0,0,0.14)' }}
         >
           <div className="mb-2 px-4 py-1">

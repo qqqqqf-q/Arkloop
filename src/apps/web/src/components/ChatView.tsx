@@ -3061,7 +3061,6 @@ export const ChatView = memo(function ChatView() {
 
   const chatInputEl = useMemo(() => (
     <ChatInput
-      key={`${threadId ?? '__no_thread__'}:${effectiveAppMode}:${isSearchThread ? 'search' : 'default'}`}
       ref={chatInputRef}
       onSubmit={handleSend}
       onCancel={handleCancel}
@@ -3415,7 +3414,7 @@ export const ChatView = memo(function ChatView() {
   ])
 
   return (
-    <div ref={chatViewRootRef} className="theme-surface-page relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]">
+    <div ref={chatViewRootRef} className="theme-surface-page theme-chat-surface relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]">
       {/* Chat column + right panel: starts below the desktop Chat/Work titlebar. */}
       <div className="relative flex flex-1 min-h-0 min-w-0">
         <div
@@ -3427,7 +3426,7 @@ export const ChatView = memo(function ChatView() {
           } as React.CSSProperties}
         >
           <ChatTitleMenu />
-          <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-bg-page-gradient-stop, var(--c-bg-page)), transparent)' }} />
+          <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />
           {/* 消息列表 */}
           {messageListArea}
 
@@ -3447,7 +3446,7 @@ export const ChatView = memo(function ChatView() {
           left: 0,
           right: 0,
           zIndex: 10,
-          background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page-gradient-stop, var(--c-bg-page)) 24px)',
+          background: 'linear-gradient(to bottom, transparent 0%, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))) 24px)',
           transition: `padding ${rightPanelLayoutTransitionCss}`,
         } as React.CSSProperties}
         className="flex w-full flex-col items-center gap-2"
