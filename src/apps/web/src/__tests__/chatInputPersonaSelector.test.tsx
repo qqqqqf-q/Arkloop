@@ -128,7 +128,7 @@ describe('ChatInput persona selector', () => {
     }
   })
 
-  it('按动态列表循环切换并可从下拉选择人格', async () => {
+  it('不再从加号菜单加载动态人格，提交沿用已选人格', async () => {
     const onSubmit = vi.fn<(event: FormEvent<HTMLFormElement>, personaKey: string) => void>((event) => event.preventDefault())
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -148,45 +148,9 @@ describe('ChatInput persona selector', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedListSelectablePersonas).toHaveBeenCalledWith('token')
-
-    const selectorButton = findButtonByText(container, 'Normal')
-    expect(selectorButton).not.toBeNull()
-    if (!selectorButton) return
-
-    await act(async () => {
-      selectorButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const searchMenuButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button !== selectorButton && button.textContent?.trim() === 'Search',
-    ) as HTMLButtonElement | null
-    expect(searchMenuButton).not.toBeNull()
-    if (!searchMenuButton) return
-
-    await act(async () => {
-      searchMenuButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(findButtonByText(container, 'Search')).not.toBeNull()
-
-    const searchSelectorButton = findButtonByText(container, 'Search')
-    expect(searchSelectorButton).not.toBeNull()
-    if (!searchSelectorButton) return
-
-    await act(async () => {
-      searchSelectorButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const menuNormalButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button !== searchSelectorButton && button.textContent?.trim() === 'Normal',
-    ) as HTMLButtonElement | null
-    expect(menuNormalButton).not.toBeNull()
-    if (!menuNormalButton) return
-
-    await act(async () => {
-      menuNormalButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+    expect(mockedListSelectablePersonas).not.toHaveBeenCalled()
+    expect(findButtonByText(container, 'Normal')).toBeFalsy()
+    expect(findButtonByText(container, 'Search')).toBeFalsy()
 
     const form = container.querySelector('form')
     expect(form).not.toBeNull()

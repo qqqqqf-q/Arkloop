@@ -1001,7 +1001,10 @@ describe('ChatPage loading state', () => {
     mockedReadMessageTerminalStatus.mockReturnValue(null)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    sseMock.clearEventListeners()
+    sseMock.events = []
+    await flushMicrotasks()
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView
     if (originalActEnvironment === undefined) {
       delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
@@ -3740,6 +3743,7 @@ describe('ChatPage loading state', () => {
       expect(container.textContent ?? '').toContain('streaming')
       expect(sseMock.reset).toHaveBeenCalled()
       expect(sseMock.connect).toHaveBeenCalled()
+      expect(sseMock.subscribeEvents).toHaveBeenCalled()
     })
 
     await act(async () => {
@@ -3792,6 +3796,7 @@ describe('ChatPage loading state', () => {
       root.render(renderTree())
       await flushMicrotasks()
       await flushMicrotasks()
+      await flushAnimationFrames(2)
     })
 
     await waitForAssertion(() => {

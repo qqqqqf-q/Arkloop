@@ -3061,6 +3061,7 @@ export const ChatView = memo(function ChatView() {
 
   const chatInputEl = useMemo(() => (
     <ChatInput
+      key={`${threadId ?? '__no_thread__'}:${effectiveAppMode}:${isSearchThread ? 'search' : 'default'}`}
       ref={chatInputRef}
       onSubmit={handleSend}
       onCancel={handleCancel}

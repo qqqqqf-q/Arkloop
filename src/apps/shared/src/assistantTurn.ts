@@ -63,6 +63,13 @@ export function splitWorkGroup(
   const finalSegment = segments[lastTextIndex]!
   const finalText = finalSegment.type === 'text' ? finalSegment.content : null
 
+  if (lastTextIndex < segments.length - 1) {
+    return {
+      workGroup: segments.length >= 2 ? { durationMs, segments } : null,
+      finalText: null,
+    }
+  }
+
   // Need at least 2 segments before final to justify a work group.
   // A single pre-final segment (text or cop) stays inline.
   if (lastTextIndex < 2) {
