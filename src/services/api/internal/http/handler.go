@@ -25,6 +25,7 @@ import (
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/api/internal/personas"
+	"arkloop/services/api/internal/plugincontrib"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/objectstore"
@@ -90,6 +91,11 @@ type HandlerConfig struct {
 	ProfileSkillInstallsRepo     *data.ProfileSkillInstallsRepository
 	PlatformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 	WorkspaceSkillEnableRepo     *data.WorkspaceSkillEnablementsRepository
+	PluginPackagesRepo           *data.PluginPackagesRepository
+	PluginEnablementsRepo        *data.PluginEnablementsRepository
+	PluginRuntimeStateRepo       *data.PluginRuntimeStateRepository
+	PluginInstaller              *plugincontrib.Installer
+	PluginEnabler                *plugincontrib.Enabler
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 	IPRulesRepo                  *data.IPRulesRepository
@@ -298,6 +304,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ProfileSkillInstallsRepo:     cfg.ProfileSkillInstallsRepo,
 		PlatformSkillOverridesRepo:   cfg.PlatformSkillOverridesRepo,
 		WorkspaceSkillEnableRepo:     cfg.WorkspaceSkillEnableRepo,
+		PluginPackagesRepo:           cfg.PluginPackagesRepo,
+		PluginEnablementsRepo:        cfg.PluginEnablementsRepo,
+		PluginRuntimeStateRepo:       cfg.PluginRuntimeStateRepo,
+		PluginInstaller:              cfg.PluginInstaller,
+		PluginEnabler:                cfg.PluginEnabler,
 		ProfileRegistriesRepo:        cfg.ProfileRegistriesRepo,
 		WorkspaceRegistriesRepo:      cfg.WorkspaceRegistriesRepo,
 		PlatformSettingsRepo:         cfg.PlatformSettingsRepo,

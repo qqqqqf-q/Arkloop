@@ -45,3 +45,18 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
     value: ResizeObserver,
   })
 }
+
+// 测试默认用中文 locale
+try {
+  Object.defineProperty(navigator, 'language', {
+    configurable: true,
+    get() { return 'zh-CN' },
+  })
+} catch {
+  // navigator.language 可能不可写；直接设 localStorage fallback
+  try {
+    localStorage.setItem('arkloop:web:locale', 'zh')
+  } catch {
+    // ignore
+  }
+}

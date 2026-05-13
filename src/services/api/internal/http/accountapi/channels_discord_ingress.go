@@ -15,6 +15,7 @@ import (
 	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
+	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/pgnotify"
 
@@ -87,13 +88,16 @@ type discordInteractionReply struct {
 }
 
 type discordMessageContext struct {
-	ChannelID  string
-	MessageID  string
-	AuthorID   string
-	AuthorName string
-	Content    string
-	ReplyToID  *string
-	Timestamp  time.Time
+	ChannelID        string
+	MessageID        string
+	AuthorID         string
+	AuthorName       string
+	Content          string
+	ReplyToID        *string
+	Timestamp        time.Time
+	ConversationType string
+	MentionsBot      bool
+	IsReplyToBot     bool
 }
 
 func (c discordConnector) resolveInboundTimeContext(ctx context.Context, ch data.Channel, identity data.ChannelIdentity, ts time.Time) inboundTimeContext {
@@ -466,7 +470,7 @@ func (c discordConnector) HandleInteraction(
 		return nil, err
 	}
 
-	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo)
+	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.pool)
 	if err != nil {
 		return nil, err
 	}
@@ -532,9 +536,12 @@ func (c discordConnector) persistDiscordInboundStageA(
 		return nil, err
 	}
 
+	mentionsBot := discordMessageMentionsBot(event, ch.ConfigJSON)
 	baseMetadata := map[string]any{
 		"source":            "discord",
 		"conversation_type": "private",
+		"mentions_bot":      mentionsBot,
+		"is_reply_to_bot":   discordMessageRepliesToBot(event),
 	}
 	if !linked {
 		accepted, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
@@ -598,6 +605,9 @@ func (c discordConnector) persistDiscordInboundStageA(
 
 	threadID, err := c.resolveDiscordDMThreadID(ctx, tx, ch, persona.ID, derefUUID(persona.ProjectID), identity)
 	if err != nil {
+		return nil, err
+	}
+	if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, resolveDiscordDefaultModel(ch.ConfigJSON)); err != nil {
 		return nil, err
 	}
 
@@ -694,40 +704,31 @@ func (c discordConnector) continueDiscordInboundDispatch(
 		return errInboundDispatchDeferred
 	}
 
-	if !channelAgentTriggerConsume(ch.ID) {
+	messageCtx := discordContextFromLedger(latestEntry)
+	dispatchResult, err := DispatchInbound(ctx, tx, InboundDispatchRequest{
+		TraceID:             traceID,
+		Channel:             ch,
+		PersonaRef:          personaRef,
+		Identity:            *identity,
+		Incoming:            discordInboundMessageFromContext(ch.ID, messageCtx),
+		ThreadID:            *latestEntry.ThreadID,
+		MessageID:           *latestEntry.MessageID,
+		ThreadTailMessageID: latestEntry.MessageID.String(),
+		Source:              "discord",
+		ForceActive:         true,
+		RunEventRepo:        c.runEventRepo,
+		JobRepo:             c.jobRepo,
+	})
+	if err != nil {
+		return err
+	}
+	if dispatchResult.FinalState != inboundStateEnqueuedNewRun {
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
 		return errInboundDispatchDeferred
 	}
-
-	runStartedData := buildDiscordRunStartedData(
-		personaRef,
-		resolveDiscordDefaultModel(ch.ConfigJSON),
-		ch.ID,
-		identity.ID,
-		discordContextFromLedger(latestEntry),
-	)
-	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
-	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
-		ctx,
-		ch.AccountID,
-		*latestEntry.ThreadID,
-		channelOwnerUserID(ch),
-		"run.started",
-		runStartedData,
-	)
-	if err != nil {
-		return err
-	}
-	jobPayload := map[string]any{
-		"source":           "discord",
-		"channel_delivery": buildDiscordChannelDeliveryPayload(ch.ID, identity.ID, discordContextFromLedger(latestEntry)),
-	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
-		return err
-	}
-	if err := markPendingBatchEnqueuedTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, batch, run.ID); err != nil {
+	if err := markPendingBatchEnqueuedTx(ctx, c.channelLedgerRepo.WithTx(tx), ch.ID, batch, dispatchResult.RunID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -820,14 +821,13 @@ func (c discordConnector) recoverPendingDiscordInboundDispatches(ctx context.Con
 
 func buildDiscordRunStartedData(
 	personaRef string,
-	defaultModel string,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
 	messageCtx discordMessageContext,
 ) map[string]any {
 	return buildChannelRunStartedData(
 		personaRef,
-		defaultModel,
+		"",
 		"",
 		buildDiscordChannelDeliveryPayload(channelID, channelIdentityID, messageCtx),
 	)
@@ -842,28 +842,27 @@ func resolveDiscordDefaultModel(raw json.RawMessage) string {
 }
 
 func buildDiscordChannelDeliveryPayload(channelID uuid.UUID, channelIdentityID uuid.UUID, messageCtx discordMessageContext) map[string]any {
-	payload := map[string]any{
-		"channel_id":   channelID.String(),
-		"channel_type": "discord",
-		"conversation_ref": map[string]any{
-			"target": messageCtx.ChannelID,
-		},
-		"inbound_message_ref": map[string]any{
-			"message_id": messageCtx.MessageID,
-		},
-		"trigger_message_ref": map[string]any{
-			"message_id": messageCtx.MessageID,
-		},
-		"platform_chat_id":           messageCtx.ChannelID,
-		"platform_message_id":        messageCtx.MessageID,
-		"reply_to_message_id":        messageCtx.MessageID,
-		"sender_channel_identity_id": channelIdentityID.String(),
-		"conversation_type":          "private",
+	return BuildChannelDeliveryPayload(discordInboundMessageFromContext(channelID, messageCtx), channelIdentityID)
+}
+
+func discordInboundMessageFromContext(channelID uuid.UUID, messageCtx discordMessageContext) InboundMessage {
+	conversationType := strings.TrimSpace(messageCtx.ConversationType)
+	if conversationType == "" {
+		conversationType = "private"
 	}
-	if messageCtx.ReplyToID != nil && strings.TrimSpace(*messageCtx.ReplyToID) != "" {
-		payload["inbound_reply_to_message_id"] = strings.TrimSpace(*messageCtx.ReplyToID)
+	return InboundMessage{
+		ChannelID:        channelID,
+		ChannelType:      "discord",
+		PlatformChatID:   messageCtx.ChannelID,
+		PlatformMsgID:    messageCtx.MessageID,
+		PlatformUserID:   messageCtx.AuthorID,
+		PlatformUsername: messageCtx.AuthorName,
+		ConversationType: conversationType,
+		Text:             messageCtx.Content,
+		ReplyToMsgID:     messageCtx.ReplyToID,
+		MentionsBot:      messageCtx.MentionsBot,
+		IsReplyToBot:     messageCtx.IsReplyToBot,
 	}
-	return payload
 }
 
 func discordContextFromEvent(event *discordgo.MessageCreate) discordMessageContext {
@@ -877,22 +876,62 @@ func discordContextFromEvent(event *discordgo.MessageCreate) discordMessageConte
 		userName = strings.TrimSpace(event.Author.Username)
 	}
 	return discordMessageContext{
-		ChannelID:  strings.TrimSpace(event.ChannelID),
-		MessageID:  strings.TrimSpace(event.ID),
-		AuthorID:   userID,
-		AuthorName: userName,
-		Content:    strings.TrimSpace(event.Content),
-		ReplyToID:  optionalDiscordReplyMessageID(event),
-		Timestamp:  event.Timestamp,
+		ChannelID:        strings.TrimSpace(event.ChannelID),
+		MessageID:        strings.TrimSpace(event.ID),
+		AuthorID:         userID,
+		AuthorName:       userName,
+		Content:          strings.TrimSpace(event.Content),
+		ReplyToID:        optionalDiscordReplyMessageID(event),
+		Timestamp:        event.Timestamp,
+		ConversationType: "private",
+		MentionsBot:      discordMessageMentionsBot(event, nil),
+		IsReplyToBot:     discordMessageRepliesToBot(event),
 	}
 }
 
 func discordContextFromLedger(entry data.ChannelInboundLedgerEntry) discordMessageContext {
 	return discordMessageContext{
-		ChannelID: strings.TrimSpace(entry.PlatformConversationID),
-		MessageID: strings.TrimSpace(entry.PlatformMessageID),
-		ReplyToID: entry.PlatformParentMessageID,
+		ChannelID:        strings.TrimSpace(entry.PlatformConversationID),
+		MessageID:        strings.TrimSpace(entry.PlatformMessageID),
+		ReplyToID:        entry.PlatformParentMessageID,
+		ConversationType: "private",
+		MentionsBot:      boolFromInboundLedger(entry.MetadataJSON, "mentions_bot"),
+		IsReplyToBot:     boolFromInboundLedger(entry.MetadataJSON, "is_reply_to_bot"),
 	}
+}
+
+func discordMessageRepliesToBot(event *discordgo.MessageCreate) bool {
+	if event == nil || event.ReferencedMessage == nil || event.ReferencedMessage.Author == nil {
+		return false
+	}
+	return event.ReferencedMessage.Author.Bot
+}
+
+func discordMessageMentionsBot(event *discordgo.MessageCreate, rawConfig json.RawMessage) bool {
+	if event == nil {
+		return false
+	}
+	botUserID := ""
+	if len(rawConfig) > 0 {
+		cfg, err := resolveDiscordConfig("discord", rawConfig)
+		if err == nil {
+			botUserID = strings.TrimSpace(cfg.DiscordBotUserID)
+		}
+	}
+	if botUserID == "" {
+		return false
+	}
+	for _, mention := range event.Mentions {
+		if mention != nil && strings.TrimSpace(mention.ID) == botUserID {
+			return true
+		}
+	}
+	return strings.Contains(event.Content, "<@"+botUserID+">") || strings.Contains(event.Content, "<@!"+botUserID+">")
+}
+
+func boolFromInboundLedger(raw json.RawMessage, key string) bool {
+	value, _ := inboundLedgerBool(raw, key)
+	return value
 }
 
 func optionalDiscordReplyMessageID(event *discordgo.MessageCreate) *string {
@@ -955,6 +994,8 @@ func handleDiscordCommand(
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
+	runEventRepo *data.RunEventRepository,
+	pool data.DB,
 ) (*discordInteractionReply, error) {
 	data := evt.ApplicationCommandData()
 	commandName := strings.TrimSpace(data.Name)
@@ -991,6 +1032,128 @@ func handleDiscordCommand(
 			return nil, err
 		}
 		return &discordInteractionReply{Content: "已开启新会话。", Ephemeral: true}, nil
+	case "model":
+		if evt.GuildID != "" {
+			return &discordInteractionReply{Content: "请在私信中使用 /model。", Ephemeral: true}, nil
+		}
+		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
+			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
+		}
+		threadMap, _ := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
+		threadID := uuid.Nil
+		if threadMap != nil {
+			threadID = threadMap.ThreadID
+		}
+		nameArg := ""
+		if len(data.Options) > 0 {
+			nameArg = strings.TrimSpace(data.Options[0].StringValue())
+		}
+		rawText := "/model"
+		if nameArg != "" {
+			rawText = "/model " + nameArg
+		}
+		replyText, _, err := handleTelegramPreferenceCommand(ctx, tx, channel.AccountID, threadID, rawText, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &discordInteractionReply{Content: replyText, Ephemeral: true}, nil
+	case "think":
+		if evt.GuildID != "" {
+			return &discordInteractionReply{Content: "请在私信中使用 /think。", Ephemeral: true}, nil
+		}
+		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
+			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
+		}
+		threadMap, _ := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
+		threadID := uuid.Nil
+		if threadMap != nil {
+			threadID = threadMap.ThreadID
+		}
+		levelArg := ""
+		if len(data.Options) > 0 {
+			levelArg = strings.TrimSpace(data.Options[0].StringValue())
+		}
+		rawText := "/think"
+		if levelArg != "" {
+			rawText = "/think " + levelArg
+		}
+		replyText, _, err := handleTelegramPreferenceCommand(ctx, tx, channel.AccountID, threadID, rawText, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &discordInteractionReply{Content: replyText, Ephemeral: true}, nil
+	case "heartbeat":
+		if evt.GuildID != "" {
+			return &discordInteractionReply{Content: "请在私信中使用 /heartbeat。", Ephemeral: true}, nil
+		}
+		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
+			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
+		}
+		threadMap, _ := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
+		if threadMap == nil {
+			return &discordInteractionReply{Content: "当前没有活跃的会话。", Ephemeral: true}, nil
+		}
+		action := ""
+		if len(data.Options) > 0 {
+			action = strings.TrimSpace(data.Options[0].StringValue())
+		}
+		enabled, intervalMin, model, _, err := getInboundThreadHeartbeatConfig(ctx, tx, threadMap.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		switch action {
+		case "on":
+			if intervalMin <= 0 {
+				intervalMin = runkind.DefaultHeartbeatIntervalMinutes
+			}
+			if err := updateInboundThreadHeartbeatConfig(ctx, tx, threadMap.ThreadID, true, intervalMin, model); err != nil {
+				return nil, err
+			}
+			return &discordInteractionReply{Content: "心跳已开启。", Ephemeral: true}, nil
+		case "off":
+			if err := updateInboundThreadHeartbeatConfig(ctx, tx, threadMap.ThreadID, false, intervalMin, model); err != nil {
+				return nil, err
+			}
+			return &discordInteractionReply{Content: "心跳已关闭。", Ephemeral: true}, nil
+		default:
+			status := "关闭"
+			if enabled {
+				status = "开启"
+			}
+			modelDisplay := "跟随对话"
+			if strings.TrimSpace(model) != "" {
+				modelDisplay = model
+			}
+			return &discordInteractionReply{Content: fmt.Sprintf("心跳：%s\n模型：%s", status, modelDisplay), Ephemeral: true}, nil
+		}
+	case "stop":
+		if evt.GuildID != "" {
+			return &discordInteractionReply{Content: "请在私信中使用 /stop。", Ephemeral: true}, nil
+		}
+		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
+			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
+		}
+		threadMap, err := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
+		if err != nil {
+			return nil, err
+		}
+		if threadMap == nil {
+			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
+		}
+		activeRun, err := runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
+		if err != nil {
+			return nil, err
+		}
+		if activeRun == nil {
+			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
+		}
+		if _, err := runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
+			return nil, err
+		}
+		if pool != nil {
+			_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
+		}
+		return &discordInteractionReply{Content: "已请求停止当前任务。", Ephemeral: true}, nil
 	default:
 		return &discordInteractionReply{Content: "暂不支持这个命令。", Ephemeral: true}, nil
 	}

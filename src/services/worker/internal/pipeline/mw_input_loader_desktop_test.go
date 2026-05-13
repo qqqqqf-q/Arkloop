@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -96,6 +97,65 @@ func TestLoadRunInputsDesktopBoundsFreshChannelHistoryAtThreadTail(t *testing.T)
 	}
 	if len(loaded.ThreadMessageIDs) != 2 || loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != msg2ID {
 		t.Fatalf("unexpected bounded thread ids: %#v", loaded.ThreadMessageIDs)
+	}
+}
+
+func TestLoadRunInputsDesktopRestoresLatestPlanFilePath(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "plan-file-path.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	previousRunID := uuid.New()
+	currentRunID := uuid.New()
+	planPath := "/Users/dev/.arkloop/home/plans/plan_mode_demo_a3f9c2.plan.md"
+	if _, err := db.Exec(ctx, `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`, accountID, "acc-"+accountID.String(), "acc"); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, 'p', 'private')`, projectID, accountID); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'completed'), ($4, $2, $3, 'running')`, previousRunID, accountID, threadID, currentRunID); err != nil {
+		t.Fatalf("insert runs: %v", err)
+	}
+	previousResult, err := json.Marshal(map[string]any{
+		"tool_call_id": "write_1",
+		"tool_name":    "write_file",
+		"result": map[string]any{
+			"status":         "written",
+			"plan_file_path": planPath,
+			"filename":       "plan_mode_demo_a3f9c2.plan.md",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal previous result: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json, tool_name) VALUES ($1, 1, 'tool.result', $2::jsonb, 'write_file')`, previousRunID, string(previousResult)); err != nil {
+		t.Fatalf("insert previous tool result: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"collaboration_mode":"plan","collaboration_mode_revision":2}'::jsonb)`, currentRunID); err != nil {
+		t.Fatalf("insert current run started: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, db, data.Run{
+		ID:        currentRunID,
+		AccountID: accountID,
+		ThreadID:  threadID,
+	}, nil, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if got := loaded.InputJSON["plan_file_path"]; got != planPath {
+		t.Fatalf("unexpected plan_file_path: %#v", got)
 	}
 }
 

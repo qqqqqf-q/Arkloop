@@ -32,7 +32,9 @@ func NewSearxngProvider(baseURL string) *SearxngProvider {
 	}
 }
 
-func (p *SearxngProvider) Search(ctx context.Context, query string, maxResults int) ([]Result, error) {
+func (p *SearxngProvider) Search(ctx context.Context, request SearchRequest) ([]Result, error) {
+	query := request.Query
+	maxResults := request.MaxResults
 	if p.baseURLErr != nil {
 		return nil, p.baseURLErr
 	}

@@ -16,7 +16,7 @@ import {
   applyTerminalDelta,
   patchCodeExecutionList,
   findAssistantMessageForRun,
-  selectFreshAgentEvents,
+  filterUnprocessedAgentEvents,
   applyBrowserToolCall,
   applyBrowserToolResult,
   applySubAgentToolCall,
@@ -282,7 +282,7 @@ export function useThreadSseEffect({
       setCheckInDraft('')
       if (threadId) onRunEnded(threadId)
     }
-    const { fresh, nextProcessedCount } = selectFreshAgentEvents({
+    const { fresh, nextProcessedCount } = filterUnprocessedAgentEvents({
       events: sse.events,
       activeRunId: sseRunId,
       processedCount: processedEventCountRef.current,

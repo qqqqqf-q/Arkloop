@@ -9,6 +9,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	documentwritetool "arkloop/services/worker/internal/tools/builtin/document_write"
 	imagegeneratetool "arkloop/services/worker/internal/tools/builtin/image_generate"
+	resourcecopytool "arkloop/services/worker/internal/tools/builtin/resource_copy"
 )
 
 // registerStoredArtifactTools wires tools that require persisted artifact storage.
@@ -20,6 +21,7 @@ func registerStoredArtifactTools(
 	db workerdata.QueryDB,
 	configResolver sharedconfig.Resolver,
 	routingLoader *routing.ConfigLoader,
+	attachmentStore objectstore.Store,
 ) ([]llm.ToolSpec, bool, error) {
 	if toolRegistry == nil || executors == nil || store == nil {
 		return specs, false, nil
@@ -27,6 +29,7 @@ func registerStoredArtifactTools(
 
 	artifactExecutor := documentwritetool.NewToolExecutor(store)
 	imageExecutor := imagegeneratetool.NewToolExecutor(store, db, configResolver, routingLoader)
+	resourceCopyExecutor := resourcecopytool.NewExecutor(store, attachmentStore)
 	registered := false
 	for _, item := range []struct {
 		agentSpec tools.AgentToolSpec
@@ -36,6 +39,7 @@ func registerStoredArtifactTools(
 		{agentSpec: documentwritetool.CreateArtifactAgentSpec, llmSpec: documentwritetool.CreateArtifactLlmSpec, executor: artifactExecutor},
 		{agentSpec: documentwritetool.AgentSpec, llmSpec: documentwritetool.LlmSpec, executor: artifactExecutor},
 		{agentSpec: imagegeneratetool.AgentSpec, llmSpec: imagegeneratetool.LlmSpec, executor: imageExecutor},
+		{agentSpec: resourcecopytool.AgentSpec, llmSpec: resourcecopytool.LlmSpec, executor: resourceCopyExecutor},
 	} {
 		wasRegistered, err := registerToolIfMissing(toolRegistry, item.agentSpec)
 		if err != nil {

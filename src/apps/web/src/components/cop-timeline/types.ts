@@ -3,11 +3,14 @@ import type { SubAgentRef, FileOpRef, WebFetchRef } from '../../storage'
 import type { ExploreGroupRef } from '../../toolPresentation'
 import type { CodeExecution } from '../CodeExecutionCard'
 import { codeExecutionAccentColor } from '../../codeExecutionStatus'
+import { DEFAULT_SEARCHING_LABEL, COMPLETED_SEARCHING_LABEL } from '../../webSearchTimelineFromAgentEvent'
+import type { TimelineText } from '../../timelineText'
 
 export type WebSearchPhaseStep = {
   id: string
   kind: 'planning' | 'searching' | 'reviewing' | 'finished'
   label: string
+  text?: TimelineText
   status: 'active' | 'done'
   queries?: string[]
   sources?: WebSource[]
@@ -34,7 +37,7 @@ export type Props = {
   fileOps?: FileOpRef[]
   exploreGroups?: ExploreGroupRef[]
   webFetches?: WebFetchRef[]
-  genericTools?: Array<{ id: string; toolName: string; label: string; displayDescription?: string; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
+  genericTools?: Array<{ id: string; toolName: string; label: string; displayDescription?: string; displayText?: TimelineText; output?: string; emptyLabel?: string; status: 'running' | 'success' | 'failed'; errorMessage?: string; seq?: number }>
   headerOverride?: string
   shimmer?: boolean
   live?: boolean
@@ -73,15 +76,23 @@ export type UEntry =
   | { kind: 'fetch'; id: string; seq: number; item: WebFetchRef }
   | { kind: 'generic'; id: string; seq: number; item: NonNullable<Props['genericTools']>[number] }
 
-const DEFAULT_SEARCHING_LABEL = 'Searching'
-const COMPLETED_SEARCHING_LABEL = 'Search completed'
-
 export function timelineStepDisplayLabel(step: Pick<WebSearchPhaseStep, 'kind' | 'label' | 'status'>): string {
   if (step.kind === 'reviewing') return 'Reviewing sources'
   if (step.kind === 'searching' && step.status === 'done' && step.label.trim() === DEFAULT_SEARCHING_LABEL) {
     return COMPLETED_SEARCHING_LABEL
   }
   return step.label
+}
+
+export function timelineStepText(step: Pick<WebSearchPhaseStep, 'kind' | 'label' | 'status' | 'text'>): TimelineText {
+  if (step.text) return step.text
+  if (step.kind === 'reviewing') return { kind: 'reviewing_sources' }
+  if (step.kind === 'searching' && step.status === 'done' && step.label.trim() === DEFAULT_SEARCHING_LABEL) {
+    return { kind: 'search_completed' }
+  }
+  if (step.label.trim() === DEFAULT_SEARCHING_LABEL) return { kind: 'search', tense: 'live' }
+  if (step.label.trim() === COMPLETED_SEARCHING_LABEL) return { kind: 'search_completed' }
+  return { kind: 'content', text: step.label }
 }
 
 const DOT_COLOR_MAP: Record<UEntry['kind'], (entry: UEntry) => string> = {
@@ -134,65 +145,6 @@ const DOT_COLOR_MAP: Record<UEntry['kind'], (entry: UEntry) => string> = {
 
 export function dotColor(entry: UEntry): string {
   return DOT_COLOR_MAP[entry.kind](entry)
-}
-
-export function autoLabel(opts: {
-  anyThinkingLive: boolean
-  hasAnyThinking: boolean
-  live: boolean
-  thinkingLiveHeaderLabel: string
-  isComplete: boolean
-  hasThinkingOnly: boolean
-  sourceCount: number
-  effectiveStepCount: number
-  thoughtDurationLabel: string
-  showPendingThinkingHeader: boolean
-  thinkingHint?: string
-  visibleSteps: WebSearchPhaseStep[]
-  t: { copTimelineLiveProgress: string }
-}): string {
-  const {
-    anyThinkingLive, hasAnyThinking, live, thinkingLiveHeaderLabel,
-    isComplete, hasThinkingOnly, sourceCount, effectiveStepCount,
-    thoughtDurationLabel, showPendingThinkingHeader, thinkingHint,
-    visibleSteps, t,
-  } = opts
-
-  switch (true) {
-    case anyThinkingLive || (hasAnyThinking && live):
-      return thinkingLiveHeaderLabel
-
-    case hasAnyThinking && isComplete && !hasThinkingOnly:
-      return sourceCount > 0
-        ? `Reviewed ${sourceCount} sources`
-        : effectiveStepCount > 0
-          ? `${effectiveStepCount} step${effectiveStepCount === 1 ? '' : 's'} completed`
-          : thoughtDurationLabel
-
-    case hasAnyThinking:
-      return thoughtDurationLabel
-
-    case showPendingThinkingHeader:
-      return `${thinkingHint}...`
-
-    case isComplete:
-      return sourceCount > 0
-        ? `Reviewed ${sourceCount} sources`
-        : effectiveStepCount > 0
-          ? `${effectiveStepCount} step${effectiveStepCount === 1 ? '' : 's'} completed`
-          : 'Completed'
-
-    case visibleSteps.length > 0:
-      return visibleSteps[visibleSteps.length - 1]
-        ? timelineStepDisplayLabel(visibleSteps[visibleSteps.length - 1]!)
-        : 'Searching...'
-
-    case effectiveStepCount > 0:
-      return t.copTimelineLiveProgress
-
-    default:
-      return thinkingHint ? `${thinkingHint}...` : 'Searching...'
-  }
 }
 
 export const ENTRY_SORT_PRIORITY: Record<UEntry['kind'], number> = {

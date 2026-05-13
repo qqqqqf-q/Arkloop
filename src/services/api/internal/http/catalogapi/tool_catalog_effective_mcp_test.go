@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+
+	sharedmcpoauth "arkloop/services/shared/mcpoauth"
 )
 
 func TestListEffectiveMCPHTTPToolsInitializesBeforeList(t *testing.T) {
@@ -86,5 +88,63 @@ func TestListEffectiveMCPHTTPToolsInitializesBeforeList(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("sequence=%v want=%v", got, want)
 		}
+	}
+}
+
+func TestListEffectiveMCPHTTPToolsUsesOAuthAccessToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer access-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		method, _ := payload["method"].(string)
+		w.Header().Set("Content-Type", "application/json")
+		switch method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      payload["id"],
+				"result": map[string]any{
+					"protocolVersion": effectiveMCPProtocolVersion,
+					"capabilities":    map[string]any{},
+				},
+			})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      payload["id"],
+				"result": map[string]any{
+					"tools": []any{map[string]any{"name": "echo"}},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	tools, err := listEffectiveMCPHTTPTools(t.Context(), effectiveMCPServerConfig{
+		ServerID:      "demo",
+		Transport:     "streamable_http",
+		URL:           server.URL,
+		Headers:       map[string]string{},
+		CallTimeoutMs: 1000,
+		OAuth: &sharedmcpoauth.AuthState{
+			Tokens: sharedmcpoauth.Tokens{AccessToken: "access-token"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("listEffectiveMCPHTTPTools failed: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "echo" {
+		t.Fatalf("unexpected tools: %#v", tools)
 	}
 }

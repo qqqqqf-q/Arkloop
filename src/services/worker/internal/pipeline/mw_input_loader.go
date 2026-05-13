@@ -16,6 +16,7 @@ import (
 	"arkloop/services/worker/internal/imageutil"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/stablejson"
+	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -215,8 +216,8 @@ func ApplyCollaborationMode(rc *RunContext) {
 	if rawRevision, ok := rc.InputJSON["collaboration_mode_revision"]; ok {
 		rc.CollaborationModeRevision = int64Value(rawRevision)
 	}
-	if rc.IsPlanMode && rc.PlanFilePath == "" {
-		rc.PlanFilePath = planFilePath(rc.Run.ThreadID)
+	if rawPlanFilePath, ok := rc.InputJSON["plan_file_path"].(string); ok {
+		rc.PlanFilePath = strings.TrimSpace(rawPlanFilePath)
 	}
 	SyncPlanModePrompt(rc)
 }
@@ -269,11 +270,34 @@ func boolValue(value any) bool {
 	}
 }
 
-func planFilePath(threadID uuid.UUID) string {
-	if threadID == uuid.Nil {
-		return ""
+func latestThreadPlanFilePath(ctx context.Context, tx pgx.Tx, run data.Run) (string, error) {
+	if tx == nil || run.ID == uuid.Nil || run.ThreadID == uuid.Nil || run.AccountID == uuid.Nil {
+		return "", nil
 	}
-	return "plans/" + threadID.String() + ".md"
+	var planFilePath string
+	err := tx.QueryRow(
+		ctx,
+		`SELECT re.data_json #>> '{result,plan_file_path}'
+		   FROM run_events re
+		   JOIN runs r ON r.id = re.run_id
+		  WHERE r.thread_id = $1
+		    AND r.account_id = $2
+		    AND r.id <> $3
+		    AND re.type = 'tool.result'
+		    AND COALESCE(re.data_json #>> '{result,plan_file_path}', '') <> ''
+		  ORDER BY re.ts DESC, re.seq DESC
+		  LIMIT 1`,
+		run.ThreadID,
+		run.AccountID,
+		run.ID,
+	).Scan(&planFilePath)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(planFilePath), nil
 }
 
 func SyncPlanModePrompt(rc *RunContext) {
@@ -283,8 +307,13 @@ func SyncPlanModePrompt(rc *RunContext) {
 	rc.RemovePromptSegment("plan_mode")
 	rc.RemovePromptSegment("plan_mode_exit")
 	if rc.IsPlanMode {
-		if rc.PlanFilePath == "" {
-			rc.PlanFilePath = planFilePath(rc.Run.ThreadID)
+		planLocation := "Plan directory:\n" +
+			tools.DefaultPlanDirectory() + "\n\n" +
+			"For a new planning request, create exactly one new plan file in this directory. Choose a meaningful snake_case name from the task, append a short random lowercase hex suffix, and end the filename with .plan.md, for example channel_phase_1_implementation_0cc67a18.plan.md. Do not read or stat a plan file just to check whether it exists."
+		if strings.TrimSpace(rc.PlanFilePath) != "" {
+			planLocation = "Current plan file:\n" +
+				rc.PlanFilePath + "\n\n" +
+				"Revise this file when the user asks to continue, inspect, or update the existing plan. Do not create a second plan file unless the user asks for a separate plan."
 		}
 		rc.UpsertPromptSegment(PromptSegment{
 			Name:      "plan_mode",
@@ -293,18 +322,32 @@ func SyncPlanModePrompt(rc *RunContext) {
 			Stability: PromptStabilityVolatileTail,
 			Text: "<system-reminder>\n" +
 				"Plan Mode is active for this thread.\n\n" +
-				"The user does not want implementation yet. Do not modify ordinary project files, create commits, run mutating commands, or claim implementation is complete.\n\n" +
-				"You may read, search, inspect, ask clarifying questions, and maintain only this plan file:\n" +
-				rc.PlanFilePath + "\n\n" +
-				"Keep the plan file current as you learn. If the plan file does not exist, create it. If it exists, read it first and update or replace it as appropriate for the current request.\n\n" +
-				"When the plan is ready, call exit_plan_mode. Do not ask for plan approval in plain text; exit_plan_mode is the approval handoff.\n" +
+				"The user wants planning, not implementation. Do not modify ordinary project files, create commits, run mutating commands, or claim implementation is complete.\n\n" +
+				"You may read, search, inspect, and run non-mutating shell commands to understand the codebase. Ask a concise clarifying question only when a user decision is required.\n\n" +
+				planLocation + "\n\n" +
+				"The plan file must start with YAML front matter so the app can identify and render it as a plan:\n" +
+				"---\n" +
+				"name: Short Plan Name\n" +
+				"overview: One concise paragraph describing the intended change.\n" +
+				"todos:\n" +
+				"  - id: stable-kebab-case-id\n" +
+				"    content: \"Concrete task\"\n" +
+				"    status: pending\n" +
+				"isProject: false\n" +
+				"---\n\n" +
+				"Use todo statuses pending, in_progress, or completed. Do not mark implementation work completed unless it has actually been done outside Plan Mode; planning and investigation tasks may be completed when finished.\n\n" +
+				"The final plan must be directly actionable and include key code paths, validation, and assumptions or unresolved decisions either in overview/todos or in the Markdown body after the front matter.\n\n" +
+				"After writing or editing the plan file, show the plan to the user by referencing that exact file in the assistant response as a Markdown resource link, for example [Short Plan Name](file:///absolute/path/to/example_0cc67a18.plan.md). The app renders the linked file in the document panel. Do not rely on tool results to display the plan, and do not paste the full plan body into chat.\n\n" +
+				"Do not call exit_plan_mode after writing a plan. exit_plan_mode is reserved for an explicit user approval/build/execute signal or a system instruction. When the user asks to execute or build the current plan, call exit_plan_mode first; after it succeeds, continue in the same run by executing the approved plan with normal tools. Do not stop after saying the plan was handed to an execution entrypoint.\n\n" +
+				"Do not claim implementation has started. After writing the plan file and linking it, stop with concise confirmation and wait for the user's next action or feedback.\n" +
 				"</system-reminder>",
 		})
 		return
 	}
 	if rc.PlanModeExitReminder {
-		if rc.PlanFilePath == "" {
-			rc.PlanFilePath = planFilePath(rc.Run.ThreadID)
+		planReference := "No plan file was bound before Plan Mode ended.\n"
+		if strings.TrimSpace(rc.PlanFilePath) != "" {
+			planReference = "The plan file for reference is:\n" + rc.PlanFilePath + "\n"
 		}
 		rc.UpsertPromptSegment(PromptSegment{
 			Name:      "plan_mode_exit",
@@ -313,9 +356,8 @@ func SyncPlanModePrompt(rc *RunContext) {
 			Stability: PromptStabilityVolatileTail,
 			Text: "<system-reminder>\n" +
 				"Plan Mode has ended for this thread.\n\n" +
-				"Previous Plan Mode instructions are no longer active. You may now implement changes, run appropriate tools, and continue from the approved plan if it is relevant.\n\n" +
-				"The plan file for reference is:\n" +
-				rc.PlanFilePath + "\n" +
+				"Previous Plan Mode restrictions are no longer active. If the user approved or asked to execute the plan, implement the approved plan now with normal tools, update todo state as work progresses, and validate the result. Do not treat leaving Plan Mode as task completion.\n\n" +
+				planReference +
 				"</system-reminder>",
 		})
 	}
@@ -456,6 +498,9 @@ func loadRunInputsWithTrace(
 		if rawRevision, ok := dataJSON["collaboration_mode_revision"]; ok {
 			inputJSON["collaboration_mode_revision"] = rawRevision
 		}
+		if rawPlanFilePath, ok := dataJSON["plan_file_path"].(string); ok && strings.TrimSpace(rawPlanFilePath) != "" {
+			inputJSON["plan_file_path"] = strings.TrimSpace(rawPlanFilePath)
+		}
 		if rawLearningMode, ok := dataJSON["learning_mode_enabled"]; ok {
 			inputJSON["learning_mode_enabled"] = rawLearningMode
 		}
@@ -491,6 +536,13 @@ func loadRunInputsWithTrace(
 		}
 		if rawChannelDelivery, ok := dataJSON["channel_delivery"].(map[string]any); ok && len(rawChannelDelivery) > 0 {
 			inputJSON["channel_delivery"] = rawChannelDelivery
+		}
+	}
+	if _, ok := inputJSON["plan_file_path"]; !ok && inputJSON["collaboration_mode"] == CollaborationModePlan {
+		if planFilePath, err := latestThreadPlanFilePath(ctx, tx, run); err != nil {
+			return nil, err
+		} else if planFilePath != "" {
+			inputJSON["plan_file_path"] = planFilePath
 		}
 	}
 	_ = isHeartbeatRun(inputJSON, jobPayload)

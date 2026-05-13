@@ -9,8 +9,19 @@ import type {
   WebSource,
 } from './storage'
 import type { WebSearchPhaseStep } from './components/CopTimeline'
+import type { TimelineText } from './timelineText'
 import { isWebFetchToolName } from './agentEventProcessing'
-import { exploreGroupLabel, isExploreFileOp, type ExploreGroupRef } from './toolPresentation'
+import { exploreGroupLabel, exploreGroupText, isExploreFileOp, presentationForTool, type ExploreGroupRef } from './toolPresentation'
+import {
+  EXEC_TOOL_NAMES,
+  TODO_TOOL_NAMES,
+  TOP_LEVEL_TOOL_NAMES,
+  AGENT_TOOL_NAMES,
+  FILE_OP_TOOL_NAMES,
+  IMAGE_GENERATE_TOOL_NAME,
+  formatCount,
+} from './copSubSegment'
+import { planDisplayNameFromResult } from './planMetadata'
 import {
   DEFAULT_SEARCHING_LABEL,
   COMPLETED_SEARCHING_LABEL,
@@ -25,6 +36,7 @@ export type GenericToolCallRef = {
   toolName: string
   label: string
   displayDescription?: string
+  displayText?: TimelineText
   output?: string
   emptyLabel?: string
   status: 'running' | 'success' | 'failed'
@@ -65,38 +77,41 @@ export type TodoWriteRef = {
   seq?: number
 }
 
-const CODE_EXECUTION_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'continue_process', 'terminate_process'])
-const TODO_TOOL_NAMES = new Set(['todo_write'])
-const SUB_AGENT_TOOL_NAMES = new Set([
-  'spawn_agent',
-  'send_input', 'wait_agent', 'resume_agent', 'close_agent', 'interrupt_agent',
-])
-const FILE_OP_TOOL_NAMES = new Set([
-  'grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file',
-  'load_tools', 'memory_write', 'memory_edit', 'memory_search', 'memory_read', 'memory_forget',
-  'notebook_write', 'notebook_read', 'notebook_edit', 'notebook_forget',
-])
 const AUXILIARY_RENDERED_TOOL_NAMES = new Set([
   'show_widget',
   'create_artifact',
   'document_write',
   'browser',
 ])
-const IMAGE_GENERATE_TOOL_NAME = 'image_generate'
+const EXIT_PLAN_MODE_TOOL_NAME = 'exit_plan_mode'
 
 function sortBySeq<T extends { seq?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
 }
 
 export function isTopLevelCopToolName(toolName: string): boolean {
-  return CODE_EXECUTION_TOOL_NAMES.has(toolName) || TODO_TOOL_NAMES.has(toolName)
+  return TOP_LEVEL_TOOL_NAMES.has(toolName)
 }
 
 export type SplitCopItemEntry =
   | { kind: 'timeline'; id: string; seq: number; items: CopBlockItem[] }
   | { kind: 'tool'; id: string; seq: number; item: Extract<CopBlockItem, { kind: 'call' }> }
 
-export function splitCopItemsByTopLevelTools(items: CopBlockItem[]): SplitCopItemEntry[] {
+export function splitCopItemsByTopLevelTools(
+  items: CopBlockItem[],
+  _options: { segmentTitle?: string | null } = {},
+): SplitCopItemEntry[] {
+  const calls = items.filter((item): item is Extract<CopBlockItem, { kind: 'call' }> => item.kind === 'call')
+  const hasProcessContext = items.some((item) => item.kind !== 'call')
+  if (!hasProcessContext && calls.length === 1 && isTopLevelCopToolName(calls[0]!.call.toolName)) {
+    return [{
+      kind: 'tool',
+      id: calls[0]!.call.toolCallId,
+      seq: calls[0]!.seq,
+      item: calls[0]!,
+    }]
+  }
+
   const entries: SplitCopItemEntry[] = []
   let current: CopBlockItem[] = []
   let timelineIndex = 0
@@ -139,7 +154,7 @@ function pickCodeExecutionMode(args: Record<string, unknown>): CodeExecutionRef[
 }
 
 function fallbackCodeExecutionFromCall(call: ReturnType<typeof copSegmentCalls>[number], seq: number): CodeExecutionRef | null {
-  if (!CODE_EXECUTION_TOOL_NAMES.has(call.toolName)) return null
+  if (!EXEC_TOOL_NAMES.has(call.toolName)) return null
   const code = typeof call.arguments.command === 'string' ? call.arguments.command
     : typeof call.arguments.code === 'string' ? call.arguments.code
       : typeof call.arguments.cmd === 'string' ? call.arguments.cmd
@@ -175,6 +190,7 @@ function groupConsecutiveExploreFileOps(calls: ReturnType<typeof copSegmentCalls
     groups.push({
       id: `explore:${currentItems.map((item) => item.id).join(':')}`,
       label: exploreGroupLabel(currentItems, status),
+      text: exploreGroupText(currentItems, status),
       status,
       items: currentItems,
       seq: currentItems[0]?.seq,
@@ -198,9 +214,9 @@ function groupConsecutiveExploreFileOps(calls: ReturnType<typeof copSegmentCalls
 function isKnownTimelineTool(toolName: string): boolean {
   if (toolName === 'read' || toolName.startsWith('read.')) return true
   return (
-    CODE_EXECUTION_TOOL_NAMES.has(toolName) ||
+    EXEC_TOOL_NAMES.has(toolName) ||
     TODO_TOOL_NAMES.has(toolName) ||
-    SUB_AGENT_TOOL_NAMES.has(toolName) ||
+    AGENT_TOOL_NAMES.has(toolName) ||
     FILE_OP_TOOL_NAMES.has(toolName) ||
     AUXILIARY_RENDERED_TOOL_NAMES.has(toolName) ||
     isWebSearchToolName(toolName) ||
@@ -208,20 +224,18 @@ function isKnownTimelineTool(toolName: string): boolean {
   )
 }
 
-function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`
-}
-
 function summarizeGenericResult(result: unknown): { output?: string; emptyLabel?: string } {
+  const planName = planDisplayNameFromResult(result)
+  if (planName) return { output: planName }
   if (result == null) return { emptyLabel: 'Completed; no displayable output returned' }
   if (typeof result === 'string') {
     const trimmed = result.trim()
     return trimmed
-      ? { output: `returned text · ${pluralize(Array.from(trimmed).length, 'char')}` }
+      ? { output: `returned text · ${formatCount(Array.from(trimmed).length, 'char')}` }
       : { emptyLabel: 'Returned empty text' }
   }
-  if (Array.isArray(result)) return { output: `returned array · ${pluralize(result.length, 'item')}` }
-  if (typeof result === 'object') return { output: `returned object · ${pluralize(Object.keys(result as Record<string, unknown>).length, 'key')}` }
+  if (Array.isArray(result)) return { output: `returned array · ${formatCount(result.length, 'item')}` }
+  if (typeof result === 'object') return { output: `returned object · ${formatCount(Object.keys(result as Record<string, unknown>).length, 'key')}` }
   if (typeof result === 'boolean') return { output: `returned boolean · ${result ? 'true' : 'false'}` }
   if (typeof result === 'number') return { output: `returned number · ${result}` }
   return { output: 'returned value' }
@@ -378,11 +392,11 @@ export function deriveTodoChanges(oldTodos: TodoItemRef[], newTodos: TodoItemRef
   return changes
 }
 
-function resultArrayField(result: Record<string, unknown>, snakeKey: string, camelKey: string): unknown {
+function pickSnakeCamelField(result: Record<string, unknown>, snakeKey: string, camelKey: string): unknown {
   return result[snakeKey] ?? result[camelKey]
 }
 
-function resultNumberField(result: Record<string, unknown>, snakeKey: string, camelKey: string): number | undefined {
+function pickSnakeCamelNumberField(result: Record<string, unknown>, snakeKey: string, camelKey: string): number | undefined {
   const value = result[snakeKey] ?? result[camelKey]
   return typeof value === 'number' ? value : undefined
 }
@@ -396,11 +410,11 @@ function todoWriteFromCall(item: Extract<CopSegment['items'][number], { kind: 'c
   const resultTodos = result ? parseTodoItems(result.todos) : []
   const argumentTodos = parseTodoItems(call.arguments.todos)
   const hasError = typeof call.errorClass === 'string' && call.errorClass.trim() !== ''
-  const oldTodos = result ? parseTodoItems(resultArrayField(result, 'old_todos', 'oldTodos')) : []
+  const oldTodos = result ? parseTodoItems(pickSnakeCamelField(result, 'old_todos', 'oldTodos')) : []
   const parsedChanges = result ? parseTodoChanges(result.changes) : []
   const changes = parsedChanges.length > 0 ? parsedChanges : deriveTodoChanges(oldTodos, resultTodos)
-  const completedCount = result ? resultNumberField(result, 'completed_count', 'completedCount') : undefined
-  const totalCount = result ? resultNumberField(result, 'total_count', 'totalCount') : undefined
+  const completedCount = result ? pickSnakeCamelNumberField(result, 'completed_count', 'completedCount') : undefined
+  const totalCount = result ? pickSnakeCamelNumberField(result, 'total_count', 'totalCount') : undefined
   return {
     id: call.toolCallId,
     toolName: 'todo_write',
@@ -415,7 +429,7 @@ function todoWriteFromCall(item: Extract<CopSegment['items'][number], { kind: 'c
   }
 }
 
-type WebSearchPhaseStepLike = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources'>
+type WebSearchStepRef = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources'> & { text?: WebSearchPhaseStep['text'] }
 
 function fallbackWebSearchStepsForSegment(
   segment: CopSegment,
@@ -440,6 +454,7 @@ function fallbackWebSearchStepsForSegment(
       id: call.toolCallId,
       kind: 'searching',
       label: searchStatus === 'done' ? COMPLETED_SEARCHING_LABEL : DEFAULT_SEARCHING_LABEL,
+      text: searchStatus === 'done' ? { kind: 'search_completed' } : { kind: 'search', tense: 'live' },
       status: searchStatus,
       queries: webSearchQueriesFromArguments(call.arguments),
       seq,
@@ -458,6 +473,7 @@ function fallbackWebSearchStepsForSegment(
       id: `${lastSearchStepId}::reviewing`,
       kind: 'reviewing',
       label: 'Reviewing sources',
+      text: { kind: 'reviewing_sources' },
       status: 'done',
       sources: globalSources,
       seq: typeof lastSearchStepSeq === 'number' ? lastSearchStepSeq + 0.5 : undefined,
@@ -469,7 +485,8 @@ function fallbackWebSearchStepsForSegment(
 
 /**
  * 仅返回 CopTimeline 已支持的数据子集（代码 / 子代理 / 文件 / 抓取 / 搜索阶段步骤）。
- * segment 内有 toolCallId 但池子尚未匹配时返回 { steps:[], sources:[] }，避免外层把整条 COP 拆掉。
+ * 池子未匹配的 toolCallId 会从 call 数据本身构建 fallback 占位（codeExecution、searchStep），保障流式阶段 UI 不中断。
+ * 有 toolCallId 但池子整体尚未对齐时返回 { steps:[], sources:[] }——保留 COP 壳子，避免外层把整条 COP 当成无内容而丢掉。
  */
 export function copTimelinePayloadForSegment(
   segment: CopSegment,
@@ -478,7 +495,7 @@ export function copTimelinePayloadForSegment(
     fileOps?: FileOpRef[] | null
     webFetches?: WebFetchRef[] | null
     subAgents?: SubAgentRef[] | null
-    searchSteps?: WebSearchPhaseStepLike[] | null
+    searchSteps?: WebSearchStepRef[] | null
     sources: WebSource[]
   },
 ): {
@@ -525,6 +542,7 @@ export function copTimelinePayloadForSegment(
         id: s.id,
         kind: s.kind,
         label: s.label,
+        text: s.text,
         status: s.status,
         queries: s.queries,
         resultSeq: s.resultSeq,
@@ -557,6 +575,7 @@ export function copTimelinePayloadForSegment(
         id: `${step.id}::reviewing`,
         kind: 'reviewing',
         label: 'Reviewing sources',
+        text: { kind: 'reviewing_sources' },
         status: step.status,
         sources: scopedSources,
         seq: reviewingSeq,
@@ -585,6 +604,7 @@ export function copTimelinePayloadForSegment(
         const status: GenericToolCallRef['status'] = hasError ? 'failed' : call.result === undefined ? 'running' : 'success'
         const isImageGenerate = call.toolName === IMAGE_GENERATE_TOOL_NAME
         const statusLabel = isImageGenerate ? genericImageGenerateLabel(status) : ''
+        const imageTextStatus = status === 'running' ? 'live' : status
         const resultSummary = isImageGenerate && status === 'success'
           ? summarizeImageGenerateResult(call.result)
           : summarizeGenericResult(call.result)
@@ -592,15 +612,22 @@ export function copTimelinePayloadForSegment(
         const preview = previewEntries.length > 0
           ? `${call.toolName} ${previewEntries.map(([key, value]) => `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`).join(' ')}`
           : call.toolName
+        const presentation = presentationForTool(call.toolName, call.arguments)
+        const isExitPlanMode = call.toolName === EXIT_PLAN_MODE_TOOL_NAME
+        const genericDisplay = call.displayDescription || presentation.description
         return {
           id: call.toolCallId,
           toolName: call.toolName,
-          label: isImageGenerate ? genericImageGenerateInput(call.arguments, statusLabel) : call.displayDescription || preview,
-          ...(isImageGenerate ? { displayDescription: statusLabel } : {}),
+          label: isExitPlanMode ? '' : (isImageGenerate ? genericImageGenerateInput(call.arguments, statusLabel) : genericDisplay || preview),
+          ...(isExitPlanMode
+            ? { displayDescription: genericDisplay, displayText: call.displayDescription ? { kind: 'content' as const, text: call.displayDescription } : presentation.text }
+            : isImageGenerate
+              ? { displayDescription: statusLabel, displayText: { kind: 'image_generation' as const, status: imageTextStatus } }
+              : { displayText: call.displayDescription ? { kind: 'content' as const, text: call.displayDescription } : presentation.text }),
           output: resultSummary.output,
-          emptyLabel: resultSummary.emptyLabel,
+          ...(resultSummary.emptyLabel ? { emptyLabel: resultSummary.emptyLabel } : {}),
           status,
-          errorMessage: hasError ? call.errorMessage ?? call.errorClass : undefined,
+          ...(hasError ? { errorMessage: call.errorMessage ?? call.errorClass } : {}),
           seq: item.seq,
         }
       }),
@@ -663,7 +690,7 @@ export type CopTimelineBodySlice = {
   copInlineTextRows?: Array<{ id: string; seq: number }>
 }
 
-export type PromotedCopTimelineEntry =
+export type TimelineEntry =
   | { kind: 'timeline'; id: string; seq: number; slice: CopTimelineBodySlice }
   | { kind: 'explore'; id: string; seq: number; attachedSlice?: CopTimelineBodySlice }
   | { kind: 'edit'; id: string; seq: number; attachedSlice?: CopTimelineBodySlice }
@@ -679,7 +706,7 @@ function minSeq(items: Array<{ seq?: number } | undefined | null>): number | und
   return values.length > 0 ? Math.min(...values) : undefined
 }
 
-export function copTimelineBodySeq({ payload, bodyFileOps, thinkingRows, copInlineTextRows }: CopTimelineBodySeqInput): number {
+export function minCopTimelineBodySeq({ payload, bodyFileOps, thinkingRows, copInlineTextRows }: CopTimelineBodySeqInput): number {
   return minSeq([
     payload.steps[0],
     payload.codeExecutions?.[0],
@@ -693,7 +720,7 @@ export function copTimelineBodySeq({ payload, bodyFileOps, thinkingRows, copInli
   ]) ?? Number.MAX_SAFE_INTEGER
 }
 
-type BodyBucket =
+type TimelineBodyItem =
   | { kind: 'step'; item: WebSearchPhaseStep }
   | { kind: 'code'; item: CodeExecutionRef }
   | { kind: 'file'; item: FileOpRef }
@@ -704,16 +731,16 @@ type BodyBucket =
   | { kind: 'thinking'; item: { id: string; seq: number } }
   | { kind: 'inline'; item: { id: string; seq: number } }
 
-function makeBodySlice(id: string, buckets: BodyBucket[], sources: WebSource[]): CopTimelineBodySlice {
-  const steps = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'step' }> => entry.kind === 'step').map((entry) => entry.item)
-  const codeExecutions = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'code' }> => entry.kind === 'code').map((entry) => entry.item)
-  const fileOps = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'file' }> => entry.kind === 'file').map((entry) => entry.item)
-  const webFetches = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'fetch' }> => entry.kind === 'fetch').map((entry) => entry.item)
-  const genericTools = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'generic' }> => entry.kind === 'generic').map((entry) => entry.item)
-  const subAgents = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'agent' }> => entry.kind === 'agent').map((entry) => entry.item)
-  const todoWrites = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'todo' }> => entry.kind === 'todo').map((entry) => entry.item)
-  const thinkingRows = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'thinking' }> => entry.kind === 'thinking').map((entry) => entry.item)
-  const copInlineTextRows = buckets.filter((entry): entry is Extract<BodyBucket, { kind: 'inline' }> => entry.kind === 'inline').map((entry) => entry.item)
+function buildTimelineBodySlice(id: string, buckets: TimelineBodyItem[], sources: WebSource[]): CopTimelineBodySlice {
+  const steps = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'step' }> => entry.kind === 'step').map((entry) => entry.item)
+  const codeExecutions = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'code' }> => entry.kind === 'code').map((entry) => entry.item)
+  const fileOps = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'file' }> => entry.kind === 'file').map((entry) => entry.item)
+  const webFetches = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'fetch' }> => entry.kind === 'fetch').map((entry) => entry.item)
+  const genericTools = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'generic' }> => entry.kind === 'generic').map((entry) => entry.item)
+  const subAgents = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'agent' }> => entry.kind === 'agent').map((entry) => entry.item)
+  const todoWrites = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'todo' }> => entry.kind === 'todo').map((entry) => entry.item)
+  const thinkingRows = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'thinking' }> => entry.kind === 'thinking').map((entry) => entry.item)
+  const copInlineTextRows = buckets.filter((entry): entry is Extract<TimelineBodyItem, { kind: 'inline' }> => entry.kind === 'inline').map((entry) => entry.item)
   return {
     id,
     seq: buckets[0] ? itemSeq(buckets[0].item) : Number.MAX_SAFE_INTEGER,
@@ -730,13 +757,19 @@ function makeBodySlice(id: string, buckets: BodyBucket[], sources: WebSource[]):
   }
 }
 
-export function promotedCopTimelineEntries(params: {
+/**
+ * 将 payload 切分成 TimelineEntry 列表。
+ * Barriers（exploreGroup、edit 类 fileOp）按 seq 将 body 割成多个 timeline slice；
+ * 紧跟在 barrier 后的 thinkingRow 不进入下一个 slice，而是附着到该 barrier 上（attachedSlice）。
+ * 这样做是为了让 explore 摘要行和紧随其后的思考气泡在视觉上保持绑定。
+ */
+export function buildTimelineEntries(params: {
   payload: CopTimelinePayload
   hasTimelineBody: boolean
   bodyFileOps?: FileOpRef[] | null
   thinkingRows?: Array<{ id: string; seq: number }> | null
   copInlineTextRows?: Array<{ id: string; seq: number }> | null
-}): PromotedCopTimelineEntry[] {
+}): TimelineEntry[] {
   const barriers = [
     ...(params.payload.exploreGroups ?? []).map((group) => ({ kind: 'explore' as const, id: group.id, seq: group.seq ?? Number.MAX_SAFE_INTEGER })),
     ...(params.payload.fileOps ?? [])
@@ -744,7 +777,7 @@ export function promotedCopTimelineEntries(params: {
       .map((op) => ({ kind: 'edit' as const, id: op.id, seq: op.seq ?? Number.MAX_SAFE_INTEGER })),
   ].sort((left, right) => left.seq - right.seq || left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id))
 
-  const bodyBuckets: BodyBucket[] = params.hasTimelineBody ? [
+  const bodyBuckets: TimelineBodyItem[] = params.hasTimelineBody ? [
     ...params.payload.steps.map((item) => ({ kind: 'step' as const, item })),
     ...(params.payload.codeExecutions ?? []).map((item) => ({ kind: 'code' as const, item })),
     ...(params.bodyFileOps ?? []).map((item) => ({ kind: 'file' as const, item })),
@@ -756,30 +789,30 @@ export function promotedCopTimelineEntries(params: {
     ...(params.copInlineTextRows ?? []).map((item) => ({ kind: 'inline' as const, item })),
   ].sort((left, right) => itemSeq(left.item) - itemSeq(right.item) || left.kind.localeCompare(right.kind)) : []
 
-  const entries: PromotedCopTimelineEntry[] = []
+  const entries: TimelineEntry[] = []
   let bucketIndex = 0
   let sliceIndex = 0
   const flushUntil = (maxSeq: number) => {
-    const sliceBuckets: BodyBucket[] = []
+    const sliceBuckets: TimelineBodyItem[] = []
     while (bucketIndex < bodyBuckets.length && itemSeq(bodyBuckets[bucketIndex]!.item) < maxSeq) {
       sliceBuckets.push(bodyBuckets[bucketIndex]!)
       bucketIndex += 1
     }
     if (sliceBuckets.length === 0) return
-    const slice = makeBodySlice(`timeline-${sliceIndex}`, sliceBuckets, params.payload.sources)
+    const slice = buildTimelineBodySlice(`timeline-${sliceIndex}`, sliceBuckets, params.payload.sources)
     sliceIndex += 1
     entries.push({ kind: 'timeline', id: slice.id, seq: slice.seq, slice })
   }
 
   for (const barrier of barriers) {
     flushUntil(barrier.seq)
-    const attachedBuckets: BodyBucket[] = []
+    const attachedBuckets: TimelineBodyItem[] = []
     while (bucketIndex < bodyBuckets.length && bodyBuckets[bucketIndex]!.kind === 'thinking') {
       attachedBuckets.push(bodyBuckets[bucketIndex]!)
       bucketIndex += 1
     }
     const attachedSlice = attachedBuckets.length > 0
-      ? makeBodySlice(`${barrier.kind}-${barrier.id}-attached`, attachedBuckets, params.payload.sources)
+      ? buildTimelineBodySlice(`${barrier.kind}-${barrier.id}-attached`, attachedBuckets, params.payload.sources)
       : undefined
     entries.push(attachedSlice ? { ...barrier, attachedSlice } : barrier)
   }
@@ -796,7 +829,7 @@ export function toolCallIdsInCopTimelines(
     fileOps?: FileOpRef[] | null
     webFetches?: WebFetchRef[] | null
     subAgents?: SubAgentRef[] | null
-    searchSteps?: WebSearchPhaseStepLike[] | null
+    searchSteps?: WebSearchStepRef[] | null
     sources: WebSource[]
   },
 ): Set<string> {

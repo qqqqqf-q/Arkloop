@@ -61,6 +61,8 @@ export interface AppUIContextValue {
   consumeSkillPrompt: () => void
   setTitleBarIncognitoClick: (fn: (() => void) | null) => void
   triggerTitleBarIncognitoClick: (fallback: () => void) => void
+  setTitleBarRightPanelClick: (fn: (() => void) | null) => void
+  triggerTitleBarRightPanelClick: (fallback?: () => void) => void
 }
 
 type SidebarUIContextValue = Pick<
@@ -78,6 +80,7 @@ type NotificationsUIContextValue = Pick<AppUIContextValue, 'notificationsOpen' |
 type AppModeUIContextValue = Pick<AppUIContextValue, 'appMode' | 'availableAppModes' | 'setAppMode'>
 type SkillPromptUIContextValue = Pick<AppUIContextValue, 'pendingSkillPrompt' | 'queueSkillPrompt' | 'consumeSkillPrompt'>
 type TitleBarIncognitoUIContextValue = Pick<AppUIContextValue, 'setTitleBarIncognitoClick' | 'triggerTitleBarIncognitoClick'>
+type TitleBarRightPanelUIContextValue = Pick<AppUIContextValue, 'setTitleBarRightPanelClick' | 'triggerTitleBarRightPanelClick'>
 
 const AppUIContext = createContext<AppUIContextValue | null>(null)
 const SidebarUIContext = createContext<SidebarUIContextValue | null>(null)
@@ -88,6 +91,7 @@ const NotificationsUIContext = createContext<NotificationsUIContextValue | null>
 const AppModeUIContext = createContext<AppModeUIContextValue | null>(null)
 const SkillPromptUIContext = createContext<SkillPromptUIContextValue | null>(null)
 const TitleBarIncognitoUIContext = createContext<TitleBarIncognitoUIContextValue | null>(null)
+const TitleBarRightPanelUIContext = createContext<TitleBarRightPanelUIContextValue | null>(null)
 
 function AppUIProviders({
   value,
@@ -203,6 +207,14 @@ function AppUIProviders({
     [value.setTitleBarIncognitoClick, value.triggerTitleBarIncognitoClick],
   )
 
+  const titleBarRightPanelValue = useMemo<TitleBarRightPanelUIContextValue>(
+    () => ({
+      setTitleBarRightPanelClick: value.setTitleBarRightPanelClick,
+      triggerTitleBarRightPanelClick: value.triggerTitleBarRightPanelClick,
+    }),
+    [value.setTitleBarRightPanelClick, value.triggerTitleBarRightPanelClick],
+  )
+
   return (
     <AppUIContext.Provider value={value}>
       <RightPanelActionsContext.Provider value={rightPanelActionsValue}>
@@ -213,7 +225,9 @@ function AppUIProviders({
                 <AppModeUIContext.Provider value={appModeValue}>
                   <SkillPromptUIContext.Provider value={skillPromptValue}>
                     <TitleBarIncognitoUIContext.Provider value={titleBarIncognitoValue}>
-                      {children}
+                      <TitleBarRightPanelUIContext.Provider value={titleBarRightPanelValue}>
+                        {children}
+                      </TitleBarRightPanelUIContext.Provider>
                     </TitleBarIncognitoUIContext.Provider>
                   </SkillPromptUIContext.Provider>
                 </AppModeUIContext.Provider>
@@ -259,6 +273,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const sidebarToggleTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
   const sidebarLifecycleRef = useRef<{ startedAt: number; sample: PerfSample } | null>(null)
   const titleBarIncognitoRef = useRef<(() => void) | null>(null)
+  const titleBarRightPanelRef = useRef<(() => void) | null>(null)
 
   const availableAppModes: AppMode[] = useMemo(
     () => (desktop || me?.work_enabled !== false) ? ['chat', 'work'] : ['chat'],
@@ -331,7 +346,6 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         settings: 'general',
         skills: 'skills',
         models: 'providers',
-        agents: 'personas',
         channels: 'channels',
         connection: 'advanced',
         voice: 'advanced',
@@ -417,6 +431,16 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     const fn = titleBarIncognitoRef.current
     if (fn) fn()
     else fallback()
+  }, [])
+
+  const setTitleBarRightPanelClick = useCallback((fn: (() => void) | null) => {
+    titleBarRightPanelRef.current = fn
+  }, [])
+
+  const triggerTitleBarRightPanelClick = useCallback((fallback?: () => void) => {
+    const fn = titleBarRightPanelRef.current
+    if (fn) fn()
+    else fallback?.()
   }, [])
 
   useEffect(() => {
@@ -602,6 +626,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     consumeSkillPrompt,
     setTitleBarIncognitoClick,
     triggerTitleBarIncognitoClick,
+    setTitleBarRightPanelClick,
+    triggerTitleBarRightPanelClick,
   }), [
     sidebarCollapsed,
     sidebarHiddenByWidth,
@@ -634,6 +660,8 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     consumeSkillPrompt,
     setTitleBarIncognitoClick,
     triggerTitleBarIncognitoClick,
+    setTitleBarRightPanelClick,
+    triggerTitleBarRightPanelClick,
   ])
 
   return <AppUIProviders value={value}>{children}</AppUIProviders>
@@ -700,5 +728,11 @@ export function useSkillPromptUI(): SkillPromptUIContextValue {
 export function useTitleBarIncognitoUI(): TitleBarIncognitoUIContextValue {
   const ctx = useContext(TitleBarIncognitoUIContext)
   if (!ctx) throw new Error('useTitleBarIncognitoUI must be used within AppUIProvider')
+  return ctx
+}
+
+export function useTitleBarRightPanelUI(): TitleBarRightPanelUIContextValue {
+  const ctx = useContext(TitleBarRightPanelUIContext)
+  if (!ctx) throw new Error('useTitleBarRightPanelUI must be used within AppUIProvider')
   return ctx
 }

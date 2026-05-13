@@ -45,6 +45,7 @@ const (
 	commandPersonasList commandRoute = "personas.list"
 	commandSessionsList commandRoute = "sessions.list"
 	commandSessionsChat commandRoute = "sessions.resume"
+	commandPlugin       commandRoute = "plugin"
 )
 
 type routedCommand struct {
@@ -99,6 +100,8 @@ func run() error {
 		return cmdSessionsList(ctx, route.args)
 	case commandSessionsChat:
 		return cmdSessionsResume(ctx, route.args)
+	case commandPlugin:
+		return cmdPlugin(ctx, route.args)
 	default:
 		printUsage()
 		return &exitError{2}
@@ -117,7 +120,8 @@ commands:
   models list                    list configured models
   personas list                  list selectable personas
   sessions list                  list recent sessions
-  sessions resume <session-id>   resume an existing session`)
+  sessions resume <session-id>   resume an existing session
+  plugin <command>               manage plugins`)
 }
 
 func routeCommand(args []string) (routedCommand, error) {
@@ -155,6 +159,8 @@ func routeCommand(args []string) (routedCommand, error) {
 				return routedCommand{kind: commandSessionsChat, args: args[2:]}, nil
 			}
 		}
+	case "plugin":
+		return routedCommand{kind: commandPlugin, args: args[1:]}, nil
 	}
 
 	return routedCommand{}, fmt.Errorf("unknown command")

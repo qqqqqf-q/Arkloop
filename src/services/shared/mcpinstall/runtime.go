@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/mcpoauth"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -31,6 +33,7 @@ type EnabledInstall struct {
 	LastErrorCode    *string
 	LastErrorMessage *string
 	LastCheckedAt    *time.Time
+	AuthSecretID     *uuid.UUID
 	EncryptedValue   *string
 	KeyVersion       *int
 }
@@ -47,11 +50,14 @@ type ServerConfig struct {
 	Env              map[string]string
 	InheritParentEnv bool
 	CallTimeoutMs    int
+	AuthSecretID     string
+	OAuth            *mcpoauth.AuthState
 }
 
 type AuthPayload struct {
-	Headers map[string]string `json:"headers,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
+	Headers map[string]string   `json:"headers,omitempty"`
+	Env     map[string]string   `json:"env,omitempty"`
+	OAuth   *mcpoauth.AuthState `json:"oauth,omitempty"`
 }
 
 func LoadEnabledInstalls(ctx context.Context, pool DiscoveryQueryer, accountID uuid.UUID, profileRef string, workspaceRef string) ([]EnabledInstall, error) {
@@ -70,7 +76,8 @@ func LoadEnabledInstalls(ctx context.Context, pool DiscoveryQueryer, accountID u
 	rows, err := pool.Query(ctx, `
 		SELECT i.id, i.account_id, i.profile_ref, i.install_key, i.display_name, i.source_kind, i.source_uri,
 		       i.sync_mode, i.transport, i.launch_spec_json, i.host_requirement, i.discovery_status,
-		       i.last_error_code, i.last_error_message, i.last_checked_at, s.encrypted_value, s.key_version
+		       i.last_error_code, i.last_error_message, i.last_checked_at,
+		       i.auth_headers_secret_id, s.encrypted_value, s.key_version
 		  FROM workspace_mcp_enablements w
 		  JOIN profile_mcp_installs i
 		    ON i.id = w.install_id
@@ -106,6 +113,7 @@ func LoadEnabledInstalls(ctx context.Context, pool DiscoveryQueryer, accountID u
 			&item.LastErrorCode,
 			&item.LastErrorMessage,
 			&item.LastCheckedAt,
+			&item.AuthSecretID,
 			&item.EncryptedValue,
 			&item.KeyVersion,
 		); err != nil {
@@ -187,7 +195,8 @@ func ParseServerConfig(serverID string, payload map[string]any, defaultTimeoutMs
 			return ServerConfig{}, fmt.Errorf("mcp server %q missing command", cleanedID)
 		}
 		server.Args = toStringSlice(payload["args"])
-		server.Cwd = optionalStringPtr(payload["cwd"])
+		server.Cwd = optionalStringPtr(firstNonNil(payload["cwd"], payload["working_dir"], payload["workingDir"]))
+		server.InheritParentEnv = asBool(firstNonNil(payload["inherit_parent_env"], payload["inheritParentEnv"]))
 		if rawEnv, ok := payload["env"].(map[string]any); ok {
 			for key, value := range rawEnv {
 				key = strings.TrimSpace(key)
@@ -225,6 +234,10 @@ func ServerConfigFromInstallWithAuth(install EnabledInstall, auth AuthPayload, d
 		return ServerConfig{}, err
 	}
 	server.AccountID = install.AccountID.String()
+	if install.AuthSecretID != nil {
+		server.AuthSecretID = install.AuthSecretID.String()
+	}
+	server.OAuth = auth.OAuth
 	if len(auth.Headers) > 0 {
 		if server.Headers == nil {
 			server.Headers = map[string]string{}
@@ -313,7 +326,7 @@ func decryptInstallAuthPayload(ctx context.Context, install EnabledInstall, decr
 
 func DecodeAuthPayload(payload []byte) (AuthPayload, error) {
 	var structured AuthPayload
-	if err := json.Unmarshal(payload, &structured); err == nil && (len(structured.Headers) > 0 || len(structured.Env) > 0) {
+	if err := json.Unmarshal(payload, &structured); err == nil && (len(structured.Headers) > 0 || len(structured.Env) > 0 || structured.OAuth != nil) {
 		structured.Headers = cleanStringMap(structured.Headers)
 		structured.Env = cleanStringMap(structured.Env)
 		return structured, nil
@@ -341,6 +354,9 @@ func CheckHostRequirement(server ServerConfig, requirement string) error {
 			return fmt.Errorf("stdio command missing")
 		}
 	case "desktop_local", "desktop_sidecar":
+		if !desktopHostRequirementsAvailable {
+			return fmt.Errorf("%s host is only available in desktop mode", requirement)
+		}
 		return nil
 	}
 	return nil
@@ -367,6 +383,26 @@ func optionalStringPtr(value any) *string {
 		return nil
 	}
 	return &text
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func asBool(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 func asString(value any) string {

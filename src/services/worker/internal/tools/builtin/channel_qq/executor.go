@@ -8,6 +8,7 @@ import (
 
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/worker/internal/tools"
+	channelreply "arkloop/services/worker/internal/tools/builtin/channel_reply"
 
 	"github.com/google/uuid"
 )
@@ -114,22 +115,8 @@ func (e *Executor) react(
 }
 
 func (e *Executor) reply(args map[string]any, started time.Time) tools.ExecutionResult {
-	ms := func() int { return int(time.Since(started).Milliseconds()) }
 	replyTo := argString(args, "reply_to_message_id")
-	if replyTo == "" {
-		return tools.ExecutionResult{
-			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "reply_to_message_id is required"},
-			DurationMs: ms(),
-		}
-	}
-	return tools.ExecutionResult{
-		ResultJSON: map[string]any{
-			"ok":                  true,
-			"reply_to_set":        true,
-			"reply_to_message_id": replyTo,
-		},
-		DurationMs: ms(),
-	}
+	return channelreply.Reply(replyTo, started)
 }
 
 func (e *Executor) sendFile(

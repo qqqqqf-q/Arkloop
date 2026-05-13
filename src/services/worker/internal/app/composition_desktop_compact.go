@@ -6,6 +6,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/worker/internal/data"
@@ -55,16 +56,31 @@ func resolveDesktopContextCompact(ctx context.Context, db data.DesktopDB) (pipel
 func resolveDesktopLLMRetry(ctx context.Context, db data.DesktopDB) (int, int) {
 	registry := sharedconfig.DefaultRegistry()
 	if db == nil {
-		return desktopResolvePositiveInt(ctx, nil, registry, "llm.retry.max_attempts", sharedconfig.Scope{}, 3),
+		return desktopResolvePositiveInt(ctx, nil, registry, "llm.retry.max_attempts", sharedconfig.Scope{}, 10),
 			desktopResolvePositiveInt(ctx, nil, registry, "llm.retry.base_delay_ms", sharedconfig.Scope{}, 1000)
 	}
 	resolver, err := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(db), nil, 0)
 	if err != nil {
-		return 3, 1000
+		return 10, 1000
 	}
 	scope := sharedconfig.Scope{}
-	return desktopResolvePositiveInt(ctx, resolver, registry, "llm.retry.max_attempts", scope, 3),
+	return desktopResolvePositiveInt(ctx, resolver, registry, "llm.retry.max_attempts", scope, 10),
 		desktopResolvePositiveInt(ctx, resolver, registry, "llm.retry.base_delay_ms", scope, 1000)
+}
+
+func resolveDesktopRunTimeouts(ctx context.Context, db data.DesktopDB) (time.Duration, time.Duration) {
+	registry := sharedconfig.DefaultRegistry()
+	if db == nil {
+		return time.Duration(desktopResolveNonNegInt(ctx, nil, registry, "limit.run_idle_timeout_ms", sharedconfig.Scope{}, 900000)) * time.Millisecond,
+			time.Duration(desktopResolvePositiveInt(ctx, nil, registry, "limit.run_wall_clock_timeout_ms", sharedconfig.Scope{}, 14400000)) * time.Millisecond
+	}
+	resolver, err := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(db), nil, 0)
+	if err != nil {
+		return 15 * time.Minute, 4 * time.Hour
+	}
+	scope := sharedconfig.Scope{}
+	return time.Duration(desktopResolveNonNegInt(ctx, resolver, registry, "limit.run_idle_timeout_ms", scope, 900000)) * time.Millisecond,
+		time.Duration(desktopResolvePositiveInt(ctx, resolver, registry, "limit.run_wall_clock_timeout_ms", scope, 14400000)) * time.Millisecond
 }
 
 func desktopResolveBool(ctx context.Context, resolver sharedconfig.Resolver, registry *sharedconfig.Registry, key string, scope sharedconfig.Scope, lastResort bool) bool {

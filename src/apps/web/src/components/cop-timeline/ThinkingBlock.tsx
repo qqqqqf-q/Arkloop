@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { useState, useRef, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { useTypewriter } from '../../hooks/useTypewriter'
 import { useLocale } from '../../contexts/LocaleContext'
 import { MarkdownRenderer } from '../MarkdownRenderer'
-import { CopTimelineHeaderLabel } from './CopTimelineHeader'
+import { CopTimelineHeaderLabel, useThinkingElapsedSeconds } from './CopTimelineHeader'
 
 const THINK_MAX_LINES = 10
 const THINK_LINE_HEIGHT_PX = 21.025
@@ -92,25 +92,13 @@ export type CopThoughtSummaryRowProps = {
 export function CopThoughtSummaryRow({ markdown, live, thoughtDurationSeconds, startedAtMs }: CopThoughtSummaryRowProps) {
   const { t } = useLocale()
   const [expanded, setExpanded] = useState(false)
-  const [liveElapsed, setLiveElapsed] = useState(0)
+  const liveElapsed = useThinkingElapsedSeconds(live, startedAtMs)
   const liveLabel = live
     ? (liveElapsed > 0 ? t.copTimelineThinkingForSeconds(liveElapsed) : t.copThinkingInlineTitle)
     : ''
   const thoughtLabel = thoughtDurationSeconds > 0 ? t.copTimelineThoughtForSeconds(thoughtDurationSeconds) : t.copTimelineThinkingDoneNoDuration
   const currentLabel = live ? liveLabel : thoughtLabel
   const shouldAnimateLabel = live && currentLabel !== ''
-
-  useEffect(() => {
-    if (!live || !startedAtMs) {
-      setLiveElapsed(0)
-      return
-    }
-    setLiveElapsed(Math.max(0, Math.round((Date.now() - startedAtMs) / 1000)))
-    const id = setInterval(() => {
-      setLiveElapsed(Math.max(0, Math.round((Date.now() - startedAtMs) / 1000)))
-    }, 1000)
-    return () => clearInterval(id)
-  }, [live, startedAtMs])
 
   return (
     <div>

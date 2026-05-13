@@ -14,7 +14,18 @@ import {
   type RunReasoningMode,
 } from '../api'
 import { type AgentMessage, type AgentMessageContent, useAgentClient } from '../agent-ui'
-import { buildMessageRequest } from '../messageContent'
+import {
+  buildMessageRequest,
+  buildOptimisticUserMessage,
+  buildUserMessageRetryRequest,
+  createClientMessageId,
+  isLocalUserMessage,
+  markDeliveryFailed,
+  messageClientMessageId,
+  replaceLocalUserMessage,
+  undeliveredLocalUserMessages,
+  withMessageDeliveryStatus,
+} from '../messageContent'
 import { createQueuedPrompt } from '../queuedPrompts'
 import {
   addSearchThreadId,
@@ -41,6 +52,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
   const { threads, addThread: onThreadCreated, markRunning: onRunStarted } = useThreadList()
   const { threadId } = useChatSession()
   const {
+    messages,
     setMessages,
     setUserEnterMessageId,
     sendMessageRef,
@@ -105,15 +117,38 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setTerminalRunDisplayId(null)
     setTerminalRunHandoffStatus(null)
     setTerminalRunCoveredRunIds([])
+    const deliveryAttemptKeys: Array<{ messageId: string; clientMessageId: string }> = []
     try {
-      const message = await agentClient.createMessage({
-        threadId,
-        request: buildMessageRequest(normalized, []),
-      })
+      const clientMessageId = createClientMessageId()
+      const request = buildMessageRequest(normalized, [])
+      const localMessage = buildOptimisticUserMessage(request, clientMessageId)
       invalidateMessageSync()
-      setUserEnterMessageId(message.id)
-      setMessages((prev) => [...prev, message])
-      noResponseMsgIdRef.current = message.id
+      setUserEnterMessageId(localMessage.id)
+      setMessages((prev) => [...prev, localMessage])
+      scrollToBottom()
+
+      let lastCreatedMessage: AgentMessage | null = null
+      const messagesToCreate = undeliveredLocalUserMessages([...messages, localMessage])
+      for (const messageToCreate of messagesToCreate) {
+        const retryClientMessageId = messageClientMessageId(messageToCreate) ?? createClientMessageId()
+        deliveryAttemptKeys.push({ messageId: messageToCreate.id, clientMessageId: retryClientMessageId })
+        setMessages((prev) => prev.map((item) =>
+          item.id === messageToCreate.id
+            ? withMessageDeliveryStatus(item, 'pending', retryClientMessageId)
+            : item,
+        ))
+        const created = await agentClient.createMessage({
+          threadId,
+          request: buildUserMessageRetryRequest(messageToCreate, retryClientMessageId),
+        })
+        invalidateMessageSync()
+        setUserEnterMessageId(created.id)
+        setMessages((prev) => replaceLocalUserMessage(prev, messageToCreate.id, retryClientMessageId, created))
+        lastCreatedMessage = created
+      }
+
+      if (!lastCreatedMessage) return
+      noResponseMsgIdRef.current = lastCreatedMessage.id
       const workFolder = threads.find((thread) => thread.id === threadId)?.sidebar_work_folder ?? readThreadWorkFolder(threadId) ?? undefined
       const run = await agentClient.createRun({
         threadId,
@@ -132,6 +167,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
         onLoggedOut()
         return
       }
+      setMessages((prev) => markDeliveryFailed(prev, deliveryAttemptKeys))
       setError(normalizeError(err))
     } finally {
       setSending(false)
@@ -141,6 +177,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     agentClient,
     invalidateMessageSync,
     markTerminalRunHistory,
+    messages,
     noResponseMsgIdRef,
     onLoggedOut,
     onRunStarted,
@@ -262,6 +299,65 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     const personaKey = readSelectedPersonaKeyFromStorage()
     const modelOverride = readSelectedModelFromStorage() ?? undefined
     const thinkingHint = t.copThinkingHints[Math.floor(Math.random() * t.copThinkingHints.length)]
+    if (isLocalUserMessage(message)) {
+      const clientMessageId = messageClientMessageId(message) ?? createClientMessageId()
+      const request = {
+        content: message.content || undefined,
+        contentJson: message.contentJson,
+        clientMessageId,
+      }
+      setSending(true)
+      setError(null)
+      setInjectionBlocked(null)
+      injectionBlockedRunIdRef.current = null
+      clearThreadRunHandoff(threadId)
+      resetLiveState()
+      setPendingThinking(true)
+      setThinkingHint(thinkingHint)
+      setTerminalRunDisplayId(null)
+      setTerminalRunHandoffStatus(null)
+      setTerminalRunCoveredRunIds([])
+      setUserEnterMessageId(message.id)
+      setMessages((prev) => prev.map((item) =>
+        item.id === message.id
+          ? withMessageDeliveryStatus(item, 'pending', clientMessageId)
+          : item,
+      ))
+      try {
+        const created = await agentClient.createMessage({
+          threadId,
+          request,
+        })
+        invalidateMessageSync()
+        setUserEnterMessageId(created.id)
+        setMessages((prev) => replaceLocalUserMessage(prev, message.id, clientMessageId, created))
+        noResponseMsgIdRef.current = created.id
+        const reasoningMode = readThreadReasoningMode(threadId)
+        const run = await agentClient.createRun({
+          threadId,
+          personaId: personaKey,
+          modelOverride,
+          workDir: threads.find((thread) => thread.id === threadId)?.sidebar_work_folder ?? readThreadWorkFolder(threadId) ?? undefined,
+          reasoningMode: reasoningMode !== 'off' ? reasoningMode as RunReasoningMode : undefined,
+        })
+        if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
+        resetSearchSteps()
+        setActiveRunId(run.id)
+        onRunStarted(threadId)
+        scrollToBottom()
+      } catch (err) {
+        setPendingThinking(false)
+        if (isApiError(err) && err.status === 401) {
+          onLoggedOut()
+          return
+        }
+        setMessages((prev) => markDeliveryFailed(prev, [{ messageId: message.id, clientMessageId }]))
+        setError(normalizeError(err))
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     setSending(true)
     setError(null)
     setInjectionBlocked(null)
@@ -308,6 +404,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     injectionBlockedRunIdRef,
     invalidateMessageSync,
     isStreaming,
+    noResponseMsgIdRef,
     onLoggedOut,
     onRunStarted,
     resetLiveState,
@@ -324,6 +421,7 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setTerminalRunDisplayId,
     setTerminalRunHandoffStatus,
     setThinkingHint,
+    setUserEnterMessageId,
     t.copThinkingHints,
     threadId,
     threads,

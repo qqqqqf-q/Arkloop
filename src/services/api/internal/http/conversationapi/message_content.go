@@ -37,13 +37,14 @@ var supportedTextExtensions = map[string]struct{}{
 }
 
 type createMessageRequest struct {
-	Content       string          `json:"content"`
-	ContentJSON   json.RawMessage `json:"content_json"`
-	RouteID       *string         `json:"route_id"`
-	PersonaID     *string         `json:"persona_id"`
-	Model         *string         `json:"model"`
-	WorkDir       *string         `json:"work_dir"`
-	ReasoningMode *string         `json:"reasoning_mode"`
+	Content         string          `json:"content"`
+	ContentJSON     json.RawMessage `json:"content_json"`
+	ClientMessageID *string         `json:"client_message_id"`
+	RouteID         *string         `json:"route_id"`
+	PersonaID       *string         `json:"persona_id"`
+	Model           *string         `json:"model"`
+	WorkDir         *string         `json:"work_dir"`
+	ReasoningMode   *string         `json:"reasoning_mode"`
 }
 
 type messageResponse struct {
@@ -56,6 +57,7 @@ type messageResponse struct {
 	Content         string          `json:"content"`
 	ContentJSON     json.RawMessage `json:"content_json,omitempty"`
 	CreatedAt       string          `json:"created_at"`
+	ClientMessageID *string         `json:"client_message_id,omitempty"`
 }
 
 type messageAttachmentUploadResponse struct {

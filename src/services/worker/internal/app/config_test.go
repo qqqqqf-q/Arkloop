@@ -33,6 +33,9 @@ func TestLoadConfigFromEnv_Defaults(t *testing.T) {
 	if !slices.Equal(cfg.QueueJobTypes, want.QueueJobTypes) {
 		t.Fatalf("config mismatch: queue_job_types got %#v want %#v", cfg.QueueJobTypes, want.QueueJobTypes)
 	}
+	if cfg.MCPCacheTTLSeconds != 60 {
+		t.Fatalf("config mismatch: mcp_cache_ttl_seconds got %d want 60", cfg.MCPCacheTTLSeconds)
+	}
 }
 
 func TestLoadConfigFromEnv_ParsesOverrides(t *testing.T) {
@@ -41,6 +44,7 @@ func TestLoadConfigFromEnv_ParsesOverrides(t *testing.T) {
 	t.Setenv(workerLeaseSecondsEnv, "45")
 	t.Setenv(workerHeartbeatSecondsEnv, "9")
 	t.Setenv(workerQueueJobTypesEnv, "run.execute,context_compact_maintain")
+	t.Setenv(mcpCacheTTLSecondsEnv, "42")
 
 	cfg, err := LoadConfigFromEnv()
 	if err != nil {
@@ -61,6 +65,9 @@ func TestLoadConfigFromEnv_ParsesOverrides(t *testing.T) {
 	}
 	if !slices.Equal(cfg.QueueJobTypes, []string{"run.execute", "context_compact_maintain"}) {
 		t.Fatalf("unexpected queue_job_types: %#v", cfg.QueueJobTypes)
+	}
+	if cfg.MCPCacheTTLSeconds != 42 {
+		t.Fatalf("unexpected mcp cache ttl seconds: %d", cfg.MCPCacheTTLSeconds)
 	}
 }
 

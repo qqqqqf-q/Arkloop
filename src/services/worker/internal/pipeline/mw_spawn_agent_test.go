@@ -141,10 +141,10 @@ func TestSpawnAgentMiddleware_DoesNotDuplicateExistingSpecs(t *testing.T) {
 	}
 
 	rc := &pipeline.RunContext{
-		Emitter: events.NewEmitter("test"),
-		ToolRegistry: registry,
+		Emitter:       events.NewEmitter("test"),
+		ToolRegistry:  registry,
 		ToolExecutors: map[string]tools.Executor{},
-		AllowlistSet: map[string]struct{}{},
+		AllowlistSet:  map[string]struct{}{},
 		ToolSpecs: []llm.ToolSpec{
 			spawnagent.LlmSpecWithPersonas(nil),
 			spawnagent.SendInputLlmSpec,

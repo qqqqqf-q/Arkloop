@@ -7,11 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // LocalBackend performs file operations directly on the host filesystem,
-// rooted under WorkDir. All paths are resolved relative to WorkDir.
+// resolving relative paths from WorkDir.
 type LocalBackend struct {
 	WorkDir string
 }
@@ -20,25 +19,11 @@ func (b *LocalBackend) resolvePath(path string) (string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(b.WorkDir, path)
 	}
-	cleaned := filepath.Clean(path)
-
-	// Allow access to persisted tool outputs
-	if toolRoot := ToolOutputRoot(); toolRoot != "" {
-		toolRootClean := filepath.Clean(toolRoot)
-		if strings.HasPrefix(cleaned, toolRootClean+string(filepath.Separator)) || cleaned == toolRootClean {
-			return cleaned, nil
-		}
-	}
-
-	wsClean := filepath.Clean(b.WorkDir)
-	if !strings.HasPrefix(cleaned, wsClean+string(filepath.Separator)) && cleaned != wsClean {
-		return "", fmt.Errorf("path %q is outside the workspace (path traversal blocked)", path)
-	}
-	return cleaned, nil
+	return filepath.Clean(path), nil
 }
 
 // ResolvePath validates and resolves a path, returning the cleaned absolute path.
-// It allows access to ToolOutputRoot() paths and workspace-relative paths.
+// Relative paths are resolved from WorkDir; absolute paths are preserved.
 func (b *LocalBackend) ResolvePath(path string) (string, error) {
 	return b.resolvePath(path)
 }

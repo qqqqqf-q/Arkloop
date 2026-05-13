@@ -249,9 +249,10 @@ describe('SkillsSettingsContent', () => {
     await flushEffects()
 
     expect(container.textContent).toContain('内置')
-    expect(container.textContent).toContain('默认可用')
+    const toggleOn = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+    expect(toggleOn?.checked).toBe(true)
 
-    const toggle = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+    const toggle = toggleOn
     expect(toggle).toBeTruthy()
     await act(async () => {
       toggle!.click()

@@ -56,5 +56,21 @@ type toolProviderItemResponse struct {
 type upsertToolProviderCredentialRequest struct {
 	APIKey            *string `json:"api_key"`
 	BaseURL           *string `json:"base_url"`
+	BaseURLSet        bool    `json:"-"`
 	AllowInternalHTTP *bool   `json:"allow_internal_http"`
+}
+
+func (r *upsertToolProviderCredentialRequest) UnmarshalJSON(data []byte) error {
+	type rawRequest upsertToolProviderCredentialRequest
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var decoded rawRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = upsertToolProviderCredentialRequest(decoded)
+	_, r.BaseURLSet = raw["base_url"]
+	return nil
 }

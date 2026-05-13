@@ -1,6 +1,9 @@
+import React from 'react'
 import { motion } from 'framer-motion'
 import { Search } from 'lucide-react'
 import { useTypewriter } from '../../hooks/useTypewriter'
+import type { TitleSpan } from '../../copSubSegment'
+import { renderTimelineText } from '../../timelineText'
 
 /** CopTimeline 左轴点线几何；ChatPage 顶层条与之对齐 */
 export const COP_TIMELINE_DOT_NUDGE_Y = 1
@@ -14,11 +17,23 @@ export const COP_TIMELINE_CONTENT_PADDING_LEFT_PX = 24
 /** 仅 thinking 完结直出时正文行高，与 DOT 几何中心对齐：DOT_TOP + DOT_SIZE/2 - lh/2 */
 export const COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX = 18
 
-export const DEVELOPER_SHOW_DEBUG_PANEL_KEY = 'arkloop:web:developer_show_debug_panel'
-
 export function TypewriterText({ text, className, live }: { text: string; className?: string; live?: boolean }) {
   const displayed = useTypewriter(text, !live)
   return <span className={className}>{live ? displayed : text}</span>
+}
+
+export function RenderTitleSpans({ spans }: { spans: TitleSpan[] }) {
+  return (
+    <>
+      {spans.map((s, i) =>
+        'diffKind' in s ? (
+          <span key={i} className={s.diffKind === 'added' ? 'cop-diff-added' : 'cop-diff-removed'}>{s.text}</span>
+        ) : (
+          <React.Fragment key={i}>{renderTimelineText(s.text, 'en')}</React.Fragment>
+        ),
+      )}
+    </>
+  )
 }
 
 export function QueryPill({ text, live }: { text: string; live?: boolean }) {
@@ -98,30 +113,6 @@ export function getUrlScheme(url: string): string {
     const match = /^([a-z][a-z0-9+.-]*):/i.exec(url.trim())
     return match?.[1]?.toLowerCase() ?? ''
   }
-}
-
-export function initialThinkingElapsedSec(
-  thinkingStartedAt: number | undefined,
-  thinkingRows: Array<{ live?: boolean }> | null | undefined,
-  assistantThinking: { markdown: string; live?: boolean } | null | undefined,
-): number {
-  if (!thinkingStartedAt) return 0
-  const list = thinkingRows ?? []
-  const anyLive = list.some((r) => r.live) || !!assistantThinking?.live
-  if (anyLive) return 0
-  const hasAny =
-    list.length > 0 ||
-    !!(assistantThinking && (assistantThinking.markdown.trim() !== '' || !!assistantThinking.live))
-  if (!hasAny) return 0
-  return Math.max(0, Math.round((Date.now() - thinkingStartedAt) / 1000))
-}
-
-export function firstThinkingStartMs(
-  thinkingRows: Array<{ startedAtMs?: number }>,
-  fallback?: number,
-): number | undefined {
-  const first = thinkingRows.find((row) => typeof row.startedAtMs === 'number')?.startedAtMs
-  return first ?? fallback
 }
 
 export const REVIEWING_SOURCE_PREVIEW_COUNT = 12

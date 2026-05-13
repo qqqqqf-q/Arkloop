@@ -279,6 +279,15 @@ func (c telegramConnector) enqueueTelegramStickerRegisterRunTx(
 	if err != nil {
 		return err
 	}
+	if identityID != nil && *identityID != uuid.Nil {
+		cfg, err := resolveTelegramConfig(ch.ChannelType, ch.ConfigJSON)
+		if err != nil {
+			return err
+		}
+		if err := ensureInboundThreadDefaultModel(ctx, tx, thread.ID, cfg.DefaultModel); err != nil {
+			return err
+		}
+	}
 
 	run, _, err := c.runEventRepo.WithTx(tx).CreateRunWithStartedEvent(
 		ctx,

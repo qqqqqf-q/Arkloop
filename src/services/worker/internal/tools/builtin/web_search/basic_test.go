@@ -42,7 +42,7 @@ func TestBasicProviderSearchCallsDesktopEndpoint(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	p := NewBasicProviderWithEndpoint(srv.URL+"/search", "test-token")
-	got, err := p.Search(context.Background(), "arkloop search", 3)
+	got, err := p.Search(context.Background(), SearchRequest{Query: "arkloop search", MaxResults: 3})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestBasicProviderSearchCallsDesktopEndpoint(t *testing.T) {
 
 func TestBasicProviderSearchRequiresDesktopEndpoint(t *testing.T) {
 	p := NewBasicProviderWithEndpoint("", "")
-	_, err := p.Search(context.Background(), "q", 1)
+	_, err := p.Search(context.Background(), SearchRequest{Query: "q", MaxResults: 1})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -78,7 +78,7 @@ func TestBasicProviderSearchRejectsEmptyEndpointResults(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	p := NewBasicProviderWithEndpoint(srv.URL+"/search", "")
-	_, err := p.Search(context.Background(), "q", 1)
+	_, err := p.Search(context.Background(), SearchRequest{Query: "q", MaxResults: 1})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -96,7 +96,7 @@ func TestBasicProviderSearchHTTPError(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	p := NewBasicProviderWithEndpoint(srv.URL+"/search", "")
-	_, err := p.Search(context.Background(), "q", 1)
+	_, err := p.Search(context.Background(), SearchRequest{Query: "q", MaxResults: 1})
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -1549,9 +1549,20 @@ func TestListGlobalRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse run id: %v", err)
 	}
-	_, err = pool.Exec(ctx, "UPDATE runs SET model = $1, persona_id = $2 WHERE id = $3", "gpt-4o-mini", "ops-trace", runID)
+	_, err = pool.Exec(ctx,
+		"UPDATE runs SET model = $1, persona_id = $2, total_input_tokens = $3, total_output_tokens = $4, total_cost_usd = $5 WHERE id = $6",
+		"gpt-4o-mini", "ops-trace", 100, 7, 0.001234, runID,
+	)
 	if err != nil {
 		t.Fatalf("seed run model/persona: %v", err)
+	}
+	_, err = pool.Exec(ctx,
+		`INSERT INTO usage_records (account_id, run_id, usage_type, cache_read_tokens, cache_creation_tokens, cached_tokens)
+		 VALUES ($1, $2, 'llm', $3, $4, $5)`,
+		threadPayload.AccountID, runID, 40, 10, 0,
+	)
+	if err != nil {
+		t.Fatalf("seed usage records: %v", err)
 	}
 
 	// bob 注册（不同 org）
@@ -1588,6 +1599,19 @@ func TestListGlobalRuns(t *testing.T) {
 		}
 		if body.Data[0].AccountID != threadPayload.AccountID {
 			t.Fatalf("unexpected account_id: %q", body.Data[0].AccountID)
+		}
+		row := body.Data[0]
+		if row.CacheReadTokens == nil || *row.CacheReadTokens != 40 {
+			t.Fatalf("expected cache_read_tokens=40, got %+v", row.CacheReadTokens)
+		}
+		if row.CacheCreationTokens == nil || *row.CacheCreationTokens != 10 {
+			t.Fatalf("expected cache_creation_tokens=10, got %+v", row.CacheCreationTokens)
+		}
+		if row.CachedTokens == nil || *row.CachedTokens != 0 {
+			t.Fatalf("expected cached_tokens=0, got %+v", row.CachedTokens)
+		}
+		if row.CacheHitRate == nil || *row.CacheHitRate <= 0 {
+			t.Fatalf("expected cache_hit_rate > 0, got %+v", row.CacheHitRate)
 		}
 	})
 

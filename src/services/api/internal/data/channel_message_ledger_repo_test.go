@@ -196,6 +196,35 @@ func TestChannelMessageLedgerUpdateInboundMetadata(t *testing.T) {
 	}
 }
 
+func TestChannelMessageLedgerHasOutboundMessage(t *testing.T) {
+	env := setupChannelLedgerTestEnv(t, "api_go_channel_message_ledger_has_outbound")
+	if _, err := env.pool.Exec(env.ctx, `
+		INSERT INTO channel_message_ledger (
+			channel_id, channel_type, direction, thread_id, platform_conversation_id, platform_message_id, metadata_json
+		) VALUES (
+			$1, 'feishu', 'outbound', $2, 'chat-1', 'reply-target', '{}'::jsonb
+		)`,
+		env.channelID,
+		env.threadID,
+	); err != nil {
+		t.Fatalf("seed outbound row: %v", err)
+	}
+	got, err := env.repo.HasOutboundMessage(env.ctx, env.channelID, "chat-1", "reply-target")
+	if err != nil {
+		t.Fatalf("HasOutboundMessage: %v", err)
+	}
+	if !got {
+		t.Fatal("expected outbound message match")
+	}
+	got, err = env.repo.HasOutboundMessage(env.ctx, env.channelID, "chat-1", "other")
+	if err != nil {
+		t.Fatalf("HasOutboundMessage missing: %v", err)
+	}
+	if got {
+		t.Fatal("unexpected outbound message match")
+	}
+}
+
 func setupChannelLedgerTestEnv(t *testing.T, dbName string) channelLedgerTestEnv {
 	t.Helper()
 	db := testutil.SetupPostgresDatabase(t, dbName)

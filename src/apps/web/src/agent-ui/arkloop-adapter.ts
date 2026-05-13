@@ -12,6 +12,7 @@ import {
   type MessageResponse,
   type RunEvent,
 } from '../api'
+import { buildAgentUIParts } from '../messageContent'
 import { createSSEClient } from '../sse'
 import type {
   AgentClient,
@@ -20,7 +21,6 @@ import type {
   AgentMessageAttachmentRef,
   AgentMessageContent,
   AgentMessageContentPart,
-  AgentUIMessagePart,
   AgentRun,
   AgentOpenEventStreamOptions,
   AgentUIEvent,
@@ -116,25 +116,18 @@ function toArkloopContent(content: AgentMessageContent | undefined): MessageCont
 function toArkloopCreateMessageRequest(request: AgentCreateMessageRequest): {
   content?: string
   content_json?: MessageContent
+  client_message_id?: string
 } {
   return {
     content: request.content,
     content_json: toArkloopContent(request.contentJson),
+    client_message_id: request.clientMessageId,
   }
 }
 
 function toAgentMessage(message: MessageResponse): AgentMessage {
   const contentJson = toAgentContent(message.content_json)
-  const parts: AgentUIMessagePart[] = contentJson?.parts.flatMap<AgentUIMessagePart>((part) => {
-    if (part.type === 'text') return [{ type: 'text' as const, text: part.text, state: 'done' as const }]
-    const mediaType = part.attachment.mediaType
-    return [{
-      type: 'file' as const,
-      mediaType,
-      filename: part.attachment.filename,
-      url: `attachment:${part.attachment.key}`,
-    }]
-  }) ?? (message.content ? [{ type: 'text' as const, text: message.content, state: 'done' as const }] : [])
+  const parts = buildAgentUIParts(contentJson, message.content)
 
   return {
     id: message.id,
@@ -148,6 +141,8 @@ function toAgentMessage(message: MessageResponse): AgentMessage {
     metadata: {
       createdAt: message.created_at,
       streamId: message.run_id,
+      clientMessageId: message.client_message_id,
+      deliveryStatus: 'sent',
     },
     parts,
   }

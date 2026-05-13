@@ -147,6 +147,8 @@ type feishuIncomingMessage struct {
 	ParentMessageID  string
 	MentionsBot      bool
 	MentionsAll      bool
+	IsReplyToBot     bool
+	MatchesKeyword   bool
 }
 
 func normalizeFeishuChannelConfig(raw json.RawMessage) (json.RawMessage, *feishuChannelConfig, error) {
@@ -752,6 +754,7 @@ func normalizeFeishuIncoming(event feishuMessageEvent, cfg feishuChannelConfig) 
 		conversationType = "private"
 	}
 	mentionsBot, mentionsAll := feishuMentionsTargetBot(msg.Mentions, cfg)
+	parentID := firstNonEmptyFeishu(strings.TrimSpace(msg.ReplyTargetMessageID), strings.TrimSpace(msg.ParentID))
 	return feishuIncomingMessage{
 		MessageID:        messageID,
 		ChatID:           chatID,
@@ -764,9 +767,10 @@ func normalizeFeishuIncoming(event feishuMessageEvent, cfg feishuChannelConfig) 
 		SenderUnionID:    senderUnionID,
 		SenderType:       senderType,
 		ThreadID:         firstNonEmptyFeishu(strings.TrimSpace(msg.ThreadID), strings.TrimSpace(msg.RootID)),
-		ParentMessageID:  firstNonEmptyFeishu(strings.TrimSpace(msg.ReplyTargetMessageID), strings.TrimSpace(msg.ParentID)),
+		ParentMessageID:  parentID,
 		MentionsBot:      mentionsBot,
 		MentionsAll:      mentionsAll,
+		MatchesKeyword:   feishuMessageMatchesKeyword(strings.TrimSpace(text), cfg.TriggerKeywords),
 	}, nil
 }
 
@@ -849,6 +853,16 @@ func feishuMentionsTargetBot(mentions []feishuMention, cfg feishuChannelConfig) 
 	return false, false
 }
 
+func (c *feishuConnector) resolveFeishuReplyToBot(ctx context.Context, tx pgx.Tx, channelID uuid.UUID, incoming feishuIncomingMessage) (bool, error) {
+	if strings.TrimSpace(incoming.ParentMessageID) == "" {
+		return false, nil
+	}
+	if c.channelLedgerRepo == nil {
+		return incoming.MentionsBot, nil
+	}
+	return c.channelLedgerRepo.WithTx(tx).HasOutboundMessage(ctx, channelID, incoming.ChatID, incoming.ParentMessageID)
+}
+
 func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch data.Channel, cfg feishuChannelConfig, incoming feishuIncomingMessage) error {
 	if feishuIncomingFromSelf(cfg, incoming) {
 		return nil
@@ -856,7 +870,7 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 	if !feishuIncomingAllowed(cfg, incoming) {
 		return nil
 	}
-	if incoming.ConversationType != "private" && !incoming.MentionsBot && !incoming.MentionsAll && !feishuMessageMatchesKeyword(incoming.Text, cfg.TriggerKeywords) {
+	if incoming.ConversationType != "private" && incoming.ParentMessageID == "" && !incoming.MentionsBot && !incoming.MentionsAll && !incoming.MatchesKeyword {
 		return nil
 	}
 
@@ -878,14 +892,6 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 	defer tx.Rollback(ctx) //nolint:errcheck
 	commitTx := func() error { return tx.Commit(ctx) }
 
-	received, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, incoming.ChatID, incoming.MessageID)
-	if err != nil {
-		return err
-	}
-	if !received {
-		return commitTx()
-	}
-
 	displayName := incoming.SenderID
 	identityMeta, _ := json.Marshal(map[string]any{
 		"open_id":  incoming.SenderOpenID,
@@ -901,134 +907,160 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 			return err
 		}
 	}
-
-	var ledgerMeta json.RawMessage
-	if c.channelLedgerRepo != nil {
-		ledgerMeta, _ = json.Marshal(map[string]any{
-			"source":             "feishu",
-			"conversation_type":  incoming.ConversationType,
-			"mentions_bot":       incoming.MentionsBot,
-			"mentions_all":       incoming.MentionsAll,
-			"platform_thread_id": incoming.ThreadID,
-			"platform_parent_id": incoming.ParentMessageID,
-		})
-		if _, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			PlatformConversationID:  incoming.ChatID,
-			PlatformMessageID:       incoming.MessageID,
-			PlatformParentMessageID: stringPtrOrNil(incoming.ParentMessageID),
-			PlatformThreadID:        stringPtrOrNil(incoming.ThreadID),
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMeta,
-		}); err != nil {
-			return err
-		}
-	}
-
-	threadProjectID := derefUUID(persona.ProjectID)
-	if threadProjectID == uuid.Nil {
-		ownerUserID := uuid.Nil
-		if ch.OwnerUserID != nil {
-			ownerUserID = *ch.OwnerUserID
-		}
-		if ownerUserID == uuid.Nil && identity.UserID != nil {
-			ownerUserID = *identity.UserID
-		}
-		if ownerUserID != uuid.Nil {
-			if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
-				threadProjectID = pid
-			}
-		}
-	}
-	if threadProjectID == uuid.Nil {
-		return fmt.Errorf("cannot resolve project for persona %s", persona.ID)
-	}
-	threadID, err := c.resolveFeishuThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
-	if err != nil {
-		return err
-	}
-
-	content, err := messagecontent.Normalize(messagecontent.FromText(incoming.Text).Parts)
-	if err != nil {
-		return err
-	}
-	contentJSON, err := content.JSON()
-	if err != nil {
-		return err
-	}
-	metadataJSON, _ := json.Marshal(map[string]any{
-		"source":              "feishu",
-		"channel_identity_id": identity.ID.String(),
-		"platform_chat_id":    incoming.ChatID,
-		"platform_message_id": incoming.MessageID,
-		"platform_user_id":    incoming.SenderID,
-		"chat_type":           incoming.ConversationType,
-		"message_type":        incoming.MessageType,
-		"platform_thread_id":  incoming.ThreadID,
-	})
-	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(ctx, ch.AccountID, threadID, "user", incoming.Text, contentJSON, metadataJSON, identity.UserID)
-	if err != nil {
-		return err
-	}
-	if err := c.updateFeishuInboundLedger(ctx, tx, ch, incoming, &identity.ID, &threadID, nil, &msg.ID, ledgerMeta); err != nil {
-		return err
-	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-	activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID)
-	if err != nil {
-		return err
-	}
-	if activeRun != nil {
-		delivered, err := c.deliverToActiveRun(ctx, runRepoTx, activeRun, incoming.Text, traceID, incoming)
+	if incoming.ConversationType != "private" && incoming.ParentMessageID != "" {
+		isReplyToBot, err := c.resolveFeishuReplyToBot(ctx, tx, ch.ID, incoming)
 		if err != nil {
 			return err
 		}
-		if delivered {
-			if err := c.updateFeishuInboundLedger(ctx, tx, ch, incoming, &identity.ID, &threadID, &activeRun.ID, &msg.ID, ledgerMeta); err != nil {
-				return err
-			}
-			if err := commitTx(); err != nil {
-				return err
-			}
-			c.notifyInput(ctx, activeRun.ID)
-			return nil
-		}
+		incoming.IsReplyToBot = isReplyToBot
 	}
-	if !channelAgentTriggerConsume(ch.ID) {
+	if incoming.ConversationType != "private" && !incoming.MentionsBot && !incoming.IsReplyToBot && !incoming.MentionsAll && !incoming.MatchesKeyword {
 		return commitTx()
 	}
 
-	channelDelivery := buildFeishuChannelDeliveryPayload(ch.ID, identity.ID, incoming)
-	runData := map[string]any{
-		"persona_id":             personaRef,
-		"continuation_source":    "none",
-		"continuation_loop":      false,
-		"channel_delivery":       channelDelivery,
-		"thread_tail_message_id": msg.ID.String(),
+	inbound := InboundMessage{
+		ChannelID:        ch.ID,
+		ChannelType:      "feishu",
+		PlatformChatID:   incoming.ChatID,
+		PlatformMsgID:    incoming.MessageID,
+		PlatformUserID:   incoming.SenderID,
+		ConversationType: incoming.ConversationType,
+		Text:             incoming.Text,
+		CommandText:      incoming.Text,
+		MentionsBot:      incoming.MentionsBot,
+		IsReplyToBot:     incoming.IsReplyToBot,
+		MatchesKeyword:   incoming.MatchesKeyword || incoming.MentionsAll,
+		ReplyToMsgID:     stringPtrOrNil(incoming.ParentMessageID),
+		MessageThreadID:  stringPtrOrNil(incoming.ThreadID),
 	}
-	if model := strings.TrimSpace(cfg.DefaultModel); model != "" {
-		runData["model"] = model
-	}
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
+
+	// --- 命令解析 ---
+	cmdText := strings.TrimSpace(incoming.Text)
+	_, replyText, _, cancelRunID, err := DispatchChannelCommand(
+		ctx, tx, ch, *persona, identity,
+		cmdText, incoming.ConversationType == "private", incoming.ChatID,
+		cfg.DefaultModel, nil,
+		ChannelCommandResolver{
+			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
+				return c.resolveFeishuThreadID(ctx, tx, ch, personaID, projectID, identity, incoming)
+			},
+			ResolveHeartbeatIdentity: func(ctx context.Context, tx pgx.Tx) (*data.ChannelIdentity, error) {
+				gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, incoming.ChatID, nil, nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				return &gi, nil
+			},
+		},
+		c.channelIdentitiesRepo, c.channelDMThreadsRepo, c.channelGroupThreadsRepo,
+		c.personasRepo, c.runEventRepo,
+	)
 	if err != nil {
 		return err
 	}
-	if err := c.updateFeishuInboundLedger(ctx, tx, ch, incoming, &identity.ID, &threadID, &run.ID, &msg.ID, ledgerMeta); err != nil {
+	if replyText != "" {
+		if err := commitTx(); err != nil {
+			return err
+		}
+		if cancelRunID != uuid.Nil {
+			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
+		}
+		_ = c.sendFeishuCommandReply(ctx, cfg, ch, incoming, replyText)
+		return nil
+	}
+
+	ledgerMeta, _ := json.Marshal(map[string]any{
+		"source":             "feishu",
+		"conversation_type":  incoming.ConversationType,
+		"mentions_bot":       incoming.MentionsBot,
+		"is_reply_to_bot":    incoming.IsReplyToBot,
+		"matches_keyword":    incoming.MatchesKeyword,
+		"mentions_all":       incoming.MentionsAll,
+		"platform_thread_id": incoming.ThreadID,
+		"platform_parent_id": incoming.ParentMessageID,
+	})
+	dispatchResult, accepted, err := DispatchInboundImmediate(ctx, tx, InboundImmediatePipelineRequest{
+		TraceID:                traceID,
+		Channel:                ch,
+		PersonaRef:             personaRef,
+		Identity:               identity,
+		Incoming:               inbound,
+		Source:                 "feishu",
+		JobPayload:             map[string]any{"message_id": incoming.MessageID},
+		LedgerRepo:             c.channelLedgerRepo,
+		ReceiptsRepo:           c.channelReceiptsRepo,
+		RunEventRepo:           c.runEventRepo,
+		JobRepo:                c.jobRepo,
+		ReceivedLedgerMetadata: ledgerMeta,
+		PlatformParentMsgID:    stringPtrOrNil(incoming.ParentMessageID),
+		PlatformThreadID:       stringPtrOrNil(incoming.ThreadID),
+		ResolveAndPersist: func(ctx context.Context, tx pgx.Tx) (InboundPipelinePersistResult, error) {
+			threadProjectID := derefUUID(persona.ProjectID)
+			if threadProjectID == uuid.Nil {
+				ownerUserID := uuid.Nil
+				if ch.OwnerUserID != nil {
+					ownerUserID = *ch.OwnerUserID
+				}
+				if ownerUserID == uuid.Nil && identity.UserID != nil {
+					ownerUserID = *identity.UserID
+				}
+				if ownerUserID != uuid.Nil {
+					if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
+						threadProjectID = pid
+					}
+				}
+			}
+			if threadProjectID == uuid.Nil {
+				return InboundPipelinePersistResult{}, fmt.Errorf("cannot resolve project for persona %s", persona.ID)
+			}
+			threadID, err := c.resolveFeishuThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, incoming)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, cfg.DefaultModel); err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			content, err := messagecontent.Normalize(messagecontent.FromText(incoming.Text).Parts)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			contentJSON, err := content.JSON()
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			metadataJSON, _ := json.Marshal(map[string]any{
+				"source":              "feishu",
+				"channel_identity_id": identity.ID.String(),
+				"platform_chat_id":    incoming.ChatID,
+				"platform_message_id": incoming.MessageID,
+				"platform_user_id":    incoming.SenderID,
+				"chat_type":           incoming.ConversationType,
+				"message_type":        incoming.MessageType,
+				"platform_thread_id":  incoming.ThreadID,
+			})
+			msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(ctx, ch.AccountID, threadID, "user", incoming.Text, contentJSON, metadataJSON, identity.UserID)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			return InboundPipelinePersistResult{
+				ThreadID:            threadID,
+				MessageID:           msg.ID,
+				InputContent:        incoming.Text,
+				ThreadTailMessageID: msg.ID.String(),
+			}, nil
+		},
+		DeliverToActiveRun: func(ctx context.Context, repo *data.RunEventRepository, run *data.Run, content string, traceID string) (bool, error) {
+			return c.deliverToActiveRun(ctx, repo, run, content, traceID, incoming)
+		},
+	})
+	if err != nil {
 		return err
 	}
-	jobPayload := map[string]any{
-		"source":           "feishu",
-		"channel_delivery": channelDelivery,
-		"message_id":       incoming.MessageID,
+	if !accepted {
+		return commitTx()
 	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
-		return err
+	if dispatchResult.Delivered {
+		c.notifyInput(ctx, dispatchResult.RunID)
 	}
 	return commitTx()
 }
@@ -1077,6 +1109,26 @@ func (c *feishuConnector) updateFeishuInboundLedger(
 		MessageID:               messageID,
 		MetadataJSON:            metadata,
 	})
+	return err
+}
+
+func (c *feishuConnector) sendFeishuCommandReply(ctx context.Context, cfg feishuChannelConfig, ch data.Channel, incoming feishuIncomingMessage, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if c.secretsRepo == nil || ch.CredentialsID == nil || *ch.CredentialsID == uuid.Nil {
+		return nil
+	}
+	secret, err := loadFeishuChannelSecret(ctx, c.secretsRepo, ch.CredentialsID)
+	if err != nil || strings.TrimSpace(secret.AppSecret) == "" {
+		return nil
+	}
+	client := feishuclient.NewClient(feishuclient.Config{
+		AppID:     cfg.AppID,
+		AppSecret: secret.AppSecret,
+		Domain:    cfg.Domain,
+	}, &nethttp.Client{Timeout: 10 * time.Second})
+	_, err = client.SendText(ctx, "chat_id", incoming.ChatID, text, uuid.NewString())
 	return err
 }
 
@@ -1218,29 +1270,25 @@ func (c *feishuConnector) notifyInput(ctx context.Context, runID uuid.UUID) {
 }
 
 func buildFeishuChannelDeliveryPayload(channelID, identityID uuid.UUID, incoming feishuIncomingMessage) map[string]any {
-	payload := map[string]any{
-		"channel_id":   channelID.String(),
-		"channel_type": "feishu",
-		"conversation_ref": map[string]any{
-			"target": incoming.ChatID,
-		},
-		"inbound_message_ref": map[string]any{
-			"message_id": incoming.MessageID,
-		},
-		"trigger_message_ref": map[string]any{
-			"message_id": incoming.MessageID,
-		},
-		"platform_chat_id":           incoming.ChatID,
-		"platform_message_id":        incoming.MessageID,
-		"sender_channel_identity_id": identityID.String(),
-		"conversation_type":          incoming.ConversationType,
-		"mentions_bot":               incoming.MentionsBot,
-	}
+	var threadID *string
 	if incoming.ThreadID != "" {
-		payload["platform_thread_id"] = incoming.ThreadID
-		payload["conversation_ref"].(map[string]any)["thread_id"] = incoming.ThreadID
+		threadID = &incoming.ThreadID
 	}
-	return payload
+	return BuildChannelDeliveryPayload(InboundMessage{
+		ChannelID:        channelID,
+		ChannelType:      "feishu",
+		PlatformChatID:   incoming.ChatID,
+		PlatformMsgID:    incoming.MessageID,
+		PlatformUserID:   incoming.SenderID,
+		ConversationType: incoming.ConversationType,
+		Text:             incoming.Text,
+		CommandText:      incoming.Text,
+		MentionsBot:      incoming.MentionsBot,
+		IsReplyToBot:     incoming.IsReplyToBot,
+		MatchesKeyword:   incoming.MatchesKeyword,
+		ReplyToMsgID:     stringPtrOrNil(incoming.ParentMessageID),
+		MessageThreadID:  threadID,
+	}, identityID)
 }
 
 func feishuIncomingAllowed(cfg feishuChannelConfig, incoming feishuIncomingMessage) bool {

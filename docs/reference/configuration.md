@@ -1,7 +1,7 @@
 | key | type | scope | default | sensitive | description |
 | --- | --- | --- | --- | --- | --- |
 | backpressure.enabled | bool | both | true | false | 启用 sub-agent 背压治理 |
-| backpressure.queue_threshold | int | both | 15 | false | 单 root run 下触发背压的活跃 sub-agent 数量阈值 |
+| backpressure.queue_threshold | int | both | 15 | false | 单 thread 下触发背压的活跃 sub-agent 数量阈值 |
 | backpressure.strategy | string | both | serial | false | 背压降级策略: serial/reject/pause |
 | browser.enabled | bool | platform | false | false | 是否在 Worker 中注册 browser 自动化工具 |
 | budget.max_cost_micros | int | both | 0 | false | 单次 run 最大累计费用 (微美元), 0 表示不限 |
@@ -33,6 +33,7 @@
 | gateway.ratelimit_rate_per_minute | number | platform | 300 | false | Gateway Rate Limit Per Minute |
 | gateway.risk_reject_threshold | int | platform | 0 | false | Gateway 风险拒绝阈值（0-100） |
 | gateway.trusted_cidrs | string | platform |  | false | Gateway 可信代理 CIDR 列表 |
+| image_generative.model | string | both |  | false | 默认图片生成模型，格式 provider^model |
 | invite.default_max_uses | int | both | 0 | false | 邀请码默认可用次数，0 表示不限 |
 | invite.max_codes_per_user | int | both | 1 | false | 单用户可创建的邀请码数量上限 |
 | limit.agent_reasoning_iterations | int | platform | 0 | false | Agent Loop 主推理回合上限，0 表示不限 |
@@ -41,19 +42,23 @@
 | limit.max_input_content_bytes | int | both | 32768 | false | Run input 提交内容最大字节数 |
 | limit.max_parallel_tasks | int | platform | 32 | false | Lua 并行任务/并行工具调用上限 |
 | limit.paused_input_timeout_ms | int | platform | 300000 | false | run 进入等待用户输入后的超时时间（毫秒） |
-| limit.run_wall_clock_timeout_ms | int | platform | 900000 | false | 单个 run 的 wall clock 硬截止时间（毫秒） |
-| limit.subagent_max_active_per_root_run | int | both | 20 | false | 单 root run 下最大活跃 sub-agent 数量 |
+| limit.run_idle_timeout_ms | int | platform | 900000 | false | 单个 run 无有效进展的超时时间（毫秒） |
+| limit.run_wall_clock_timeout_ms | int | platform | 14400000 | false | 单个 run 的最大 wall clock 硬截止时间（毫秒） |
+| limit.subagent_max_active_per_thread | int | both | 20 | false | 单 thread 下最大活跃 sub-agent 数量 |
 | limit.subagent_max_depth | int | both | 5 | false | Sub-Agent 最大嵌套深度 |
-| limit.subagent_max_descendants_per_root_run | int | both | 50 | false | 单 root run 下 sub-agent 总数上限 |
-| limit.subagent_max_parallel_children | int | both | 5 | false | 单 run 下最大并行子 agent 数量 |
-| limit.subagent_max_pending_per_root_run | int | both | 20 | false | 单 root run 下待处理输入队列上限 |
+| limit.subagent_max_descendants_per_thread | int | both | 50 | false | 单 thread 下 sub-agent 总数上限 |
+| limit.subagent_max_parallel_children_per_thread | int | both | 5 | false | 单 thread 下最大并行子 agent 数量 |
+| limit.subagent_max_pending_per_thread | int | both | 20 | false | 单 thread 下待处理输入队列上限 |
 | limit.team_members | int | both | 0 | false | Team 成员数量上限，0 表示不限 |
 | limit.tool_continuation_budget | int | platform | 32 | false | 长工具 continuation 总预算上限 |
 | llm.max_response_bytes | int | platform | 16384 | false | LLM Provider HTTP 响应读取上限（字节） |
 | llm.retry.base_delay_ms | int | platform | 1000 | false | LLM 重试基础延迟（毫秒） |
-| llm.retry.max_attempts | int | platform | 3 | false | LLM 重试最大次数 |
+| llm.retry.max_attempts | int | platform | 10 | false | LLM 重试最大次数 |
 | memory.distill_enabled | bool | both | true | false | 启用普通对话在 run 结束后的自动 Memory 提炼 |
 | memory.impression_score_threshold | int | both | 50 | false | impression 更新触发阈值 |
+| nowledge.api_key | string | platform |  | true | Nowledge API Key |
+| nowledge.base_url | string | platform |  | false | Nowledge Base URL |
+| nowledge.request_timeout_ms | int | platform | 30000 | false | Nowledge request timeout in milliseconds |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
 | openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
 | openviking.root_api_key | string | platform |  | true | OpenViking Root API Key |

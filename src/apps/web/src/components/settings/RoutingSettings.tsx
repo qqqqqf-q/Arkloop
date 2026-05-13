@@ -20,21 +20,14 @@ const PROFILE_NAMES = ['explore', 'task', 'strong'] as const
 
 function RoutingSection({
   title,
-  description,
   children,
 }: {
   title: string
-  description?: string
   children: ReactNode
 }) {
   return (
     <section className="flex flex-col gap-2.5">
-      <div>
-        <h3 className="text-sm font-semibold text-[var(--c-text-heading)]">{title}</h3>
-        {description && (
-          <p className="mt-1 text-xs leading-5 text-[var(--c-text-muted)]">{description}</p>
-        )}
-      </div>
+      <h3 className="pl-2.5 text-[13px] font-normal text-[var(--c-text-secondary)]">{title}</h3>
       {children}
     </section>
   )
@@ -58,9 +51,9 @@ function RoutingRow({
   control: ReactNode
 }) {
   return (
-    <div className="grid gap-3 px-5 py-4 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] sm:items-center sm:gap-6 [&+&]:border-t [&+&]:border-[var(--c-border-subtle)]">
+    <div className="relative grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] sm:items-center sm:gap-6 [&+&]:before:absolute [&+&]:before:left-5 [&+&]:before:right-5 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-['']">
       <div className="min-w-0">
-        <div className="text-sm font-medium text-[var(--c-text-primary)]">{title}</div>
+        <div className="text-[13px] font-medium text-[var(--c-text-primary)]">{title}</div>
         {description && (
           <div className="mt-1 text-xs leading-5 text-[var(--c-text-tertiary)]">{description}</div>
         )}
@@ -126,8 +119,14 @@ export function RoutingSettings({ accessToken }: Props) {
   const imageProfile = profiles.find((p) => p.profile === 'image')
   const imageModelValue = imageProfile?.resolved_model ?? ''
   return (
-    <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-7 pb-8">
-      <RoutingSection title={a.spawnProfileTitle} description={a.spawnProfileSubtitle}>
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
+      <div>
+        <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[var(--c-text-heading)]">
+          {ds.routing}
+        </h2>
+      </div>
+
+      <RoutingSection title={a.spawnProfileTitle}>
         <RoutingCard>
           {PROFILE_NAMES.map(name => {
             const profile = profiles.find(p => p.profile === name)
@@ -153,10 +152,11 @@ export function RoutingSettings({ accessToken }: Props) {
         </RoutingCard>
       </RoutingSection>
 
-      <RoutingSection title={ds.toolModel} description={ds.toolModelDesc}>
+      <RoutingSection title={ds.toolModel}>
         <RoutingCard>
           <RoutingRow
             title={ds.toolModel}
+            description={ds.toolModelDesc}
             control={(
               <ToolModelSettingControl accessToken={accessToken} />
             )}
@@ -164,7 +164,7 @@ export function RoutingSettings({ accessToken }: Props) {
         </RoutingCard>
       </RoutingSection>
 
-      <RoutingSection title={a.imageGenerativeTitle} description={a.imageGenerativeDesc}>
+      <RoutingSection title={a.imageGenerativeTitle}>
         <RoutingCard>
           <RoutingRow
             title={a.imageGenerativeTitle}

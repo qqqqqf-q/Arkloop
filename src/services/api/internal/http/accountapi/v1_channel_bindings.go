@@ -132,7 +132,6 @@ func updateChannelBinding(
 
 	linksRepo := channelIdentityLinksRepo.WithTx(tx)
 	channelsRepoTx := channelsRepo.WithTx(tx)
-	personasRepoTx := personasRepo.WithTx(tx)
 
 	binding, err := linksRepo.GetBinding(r.Context(), accountID, channelID, bindingID)
 	if err != nil {
@@ -166,56 +165,8 @@ func updateChannelBinding(
 	}
 
 	if req.HeartbeatEnabled != nil || req.HeartbeatIntervalMinutes != nil || req.HeartbeatModel != nil {
-		enabled := binding.HeartbeatEnabled
-		intervalMinutes := binding.HeartbeatIntervalMinutes
-		model := binding.HeartbeatModel
-		if req.HeartbeatEnabled != nil {
-			enabled = *req.HeartbeatEnabled
-		}
-		if req.HeartbeatIntervalMinutes != nil {
-			intervalMinutes = *req.HeartbeatIntervalMinutes
-		}
-		if req.HeartbeatModel != nil {
-			model = strings.TrimSpace(*req.HeartbeatModel)
-		}
-		if err := linksRepo.UpdateHeartbeatConfig(r.Context(), binding.BindingID, enabled, intervalMinutes, model); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-		triggerRepo := data.ScheduledTriggersRepository{}
-		if !enabled {
-			if err := triggerRepo.DeleteHeartbeat(r.Context(), tx, binding.ChannelID, binding.ChannelIdentityID); err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-		} else {
-			channel, channelErr := channelsRepoTx.GetByID(r.Context(), channelID)
-			if channelErr != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if channel == nil || channel.AccountID != accountID {
-				httpkit.WriteError(w, nethttp.StatusNotFound, "channels.not_found", "channel not found", traceID, nil)
-				return
-			}
-			if channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "channel persona not configured", traceID, nil)
-				return
-			}
-			persona, personaErr := personasRepoTx.GetByIDForAccount(r.Context(), accountID, *channel.PersonaID)
-			if personaErr != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if persona == nil || strings.TrimSpace(persona.PersonaKey) == "" {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "channel persona not found", traceID, nil)
-				return
-			}
-			if err := triggerRepo.UpsertHeartbeat(r.Context(), tx, accountID, binding.ChannelID, binding.ChannelIdentityID, strings.TrimSpace(persona.PersonaKey), model, intervalMinutes); err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-		}
+		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "heartbeat is thread-scoped; configure it from the target conversation", traceID, nil)
+		return
 	}
 
 	updated, err := linksRepo.GetBinding(r.Context(), accountID, channelID, bindingID)

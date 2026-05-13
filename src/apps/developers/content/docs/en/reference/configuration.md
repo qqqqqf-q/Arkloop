@@ -32,7 +32,7 @@ title: "Configuration Reference"
 | limit.team_members | int | both | 0 | false | Maximum team member limit; 0 means unlimited |
 | llm.max_response_bytes | int | platform | 16384 | false | Maximum limit for reading LLM Provider HTTP responses (bytes) |
 | llm.retry.base_delay_ms | int | platform | 1000 | false | Base delay for LLM retries (milliseconds) |
-| llm.retry.max_attempts | int | platform | 3 | false | Maximum number of LLM retry attempts |
+| llm.retry.max_attempts | int | platform | 10 | false | Maximum number of LLM retry attempts |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
 | openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
 | openviking.root_api_key | string | platform |  | true | OpenViking Root API Key |

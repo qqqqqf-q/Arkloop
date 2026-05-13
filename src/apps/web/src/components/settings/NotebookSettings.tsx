@@ -9,8 +9,8 @@ import type { MemoryEntry } from '@arkloop/shared/desktop'
 import { secondaryButtonSmCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import { SettingsButton } from './_SettingsButton'
 import { settingsInputCls } from './_SettingsInput'
-import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { getDesktopMemoryApi } from '../../desktopMemoryApi'
+import { SettingsCard, SettingsGroup, SettingsPage } from './_SettingsLayout'
 
 function formatDate(iso: string): string {
   return formatDateTime(iso, { includeZone: false })
@@ -350,71 +350,73 @@ export function NotebookSettings({ accessToken }: Props) {
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-4">
-        <SettingsSectionHeader title={ds.notebookSettingsTitle} description={ds.notebookSettingsDesc} />
-        <div className="flex items-center justify-center py-20"><SpinnerIcon /></div>
-      </div>
+      <SettingsPage title={ds.notebookSettingsTitle}>
+        <SettingsGroup title={ds.notebookSettingsTitle}>
+          <SettingsCard>
+            <div className="flex items-center justify-center px-5 py-20"><SpinnerIcon /></div>
+          </SettingsCard>
+        </SettingsGroup>
+      </SettingsPage>
     )
   }
 
   if (!memoryApi) {
     return (
-      <div className="flex flex-col gap-4">
-        <SettingsSectionHeader title={ds.notebookSettingsTitle} description={ds.notebookSettingsDesc} />
-        <div
-          className="rounded-xl py-16 text-center text-sm text-[var(--c-text-muted)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-        >
-          Not available outside Desktop mode.
-        </div>
-      </div>
+      <SettingsPage title={ds.notebookSettingsTitle}>
+        <SettingsGroup title={ds.notebookSettingsTitle}>
+          <SettingsCard>
+            <div className="px-5 py-16 text-center text-sm text-[var(--c-text-muted)]">
+              Not available outside Desktop mode.
+            </div>
+          </SettingsCard>
+        </SettingsGroup>
+      </SettingsPage>
     )
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <SettingsSectionHeader title={ds.notebookSettingsTitle} description={ds.notebookSettingsDesc} />
+    <SettingsPage title={ds.notebookSettingsTitle}>
+      <SettingsGroup title={ds.notebookAddButton}>
+        <SettingsCard>
+          <div className="flex flex-col gap-3 px-5 py-4">
+            <textarea
+              value={addContent}
+              onChange={(e) => setAddContent(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleAdd()
+                }
+              }}
+              placeholder={ds.notebookAddPlaceholder}
+              rows={4}
+              className={`${settingsInputCls('md')} h-auto min-h-[108px] resize-none py-2.5`}
+            />
+            <SettingsButton
+              variant="primary"
+              onClick={() => void handleAdd()}
+              disabled={adding || !addContent.trim()}
+              className="w-full"
+              icon={adding ? <SpinnerIcon /> : <Plus size={14} />}
+            >
+              {ds.notebookAddButton}
+            </SettingsButton>
+          </div>
+        </SettingsCard>
+      </SettingsGroup>
 
-      {/* add card */}
-      <div
-        className="flex flex-col gap-3 rounded-xl p-4"
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-      >
-        <textarea
-          value={addContent}
-          onChange={(e) => setAddContent(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void handleAdd()
-            }
+      <SettingsGroup title={ds.memoryEntriesTitle}>
+        <NotebookCard
+          entries={entries}
+          onClick={() => setModalOpen(true)}
+          titles={{
+            countLabel: ds.notebookEntries(entries.length),
+            viewEdit: ds.notebookViewEdit,
+            emptyTitle: ds.memoryEmptyTitle,
+            emptyDesc: ds.memoryEmptyDesc,
           }}
-          placeholder={ds.notebookAddPlaceholder}
-          rows={4}
-          className={`${settingsInputCls('md')} h-auto min-h-[108px] resize-none py-2.5`}
         />
-        <SettingsButton
-          variant="primary"
-          onClick={() => void handleAdd()}
-          disabled={adding || !addContent.trim()}
-          className="w-full"
-          icon={adding ? <SpinnerIcon /> : <Plus size={14} />}
-        >
-          {ds.notebookAddButton}
-        </SettingsButton>
-      </div>
-
-      {/* notebook preview card */}
-      <NotebookCard
-        entries={entries}
-        onClick={() => setModalOpen(true)}
-        titles={{
-          countLabel: ds.notebookEntries(entries.length),
-          viewEdit: ds.notebookViewEdit,
-          emptyTitle: ds.memoryEmptyTitle,
-          emptyDesc: ds.memoryEmptyDesc,
-        }}
-      />
+      </SettingsGroup>
 
       {/* Modal: entries list */}
       <Modal open={modalOpen} onClose={() => { setModalOpen(false); setSearchQuery('') }} title={ds.notebookModalTitle} width="560px">
@@ -505,6 +507,6 @@ export function NotebookSettings({ accessToken }: Props) {
         message={ds.memoryClearAllConfirm}
         confirmLabel="Delete"
       />
-    </div>
+    </SettingsPage>
   )
 }

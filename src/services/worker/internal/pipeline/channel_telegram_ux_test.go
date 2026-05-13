@@ -39,4 +39,3 @@ func TestParseTelegramChannelUXBotIdentity(t *testing.T) {
 		t.Fatal("typing default should be true")
 	}
 }
-

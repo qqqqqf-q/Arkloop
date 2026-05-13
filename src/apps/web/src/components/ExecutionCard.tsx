@@ -3,7 +3,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
 import { useLocale } from '../contexts/LocaleContext'
 import { useTypewriter } from '../hooks/useTypewriter'
+import { presentationForTool } from '../toolPresentation'
 import { CopyIconButton } from './CopyIconButton'
+import { localizeTimelineLabel } from './cop-timeline/labels'
+import { renderTimelineText, type TimelineText } from '../timelineText'
 
 type Status = 'running' | 'success' | 'failed' | 'completed'
 
@@ -12,6 +15,7 @@ type Props = {
   toolName?: string
   label?: string
   displayDescription?: string
+  displayText?: TimelineText
   code?: string
   output?: string
   emptyLabel?: string
@@ -19,6 +23,7 @@ type Props = {
   status: Status
   /** 仅流式时为 true：逐字平滑；历史/静态为 false 立即展示 */
   smooth?: boolean
+  expandedOffsetLeft?: number
 }
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
@@ -34,6 +39,9 @@ function maskFor(edge: ScrollEdge): string | undefined {
 }
 
 function toolKindLabel(toolName: string): string {
+  if (!toolName) return ''
+  const presentation = presentationForTool(toolName)
+  if (presentation.description !== toolName) return presentation.description
   switch (toolName) {
     case 'grep': return 'grep'
     case 'glob': return 'glob'
@@ -124,8 +132,8 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
-export function ExecutionCard({ variant, toolName, label, displayDescription, code, output, emptyLabel, errorMessage, status, smooth = false }: Props) {
-  const { t } = useLocale()
+export function ExecutionCard({ variant, toolName, label, displayDescription, displayText, code, output, emptyLabel, errorMessage, status, smooth = false, expandedOffsetLeft = 0 }: Props) {
+  const { t, locale } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [cmdHovered, setCmdHovered] = useState(false)
   const [outHovered, setOutHovered] = useState(false)
@@ -133,9 +141,18 @@ export function ExecutionCard({ variant, toolName, label, displayDescription, co
   const outputRef = useRef<HTMLDivElement>(null)
   const [scrollEdge, setScrollEdge] = useState<ScrollEdge>('none')
 
-  const preview = variant === 'shell'
+  const rawPreview = variant === 'shell'
     ? (displayDescription || extractCommandPreview(code) || t.shellRan)
     : (displayDescription || label || '')
+  const preview = variant === 'fileop'
+    ? displayText ? renderTimelineText(displayText, locale) : localizeTimelineLabel(rawPreview, locale)
+    : rawPreview
+  const rawKindLabel = variant === 'shell'
+    ? 'shell'
+    : (displayDescription || toolKindLabel(toolName || ''))
+  const kindLabel = variant === 'fileop'
+    ? displayText ? renderTimelineText(displayText, locale) : localizeTimelineLabel(rawKindLabel, locale)
+    : rawKindLabel
   // 只在有 displayDescription 时追加命令缩写，避免与 extractCommandPreview 重复
   const commandHeads = variant === 'shell' && displayDescription ? abbreviateCommandHeads(code) : ''
   const statusWord = variant === 'shell'
@@ -258,7 +275,11 @@ export function ExecutionCard({ variant, toolName, label, displayDescription, co
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={expandTransition}
-            style={{ overflow: 'hidden' }}
+            style={{
+              overflow: 'hidden',
+              marginLeft: expandedOffsetLeft,
+              width: expandedOffsetLeft < 0 ? `calc(100% + ${Math.abs(expandedOffsetLeft)}px)` : undefined,
+            }}
           >
             <div style={{
               borderRadius: '8px',
@@ -268,8 +289,8 @@ export function ExecutionCard({ variant, toolName, label, displayDescription, co
             }}
             >
               {/* Label */}
-              <div style={{ padding: '6px 10px 2px', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {variant === 'shell' ? 'shell' : toolKindLabel(toolName || '')}
+              <div style={{ padding: '6px 10px 2px', fontSize: '10px', color: 'var(--c-text-muted)', fontFamily: MONO, textTransform: variant === 'shell' ? 'uppercase' : 'none', letterSpacing: variant === 'shell' ? '0.05em' : 0 }}>
+                {kindLabel}
               </div>
 
               {/* Input: shell 命令 / fileop 参数摘要 */}

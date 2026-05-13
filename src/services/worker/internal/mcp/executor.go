@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
+	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/tools"
@@ -107,9 +109,81 @@ func (e *ToolExecutor) Execute(
 		}
 	}
 
+	content, attachments := splitMCPContent(result.Content)
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"content": result.Content},
-		DurationMs: durationMs(started),
+		ResultJSON:   map[string]any{"content": content},
+		ContentParts: attachments,
+		DurationMs:   durationMs(started),
+	}
+}
+
+func splitMCPContent(content []map[string]any) ([]map[string]any, []tools.ContentAttachment) {
+	if len(content) == 0 {
+		return content, nil
+	}
+	cleaned := make([]map[string]any, 0, len(content))
+	attachments := make([]tools.ContentAttachment, 0)
+	for _, item := range content {
+		if strings.EqualFold(strings.TrimSpace(stringFromAny(item["type"])), "image") {
+			next, attachment, ok := imageContentAttachment(item)
+			cleaned = append(cleaned, next)
+			if ok {
+				attachments = append(attachments, attachment)
+			}
+			continue
+		}
+		cleaned = append(cleaned, item)
+	}
+	return cleaned, attachments
+}
+
+func imageContentAttachment(item map[string]any) (map[string]any, tools.ContentAttachment, bool) {
+	mimeType := firstMCPString(item["mimeType"], item["mime_type"])
+	if mimeType == "" {
+		mimeType = "image/png"
+	}
+	dataText := strings.TrimSpace(stringFromAny(item["data"]))
+	data, err := decodeMCPImageData(dataText)
+	if err != nil || len(data) == 0 {
+		return map[string]any{
+			"type":     "image",
+			"mimeType": mimeType,
+			"error":    "invalid_image_data",
+		}, tools.ContentAttachment{}, false
+	}
+	return map[string]any{
+		"type":     "image",
+		"mimeType": mimeType,
+		"bytes":    len(data),
+		"attached": true,
+	}, tools.ContentAttachment{MimeType: mimeType, Data: data}, true
+}
+
+func decodeMCPImageData(value string) ([]byte, error) {
+	if index := strings.Index(value, ","); strings.HasPrefix(value, "data:") && index >= 0 {
+		value = value[index+1:]
+	}
+	if data, err := base64.StdEncoding.DecodeString(value); err == nil {
+		return data, nil
+	}
+	return base64.RawStdEncoding.DecodeString(value)
+}
+
+func firstMCPString(values ...any) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(stringFromAny(value)); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return ""
 	}
 }
 
@@ -140,6 +214,21 @@ func toExecutionError(err error, toolName string, serverID string) *tools.Execut
 			Message:    typed.Error(),
 			Details:    details,
 		}
+	case AuthRequiredError:
+		details := map[string]any{
+			"tool_name":     toolName,
+			"server_id":     serverID,
+			"auth_required": true,
+			"reason":        typed.Reason,
+		}
+		if typed.StatusCode > 0 {
+			details["status_code"] = typed.StatusCode
+		}
+		return &tools.ExecutionError{
+			ErrorClass: ErrorClassMcpProtocolError,
+			Message:    typed.Error(),
+			Details:    details,
+		}
 	case ProtocolError:
 		return &tools.ExecutionError{
 			ErrorClass: ErrorClassMcpProtocolError,
@@ -163,4 +252,3 @@ func durationMs(started time.Time) int {
 	}
 	return millis
 }
-

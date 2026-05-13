@@ -15,6 +15,7 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/subagentctl"
+	"arkloop/services/worker/internal/tooldiagnostics"
 	"github.com/google/uuid"
 )
 
@@ -61,6 +62,7 @@ type ExecutionContext struct {
 	// PipelineRC 由 agent.simple 注入为 *pipeline.RunContext；其它路径为 nil。
 	PipelineRC  any
 	StreamEvent func(events.RunEvent) error
+	ToolTracker *tooldiagnostics.Tracker
 }
 
 type ExecutionError struct {
@@ -272,6 +274,7 @@ func (e *DispatchingExecutor) Execute(
 	logicalName := identity.LogicalName
 	resolvedName := identity.ResolvedName
 
+	TrackPhase(execContext, toolCallID, "policy")
 	decision := e.policyEnforcer.RequestToolCall(execContext.Emitter, logicalName, args, toolCallID, resolvedName)
 	policyEvents := append([]events.RunEvent{}, decision.Events...)
 
@@ -339,6 +342,7 @@ func (e *DispatchingExecutor) Execute(
 			execCtx, cancelTimeout = context.WithTimeout(ctx, time.Duration(*execContext.TimeoutMs)*time.Millisecond)
 		}
 		defer cancelTimeout()
+		TrackPhase(execContext, decision.ToolCallID, "executor")
 		result = runExecutorWithHardTimeout(execCtx, executor, logicalName, resolvedName, args, execContext, decision.ToolCallID)
 		if errors.Is(execCtx.Err(), context.DeadlineExceeded) && result.Error == nil {
 			result = ExecutionResult{
@@ -360,6 +364,7 @@ func (e *DispatchingExecutor) Execute(
 	if result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultCompression(logicalName) {
 		rawResultJSON, _ = json.Marshal(result.ResultJSON)
 		if len(rawResultJSON) > PersistThreshold {
+			TrackPhase(execContext, decision.ToolCallID, "persist_large_result")
 			result = PersistLargeResult(ctx, execContext, decision.ToolCallID, rawResultJSON, result)
 		}
 	}
@@ -371,6 +376,7 @@ func (e *DispatchingExecutor) Execute(
 		persisted = true
 	}
 	if result.ResultJSON != nil && result.Error == nil && !ShouldBypassResultCompression(logicalName) && !persisted {
+		TrackPhase(execContext, decision.ToolCallID, "compress_result")
 		result = CompressResult(logicalName, result, CompressTargetBytes)
 	}
 
@@ -380,6 +386,7 @@ func (e *DispatchingExecutor) Execute(
 			rawResultJSON, _ = json.Marshal(result.ResultJSON)
 		}
 		if len(rawResultJSON) > e.summarizer.threshold {
+			TrackPhase(execContext, decision.ToolCallID, "summarize_result")
 			result = e.summarizer.Summarize(ctx, logicalName, result)
 		}
 	}
@@ -389,7 +396,15 @@ func (e *DispatchingExecutor) Execute(
 
 	result.DurationMs = durationMs(started)
 	result.Events = append(policyEvents, result.Events...)
+	TrackPhase(execContext, decision.ToolCallID, "finished")
 	return result
+}
+
+func TrackPhase(execCtx ExecutionContext, toolCallID, phase string) {
+	if execCtx.ToolTracker == nil {
+		return
+	}
+	execCtx.ToolTracker.UpdatePhase(execCtx.RunID, toolCallID, phase)
 }
 
 func runExecutorWithHardTimeout(

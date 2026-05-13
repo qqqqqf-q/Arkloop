@@ -153,14 +153,7 @@ func latestContextCompactPressureAnchor(
 		return nil
 	}
 	rows, err := pool.Query(ctx,
-		`SELECT re.data_json
-		   FROM run_events re
-		   JOIN runs r ON r.id = re.run_id
-		  WHERE r.account_id = $1
-		    AND r.thread_id = $2
-		    AND re.type = 'llm.turn.completed'
-		  ORDER BY re.ts DESC, re.seq DESC
-		  LIMIT 10`,
+		latestContextCompactPressureAnchorSQL(),
 		accountID,
 		threadID,
 	)
@@ -232,14 +225,7 @@ func compactConsecutiveFailures(ctx context.Context, pool CompactPersistDB, acco
 		return 0
 	}
 	rows, err := pool.Query(ctx,
-		`SELECT re.data_json
-		   FROM run_events re
-		   JOIN runs r ON r.id = re.run_id
-		  WHERE r.account_id = $1
-		    AND r.thread_id = $2
-		    AND re.type = 'run.context_compact'
-		  ORDER BY re.ts DESC, re.seq DESC
-		  LIMIT $3`,
+		compactConsecutiveFailuresSQL(),
 		accountID,
 		threadID,
 		maxConsecutiveCompactFailures*2+1,

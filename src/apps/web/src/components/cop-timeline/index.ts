@@ -1,5 +1,5 @@
 export { CopTimeline } from './CopTimeline'
-export type { WebSearchPhaseStep, SearchNarrative, Props as CopTimelineProps } from './types'
+export type { WebSearchPhaseStep, SearchNarrative } from './types'
 export { CopTimelineUnifiedRow } from './CopUnifiedRow'
 export { AssistantThinkingMarkdown } from './ThinkingBlock'
 export { WebFetchItem } from './WebFetchItem'

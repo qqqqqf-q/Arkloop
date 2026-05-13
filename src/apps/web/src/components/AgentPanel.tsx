@@ -29,7 +29,7 @@ export function AgentPanel({ agent, onClose }: Props) {
   const output = agent.output?.trim() || agent.error?.trim()
 
   return (
-    <div style={{ width: '420px', display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--c-bg-page)' }}>
+    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--c-bg-page)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', flexShrink: 0, borderBottom: '0.5px solid var(--c-border-subtle)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <Bot size={16} color="var(--c-text-tertiary)" strokeWidth={2} />

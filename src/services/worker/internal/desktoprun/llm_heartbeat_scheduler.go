@@ -49,7 +49,6 @@ func startDesktopTriggerScheduler(
 			continue
 		}
 		if dueAt == nil {
-			slog.DebugContext(ctx, "desktop_trigger_waiting", "state", "idle")
 			select {
 			case <-ctx.Done():
 				return
@@ -62,7 +61,6 @@ func startDesktopTriggerScheduler(
 		if delay < 0 {
 			delay = 0
 		}
-		slog.DebugContext(ctx, "desktop_trigger_timer_armed", "next_fire_at", dueAt.UTC(), "delay", delay)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

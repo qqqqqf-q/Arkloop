@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/subagentctl"
+	"arkloop/services/worker/internal/tooldiagnostics"
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
@@ -76,6 +76,9 @@ type RunContext struct {
 	Runtime             *sharedtoolruntime.RuntimeSnapshot
 	HookRuntime         *HookRuntime
 	HookRegistry        *HookRegistry
+	PluginHooks         []PluginHookConfig
+	PluginHookRunner    PluginHookRunner
+	PluginContext       []PromptSegment
 
 	// -- EngineV1.Execute 从 Run.CreatedByUserID 注入；nil 时 MemoryMiddleware 跳过写入 --
 	// agent_id 约定：默认取 PersonaDefinition.ID，字符集 [a-zA-Z0-9_-]，adapter 层 sanitize
@@ -156,6 +159,8 @@ type RunContext struct {
 	AllowlistSet  map[string]struct{}
 	ToolDenylist  []string
 	ToolRegistry  *tools.Registry
+	// MCPToolNames records tools discovered from enabled MCP servers before persona narrowing.
+	MCPToolNames map[string]struct{}
 	// group_name -> provider_name
 	ActiveToolProviderByGroup map[string]string
 	// group_name -> active provider config
@@ -179,8 +184,9 @@ type RunContext struct {
 	ReadCapabilities ReadCapabilities
 
 	// -- ToolBuildMiddleware 写入 --
-	ToolExecutor *tools.DispatchingExecutor
-	FinalSpecs   []llm.ToolSpec
+	ToolExecutor         *tools.DispatchingExecutor
+	ToolExecutionTracker *tooldiagnostics.Tracker
+	FinalSpecs           []llm.ToolSpec
 
 	// -- ToolLoopDetectionMiddleware 写入 --
 	ToolLoopDetector *ToolLoopDetector
@@ -205,6 +211,7 @@ type RunContext struct {
 	AgentReasoningIterationsLimit int
 	ToolContinuationBudgetLimit   int
 	MaxParallelTasks              int
+	RunIdleTimeout                time.Duration
 	RunWallClockTimeout           time.Duration
 	PausedInputTimeout            time.Duration
 	IdleHeartbeatInterval         time.Duration
@@ -341,9 +348,6 @@ func (rc *RunContext) SetIsPlanMode(active bool) {
 	rc.IsPlanMode = active
 	if active {
 		rc.CollaborationMode = CollaborationModePlan
-		if rc.PlanFilePath == "" {
-			rc.PlanFilePath = "plans/" + rc.Run.ThreadID.String() + ".md"
-		}
 	} else {
 		rc.CollaborationMode = CollaborationModeDefault
 	}
@@ -372,25 +376,20 @@ func (rc *RunContext) IsPlanModeActive() bool {
 	return rc != nil && rc.IsPlanMode
 }
 
-// PlanModeWritePathAllowed allows plan-mode maintenance only for the current thread plan file.
+// PlanModeWritePathAllowed allows a new plan file before binding, then only that file.
 func (rc *RunContext) PlanModeWritePathAllowed(path string) bool {
-	if rc == nil || rc.Run.ThreadID == uuid.Nil {
+	if rc == nil {
 		return false
 	}
 	raw := strings.TrimSpace(path)
-	if raw == "" || filepath.IsAbs(raw) {
-		return false
-	}
-	cleaned := filepath.ToSlash(filepath.Clean(raw))
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+	if raw == "" {
 		return false
 	}
 	target := strings.TrimSpace(rc.PlanFilePath)
-	if target == "" {
-		target = "plans/" + rc.Run.ThreadID.String() + ".md"
+	if target != "" {
+		return tools.PlanModeSamePath(rc.WorkDir, target, raw)
 	}
-	target = filepath.ToSlash(filepath.Clean(target))
-	return cleaned == target
+	return tools.PlanModePlanFileCandidate(rc.WorkDir, raw)
 }
 
 // IsHeartbeatRun implements tools/builtin/heartbeat_decision.PipelineBinding.

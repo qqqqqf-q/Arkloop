@@ -13,6 +13,7 @@ var canonicalToolNameAliases = map[string]string{
 	"web_fetch.firecrawl": "web_fetch",
 	"web_fetch.jina":      "web_fetch",
 	"web_search.basic":    "web_search",
+	"web_search.exa":      "web_search",
 	"web_search.searxng":  "web_search",
 	"web_search.tavily":   "web_search",
 }

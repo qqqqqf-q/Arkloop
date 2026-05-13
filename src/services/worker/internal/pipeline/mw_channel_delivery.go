@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/telegrambot"
@@ -1590,43 +1589,7 @@ func escapeTelegramMarkdownV2(text string) string {
 }
 
 func SplitTelegramMessage(text string, limit int) []string {
-	return splitTelegramMessage(text, limit)
-}
-
-func splitTelegramMessage(text string, limit int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	runes := []rune(text)
-	if limit <= 0 || len(runes) <= limit {
-		return []string{text}
-	}
-
-	var segments []string
-	remaining := runes
-	for len(remaining) > limit {
-		cut := chooseTelegramSplitPoint(remaining, limit)
-		segment := strings.TrimSpace(string(remaining[:cut]))
-		if segment != "" {
-			segments = append(segments, segment)
-		}
-		remaining = []rune(strings.TrimSpace(string(remaining[cut:])))
-	}
-	if len(remaining) > 0 {
-		segments = append(segments, string(remaining))
-	}
-	return segments
-}
-
-func chooseTelegramSplitPoint(text []rune, limit int) int {
-	window := string(text[:limit])
-	for _, marker := range []string{"\n\n", "\n", "。", ".", "!", "?"} {
-		if idx := strings.LastIndex(window, marker); idx > 0 {
-			return utf8.RuneCountInString(window[:idx+len(marker)])
-		}
-	}
-	return limit
+	return splitByRuneLimit(text, limit)
 }
 
 func recordChannelDeliveryFailure(ctx context.Context, pool *pgxpool.Pool, runID uuid.UUID, err error) {

@@ -19,7 +19,6 @@ export interface LocaleStrings {
   loading: string;
   connectionFailed: string;
   retryConnection: string;
-  enterprisePlan: string;
   // sidebar grouping
   sidebarGrouping: string;
   sidebarGroupingDesc: string;
@@ -46,6 +45,34 @@ export interface LocaleStrings {
   letGo: string;
   // project view
   projectUnassigned: string;
+  rightPanel: {
+    empty: string;
+    toggle: string;
+    newTab: string;
+    browser: string;
+    files: string;
+  };
+  browserPanel: {
+    preview: string;
+    history: string;
+    back: string;
+    forward: string;
+    reload: string;
+    bookmark: string;
+    removeBookmark: string;
+    addressPlaceholder: string;
+    openExternal: string;
+    more: string;
+    hardReload: string;
+    copyCurrentUrl: string;
+    showBookmarkBar: string;
+    hideBookmarkBar: string;
+    clearBrowsingHistory: string;
+    close: string;
+    search: string;
+    noHistory: string;
+    clear: string;
+  };
   // settings nav
   nav: {
     account: string;
@@ -74,6 +101,8 @@ export interface LocaleStrings {
   sseReconnectNotice: string;
   failedRunTitle: string;
   retryAction: string;
+  messageSending: string;
+  messageNotSent: string;
   resetAction: string;
   logout: string;
   language: string;
@@ -236,6 +265,8 @@ export interface LocaleStrings {
     detailUpdatedAt: string;
     detailDescription: string;
     noDescription: string;
+    removeConfirmTitle: string;
+    removeConfirmBody: (displayName: string, skillKey: string, version: string) => string;
     installedTab: string;
     marketplaceTab: string;
     builtinTab: string;
@@ -250,6 +281,7 @@ export interface LocaleStrings {
     externalAddDir: string;
     externalAddPlaceholder: string;
     externalRemoveDir: string;
+    externalScanSummary: (dirCount: number, skillCount: number) => string;
     externalLoadFailed: string;
     externalSaveFailed: string;
     externalRemoveFailed: string;
@@ -385,6 +417,12 @@ export interface LocaleStrings {
   learningMode: string;
   planMode: string;
   planModePlaceholders: string[];
+  slashCommands: {
+    commandsLabel: string;
+    modesLabel: string;
+    planDesc: string;
+    setupDesc: string;
+  };
   dragToAttach: string;
   // chats search modal
   searchChatsPlaceholder: string;
@@ -415,6 +453,7 @@ export interface LocaleStrings {
   tasks: string;
   tasksEmpty: string;
   workGreeting: string;
+  worked: string;
   // thread context menu
   starThread: string
   unstarThread: string
@@ -871,6 +910,8 @@ export interface LocaleStrings {
     title: string;
     description: string;
     auditLoading: string;
+    sectionDetect: string;
+    sectionResponse: string;
   };
 
   // desktop settings navigation
@@ -887,6 +928,7 @@ export interface LocaleStrings {
     routing: string;
     personas: string;
     channels: string;
+    plugins: string;
     skills: string;
     mcp: string;
     connectors: string;
@@ -981,6 +1023,59 @@ export interface LocaleStrings {
     };
     connectorsTitle: string;
     connectorsDesc: string;
+    pluginsTitle: string;
+    pluginsDesc: string;
+    skillsTitle: string;
+    pluginsPage: {
+      installedTab: string;
+      marketplaceTab: string;
+      refresh: string;
+      loading: string;
+      emptyInstalled: string;
+      emptyMarketplaceTitle: string;
+      emptyMarketplace: string;
+      loadFailed: string;
+      runtimeInstallFailed: string;
+      runtimeCheckFailed: string;
+      enableFailed: string;
+      disableFailed: string;
+      installRuntime: string;
+      enable: string;
+      disable: string;
+      enabled: string;
+      disabled: string;
+      ready: string;
+      needsSetup: string;
+      runtime: string;
+      mcp: string;
+      skill: string;
+      hook: string;
+      context: string;
+      builtIn: string;
+      custom: string;
+      version: string;
+      capabilities: string;
+      source: string;
+      runtimeStatus: string;
+      permissionApp: string;
+      bundleId: string;
+      notRequired: string;
+      status: string;
+      overview: string;
+      contributions: string;
+      settingsSection: string;
+      settingSaveFailed: string;
+      permissionsSection: string;
+      accessibilityPermission: string;
+      screenRecordingPermission: string;
+      permissionCheckedAt: string;
+      permissionError: string;
+      checkPermissions: string;
+      checking: string;
+      unchecked: string;
+      granted: string;
+      notGranted: string;
+    };
     extensionsTitle: string;
     extensionsDesc: string;
     modules: string;
@@ -1063,6 +1158,8 @@ export interface LocaleStrings {
     runsHistoryColModel: string;
     runsHistoryColStatus: string;
     runsHistoryColTokens: string;
+    runsHistoryColCost: string;
+    runsHistoryColCacheHit: string;
     runsHistoryColTime: string;
     runsHistoryOpen: string;
     runsHistoryPrev: string;
@@ -1091,17 +1188,22 @@ export interface LocaleStrings {
     // desktop connectors section
     desktopConnectorsTitle: string;
     desktopConnectorsDesc: string;
+    desktopConnectorsUnavailable: string;
     fetchConnectorTitle: string;
     fetchConnectorDesc: string;
     searchConnectorTitle: string;
     searchConnectorDesc: string;
     providerLabel: string;
+    providerNone: string;
     apiKeyLabel: string;
     apiKeyOptionalLabel: string;
     baseUrlLabel: string;
     connectorSaveBtn: string;
     connectorSaving: string;
     connectorSaved: string;
+    connectorSaveFailed: string;
+    connectorShowSecret: string;
+    connectorHideSecret: string;
     connectorSaveTimeout: string;
     connectorDefaultModel: string;
     connectorDefaultModelPlaceholder: string;
@@ -1119,9 +1221,11 @@ export interface LocaleStrings {
     fetchProviderFirecrawl: string;
     searchProviderBasic: string;
     searchProviderTavily: string;
+    searchProviderExa: string;
     searchProviderSearxng: string;
     searchProviderBasicDesc: string;
     searchProviderTavilyDesc: string;
+    searchProviderExaDesc: string;
     searchProviderSearxngDesc: string;
     fetchProviderJinaDesc: string;
     fetchProviderBasicDesc: string;

@@ -819,17 +819,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** Worker 内 title_summarizer 调试；未设置时在非打包开发构建下默认开启。 */
-function desktopTitleDebugFlag(): string {
-  const raw = process.env.ARKLOOP_DESKTOP_TITLE_DEBUG
-  if (typeof raw === 'string') {
-    const v = raw.trim().toLowerCase()
-    if (v === '0' || v === 'false' || v === 'off' || v === 'no') return '0'
-    if (v === '1' || v === 'true' || v === 'on' || v === 'yes') return '1'
-  }
-  return !app.isPackaged ? '1' : '0'
-}
-
 function desktopOsUsername(): string {
   try {
     return os.userInfo().username.trim()
@@ -1281,7 +1270,6 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...buildBrowserSearchEnv(),
       ...buildMemoryEnv(projectDir),
       ...buildNetworkEnv(),
-      ARKLOOP_DESKTOP_TITLE_DEBUG: desktopTitleDebugFlag(),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

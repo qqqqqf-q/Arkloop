@@ -17,16 +17,31 @@ type Client interface {
 // Pool 持有按 (accountID, serverID) 键控的 MCP Client，用于跨 run 的连接复用。
 // 全局（env 加载）的工具使用空 accountID（key 形如 ":serverID"）。
 type Pool struct {
-	mu      sync.Mutex
-	clients map[string]Client
+	mu        sync.Mutex
+	clients   map[string]Client
+	authStore AuthStore
 }
 
 type BorrowMeta struct {
 	Reused bool
 }
 
-func NewPool() *Pool {
-	return &Pool{clients: map[string]Client{}}
+type PoolOption func(*Pool)
+
+func WithAuthStore(store AuthStore) PoolOption {
+	return func(p *Pool) {
+		p.authStore = store
+	}
+}
+
+func NewPool(options ...PoolOption) *Pool {
+	p := &Pool{clients: map[string]Client{}}
+	for _, option := range options {
+		if option != nil {
+			option(p)
+		}
+	}
+	return p
 }
 
 // Borrow 返回现有 client 或根据 transport 类型新建一个。
@@ -56,7 +71,7 @@ func (p *Pool) BorrowWithMeta(ctx context.Context, server ServerConfig) (Client,
 		client = NewStdioClient(server)
 	case "http_sse", "streamable_http":
 		var err error
-		client, err = NewHTTPClient(server)
+		client, err = NewHTTPClient(server, WithHTTPAuthStore(p.authStore))
 		if err != nil {
 			return nil, BorrowMeta{}, err
 		}

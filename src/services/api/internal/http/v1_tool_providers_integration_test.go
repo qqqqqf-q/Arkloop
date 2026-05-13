@@ -125,7 +125,7 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 		InvalidationListenerCtx: listenerCtx,
 		Logger:                  logger,
 		AuthService:             authService,
-		AccountMembershipRepo:       membershipRepo,
+		AccountMembershipRepo:   membershipRepo,
 		ToolProviderConfigsRepo: toolProvidersRepo,
 		SecretsRepo:             secretsRepo,
 	})
@@ -138,6 +138,60 @@ func TestToolProvidersListActivateCredentialAndClear(t *testing.T) {
 	initial := decodeJSONBody[toolProvidersListResponse](t, listResp.Body.Bytes())
 	if len(initial.Groups) == 0 {
 		t.Fatal("expected groups, got 0")
+	}
+	var initialExa toolProviderListItem
+	var initialExaFound bool
+	for _, g := range initial.Groups {
+		if g.GroupName != "web_search" {
+			continue
+		}
+		for _, p := range g.Providers {
+			if p.ProviderName == "web_search.exa" {
+				initialExa = p
+				initialExaFound = true
+			}
+		}
+	}
+	if !initialExaFound {
+		t.Fatal("expected exa provider in web_search catalog")
+	}
+	if initialExa.RequiresAPIKey {
+		t.Fatal("expected exa hosted MCP to require no api key")
+	}
+	if !initialExa.IsActive || !initialExa.Configured {
+		t.Fatalf("expected exa active and configured by default, active=%v configured=%v", initialExa.IsActive, initialExa.Configured)
+	}
+
+	actExa := doJSON(handler, nethttp.MethodPut, "/v1/tool-providers/web_search/web_search.exa/activate", nil, authHeader(token))
+	if actExa.Code != nethttp.StatusNoContent {
+		t.Fatalf("activate exa: %d %s", actExa.Code, actExa.Body.String())
+	}
+	listAfterExaActivate := doJSON(handler, nethttp.MethodGet, "/v1/tool-providers", nil, authHeader(token))
+	if listAfterExaActivate.Code != nethttp.StatusOK {
+		t.Fatalf("list after exa activate: %d %s", listAfterExaActivate.Code, listAfterExaActivate.Body.String())
+	}
+	afterExaActivate := decodeJSONBody[toolProvidersListResponse](t, listAfterExaActivate.Body.Bytes())
+	var exa toolProviderListItem
+	exaFound := false
+	for _, g := range afterExaActivate.Groups {
+		for _, p := range g.Providers {
+			if p.ProviderName == "web_search.exa" {
+				exa = p
+				exaFound = true
+			}
+		}
+	}
+	if !exaFound {
+		t.Fatal("expected exa provider after activate")
+	}
+	if !exa.IsActive {
+		t.Fatal("expected exa active after activate")
+	}
+	if exa.KeyPrefix != nil {
+		t.Fatalf("unexpected exa key prefix: %v", *exa.KeyPrefix)
+	}
+	if exa.BaseURL != nil {
+		t.Fatalf("unexpected exa base url: %v", *exa.BaseURL)
 	}
 
 	// 激活 tavily

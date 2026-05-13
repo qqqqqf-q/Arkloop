@@ -14,7 +14,7 @@ import (
 )
 
 type SkillPackage struct {
-	AccountID               uuid.UUID
+	AccountID           uuid.UUID
 	SkillKey            string
 	Version             string
 	DisplayName         string
@@ -80,6 +80,10 @@ func NewSkillPackagesRepository(db Querier) (*SkillPackagesRepository, error) {
 		return nil, errors.New("db must not be nil")
 	}
 	return &SkillPackagesRepository{db: db}, nil
+}
+
+func (r *SkillPackagesRepository) WithTx(tx pgx.Tx) *SkillPackagesRepository {
+	return &SkillPackagesRepository{db: tx}
 }
 
 func (r *SkillPackagesRepository) Create(ctx context.Context, accountID uuid.UUID, manifest skillstore.PackageManifest) (SkillPackage, error) {

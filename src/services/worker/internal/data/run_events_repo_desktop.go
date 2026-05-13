@@ -62,7 +62,8 @@ func (r DesktopRunEventsRepository) AppendEvent(
 	toolName *string,
 	errorClass *string,
 ) (int64, error) {
-	return r.appendEventAt(ctx, tx, runID, eventType, dataJSON, toolName, errorClass, nil)
+	now := time.Now().UTC()
+	return r.appendEventAt(ctx, tx, runID, eventType, dataJSON, toolName, errorClass, &now)
 }
 
 func (r DesktopRunEventsRepository) AppendRunEvent(

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"arkloop/services/shared/weixinclient"
 
@@ -45,7 +44,7 @@ func (s *WeixinChannelSender) SendText(ctx context.Context, target ChannelDelive
 		}
 	}
 
-	segments := splitWeixinMessage(text, weixinMessageMaxLen)
+	segments := splitByRuneLimit(text, weixinMessageMaxLen)
 	ids := make([]string, 0, len(segments))
 	for idx, seg := range segments {
 		clientID := "arkloop-weixin-" + uuid.NewString()
@@ -79,35 +78,4 @@ func (s *WeixinChannelSender) SendText(ctx context.Context, target ChannelDelive
 		}
 	}
 	return ids, nil
-}
-
-// splitWeixinMessage 按字符数拆分长消息，优先在自然断点处断开。
-func splitWeixinMessage(text string, limit int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(text) <= limit {
-		return []string{text}
-	}
-	runes := []rune(text)
-	var parts []string
-	for len(runes) > 0 {
-		end := limit
-		if end > len(runes) {
-			end = len(runes)
-		}
-		if end < len(runes) {
-			window := string(runes[:end])
-			for _, marker := range []string{"\n\n", "\n", "。", "."} {
-				if idx := strings.LastIndex(window, marker); idx > 0 {
-					end = utf8.RuneCountInString(window[:idx+len(marker)])
-					break
-				}
-			}
-		}
-		parts = append(parts, string(runes[:end]))
-		runes = runes[end:]
-	}
-	return parts
 }

@@ -11,8 +11,8 @@ import (
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/routing"
-	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/testutil"
+	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"

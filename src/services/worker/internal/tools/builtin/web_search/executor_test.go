@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -168,6 +169,16 @@ func TestExecuteMultiSearchAllFailed(t *testing.T) {
 	}
 }
 
+func TestSearchErrorPayloadIncludesHTTPResponseBody(t *testing.T) {
+	payload := searchErrorPayload("q", HttpError{StatusCode: http.StatusUnauthorized, Body: `{"error":"bad key"}`}, time.Second)
+	if payload["status_code"] != http.StatusUnauthorized {
+		t.Fatalf("unexpected status code: %#v", payload)
+	}
+	if payload["response_body"] != `{"error":"bad key"}` {
+		t.Fatalf("expected response body, got %#v", payload["response_body"])
+	}
+}
+
 func TestBuildSearchPayloadSlimByQuery(t *testing.T) {
 	payload, err := buildSearchPayload([]searchJobResult{
 		{
@@ -288,9 +299,10 @@ type stubProvider struct {
 	errorsByQuery  map[string]error
 }
 
-func (s stubProvider) Search(ctx context.Context, query string, maxResults int) ([]Result, error) {
+func (s stubProvider) Search(ctx context.Context, request SearchRequest) ([]Result, error) {
 	_ = ctx
-	_ = maxResults
+	_ = request.MaxResults
+	query := request.Query
 	if err, ok := s.errorsByQuery[query]; ok {
 		return nil, err
 	}

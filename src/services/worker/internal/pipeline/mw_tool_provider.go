@@ -185,6 +185,10 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 		provider := websearch.NewSearxngProvider(baseURL)
 		return websearch.NewToolExecutorWithProvider(provider)
 
+	case websearch.AgentSpecExa.Name:
+		provider := websearch.NewExaProvider()
+		return websearch.NewToolExecutorWithProvider(provider)
+
 	case webfetch.AgentSpecJina.Name:
 		key := ""
 		if cfg.APIKeyValue != nil {

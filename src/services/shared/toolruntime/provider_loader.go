@@ -182,6 +182,8 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"
 		}
 		return ProviderRuntimeStateReady, ""
+	case "web_search.exa":
+		return ProviderRuntimeStateReady, ""
 	case "web_search.searxng":
 		return validateInternalBaseURL(status.BaseURL)
 	case "web_search.basic":

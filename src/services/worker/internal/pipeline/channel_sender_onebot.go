@@ -1,12 +1,10 @@
 package pipeline
 
 import (
+	"arkloop/services/shared/onebotclient"
 	"context"
 	"strings"
 	"time"
-	"unicode/utf8"
-
-	"arkloop/services/shared/onebotclient"
 )
 
 const qqMessageMaxLen = 4500
@@ -26,7 +24,7 @@ func NewOneBotChannelSender(client *onebotclient.Client, segmentDelay time.Durat
 
 func (s *OneBotChannelSender) SendText(ctx context.Context, target ChannelDeliveryTarget, text string) ([]string, error) {
 	formatted := FormatOneBotAssistantText(text)
-	segments := splitQQMessage(formatted, qqMessageMaxLen)
+	segments := splitByRuneLimit(formatted, qqMessageMaxLen)
 	ids := make([]string, 0, len(segments))
 
 	msgType := "private"
@@ -64,37 +62,6 @@ func (s *OneBotChannelSender) SendText(ctx context.Context, target ChannelDelive
 		}
 	}
 	return ids, nil
-}
-
-// splitQQMessage 按字符数拆分长消息
-func splitQQMessage(text string, limit int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(text) <= limit {
-		return []string{text}
-	}
-	runes := []rune(text)
-	var parts []string
-	for len(runes) > 0 {
-		end := limit
-		if end > len(runes) {
-			end = len(runes)
-		}
-		// 尝试在换行处断开
-		if end < len(runes) {
-			for i := end - 1; i > end/2; i-- {
-				if runes[i] == '\n' {
-					end = i + 1
-					break
-				}
-			}
-		}
-		parts = append(parts, string(runes[:end]))
-		runes = runes[end:]
-	}
-	return parts
 }
 
 // SendMedia 通过 OneBot API 发送富媒体消息（图片/语音/视频）。

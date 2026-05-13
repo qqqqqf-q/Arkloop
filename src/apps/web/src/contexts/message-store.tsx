@@ -11,6 +11,7 @@ import {
 import { type AgentMessage, useAgentClient } from '../agent-ui'
 import { findAssistantMessageForRun } from '../agentEventProcessing'
 import { type Attachment } from '../components/ChatInput'
+import { insertMessageByCreatedAt, mergeUndeliveredLocalUserMessages } from '../messageContent'
 import { useChatSession } from './chat-session'
 
 interface MessageStoreContextValue {
@@ -45,18 +46,6 @@ const LOCAL_TERMINAL_MESSAGE_PREFIX = 'local-terminal-run:'
 
 export function isLocalTerminalMessage(message: Pick<AgentMessage, 'id'>): boolean {
   return message.id.startsWith(LOCAL_TERMINAL_MESSAGE_PREFIX)
-}
-
-function insertMessageByCreatedAt(messages: AgentMessage[], message: AgentMessage): AgentMessage[] {
-  if (messages.some((item) => item.id === message.id)) return messages
-  const messageTime = Date.parse(message.createdAt)
-  if (!Number.isFinite(messageTime)) return [...messages, message]
-  const index = messages.findIndex((item) => {
-    const itemTime = Date.parse(item.createdAt)
-    return Number.isFinite(itemTime) && itemTime > messageTime
-  })
-  if (index < 0) return [...messages, message]
-  return [...messages.slice(0, index), message, ...messages.slice(index)]
 }
 
 function mergeLocalTerminalMessages(
@@ -95,6 +84,7 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
   const agentClient = useAgentClient()
 
   const [messages, setMessagesState] = useState<AgentMessage[]>([])
+  const messagesRef = useRef<AgentMessage[]>([])
   const [messagesLoading, setMessagesLoading] = useState(true)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [userEnterMessageId, setUserEnterMessageId] = useState<string | null>(null)
@@ -131,6 +121,7 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
   const setMessages = useCallback((value: AgentMessage[] | ((prev: AgentMessage[]) => AgentMessage[])) => {
     setMessagesState((prev) => {
       const next = typeof value === 'function' ? value(prev) : value
+      messagesRef.current = next
       return next
     })
   }, [])
@@ -144,9 +135,11 @@ function MessageStoreProviderContent({ children, threadId }: { children: ReactNo
     if (!threadId) return []
     let items = await agentClient.listMessages(threadId)
     items = mergeLocalTerminalMessages(items, localTerminalMessagesRef.current)
+    items = mergeUndeliveredLocalUserMessages(items, messagesRef.current)
     if (requiredCompletedRunId && !findAssistantMessageForRun(items, requiredCompletedRunId)) {
       const retriedItems = await agentClient.listMessages(threadId)
       items = mergeLocalTerminalMessages(retriedItems, localTerminalMessagesRef.current)
+      items = mergeUndeliveredLocalUserMessages(items, messagesRef.current)
     }
     return items
   }, [agentClient, threadId])

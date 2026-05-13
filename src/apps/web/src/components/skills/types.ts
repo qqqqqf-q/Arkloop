@@ -67,6 +67,25 @@ export function formatDate(value?: string, locale = 'zh'): string {
   }).format(date)
 }
 
+/** UI label for registry_provider; backend sends e.g. "arkloop plugin". */
+export function formatSkillRegistryProviderLabel(
+  registryProvider: string | undefined,
+  source: ViewSkill['source'],
+  sourceOfficialLabel: string,
+): string {
+  const raw = registryProvider?.trim() ?? ''
+  if (!raw) {
+    return source === 'official' ? sourceOfficialLabel : ''
+  }
+  const norm = raw.toLowerCase().replace(/[\s_-]+/g, ' ').trim()
+  if (norm === 'clawhub') return 'ClawHub'
+  if (norm === 'arkloop plugin' || norm === 'arkloopplugin') return 'Arkloop'
+  if (/^arkloop\b/i.test(raw)) {
+    return raw.replace(/^arkloop/gi, 'Arkloop')
+  }
+  return raw
+}
+
 export function asSkillRef(item: InstalledSkill | SkillPackageResponse): SkillReference {
   return { skill_key: item.skill_key, version: item.version }
 }

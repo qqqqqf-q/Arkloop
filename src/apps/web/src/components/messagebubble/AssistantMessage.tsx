@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import { Check, Share2, Split, Terminal } from 'lucide-react'
 import type { AgentMessage } from '../../agent-ui'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../../storage'
@@ -14,6 +14,7 @@ import { getDomain } from './utils'
 import { messageTextContent } from '../../messageContent'
 import { CopyIconButton } from '../CopyIconButton'
 import { ActionIconButton } from '../ActionIconButton'
+import type { ResourceRef } from '../resource-preview/types'
 
 type Props = {
   message: AgentMessage
@@ -27,9 +28,11 @@ type Props = {
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
+  workFolder?: string | null
   onWidgetAction?: (action: ArtifactAction) => void
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onViewRunDetail?: () => void
   contentPrefix?: string
   contentOverride?: string
@@ -196,7 +199,7 @@ export function AssistantActionBar({
   )
 }
 
-export function AssistantMessage({
+export const AssistantMessage = memo(function AssistantMessage({
   message,
   streamMarkdown = false,
   onFork,
@@ -207,9 +210,11 @@ export function AssistantMessage({
   browserActions,
   widgets,
   accessToken,
+  workFolder,
   onWidgetAction,
   onShowSources,
   onOpenDocument,
+  onOpenResource,
   onViewRunDetail,
   contentPrefix,
   contentOverride,
@@ -262,7 +267,9 @@ export function AssistantMessage({
             artifacts={artifacts}
             accessToken={accessToken}
             runId={message.streamId}
+            workFolder={workFolder}
             onOpenDocument={onOpenDocument}
+            onOpenResource={onOpenResource}
             typography={isWorkMode ? 'work' : 'default'}
             trimTrailingMargin
           />
@@ -282,4 +289,4 @@ export function AssistantMessage({
       </div>
     </div>
   )
-}
+})

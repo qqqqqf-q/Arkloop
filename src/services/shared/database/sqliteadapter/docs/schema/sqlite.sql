@@ -239,6 +239,9 @@ CREATE INDEX ix_org_memberships_user_id ON "account_memberships"(user_id);
 
 CREATE INDEX ix_run_events_run_seq ON run_events(run_id, seq);
 
+CREATE INDEX ix_run_events_run_type_ts_seq
+    ON run_events(run_id, type, ts DESC, seq DESC);
+
 CREATE INDEX ix_run_events_type ON run_events(type);
 
 CREATE INDEX ix_runs_org_id ON runs(account_id);
@@ -282,9 +285,6 @@ CREATE UNIQUE INDEX scheduled_triggers_job_id_uniq ON scheduled_triggers (job_id
 CREATE INDEX scheduled_triggers_next_fire_at_idx
     ON scheduled_triggers (next_fire_at);
 
-CREATE INDEX scheduled_triggers_target_idx
-    ON scheduled_triggers (channel_id, channel_identity_id);
-
 CREATE UNIQUE INDEX secrets_platform_name_idx
     ON secrets (name)
     WHERE owner_kind = 'platform';
@@ -302,6 +302,12 @@ CREATE UNIQUE INDEX tool_provider_configs_user_provider_idx
     WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL;
 
 CREATE UNIQUE INDEX uq_messages_thread_id_thread_seq ON messages(thread_id, thread_seq);
+
+CREATE UNIQUE INDEX uq_messages_user_client_message_id
+    ON messages (account_id, thread_id, created_by_user_id, json_extract(metadata_json, '$.client_message_id'))
+    WHERE role = 'user'
+      AND deleted_at IS NULL
+      AND COALESCE(json_extract(metadata_json, '$.client_message_id'), '') <> '';
 
 CREATE UNIQUE INDEX uq_platform_skills
     ON skill_packages (skill_key, version)
@@ -351,6 +357,7 @@ CREATE TABLE account_entitlement_overrides (
     created_at         TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (account_id, key)
 );
+
 CREATE TABLE "account_memberships" (
     id         TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
     account_id     TEXT NOT NULL REFERENCES "accounts"(id) ON DELETE CASCADE,
@@ -1040,15 +1047,18 @@ CREATE TABLE "scheduled_triggers" (
     id                    TEXT PRIMARY KEY,
     channel_id            TEXT NOT NULL,
     channel_identity_id   TEXT NOT NULL,
+    thread_id             TEXT,
     persona_key           TEXT NOT NULL,
     account_id            TEXT NOT NULL,
     model                 TEXT NOT NULL DEFAULT '',
     interval_min          INTEGER NOT NULL DEFAULT 30,
     next_fire_at          TEXT NOT NULL,
     created_at            TEXT NOT NULL,
-    updated_at            TEXT NOT NULL, trigger_kind TEXT NOT NULL DEFAULT 'heartbeat', job_id TEXT, cooldown_level INTEGER NOT NULL DEFAULT 0, last_user_msg_at TEXT, burst_start_at TEXT,
-    UNIQUE (channel_id, channel_identity_id)
+    updated_at            TEXT NOT NULL, trigger_kind TEXT NOT NULL DEFAULT 'heartbeat', job_id TEXT, cooldown_level INTEGER NOT NULL DEFAULT 0, last_user_msg_at TEXT, burst_start_at TEXT
 );
+
+CREATE UNIQUE INDEX scheduled_triggers_thread_target_idx ON scheduled_triggers (thread_id) WHERE thread_id IS NOT NULL;
+CREATE UNIQUE INDEX scheduled_triggers_identity_target_idx ON scheduled_triggers (channel_id, channel_identity_id) WHERE thread_id IS NULL;
 
 CREATE TABLE secrets (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -1334,7 +1344,7 @@ CREATE TABLE "threads" (
     branched_from_message_id TEXT,
     title_locked             INTEGER NOT NULL DEFAULT 0,
     mode                     TEXT NOT NULL DEFAULT 'chat' CHECK (mode IN ('chat', 'work')),
-    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0, sidebar_work_folder TEXT NULL, sidebar_pinned_at TEXT NULL, sidebar_gtd_bucket TEXT NULL CHECK (sidebar_gtd_bucket IS NULL OR sidebar_gtd_bucket IN ('inbox', 'todo', 'waiting', 'someday', 'archived')), learning_mode_enabled INTEGER NOT NULL DEFAULT 0,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')), next_message_seq INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, collaboration_mode TEXT NOT NULL DEFAULT 'default' CHECK (collaboration_mode IN ('default', 'plan')), collaboration_mode_revision INTEGER NOT NULL DEFAULT 0, sidebar_work_folder TEXT NULL, sidebar_pinned_at TEXT NULL, sidebar_gtd_bucket TEXT NULL CHECK (sidebar_gtd_bucket IS NULL OR sidebar_gtd_bucket IN ('inbox', 'todo', 'waiting', 'someday', 'archived')), learning_mode_enabled INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL DEFAULT '{}',
     UNIQUE (id, account_id)
 );
 
@@ -1350,7 +1360,7 @@ CREATE TABLE tool_description_overrides (
 
 CREATE TABLE tool_provider_configs (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
-    account_id      TEXT NOT NULL DEFAULT '00000000-0000-4000-8000-000000000002' REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id      TEXT REFERENCES accounts(id) ON DELETE CASCADE,
     owner_kind      TEXT NOT NULL DEFAULT 'platform' CHECK (owner_kind IN ('platform', 'user')),
     owner_user_id   TEXT REFERENCES users(id) ON DELETE CASCADE,
     group_name      TEXT NOT NULL,

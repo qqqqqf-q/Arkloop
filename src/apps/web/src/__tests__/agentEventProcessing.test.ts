@@ -8,8 +8,8 @@ import {
   buildMessageWidgetsFromAgentEvents,
   findAssistantMessageForRun,
   patchCodeExecutionList,
-  selectFreshAgentEvents,
-  agentEventDismissesAssistantPlaceholder,
+  filterUnprocessedAgentEvents,
+  shouldClearAssistantPlaceholder,
   shouldRefetchCompletedRunMessages,
   shouldReplayMessageCodeExecutions,
   fileOpOutputFromResult,
@@ -73,11 +73,11 @@ function makeMessage(params: {
   }
 }
 
-describe('selectFreshAgentEvents', () => {
+describe('filterUnprocessedAgentEvents', () => {
   it('应忽略旧 run 的尾部事件，避免误触发断开', () => {
     const events = [makeRunEvent({ runId: 'run_1', seq: 1, type: 'run-completed' })]
 
-    const result = selectFreshAgentEvents({
+    const result = filterUnprocessedAgentEvents({
       events,
       activeRunId: 'run_2',
       processedCount: 0,
@@ -88,7 +88,7 @@ describe('selectFreshAgentEvents', () => {
   })
 
   it('应在 events 被清空后重置 processedCount', () => {
-    const result = selectFreshAgentEvents({
+    const result = filterUnprocessedAgentEvents({
       events: [],
       activeRunId: 'run_1',
       processedCount: 10,
@@ -110,7 +110,7 @@ describe('selectFreshAgentEvents', () => {
       makeRunEvent({ runId: 'run_2', seq: 3, type: 'run-completed' }),
     ]
 
-    const result = selectFreshAgentEvents({
+    const result = filterUnprocessedAgentEvents({
       events,
       activeRunId: 'run_2',
       processedCount: 0,
@@ -126,7 +126,7 @@ describe('selectFreshAgentEvents', () => {
       makeRunEvent({ runId: 'run_1', seq: 2, type: 'assistant-delta' }),
     ]
 
-    const result = selectFreshAgentEvents({
+    const result = filterUnprocessedAgentEvents({
       events,
       activeRunId: 'run_1',
       processedCount: 1,
@@ -142,7 +142,7 @@ describe('selectFreshAgentEvents', () => {
       makeRunEvent({ runId: 'run_1', seq: 2, type: 'assistant-delta' }),
     ]
 
-    const result = selectFreshAgentEvents({
+    const result = filterUnprocessedAgentEvents({
       events,
       activeRunId: 'run_1',
       processedCount: 999,
@@ -346,10 +346,10 @@ describe('web fetch processing', () => {
   })
 })
 
-describe('agentEventDismissesAssistantPlaceholder', () => {
+describe('shouldClearAssistantPlaceholder', () => {
   it('segment / 空 delta 不关闭占位', () => {
     expect(
-      agentEventDismissesAssistantPlaceholder(
+      shouldClearAssistantPlaceholder(
         makeRunEvent({
           runId: 'r1',
           seq: 1,
@@ -359,7 +359,7 @@ describe('agentEventDismissesAssistantPlaceholder', () => {
       ),
     ).toBe(false)
     expect(
-      agentEventDismissesAssistantPlaceholder(
+      shouldClearAssistantPlaceholder(
         makeRunEvent({
           runId: 'r1',
           seq: 2,
@@ -369,7 +369,7 @@ describe('agentEventDismissesAssistantPlaceholder', () => {
       ),
     ).toBe(false)
     expect(
-      agentEventDismissesAssistantPlaceholder(
+      shouldClearAssistantPlaceholder(
         makeRunEvent({
           runId: 'r1',
           seq: 3,
@@ -382,7 +382,7 @@ describe('agentEventDismissesAssistantPlaceholder', () => {
 
   it('助手正文 delta 与 tool 事件关闭占位', () => {
     expect(
-      agentEventDismissesAssistantPlaceholder(
+      shouldClearAssistantPlaceholder(
         makeRunEvent({
           runId: 'r1',
           seq: 1,
@@ -392,10 +392,10 @@ describe('agentEventDismissesAssistantPlaceholder', () => {
       ),
     ).toBe(true)
     expect(
-      agentEventDismissesAssistantPlaceholder(makeRunEvent({ runId: 'r1', seq: 2, type: 'tool-call', data: {} })),
+      shouldClearAssistantPlaceholder(makeRunEvent({ runId: 'r1', seq: 2, type: 'tool-call', data: {} })),
     ).toBe(true)
     expect(
-      agentEventDismissesAssistantPlaceholder(
+      shouldClearAssistantPlaceholder(
         makeRunEvent({ runId: 'r1', seq: 3, type: 'tool-input-delta', data: { tool_call_index: 0, arguments_delta: '{' } }),
       ),
     ).toBe(true)

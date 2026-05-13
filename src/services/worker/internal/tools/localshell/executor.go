@@ -84,18 +84,11 @@ func (e *Executor) Execute(
 	execCtx tools.ExecutionContext,
 	toolCallID string,
 ) tools.ExecutionResult {
-	_ = toolCallID
 	started := time.Now()
-
-	if toolName == ExecCommandAgentSpec.Name {
-		if blocked, isBlocked := tools.PlanModeBlocked(execCtx.PipelineRC, started); isBlocked {
-			return blocked
-		}
-	}
 
 	switch toolName {
 	case ExecCommandAgentSpec.Name:
-		return e.executeExecCommand(ctx, args, execCtx, started)
+		return e.executeExecCommand(ctx, args, execCtx, toolCallID, started)
 	case ContinueProcessAgentSpec.Name:
 		return e.executeContinueProcess(args, execCtx, started)
 	case TerminateProcessAgentSpec.Name:
@@ -111,6 +104,7 @@ func (e *Executor) executeExecCommand(
 	ctx context.Context,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
+	toolCallID string,
 	started time.Time,
 ) tools.ExecutionResult {
 	reqArgs, err := parseExecCommandArgs(args)
@@ -140,10 +134,12 @@ func (e *Executor) executeExecCommand(
 		"cwd", req.Cwd,
 	)
 
+	tools.TrackPhase(execCtx, toolCallID, "process.exec")
 	resp, runErr := e.controller.ExecCommand(req)
 	if runErr != nil {
 		return mapLocalProcessError(runErr, started)
 	}
+	tools.TrackPhase(execCtx, toolCallID, "format_result")
 	return buildProcessResult(resp, ExecCommandAgentSpec.Name, execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 

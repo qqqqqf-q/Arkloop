@@ -69,7 +69,7 @@ interface StreamContextValue {
   addTopLevelWebFetch: (fetch: WebFetchRef) => void
   setTopLevelWebFetches: React.Dispatch<React.SetStateAction<WebFetchRef[]>>
   foldAssistantTurnEvent: (event: AgentUIEvent) => void
-  bumpSnapshot: () => void
+  bumpSnapshot: (opts?: { immediate?: boolean }) => void
   resetLiveState: () => void
   setWorkTodos: React.Dispatch<React.SetStateAction<Array<{ id: string; content: string; activeForm?: string; status: string }>>>
   setPreserveLiveRunUi: (v: boolean) => void
@@ -156,6 +156,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const activeSegmentIdRef = useRef<string | null>(null)
   const assistantTurnFoldStateRef = useRef<AssistantTurnFoldState>(createEmptyAssistantTurnFoldState())
+  const bumpPendingRef = useRef(false)
+  const bumpRafRef = useRef<number | null>(null)
 
   const addTopLevelCodeExecution = useCallback((exec: CodeExecutionRef) => {
     setTopLevelCodeExecutions((prev) => [...prev, exec])
@@ -177,8 +179,25 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     foldEvent(assistantTurnFoldStateRef.current, event)
   }, [])
 
-  const bumpSnapshot = useCallback(() => {
-    setLiveAssistantTurn(snapshotAssistantTurn(assistantTurnFoldStateRef.current))
+  const bumpSnapshot = useCallback((opts?: { immediate?: boolean }) => {
+    if (opts?.immediate) {
+      if (bumpRafRef.current !== null) {
+        cancelAnimationFrame(bumpRafRef.current)
+        bumpRafRef.current = null
+      }
+      bumpPendingRef.current = false
+      setLiveAssistantTurn(snapshotAssistantTurn(assistantTurnFoldStateRef.current))
+      return
+    }
+
+    if (bumpPendingRef.current) return
+    bumpPendingRef.current = true
+
+    bumpRafRef.current = requestAnimationFrame(() => {
+      bumpPendingRef.current = false
+      bumpRafRef.current = null
+      setLiveAssistantTurn(snapshotAssistantTurn(assistantTurnFoldStateRef.current))
+    })
   }, [])
 
   const setPreserveLiveRunUi = useCallback((v: boolean) => {
@@ -186,6 +205,11 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const resetLiveState = useCallback(() => {
+    if (bumpRafRef.current !== null) {
+      cancelAnimationFrame(bumpRafRef.current)
+      bumpRafRef.current = null
+    }
+    bumpPendingRef.current = false
     setSegments([])
     segmentsRef.current = []
     setStreamingArtifacts([])

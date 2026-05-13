@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { DocumentPanel } from '../components/DocumentPanel'
+import { ResourcePreviewPanel } from '../components/resource-preview/ResourcePreviewPanel'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 
@@ -25,7 +25,14 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
 }
 
-describe('DocumentPanel artifact preview', () => {
+async function flushPreviewWork(): Promise<void> {
+  for (let i = 0; i < 8; i++) {
+    await flushMicrotasks()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+}
+
+describe('ResourcePreviewPanel artifact preview', () => {
   const urlWithObjectURL = URL as URLWithObjectURL
   const actEnvironmentGlobal = globalThis as GlobalWithActEnvironment
   const originalCreateObjectURL = urlWithObjectURL.createObjectURL
@@ -101,8 +108,14 @@ describe('DocumentPanel artifact preview', () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <DocumentPanel
-            artifact={markdownArtifact}
+          <ResourcePreviewPanel
+            resource={{
+              kind: 'artifact',
+              key: markdownArtifact.key,
+              filename: markdownArtifact.filename,
+              mimeType: markdownArtifact.mime_type,
+              size: markdownArtifact.size,
+            }}
             artifacts={[htmlArtifact]}
             accessToken="token"
             onClose={() => {}}
@@ -112,11 +125,7 @@ describe('DocumentPanel artifact preview', () => {
     })
 
     await act(async () => {
-      await flushMicrotasks()
-    })
-
-    await act(async () => {
-      await flushMicrotasks()
+      await flushPreviewWork()
     })
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)

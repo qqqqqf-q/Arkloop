@@ -883,15 +883,17 @@ func (r *RunEventRepository) insertEvent(
 	if err != nil {
 		return RunEvent{}, err
 	}
+	eventTime := time.Now().UTC()
 
 	var event RunEvent
 	err = r.db.QueryRow(
 		ctx,
-		`INSERT INTO run_events (run_id, seq, type, data_json, tool_name, error_class)
-		 VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+		`INSERT INTO run_events (run_id, seq, ts, type, data_json, tool_name, error_class)
+		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
 		 RETURNING event_id, run_id, seq, ts, type, tool_name, error_class`,
 		runID,
 		seq,
+		eventTime,
 		eventType,
 		string(encoded),
 		toolName,

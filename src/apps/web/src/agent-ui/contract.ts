@@ -205,6 +205,8 @@ export type AgentUIMessage<
 export type AgentMessageMetadata = {
   createdAt: string
   streamId?: string
+  clientMessageId?: string
+  deliveryStatus?: 'pending' | 'sent' | 'failed'
 }
 
 export type AgentMessage = AgentUIMessage<AgentMessageMetadata> & {
@@ -217,6 +219,7 @@ export type AgentMessage = AgentUIMessage<AgentMessageMetadata> & {
 export type AgentCreateMessageRequest = {
   content?: string
   contentJson?: AgentMessageContent
+  clientMessageId?: string
 }
 
 export type AgentRun = {

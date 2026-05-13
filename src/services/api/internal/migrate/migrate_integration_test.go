@@ -829,6 +829,99 @@ func TestWebSearchBasicProviderMigration(t *testing.T) {
 	assertToolProviderCount(t, sqlDB, ctx, "web_search.duckduckgo", 3)
 }
 
+func TestDefaultWebSearchExaMigration(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "migrate_default_web_search_exa")
+	ctx := context.Background()
+
+	sqlDB, err := openDB(db.DSN)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	provider, err := newProvider(sqlDB)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 190); err != nil {
+		t.Fatalf("up to 190: %v", err)
+	}
+
+	result, err := provider.UpByOne(ctx)
+	if err != nil {
+		t.Fatalf("apply 191: %v", err)
+	}
+	if result == nil || result.Source == nil || result.Source.Version != 191 {
+		t.Fatalf("expected migration 191, got %#v", result)
+	}
+
+	var providerName string
+	var active bool
+	if err := sqlDB.QueryRowContext(ctx, `
+		SELECT provider_name, is_active
+		FROM tool_provider_configs
+		WHERE owner_kind = 'platform' AND group_name = 'web_search'
+	`).Scan(&providerName, &active); err != nil {
+		t.Fatalf("select default provider: %v", err)
+	}
+	if providerName != "web_search.exa" || !active {
+		t.Fatalf("default provider = %s active=%v", providerName, active)
+	}
+
+	if _, err := provider.Down(ctx); err != nil {
+		t.Fatalf("down 191: %v", err)
+	}
+	assertToolProviderCount(t, sqlDB, ctx, "web_search.exa", 0)
+}
+
+func TestDefaultWebSearchExaMigrationKeepsExistingActiveProvider(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "migrate_default_web_search_existing")
+	ctx := context.Background()
+
+	sqlDB, err := openDB(db.DSN)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer func() { _ = sqlDB.Close() }()
+
+	provider, err := newProvider(sqlDB)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, 190); err != nil {
+		t.Fatalf("up to 190: %v", err)
+	}
+
+	if _, err := sqlDB.ExecContext(ctx, `
+		INSERT INTO tool_provider_configs (
+			account_id, owner_kind, owner_user_id, group_name, provider_name, is_active, config_json
+		) VALUES (NULL, 'platform', NULL, 'web_search', 'web_search.tavily', TRUE, '{}'::jsonb)
+	`); err != nil {
+		t.Fatalf("insert active tavily: %v", err)
+	}
+
+	result, err := provider.UpByOne(ctx)
+	if err != nil {
+		t.Fatalf("apply 191: %v", err)
+	}
+	if result == nil || result.Source == nil || result.Source.Version != 191 {
+		t.Fatalf("expected migration 191, got %#v", result)
+	}
+
+	var providerName string
+	if err := sqlDB.QueryRowContext(ctx, `
+		SELECT provider_name
+		FROM tool_provider_configs
+		WHERE owner_kind = 'platform' AND group_name = 'web_search' AND is_active = TRUE
+	`).Scan(&providerName); err != nil {
+		t.Fatalf("select active provider: %v", err)
+	}
+	if providerName != "web_search.tavily" {
+		t.Fatalf("active provider = %q", providerName)
+	}
+	assertToolProviderCount(t, sqlDB, ctx, "web_search.exa", 0)
+}
+
 func assertToolProviderCount(t *testing.T, db *sql.DB, ctx context.Context, providerName string, want int) {
 	t.Helper()
 	var got int

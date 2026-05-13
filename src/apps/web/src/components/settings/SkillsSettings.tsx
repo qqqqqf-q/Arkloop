@@ -1,4 +1,6 @@
+import { useLocale } from '../../contexts/LocaleContext'
 import { SkillsSettingsContent } from '../SkillsSettingsContent'
+import { SettingsPage } from './_SettingsLayout'
 
 type Props = {
   accessToken: string
@@ -6,5 +8,10 @@ type Props = {
 }
 
 export function SkillsSettings({ accessToken, onTrySkill }: Props) {
-  return <SkillsSettingsContent accessToken={accessToken} onTrySkill={onTrySkill} />
+  const { t } = useLocale()
+  return (
+    <SettingsPage title={t.desktopSettings.skillsTitle} className="max-w-[760px]">
+      <SkillsSettingsContent accessToken={accessToken} onTrySkill={onTrySkill} />
+    </SettingsPage>
+  )
 }

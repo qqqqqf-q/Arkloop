@@ -23,17 +23,19 @@ import (
 	"arkloop/services/api/internal/data"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	sharedmcpinstall "arkloop/services/shared/mcpinstall"
+	sharedmcpoauth "arkloop/services/shared/mcpoauth"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	effectiveToolCatalogMCPGroup = "mcp"
-	effectiveMCPConfigFileEnv    = "ARKLOOP_MCP_CONFIG_FILE"
-	effectiveMCPDefaultTimeoutMs = 10000
-	effectiveMCPProtocolVersion  = "2025-06-18"
-	effectiveToolCatalogCacheEnv = "__env__"
+	effectiveToolCatalogMCPGroup   = "mcp"
+	effectiveMCPConfigFileEnv      = "ARKLOOP_MCP_CONFIG_FILE"
+	effectiveMCPDefaultTimeoutMs   = 10000
+	effectiveMCPProtocolVersion    = "2025-06-18"
+	effectiveToolCatalogCacheEnv   = "__env__"
+	effectiveMCPOAuthRefreshLeeway = 5 * time.Minute
 )
 
 type effectiveToolCatalogCache struct {
@@ -472,12 +474,39 @@ func (c *effectiveMCPHTTPClient) send(ctx context.Context, encoded []byte, timeo
 		}
 		req.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
 	}
+	if token, err := c.oauthAccessToken(ctx); err != nil {
+		cancel()
+		return nil, nil, err
+	} else if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	resp, err := newEffectiveMCPHTTPClient().Do(req)
 	if err != nil {
 		cancel()
 		return nil, nil, err
 	}
 	return resp, cancel, nil
+}
+
+func (c *effectiveMCPHTTPClient) oauthAccessToken(ctx context.Context) (string, error) {
+	state := c.server.OAuth
+	if state == nil {
+		return "", nil
+	}
+	tokens := state.Tokens
+	if strings.TrimSpace(tokens.AccessToken) != "" && !sharedmcpoauth.TokenExpiredSoon(tokens, effectiveMCPOAuthRefreshLeeway) {
+		return strings.TrimSpace(tokens.AccessToken), nil
+	}
+	if strings.TrimSpace(tokens.RefreshToken) == "" {
+		return "", fmt.Errorf("mcp effective catalog: oauth token expired")
+	}
+	refreshed, err := sharedmcpoauth.RefreshAuthorization(ctx, newEffectiveMCPHTTPClient(), state.Discovery, state.Client, tokens.RefreshToken)
+	if err != nil {
+		return "", err
+	}
+	state.Tokens = refreshed
+	c.server.OAuth = state
+	return strings.TrimSpace(refreshed.AccessToken), nil
 }
 
 func listEffectiveMCPStdioTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {

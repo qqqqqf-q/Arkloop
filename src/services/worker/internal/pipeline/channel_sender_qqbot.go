@@ -39,7 +39,7 @@ func (s *QQBotChannelSender) SendText(ctx context.Context, target ChannelDeliver
 	if s == nil || s.client == nil {
 		return nil, fmt.Errorf("qqbot sender is not configured")
 	}
-	segments := splitQQMessage(strings.TrimSpace(text), qqMessageMaxLen)
+	segments := splitByRuneLimit(strings.TrimSpace(text), qqMessageMaxLen)
 	ids := make([]string, 0, len(segments))
 	scope := qqbotclient.ScopeC2C
 	if qqbotTargetIsGroup(target) {

@@ -84,6 +84,57 @@ func TestScheduledTriggersRepositoryResetHeartbeatNextFire(t *testing.T) {
 	}
 }
 
+func TestScheduledTriggersRepositoryIdentityMethodsIgnoreThreadScopedRows(t *testing.T) {
+	repo, pool, ctx := setupScheduledTriggersRepo(t)
+	channelID := uuid.New()
+	identity := uuid.New()
+	account := uuid.New()
+	threadID := uuid.New()
+	now := time.Now().UTC()
+
+	if err := repo.UpsertHeartbeat(ctx, pool, account, channelID, identity, "legacy", "legacy-model", 10); err != nil {
+		t.Fatalf("upsert legacy heartbeat: %v", err)
+	}
+	if err := repo.UpsertHeartbeatForThread(ctx, pool, account, channelID, identity, threadID, "thread", "thread-model", 5); err != nil {
+		t.Fatalf("upsert thread heartbeat: %v", err)
+	}
+	if row, err := repo.GetHeartbeat(ctx, pool, channelID, identity); err != nil {
+		t.Fatalf("get legacy heartbeat: %v", err)
+	} else if row != nil {
+		t.Fatalf("expected legacy row to be removed after thread upsert, got %s", row.ID)
+	}
+	if err := repo.UpsertHeartbeat(ctx, pool, account, channelID, identity, "legacy", "legacy-model", 10); err != nil {
+		t.Fatalf("recreate legacy heartbeat: %v", err)
+	}
+	if _, err := repo.ResetHeartbeatNextFire(ctx, pool, channelID, identity, 1); err != nil {
+		t.Fatalf("reset legacy heartbeat: %v", err)
+	}
+	if err := repo.ResetCooldownForMessage(ctx, pool, channelID, identity, now.Add(time.Minute), now, now); err != nil {
+		t.Fatalf("reset legacy cooldown: %v", err)
+	}
+	if err := repo.UpdateCooldownAfterHeartbeat(ctx, pool, channelID, identity, 3, now.Add(2*time.Minute), nil); err != nil {
+		t.Fatalf("update legacy cooldown: %v", err)
+	}
+	threadRow, err := repo.GetHeartbeatForThread(ctx, pool, threadID)
+	if err != nil {
+		t.Fatalf("get thread heartbeat: %v", err)
+	}
+	if threadRow == nil {
+		t.Fatal("expected thread heartbeat to survive legacy operations")
+	}
+	if threadRow.PersonaKey != "thread" || threadRow.Model != "thread-model" || threadRow.IntervalMin != 5 || threadRow.CooldownLevel != 0 {
+		t.Fatalf("thread row was modified by legacy operations: %+v", *threadRow)
+	}
+	if err := repo.DeleteHeartbeat(ctx, pool, channelID, identity); err != nil {
+		t.Fatalf("delete legacy heartbeat: %v", err)
+	}
+	if threadRow, err = repo.GetHeartbeatForThread(ctx, pool, threadID); err != nil {
+		t.Fatalf("get thread heartbeat after delete: %v", err)
+	} else if threadRow == nil {
+		t.Fatal("thread heartbeat deleted by legacy delete")
+	}
+}
+
 func TestScheduledTriggersRepositoryRescheduleHeartbeatNextFireAt(t *testing.T) {
 	repo, pool, ctx := setupScheduledTriggersRepo(t)
 	channelID := uuid.New()

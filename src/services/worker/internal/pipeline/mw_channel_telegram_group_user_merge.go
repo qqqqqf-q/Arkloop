@@ -26,9 +26,7 @@ func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 		if ct != "telegram" && ct != "qq" {
 			return next(ctx, rc)
 		}
-		slog.DebugContext(ctx, "channel_group_user_merge", "msgs_before", len(rc.Messages), "ids_before", len(rc.ThreadMessageIDs))
 		msgs, ids, lastScan := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
-		slog.DebugContext(ctx, "channel_group_user_merge", "msgs_after", len(msgs), "ids_after", len(ids))
 		rc.Messages = msgs
 		rc.ThreadMessageIDs = ids
 		if len(lastScan) > 0 {
@@ -265,6 +263,7 @@ func compactTelegramGroupEnvelopeBurstOrderedParts(tail []llm.Message) ([]llm.Co
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
 			quoteText:    strings.TrimSpace(item.meta["quote-text"]),
 			forwardFrom:  strings.TrimSpace(item.meta["forward-from"]),
+			trigger:      compactChannelTriggerFlags(item.meta),
 		}
 		line := renderCompactTelegramBurstLine(item.time, formatMessageIDSuffix(singleMessageIDSlice(item.messageID)), item.speaker, entry)
 		if i == 0 {
@@ -308,6 +307,7 @@ type telegramCompactBurstEntry struct {
 	replyPreview string
 	quoteText    string
 	forwardFrom  string
+	trigger      string
 }
 
 type telegramCompactBurstBlock struct {
@@ -394,6 +394,7 @@ func compactTelegramGroupEnvelopeBurst(tail []llm.Message) (string, []llm.Conten
 			replyPreview: strings.TrimSpace(item.meta["reply-to-preview"]),
 			quoteText:    strings.TrimSpace(item.meta["quote-text"]),
 			forwardFrom:  strings.TrimSpace(item.meta["forward-from"]),
+			trigger:      compactChannelTriggerFlags(item.meta),
 		}
 		if len(blocks) > 0 && blocks[len(blocks)-1].speaker == speaker {
 			blocks[len(blocks)-1].endTime = ts
@@ -591,7 +592,8 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 	if entry.forwardFrom != "" {
 		fwdLine = "[Fwd: " + entry.forwardFrom + "]"
 	}
-	if text == "" && replyLine == "" && fwdLine == "" {
+	triggerLine := strings.TrimSpace(entry.trigger)
+	if text == "" && replyLine == "" && fwdLine == "" && triggerLine == "" {
 		return fmt.Sprintf("[%s%s] %s", ts, msgIDSuffix, speaker)
 	}
 	var sb strings.Builder
@@ -610,6 +612,12 @@ func renderCompactTelegramBurstLine(ts, msgIDSuffix, speaker string, entry teleg
 	}
 	if fwdLine != "" {
 		sb.WriteString(fwdLine)
+		if triggerLine != "" || text != "" {
+			sb.WriteString("\n  ")
+		}
+	}
+	if triggerLine != "" {
+		sb.WriteString(triggerLine)
 		if text != "" {
 			sb.WriteString("\n  ")
 		}
@@ -635,7 +643,7 @@ func renderCompactTelegramBurstBlock(block telegramCompactBurstBlock) string {
 		entries = append(entries, telegramCompactBurstEntry{
 			body: strings.TrimSpace(e.body), time: e.time, messageID: e.messageID,
 			replyToID: e.replyToID, replyPreview: e.replyPreview, quoteText: e.quoteText,
-			forwardFrom: e.forwardFrom,
+			forwardFrom: e.forwardFrom, trigger: e.trigger,
 		})
 	}
 	tsRange := compactTelegramBurstRange(block.startTime, block.endTime)
@@ -667,6 +675,9 @@ func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []str
 	if entry.forwardFrom != "" {
 		details = append(details, "[Fwd: "+entry.forwardFrom+"]")
 	}
+	if entry.trigger != "" {
+		details = append(details, entry.trigger)
+	}
 	for _, line := range strings.Split(entry.body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
@@ -686,6 +697,29 @@ func renderCompactTelegramBurstEntryLines(entry telegramCompactBurstEntry) []str
 	lines = append(lines, header+" "+details[0])
 	lines = append(lines, details[1:]...)
 	return lines
+}
+
+func compactChannelTriggerFlags(meta map[string]string) string {
+	var parts []string
+	if envelopeBool(meta["mentions-bot"]) {
+		parts = append(parts, "mentioned the bot")
+	}
+	if envelopeBool(meta["is-reply-to-bot"]) {
+		parts = append(parts, "replied to the bot")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, "; ") + "]"
+}
+
+func envelopeBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.Trim(value, `"`))) {
+	case "true", "1", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func formatMessageIDSuffix(ids []string) string {

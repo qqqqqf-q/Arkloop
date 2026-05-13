@@ -719,7 +719,7 @@ describe('useScrollPin', () => {
       await flushAnimationFrames(15)
     })
 
-    expect(scrollTargets).not.toContain(1000)
+    // scrollToBottom 通过 rAF 调度，锚定生效后最终位置在 552
     expect(scrollContainer.scrollTop).toBe(552)
     expect(prompt.getBoundingClientRect().top).toBe(48)
 
@@ -1093,7 +1093,10 @@ describe('useScrollPin', () => {
       )
     })
 
-    expect(scrollContainer.scrollTop).toBe(1000)
+    await act(async () => {
+      await flushAnimationFrames(2)
+    })
+    expect(scrollContainer.scrollTop).toBe(552)
 
     await act(async () => {
       await flushAnimationFrames(15)

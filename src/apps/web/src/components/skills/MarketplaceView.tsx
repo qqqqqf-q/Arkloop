@@ -1,6 +1,7 @@
 import React from 'react'
 import type { ViewSkill } from './types'
 import { SkillList } from './SkillList'
+import { SettingsGroup } from '../settings/_SettingsLayout'
 
 type SkillTextSubset = {
   searchResults: (count: number) => string
@@ -17,6 +18,9 @@ type SkillTextSubset = {
   download: string
   replace: string
   remove: string
+  cancelAction: string
+  removeConfirmTitle: string
+  removeConfirmBody: (displayName: string, skillKey: string, version: string) => string
   manualAvailable: string
   scanStatusLabel: (status: string) => string
 }
@@ -51,11 +55,7 @@ export function MarketplaceView(props: Props) {
   } = props
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-        {skillText.searchResults(items.length)}
-      </span>
-
+    <SettingsGroup title={skillText.searchResults(items.length)}>
       <SkillList
         items={items}
         loading={loading}
@@ -76,6 +76,6 @@ export function MarketplaceView(props: Props) {
         active={active}
         cardMenuRef={cardMenuRef}
       />
-    </div>
+    </SettingsGroup>
   )
 }

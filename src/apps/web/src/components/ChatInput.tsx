@@ -1,7 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle, useLayoutEffect } from 'react'
 import { ArrowUp, Mic, X, Check, Loader2, Pencil } from 'lucide-react'
-import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent } from 'react'
-import { listSelectablePersonas, type SelectablePersona, type UploadedThreadAttachment } from '../api'
+import type { FormEvent, KeyboardEvent, ClipboardEvent as ReactClipboardEvent, ReactNode } from 'react'
+import { type UploadedThreadAttachment } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { PastedContentModal } from './PastedContentModal'
 import type { SettingsTab } from './SettingsModal'
@@ -27,8 +27,10 @@ import type { AppMode } from '../storage'
 import {
   AttachmentCard,
   PastedContentCard,
+  SlashCommandPopup,
   hasTransferFiles,
 } from './chat-input'
+import type { SlashCommandGroup, SlashCommandItem } from './chat-input'
 import { useAudioRecorder } from './chat-input/useAudioRecorder'
 import { useAttachments } from './chat-input/useAttachments'
 import { PersonaModelBar } from './chat-input/PersonaModelBar'
@@ -83,7 +85,6 @@ type Props = {
   planMode?: boolean
   onTogglePlanMode?: (currentMode: boolean) => Promise<void>
   learningModeEnabled?: boolean
-  learningModeUpdating?: boolean
   onToggleLearningMode?: (currentMode: boolean) => Promise<void>
 }
 
@@ -93,16 +94,70 @@ type TextareaSelection = {
   direction: 'forward' | 'backward' | 'none'
 }
 
-function buildFallbackSelectablePersonas(_selectedPersonaKey: string): SelectablePersona[] {
-  return []
+type SlashCaretRect = {
+  x: number
+  top: number
 }
 
-function pickPreferredPersonaKey(personas: SelectablePersona[], preferred?: string): string {
-  if (preferred && personas.some((persona) => persona.persona_key === preferred)) return preferred
-  if (personas.some((persona) => persona.persona_key === DEFAULT_PERSONA_KEY)) return DEFAULT_PERSONA_KEY
-  return DEFAULT_PERSONA_KEY
+type SlashCommandRange = {
+  start: number
+  end: number
+  query: string
 }
 
+const SLASH_POPUP_WIDTH = 300
+const SLASH_POPUP_VIEWPORT_MARGIN = 8
+const SETUP_COMMAND_HEAD_COLOR = 'rgb(159, 186, 231)'
+const SETUP_COMMAND_TEXT_COLOR = 'rgb(64, 117, 208)'
+const SETUP_COMMAND_HOVER_BG = 'rgb(231, 239, 251)'
+const INLINE_SLASH_COMMAND_PATTERN = /\/[A-Za-z][\w-]*(?=\s|$)/g
+const SETUP_COMMAND_PATTERN = /\/setup(?=\s|$)/g
+
+function getSlashCommandRange(value: string, cursor: number): SlashCommandRange | null {
+  if (cursor < 1) return null
+  const start = value.lastIndexOf('/', cursor - 1)
+  if (start < 0) return null
+  const query = value.slice(start + 1, cursor)
+  if (/[\s\n]/.test(query)) return null
+  return { start, end: cursor, query }
+}
+
+function getInlineTokenDeletionRange(value: string, cursor: number): { start: number; end: number } | null {
+  INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = INLINE_SLASH_COMMAND_PATTERN.exec(value)) !== null) {
+    const start = match.index
+    const commandEnd = start + match[0].length
+    const end = value[commandEnd] === ' ' ? commandEnd + 1 : commandEnd
+    if (cursor > start && cursor <= end) {
+      INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+      return { start, end }
+    }
+  }
+  INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+  return null
+}
+
+function getInlineTokenTextRange(value: string, cursor: number): { start: number; end: number } | null {
+  INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = INLINE_SLASH_COMMAND_PATTERN.exec(value)) !== null) {
+    const start = match.index
+    const end = start + match[0].length
+    if (cursor >= start && cursor <= end) {
+      INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+      return { start, end }
+    }
+  }
+  INLINE_SLASH_COMMAND_PATTERN.lastIndex = 0
+  return null
+}
+
+function nearestInlineTokenBoundary(value: string, cursor: number): number | null {
+  const range = getInlineTokenTextRange(value, cursor)
+  if (!range || cursor === range.start || cursor === range.end) return null
+  return cursor - range.start < range.end - cursor ? range.start : range.end
+}
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -152,6 +207,44 @@ function measureTextareaContentWidth(element: HTMLTextAreaElement, style: CSSSty
   )
 }
 
+function getTextareaCaretClientRect(textarea: HTMLTextAreaElement): SlashCaretRect {
+  const style = window.getComputedStyle(textarea)
+  const rect = textarea.getBoundingClientRect()
+  const mirror = document.createElement('div')
+  const marker = document.createElement('span')
+  const selectionEnd = textarea.selectionEnd
+
+  mirror.style.position = 'fixed'
+  mirror.style.left = `${rect.left}px`
+  mirror.style.top = `${rect.top}px`
+  mirror.style.width = `${textarea.clientWidth}px`
+  mirror.style.minHeight = `${textarea.clientHeight}px`
+  mirror.style.visibility = 'hidden'
+  mirror.style.pointerEvents = 'none'
+  mirror.style.whiteSpace = 'pre-wrap'
+  mirror.style.overflowWrap = 'break-word'
+  mirror.style.boxSizing = style.boxSizing
+  mirror.style.font = readTextareaFont(style)
+  mirror.style.letterSpacing = style.letterSpacing
+  mirror.style.lineHeight = style.lineHeight
+  mirror.style.padding = style.padding
+  mirror.style.border = style.border
+  mirror.style.overflow = 'hidden'
+
+  mirror.append(document.createTextNode(textarea.value.slice(0, selectionEnd)))
+  marker.textContent = '\u200b'
+  mirror.append(marker)
+  mirror.append(document.createTextNode(textarea.value.slice(selectionEnd) || '\u200b'))
+  document.body.append(mirror)
+  const markerRect = marker.getBoundingClientRect()
+  mirror.remove()
+
+  return {
+    x: markerRect.right,
+    top: rect.top,
+  }
+}
+
 function isSameDraftDomain(left: InputDraftScope | null, right: InputDraftScope): boolean {
   if (!left) return false
   return left.page === right.page
@@ -185,8 +278,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   queuedEditLabel,
   onCancelQueuedEdit,
   draftOwnerKey,
+  planMode = false,
+  onTogglePlanMode,
   learningModeEnabled = false,
-  learningModeUpdating = false,
   onToggleLearningMode,
 }, ref) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -227,16 +321,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   const { t } = useLocale()
 
-  const [selectablePersonas, setSelectablePersonas] = useState<SelectablePersona[]>([])
   const [selectedPersonaKey, setSelectedPersonaKey] = useState(readSelectedPersonaKeyFromStorage)
   const [focused, setFocused] = useState(false)
+  const [childMenuOpen, setChildMenuOpen] = useState(false)
   const [collapsingGrid, setCollapsingGrid] = useState(false)
   const [pastedModalAttachment, setPastedModalAttachment] = useState<Attachment | null>(null)
-  const [chipExiting, setChipExiting] = useState(false)
   const [typewriterText, setTypewriterText] = useState('')
   const [workCompactInputWraps, setWorkCompactInputWraps] = useState(false)
   const [textareaFocusRestoreTick, setTextareaFocusRestoreTick] = useState(0)
   const [selectedModel, setSelectedModel] = useState<string | null>(readSelectedModelFromStorage)
+  const [slashOpen, setSlashOpen] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashPosition, setSlashPosition] = useState({ left: SLASH_POPUP_VIEWPORT_MARGIN, bottom: 0 })
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
+  const [slashRange, setSlashRange] = useState<SlashCommandRange | null>(null)
+  const [setupTextHovered, setSetupTextHovered] = useState(false)
   const compactTextareaWidthRef = useRef<number | null>(null)
   const pendingTextareaFocusRef = useRef<TextareaSelection | null>(null)
   const inputLayoutChangingRef = useRef(false)
@@ -279,47 +378,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     onPersonaChange?.(personaKey)
   }, [onPersonaChange])
 
-  useEffect(() => {
-    let cancelled = false
-
-    if (!accessToken) {
-      const clearId = requestAnimationFrame(() => setSelectablePersonas([]))
-      return () => {
-        cancelled = true
-        cancelAnimationFrame(clearId)
-      }
-    }
-
-    void listSelectablePersonas(accessToken)
-      .then((personas) => {
-        if (cancelled) return
-        setSelectablePersonas(personas)
-        if (personas.length === 0) return
-
-        const preferredKey = readSelectedPersonaKeyFromStorage()
-        const nextKey = pickPreferredPersonaKey(personas, preferredKey)
-        if (nextKey !== preferredKey) persistSelectedPersona(nextKey)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setSelectablePersonas([])
-      })
-
-    return () => { cancelled = true }
-  }, [accessToken, persistSelectedPersona])
-
-  const personas = useMemo(
-    () => selectablePersonas.length > 0
-      ? selectablePersonas
-      : buildFallbackSelectablePersonas(selectedPersonaKey),
-    [selectablePersonas, selectedPersonaKey],
-  )
-
-  const selectedPersona = useMemo(
-    () => personas.find((persona) => persona.persona_key === selectedPersonaKey) ?? null,
-    [personas, selectedPersonaKey],
-  )
-
   const handleModelChange = useCallback((model: string | null) => {
     setSelectedModel(model)
     writeSelectedModelToStorage(model)
@@ -341,16 +399,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [workThreadId])
 
   const handleMenuOpenChange = useCallback((open: boolean) => {
+    setChildMenuOpen(open)
     const el = textareaRef.current
     if (!el) return
     if (open) {
       el.blur()
-    } else {
-      el.focus()
     }
   }, [])
 
-  const isNonDefaultMode = selectedPersonaKey !== DEFAULT_PERSONA_KEY && selectedPersonaKey !== WORK_PERSONA_KEY
   const showSendButton = draft.trim().length > 0 || attachments.length > 0
   const resolvedPlaceholder = typewriterText
   const isWelcomeInput = variant === 'welcome'
@@ -380,6 +436,68 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       : isWorkExpandedInput
         ? '6px'
         : '9px'
+  const canUseSlashCommands = appMode === 'work' && !!onTogglePlanMode
+  const slashCommandGroups = useMemo<SlashCommandGroup[]>(() => {
+    if (!canUseSlashCommands) return []
+    return [
+      {
+        label: t.slashCommands.commandsLabel,
+        items: [{
+          id: 'setup',
+          label: 'setup',
+          description: t.slashCommands.setupDesc,
+        }],
+      },
+      {
+        label: t.slashCommands.modesLabel,
+        items: [{
+          id: 'plan',
+          label: t.planMode,
+          description: t.slashCommands.planDesc,
+        }],
+      },
+    ]
+  }, [
+    canUseSlashCommands,
+    t.planMode,
+    t.slashCommands.commandsLabel,
+    t.slashCommands.modesLabel,
+    t.slashCommands.planDesc,
+    t.slashCommands.setupDesc,
+  ])
+  const slashVisibleGroups = useMemo<SlashCommandGroup[]>(() => {
+    const query = slashQuery.trim().toLowerCase()
+    return slashCommandGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (!query) return true
+          return item.id.toLowerCase().startsWith(query) || item.label.toLowerCase().startsWith(query)
+        }),
+      }))
+      .filter((group) => group.items.length > 0)
+  }, [slashCommandGroups, slashQuery])
+  const slashVisibleItems = useMemo(
+    () => slashVisibleGroups.flatMap((group) => group.items),
+    [slashVisibleGroups],
+  )
+  const shouldHighlightSetupCommand = SETUP_COMMAND_PATTERN.test(draft)
+  SETUP_COMMAND_PATTERN.lastIndex = 0
+  const setupHighlightStyle = useMemo(() => ({
+    position: 'absolute' as const,
+    inset: 0,
+    pointerEvents: 'none' as const,
+    overflow: 'visible',
+    whiteSpace: 'pre-wrap' as const,
+    overflowWrap: 'break-word' as const,
+    fontFamily: 'inherit',
+    fontSize: '16px',
+    fontWeight: 310,
+    lineHeight: variant === 'chat' ? 1.45 : undefined,
+    letterSpacing: '-0.16px',
+    color: 'var(--c-text-primary)',
+    zIndex: 1,
+  }), [variant])
 
   const readTextareaSelection = useCallback((textarea: HTMLTextAreaElement): TextareaSelection => ({
     start: textarea.selectionStart,
@@ -402,6 +520,88 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     pendingTextareaFocusRef.current = selection
     setTextareaFocusRestoreTick((tick) => tick + 1)
   }, [])
+
+  const updateSlashState = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea || disabled || document.activeElement !== textarea || slashCommandGroups.length === 0) {
+      setSlashOpen(false)
+      return
+    }
+
+    const cursor = textarea.selectionEnd
+    const value = textarea.value
+    const range = getSlashCommandRange(value, cursor)
+    if (!range) {
+      setSlashOpen(false)
+      setSlashRange(null)
+      return
+    }
+
+    const normalizedQuery = range.query.trim().toLowerCase()
+    const exactCommand = normalizedQuery.length > 0 && slashCommandGroups.some((group) => (
+      group.items.some((item) => (
+        item.id.toLowerCase() === normalizedQuery || item.label.toLowerCase() === normalizedQuery
+      ))
+    ))
+    if (exactCommand) {
+      setSlashOpen(false)
+      setSlashRange(null)
+      return
+    }
+
+    const visibleCount = slashCommandGroups.reduce((count, group) => (
+      count + group.items.filter((item) => {
+        if (!normalizedQuery) return true
+        return item.id.toLowerCase().startsWith(normalizedQuery) || item.label.toLowerCase().startsWith(normalizedQuery)
+      }).length
+    ), 0)
+
+    if (visibleCount === 0) {
+      setSlashOpen(false)
+      setSlashRange(null)
+      return
+    }
+
+    const caret = getTextareaCaretClientRect(textarea)
+    const maxLeft = window.innerWidth - SLASH_POPUP_WIDTH - SLASH_POPUP_VIEWPORT_MARGIN
+    setSlashPosition({
+      left: Math.max(SLASH_POPUP_VIEWPORT_MARGIN, Math.min(caret.x, maxLeft)),
+      bottom: caret.top,
+    })
+    setSlashRange(range)
+    setSlashQuery(range.query)
+    setSlashSelectedIndex((index) => Math.min(index, visibleCount - 1))
+    setSlashOpen(true)
+  }, [disabled, slashCommandGroups])
+
+  const selectSlashItem = useCallback((item: SlashCommandItem) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const cursor = textarea.selectionEnd
+    const value = draftRef.current
+    const range = slashRange ?? getSlashCommandRange(value, cursor)
+    if (!range) return
+    const before = value.slice(0, range.start)
+    const after = value.slice(range.end)
+    const leadingSpace = item.id === 'setup' && before.length > 0 && !/\s$/.test(before) ? ' ' : ''
+    const insert = item.id === 'setup' ? `${leadingSpace}/setup ` : ''
+    const nextDraft = before + insert + after.replace(/^\s+/, '')
+    const nextCursor = before.length + insert.length
+
+    resetHistoryCursor()
+    setSlashOpen(false)
+    setSlashRange(null)
+    setSlashSelectedIndex(0)
+    trackedSetDraft(nextDraft)
+    if (item.id === 'plan' && !planMode) void onTogglePlanMode?.(planMode)
+
+    requestAnimationFrame(() => {
+      const target = textareaRef.current
+      if (!target) return
+      target.focus({ preventScroll: true })
+      target.setSelectionRange(nextCursor, nextCursor)
+    })
+  }, [draftRef, onTogglePlanMode, planMode, resetHistoryCursor, slashRange, trackedSetDraft])
 
   const measureWorkInputWraps = useCallback((value: string, textarea: HTMLTextAreaElement) => {
     const style = window.getComputedStyle(textarea)
@@ -507,21 +707,42 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     writeInputDraftText(draftScope, draft)
   }, [draft, draftScope, draftScopeKey])
 
-  const deactivateMode = useCallback(() => {
-    setChipExiting(true)
-    setTimeout(() => {
-      persistSelectedPersona(DEFAULT_PERSONA_KEY)
-      setChipExiting(false)
-    }, 120)
-  }, [persistSelectedPersona])
+  useEffect(() => {
+    updateSlashState()
+  }, [draft, updateSlashState])
 
-  const handleModeSelect = useCallback((personaKey: string) => {
-    if (selectedPersonaKey === personaKey && !chipExiting) {
-      deactivateMode()
-    } else {
-      persistSelectedPersona(personaKey)
+  useEffect(() => {
+    if (!slashOpen) return
+    const handleResize = () => updateSlashState()
+    const handleScroll = () => updateSlashState()
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('scroll', handleScroll, true)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('scroll', handleScroll, true)
     }
-  }, [selectedPersonaKey, chipExiting, persistSelectedPersona, deactivateMode])
+  }, [slashOpen, updateSlashState])
+
+  useEffect(() => {
+    if (!slashOpen) return
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (textareaRef.current?.contains(target)) return
+      if ((target as Element).closest?.('[data-slash-popup]')) return
+      setSlashOpen(false)
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [slashOpen])
+
+  useEffect(() => {
+    if (!slashOpen) return
+    if (slashVisibleItems.length === 0) {
+      setSlashOpen(false)
+      return
+    }
+    setSlashSelectedIndex((index) => Math.min(index, slashVisibleItems.length - 1))
+  }, [slashOpen, slashVisibleItems.length])
 
   const formatRecordingTime = (secs: number) => {
     const m = Math.floor(secs / 60)
@@ -621,8 +842,80 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     isComposingRef.current || event.isComposing || event.keyCode === 229
   )
 
+  const moveInlineTokenCursor = (target: HTMLTextAreaElement, cursor: number) => {
+    target.setSelectionRange(cursor, cursor)
+    requestAnimationFrame(updateSlashState)
+  }
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     const isComposing = isComposingEvent(e.nativeEvent)
+    const target = e.currentTarget
+    const collapsedSelection = target.selectionStart === target.selectionEnd
+    if (!isComposing && collapsedSelection) {
+      const inlineTokenRange = getInlineTokenTextRange(target.value, target.selectionStart)
+      if (inlineTokenRange) {
+        if (e.key === 'ArrowLeft' && target.selectionStart === inlineTokenRange.end) {
+          e.preventDefault()
+          moveInlineTokenCursor(target, inlineTokenRange.start)
+          return
+        }
+        if (e.key === 'ArrowRight' && target.selectionStart === inlineTokenRange.start) {
+          e.preventDefault()
+          moveInlineTokenCursor(target, inlineTokenRange.end)
+          return
+        }
+        const boundary = nearestInlineTokenBoundary(target.value, target.selectionStart)
+        if (boundary !== null) {
+          moveInlineTokenCursor(target, boundary)
+        }
+      }
+    }
+    if (!isComposing && e.key === 'Backspace') {
+      if (collapsedSelection) {
+        const deletionRange = getInlineTokenDeletionRange(target.value, target.selectionStart)
+        if (deletionRange) {
+          e.preventDefault()
+          const nextDraft = target.value.slice(0, deletionRange.start) + target.value.slice(deletionRange.end)
+          resetHistoryCursor()
+          trackedSetDraft(nextDraft)
+          setSlashOpen(false)
+          setSlashRange(null)
+          requestAnimationFrame(() => {
+            const textarea = textareaRef.current
+            if (!textarea) return
+            textarea.setSelectionRange(deletionRange.start, deletionRange.start)
+          })
+          return
+        }
+      }
+    }
+    if (!isComposing && slashOpen) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSlashSelectedIndex((index) => (
+          slashVisibleItems.length === 0 ? 0 : (index - 1 + slashVisibleItems.length) % slashVisibleItems.length
+        ))
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSlashSelectedIndex((index) => (
+          slashVisibleItems.length === 0 ? 0 : (index + 1) % slashVisibleItems.length
+        ))
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        const item = slashVisibleItems[slashSelectedIndex]
+        if (item) selectSlashItem(item)
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setSlashOpen(false)
+        return
+      }
+    }
     if (!isComposing && e.key === 'ArrowUp' && handleHistoryNavigation('up', e.currentTarget)) {
       e.preventDefault()
       return
@@ -693,6 +986,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     trackedSetDraft(target.value)
   }
 
+  const handleTextareaFocus = () => {
+    setFocused(true)
+    requestAnimationFrame(updateSlashState)
+  }
+
+  const handleTextareaBlur = () => {
+    setFocused(false)
+    window.setTimeout(() => setSlashOpen(false), 150)
+  }
+
+  const handleTextareaCursorChange = (target?: HTMLTextAreaElement) => {
+    requestAnimationFrame(() => {
+      const textarea = target ?? textareaRef.current
+      if (!textarea) return
+      if (textarea.selectionStart === textarea.selectionEnd) {
+        const boundary = nearestInlineTokenBoundary(textarea.value, textarea.selectionStart)
+        if (boundary !== null) {
+          textarea.setSelectionRange(boundary, boundary)
+        }
+      }
+      updateSlashState()
+    })
+  }
+
   const handleCompositionStart = () => {
     isComposingRef.current = true
     composingWorkCompactInputRef.current = isWorkChat ? isWorkCompactInput : null
@@ -707,6 +1024,51 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     resetHistoryCursor()
     requestTextareaFocusRestore(readTextareaSelection(target))
     trackedSetDraft(target.value)
+  }
+
+  const renderSetupHighlightedText = () => {
+    if (!shouldHighlightSetupCommand) return null
+    const nodes: ReactNode[] = []
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+    SETUP_COMMAND_PATTERN.lastIndex = 0
+    while ((match = SETUP_COMMAND_PATTERN.exec(draft)) !== null) {
+      if (match.index > lastIndex) {
+        nodes.push(draft.slice(lastIndex, match.index))
+      }
+      nodes.push(
+        <span
+          key={`setup-${match.index}`}
+          style={{
+            position: 'relative',
+          }}
+        >
+          {setupTextHovered && (
+            <span
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: '-5px',
+                right: '-4px',
+                top: '-1px',
+                bottom: '-2px',
+                borderRadius: '5px',
+                background: SETUP_COMMAND_HOVER_BG,
+                zIndex: 0,
+              }}
+            />
+          )}
+          <span style={{ color: SETUP_COMMAND_HEAD_COLOR, position: 'relative', zIndex: 1 }}>/</span>
+          <span style={{ color: SETUP_COMMAND_TEXT_COLOR, position: 'relative', zIndex: 1 }}>setup</span>
+        </span>,
+      )
+      lastIndex = match.index + match[0].length
+    }
+    if (lastIndex < draft.length) {
+      nodes.push(draft.slice(lastIndex))
+    }
+    SETUP_COMMAND_PATTERN.lastIndex = 0
+    return nodes
   }
 
   const handleFormSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -820,16 +1182,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       <div
         className={[
           'bg-[var(--c-bg-input)] chat-input-box',
-          focused && 'is-focused',
+          (focused || childMenuOpen) && 'is-focused',
         ].filter(Boolean).join(' ')}
         style={{
           borderWidth: '0.5px',
           borderStyle: 'solid',
-          borderColor: focused
+          borderColor: (focused || childMenuOpen)
             ? 'var(--c-input-border-color-focus)'
             : 'var(--c-input-border-color)',
           borderRadius: isWorkChat ? (isWorkCompactInput ? '12px' : '16px') : '20px',
-          boxShadow: focused
+          boxShadow: (focused || childMenuOpen)
             ? 'var(--c-input-shadow-focus)'
             : 'var(--c-input-shadow)',
           transition: isWorkChat
@@ -908,47 +1270,6 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           padding: formPadding,
         }}
       >
-        {!isWorkCompactInput && (
-          <div
-            style={{
-              position: 'relative',
-              marginBottom: textareaWrapperMarginBottom,
-              ...(isWorkExpandedInput
-                ? { marginLeft: '3.5px', padding: '10px 0 0' }
-                : {}),
-            }}
-          >
-            <AutoResizeTextarea
-              ref={textareaRef}
-              rows={1}
-              className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-              value={draft}
-              onChange={(e) => handleDraftChange(e.currentTarget)}
-              onKeyDown={handleKeyDown}
-              onCompositionStart={handleCompositionStart}
-              onCompositionEnd={(e) => handleCompositionEnd(e.currentTarget)}
-              onPaste={handleTextareaPaste}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder={resolvedPlaceholder}
-              disabled={disabled}
-              minRows={1}
-              maxHeight={300}
-              style={{
-                fontFamily: 'inherit',
-                fontSize: '16px',
-                fontWeight: 310,
-                ...(variant === 'chat' ? { lineHeight: 1.45 as const } : {}),
-                color: 'var(--c-text-primary)',
-                marginTop: '0px',
-                marginBottom: '0px',
-                ...(isWorkExpandedInput ? { display: 'block', padding: 0, border: 'none' } : {}),
-                letterSpacing: '-0.16px',
-              }}
-            />
-          </div>
-        )}
-
         <div
           className="flex items-center"
           style={{
@@ -956,16 +1277,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             minHeight: isWorkChat ? '34.5px' : '32px',
             width: '100%',
             minWidth: 0,
+            flexWrap: isWorkCompactInput ? 'nowrap' : 'wrap',
           }}
         >
           <PersonaModelBar
-            personas={personas}
-            selectedPersonaKey={selectedPersonaKey}
             selectedModel={selectedModel}
-            isNonDefaultMode={isNonDefaultMode}
-            selectedPersona={selectedPersona}
-            onModeSelect={handleModeSelect}
-            onDeactivateMode={deactivateMode}
             onModelChange={handleModelChange}
             thinkingEnabled={reasoningMode}
             onThinkingChange={handleReasoningModeChange}
@@ -980,8 +1296,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             hideWorkFolderPicker={isWorkCompactInput}
             hideModelPicker={isWorkCompactInput}
             onMenuOpenChange={handleMenuOpenChange}
+            planMode={planMode}
+            onTogglePlanMode={onTogglePlanMode}
             learningModeEnabled={learningModeEnabled}
-            learningModeUpdating={learningModeUpdating}
             onToggleLearningMode={onToggleLearningMode}
           />
 
@@ -1028,60 +1345,84 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </div>
           )}
 
+          <div
+            onMouseEnter={() => setSetupTextHovered(true)}
+            onMouseLeave={() => setSetupTextHovered(false)}
+            style={{
+              position: 'relative',
+              minWidth: 0,
+              ...(isWorkCompactInput
+                ? {
+                    flex: '1 1 auto',
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '0 8px 0 4px',
+                  }
+                : {
+                    order: -1,
+                    flex: '0 0 100%',
+                    width: '100%',
+                    marginBottom: textareaWrapperMarginBottom,
+                    ...(isWorkExpandedInput
+                      ? { marginLeft: '3.5px', padding: '10px 0 0' }
+                      : {}),
+                  }),
+            }}
+          >
+            {shouldHighlightSetupCommand && (
+              <div aria-hidden="true" style={setupHighlightStyle}>
+                {renderSetupHighlightedText()}
+              </div>
+            )}
+            <AutoResizeTextarea
+              ref={textareaRef}
+              rows={1}
+              className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
+              value={draft}
+              onChange={(e) => handleDraftChange(e.currentTarget)}
+              onKeyDown={handleKeyDown}
+              onKeyUp={(e) => handleTextareaCursorChange(e.currentTarget)}
+              onClick={(e) => handleTextareaCursorChange(e.currentTarget)}
+              onCompositionStart={handleCompositionStart}
+              onCompositionEnd={(e) => handleCompositionEnd(e.currentTarget)}
+              onPaste={handleTextareaPaste}
+              onFocus={handleTextareaFocus}
+              onBlur={handleTextareaBlur}
+              placeholder={resolvedPlaceholder}
+              disabled={disabled}
+              minRows={1}
+              maxHeight={300}
+              style={{
+                fontFamily: 'inherit',
+                fontSize: '16px',
+                fontWeight: 310,
+                ...(variant === 'chat' ? { lineHeight: 1.45 as const } : {}),
+                color: shouldHighlightSetupCommand ? 'transparent' : 'var(--c-text-primary)',
+                caretColor: 'var(--c-text-primary)',
+                marginTop: '0px',
+                marginBottom: '0px',
+                position: 'relative',
+                zIndex: 2,
+                ...(isWorkChat ? { display: 'block', padding: 0, border: 'none' } : {}),
+                ...(isWorkCompactInput ? { flex: '1 1 auto', minWidth: 0 } : {}),
+                letterSpacing: '-0.16px',
+              }}
+            />
+          </div>
+
           {isWorkCompactInput && (
-            <>
-              <div
-                style={{
-                  flex: '1 1 auto',
-                  minWidth: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '0 8px 0 4px',
-                }}
-              >
-                <AutoResizeTextarea
-                  ref={textareaRef}
-                  rows={1}
-                  className="w-full resize-none bg-transparent outline-none placeholder:text-[var(--c-placeholder)] placeholder:font-[360] disabled:cursor-not-allowed"
-                  value={draft}
-                  onChange={(e) => handleDraftChange(e.currentTarget)}
-                  onKeyDown={handleKeyDown}
-                  onCompositionStart={handleCompositionStart}
-                  onCompositionEnd={(e) => handleCompositionEnd(e.currentTarget)}
-                  onPaste={handleTextareaPaste}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                  placeholder={resolvedPlaceholder}
-                  disabled={disabled}
-                  minRows={1}
-                  maxHeight={300}
-                  style={{
-                    display: 'block',
-                    fontFamily: 'inherit',
-                    fontSize: '16px',
-                    fontWeight: 310,
-                    lineHeight: 1.45 as const,
-                    color: 'var(--c-text-primary)',
-                    marginTop: '0px',
-                    marginBottom: '0px',
-                    padding: 0,
-                    border: 'none',
-                    letterSpacing: '-0.16px',
-                  }}
-                />
-              </div>
-              <div style={{ flexShrink: 0, marginRight: '4px', display: 'flex', alignItems: 'center', position: 'relative' }}>
-                <ModelPicker
-                  accessToken={accessToken}
-                  value={selectedModel}
-                  onChange={handleModelChange}
-                  onAddModel={() => onOpenSettings?.('models')}
-                  variant={variant}
-                  thinkingEnabled={reasoningMode}
-                  onThinkingChange={handleReasoningModeChange}
-                />
-              </div>
-            </>
+            <div style={{ flexShrink: 0, marginRight: '4px', display: 'flex', alignItems: 'center', position: 'relative' }}>
+              <ModelPicker
+                accessToken={accessToken}
+                value={selectedModel}
+                onChange={handleModelChange}
+                onAddModel={() => onOpenSettings?.('models')}
+                variant={variant}
+                thinkingEnabled={reasoningMode}
+                onThinkingChange={handleReasoningModeChange}
+                onOpenChange={handleMenuOpenChange}
+              />
+            </div>
           )}
 
           {/* mic + send 共用同一位置，disabled 时显示 spinner */}
@@ -1184,6 +1525,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           </div>
         </div>
       </form>
+
+      {slashOpen && slashVisibleGroups.length > 0 && (
+        <SlashCommandPopup
+          groups={slashVisibleGroups}
+          selectedIndex={slashSelectedIndex}
+          position={slashPosition}
+          onSelect={selectSlashItem}
+          onMouseEnter={setSlashSelectedIndex}
+        />
+      )}
 
       <input
         ref={fileInputRef}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { copTimelinePayloadForSegment, promotedCopTimelineEntries, splitCopItemsByTopLevelTools, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, buildTimelineEntries, splitCopItemsByTopLevelTools, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 
 const call = (id: string, name: string, seq: number) =>
   ({ kind: 'call' as const, call: { toolCallId: id, toolName: name, arguments: {} }, seq })
@@ -246,6 +246,7 @@ describe('copTimelinePayloadForSegment', () => {
         id: 'ws1',
         kind: 'searching',
         label: 'Search completed',
+        text: { kind: 'search_completed' },
         status: 'done',
         queries: ['Claude Desktop 更新'],
         seq: 3,
@@ -255,6 +256,7 @@ describe('copTimelinePayloadForSegment', () => {
         id: 'ws1::reviewing',
         kind: 'reviewing',
         label: 'Reviewing sources',
+        text: { kind: 'reviewing_sources' },
         status: 'done',
         sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
         seq: 3.5,
@@ -411,6 +413,7 @@ describe('copTimelinePayloadForSegment', () => {
         id: 'tool_1',
         toolName: 'fetch_url',
         label: 'fetch_url',
+        displayText: { kind: 'content', text: 'fetch_url' },
         output: 'returned object · 2 keys',
         status: 'success',
         seq: 1,
@@ -551,14 +554,14 @@ describe('copTimelinePayloadForSegment', () => {
       ['grep_2'],
     ])
     expect(r.exploreGroups?.map((group) => group.label)).toEqual([
-      'Searched code, Listed files, Read a file',
-      'Read files',
+      'Searched code, Listed files, Read 1 file',
+      'Read 2 files',
       'Searched code',
     ])
     expect(r.codeExecutions?.map((item) => item.id)).toEqual(['cmd_1', 'cmd_2'])
   })
 
-  it('promotedCopTimelineEntries 按真实 seq 混排 Explore 和 Edit', () => {
+  it('buildTimelineEntries 按真实 seq 混排 Explore 和 Edit', () => {
     const payload = copTimelinePayloadForSegment(
       {
         type: 'cop',
@@ -583,7 +586,7 @@ describe('copTimelinePayloadForSegment', () => {
       ['read_1'],
       ['read_2'],
     ])
-    expect(promotedCopTimelineEntries({
+    expect(buildTimelineEntries({
       payload,
       hasTimelineBody: false,
       bodyFileOps: [],
@@ -594,7 +597,7 @@ describe('copTimelinePayloadForSegment', () => {
     ])
   })
 
-  it('splitCopItemsByTopLevelTools 将 exec 和 todo 从 timeline 切出来', () => {
+  it('splitCopItemsByTopLevelTools 仅将 todo_write 从 timeline 切出来，exec 留在 timeline 中', () => {
     const entries = splitCopItemsByTopLevelTools([
       { kind: 'thinking', content: 'scan first', seq: 1 },
       call('cmd_1', 'exec_command', 2),
@@ -604,15 +607,44 @@ describe('copTimelinePayloadForSegment', () => {
     ])
 
     expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
-      'timeline:1',
-      'tool:exec_command',
-      'timeline:1',
+      'timeline:3',
       'tool:todo_write',
       'timeline:1',
     ])
   })
 
-  it('promotedCopTimelineEntries 将 timeline body 按提升 segment 切片', () => {
+  it('仅单 todo_write 提升为 root tool，其他单工具留在 timeline 中（无 COP shell 渲染）', () => {
+    const entries = splitCopItemsByTopLevelTools([
+      call('read_1', 'read', 1),
+    ])
+
+    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
+      'timeline:1',
+    ])
+  })
+
+  it('timeline_title with single non-todo tool stays in timeline (card mode without COP shell)', () => {
+    const entries = splitCopItemsByTopLevelTools([
+      call('doc_1', 'document_write', 1),
+    ], { segmentTitle: 'Writing report' })
+
+    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
+      'timeline:1',
+    ])
+  })
+
+  it('single tool with thought stays inside COP as the one-step exception', () => {
+    const entries = splitCopItemsByTopLevelTools([
+      { kind: 'thinking', content: 'Need to write the report', seq: 1 },
+      call('doc_1', 'document_write', 2),
+    ])
+
+    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
+      'timeline:2',
+    ])
+  })
+
+  it('buildTimelineEntries 将 timeline body 按提升 segment 切片', () => {
     const payload = copTimelinePayloadForSegment(
       {
         type: 'cop',
@@ -637,7 +669,7 @@ describe('copTimelinePayloadForSegment', () => {
       },
     )
 
-    expect(promotedCopTimelineEntries({
+    expect(buildTimelineEntries({
       payload,
       hasTimelineBody: true,
       bodyFileOps: [],
@@ -648,7 +680,7 @@ describe('copTimelinePayloadForSegment', () => {
     ])
   })
 
-  it('promotedCopTimelineEntries 将 barrier 后的 thinking 附着到 barrier', () => {
+  it('buildTimelineEntries 将 barrier 后的 thinking 附着到 barrier', () => {
     const payload = copTimelinePayloadForSegment(
       {
         type: 'cop',
@@ -666,7 +698,7 @@ describe('copTimelinePayloadForSegment', () => {
       },
     )
 
-    const entries = promotedCopTimelineEntries({
+    const entries = buildTimelineEntries({
       payload,
       hasTimelineBody: true,
       bodyFileOps: [],

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, type CSSProperties } from 're
 import { Pencil, Paperclip } from 'lucide-react'
 import type { AgentMessage } from '../../agent-ui'
 import type { ArtifactRef } from '../../storage'
-import { extractLegacyFilesFromContent, isFilePart, isImagePart, isPastedFile, messageAttachmentParts, messageTextContent } from '../../messageContent'
+import { extractLegacyFilesFromContent, isFilePart, isImagePart, isPastedFile, messageAttachmentParts, messageDeliveryStatus, messageTextContent } from '../../messageContent'
 import { useLocale } from '../../contexts/LocaleContext'
 import { ImageThumbnailCard } from './ImageThumbnailCard'
 import { PastedBubbleCard } from './PastedBubbleCard'
@@ -44,6 +44,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
   const [editText, setEditText] = useState('')
   const [userTextExpanded, setUserTextExpanded] = useState(false)
   const [userTextFullHeight, setUserTextFullHeight] = useState<number | null>(null)
+  const [slowPendingKey, setSlowPendingKey] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const userTextRef = useRef<HTMLDivElement>(null)
   const enterBubbleRef = useRef<HTMLDivElement>(null)
@@ -113,9 +114,18 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
   const text = normalizeChannelEnvelopeText(messageTextContent(message))
   const displayText = !accessToken && attachmentParts.length > 0 ? message.content : text
   const userTextOverflows = userTextFullHeight !== null
+  const deliveryStatus = messageDeliveryStatus(message)
+  const pendingKey = deliveryStatus === 'pending' ? `${message.id}:${message.metadata?.clientMessageId ?? ''}` : null
+  const showDeliveryRow = deliveryStatus === 'failed' || (pendingKey != null && slowPendingKey === pendingKey)
   const fileNames = attachmentParts.length > 0
     ? [...imageAttachments, ...allFileAttachments].map((part) => part.attachment.filename)
     : legacy.fileNames
+
+  useEffect(() => {
+    if (!pendingKey) return
+    const id = window.setTimeout(() => setSlowPendingKey(pendingKey), 1200)
+    return () => window.clearTimeout(id)
+  }, [pendingKey])
 
   useEffect(() => {
     const setEnterScale = (scale: number) => {
@@ -406,6 +416,27 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
           )
         })()}
         </div>
+
+        {showDeliveryRow && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: isWorkMode ? 'flex-start' : 'flex-end',
+              height: '36px',
+              marginTop: '8px',
+              padding: '0 2px',
+              color: deliveryStatus === 'failed' ? 'var(--c-status-error-text)' : 'var(--c-text-muted)',
+              fontSize: '13px',
+              fontWeight: 360,
+              lineHeight: '18px',
+            }}
+          >
+            <span className={deliveryStatus === 'pending' ? 'thinking-shimmer-dim' : undefined}>
+              {deliveryStatus === 'failed' ? t.messageNotSent : t.messageSending}
+            </span>
+          </div>
+        )}
 
         <div
           className="pointer-events-none opacity-0 transition-[opacity] duration-[180ms] ease-out group-hover/turn:pointer-events-auto group-hover/turn:opacity-100"

@@ -80,6 +80,52 @@ func TestDesktopSubAgentSchemaAvailable(t *testing.T) {
 	}
 }
 
+func TestDesktopPersonaResolutionPreservesMCPToolsAcrossAllowlist(t *testing.T) {
+	registry := personas.NewRegistry()
+	registry.Set(personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		PromptMD:       "# test",
+		ToolAllowlist:  []string{"memory_search"},
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+		StreamThinking: true,
+	})
+
+	mw := desktopPersonaResolution(
+		nil,
+		func() *personas.Registry { return registry },
+		data.DesktopRunsRepository{},
+		data.DesktopRunEventsRepository{},
+	)
+	rc := &pipeline.RunContext{
+		Run:       dataRunForDesktopTest(),
+		Emitter:   events.NewEmitter("test"),
+		InputJSON: map[string]any{"persona_id": "test-persona"},
+		AllowlistSet: map[string]struct{}{
+			"memory_search":                     {},
+			"mcp__context7__resolve_library_id": {},
+		},
+		MCPToolNames: map[string]struct{}{
+			"mcp__context7__resolve_library_id": {},
+		},
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if _, ok := rc.AllowlistSet["memory_search"]; !ok {
+			t.Fatal("expected builtin memory_search to remain allowed")
+		}
+		if _, ok := rc.AllowlistSet["mcp__context7__resolve_library_id"]; !ok {
+			t.Fatal("expected discovered context7 MCP tool to remain allowed")
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("desktop persona resolution failed: %v", err)
+	}
+}
+
 type desktopNoopSubAgentControl struct{}
 
 func (desktopNoopSubAgentControl) Spawn(context.Context, subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
@@ -203,7 +249,7 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 		t.Fatalf("compose desktop engine: %v", err)
 	}
 
-	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate"} {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate", "resource_copy"} {
 		if _, ok := engine.toolRegistry.Get(toolName); !ok {
 			t.Fatalf("expected tool %s to be registered", toolName)
 		}
@@ -216,7 +262,7 @@ func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
 	for _, spec := range engine.allLlmSpecs {
 		specNames[spec.Name] = struct{}{}
 	}
-	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate"} {
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate", "resource_copy"} {
 		if _, ok := specNames[toolName]; !ok {
 			t.Fatalf("expected tool spec %s in desktop llm specs", toolName)
 		}
@@ -244,6 +290,50 @@ func TestComposeDesktopEngineRegistersArkloopHelp(t *testing.T) {
 	}
 	if _, ok := engine.baseAllowlist["arkloop_help"]; !ok {
 		t.Fatal("expected arkloop_help in desktop allowlist")
+	}
+}
+
+func TestDesktopMCPDiscoveryPrewarmTargets(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	accountID := uuid.New()
+	otherAccountID := uuid.New()
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE profile_mcp_installs (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			profile_ref TEXT NOT NULL
+		)`,
+		`CREATE TABLE workspace_mcp_enablements (
+			workspace_ref TEXT NOT NULL,
+			account_id TEXT NOT NULL,
+			install_id TEXT NOT NULL,
+			enabled INTEGER NOT NULL
+		)`,
+	)
+	if _, err := db.Exec(ctx, `INSERT INTO profile_mcp_installs (id, account_id, profile_ref) VALUES ($1, $2, $3)`, "install-1", accountID.String(), "pref-a"); err != nil {
+		t.Fatalf("insert install: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO workspace_mcp_enablements (workspace_ref, account_id, install_id, enabled) VALUES ($1, $2, $3, $4)`, "ws-a", accountID.String(), "install-1", true); err != nil {
+		t.Fatalf("insert enablement: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO profile_mcp_installs (id, account_id, profile_ref) VALUES ($1, $2, $3)`, "install-2", otherAccountID.String(), "pref-b"); err != nil {
+		t.Fatalf("insert other install: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO workspace_mcp_enablements (workspace_ref, account_id, install_id, enabled) VALUES ($1, $2, $3, $4)`, "ws-b", otherAccountID.String(), "install-2", true); err != nil {
+		t.Fatalf("insert other enablement: %v", err)
+	}
+
+	targets, err := listDesktopMCPDiscoveryPrewarmTargets(ctx, db, accountID)
+	if err != nil {
+		t.Fatalf("list targets: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("unexpected target count: %d", len(targets))
+	}
+	if targets[0].AccountID != accountID || targets[0].ProfileRef != "pref-a" || targets[0].WorkspaceRef != "ws-a" {
+		t.Fatalf("unexpected target: %#v", targets[0])
 	}
 }
 
@@ -288,8 +378,8 @@ func TestResolveDesktopLLMRetryReadsPlatformSettings(t *testing.T) {
 	mustExecDesktopSQL(t, db, `CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 
 	maxAttempts, baseDelayMs := resolveDesktopLLMRetry(ctx, db)
-	if maxAttempts != 3 || baseDelayMs != 1000 {
-		t.Fatalf("default retry config = (%d, %d), want (3, 1000)", maxAttempts, baseDelayMs)
+	if maxAttempts != 10 || baseDelayMs != 1000 {
+		t.Fatalf("default retry config = (%d, %d), want (10, 1000)", maxAttempts, baseDelayMs)
 	}
 
 	for key, value := range map[string]string{
@@ -976,7 +1066,13 @@ func TestDesktopRoutingResolveGatewayForAgentNameUsesSelector(t *testing.T) {
 		},
 	})
 
-	mw := desktopRouting(router, nil, false, db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
+		func(ctx context.Context) (routing.ProviderRoutingConfig, error) {
+			return router.Config(), nil
+		},
+		router.Config(),
+	)
+	mw := desktopRouting(router, nil, false, db, routingLoader, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
 	rc := &pipeline.RunContext{
 		Run:       dataRunForDesktopTest(),
 		Emitter:   events.NewEmitter("test"),
@@ -1067,11 +1163,30 @@ func TestLoadDesktopRoutingConfigCanonicalizesGeminiModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadDesktopRoutingConfig: %v", err)
 	}
-	if len(cfg.Routes) != 1 {
-		t.Fatalf("expected one route, got %d", len(cfg.Routes))
+	var seededRoute *routing.ProviderRouteRule
+	for idx := range cfg.Routes {
+		if cfg.Routes[idx].ID == routeID.String() {
+			seededRoute = &cfg.Routes[idx]
+			break
+		}
 	}
-	if cfg.Routes[0].Model != "gemini-2.5-pro" {
-		t.Fatalf("expected canonical gemini model, got %q", cfg.Routes[0].Model)
+	if seededRoute == nil {
+		t.Fatalf("expected seeded route %s, got %d routes", routeID, len(cfg.Routes))
+	}
+	if seededRoute.Model != "gemini-2.5-pro" {
+		t.Fatalf("expected canonical gemini model, got %q", seededRoute.Model)
+	}
+}
+
+func TestLoadDesktopMCPCacheTTLDefault(t *testing.T) {
+	t.Setenv(mcpCacheTTLSecondsEnv, "")
+
+	ttl, err := loadDesktopMCPCacheTTL()
+	if err != nil {
+		t.Fatalf("loadDesktopMCPCacheTTL: %v", err)
+	}
+	if ttl != 600*time.Second {
+		t.Fatalf("unexpected desktop mcp cache ttl: %s", ttl)
 	}
 }
 
@@ -1562,9 +1677,9 @@ func TestDesktopInputLoaderAppliesPlanMode(t *testing.T) {
 		if !got.IsPlanMode {
 			t.Fatal("expected desktop plan mode to be active")
 		}
-		wantPlanPath := "plans/" + threadID.String() + ".md"
-		if got.PlanFilePath != wantPlanPath {
-			t.Fatalf("unexpected plan path: got %q want %q", got.PlanFilePath, wantPlanPath)
+		wantPlanDir := tools.DefaultPlanDirectory()
+		if got.PlanFilePath != "" {
+			t.Fatalf("unexpected plan path: got %q", got.PlanFilePath)
 		}
 		if len(got.Messages) != len(got.ThreadMessageIDs) {
 			t.Fatalf("messages and ids must stay aligned: messages=%d ids=%d", len(got.Messages), len(got.ThreadMessageIDs))
@@ -1573,7 +1688,7 @@ func TestDesktopInputLoaderAppliesPlanMode(t *testing.T) {
 			t.Fatalf("plan mode should not synthesize history messages, got %#v", got.Messages)
 		}
 		for _, segment := range got.PromptSegments() {
-			if segment.Name == "plan_mode" && strings.Contains(segment.Text, wantPlanPath) {
+			if segment.Name == "plan_mode" && strings.Contains(segment.Text, wantPlanDir) {
 				return nil
 			}
 		}
@@ -1600,10 +1715,9 @@ func TestDesktopPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) 
 	})
 	mw := desktopPersonaResolution(nil, func() *personas.Registry { return reg }, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
 
-	threadID := uuid.New()
 	rc := &pipeline.RunContext{
 		Run: data.Run{
-			ThreadID: threadID,
+			ThreadID: uuid.New(),
 		},
 		InputJSON: map[string]any{
 			"persona_id":         "test-persona",
@@ -1626,8 +1740,8 @@ func TestDesktopPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) 
 	if !strings.Contains(gotRuntimePrompt, "<system-reminder>") {
 		t.Fatalf("expected plan mode prompt after desktop persona reset, got %q", gotRuntimePrompt)
 	}
-	if !strings.Contains(gotRuntimePrompt, "plans/"+threadID.String()+".md") {
-		t.Fatalf("expected plan path in runtime prompt, got %q", gotRuntimePrompt)
+	if !strings.Contains(gotRuntimePrompt, tools.DefaultPlanDirectory()) {
+		t.Fatalf("expected plan directory in runtime prompt, got %q", gotRuntimePrompt)
 	}
 }
 
@@ -3175,6 +3289,80 @@ func TestDesktopChannelContextOverridesUserIDFromPayload(t *testing.T) {
 		}
 		if rc.ChannelContext.SenderUserID == nil || *rc.ChannelContext.SenderUserID != senderUserID {
 			t.Fatalf("unexpected sender user id: %#v", rc.ChannelContext.SenderUserID)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel context failed: %v", err)
+	}
+}
+
+func TestDesktopChannelContextAppliesThreadRunOverrides(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	sqlitepgx.ConfigureDesktopSQLPool(sqlitePool.Unwrap())
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	identityID := uuid.New()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, 'Desktop Account', 'personal', 'active')`,
+			args: []any{accountID.String(), "desktop-thread-overrides-" + accountID.String()},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'Desktop Project')`,
+			args: []any{projectID.String(), accountID.String()},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private, config_json) VALUES ($1, $2, $3, TRUE, '{"default_model":"gpt-desktop","reasoning_mode":"high"}')`,
+			args: []any{threadID.String(), accountID.String(), projectID.String()},
+		},
+		{
+			sql:  `INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata) VALUES ($1, 'telegram', '10001', '{}')`,
+			args: []any{identityID.String()},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed desktop rows: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:         data.Run{ThreadID: threadID},
+		InputJSON:   map[string]any{},
+		AgentConfig: &pipeline.ResolvedAgentConfig{ReasoningMode: "auto"},
+		JobPayload: map[string]any{
+			"channel_delivery": map[string]any{
+				"channel_id":                 uuid.NewString(),
+				"channel_type":               "telegram",
+				"conversation_ref":           map[string]any{"target": "10001"},
+				"sender_channel_identity_id": identityID.String(),
+			},
+		},
+		ReasoningMode: "auto",
+	}
+
+	mw := desktopChannelContext(db)
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if got := rc.InputJSON["model"]; got != "gpt-desktop" {
+			t.Fatalf("expected desktop thread model, got %#v", got)
+		}
+		if rc.ReasoningMode != "high" {
+			t.Fatalf("expected desktop thread reasoning mode, got %q", rc.ReasoningMode)
+		}
+		if rc.AgentConfig == nil || rc.AgentConfig.ReasoningMode != "high" {
+			t.Fatalf("expected agent config reasoning mode, got %#v", rc.AgentConfig)
 		}
 		return nil
 	}); err != nil {

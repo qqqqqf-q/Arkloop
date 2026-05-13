@@ -145,28 +145,28 @@ func TestResolveQQChannelConfig(t *testing.T) {
 
 func TestQQIncomingShouldCreateRun(t *testing.T) {
 	t.Run("private always creates run", func(t *testing.T) {
-		m := qqIncomingMessage{ChatType: "private"}
+		m := InboundMessage{ChatType: "private"}
 		if !m.ShouldCreateRun() {
 			t.Fatal("expected true for private")
 		}
 	})
 
 	t.Run("group without mention or reply does not create run", func(t *testing.T) {
-		m := qqIncomingMessage{ChatType: "group"}
+		m := InboundMessage{ChatType: "group"}
 		if m.ShouldCreateRun() {
 			t.Fatal("expected false for group without triggers")
 		}
 	})
 
 	t.Run("group with mention creates run", func(t *testing.T) {
-		m := qqIncomingMessage{ChatType: "group", MentionsBot: true}
+		m := InboundMessage{ChatType: "group", MentionsBot: true}
 		if !m.ShouldCreateRun() {
 			t.Fatal("expected true for group with mention")
 		}
 	})
 
 	t.Run("group with reply to bot creates run", func(t *testing.T) {
-		m := qqIncomingMessage{ChatType: "group", IsReplyToBot: true}
+		m := InboundMessage{ChatType: "group", IsReplyToBot: true}
 		if !m.ShouldCreateRun() {
 			t.Fatal("expected true for group with reply to bot")
 		}

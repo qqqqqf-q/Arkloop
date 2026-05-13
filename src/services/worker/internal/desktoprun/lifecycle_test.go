@@ -20,6 +20,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
+	"arkloop/services/worker/internal/tooldiagnostics"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -255,6 +256,9 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 	defer cleanup()
 
 	_, _, _, runID := seedLifecycleRun(t, ctx, db)
+	tooldiagnostics.DefaultTracker.Start(runID, "call_stale", "grep")
+	tooldiagnostics.DefaultTracker.UpdatePhase(runID, "call_stale", "backend.exec")
+	defer tooldiagnostics.DefaultTracker.Finish(runID, "call_stale")
 	appendLifecycleEvent(t, ctx, db, runID, events.RunEvent{
 		Type:       "llm.turn.completed",
 		OccurredAt: time.Now().UTC().Add(-10 * time.Minute),
@@ -289,6 +293,28 @@ func TestLifecycleReapStaleRunUsesTwoStages(t *testing.T) {
 	}
 	if eventType != "run.cancel_requested" {
 		t.Fatalf("expected latest event run.cancel_requested, got %q", eventType)
+	}
+	var rawDiagnostic string
+	if err := db.QueryRow(ctx,
+		`SELECT fields_json FROM run_pipeline_events WHERE run_id = $1 AND event_name = 'tool_exec.stale_active_tools'`,
+		runID,
+	).Scan(&rawDiagnostic); err != nil {
+		t.Fatalf("query stale tool diagnostic: %v", err)
+	}
+	var diagnostic map[string]any
+	if err := json.Unmarshal([]byte(rawDiagnostic), &diagnostic); err != nil {
+		t.Fatalf("decode stale tool diagnostic: %v", err)
+	}
+	if count, _ := diagnostic["active_tool_count"].(float64); count != 1 {
+		t.Fatalf("expected one active tool diagnostic, got %#v", diagnostic)
+	}
+	activeTools, _ := diagnostic["active_tools"].([]any)
+	if len(activeTools) != 1 {
+		t.Fatalf("expected one active tool entry, got %#v", diagnostic)
+	}
+	firstTool, _ := activeTools[0].(map[string]any)
+	if firstTool["tool_call_id"] != "call_stale" || firstTool["tool_name"] != "grep" || firstTool["phase"] != "backend.exec" {
+		t.Fatalf("unexpected active tool diagnostic: %#v", firstTool)
 	}
 
 	if _, err := db.Exec(ctx,

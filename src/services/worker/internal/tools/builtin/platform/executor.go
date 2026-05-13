@@ -534,7 +534,11 @@ func (e *Executor) addToolProvider(ctx context.Context, a map[string]any, t time
 	if v := str(a, "base_url"); v != "" {
 		body["base_url"] = v
 	}
-	return e.put(ctx, "/v1/tool-providers/"+g+"/"+p+"/activate", body, t)
+	activated := e.put(ctx, "/v1/tool-providers/"+g+"/"+p+"/activate", nil, t)
+	if activated.Error != nil || len(body) == 0 {
+		return activated
+	}
+	return e.put(ctx, "/v1/tool-providers/"+g+"/"+p+"/credential", body, t)
 }
 
 func (e *Executor) updateToolProvider(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {

@@ -170,6 +170,7 @@ func startWeixinLongPoll(
 
 	httpClient := &http.Client{Timeout: 45 * time.Second}
 	client := weixinclient.NewClient(baseURL, token, httpClient)
+	connector.weixinClient = client
 
 	var cursor string
 	backoff := time.Duration(0)

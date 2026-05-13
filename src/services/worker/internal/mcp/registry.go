@@ -234,6 +234,8 @@ func classifyDiscoverError(err error) string {
 		return "protocol"
 	case RpcError:
 		return "rpc"
+	case AuthRequiredError:
+		return "auth_required"
 	default:
 		return "unknown"
 	}

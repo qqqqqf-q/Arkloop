@@ -195,13 +195,10 @@ func matchTools(queries []string, searchable map[string]llm.ToolSpec, pool map[s
 				continue
 			}
 
-			// priority 3: ShortDesc or Label match (via toolmeta)
-			if meta, ok := sharedtoolmeta.Lookup(name); ok {
-				combined := strings.ToLower(meta.ShortDesc + " " + meta.Label)
-				if strings.Contains(combined, q) {
-					seen[name] = struct{}{}
-					result = append(result, spec)
-				}
+			// priority 3: metadata or dynamic spec description match.
+			if strings.Contains(toolSearchText(name, spec), q) {
+				seen[name] = struct{}{}
+				result = append(result, spec)
 			}
 		}
 	}
@@ -209,6 +206,17 @@ func matchTools(queries []string, searchable map[string]llm.ToolSpec, pool map[s
 		return result[i].Name < result[j].Name
 	})
 	return result
+}
+
+func toolSearchText(name string, spec llm.ToolSpec) string {
+	parts := []string{name}
+	if meta, ok := sharedtoolmeta.Lookup(name); ok {
+		parts = append(parts, meta.ShortDesc, meta.Label)
+	}
+	if spec.Description != nil {
+		parts = append(parts, *spec.Description)
+	}
+	return strings.ToLower(strings.Join(parts, " "))
 }
 
 func specToJSON(spec llm.ToolSpec) map[string]any {
@@ -302,10 +310,8 @@ func BuildCatalogPrompt(searchable map[string]llm.ToolSpec) string {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		shortDesc := name
-		if meta, ok := sharedtoolmeta.Lookup(name); ok && meta.ShortDesc != "" {
-			shortDesc = meta.ShortDesc
-		}
+		spec := searchable[name]
+		shortDesc := toolCatalogDescription(name, spec)
 		if meta, ok := sharedtoolmeta.Lookup(name); ok {
 			capabilityBits := make([]string, 0, 2)
 			if meta.Group != "" {
@@ -325,12 +331,24 @@ func BuildCatalogPrompt(searchable map[string]llm.ToolSpec) string {
 	return sb.String()
 }
 
+func toolCatalogDescription(name string, spec llm.ToolSpec) string {
+	if meta, ok := sharedtoolmeta.Lookup(name); ok && strings.TrimSpace(meta.ShortDesc) != "" {
+		return strings.TrimSpace(meta.ShortDesc)
+	}
+	if spec.Description != nil && strings.TrimSpace(*spec.Description) != "" {
+		return strings.TrimSpace(*spec.Description)
+	}
+	return name
+}
+
 // MarshalSearchableIndex returns a JSON-serializable index for debugging/logging.
 func MarshalSearchableIndex(searchable map[string]llm.ToolSpec) string {
 	index := make(map[string]string, len(searchable))
 	for name := range searchable {
 		if meta, ok := sharedtoolmeta.Lookup(name); ok {
 			index[name] = meta.ShortDesc
+		} else if spec := searchable[name]; spec.Description != nil {
+			index[name] = *spec.Description
 		} else {
 			index[name] = ""
 		}

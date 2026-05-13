@@ -53,7 +53,9 @@ func NewBasicProviderWithEndpoint(endpointURL, token string) *BasicProvider {
 	}
 }
 
-func (p *BasicProvider) Search(ctx context.Context, query string, maxResults int) ([]Result, error) {
+func (p *BasicProvider) Search(ctx context.Context, request SearchRequest) ([]Result, error) {
+	query := request.Query
+	maxResults := request.MaxResults
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, fmt.Errorf("query must not be empty")

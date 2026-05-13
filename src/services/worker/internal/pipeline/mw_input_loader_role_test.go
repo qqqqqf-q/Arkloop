@@ -92,6 +92,65 @@ func TestLoadRunInputsIncludesCollaborationModeFromFirstEvent(t *testing.T) {
 	}
 }
 
+func TestLoadRunInputsRestoresLatestPlanFilePath(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_plan_file_path")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	previousRunID := uuid.New()
+	currentRunID := uuid.New()
+	planPath := "/Users/dev/.arkloop/home/plans/plan_mode_demo_a3f9c2.plan.md"
+	if _, err := pool.Exec(ctx, `INSERT INTO threads (id, account_id, project_id) VALUES ($1, $2, $3)`, threadID, accountID, projectID); err != nil {
+		t.Fatalf("insert thread: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'completed'), ($4, $2, $3, 'running')`, previousRunID, accountID, threadID, currentRunID); err != nil {
+		t.Fatalf("insert runs: %v", err)
+	}
+	previousResult := map[string]any{
+		"tool_call_id": "write_1",
+		"tool_name":    "write_file",
+		"result": map[string]any{
+			"status":         "written",
+			"plan_file_path": planPath,
+			"filename":       "plan_mode_demo_a3f9c2.plan.md",
+		},
+	}
+	previousJSON, err := json.Marshal(previousResult)
+	if err != nil {
+		t.Fatalf("marshal previous result: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json, tool_name) VALUES ($1, 1, 'tool.result', $2::jsonb, 'write_file')`, previousRunID, string(previousJSON)); err != nil {
+		t.Fatalf("insert previous tool result: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"collaboration_mode":"plan","collaboration_mode_revision":2}'::jsonb)`, currentRunID); err != nil {
+		t.Fatalf("insert current run started: %v", err)
+	}
+
+	loaded, err := loadRunInputs(ctx, pool, data.Run{ID: currentRunID, AccountID: accountID, ThreadID: threadID}, nil, data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, nil, 20)
+	if err != nil {
+		t.Fatalf("loadRunInputs failed: %v", err)
+	}
+	if got := loaded.InputJSON["plan_file_path"]; got != planPath {
+		t.Fatalf("unexpected plan_file_path: %#v", got)
+	}
+
+	rc := &RunContext{
+		Run:       data.Run{ID: currentRunID, AccountID: accountID, ThreadID: threadID},
+		InputJSON: loaded.InputJSON,
+	}
+	ApplyCollaborationMode(rc)
+	if rc.PlanFilePath != planPath {
+		t.Fatalf("unexpected restored plan path: %q", rc.PlanFilePath)
+	}
+}
+
 func TestApplyCollaborationModeKeepsMessagesAndIDsAligned(t *testing.T) {
 	messageID := uuid.New()
 	threadID := uuid.New()
@@ -120,7 +179,7 @@ func TestApplyCollaborationModeKeepsMessagesAndIDsAligned(t *testing.T) {
 	if len(rc.Messages) != 1 || rc.ThreadMessageIDs[0] != messageID {
 		t.Fatalf("unexpected message mutation: messages=%#v ids=%#v", rc.Messages, rc.ThreadMessageIDs)
 	}
-	if rc.PlanFilePath != "plans/"+threadID.String()+".md" {
+	if rc.PlanFilePath != "" {
 		t.Fatalf("unexpected plan path: %q", rc.PlanFilePath)
 	}
 }

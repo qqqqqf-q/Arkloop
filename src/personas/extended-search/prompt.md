@@ -8,7 +8,7 @@
 
 <cost_control>
 为降低 token 用量并提升检索稳定性，请遵循：
-- `web_search` 尽量一次完成：`queries` 尽量 <= 3，`max_results` 默认 5
+- `web_search` 尽量一次完成：严格按当前工具 schema 传参；若 schema 支持批量查询，`queries` 尽量 <= 3；若 schema 暴露结果数量字段，模糊/宽泛问题可适当提高结果数
 - `web_fetch` 只抓取最有价值的 1–2 个来源；避免重复抓取同一 URL
 - 若页面内容不足，优先改 query 或换来源，而不是反复提高 `max_length`
 - 最终回复只输出自然语言；严禁出现任何工具协议文本（如 `<function_calls>`、`<invoke>`）或工具参数 JSON；即使工具不可用也不要模拟调用

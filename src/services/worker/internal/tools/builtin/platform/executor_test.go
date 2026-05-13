@@ -87,6 +87,44 @@ func TestExecutor_ListProviders(t *testing.T) {
 	}
 }
 
+func TestExecutor_AddToolProviderWritesCredential(t *testing.T) {
+	type call struct {
+		method string
+		path   string
+		body   map[string]any
+	}
+	var calls []call
+	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
+			t.Fatalf("decode request body: %v", err)
+		}
+		calls = append(calls, call{method: r.Method, path: r.URL.Path, body: body})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	result := exec(e, "add_tool_provider", map[string]any{
+		"group":    "web_search",
+		"provider": "web_search.tavily",
+		"api_key":  "tvly-key",
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %v", result.Error)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected activate and credential calls, got %d", len(calls))
+	}
+	if calls[0].method != http.MethodPut || calls[0].path != "/v1/tool-providers/web_search/web_search.tavily/activate" {
+		t.Fatalf("wrong activate call: %+v", calls[0])
+	}
+	if calls[1].method != http.MethodPut || calls[1].path != "/v1/tool-providers/web_search/web_search.tavily/credential" {
+		t.Fatalf("wrong credential call: %+v", calls[1])
+	}
+	if calls[1].body["api_key"] != "tvly-key" {
+		t.Fatalf("wrong credential body: %+v", calls[1].body)
+	}
+}
+
 func TestExecutor_DeleteProvider_ValidUUID(t *testing.T) {
 	var capturedPath, capturedMethod string
 	e := newTestExecutor(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

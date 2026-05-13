@@ -16,6 +16,7 @@ export interface LayerCardProps {
   onReconfigure: () => void
   onSetupToggle: () => void
   setupPanel?: ReactNode
+  variant?: 'card' | 'row'
 }
 
 export function LayerCard({
@@ -31,12 +32,14 @@ export function LayerCard({
   onReconfigure,
   onSetupToggle,
   setupPanel,
+  variant = 'card',
 }: LayerCardProps) {
   const isSemantic = layer.id === 'semantic'
   const canToggle = !isSemantic || (semanticConfigured && semanticCanEnable)
   const clickable = !isSemantic && canToggle
   const interactable = clickable && !toggling
   const [cardHovered, setCardHovered] = useState(false)
+  const isRow = variant === 'row'
 
   const badge = () => {
     if (isSemantic) {
@@ -54,13 +57,27 @@ export function LayerCard({
     return null
   }
 
+  const innerClassName = [
+    'flex items-center justify-between px-5 py-4 outline-none transition-colors',
+    !isRow && 'rounded-lg',
+    clickable ? 'cursor-pointer hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]' : '',
+  ].filter(Boolean).join(' ')
+
+  const innerStyle = isRow
+    ? undefined
+    : { border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }
+
+  const outerClassName = isRow
+    ? "relative [&+&]:before:absolute [&+&]:before:left-5 [&+&]:before:right-5 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-['']"
+    : ''
+
   return (
-    <div>
+    <div className={outerClassName}>
       <div
         role={clickable ? 'button' : undefined}
         tabIndex={clickable ? 0 : undefined}
-        className={`flex items-center justify-between rounded-lg px-5 py-4 outline-none transition-colors ${clickable ? 'cursor-pointer hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]' : ''}`}
-        style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
+        className={innerClassName}
+        style={innerStyle}
         onMouseEnter={() => setCardHovered(true)}
         onMouseLeave={() => setCardHovered(false)}
         onClick={interactable ? onToggle : undefined}

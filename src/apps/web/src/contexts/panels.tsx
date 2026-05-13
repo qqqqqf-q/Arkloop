@@ -2,14 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
 import type { CodeExecution } from '../components/CodeExecutionCard'
 import type { ArtifactRef, SubAgentRef } from '../storage'
-import { useRightPanelActions } from './app-ui'
+import type { ResourceRef } from '../components/resource-preview/types'
 
 export type DocumentPanelState = {
   artifact: ArtifactRef
@@ -22,6 +21,7 @@ type ActivePanel =
   | { type: 'code'; execution: CodeExecution }
   | { type: 'document'; artifact: DocumentPanelState }
   | { type: 'agent'; agent: SubAgentRef }
+  | { type: 'resource'; resource: ResourceRef }
   | null
 
 type ShareModalState = {
@@ -30,20 +30,29 @@ type ShareModalState = {
   sharedMessageId: string | null
 }
 
-type PanelContextValue = {
-  activePanel: ActivePanel
-  shareModal: ShareModalState
+type PanelActions = {
   openSourcePanel: (messageId: string) => void
   openCodePanel: (execution: CodeExecution) => void
   openDocumentPanel: (state: DocumentPanelState) => void
   openAgentPanel: (agent: SubAgentRef) => void
+  openResourcePanel: (resource: ResourceRef) => void
   closePanel: () => void
   openShareModal: (messageId?: string) => void
   closeShareModal: () => void
   setShareState: (sharingId: string | null, sharedId: string | null) => void
 }
 
+type PanelContextValue = PanelActions & {
+  activePanel: ActivePanel
+  shareModal: ShareModalState
+}
+
 const Ctx = createContext<PanelContextValue | null>(null)
+
+// Stable actions context — never changes value, so consumers that only need
+// actions (like MessageList for closePanel / openSourcePanel / setShareState)
+// never re-render on panel state changes.
+const PanelActionsCtx = createContext<PanelActions | null>(null)
 
 // Lightweight context: only the artifact key of the active document panel.
 // Changing activePanel does NOT propagate through this context unless the
@@ -59,14 +68,8 @@ const defaultShareModal: ShareModalState = {
 }
 
 export function PanelProvider({ children }: { children: ReactNode }) {
-  const { setRightPanelOpen } = useRightPanelActions()
-
   const [activePanel, setActivePanel] = useState<ActivePanel>(null)
   const [shareModal, setShareModal] = useState<ShareModalState>(defaultShareModal)
-
-  useEffect(() => {
-    setRightPanelOpen(activePanel != null)
-  }, [activePanel, setRightPanelOpen])
 
   const openSourcePanel = useCallback((messageId: string) => {
     setActivePanel({ type: 'source', messageId })
@@ -82,6 +85,10 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 
   const openAgentPanel = useCallback((agent: SubAgentRef) => {
     setActivePanel({ type: 'agent', agent })
+  }, [])
+
+  const openResourcePanel = useCallback((resource: ResourceRef) => {
+    setActivePanel({ type: 'resource', resource })
   }, [])
 
   const closePanel = useCallback(() => {
@@ -111,26 +118,24 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const value = useMemo<PanelContextValue>(
+  const actions = useMemo<PanelActions>(
     () => ({
-      activePanel,
-      shareModal,
       openSourcePanel,
       openCodePanel,
       openDocumentPanel,
       openAgentPanel,
+      openResourcePanel,
       closePanel,
       openShareModal,
       closeShareModal,
       setShareState,
     }),
     [
-      activePanel,
-      shareModal,
       openSourcePanel,
       openCodePanel,
       openDocumentPanel,
       openAgentPanel,
+      openResourcePanel,
       closePanel,
       openShareModal,
       closeShareModal,
@@ -138,13 +143,24 @@ export function PanelProvider({ children }: { children: ReactNode }) {
     ],
   )
 
+  const value = useMemo<PanelContextValue>(
+    () => ({
+      ...actions,
+      activePanel,
+      shareModal,
+    }),
+    [actions, activePanel, shareModal],
+  )
+
   const activePanelArtifactKey = activePanel?.type === 'document' ? activePanel.artifact.artifact.key : null
 
   return (
     <Ctx.Provider value={value}>
-      <ActiveArtifactKeyContext.Provider value={activePanelArtifactKey}>
-        {children}
-      </ActiveArtifactKeyContext.Provider>
+      <PanelActionsCtx.Provider value={actions}>
+        <ActiveArtifactKeyContext.Provider value={activePanelArtifactKey}>
+          {children}
+        </ActiveArtifactKeyContext.Provider>
+      </PanelActionsCtx.Provider>
     </Ctx.Provider>
   )
 }
@@ -152,5 +168,11 @@ export function PanelProvider({ children }: { children: ReactNode }) {
 export function usePanels(): PanelContextValue {
   const ctx = useContext(Ctx)
   if (!ctx) throw new Error('usePanels must be used within PanelProvider')
+  return ctx
+}
+
+export function usePanelActions(): PanelActions {
+  const ctx = useContext(PanelActionsCtx)
+  if (!ctx) throw new Error('usePanelActions must be used within PanelProvider')
   return ctx
 }

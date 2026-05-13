@@ -72,6 +72,43 @@ func TestServerConfigFromInstallMergesSecretEnv(t *testing.T) {
 	}
 }
 
+func TestServerConfigFromInstallReadsWorkingDirAndParentEnvFlag(t *testing.T) {
+	launchSpec, err := json.Marshal(map[string]any{
+		"transport":          "stdio",
+		"command":            "driver",
+		"working_dir":        "/tmp/plugin",
+		"inherit_parent_env": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal launch spec: %v", err)
+	}
+	server, err := ServerConfigFromInstall(EnabledInstall{
+		AccountID:      uuid.New(),
+		InstallKey:     "demo",
+		Transport:      "stdio",
+		LaunchSpecJSON: launchSpec,
+	}, nil, 10_000)
+	if err != nil {
+		t.Fatalf("server config from install: %v", err)
+	}
+	if server.Cwd == nil || *server.Cwd != "/tmp/plugin" {
+		t.Fatalf("unexpected cwd: %#v", server.Cwd)
+	}
+	if !server.InheritParentEnv {
+		t.Fatalf("expected inherit_parent_env")
+	}
+}
+
+func TestDesktopLocalRequirementRejectedOutsideDesktop(t *testing.T) {
+	if desktopHostRequirementsAvailable {
+		t.Skip("desktop build allows desktop_local requirements")
+	}
+	err := CheckHostRequirement(ServerConfig{Transport: "stdio", Command: "driver"}, "desktop_local")
+	if err == nil {
+		t.Fatal("expected desktop_local requirement to be rejected")
+	}
+}
+
 func TestDecodeAuthPayloadSupportsLegacyHeaderMap(t *testing.T) {
 	auth, err := DecodeAuthPayload([]byte(`{"Authorization":"Bearer token"}`))
 	if err != nil {

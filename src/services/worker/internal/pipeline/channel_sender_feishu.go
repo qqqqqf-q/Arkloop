@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"arkloop/services/shared/feishuclient"
 
@@ -66,7 +65,7 @@ func (s *FeishuChannelSender) SendText(ctx context.Context, target ChannelDelive
 	if strings.TrimSpace(s.appSecret) == "" {
 		return nil, fmt.Errorf("feishu sender: app_secret must not be empty")
 	}
-	segments := splitFeishuMessage(text, feishuMessageMaxLen)
+	segments := splitByRuneLimit(text, feishuMessageMaxLen)
 	if len(segments) == 0 {
 		return nil, nil
 	}
@@ -130,35 +129,3 @@ func parseFeishuAppSecret(raw string) string {
 	return strings.TrimSpace(secret.AppSecret)
 }
 
-func splitFeishuMessage(text string, limit int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	if utf8.RuneCountInString(text) <= limit || limit <= 0 {
-		return []string{text}
-	}
-	runes := []rune(text)
-	var parts []string
-	for len(runes) > 0 {
-		end := limit
-		if end > len(runes) {
-			end = len(runes)
-		}
-		if end < len(runes) {
-			window := string(runes[:end])
-			for _, marker := range []string{"\n\n", "\n", "。", "！", "？", ".", "!", "?", " "} {
-				if idx := strings.LastIndex(window, marker); idx > 0 {
-					end = utf8.RuneCountInString(window[:idx+len(marker)])
-					break
-				}
-			}
-		}
-		part := strings.TrimSpace(string(runes[:end]))
-		if part != "" {
-			parts = append(parts, part)
-		}
-		runes = []rune(strings.TrimSpace(string(runes[end:])))
-	}
-	return parts
-}

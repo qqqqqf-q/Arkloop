@@ -31,7 +31,7 @@ func NewTelegramChannelSenderWithClient(client *telegrambot.Client, token string
 }
 
 func (s *TelegramChannelSender) SendText(ctx context.Context, target ChannelDeliveryTarget, text string) ([]string, error) {
-	segments := splitTelegramMessage(telegrambot.FormatAssistantMarkdownAsHTML(text), 4096)
+	segments := splitByRuneLimit(telegrambot.FormatAssistantMarkdownAsHTML(text), 4096)
 	ids := make([]string, 0, len(segments))
 	for idx, segment := range segments {
 		req := telegrambot.SendMessageRequest{

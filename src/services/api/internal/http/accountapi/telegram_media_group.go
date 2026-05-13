@@ -343,6 +343,11 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 	if err != nil {
 		return err
 	}
+	if cfg, cfgErr := resolveTelegramConfig(ch.ChannelType, ch.ConfigJSON); cfgErr == nil {
+		if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, cfg.DefaultModel); err != nil {
+			return err
+		}
+	}
 	timeCtx := c.resolveInboundTimeContext(ctx, ch, identity, incoming)
 	content, contentJSON, metadataJSON, err := buildTelegramStructuredMessageWithMedia(
 		ctx,

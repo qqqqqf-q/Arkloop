@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -195,7 +194,6 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 	metadataJSON json.RawMessage,
 	createdByUserID *uuid.UUID,
 ) (Message, error) {
-	slog.Debug("CreateStructuredWithMetadata", "accountID", accountID, "threadID", threadID, "role", role, "content_len", len(content))
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -267,10 +265,8 @@ func (r *MessageRepository) CreateStructuredWithMetadata(
 		)
 	})
 	if err != nil {
-		slog.Debug("CreateStructuredWithMetadata query error", "error", err, "errorType", fmt.Sprintf("%T", err))
 		return Message{}, err
 	}
-	slog.Debug("CreateStructuredWithMetadata success", "messageID", message.ID)
 
 	return message, nil
 }
@@ -350,6 +346,72 @@ func (r *MessageRepository) ListByThread(
 	}
 
 	return messages, nil
+}
+
+func (r *MessageRepository) FindByClientMessageID(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	userID uuid.UUID,
+	clientMessageID string,
+) (*Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
+	}
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user_id must not be empty")
+	}
+	clientMessageID = strings.TrimSpace(clientMessageID)
+	if clientMessageID == "" {
+		return nil, fmt.Errorf("client_message_id must not be empty")
+	}
+
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND created_by_user_id = $3
+		    AND role = 'user'
+		    AND deleted_at IS NULL
+		    AND metadata_json->>'client_message_id' = $4
+		  ORDER BY thread_seq ASC
+		  LIMIT 1`,
+		accountID,
+		threadID,
+		userID,
+		clientMessageID,
+	).Scan(
+		&message.ID,
+		&message.AccountID,
+		&message.ThreadID,
+		&message.CreatedByUserID,
+		&message.Role,
+		&message.Content,
+		&message.ContentJSON,
+		&message.MetadataJSON,
+		&message.TokenCount,
+		&message.DeletedAt,
+		&message.CreatedAt,
+		&message.Hidden,
+		&message.ThreadSeq,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &message, nil
 }
 
 func (r *MessageRepository) GetByID(

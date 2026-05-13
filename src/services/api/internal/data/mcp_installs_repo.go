@@ -54,6 +54,8 @@ type ProfileMCPInstall struct {
 	LastErrorCode       *string
 	LastErrorMessage    *string
 	LastCheckedAt       *time.Time
+	OwnerPluginID       *string
+	OwnerPluginVersion  *string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -72,6 +74,8 @@ type MCPInstallPatch struct {
 	LastErrorCode       *string
 	LastErrorMessage    *string
 	LastCheckedAt       *time.Time
+	OwnerPluginID       *string
+	OwnerPluginVersion  *string
 }
 
 type ProfileMCPInstallPatch = MCPInstallPatch
@@ -114,22 +118,27 @@ func (r *ProfileMCPInstallsRepository) Create(ctx context.Context, install Profi
 		`INSERT INTO profile_mcp_installs (
 		    account_id, profile_ref, install_key, display_name, source_kind, source_uri,
 		    sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
-		    discovery_status, last_error_code, last_error_message, last_checked_at
+		    discovery_status, last_error_code, last_error_message, last_checked_at,
+		    owner_plugin_id, owner_plugin_version
 		) VALUES (
 		    $1, $2, $3, $4, $5, $6,
 		    $7, $8, $9, $10, $11,
-		    $12, $13, $14, $15
+		    $12, $13, $14, $15,
+		    $16, $17
 		)
 		RETURNING id, account_id, profile_ref, install_key, display_name, source_kind, source_uri,
 		          sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
-		          discovery_status, last_error_code, last_error_message, last_checked_at, created_at, updated_at`,
+		          discovery_status, last_error_code, last_error_message, last_checked_at,
+		          owner_plugin_id, owner_plugin_version, created_at, updated_at`,
 		install.AccountID, install.ProfileRef, install.InstallKey, install.DisplayName, install.SourceKind, install.SourceURI,
 		install.SyncMode, install.Transport, install.LaunchSpecJSON, install.AuthHeadersSecretID, install.HostRequirement,
 		install.DiscoveryStatus, install.LastErrorCode, install.LastErrorMessage, install.LastCheckedAt,
+		install.OwnerPluginID, install.OwnerPluginVersion,
 	).Scan(
 		&install.ID, &install.AccountID, &install.ProfileRef, &install.InstallKey, &install.DisplayName, &install.SourceKind, &install.SourceURI,
 		&install.SyncMode, &install.Transport, &install.LaunchSpecJSON, &install.AuthHeadersSecretID, &install.HostRequirement,
-		&install.DiscoveryStatus, &install.LastErrorCode, &install.LastErrorMessage, &install.LastCheckedAt, &install.CreatedAt, &install.UpdatedAt,
+		&install.DiscoveryStatus, &install.LastErrorCode, &install.LastErrorMessage, &install.LastCheckedAt,
+		&install.OwnerPluginID, &install.OwnerPluginVersion, &install.CreatedAt, &install.UpdatedAt,
 	)
 	return install, err
 }
@@ -142,7 +151,8 @@ func (r *ProfileMCPInstallsRepository) ListByProfile(ctx context.Context, accoun
 		ctx,
 		`SELECT id, account_id, profile_ref, install_key, display_name, source_kind, source_uri,
 		        sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
-		        discovery_status, last_error_code, last_error_message, last_checked_at, created_at, updated_at
+		        discovery_status, last_error_code, last_error_message, last_checked_at,
+		        owner_plugin_id, owner_plugin_version, created_at, updated_at
 		   FROM profile_mcp_installs
 		  WHERE account_id = $1 AND profile_ref = $2
 		  ORDER BY display_name, install_key`,
@@ -159,7 +169,8 @@ func (r *ProfileMCPInstallsRepository) ListByProfile(ctx context.Context, accoun
 		if err := rows.Scan(
 			&item.ID, &item.AccountID, &item.ProfileRef, &item.InstallKey, &item.DisplayName, &item.SourceKind, &item.SourceURI,
 			&item.SyncMode, &item.Transport, &item.LaunchSpecJSON, &item.AuthHeadersSecretID, &item.HostRequirement,
-			&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt, &item.CreatedAt, &item.UpdatedAt,
+			&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt,
+			&item.OwnerPluginID, &item.OwnerPluginVersion, &item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -177,14 +188,16 @@ func (r *ProfileMCPInstallsRepository) GetByID(ctx context.Context, accountID, i
 		ctx,
 		`SELECT id, account_id, profile_ref, install_key, display_name, source_kind, source_uri,
 		        sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
-		        discovery_status, last_error_code, last_error_message, last_checked_at, created_at, updated_at
+		        discovery_status, last_error_code, last_error_message, last_checked_at,
+		        owner_plugin_id, owner_plugin_version, created_at, updated_at
 		   FROM profile_mcp_installs
 		  WHERE account_id = $1 AND id = $2`,
 		accountID, id,
 	).Scan(
 		&item.ID, &item.AccountID, &item.ProfileRef, &item.InstallKey, &item.DisplayName, &item.SourceKind, &item.SourceURI,
 		&item.SyncMode, &item.Transport, &item.LaunchSpecJSON, &item.AuthHeadersSecretID, &item.HostRequirement,
-		&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt, &item.CreatedAt, &item.UpdatedAt,
+		&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt,
+		&item.OwnerPluginID, &item.OwnerPluginVersion, &item.CreatedAt, &item.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -264,6 +277,16 @@ func (r *ProfileMCPInstallsRepository) Patch(ctx context.Context, accountID, id 
 		args = append(args, *patch.LastCheckedAt)
 		argIdx++
 	}
+	if patch.OwnerPluginID != nil {
+		setClauses = append(setClauses, fmt.Sprintf("owner_plugin_id = $%d", argIdx))
+		args = append(args, nullableTrimmed(*patch.OwnerPluginID))
+		argIdx++
+	}
+	if patch.OwnerPluginVersion != nil {
+		setClauses = append(setClauses, fmt.Sprintf("owner_plugin_version = $%d", argIdx))
+		args = append(args, nullableTrimmed(*patch.OwnerPluginVersion))
+		argIdx++
+	}
 	args = append(args, id, accountID)
 
 	var item ProfileMCPInstall
@@ -274,14 +297,16 @@ func (r *ProfileMCPInstallsRepository) Patch(ctx context.Context, accountID, id 
 		  WHERE id = $%d AND account_id = $%d
 		  RETURNING id, account_id, profile_ref, install_key, display_name, source_kind, source_uri,
 		            sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
-		            discovery_status, last_error_code, last_error_message, last_checked_at, created_at, updated_at`,
+		            discovery_status, last_error_code, last_error_message, last_checked_at,
+		            owner_plugin_id, owner_plugin_version, created_at, updated_at`,
 			strings.Join(setClauses, ", "), argIdx, argIdx+1,
 		),
 		args...,
 	).Scan(
 		&item.ID, &item.AccountID, &item.ProfileRef, &item.InstallKey, &item.DisplayName, &item.SourceKind, &item.SourceURI,
 		&item.SyncMode, &item.Transport, &item.LaunchSpecJSON, &item.AuthHeadersSecretID, &item.HostRequirement,
-		&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt, &item.CreatedAt, &item.UpdatedAt,
+		&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt,
+		&item.OwnerPluginID, &item.OwnerPluginVersion, &item.CreatedAt, &item.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -298,6 +323,55 @@ func (r *ProfileMCPInstallsRepository) Delete(ctx context.Context, accountID, id
 	}
 	_, err := r.db.Exec(ctx, `DELETE FROM profile_mcp_installs WHERE account_id = $1 AND id = $2`, accountID, id)
 	return err
+}
+
+func (r *ProfileMCPInstallsRepository) DeleteByOwnerPlugin(ctx context.Context, accountID uuid.UUID, ownerPluginID string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err := r.db.Exec(
+		ctx,
+		`DELETE FROM profile_mcp_installs WHERE account_id = $1 AND owner_plugin_id = $2`,
+		accountID,
+		strings.TrimSpace(ownerPluginID),
+	)
+	return err
+}
+
+func (r *ProfileMCPInstallsRepository) ListByOwnerPlugin(ctx context.Context, accountID uuid.UUID, ownerPluginID string) ([]ProfileMCPInstall, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT id, account_id, profile_ref, install_key, display_name, source_kind, source_uri,
+		        sync_mode, transport, launch_spec_json, auth_headers_secret_id, host_requirement,
+		        discovery_status, last_error_code, last_error_message, last_checked_at,
+		        owner_plugin_id, owner_plugin_version, created_at, updated_at
+		   FROM profile_mcp_installs
+		  WHERE account_id = $1 AND owner_plugin_id = $2
+		  ORDER BY display_name, install_key`,
+		accountID,
+		strings.TrimSpace(ownerPluginID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProfileMCPInstall{}
+	for rows.Next() {
+		var item ProfileMCPInstall
+		if err := rows.Scan(
+			&item.ID, &item.AccountID, &item.ProfileRef, &item.InstallKey, &item.DisplayName, &item.SourceKind, &item.SourceURI,
+			&item.SyncMode, &item.Transport, &item.LaunchSpecJSON, &item.AuthHeadersSecretID, &item.HostRequirement,
+			&item.DiscoveryStatus, &item.LastErrorCode, &item.LastErrorMessage, &item.LastCheckedAt,
+			&item.OwnerPluginID, &item.OwnerPluginVersion, &item.CreatedAt, &item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 type WorkspaceMCPEnablement struct {

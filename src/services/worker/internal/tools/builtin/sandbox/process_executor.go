@@ -115,6 +115,7 @@ func (e *ToolExecutor) executeProcessCommand(
 	ctx context.Context,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
+	toolCallID string,
 	started time.Time,
 ) tools.ExecutionResult {
 	resolvedCtx, bindingErr := e.ensureEnvironmentBindings(ctx, execCtx)
@@ -145,6 +146,7 @@ func (e *ToolExecutor) executeProcessCommand(
 	if err != nil {
 		return errResult(errorSandboxError, fmt.Sprintf("marshal request failed: %s", err.Error()), started)
 	}
+	tools.TrackPhase(execCtx, toolCallID, "process.exec")
 	return e.executeProcessRequest(ctx, e.baseURL+"/v1/process/exec", payload, "exec_command", resolveAccountID(execCtx), execCtx.RunID.String(), execCtx.PerToolSoftLimits, started)
 }
 

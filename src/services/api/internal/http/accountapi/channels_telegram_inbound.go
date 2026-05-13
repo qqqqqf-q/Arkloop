@@ -13,56 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
-type telegramInboundAttachment struct {
-	Type            string `json:"type"`
-	FileID          string `json:"file_id,omitempty"`
-	ThumbnailFileID string `json:"thumbnail_file_id,omitempty"`
-	FileName        string `json:"file_name,omitempty"`
-	MimeType        string `json:"mime_type,omitempty"`
-	Size            int64  `json:"size,omitempty"`
-	Width           int    `json:"width,omitempty"`
-	Height          int    `json:"height,omitempty"`
-	DurationMs      int64  `json:"duration_ms,omitempty"`
-	Caption         string `json:"caption,omitempty"`
-}
-
-type telegramIncomingMessage struct {
-	ChannelID         uuid.UUID
-	ChannelType       string
-	PlatformChatID    string
-	PlatformMsgID     string
-	PlatformUserID    string
-	PlatformUsername  string
-	ChatType          string
-	ConversationTitle string
-	DateUnix          int64
-	Text              string
-	CommandText       string
-	MediaAttachments  []telegramInboundAttachment
-	ReplyToMsgID      *string
-	ReplyToPreview    string
-	QuoteText         string
-	QuotePosition     *int
-	QuoteIsManual     bool
-	MentionsBot       bool
-	IsReplyToBot      bool
-	MatchesKeyword    bool
-	MessageThreadID   *string
-	ForwardFromName   string
-	RawPayload        json.RawMessage
-}
-
-func (m telegramIncomingMessage) IsPrivate() bool {
-	return strings.EqualFold(strings.TrimSpace(m.ChatType), "private")
-}
-
-func (m telegramIncomingMessage) HasContent() bool {
-	return strings.TrimSpace(m.Text) != "" || len(m.MediaAttachments) > 0
-}
-
-func (m telegramIncomingMessage) ShouldCreateRun() bool {
-	return m.IsPrivate() || m.MentionsBot || m.IsReplyToBot || m.MatchesKeyword
-}
+type telegramInboundAttachment = InboundAttachment
+type telegramIncomingMessage = InboundMessage
 
 func normalizeTelegramIncomingMessage(
 	channelID uuid.UUID,
@@ -96,6 +48,7 @@ func normalizeTelegramIncomingMessage(
 		PlatformUserID:    strconv.FormatInt(msg.From.ID, 10),
 		PlatformUsername:  trimOptional(msg.From.Username),
 		ChatType:          strings.TrimSpace(msg.Chat.Type),
+		ConversationType:  strings.TrimSpace(msg.Chat.Type),
 		ConversationTitle: strings.TrimSpace(firstNonEmpty(trimOptional(msg.Chat.Title), trimOptional(msg.Chat.Username))),
 		DateUnix:          msg.Date,
 		Text:              bodyText,
@@ -199,8 +152,8 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 			Type:    "image",
 			FileID:  strings.TrimSpace(best.FileID),
 			Size:    best.FileSize,
-			Width:   best.Width,
-			Height:  best.Height,
+			Width:   int64(best.Width),
+			Height:  int64(best.Height),
 			Caption: caption,
 		})
 	}
@@ -242,8 +195,8 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 			FileName:   strings.TrimSpace(msg.Video.FileName),
 			MimeType:   strings.TrimSpace(msg.Video.MimeType),
 			Size:       msg.Video.FileSize,
-			Width:      msg.Video.Width,
-			Height:     msg.Video.Height,
+			Width:      int64(msg.Video.Width),
+			Height:     int64(msg.Video.Height),
 			DurationMs: int64(msg.Video.Duration) * 1000,
 			Caption:    caption,
 		})
@@ -255,8 +208,8 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 			FileName:   strings.TrimSpace(msg.Animation.FileName),
 			MimeType:   strings.TrimSpace(msg.Animation.MimeType),
 			Size:       msg.Animation.FileSize,
-			Width:      msg.Animation.Width,
-			Height:     msg.Animation.Height,
+			Width:      int64(msg.Animation.Width),
+			Height:     int64(msg.Animation.Height),
 			DurationMs: int64(msg.Animation.Duration) * 1000,
 			Caption:    caption,
 		}
@@ -270,8 +223,8 @@ func collectTelegramInboundAttachments(msg *telegramMessage) []telegramInboundAt
 			Type:    "sticker",
 			FileID:  strings.TrimSpace(msg.Sticker.FileID),
 			Size:    msg.Sticker.FileSize,
-			Width:   msg.Sticker.Width,
-			Height:  msg.Sticker.Height,
+			Width:   int64(msg.Sticker.Width),
+			Height:  int64(msg.Sticker.Height),
 			Caption: caption,
 		}
 		if msg.Sticker.Thumbnail != nil {
@@ -390,6 +343,12 @@ func buildTelegramEnvelopeText(identityID uuid.UUID, incoming telegramIncomingMe
 	}
 	if incoming.MessageThreadID != nil && strings.TrimSpace(*incoming.MessageThreadID) != "" {
 		lines = append(lines, fmt.Sprintf(`message-thread-id: "%s"`, escapeTelegramEnvelopeValue(strings.TrimSpace(*incoming.MessageThreadID))))
+	}
+	if incoming.MentionsBot {
+		lines = append(lines, `mentions-bot: true`)
+	}
+	if incoming.IsReplyToBot {
+		lines = append(lines, `is-reply-to-bot: true`)
 	}
 	if strings.TrimSpace(incoming.PlatformMsgID) != "" {
 		lines = append(lines, fmt.Sprintf(`message-id: "%s"`, escapeTelegramEnvelopeValue(incoming.PlatformMsgID)))

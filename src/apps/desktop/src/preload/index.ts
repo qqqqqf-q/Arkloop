@@ -5,18 +5,21 @@ export type LocalPortMode = 'auto' | 'manual'
 export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
-export type SearchProvider = 'none' | 'basic' | 'tavily' | 'searxng'
+export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
 
 export type ConnectorsConfig = {
   fetch: {
     provider: FetchProvider
     jinaApiKey?: string
+    jinaApiKeyStored?: boolean
     firecrawlApiKey?: string
+    firecrawlApiKeyStored?: boolean
     firecrawlBaseUrl?: string
   }
   search: {
     provider: SearchProvider
     tavilyApiKey?: string
+    tavilyApiKeyStored?: boolean
     searxngBaseUrl?: string
   }
 }
@@ -358,6 +361,7 @@ export type ArkloopDesktopApi = {
     quit: () => Promise<void>
     getOsUsername: () => Promise<string>
     openExternal: (url: string) => Promise<void>
+    fetchPageMetadata: (url: string) => Promise<{ title?: string }>
   }
   notifications: {
     show: (input: { title: string; body?: string }) => Promise<{ ok: boolean }>
@@ -553,6 +557,7 @@ const api: ArkloopDesktopApi = {
     quit: () => ipcRenderer.invoke('arkloop:app:quit'),
     getOsUsername: () => ipcRenderer.invoke('arkloop:app:os-username'),
     openExternal: (url: string) => ipcRenderer.invoke('arkloop:app:open-external', url),
+    fetchPageMetadata: (url: string) => ipcRenderer.invoke('arkloop:app:fetch-page-metadata', url),
   },
 
   notifications: {

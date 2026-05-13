@@ -38,6 +38,101 @@ func (failingCompactEventAppender) AppendRunEvent(_ context.Context, _ pgx.Tx, _
 	return 0, errors.New("append failed")
 }
 
+func TestContextCompactMiddlewareEmitsCheckTiming(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "context_compact_check_timing")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO accounts (id, type) VALUES ($1, 'personal')`, []any{accountID}},
+		{`INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'p')`, []any{projectID, accountID}},
+		{`INSERT INTO threads (id, account_id, project_id, next_message_seq) VALUES ($1, $2, $3, 1)`, []any{threadID, accountID, projectID}},
+		{`INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`, []any{runID, accountID, threadID}},
+	} {
+		if _, err := pool.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed db: %v", err)
+		}
+	}
+
+	tracer := &spyTracer{}
+	rc := &RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("trace"),
+		Tracer:  tracer,
+		ContextCompact: ContextCompactSettings{
+			Enabled:        true,
+			PersistEnabled: true,
+		},
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route:      routing.ProviderRouteRule{Model: "gpt-4o", ID: "route-1"},
+			Credential: routing.ProviderCredential{ProviderKind: routing.ProviderKindOpenAI},
+		},
+		Messages: []llm.Message{
+			{Role: "user", Content: []llm.TextPart{{Text: "hello"}}},
+		},
+	}
+
+	mw := NewContextCompactMiddleware(pool, data.MessagesRepository{}, data.RunEventsRepository{}, nil, false)
+	if err := mw(ctx, rc, func(context.Context, *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+
+	var phase, status string
+	var durationMs, thresholdMs, anchorQueryMs, tokenEstimateMs, microcompactMs int64
+	if err := pool.QueryRow(ctx,
+		`SELECT data_json->>'phase',
+		        data_json->>'status',
+		        COALESCE((data_json->>'duration_ms')::bigint, -1),
+		        COALESCE((data_json->>'threshold_ms')::bigint, -1),
+		        COALESCE((data_json->>'anchor_query_ms')::bigint, -1),
+		        COALESCE((data_json->>'token_estimate_ms')::bigint, -1),
+		        COALESCE((data_json->>'microcompact_ms')::bigint, -1)
+		   FROM run_events
+		  WHERE run_id = $1 AND type = 'run.context_compact'
+		  ORDER BY seq DESC
+		  LIMIT 1`,
+		runID,
+	).Scan(&phase, &status, &durationMs, &thresholdMs, &anchorQueryMs, &tokenEstimateMs, &microcompactMs); err != nil {
+		t.Fatalf("query context compact event: %v", err)
+	}
+	if phase != "middleware_completed" {
+		t.Fatalf("phase = %q, want middleware_completed", phase)
+	}
+	if status != "completed" && status != "slow" {
+		t.Fatalf("unexpected status: %q", status)
+	}
+	for name, value := range map[string]int64{
+		"duration_ms":       durationMs,
+		"threshold_ms":      thresholdMs,
+		"anchor_query_ms":   anchorQueryMs,
+		"token_estimate_ms": tokenEstimateMs,
+		"microcompact_ms":   microcompactMs,
+	} {
+		if value < 0 {
+			t.Fatalf("%s missing from context compact event", name)
+		}
+	}
+
+	record := findTraceEvent(tracer.records, "context_compact.check_completed")
+	if record == nil {
+		t.Fatal("expected context compact check trace")
+	}
+	if _, ok := record.fields["event_write_ms"]; !ok {
+		t.Fatal("expected context compact trace to include event_write_ms")
+	}
+}
+
 func TestMaybeInlineCompactMessagesUsesAnchorPressure(t *testing.T) {
 	gateway := &compactSummaryGateway{summary: "summary"}
 	rc := &RunContext{

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { DebugTrigger } from "@arkloop/shared";
 import {
@@ -8,7 +8,6 @@ import {
   Cpu,
   Brain,
   Database,
-  Bot,
   Radio,
   Puzzle,
   Server,
@@ -20,6 +19,7 @@ import {
   Loader2,
   Shield,
   Info,
+  Blocks,
 } from "lucide-react";
 import { getDesktopApi } from "@arkloop/shared/desktop";
 import type { MeResponse } from "../api";
@@ -32,7 +32,6 @@ import { GeneralSettings } from "./settings/GeneralSettings";
 import { DesktopAppearanceSettings } from "./settings/DesktopAppearanceSettings";
 import { ProvidersSettings } from "./settings/ProvidersSettings";
 import { RoutingSettings } from "./settings/RoutingSettings";
-import { PersonasSettings } from "./settings/PersonasSettings";
 import { DesktopChannelsSettings } from "./settings/DesktopChannelsSettings";
 import { SkillsSettings } from "./settings/SkillsSettings";
 import { MCPSettings } from "./settings/MCPSettings";
@@ -43,6 +42,7 @@ import { NotebookSettings } from "./settings/NotebookSettings";
 import { ConnectionSettings } from "./settings/ConnectionSettings";
 import { ChatSettings } from "./settings/ChatSettings";
 import { ExtensionsSettings } from "./settings/ExtensionsSettings";
+import { PluginsSettings } from "./settings/PluginsSettings";
 import { ModulesSettings } from "./settings/ModulesSettings";
 import { DeveloperSettings } from "./settings/DeveloperSettings";
 import { DesktopPromptInjectionSettings } from "./settings/DesktopPromptInjectionSettings";
@@ -56,8 +56,8 @@ export type DesktopSettingsKey =
   | "appearance"
   | "providers"
   | "routing"
-  | "personas"
   | "channels"
+  | "plugins"
   | "skills"
   | "mcp"
   | "tools"
@@ -86,6 +86,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { key: "appearance", icon: Palette },
   { key: "providers",  icon: Cpu },
   { key: "channels",   icon: Radio },
+  { key: "plugins",    icon: Blocks },
   // 第二段：agent 核心组件（英文专有名词区）
   { header: "agentCoreHeader" },
   { key: "skills",           icon: Puzzle },
@@ -97,7 +98,6 @@ const NAV_ENTRIES: NavEntry[] = [
   // 第三段：低频管理
   { header: "managementHeader" },
   { key: "tools",      icon: Wrench },
-  { key: "personas",   icon: Bot },
   { key: "routing",    icon: Route },
   { key: "about",      icon: Info },
   { key: "advanced",   icon: SlidersHorizontal },
@@ -130,6 +130,149 @@ export type DesktopSettingsHydrationSnapshot = {
   platformSettingsError: string;
   executionModeError: string;
 };
+
+type DesktopSettingsPaneProps = {
+  paneKey: DesktopSettingsKey;
+  active: boolean;
+  hydrationFallback: boolean;
+  me: MeResponse | null;
+  accessToken: string;
+  initialAdvancedKey: AdvancedSettingsKey | null;
+  sectionRequestId?: number;
+  hydrationSnapshot: DesktopSettingsHydrationSnapshot;
+  onLogout: () => void;
+  onMeUpdated?: (me: MeResponse) => void;
+  onTrySkill?: (prompt: string) => void;
+  onNavigate: (key: DesktopSettingsKey) => void;
+  onExecutionModeChange: (executionMode: "local" | "vm") => void;
+  onPlatformSettingsChange: (updates: Record<string, string>) => void;
+};
+
+function DesktopSettingsPaneImpl({
+  paneKey,
+  active,
+  hydrationFallback,
+  me,
+  accessToken,
+  initialAdvancedKey,
+  sectionRequestId,
+  hydrationSnapshot,
+  onLogout,
+  onMeUpdated,
+  onTrySkill,
+  onNavigate,
+  onExecutionModeChange,
+  onPlatformSettingsChange,
+}: DesktopSettingsPaneProps) {
+  const renderContent = () => {
+    if (hydrationFallback) return <SettingsPaneFallback />;
+
+    switch (paneKey) {
+      case "general":
+        return (
+          <GeneralSettings
+            me={me}
+            accessToken={accessToken}
+            onLogout={onLogout}
+            onMeUpdated={onMeUpdated}
+          />
+        );
+      case "appearance":
+        return <DesktopAppearanceSettings />;
+      case "providers":
+        return <ProvidersSettings accessToken={accessToken} />;
+      case "routing":
+        return <RoutingSettings accessToken={accessToken} />;
+      case "channels":
+        return <DesktopChannelsSettings accessToken={accessToken} />;
+      case "plugins":
+        return <PluginsSettings accessToken={accessToken} />;
+      case "skills":
+        return <SkillsSettings accessToken={accessToken} onTrySkill={onTrySkill} />;
+      case "mcp":
+        return <MCPSettings accessToken={accessToken} />;
+      case "tools":
+        return <ToolsSettings accessToken={accessToken} />;
+      case "about":
+        return <AboutSettings accessToken={accessToken} />;
+      case "advanced":
+        return (
+          <AdvancedSettings
+            key={`${sectionRequestId ?? 0}:${initialAdvancedKey ?? "usage"}`}
+            accessToken={accessToken}
+            initialKey={initialAdvancedKey}
+          />
+        );
+      case "notebook":
+        return <NotebookSettings accessToken={accessToken} />;
+      case "memory":
+        return <MemorySettings accessToken={accessToken} />;
+      case "connection":
+        return <ConnectionSettings initialConfig={hydrationSnapshot.config} />;
+      case "chat":
+        return (
+          <ChatSettings
+            accessToken={accessToken}
+            initialSnapshot={hydrationSnapshot}
+            onExecutionModeChange={onExecutionModeChange}
+            onPlatformSettingsChange={onPlatformSettingsChange}
+          />
+        );
+      case "promptInjection":
+        return <DesktopPromptInjectionSettings accessToken={accessToken} />;
+      case "modules":
+        return <ModulesSettings />;
+      case "extensions":
+        return <ExtensionsSettings />;
+      case "developer":
+        return <DeveloperSettings accessToken={accessToken} onNavigate={onNavigate} />;
+      case "design-tokens":
+        return <DesignTokensSettings />;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className={active ? "contents" : "hidden"}>
+      {renderContent()}
+    </div>
+  );
+}
+
+function equalPaneProps(prev: DesktopSettingsPaneProps, next: DesktopSettingsPaneProps) {
+  if (
+    prev.paneKey !== next.paneKey ||
+    prev.active !== next.active ||
+    prev.hydrationFallback !== next.hydrationFallback ||
+    prev.accessToken !== next.accessToken
+  ) {
+    return false;
+  }
+
+  switch (prev.paneKey) {
+    case "general":
+      return prev.me === next.me &&
+        prev.onLogout === next.onLogout &&
+        prev.onMeUpdated === next.onMeUpdated;
+    case "skills":
+      return prev.onTrySkill === next.onTrySkill;
+    case "advanced":
+      return prev.sectionRequestId === next.sectionRequestId &&
+        prev.initialAdvancedKey === next.initialAdvancedKey;
+    case "connection":
+    case "chat":
+      return prev.hydrationSnapshot === next.hydrationSnapshot &&
+        prev.onExecutionModeChange === next.onExecutionModeChange &&
+        prev.onPlatformSettingsChange === next.onPlatformSettingsChange;
+    case "developer":
+      return prev.onNavigate === next.onNavigate;
+    default:
+      return true;
+  }
+}
+
+const DesktopSettingsPane = memo(DesktopSettingsPaneImpl, equalPaneProps);
 
 export function DesktopSettings({
   me,
@@ -164,10 +307,12 @@ export function DesktopSettings({
   const pendingHydrationLoadingRef = useRef(false);
   const [activeKey, setActiveKey] =
     useState<DesktopSettingsKey>(initialSection);
+  const [visitedKeys, setVisitedKeys] = useState<DesktopSettingsKey[]>(() => [initialSection]);
   const [scrolled, setScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [devMode, setDevMode] = useState(() => readDeveloperMode());
   const [hydrationLoading, setHydrationLoading] = useState(true);
+  const [hydrationLoaded, setHydrationLoaded] = useState(false);
   const [hydrationSnapshot, setHydrationSnapshot] =
     useState<DesktopSettingsHydrationSnapshot>({
       config: null,
@@ -182,6 +327,7 @@ export function DesktopSettings({
 
   const selectSection = useCallback((key: DesktopSettingsKey) => {
     setActiveKey(key);
+    setVisitedKeys((current) => current.includes(key) ? current : [...current, key]);
     setScrolled(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, []);
@@ -206,6 +352,12 @@ export function DesktopSettings({
     let cancelled = false;
 
     if (!activePaneNeedsHydration) {
+      setHydrationLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (hydrationLoaded) {
       setHydrationLoading(false);
       return () => {
         cancelled = true;
@@ -250,6 +402,7 @@ export function DesktopSettings({
       if (motionCompletedRef.current) {
         setHydrationSnapshot(nextSnapshot);
         setHydrationLoading(false);
+        setHydrationLoaded(true);
       } else {
         pendingHydrationSnapshotRef.current = nextSnapshot;
         pendingHydrationLoadingRef.current = false;
@@ -268,7 +421,7 @@ export function DesktopSettings({
     return () => {
       cancelled = true;
     };
-  }, [accessToken, activePaneNeedsHydration, desktopApi, initialSection, t.requestFailed]);
+  }, [accessToken, activePaneNeedsHydration, desktopApi, hydrationLoaded, initialSection, t.requestFailed]);
 
   useLayoutEffect(() => {
     endPerfTrace(mountTraceRef.current, {
@@ -345,6 +498,7 @@ export function DesktopSettings({
     if (pendingSnapshot) {
       setHydrationSnapshot(pendingSnapshot);
       setHydrationLoading(pendingHydrationLoadingRef.current);
+      setHydrationLoaded(true);
       pendingHydrationSnapshotRef.current = null;
     }
     if (!isPerfDebugEnabled() || typeof performance === "undefined") return;
@@ -384,6 +538,19 @@ export function DesktopSettings({
   });
 
   const handleTabChange = selectSection;
+  const handleExecutionModeChange = useCallback((executionMode: "local" | "vm") => {
+    setHydrationSnapshot((current) => ({ ...current, executionMode, executionModeError: "" }));
+  }, []);
+  const handlePlatformSettingsChange = useCallback((updates: Record<string, string>) => {
+    setHydrationSnapshot((current) => ({
+      ...current,
+      platformSettings: {
+        ...(current.platformSettings ?? {}),
+        ...updates,
+      },
+      platformSettingsError: "",
+    }));
+  }, []);
 
   const renderNav = (entries: NavEntry[]) =>
     entries.map((entry) => {
@@ -414,86 +581,6 @@ export function DesktopSettings({
         </button>
       );
     });
-
-  const renderContent = () => {
-    switch (activeKey) {
-      case "general":
-        return (
-          <GeneralSettings
-            me={me}
-            accessToken={accessToken}
-            onLogout={onLogout}
-            onMeUpdated={onMeUpdated}
-          />
-        );
-      case "appearance":
-        return <DesktopAppearanceSettings />;
-      case "providers":
-        return <ProvidersSettings accessToken={accessToken} />;
-      case "routing":
-        return <RoutingSettings accessToken={accessToken} />;
-      case "personas":
-        return <PersonasSettings accessToken={accessToken} />;
-      case "channels":
-        return <DesktopChannelsSettings accessToken={accessToken} />;
-      case "skills":
-        return (
-          <SkillsSettings accessToken={accessToken} onTrySkill={onTrySkill} />
-        );
-      case "mcp":
-        return <MCPSettings accessToken={accessToken} />;
-      case "tools":
-        return <ToolsSettings accessToken={accessToken} />;
-      case "about":
-        return <AboutSettings accessToken={accessToken} />;
-      case "advanced":
-        return (
-          <AdvancedSettings
-            key={`${sectionRequestId ?? 0}:${initialAdvancedKey ?? "usage"}`}
-            accessToken={accessToken}
-            initialKey={initialAdvancedKey}
-          />
-        );
-      case "notebook":
-        return <NotebookSettings accessToken={accessToken} />;
-      case "memory":
-        return <MemorySettings accessToken={accessToken} />;
-      case "connection":
-        return <ConnectionSettings initialConfig={hydrationSnapshot.config} />;
-      case "chat":
-        return (
-          <ChatSettings
-            accessToken={accessToken}
-            initialSnapshot={hydrationSnapshot}
-            onExecutionModeChange={(executionMode) => {
-              setHydrationSnapshot((current) => ({ ...current, executionMode, executionModeError: "" }));
-            }}
-            onPlatformSettingsChange={(updates) => {
-              setHydrationSnapshot((current) => ({
-                ...current,
-                platformSettings: {
-                  ...(current.platformSettings ?? {}),
-                  ...updates,
-                },
-                platformSettingsError: "",
-              }));
-            }}
-          />
-        );
-      case "promptInjection":
-        return <DesktopPromptInjectionSettings accessToken={accessToken} />;
-      case "modules":
-        return <ModulesSettings />;
-      case "extensions":
-        return <ExtensionsSettings />;
-      case "developer":
-        return <DeveloperSettings accessToken={accessToken} onNavigate={handleTabChange} />;
-      case "design-tokens":
-        return <DesignTokensSettings />;
-      default:
-        return null;
-    }
-  };
 
   return (
     <>
@@ -547,7 +634,25 @@ export function DesktopSettings({
             }}
             onScroll={(e) => setScrolled((e.currentTarget as HTMLDivElement).scrollTop > 8)}
           >
-            {hydrationLoading && activePaneNeedsHydration ? <SettingsPaneFallback /> : renderContent()}
+            {visitedKeys.map((key) => (
+              <DesktopSettingsPane
+                key={key}
+                paneKey={key}
+                active={key === activeKey}
+                hydrationFallback={key === activeKey && hydrationLoading && activePaneNeedsHydration}
+                me={me}
+                accessToken={accessToken}
+                initialAdvancedKey={initialAdvancedKey}
+                sectionRequestId={sectionRequestId}
+                hydrationSnapshot={hydrationSnapshot}
+                onLogout={onLogout}
+                onMeUpdated={onMeUpdated}
+                onTrySkill={onTrySkill}
+                onNavigate={handleTabChange}
+                onExecutionModeChange={handleExecutionModeChange}
+                onPlatformSettingsChange={handlePlatformSettingsChange}
+              />
+            ))}
           </div>
         </div>
       </motion.div>

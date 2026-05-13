@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { isApiError } from '@arkloop/shared/api'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -19,8 +19,24 @@ import {
   type Tab,
 } from '@arkloop/shared/components/prompt-injection'
 import { useToast } from '@arkloop/shared'
-import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
+
+function SafetySection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2.5">
+      <h3 className="pl-2.5 text-[13px] font-normal text-[var(--c-text-secondary)]">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function SafetyCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]">
+      {children}
+    </div>
+  )
+}
 
 type Props = { accessToken: string }
 
@@ -128,9 +144,56 @@ export function DesktopPromptInjectionSettings({ accessToken }: Props) {
   const setPlatformSetting = (key: string, value: string, token: string) =>
     updatePlatformSetting(token, key, value)
 
+  const detectLayers = LAYERS.filter(l => ['regex', 'trust-source', 'semantic'].includes(l.id))
+  const responseLayers = LAYERS.filter(l => ['blocking', 'tool-scan'].includes(l.id))
+
+  const renderLayerCard = (layer: typeof LAYERS[number]) => {
+    const enabled = isEnabled(layer.settingsKey, layer.defaultEnabled !== undefined ? layer.defaultEnabled : true)
+    const isSemantic = layer.id === 'semantic'
+    return (
+      <LayerCard
+        key={layer.id}
+        layer={layer}
+        enabled={enabled}
+        toggling={toggling === layer.settingsKey}
+        texts={ts}
+        semanticConfigured={semanticConfigured}
+        semanticProvider={semanticProvider}
+        localModelInstalled={localModelInstalled}
+        semanticCanEnable={semanticCanEnable}
+        variant="row"
+        onToggle={() => void toggle(layer.settingsKey, enabled)}
+        onReconfigure={() => void handleReconfigure()}
+        onSetupToggle={() => setSemanticSetupOpen(v => !v)}
+        setupPanel={
+          isSemantic && !semanticConfigured && semanticSetupOpen ? (
+            <SemanticSetupPanel
+              accessToken={accessToken}
+              bridgeAvailable={bridgeAvailable}
+              onSaved={load}
+              texts={ts}
+              setSetting={setPlatformSetting}
+              bridgeInstall={v => bridgeClient.performAction('prompt-guard', 'install', { variant: v })}
+              waitForInstallCompletion={opId => bridgeClient.waitForOperation(opId)}
+              formatError={err => err instanceof Error ? err.message : ts.toastFailed}
+              defaultMode="api"
+              initialApiEndpoint={semanticEndpoint}
+              initialApiModel={semanticModel}
+              initialApiTimeoutMs={semanticTimeoutMs}
+            />
+          ) : undefined
+        }
+      />
+    )
+  }
+
   return (
-    <div className="flex max-w-[900px] flex-col gap-6 pb-10">
-      <SettingsSectionHeader title={ts.title} description={ts.description} />
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
+      <div>
+        <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[var(--c-text-heading)]">
+          {ts.title}
+        </h2>
+      </div>
 
       <SettingsSegmentedControl<Tab>
         options={tabItems.map((item) => ({ value: item.key, label: item.label }))}
@@ -144,45 +207,18 @@ export function DesktopPromptInjectionSettings({ accessToken }: Props) {
             <Loader2 size={20} className="animate-spin text-[var(--c-text-muted)]" />
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {LAYERS.map(layer => {
-              const enabled = isEnabled(layer.settingsKey, layer.defaultEnabled !== undefined ? layer.defaultEnabled : true)
-              const isSemantic = layer.id === 'semantic'
-              return (
-                <LayerCard
-                  key={layer.id}
-                  layer={layer}
-                  enabled={enabled}
-                  toggling={toggling === layer.settingsKey}
-                  texts={ts}
-                  semanticConfigured={semanticConfigured}
-                  semanticProvider={semanticProvider}
-                  localModelInstalled={localModelInstalled}
-                  semanticCanEnable={semanticCanEnable}
-                  onToggle={() => void toggle(layer.settingsKey, enabled)}
-                  onReconfigure={() => void handleReconfigure()}
-                  onSetupToggle={() => setSemanticSetupOpen(v => !v)}
-                  setupPanel={
-                    isSemantic && !semanticConfigured && semanticSetupOpen ? (
-                      <SemanticSetupPanel
-                        accessToken={accessToken}
-                        bridgeAvailable={bridgeAvailable}
-                        onSaved={load}
-                        texts={ts}
-                        setSetting={setPlatformSetting}
-                        bridgeInstall={v => bridgeClient.performAction('prompt-guard', 'install', { variant: v })}
-                        waitForInstallCompletion={opId => bridgeClient.waitForOperation(opId)}
-                        formatError={err => err instanceof Error ? err.message : ts.toastFailed}
-                        defaultMode="api"
-                        initialApiEndpoint={semanticEndpoint}
-                        initialApiModel={semanticModel}
-                        initialApiTimeoutMs={semanticTimeoutMs}
-                      />
-                    ) : undefined
-                  }
-                />
-              )
-            })}
+          <div className="flex flex-col gap-6">
+            <SafetySection title={ts.sectionDetect}>
+              <SafetyCard>
+                {detectLayers.map(renderLayerCard)}
+              </SafetyCard>
+            </SafetySection>
+
+            <SafetySection title={ts.sectionResponse}>
+              <SafetyCard>
+                {responseLayers.map(renderLayerCard)}
+              </SafetyCard>
+            </SafetySection>
           </div>
         )
       )}

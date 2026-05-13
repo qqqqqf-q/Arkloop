@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,57 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestCreateRunWithStartedEventWritesHighPrecisionTimestamp(t *testing.T) {
+	ctx := context.Background()
+	db, cleanup := openRunsRepoTestDB(t, ctx)
+	defer cleanup()
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "runs-started-ts-" + accountID.String(), "Runs Started TS"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Runs Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed run data: %v", err)
+		}
+	}
+
+	repo, err := NewRunEventRepository(db)
+	if err != nil {
+		t.Fatalf("new run event repo: %v", err)
+	}
+	run, event, err := repo.CreateRunWithStartedEvent(ctx, accountID, threadID, nil, "run.started", map[string]any{"source": "test"})
+	if err != nil {
+		t.Fatalf("create run: %v", err)
+	}
+	if event.TS.IsZero() {
+		t.Fatalf("event timestamp is zero")
+	}
+
+	var rawTS string
+	if err := db.QueryRow(ctx, `SELECT ts FROM run_events WHERE run_id = $1 AND type = 'run.started'`, run.ID).Scan(&rawTS); err != nil {
+		t.Fatalf("query run.started ts: %v", err)
+	}
+	if !strings.Contains(rawTS, ".") {
+		t.Fatalf("expected high precision timestamp, got %q", rawTS)
+	}
+}
 
 func TestProvideInputRejectsCanceledRun(t *testing.T) {
 	ctx := context.Background()

@@ -16,6 +16,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin"
 	loadskill "arkloop/services/worker/internal/tools/builtin/load_skill"
 	readtool "arkloop/services/worker/internal/tools/builtin/read"
+	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
 	"github.com/google/uuid"
 )
@@ -434,6 +435,105 @@ func TestToolBuildMiddleware_BindsBasicSearchProvider(t *testing.T) {
 	}
 }
 
+func TestToolBuildMiddleware_UsesProviderOwnedWebSearchSpec(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(websearch.AgentSpecExa); err != nil {
+		t.Fatalf("register exa search: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:          data.Run{ID: uuid.New()},
+		Emitter:      events.NewEmitter("test"),
+		ToolRegistry: registry,
+		ToolExecutors: map[string]tools.Executor{
+			websearch.AgentSpecExa.Name: &recordingExecutor{},
+		},
+		AllowlistSet:              map[string]struct{}{"web_search": {}},
+		ActiveToolProviderByGroup: map[string]string{"web_search": websearch.AgentSpecExa.Name},
+		ToolSpecs:                 []llm.ToolSpec{websearch.LlmSpec},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if len(rc.FinalSpecs) != 1 {
+			t.Fatalf("expected one final spec, got %d", len(rc.FinalSpecs))
+		}
+		spec := rc.FinalSpecs[0]
+		if spec.Name != "web_search" {
+			t.Fatalf("expected logical web_search spec, got %s", spec.Name)
+		}
+		props := schemaProperties(t, spec)
+		if _, ok := props["numResults"]; !ok {
+			t.Fatalf("expected exa numResults in schema: %#v", props)
+		}
+		if _, ok := props["queries"]; ok {
+			t.Fatalf("did not expect generic queries in exa schema: %#v", props)
+		}
+		if _, ok := props["count"]; ok {
+			t.Fatalf("did not expect direct exa count in schema: %#v", props)
+		}
+		if _, ok := props["contents"]; ok {
+			t.Fatalf("did not expect direct exa contents in schema: %#v", props)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestToolBuildMiddleware_ProviderOwnedSpecIsSearchable(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(websearch.AgentSpecExa); err != nil {
+		t.Fatalf("register exa search: %v", err)
+	}
+	if err := registry.Register(loadskill.AgentSpec); err != nil {
+		t.Fatalf("register load_skill: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:          data.Run{ID: uuid.New()},
+		Emitter:      events.NewEmitter("test"),
+		ToolRegistry: registry,
+		ToolExecutors: map[string]tools.Executor{
+			websearch.AgentSpecExa.Name: &recordingExecutor{},
+			loadskill.AgentSpec.Name:    loadskill.NewToolExecutor(nil),
+		},
+		AllowlistSet:              map[string]struct{}{"web_search": {}, "load_skill": {}},
+		ActiveToolProviderByGroup: map[string]string{"web_search": websearch.AgentSpecExa.Name},
+		ToolSpecs:                 []llm.ToolSpec{websearch.LlmSpec, loadskill.LlmSpec},
+		PersonaDefinition:         &personas.Definition{CoreTools: []string{"load_tools"}},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		searchable := rc.ToolExecutor.SearchableSpecs()
+		spec, ok := searchable["web_search"]
+		if !ok {
+			t.Fatalf("expected web_search searchable spec, got %#v", searchable)
+		}
+		props := schemaProperties(t, spec)
+		if _, ok := props["numResults"]; !ok {
+			t.Fatalf("expected exa numResults in searchable schema: %#v", props)
+		}
+		if _, ok := props["queries"]; ok {
+			t.Fatalf("did not expect generic queries in searchable exa schema: %#v", props)
+		}
+		if _, ok := props["count"]; ok {
+			t.Fatalf("did not expect direct exa count in searchable schema: %#v", props)
+		}
+		if _, ok := props["contents"]; ok {
+			t.Fatalf("did not expect direct exa contents in searchable schema: %#v", props)
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestToolBuildMiddleware_ReadSearchableWhenNotCore(t *testing.T) {
 	registry := tools.NewRegistry()
 	if err := registry.Register(readtool.AgentSpec); err != nil {
@@ -539,6 +639,15 @@ func hasToolSpecName(specs []llm.ToolSpec, name string) bool {
 		}
 	}
 	return false
+}
+
+func schemaProperties(t *testing.T, spec llm.ToolSpec) map[string]any {
+	t.Helper()
+	props, ok := spec.JSONSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema has no properties: %#v", spec.JSONSchema)
+	}
+	return props
 }
 
 type stubImageProvider struct{}

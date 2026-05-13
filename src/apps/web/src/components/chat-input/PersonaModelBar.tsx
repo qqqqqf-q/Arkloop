@@ -1,12 +1,11 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
-import { Plus, Paperclip, BookOpen, Search, Folder, FolderOpen, X, Check } from 'lucide-react'
-import type { SelectablePersona } from '../../api'
+import { useRef, useState, useCallback, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { Plus, Paperclip, BookOpen, Folder, FolderOpen, X, Check, ListTodo } from 'lucide-react'
 import { updateThreadSidebarState } from '../../api'
 import { ModelPicker } from '../ModelPicker'
 import type { SettingsTab } from '../SettingsModal'
 import { getDesktopApi, isDesktop } from '@arkloop/shared/desktop'
 import {
-  SEARCH_PERSONA_KEY,
   readWorkFolder,
   writeWorkFolder,
   clearWorkFolder,
@@ -20,13 +19,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { useThreadList } from '../../contexts/thread-list'
 
 type Props = {
-  personas: SelectablePersona[]
-  selectedPersonaKey: string
   selectedModel: string | null
-  isNonDefaultMode: boolean
-  selectedPersona: SelectablePersona | null
-  onModeSelect: (personaKey: string) => void
-  onDeactivateMode: () => void
   onModelChange: (model: string | null) => void
   thinkingEnabled: string
   onThinkingChange: (mode: string) => void
@@ -41,9 +34,18 @@ type Props = {
   hideWorkFolderPicker?: boolean
   hideModelPicker?: boolean
   onMenuOpenChange?: (open: boolean) => void
+  planMode?: boolean
+  onTogglePlanMode?: (currentMode: boolean) => Promise<void>
   learningModeEnabled?: boolean
-  learningModeUpdating?: boolean
   onToggleLearningMode?: (currentMode: boolean) => Promise<void>
+}
+
+type FolderMenuPosition = {
+  left: number
+  top?: number
+  bottom?: number
+  maxHeight: number
+  placement: 'up' | 'down'
 }
 
 function readActiveWorkFolder(threadId?: string): string | null {
@@ -51,13 +53,7 @@ function readActiveWorkFolder(threadId?: string): string | null {
 }
 
 export function PersonaModelBar({
-  personas,
-  selectedPersonaKey,
   selectedModel,
-  isNonDefaultMode,
-  selectedPersona,
-  onModeSelect,
-  onDeactivateMode,
   onModelChange,
   thinkingEnabled,
   onThinkingChange,
@@ -72,8 +68,9 @@ export function PersonaModelBar({
   hideWorkFolderPicker,
   hideModelPicker,
   onMenuOpenChange,
+  planMode = false,
+  onTogglePlanMode,
   learningModeEnabled = false,
-  learningModeUpdating = false,
   onToggleLearningMode,
 }: Props) {
   const { t } = useLocale()
@@ -85,6 +82,7 @@ export function PersonaModelBar({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [folderMenuOpen, setFolderMenuOpen] = useState(false)
+  const [folderMenuPosition, setFolderMenuPosition] = useState<FolderMenuPosition | null>(null)
   const [workFolder, setWorkFolder] = useState<string | null>(() => readActiveWorkFolder(workThreadId))
   const [recentFolders, setRecentFolders] = useState<string[]>(() => readWorkRecentFolders())
   const isWorkMode = appMode === 'work'
@@ -92,12 +90,39 @@ export function PersonaModelBar({
   const effectiveFolderMenuOpen = folderMenuOpen && showWorkFolderPicker
   const currentThread = workThreadId ? threads.find((thread) => thread.id === workThreadId) ?? null : null
   const showLearningMode = learningModeEnabled || Boolean(onToggleLearningMode)
-  const learningModeDisabled = learningModeUpdating || !onToggleLearningMode
+  const showPlanModeMenuItem = isWorkMode && Boolean(onTogglePlanMode)
+  const showPlanMode = showPlanModeMenuItem && planMode
+  const learningModeDisabled = !onToggleLearningMode
+  const togglePlanMode = useCallback(() => {
+    if (!onTogglePlanMode) return
+    void onTogglePlanMode(planMode)
+    setMenuOpen(false)
+  }, [onTogglePlanMode, planMode])
   const toggleLearningMode = useCallback(() => {
     if (learningModeDisabled) return
     void onToggleLearningMode?.(learningModeEnabled)
     setMenuOpen(false)
   }, [learningModeDisabled, learningModeEnabled, onToggleLearningMode])
+  const updateFolderMenuPosition = useCallback(() => {
+    const button = folderBtnRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const gap = 8
+    const viewportPadding = 8
+    const menuMinWidth = 220
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding
+    const spaceAbove = rect.top - gap - viewportPadding
+    const placement: FolderMenuPosition['placement'] = spaceBelow >= 220 || spaceBelow >= spaceAbove ? 'down' : 'up'
+    const maxHeight = Math.max(0, placement === 'up' ? spaceAbove : spaceBelow)
+    const left = Math.min(
+      Math.max(viewportPadding, rect.left),
+      Math.max(viewportPadding, window.innerWidth - menuMinWidth - viewportPadding),
+    )
+
+    setFolderMenuPosition(placement === 'up'
+      ? { left, bottom: window.innerHeight - rect.top + gap, maxHeight, placement }
+      : { left, top: rect.bottom + gap, maxHeight, placement })
+  }, [])
 
   // close plus menu on outside click
   useEffect(() => {
@@ -126,6 +151,17 @@ export function PersonaModelBar({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [effectiveFolderMenuOpen])
+
+  useLayoutEffect(() => {
+    if (!effectiveFolderMenuOpen) return
+    updateFolderMenuPosition()
+    window.addEventListener('resize', updateFolderMenuPosition)
+    window.addEventListener('scroll', updateFolderMenuPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateFolderMenuPosition)
+      window.removeEventListener('scroll', updateFolderMenuPosition, true)
+    }
+  }, [effectiveFolderMenuOpen, updateFolderMenuPosition])
 
   // notify parent of menu open/close state changes (for focus management)
   useEffect(() => {
@@ -213,19 +249,21 @@ export function PersonaModelBar({
             </span>
           </button>
 
-          {effectiveFolderMenuOpen && (
+          {effectiveFolderMenuOpen && folderMenuPosition && createPortal((
             <div
               ref={folderMenuRef}
-              className={`absolute left-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
+              className={`fixed z-50 ${folderMenuPosition.placement === 'down' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
               style={{
-                ...(variant === 'welcome'
-                  ? { top: 'calc(100% + 8px)' }
-                  : { bottom: 'calc(100% + 8px)' }),
+                left: `${folderMenuPosition.left}px`,
+                top: folderMenuPosition.top === undefined ? undefined : `${folderMenuPosition.top}px`,
+                bottom: folderMenuPosition.bottom === undefined ? undefined : `${folderMenuPosition.bottom}px`,
                 border: '0.5px solid var(--c-border-subtle)',
                 borderRadius: '10px',
                 padding: '4px',
                 background: 'var(--c-bg-menu)',
                 minWidth: '220px',
+                maxHeight: `${folderMenuPosition.maxHeight}px`,
+                overflowY: 'auto',
                 boxShadow: 'var(--c-dropdown-shadow)',
               }}
             >
@@ -247,7 +285,7 @@ export function PersonaModelBar({
                           {folder.split('/').pop() || folder}
                         </span>
                         {workFolder === folder ? (
-                          <Check size={12} style={{ flexShrink: 0, color: '#4691F6' }} />
+                          <Check size={12} style={{ flexShrink: 0, color: 'var(--c-accent)' }} />
                         ) : null}
                       </button>
                     ))}
@@ -286,7 +324,7 @@ export function PersonaModelBar({
                 )}
               </div>
             </div>
-          )}
+          ), document.body)}
         </div>
       )}
 
@@ -297,8 +335,7 @@ export function PersonaModelBar({
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           className={[
-            'flex items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)]',
-            isWorkMode ? 'h-[33.5px] w-[33.5px]' : 'h-8 w-8',
+            'flex items-center justify-center rounded-lg text-[var(--c-text-secondary)] transition-[background] duration-[60ms] hover:bg-[var(--c-bg-deep)] h-[33.5px] w-[33.5px]',
           ].join(' ')}
         >
           <Plus size={20} strokeWidth={1.5} />
@@ -331,28 +368,49 @@ export function PersonaModelBar({
                     <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
                     {t.addFromLocal}
                   </button>
-                  {showLearningMode && (
+                  {(showPlanModeMenuItem || showLearningMode) && (
                     <>
                       <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
-                      <button
-                        type="button"
-                        onClick={toggleLearningMode}
-                        disabled={learningModeDisabled}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
-                        style={{
-                          color: learningModeEnabled ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-                          fontWeight: learningModeEnabled ? 500 : 400,
-                          opacity: learningModeDisabled ? 0.55 : undefined,
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <BookOpen size={14} style={{ flexShrink: 0 }} />
-                          {t.learningMode}
-                        </span>
-                        {learningModeEnabled && (
-                          <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
-                        )}
-                      </button>
+                      {showPlanModeMenuItem && (
+                        <button
+                          type="button"
+                          onClick={togglePlanMode}
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
+                          style={{
+                            color: planMode ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                            fontWeight: planMode ? 500 : 400,
+                          }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <ListTodo size={14} style={{ flexShrink: 0 }} />
+                            {t.planMode}
+                          </span>
+                          {planMode && (
+                            <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
+                          )}
+                        </button>
+                      )}
+                      {showLearningMode && (
+                        <button
+                          type="button"
+                          onClick={toggleLearningMode}
+                          disabled={learningModeDisabled}
+                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
+                          style={{
+                            color: learningModeEnabled ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
+                            fontWeight: learningModeEnabled ? 500 : 400,
+                            opacity: learningModeDisabled ? 0.55 : undefined,
+                          }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <BookOpen size={14} style={{ flexShrink: 0 }} />
+                            {t.learningMode}
+                          </span>
+                          {learningModeEnabled && (
+                            <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
+                          )}
+                        </button>
+                      )}
                     </>
                   )}
                 </>
@@ -366,35 +424,10 @@ export function PersonaModelBar({
                     <Paperclip size={14} style={{ color: 'var(--c-text-secondary)', flexShrink: 0 }} />
                     {t.addFromLocal}
                   </button>
-                  <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
-                  {personas.map((persona) => {
-                    const isActive = selectedPersonaKey === persona.persona_key
-                    const icon = persona.persona_key === SEARCH_PERSONA_KEY
-                      ? <Search size={14} style={{ flexShrink: 0 }} />
-                      : null
-                    return (
-                      <button
-                        key={persona.persona_key}
-                        type="button"
-                        onClick={() => { onModeSelect(persona.persona_key); setMenuOpen(false) }}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-[var(--c-bg-deep)]"
-                        style={{
-                          color: isActive ? 'var(--c-text-primary)' : 'var(--c-text-secondary)',
-                          fontWeight: isActive ? 500 : 400,
-                        }}
-                      >
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {icon}
-                          {persona.selector_name}
-                        </span>
-                        {isActive && (
-                          <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
-                        )}
-                      </button>
-                    )
-                  })}
                   {showLearningMode && (
-                    <button
+                    <>
+                      <div style={{ height: '1px', background: 'var(--c-border-subtle)', margin: '2px 4px' }} />
+                      <button
                       type="button"
                       onClick={toggleLearningMode}
                       disabled={learningModeDisabled}
@@ -413,6 +446,7 @@ export function PersonaModelBar({
                         <Check size={13} style={{ color: '#4691F6', flexShrink: 0 }} />
                       )}
                     </button>
+                    </>
                   )}
                 </>
               )}
@@ -422,11 +456,11 @@ export function PersonaModelBar({
       </div>
 
       {/* active mode chip */}
-      {showLearningMode && learningModeEnabled && (
+      {showPlanMode && (
         <button
           type="button"
-          onClick={toggleLearningMode}
-          disabled={learningModeDisabled}
+          onClick={togglePlanMode}
+          className="plan-mode-chip"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -434,59 +468,77 @@ export function PersonaModelBar({
             height: '33.5px',
             padding: '0 8px 0 9px',
             borderRadius: '8px',
-            background: 'var(--c-chip-active-bg)',
-            border: '0.5px solid var(--c-border-subtle)',
+            background: 'transparent',
+            border: 'none',
             flexShrink: 0,
-            marginLeft: '4px',
-            cursor: learningModeDisabled ? 'not-allowed' : 'pointer',
+            cursor: 'pointer',
+          }}
+        >
+          <span
+            style={{
+              width: '14px',
+              height: '14px',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <ListTodo className="plan-mode-icon plan-mode-icon-default" size={14} style={{ color: 'var(--c-plan-icon)' }} />
+            <X className="plan-mode-icon plan-mode-icon-close" size={14} style={{ color: 'var(--c-plan-icon)' }} />
+          </span>
+          <span style={{
+            fontSize: '13px',
+            color: 'var(--c-plan-text)',
+            fontWeight: 450,
+            whiteSpace: 'nowrap',
+            margin: '0 4px',
+          }}>
+            {t.planMode}
+          </span>
+        </button>
+      )}
+
+      {showLearningMode && learningModeEnabled && (
+        <button
+          type="button"
+          onClick={toggleLearningMode}
+          disabled={learningModeDisabled}
+          className="learning-mode-chip"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '2px',
+            height: '33.5px',
+            padding: '0 8px 0 9px',
+            borderRadius: '8px',
+            background: 'transparent',
+            border: 'none',
+            flexShrink: 0,
+            cursor: 'pointer',
             opacity: learningModeDisabled ? 0.55 : undefined,
           }}
         >
-          <BookOpen size={12} style={{ color: 'var(--c-chip-active-text)', flexShrink: 0 }} />
+          <span
+            style={{
+              width: '14px',
+              height: '14px',
+              display: 'grid',
+              placeItems: 'center',
+              flexShrink: 0,
+            }}
+          >
+            <BookOpen className="learning-mode-icon learning-mode-icon-default" size={14} style={{ color: 'var(--c-learning-icon)' }} />
+            <X className="learning-mode-icon learning-mode-icon-close" size={14} style={{ color: 'var(--c-learning-icon)' }} />
+          </span>
           <span style={{
             fontSize: '13px',
-            color: 'var(--c-chip-active-text)',
+            color: 'var(--c-learning-text)',
             fontWeight: 450,
             whiteSpace: 'nowrap',
             margin: '0 4px',
           }}>
             {t.learningMode}
           </span>
-          <X size={9} style={{ color: 'var(--c-chip-active-text)', opacity: 0.5, flexShrink: 0 }} />
-        </button>
-      )}
-
-      {isNonDefaultMode && (
-        <button
-          type="button"
-          onClick={onDeactivateMode}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            height: '33.5px',
-            padding: '0 8px 0 9px',
-            borderRadius: '8px',
-            background: 'var(--c-chip-active-bg)',
-            border: '0.5px solid var(--c-border-subtle)',
-            flexShrink: 0,
-            marginLeft: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          {selectedPersonaKey === SEARCH_PERSONA_KEY && (
-            <Search size={12} style={{ color: '#4691F6', flexShrink: 0 }} />
-          )}
-          <span style={{
-            fontSize: '13px',
-            color: selectedPersonaKey === SEARCH_PERSONA_KEY ? '#4691F6' : 'var(--c-chip-active-text)',
-            fontWeight: 450,
-            whiteSpace: 'nowrap',
-            margin: '0 4px',
-          }}>
-            {selectedPersona?.selector_name ?? selectedPersonaKey}
-          </span>
-          <X size={9} style={{ color: 'var(--c-chip-active-text)', opacity: 0.5, flexShrink: 0 }} />
         </button>
       )}
 
@@ -499,9 +551,9 @@ export function PersonaModelBar({
             onChange={onModelChange}
             onAddModel={() => onOpenSettings?.('models')}
             variant={variant}
-            controlHeight={isWorkMode ? 'default' : 'legacyChat'}
             thinkingEnabled={thinkingEnabled}
             onThinkingChange={onThinkingChange}
+            onOpenChange={onMenuOpenChange}
           />
         </div>
       )}

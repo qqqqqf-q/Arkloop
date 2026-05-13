@@ -172,22 +172,25 @@ type submitInputResponse struct {
 }
 
 type globalRunResponse struct {
-	RunID             string   `json:"run_id"`
-	AccountID         string   `json:"account_id"`
-	ThreadID          string   `json:"thread_id"`
-	Status            string   `json:"status"`
-	Model             *string  `json:"model,omitempty"`
-	PersonaID         *string  `json:"persona_id,omitempty"`
-	ParentRunID       *string  `json:"parent_run_id,omitempty"`
-	TotalInputTokens  *int64   `json:"total_input_tokens,omitempty"`
-	TotalOutputTokens *int64   `json:"total_output_tokens,omitempty"`
-	TotalCostUSD      *float64 `json:"total_cost_usd,omitempty"`
-	DurationMs        *int64   `json:"duration_ms,omitempty"`
-	CacheHitRate      *float64 `json:"cache_hit_rate,omitempty"`
-	CreditsUsed       *int64   `json:"credits_used,omitempty"`
-	CreatedAt         string   `json:"created_at"`
-	CompletedAt       *string  `json:"completed_at,omitempty"`
-	FailedAt          *string  `json:"failed_at,omitempty"`
+	RunID               string   `json:"run_id"`
+	AccountID           string   `json:"account_id"`
+	ThreadID            string   `json:"thread_id"`
+	Status              string   `json:"status"`
+	Model               *string  `json:"model,omitempty"`
+	PersonaID           *string  `json:"persona_id,omitempty"`
+	ParentRunID         *string  `json:"parent_run_id,omitempty"`
+	TotalInputTokens    *int64   `json:"total_input_tokens,omitempty"`
+	TotalOutputTokens   *int64   `json:"total_output_tokens,omitempty"`
+	TotalCostUSD        *float64 `json:"total_cost_usd,omitempty"`
+	DurationMs          *int64   `json:"duration_ms,omitempty"`
+	CacheHitRate        *float64 `json:"cache_hit_rate,omitempty"`
+	CacheCreationTokens *int64   `json:"cache_creation_tokens,omitempty"`
+	CacheReadTokens     *int64   `json:"cache_read_tokens,omitempty"`
+	CachedTokens        *int64   `json:"cached_tokens,omitempty"`
+	CreditsUsed         *int64   `json:"credits_used,omitempty"`
+	CreatedAt           string   `json:"created_at"`
+	CompletedAt         *string  `json:"completed_at,omitempty"`
+	FailedAt            *string  `json:"failed_at,omitempty"`
 	// 创建者信息（LEFT JOIN users）
 	CreatedByUserID   *string `json:"created_by_user_id,omitempty"`
 	CreatedByUserName *string `json:"created_by_user_name,omitempty"`
@@ -1803,21 +1806,24 @@ func listGlobalRuns(
 				return
 			}
 			item := globalRunResponse{
-				RunID:             rw.ID.String(),
-				AccountID:         rw.AccountID.String(),
-				ThreadID:          rw.ThreadID.String(),
-				Status:            status,
-				Model:             rw.Model,
-				PersonaID:         rw.PersonaID,
-				TotalInputTokens:  rw.TotalInputTokens,
-				TotalOutputTokens: rw.TotalOutputTokens,
-				TotalCostUSD:      rw.TotalCostUSD,
-				DurationMs:        rw.DurationMs,
-				CacheHitRate:      calcCacheHitRate(rw.TotalInputTokens, rw.CacheReadTokens, rw.CacheCreationTokens, rw.CachedTokens),
-				CreditsUsed:       rw.CreditsUsed,
-				CreatedAt:         rw.CreatedAt.UTC().Format(time.RFC3339Nano),
-				CreatedByUserName: rw.UserUsername,
-				CreatedByEmail:    rw.UserEmail,
+				RunID:               rw.ID.String(),
+				AccountID:           rw.AccountID.String(),
+				ThreadID:            rw.ThreadID.String(),
+				Status:              status,
+				Model:               rw.Model,
+				PersonaID:           rw.PersonaID,
+				TotalInputTokens:    rw.TotalInputTokens,
+				TotalOutputTokens:   rw.TotalOutputTokens,
+				TotalCostUSD:        rw.TotalCostUSD,
+				DurationMs:          rw.DurationMs,
+				CacheHitRate:        calcCacheHitRate(rw.TotalInputTokens, rw.CacheReadTokens, rw.CacheCreationTokens, rw.CachedTokens),
+				CacheCreationTokens: rw.CacheCreationTokens,
+				CacheReadTokens:     rw.CacheReadTokens,
+				CachedTokens:        rw.CachedTokens,
+				CreditsUsed:         rw.CreditsUsed,
+				CreatedAt:           rw.CreatedAt.UTC().Format(time.RFC3339Nano),
+				CreatedByUserName:   rw.UserUsername,
+				CreatedByEmail:      rw.UserEmail,
 			}
 			if rw.CreatedByUserID != nil {
 				s := rw.CreatedByUserID.String()

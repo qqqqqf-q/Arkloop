@@ -1,7 +1,7 @@
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { AutoResizeTextarea, Modal } from '@arkloop/shared'
 import { SettingsLabel } from '../settings/_SettingsLabel'
-import { SettingsInput, settingsInputCls } from '../settings/_SettingsInput'
+import { SettingsInput } from '../settings/_SettingsInput'
 import { SettingsSelect } from '../settings/_SettingsSelect'
 import { SettingsButton } from '../settings/_SettingsButton'
 import {
@@ -32,8 +32,11 @@ type Props = {
   setField: <K extends keyof FormState>(key: K, value: FormState[K]) => void
   formError: string
   saving: boolean
+  recheckBusy: boolean
   onSave: () => void
   onClose: () => void
+  onRecheck?: () => void
+  onRequestDelete?: () => void
   copy: MCPCopy
 }
 
@@ -44,12 +47,16 @@ export function MCPFormModal({
   setField,
   formError,
   saving,
+  recheckBusy,
   onSave,
   onClose,
+  onRecheck,
+  onRequestDelete,
   copy,
 }: Props) {
   const title = editing ? copy.formTitleEdit : copy.formTitleCreate
-  const textareaCls = settingsInputCls('sm')
+  const textareaCls =
+    'w-full resize-none rounded-[6.5px] border-[0.65px] [border-color:color-mix(in_srgb,var(--c-border)_64%,var(--c-bg-input)_36%)] bg-[var(--c-bg-input)] px-3 py-2 text-sm font-[450] leading-5 text-[var(--c-text-primary)] outline-none placeholder:font-[350] placeholder:text-[var(--c-text-muted)] transition-colors duration-[180ms] hover:[border-color:color-mix(in_srgb,var(--c-border)_72%,var(--c-text-primary)_28%)] focus:[border-color:color-mix(in_srgb,var(--c-border)_72%,var(--c-text-primary)_28%)]'
 
   return (
     <Modal open={open} onClose={onClose} title={title} width="520px">
@@ -153,7 +160,6 @@ export function MCPFormModal({
           />
         </div>
 
-        {/* Bearer Token + Timeout */}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <SettingsLabel>{copy.fieldToken}</SettingsLabel>
@@ -181,13 +187,39 @@ export function MCPFormModal({
           </p>
         )}
 
+        {editing && (onRecheck || onRequestDelete) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {onRecheck && (
+              <SettingsButton
+                variant="secondary"
+                size="modal"
+                onClick={onRecheck}
+                disabled={saving || recheckBusy}
+                icon={recheckBusy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              >
+                {copy.recheck}
+              </SettingsButton>
+            )}
+            {onRequestDelete && (
+              <SettingsButton
+                variant="danger"
+                size="modal"
+                onClick={onRequestDelete}
+                disabled={saving || recheckBusy}
+              >
+                {copy.delete}
+              </SettingsButton>
+            )}
+          </div>
+        )}
+
         {/* Bottom Buttons */}
         <div className="flex justify-end gap-2 pt-2">
           <SettingsButton
             variant="secondary"
             size="modal"
             onClick={onClose}
-            disabled={saving}
+            disabled={saving || recheckBusy}
           >
             {copy.cancel}
           </SettingsButton>
@@ -195,7 +227,7 @@ export function MCPFormModal({
             variant="primary"
             size="modal"
             onClick={onSave}
-            disabled={saving}
+            disabled={saving || recheckBusy}
             icon={saving ? <Loader2 size={14} className="animate-spin" /> : undefined}
           >
             {saving ? copy.saving : editing ? copy.save : copy.create}

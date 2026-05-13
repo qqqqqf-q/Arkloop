@@ -79,6 +79,11 @@ func (e *Executor) Execute(
 		"file_path": filePath,
 		"status":    "written",
 	}
+	if planMetadata, ok := tools.PlanModePlanFileMetadata(execCtx.PipelineRC, execCtx.WorkDir, filePath); ok {
+		for key, value := range planMetadata {
+			result[key] = value
+		}
+	}
 
 	return tools.ExecutionResult{
 		ResultJSON: result,

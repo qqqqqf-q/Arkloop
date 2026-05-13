@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 const defaultDiscordAPIBaseURL = "https://discord.com/api/v10"
@@ -64,7 +63,7 @@ func NewDiscordChannelSenderWithClient(client DiscordHTTPDoer, baseURL, token st
 }
 
 func (s *DiscordChannelSender) SendText(ctx context.Context, target ChannelDeliveryTarget, text string) ([]string, error) {
-	segments := splitDiscordMessage(text, 2000)
+	segments := splitByRuneLimit(text, 2000)
 	if len(segments) == 0 {
 		return nil, nil
 	}
@@ -136,41 +135,5 @@ func (s *DiscordChannelSender) createMessage(ctx context.Context, channelID stri
 }
 
 func SplitDiscordMessage(text string, limit int) []string {
-	return splitDiscordMessage(text, limit)
-}
-
-func splitDiscordMessage(text string, limit int) []string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	runes := []rune(text)
-	if limit <= 0 || len(runes) <= limit {
-		return []string{text}
-	}
-
-	var segments []string
-	remaining := runes
-	for len(remaining) > limit {
-		cut := chooseDiscordSplitPoint(remaining, limit)
-		segment := strings.TrimSpace(string(remaining[:cut]))
-		if segment != "" {
-			segments = append(segments, segment)
-		}
-		remaining = []rune(strings.TrimSpace(string(remaining[cut:])))
-	}
-	if len(remaining) > 0 {
-		segments = append(segments, string(remaining))
-	}
-	return segments
-}
-
-func chooseDiscordSplitPoint(text []rune, limit int) int {
-	window := string(text[:limit])
-	for _, marker := range []string{"\n\n", "\n", ". ", "! ", "? ", "。", "！", "？", " "} {
-		if idx := strings.LastIndex(window, marker); idx > 0 {
-			return utf8.RuneCountInString(window[:idx+len(marker)])
-		}
-	}
-	return limit
+	return splitByRuneLimit(text, limit)
 }

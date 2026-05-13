@@ -26,6 +26,16 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 				Stability:     PromptStabilityStablePrefix,
 				CacheEligible: true,
 			})
+			if triggerBlock := buildChannelTriggerContextBlock(rc.ChannelContext); triggerBlock != "" {
+				rc.UpsertPromptSegment(PromptSegment{
+					Name:          "runtime.channel_trigger_context",
+					Target:        PromptTargetSystemPrefix,
+					Role:          "system",
+					Text:          triggerBlock,
+					Stability:     PromptStabilitySessionPrefix,
+					CacheEligible: true,
+				})
+			}
 			isAdmin := checkSenderIsAdmin(ctx, rc)
 			rc.SenderIsAdmin = isAdmin
 		}
@@ -51,6 +61,20 @@ Your text outputs are delivered to the chat platform in real-time as separate me
 When you call tools mid-reply, text before and after the tool call becomes distinct messages visible to the user.
 Avoid repeating content that was already sent. If you have nothing new to add after a tool call, use end_reply.
 </channel_output_behavior>`
+}
+
+func buildChannelTriggerContextBlock(cc *ChannelContext) string {
+	if cc == nil || (!cc.MentionsBot && !cc.IsReplyToBot) {
+		return ""
+	}
+	var lines []string
+	if cc.MentionsBot {
+		lines = append(lines, "This message directly mentioned you (the bot).")
+	}
+	if cc.IsReplyToBot {
+		lines = append(lines, "This message is a reply to one of your previous messages.")
+	}
+	return "<channel_trigger_context>\n" + strings.Join(lines, "\n") + "\n</channel_trigger_context>"
 }
 
 func buildRuntimeContextBlock(ctx context.Context, rc *RunContext) string {

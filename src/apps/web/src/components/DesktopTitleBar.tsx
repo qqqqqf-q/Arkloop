@@ -8,7 +8,10 @@ import {
   Minus,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Square,
+  SquarePen,
   X,
 } from 'lucide-react'
 import { getDesktopApi, getDesktopPlatform, isDesktop } from '@arkloop/shared/desktop'
@@ -31,12 +34,16 @@ const DESKTOP_ICON_RAIL_LEFT_PADDING = 12
 type Props = {
   sidebarCollapsed: boolean
   onToggleSidebar: () => void
+  onNewThread?: () => void
   appMode: AppMode
   onSetAppMode: (mode: AppMode) => void
   availableModes: AppMode[]
   showIncognitoToggle?: boolean
   isPrivateMode?: boolean
   onTogglePrivateMode?: () => void
+  rightPanelOpen?: boolean
+  onToggleRightPanel?: () => void
+  showTitleBarNewThread?: boolean
   hasAppUpdate?: boolean
   appUpdateState?: AppUpdaterState | null
   onCheckAppUpdate?: () => void
@@ -48,12 +55,16 @@ type Props = {
 export function DesktopTitleBar({
   sidebarCollapsed,
   onToggleSidebar,
+  onNewThread,
   appMode,
   onSetAppMode,
   availableModes,
   showIncognitoToggle = true,
   isPrivateMode,
   onTogglePrivateMode,
+  rightPanelOpen = false,
+  onToggleRightPanel,
+  showTitleBarNewThread = false,
   hasAppUpdate = false,
   appUpdateState,
   onCheckAppUpdate,
@@ -120,6 +131,7 @@ export function DesktopTitleBar({
     : appUpdateState?.phase === 'downloaded'
       ? t.desktopSettings.appUpdateReady
       : t.desktopSettings.appUpdateAvailable
+  const newThreadLabel = appMode === 'work' ? t.newTask : t.newChat
 
   const togglePopover = useCallback(() => {
     setUpdatePopoverOpen((prev) => {
@@ -160,10 +172,9 @@ export function DesktopTitleBar({
 
   return (
     <div
-      className="relative grid shrink-0 items-center"
+      className="relative shrink-0"
       style={{
         height: titleBarHeight,
-        gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
         paddingLeft: `${isMac ? MAC_TITLEBAR_LEFT_PADDING : DESKTOP_ICON_RAIL_LEFT_PADDING}px`,
         paddingRight: isWindows ? 0 : '12px',
         background: isWindows
@@ -175,8 +186,15 @@ export function DesktopTitleBar({
     >
       {/* sidebar and history controls */}
       <div
-        className={isWindows ? 'flex min-w-0 items-center gap-1.5 justify-self-start' : 'flex min-w-0 items-center gap-1 self-start justify-self-start pt-[6px]'}
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className={isWindows ? 'flex items-center gap-1.5' : 'flex items-center gap-1'}
+        style={{
+          position: 'absolute',
+          left: isMac ? MAC_TITLEBAR_LEFT_PADDING : DESKTOP_ICON_RAIL_LEFT_PADDING,
+          top: isWindows ? 0 : 6,
+          height: isWindows ? '100%' : undefined,
+          zIndex: 2,
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
       >
         <button
           onClick={() => {
@@ -208,12 +226,29 @@ export function DesktopTitleBar({
         <button onClick={() => window.history.forward()} className={btnCls}>
           <ChevronRight size={17} />
         </button>
+        {showTitleBarNewThread && onNewThread && (
+          <button
+            onClick={onNewThread}
+            title={newThreadLabel}
+            aria-label={newThreadLabel}
+            className={btnCls}
+          >
+            <SquarePen size={17} />
+          </button>
+        )}
       </div>
 
       {/* centered mode switch */}
       <div
-        className="min-w-0 translate-y-px justify-self-center"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="min-w-0"
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '50%',
+          transform: 'translate(-50%, -50%) translateY(1px)',
+          zIndex: 1,
+          WebkitAppRegion: 'no-drag',
+        } as React.CSSProperties}
       >
         <ModeSwitch
           mode={appMode}
@@ -225,8 +260,13 @@ export function DesktopTitleBar({
 
       {/* app actions and window controls */}
       <div
-        className={isWindows ? 'flex min-w-0 items-stretch justify-end self-stretch justify-self-end' : 'flex min-w-0 items-center justify-end justify-self-end'}
+        className={isWindows ? 'flex items-stretch' : 'flex items-center'}
         style={{
+          position: 'absolute',
+          right: isWindows ? 0 : 12,
+          top: 0,
+          bottom: 0,
+          zIndex: 2,
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}
       >
@@ -243,6 +283,15 @@ export function DesktopTitleBar({
               ].join(' ')}
             >
               <Glasses size={17} />
+            </button>
+          )}
+          {onToggleRightPanel && (
+            <button
+              onClick={onToggleRightPanel}
+              title={t.rightPanel.toggle}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)]"
+            >
+              {rightPanelOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
             </button>
           )}
           {hasAppUpdate && (

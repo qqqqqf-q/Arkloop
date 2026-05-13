@@ -84,11 +84,17 @@ type ApplicationCommand struct {
 	Options     []ApplicationCommandOption      `json:"options,omitempty"`
 }
 
+type ApplicationCommandOptionChoice struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
 type ApplicationCommandOption struct {
-	Type        int    `json:"type"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Required    bool   `json:"required,omitempty"`
+	Type        int                                 `json:"type"`
+	Name        string                              `json:"name"`
+	Description string                              `json:"description"`
+	Required    bool                                `json:"required,omitempty"`
+	Choices     []ApplicationCommandOptionChoice    `json:"choices,omitempty"`
 }
 
 func (c *Client) VerifyBot(ctx context.Context, token string) (*VerifiedBot, error) {

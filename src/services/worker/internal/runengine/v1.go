@@ -35,6 +35,7 @@ import (
 	workerruntime "arkloop/services/worker/internal/runtime"
 	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
+	"arkloop/services/worker/internal/tooldiagnostics"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin/channel_qq"
@@ -376,6 +377,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 		Runtime:                 &runtimeSnapshot,
 		HookRuntime:             e.hookRuntime,
 		HookRegistry:            e.hookRegistry,
+		PluginHookRunner:        pipeline.NewDefaultPluginHookRunner(),
+		ToolExecutionTracker:    tooldiagnostics.DefaultTracker,
 		UserID:                  run.CreatedByUserID,
 		JobPayload:              cloneMap(input.JobPayload),
 		ProfileRef:              derefString(run.ProfileRef),
@@ -432,7 +435,8 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	rc.AgentReasoningIterationsLimit = resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.agent_reasoning_iterations", platformScope, 0)
 	rc.ToolContinuationBudgetLimit = resolvePositiveInt(ctx, e.configResolver, registry, "limit.tool_continuation_budget", platformScope, 32)
 	rc.MaxParallelTasks = resolvePositiveInt(ctx, e.configResolver, registry, "limit.max_parallel_tasks", sharedconfig.Scope{}, 32)
-	rc.RunWallClockTimeout = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.run_wall_clock_timeout_ms", platformScope, 900000)) * time.Millisecond
+	rc.RunIdleTimeout = time.Duration(resolveNonNegativeInt(ctx, e.configResolver, registry, "limit.run_idle_timeout_ms", platformScope, 900000)) * time.Millisecond
+	rc.RunWallClockTimeout = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.run_wall_clock_timeout_ms", platformScope, 14400000)) * time.Millisecond
 	rc.PausedInputTimeout = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.paused_input_timeout_ms", platformScope, 300000)) * time.Millisecond
 	rc.IdleHeartbeatInterval = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.idle_heartbeat_interval_ms", platformScope, 15000)) * time.Millisecond
 	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
@@ -600,6 +604,7 @@ func (e *EngineV1) ExecuteContextCompactMaintenance(
 		TraceID:               strings.TrimSpace(traceID),
 		Emitter:               events.NewEmitter(traceID),
 		Router:                e.router,
+		ToolExecutionTracker:  tooldiagnostics.DefaultTracker,
 		JobPayload:            cloneMap(input.JobPayload),
 		InputJSON:             loaded.InputJSON,
 		Messages:              loaded.Messages,
@@ -853,6 +858,7 @@ func buildAgentConfigLayer(
 			baseAllowlistSet,
 			deps.ToolRegistry,
 		),
+		pipeline.NewPluginHooksMiddleware(deps.DBPool),
 		pipeline.NewToolProviderMiddleware(deps.ToolProviderCache),
 		pipeline.NewPersonaResolutionMiddleware(deps.PersonaRegistryGetter, deps.DBPool, runsRepo, eventsRepo, releaseSlot),
 	}
@@ -912,6 +918,7 @@ func buildCapabilityLayer(
 				"/home/arkloop",
 			),
 		),
+		pipeline.NewPluginContextMiddleware(deps.DBPool),
 		traceMemoryInjectionMiddleware(func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
 			return promptHookMW(ctx, rc, func(ctx context.Context, rc *pipeline.RunContext) error {
 				return memoryMW(ctx, rc, next)
@@ -953,7 +960,6 @@ func buildRoutingLayer(
 ) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.AuxGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
-		pipeline.NewModelIdentityMiddleware(),
 		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
 			Pool:            deps.DBPool,
 			MessagesRepo:    messagesRepo,
@@ -976,6 +982,7 @@ func buildToolFinalizeLayer(deps EngineV1Deps, eventsRepo data.RunEventsReposito
 			EventsRepo:          eventsRepo,
 		}),
 		pipeline.NewHeartbeatPrepareMiddleware(),
+		pipeline.NewModelIdentityMiddleware(),
 		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolDescriptionOverrideMiddleware(deps.ToolDescriptionOverridesRepo),
 		pipeline.NewPlatformMiddleware(deps.PlatformToolExecutor),

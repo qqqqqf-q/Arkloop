@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
-	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/routing"
 
@@ -21,10 +23,11 @@ import (
 
 const (
 	settingContextCompactionModel  = "context.compaction.model"
-	contextCompactTimeBudget = 90 * time.Second
+	contextCompactTimeBudget       = 90 * time.Second
 	contextCompactMaxOut           = 4096
 	contextCompactGroupMaxOut      = 8192
 	contextCompactPostWriteTimeout = 30 * time.Second
+	defaultContextCompactCheckMs   = 250
 	defaultPersistKeepLastMessages = 40
 	// 发往压缩摘要 LLM 的用户块上限（tiktoken 用 HistoryThreadPromptTokens；单条超大时再按 rune 截断）。
 	contextCompactMaxLLMInputTokens = 10000
@@ -69,68 +72,131 @@ func NewContextCompactMiddleware(
 ) RunMiddleware {
 	_ = loaders
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
+		checkStartedAt := time.Now()
+		var anchorQueryMs int64
+		var tokenEstimateMs int64
+		var microcompactMs int64
+		var eventWriteMs int64
+
 		// 跨 run 恢复 anchor：新 run 首次进入时从历史 run_events 补齐校准锚点
 		if !rc.HasContextCompactAnchor && pool != nil {
+			anchorStartedAt := time.Now()
 			if anchor, ok := resolveContextCompactPressureAnchor(ctx, pool, rc); ok {
 				rc.SetContextCompactPressureAnchor(anchor.LastRealPromptTokens, anchor.LastRequestContextEstimateTokens)
 			}
+			anchorQueryMs = time.Since(anchorStartedAt).Milliseconds()
 		}
 		beforeMsgs := append([]llm.Message(nil), rc.Messages...)
 		cfg := rc.ContextCompact
+		strippedImages := 0
 		if rewritten, stripped := stripOlderImagePartsKeepingTail(rc.Messages, resolveContextKeepImageTail()); stripped > 0 {
 			rc.Messages = rewritten
+			strippedImages = stripped
 		}
 		if !cfg.Enabled && !cfg.PersistEnabled {
-			beforeTokens := traceContextCompactTokens(nil, rc.SystemPrompt, beforeMsgs)
-			afterTokens := traceContextCompactTokens(nil, rc.SystemPrompt, rc.Messages)
 			emitTraceEvent(rc, "context_compact", "context_compact.completed", map[string]any{
-				"compacted":     beforeTokens != afterTokens || len(beforeMsgs) != len(rc.Messages),
-				"tokens_before": beforeTokens,
-				"tokens_after":  afterTokens,
+				"compacted": strippedImages > 0 || len(beforeMsgs) != len(rc.Messages),
 			})
 			return next(ctx, rc)
 		}
 
 		var enc *tiktoken.Tiktoken
-		if rc.SelectedRoute != nil {
-			if tke, encErr := ResolveTiktokenForRoute(rc.SelectedRoute); encErr != nil {
-				slog.WarnContext(ctx, "context_compact", "phase", "tiktoken_route", "err", encErr.Error(), "run_id", rc.Run.ID.String())
-			} else {
-				enc = tke
+		beforeTokens := -1
+		skipTokenEstimate := shouldSkipContextCompactTokenEstimate(beforeMsgs, rc.Messages, cfg, strippedImages)
+		if !skipTokenEstimate {
+			tokenStartedAt := time.Now()
+			if rc.SelectedRoute != nil {
+				if tke, encErr := ResolveTiktokenForRoute(rc.SelectedRoute); encErr != nil {
+					slog.WarnContext(ctx, "context_compact", "phase", "tiktoken_route", "err", encErr.Error(), "run_id", rc.Run.ID.String())
+				} else {
+					enc = tke
+				}
 			}
+			if enc == nil {
+				enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
+			}
+			beforeTokens = traceContextCompactTokens(enc, rc.SystemPrompt, beforeMsgs)
+			tokenEstimateMs = time.Since(tokenStartedAt).Milliseconds()
 		}
-		if enc == nil {
-			enc, _ = tiktoken.GetEncoding(tiktoken.MODEL_O200K_BASE)
-		}
-		beforeTokens := traceContextCompactTokens(enc, rc.SystemPrompt, beforeMsgs)
 
 		if cfg.MicrocompactKeepRecentTools > 0 {
+			microcompactStartedAt := time.Now()
 			rc.Messages = microcompactToolResults(rc.Messages, cfg.MicrocompactKeepRecentTools)
+			microcompactMs = time.Since(microcompactStartedAt).Milliseconds()
 		}
 
 		if cfg.PersistEnabled && pool != nil {
+			durationMs := time.Since(checkStartedAt).Milliseconds()
+			thresholdMs := loadContextCompactCheckEventMs()
+			status := "completed"
+			if durationMs >= thresholdMs {
+				status = "slow"
+			}
 			middlewareCompletedEvent := map[string]any{
-				"op":              "persist_background",
-				"phase":           "middleware_completed",
-				"persist_applied": false,
-				"message_count":   len(rc.Messages),
+				"op":                "persist_background",
+				"phase":             "middleware_completed",
+				"status":            status,
+				"duration_ms":       durationMs,
+				"threshold_ms":      thresholdMs,
+				"anchor_query_ms":   anchorQueryMs,
+				"token_estimate_ms": tokenEstimateMs,
+				"microcompact_ms":   microcompactMs,
+				"persist_applied":   false,
+				"message_count":     len(rc.Messages),
 			}
+			eventWriteStartedAt := time.Now()
 			if evErr := appendContextCompactRunEvent(ctx, pool, eventsRepo, rc, middlewareCompletedEvent); evErr != nil {
+				eventWriteMs = time.Since(eventWriteStartedAt).Milliseconds()
 				slog.WarnContext(ctx, "context_compact", "phase", "middleware_completed_event", "err", evErr.Error(), "run_id", rc.Run.ID.String())
+			} else {
+				eventWriteMs = time.Since(eventWriteStartedAt).Milliseconds()
 			}
+			emitTraceEvent(rc, "context_compact", "context_compact.check_completed", map[string]any{
+				"status":            status,
+				"duration_ms":       durationMs,
+				"threshold_ms":      thresholdMs,
+				"anchor_query_ms":   anchorQueryMs,
+				"token_estimate_ms": tokenEstimateMs,
+				"microcompact_ms":   microcompactMs,
+				"event_write_ms":    eventWriteMs,
+				"message_count":     len(rc.Messages),
+			})
 		}
 
 		nextErr := next(ctx, rc)
 
-		afterTokens := traceContextCompactTokens(enc, rc.SystemPrompt, rc.Messages)
-		emitTraceEvent(rc, "context_compact", "context_compact.completed", map[string]any{
-			"compacted":     beforeTokens != afterTokens || len(beforeMsgs) != len(rc.Messages),
-			"tokens_before": beforeTokens,
-			"tokens_after":  afterTokens,
-		})
+		completedPayload := map[string]any{
+			"compacted": strippedImages > 0 || len(beforeMsgs) != len(rc.Messages),
+		}
+		if beforeTokens >= 0 {
+			afterTokens := traceContextCompactTokens(enc, rc.SystemPrompt, rc.Messages)
+			completedPayload["compacted"] = beforeTokens != afterTokens || strippedImages > 0 || len(beforeMsgs) != len(rc.Messages)
+			completedPayload["tokens_before"] = beforeTokens
+			completedPayload["tokens_after"] = afterTokens
+		}
+		emitTraceEvent(rc, "context_compact", "context_compact.completed", completedPayload)
 
 		return nextErr
 	}
+}
+
+func shouldSkipContextCompactTokenEstimate(beforeMsgs, afterMsgs []llm.Message, cfg ContextCompactSettings, strippedImages int) bool {
+	if strippedImages > 0 || cfg.MicrocompactKeepRecentTools > 0 {
+		return false
+	}
+	return len(beforeMsgs) <= 1 && len(afterMsgs) <= 1
+}
+
+func loadContextCompactCheckEventMs() int64 {
+	raw := strings.TrimSpace(os.Getenv("ARKLOOP_CONTEXT_COMPACT_CHECK_EVENT_MS"))
+	if raw == "" {
+		return defaultContextCompactCheckMs
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return defaultContextCompactCheckMs
+	}
+	return value
 }
 
 func traceContextCompactTokens(enc *tiktoken.Tiktoken, systemPrompt string, msgs []llm.Message) int {

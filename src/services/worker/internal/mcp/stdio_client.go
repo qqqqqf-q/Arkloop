@@ -206,10 +206,11 @@ func (c *StdioClient) ensureStarted(ctx context.Context) error {
 	return nil
 }
 
-// buildServerEnv 仅传递 ServerConfig.Env 中显式声明的条目，永不继承父进程环境变量。
-// exec.Cmd.Env = nil 会导致子进程继承全部父进程环境，make 保证返回非 nil 切片。
 func buildServerEnv(server ServerConfig) []string {
 	env := make([]string, 0, len(server.Env))
+	if server.InheritParentEnv {
+		env = append(env, os.Environ()...)
+	}
 	for key, value := range server.Env {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}
@@ -304,13 +305,13 @@ func writeMcpStderrLog(server ServerConfig, line string) {
 	}
 
 	record := map[string]any{
-		"ts":        formatTimestamp(time.Now()),
-		"level":     "warn",
-		"msg":       "mcp.stderr",
-		"component": "mcp_stderr",
-		"server_id": server.ServerID,
-		"account_id":    accountID,
-		"line":      strings.ToValidUTF8(line, "�"),
+		"ts":         formatTimestamp(time.Now()),
+		"level":      "warn",
+		"msg":        "mcp.stderr",
+		"component":  "mcp_stderr",
+		"server_id":  server.ServerID,
+		"account_id": accountID,
+		"line":       strings.ToValidUTF8(line, "�"),
 	}
 
 	encoded, err := json.Marshal(record)

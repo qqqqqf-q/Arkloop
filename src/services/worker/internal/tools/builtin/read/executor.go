@@ -129,7 +129,7 @@ func (e *Executor) Execute(
 	toolName string,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
-	_ string,
+	toolCallID string,
 ) tools.ExecutionResult {
 	_ = toolName
 	started := time.Now()
@@ -141,7 +141,7 @@ func (e *Executor) Execute(
 
 	switch parsed.Source.Kind {
 	case sourceKindFilePath:
-		return e.executeFilePath(ctx, parsed, execCtx, started)
+		return e.executeFilePath(ctx, parsed, execCtx, toolCallID, started)
 	case sourceKindMessageAttachment:
 		return e.executeMessageAttachment(ctx, parsed, execCtx, started)
 	case sourceKindRemoteURL:
@@ -162,6 +162,7 @@ func (e *Executor) executeFilePath(
 	ctx context.Context,
 	parsed parsedArgs,
 	execCtx tools.ExecutionContext,
+	toolCallID string,
 	started time.Time,
 ) tools.ExecutionResult {
 	if parsed.Prompt != "" || parsed.TimeoutOverride != nil || parsed.MaxBytes != defaultMaxBytes {
@@ -177,6 +178,7 @@ func (e *Executor) executeFilePath(
 	filePath := parsed.Source.FilePath
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
+	tools.TrackPhase(execCtx, toolCallID, "backend.stat")
 	info, err := backend.Stat(ctx, filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -211,11 +213,13 @@ func (e *Executor) executeFilePath(
 		}
 	}
 
+	tools.TrackPhase(execCtx, toolCallID, "backend.read")
 	data, err := backend.ReadFile(ctx, filePath)
 	if err != nil {
 		return fileErrorResult(fmt.Sprintf("read failed: %s", err.Error()), started)
 	}
 
+	tools.TrackPhase(execCtx, toolCallID, "format_result")
 	content, totalLines, truncated := fileops.ReadLines(data, parsed.Offset-1, parsed.Limit)
 
 	actualEnd := parsed.Offset + parsed.Limit - 1

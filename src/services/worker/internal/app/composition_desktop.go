@@ -49,6 +49,7 @@ import (
 	"arkloop/services/worker/internal/runtime"
 	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
+	"arkloop/services/worker/internal/tooldiagnostics"
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
@@ -217,7 +218,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		slog.InfoContext(ctx, "desktop: lsp enabled", "servers", len(lspCfg.Servers))
 	}
 	authToken := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN"))
-	slog.Debug("composition_desktop", "sandboxAddr", sandboxAddr, "authTokenConfigured", authToken != "")
 	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken, fileTracker)
 
 	// 已有持久化或用户已选模式时不覆盖；否则按当前 sandbox 可用性设默认。
@@ -225,10 +225,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if cur != "vm" && cur != "local" {
 		if sandboxAddr != "" {
 			desktop.SetExecutionMode("vm")
-			slog.Debug("composition_desktop: sandbox available, setting mode to vm")
 		} else {
 			desktop.SetExecutionMode("local")
-			slog.Debug("composition_desktop: no sandbox, setting mode to local")
 		}
 	}
 
@@ -401,12 +399,12 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if useOV && memProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 	}
-	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, promptInjection.Resolver, routingLoader)
+	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, promptInjection.Resolver, routingLoader, messageAttachmentStore)
 	if err != nil {
 		return nil, fmt.Errorf("register desktop artifact tools: %w", err)
 	}
 	if artifactToolsRegistered {
-		slog.InfoContext(ctx, "desktop: stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate"})
+		slog.InfoContext(ctx, "desktop: stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate", "resource_copy"})
 	}
 	if lspManager != nil {
 		allLlmSpecs = append(allLlmSpecs, lsp.LSPToolLLMSpec)
@@ -456,8 +454,12 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	// 尝试从 personas 目录加载
 	personaGetter := loadPersonaRegistryFromFS()
 
-	mcpPool := mcp.NewPool()
-	mcpDiscoveryCache := mcp.NewDiscoveryCache(30*time.Second, mcpPool)
+	mcpPool := mcp.NewPool(mcp.WithAuthStore(mcp.NewDBAuthStore(db)))
+	mcpCacheTTL, err := loadDesktopMCPCacheTTL()
+	if err != nil {
+		return nil, err
+	}
+	mcpDiscoveryCache := mcp.NewDiscoveryCache(mcpCacheTTL, mcpPool)
 
 	if err := cleanupOrphanSkillRuntimes(ctx, db); err != nil {
 		slog.WarnContext(ctx, "desktop: orphan skill runtime cleanup failed", "err", err.Error())
@@ -563,6 +565,23 @@ func loadPersonaRegistryFromFS() func() *personas.Registry {
 	}
 }
 
+const desktopDefaultMCPCacheTTLSeconds = 600
+
+func loadDesktopMCPCacheTTL() (time.Duration, error) {
+	ttlSeconds := desktopDefaultMCPCacheTTLSeconds
+	if raw, ok := lookupEnv(mcpCacheTTLSecondsEnv); ok {
+		value, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil {
+			return 0, fmt.Errorf("%s: must be an integer", mcpCacheTTLSecondsEnv)
+		}
+		if value < 0 {
+			return 0, fmt.Errorf("%s: must be >= 0", mcpCacheTTLSecondsEnv)
+		}
+		ttlSeconds = value
+	}
+	return time.Duration(ttlSeconds) * time.Second, nil
+}
+
 // Shutdown releases resources held by the engine (LSP servers, etc.).
 func (e *DesktopEngine) Shutdown(ctx context.Context) {
 	if desktop.GetLLMProviderModelTester() == e {
@@ -613,22 +632,25 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	runRuntime.DesktopExecutionMode = strings.TrimSpace(desktop.GetExecutionMode())
 
 	llmRetryMaxAttempts, llmRetryBaseDelayMs := resolveDesktopLLMRetry(ctx, e.db)
+	runIdleTimeout, runWallClockTimeout := resolveDesktopRunTimeouts(ctx, e.db)
 
 	rc := &pipeline.RunContext{
-		Run:                 run,
-		DB:                  e.db,
-		RunStatusDB:         runsRepo,
-		Pool:                nil,
-		MemoryServiceDB:     e.db,
-		MemorySnapshotStore: pipeline.NewDesktopMemorySnapshotStore(e.db),
-		EventBus:            e.bus,
-		TraceID:             traceID,
-		Tracer:              tracer,
-		Emitter:             emitter,
-		Router:              e.auxRouter,
-		Runtime:             &runRuntime,
-		HookRuntime:         e.hookRuntime,
-		HookRegistry:        e.hookRegistry,
+		Run:                  run,
+		DB:                   e.db,
+		RunStatusDB:          runsRepo,
+		Pool:                 nil,
+		MemoryServiceDB:      e.db,
+		MemorySnapshotStore:  pipeline.NewDesktopMemorySnapshotStore(e.db),
+		EventBus:             e.bus,
+		TraceID:              traceID,
+		Tracer:               tracer,
+		Emitter:              emitter,
+		Router:               e.auxRouter,
+		Runtime:              &runRuntime,
+		HookRuntime:          e.hookRuntime,
+		HookRegistry:         e.hookRegistry,
+		PluginHookRunner:     pipeline.NewDefaultPluginHookRunner(),
+		ToolExecutionTracker: tooldiagnostics.DefaultTracker,
 
 		ExecutorBuilder:     e.executorRegistry,
 		ToolBudget:          map[string]any{},
@@ -644,7 +666,8 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		AgentReasoningIterationsLimit: 0,
 		ToolContinuationBudgetLimit:   32,
 		MaxParallelTasks:              4,
-		RunWallClockTimeout:           15 * time.Minute,
+		RunIdleTimeout:                runIdleTimeout,
+		RunWallClockTimeout:           runWallClockTimeout,
 		PausedInputTimeout:            5 * time.Minute,
 		IdleHeartbeatInterval:         15 * time.Second,
 		CreditPerUSD:                  1000,
@@ -734,6 +757,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			e.baseAllowlist,
 			e.toolRegistry,
 		),
+		desktopObservedStage("plugin_hooks", eventsRepo, pipeline.NewPluginHooksMiddleware(e.db)),
 		desktopObservedStage("tool_provider_bindings", eventsRepo, desktopToolProviderBindings(e.db)),
 		desktopObservedStage("spawn_agent", eventsRepo, pipeline.NewSpawnAgentMiddleware()),
 		desktopObservedStage("persona_resolution", eventsRepo, desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo)),
@@ -768,14 +792,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 				return filepath.Join(home, ".arkloop", "home")
 			}),
 		)),
+		desktopObservedStage("plugin_context", eventsRepo, pipeline.NewPluginContextMiddleware(e.db)),
 	}
 	middlewares = append(middlewares, desktopCapabilityMiddlewares(memMiddleware, e.promptInjection, eventsRepo)...)
 	if e.lspManager != nil {
 		middlewares = append(middlewares, lsp.NewDiagnosticMiddleware(e.lspManager))
 	}
 	middlewares = append(middlewares,
-		desktopRouting(e.auxRouter, e.auxGateway, e.emitDebugEvents, e.db, runsRepo, eventsRepo),
-		pipeline.NewModelIdentityMiddleware(),
+		desktopRouting(e.auxRouter, e.auxGateway, e.emitDebugEvents, e.db, e.routingLoader, runsRepo, eventsRepo),
 		desktopObservedStage("channel_group_context_trim", eventsRepo, pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
 			Pool:            e.db,
 			MessagesRepo:    data.MessagesRepository{},
@@ -793,6 +817,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			EventsRepo:          data.DesktopRunEventsRepository{},
 		}),
 		pipeline.NewHeartbeatPrepareMiddleware(),
+		pipeline.NewModelIdentityMiddleware(),
 		pipeline.NewConditionalToolsMiddleware(),
 		pipeline.NewToolBuildMiddleware(),
 		pipeline.NewToolLoopDetectionMiddleware(),
@@ -1328,6 +1353,25 @@ func desktopChannelContext(db data.DesktopDB) pipeline.RunMiddleware {
 			}
 		}
 		rc.ChannelContext = channelCtx
+		if db != nil && rc.Run.ThreadID != uuid.Nil {
+			overrides := loadDesktopThreadRunOverrides(ctx, db, rc.Run.ThreadID)
+			if overrides.DefaultModel != "" {
+				if rc.InputJSON == nil {
+					rc.InputJSON = map[string]any{}
+				}
+				if _, ok := rc.InputJSON["model"]; !ok {
+					if _, higher := rc.InputJSON["output_model_key"]; !higher {
+						rc.InputJSON["model"] = overrides.DefaultModel
+					}
+				}
+			}
+			if overrides.ReasoningMode != "" && normalizeDesktopRunReasoningMode(rc.InputJSON["reasoning_mode"]) == "" {
+				rc.ReasoningMode = overrides.ReasoningMode
+				if rc.AgentConfig != nil {
+					rc.AgentConfig.ReasoningMode = overrides.ReasoningMode
+				}
+			}
+		}
 		rc.ChannelToolSurface = pipeline.NewChannelToolSurfaceFromContext(channelCtx)
 		if channelCtx.SenderUserID != nil {
 			rc.UserID = channelCtx.SenderUserID
@@ -2222,6 +2266,32 @@ func loadDesktopChannelConfigJSON(ctx context.Context, db data.DesktopDB, channe
 	return configJSON, nil
 }
 
+type desktopThreadRunOverrides struct {
+	DefaultModel  string
+	ReasoningMode string
+}
+
+func loadDesktopThreadRunOverrides(ctx context.Context, db data.DesktopDB, threadID uuid.UUID) desktopThreadRunOverrides {
+	if db == nil || threadID == uuid.Nil {
+		return desktopThreadRunOverrides{}
+	}
+	var raw []byte
+	if err := db.QueryRow(ctx, `SELECT COALESCE(config_json, '{}') FROM threads WHERE id = $1`, threadID.String()).Scan(&raw); err != nil {
+		return desktopThreadRunOverrides{}
+	}
+	var payload struct {
+		DefaultModel  string `json:"default_model"`
+		ReasoningMode string `json:"reasoning_mode"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return desktopThreadRunOverrides{}
+	}
+	return desktopThreadRunOverrides{
+		DefaultModel:  strings.TrimSpace(payload.DefaultModel),
+		ReasoningMode: normalizeDesktopRunReasoningMode(payload.ReasoningMode),
+	}
+}
+
 func loadDesktopDeliveryChannel(ctx context.Context, db data.DesktopDB, channelID uuid.UUID) (*desktopDeliveryChannelRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db must not be nil")
@@ -2988,13 +3058,7 @@ func desktopPersonaResolution(
 			rc.StreamThinking = def.StreamThinking
 			rc.ToolDenylist = append([]string(nil), def.ToolDenylist...)
 			if len(def.ToolAllowlist) > 0 {
-				narrowed := make(map[string]struct{}, len(def.ToolAllowlist))
-				for _, name := range def.ToolAllowlist {
-					if pipeline.ToolAllowed(rc.AllowlistSet, rc.ToolRegistry, name) {
-						narrowed[name] = struct{}{}
-					}
-				}
-				rc.AllowlistSet = narrowed
+				rc.AllowlistSet = pipeline.NarrowAllowlistPreservingMCP(rc.AllowlistSet, rc.ToolRegistry, def.ToolAllowlist, rc.MCPToolNames)
 			}
 			for _, name := range def.ToolDenylist {
 				pipeline.RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
@@ -3072,12 +3136,13 @@ func desktopRouting(
 	auxGateway llm.Gateway,
 	emitDebugEvents bool,
 	db data.DesktopDB,
+	routingLoader *routing.ConfigLoader,
 	runsRepo data.DesktopRunsRepository,
 	eventsRepo data.DesktopRunEventsRepository,
 ) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
 		router := fallbackRouter
-		if dbCfg, err := loadDesktopRoutingConfig(ctx, db); err == nil {
+		if dbCfg, err := routingLoader.Load(ctx, &rc.Run.AccountID); err == nil && len(dbCfg.Routes) > 0 {
 			router = routing.NewProviderRouter(dbCfg)
 		}
 		cfg := router.Config()
@@ -3306,9 +3371,11 @@ func desktopAgentLoop(
 		defer stopCancelWatch()
 		defer cleanupDesktopRunTools(rc, w)
 
+		pipeline.RunPluginSessionStart(execCtx, rc)
 		execErr := exec.Execute(execCtx, rc, rc.Emitter, func(ev events.RunEvent) error {
 			return w.append(execCtx, rc.Run.ID, ev, "")
 		})
+		pipeline.RunPluginSessionEnd(context.WithoutCancel(ctx), rc, execErr)
 		if errors.Is(execErr, context.Canceled) {
 			stopped, stopErr := w.finalizeCancelledIfRequested(ctx)
 			if stopErr != nil {

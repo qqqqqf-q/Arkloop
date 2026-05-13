@@ -1,6 +1,7 @@
 import { canonicalToolName, pickLogicalToolName } from '@arkloop/shared'
 import type { WebSearchPhaseStep } from './components/CopTimeline'
 import type { WebSource } from './storage'
+import type { TimelineText } from './timelineText'
 import {
   agentEventDataRecord,
   agentEventToolInput,
@@ -10,6 +11,25 @@ import {
 
 export const DEFAULT_SEARCHING_LABEL = 'Searching'
 export const COMPLETED_SEARCHING_LABEL = 'Search completed'
+
+function searchStepText(kind: WebSearchPhaseStep['kind'], label: string, status: WebSearchPhaseStep['status']): TimelineText {
+  if (kind === 'reviewing') return { kind: 'reviewing_sources' }
+  const trimmed = label.trim()
+  if (!trimmed || trimmed === DEFAULT_SEARCHING_LABEL || trimmed === COMPLETED_SEARCHING_LABEL) {
+    return status === 'done' ? { kind: 'search_completed' } : { kind: 'search', tense: 'live' }
+  }
+  return { kind: 'content', text: trimmed }
+}
+
+function completedSearchLabel(label: string): string {
+  const trimmed = label.trim()
+  return !trimmed || trimmed === DEFAULT_SEARCHING_LABEL ? COMPLETED_SEARCHING_LABEL : label
+}
+
+function completeSearchStep(step: WebSearchPhaseStep): WebSearchPhaseStep {
+  const label = completedSearchLabel(step.label)
+  return { ...step, label, text: searchStepText(step.kind, label, 'done'), status: 'done' }
+}
 
 /** 不同模型/供应商可能用 web_search、web_search.tavily、大小写或连字符变体 */
 export function isWebSearchToolName(toolName: string): boolean {
@@ -79,6 +99,7 @@ export function applyAgentEventToWebSearchSteps(
       id: segmentId,
       kind: stepKind,
       label,
+      text: searchStepText(stepKind, label, 'active'),
       status: 'active',
       queries,
     }
@@ -90,7 +111,7 @@ export function applyAgentEventToWebSearchSteps(
     const segmentId = typeof obj?.segmentId === 'string' ? obj.segmentId : ''
     if (!segmentId) return steps
     return steps.map((s) =>
-      s.id === segmentId ? { ...s, status: 'done' as const } : s,
+      s.id === segmentId ? completeSearchStep(s) : s,
     )
   }
 
@@ -106,6 +127,7 @@ export function applyAgentEventToWebSearchSteps(
       id: callId,
       kind: 'searching',
       label: DEFAULT_SEARCHING_LABEL,
+      text: { kind: 'search', tense: 'live' },
       status: 'active',
       queries,
       seq: event.order,
@@ -122,9 +144,7 @@ export function applyAgentEventToWebSearchSteps(
     const next = steps.map((s) =>
       s.id === callId
         ? {
-            ...s,
-            status: 'done' as const,
-            ...(s.label.trim() === DEFAULT_SEARCHING_LABEL ? { label: COMPLETED_SEARCHING_LABEL } : {}),
+            ...completeSearchStep(s),
             ...(typeof event.order === 'number' ? { resultSeq: event.order } : {}),
             ...(sources ? { sources } : {}),
           }
@@ -140,7 +160,7 @@ export function applyAgentEventToWebSearchSteps(
     event.type === 'run-interrupted'
   ) {
     return steps.map((s) =>
-      s.status === 'active' ? { ...s, status: 'done' as const } : s,
+      s.status === 'active' ? completeSearchStep(s) : s,
     )
   }
 

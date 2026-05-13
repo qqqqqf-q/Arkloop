@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/testutil"
 
 	"github.com/google/uuid"
@@ -225,6 +226,73 @@ func TestChannelContextMiddlewareFallsBackToChannelOwnerWhenIdentityMissingUserI
 		return nil
 	})
 
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+}
+
+func TestChannelContextMiddlewareAppliesThreadRunOverrides(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_context_thread_overrides")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	if _, err := pool.Exec(context.Background(), `
+		CREATE TABLE channel_identities (
+			id UUID PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			external_user_id TEXT NOT NULL,
+			user_id UUID NULL,
+			metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+		);
+		CREATE TABLE threads (
+			id UUID PRIMARY KEY,
+			config_json JSONB NOT NULL DEFAULT '{}'::jsonb
+		)`); err != nil {
+		t.Fatalf("create tables: %v", err)
+	}
+
+	identityID := uuid.New()
+	threadID := uuid.New()
+	if _, err := pool.Exec(
+		context.Background(),
+		`INSERT INTO channel_identities (id, channel_type, external_user_id) VALUES ($1, 'telegram', '10001');
+		 INSERT INTO threads (id, config_json) VALUES ($2, '{"default_model":"gpt-thread","reasoning_mode":"high"}'::jsonb)`,
+		identityID,
+		threadID,
+	); err != nil {
+		t.Fatalf("insert rows: %v", err)
+	}
+
+	rc := &RunContext{
+		Run: data.Run{ThreadID: threadID},
+		JobPayload: map[string]any{
+			"channel_delivery": map[string]any{
+				"channel_id":                 uuid.NewString(),
+				"channel_type":               "telegram",
+				"conversation_ref":           map[string]any{"target": "10001"},
+				"sender_channel_identity_id": identityID.String(),
+			},
+		},
+		InputJSON:     map[string]any{},
+		ReasoningMode: "auto",
+		AgentConfig:   &ResolvedAgentConfig{ReasoningMode: "auto"},
+	}
+
+	h := Build([]RunMiddleware{NewChannelContextMiddleware(pool)}, func(_ context.Context, rc *RunContext) error {
+		if got := rc.InputJSON["model"]; got != "gpt-thread" {
+			t.Fatalf("expected thread model, got %#v", got)
+		}
+		if rc.ReasoningMode != "high" {
+			t.Fatalf("expected thread reasoning mode, got %q", rc.ReasoningMode)
+		}
+		if rc.AgentConfig == nil || rc.AgentConfig.ReasoningMode != "high" {
+			t.Fatalf("expected agent config reasoning mode, got %#v", rc.AgentConfig)
+		}
+		return nil
+	})
 	if err := h(context.Background(), rc); err != nil {
 		t.Fatalf("middleware returned error: %v", err)
 	}

@@ -416,7 +416,8 @@ function createWindow(): BrowserWindow {
   win.webContents.on('will-frame-navigate', (event) => {
     const { url, isMainFrame } = event
     if (!parseHttpUrl(url)) return
-    if (isMainFrame && isAppHttpNavigation(url)) return
+    if (!isMainFrame) return
+    if (isAppHttpNavigation(url)) return
     event.preventDefault()
     void shell.openExternal(url)
   })

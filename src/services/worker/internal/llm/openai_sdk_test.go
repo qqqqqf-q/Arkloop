@@ -1062,6 +1062,75 @@ func TestOpenAISDKGateway_QuirkRetryDowngradeXHighReasoning(t *testing.T) {
 	}
 }
 
+func TestOpenAISDKGateway_QuirkRetryStripToolChoice(t *testing.T) {
+	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
+	var attempts int
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		bodies = append(bodies, body)
+		attempts++
+		if attempts == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"deepseek-reasoner does not support this tool_choice","type":"invalid_request_error","code":"invalid_request_error"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(openAISDKSSE([]string{
+			`{"id":"chatcmpl_1","object":"chat.completion.chunk","created":1,"model":"deepseek","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`,
+		})))
+	}))
+	defer server.Close()
+
+	gateway := NewOpenAIGatewaySDK(OpenAIGatewayConfig{Transport: TransportConfig{APIKey: "key", BaseURL: server.URL}, Protocol: OpenAIProtocolConfig{PrimaryKind: ProtocolKindOpenAIChatCompletions}})
+	var completed *StreamRunCompleted
+	var learned []StreamQuirkLearned
+	if err := gateway.Stream(context.Background(), Request{
+		Model:    "deepseek-v4-flash",
+		Messages: []Message{{Role: "user", Content: []ContentPart{{Text: "hello"}}}},
+		Tools: []ToolSpec{{
+			Name:       "heartbeat_decision",
+			JSONSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		}},
+		ToolChoice: &ToolChoice{Mode: "specific", ToolName: "heartbeat_decision"},
+	}, func(event StreamEvent) error {
+		switch ev := event.(type) {
+		case StreamRunCompleted:
+			completed = &ev
+		case StreamQuirkLearned:
+			learned = append(learned, ev)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if attempts != 2 || len(bodies) != 2 {
+		t.Fatalf("expected retry, got attempts=%d bodies=%#v", attempts, bodies)
+	}
+	if completed == nil {
+		t.Fatalf("expected completion after retry")
+	}
+	if _, ok := bodies[0]["tool_choice"]; !ok {
+		t.Fatalf("first payload should include tool_choice: %#v", bodies[0])
+	}
+	if _, ok := bodies[1]["tool_choice"]; ok {
+		t.Fatalf("retry payload should strip tool_choice: %#v", bodies[1])
+	}
+	if _, ok := bodies[1]["tools"]; !ok {
+		t.Fatalf("retry payload should preserve tools: %#v", bodies[1])
+	}
+	if !gateway.(*openAISDKGateway).quirks.Has(QuirkStripToolChoice) {
+		t.Fatalf("quirk not stored")
+	}
+	if len(learned) != 1 || learned[0].ProviderKind != "openai" || learned[0].QuirkID != string(QuirkStripToolChoice) {
+		t.Fatalf("expected one StreamQuirkLearned event, got %#v", learned)
+	}
+}
+
 func TestOpenAISDKGateway_ResponsesQuirkRetryDowngradeXHighReasoning(t *testing.T) {
 	t.Setenv("ARKLOOP_OUTBOUND_ALLOW_LOOPBACK_HTTP", "true")
 	var attempts int

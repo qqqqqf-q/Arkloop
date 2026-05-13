@@ -165,6 +165,7 @@ func NewAgentLoopHandler(
 			return flushErr
 		}
 
+		RunPluginSessionStart(ctx, rc)
 		err := exec.Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
 			if appendErr := writer.Append(ctx, runsRepo, eventsRepo, rc.Run.ID, ev); appendErr != nil {
 				if errors.Is(appendErr, errStopProcessing) {
@@ -174,6 +175,7 @@ func NewAgentLoopHandler(
 			}
 			return nil
 		})
+		RunPluginSessionEnd(context.WithoutCancel(ctx), rc, err)
 		if err != nil && !errors.Is(err, errStopProcessing) {
 			if writer.TerminalUserMessage() == "" {
 				rc.ChannelTerminalNotice = err.Error()

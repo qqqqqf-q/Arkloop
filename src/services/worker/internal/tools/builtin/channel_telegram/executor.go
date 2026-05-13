@@ -14,6 +14,7 @@ import (
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/tools"
+	channelreply "arkloop/services/worker/internal/tools/builtin/channel_reply"
 
 	"github.com/google/uuid"
 )
@@ -248,15 +249,9 @@ func (e *Executor) reply(
 	started time.Time,
 ) tools.ExecutionResult {
 	ms := func() int { return int(time.Since(started).Milliseconds()) }
-	replyToRaw := ""
-	if s, ok := coerceTelegramMessageID(args["reply_to_message_id"]); ok {
-		replyToRaw = s
-	}
-	if replyToRaw == "" {
-		return tools.ExecutionResult{
-			Error:      &tools.ExecutionError{ErrorClass: tools.ErrorClassToolExecutionFailed, Message: "reply_to_message_id is required"},
-			DurationMs: ms(),
-		}
+	replyToRaw, ok := coerceTelegramMessageID(args["reply_to_message_id"])
+	if !ok {
+		return channelreply.Reply("", started)
 	}
 	if _, err := strconv.ParseInt(replyToRaw, 10, 64); err != nil {
 		return tools.ExecutionResult{
@@ -264,14 +259,7 @@ func (e *Executor) reply(
 			DurationMs: ms(),
 		}
 	}
-	return tools.ExecutionResult{
-		ResultJSON: map[string]any{
-			"ok":                  true,
-			"reply_to_set":        true,
-			"reply_to_message_id": replyToRaw,
-		},
-		DurationMs: ms(),
-	}
+	return channelreply.Reply(replyToRaw, started)
 }
 
 func (e *Executor) sendFile(

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/messagecontent"
+	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/weixinclient"
 
 	"github.com/google/uuid"
@@ -75,6 +77,7 @@ type weixinConnector struct {
 	jobRepo                 *data.JobRepository
 	pool                    data.DB
 	inputNotify             func(ctx context.Context, runID uuid.UUID)
+	weixinClient            *weixinclient.Client
 }
 
 // HandleWeChatMessage 处理一条微信 iLink 消息。
@@ -141,15 +144,6 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 		return tx.Commit(ctx)
 	}
 
-	// Dedup via receipt. iLink 消息没有 message_id，用 context_token 去重。
-	received, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, platformChatID, msg.ContextToken)
-	if err != nil {
-		return err
-	}
-	if !received {
-		return commitTx()
-	}
-
 	identity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, "weixin", userID, nil, nil, nil)
 	if err != nil {
 		return err
@@ -162,141 +156,136 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 		}
 	}
 
-	if c.channelLedgerRepo != nil {
-		ledgerMeta, _ := json.Marshal(map[string]any{
-			"source":            "weixin",
-			"conversation_type": chatType,
-		})
-		if _, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			PlatformConversationID:  platformChatID,
-			PlatformMessageID:       msg.ContextToken,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMeta,
-		}); err != nil {
-			return err
-		}
+	incoming := InboundMessage{
+		ChannelID:        ch.ID,
+		ChannelType:      "weixin",
+		PlatformChatID:   platformChatID,
+		PlatformMsgID:    msg.ContextToken,
+		PlatformUserID:   userID,
+		ConversationType: chatType,
+		Text:             text,
+		CommandText:      text,
 	}
 
-	threadProjectID := derefUUID(persona.ProjectID)
-	if threadProjectID == uuid.Nil {
-		ownerUserID := uuid.Nil
-		if ch.OwnerUserID != nil {
-			ownerUserID = *ch.OwnerUserID
-		}
-		if ownerUserID == uuid.Nil && identity.UserID != nil {
-			ownerUserID = *identity.UserID
-		}
-		if ownerUserID != uuid.Nil {
-			if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
-				threadProjectID = pid
-			}
-		}
-	}
-	if threadProjectID == uuid.Nil {
-		return fmt.Errorf("cannot resolve project for persona %s", persona.ID)
-	}
-	threadID, err := c.resolveWeixinThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, isPrivate, platformChatID)
-	if err != nil {
-		return err
-	}
-
-	content, err := messagecontent.Normalize(messagecontent.FromText(text).Parts)
-	if err != nil {
-		return err
-	}
-	contentJSON, err := content.JSON()
-	if err != nil {
-		return err
-	}
-
-	metadataJSON, _ := json.Marshal(map[string]any{
-		"source":              "weixin",
-		"channel_identity_id": identity.ID.String(),
-		"platform_chat_id":    platformChatID,
-		"platform_message_id": msg.ContextToken,
-		"platform_user_id":    userID,
-		"chat_type":           chatType,
-	})
-
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-		ctx, ch.AccountID, threadID, "user", text, contentJSON, metadataJSON, identity.UserID,
+	// 命令处理：/model /think /heartbeat /new /stop
+	cmdText := incoming.CommandText
+	if _, replyText, _, cancelRunID, err := DispatchChannelCommand(
+		ctx, tx, ch, *persona, identity,
+		cmdText, isPrivate, platformChatID,
+		cfg.DefaultModel, nil,
+		ChannelCommandResolver{
+			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
+				return c.resolveWeixinThreadID(ctx, tx, ch, personaID, projectID, identity, isPrivate, chatID)
+			},
+			ResolveHeartbeatIdentity: func(ctx context.Context, tx pgx.Tx) (*data.ChannelIdentity, error) {
+				gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				return &gi, nil
+			},
+		},
+		c.channelIdentitiesRepo, c.channelDMThreadsRepo, c.channelGroupThreadsRepo,
+		c.personasRepo, c.runEventRepo,
 	); err != nil {
 		return err
-	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-
-	activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID)
-	if err != nil {
-		return err
-	}
-	if activeRun != nil {
-		delivered, err := c.deliverToActiveRun(ctx, runRepoTx, activeRun, text, traceID)
-		if err != nil {
+	} else if replyText != "" {
+		if err := commitTx(); err != nil {
 			return err
 		}
-		if delivered {
-			if err := commitTx(); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "weixin_inbound_processed",
-				"stage", "delivered_to_existing_run",
-				"channel_id", ch.ID, "run_id", activeRun.ID, "thread_id", threadID,
-			)
-			c.notifyInput(ctx, activeRun.ID)
-			return nil
+		if cancelRunID != uuid.Nil {
+			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
 		}
+		c.sendWeixinReply(ctx, msg, replyText)
+		return nil
 	}
 
-	if !channelAgentTriggerConsume(ch.ID) {
-		return commitTx()
-	}
-
-	channelDelivery := map[string]any{
-		"channel_id":   ch.ID.String(),
-		"channel_type": "weixin",
-		"conversation_ref": map[string]any{
-			"target": platformChatID,
+	dispatchResult, accepted, err := DispatchInboundImmediate(ctx, tx, InboundImmediatePipelineRequest{
+		TraceID:      traceID,
+		Channel:      ch,
+		PersonaRef:   personaRef,
+		Identity:     identity,
+		Incoming:     incoming,
+		Source:       "weixin",
+		JobPayload:   map[string]any{"context_token": msg.ContextToken},
+		ForceActive:  true,
+		LedgerRepo:   c.channelLedgerRepo,
+		ReceiptsRepo: c.channelReceiptsRepo,
+		RunEventRepo: c.runEventRepo,
+		JobRepo:      c.jobRepo,
+		ReceivedLedgerMetadata: inboundLedgerMetadata(map[string]any{
+			inboundLedgerKeySource:           "weixin",
+			inboundLedgerKeyConversationType: chatType,
+		}, inboundStateReceived),
+		ResolveAndPersist: func(ctx context.Context, tx pgx.Tx) (InboundPipelinePersistResult, error) {
+			threadProjectID := derefUUID(persona.ProjectID)
+			if threadProjectID == uuid.Nil {
+				ownerUserID := uuid.Nil
+				if ch.OwnerUserID != nil {
+					ownerUserID = *ch.OwnerUserID
+				}
+				if ownerUserID == uuid.Nil && identity.UserID != nil {
+					ownerUserID = *identity.UserID
+				}
+				if ownerUserID != uuid.Nil {
+					if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
+						threadProjectID = pid
+					}
+				}
+			}
+			if threadProjectID == uuid.Nil {
+				return InboundPipelinePersistResult{}, fmt.Errorf("cannot resolve project for persona %s", persona.ID)
+			}
+			threadID, err := c.resolveWeixinThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, isPrivate, platformChatID)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, cfg.DefaultModel); err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			content, err := messagecontent.Normalize(messagecontent.FromText(text).Parts)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			contentJSON, err := content.JSON()
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			metadataJSON, _ := json.Marshal(map[string]any{
+				"source":              "weixin",
+				"channel_identity_id": identity.ID.String(),
+				"platform_chat_id":    platformChatID,
+				"platform_message_id": msg.ContextToken,
+				"platform_user_id":    userID,
+				"chat_type":           chatType,
+			})
+			msgRow, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(ctx, ch.AccountID, threadID, "user", text, contentJSON, metadataJSON, identity.UserID)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			return InboundPipelinePersistResult{
+				ThreadID:            threadID,
+				MessageID:           msgRow.ID,
+				InputContent:        text,
+				ThreadTailMessageID: msgRow.ID.String(),
+			}, nil
 		},
-		"inbound_message_ref": map[string]any{
-			"message_id": msg.ContextToken,
+		DeliverToActiveRun: func(ctx context.Context, repo *data.RunEventRepository, run *data.Run, content string, traceID string) (bool, error) {
+			return c.deliverToActiveRun(ctx, repo, run, content, traceID)
 		},
-		"trigger_message_ref": map[string]any{
-			"message_id": msg.ContextToken,
-		},
-		"platform_chat_id":           platformChatID,
-		"platform_message_id":        msg.ContextToken,
-		"sender_channel_identity_id": identity.ID.String(),
-		"conversation_type":          chatType,
-	}
-
-	runData := map[string]any{
-		"persona_id":          personaRef,
-		"continuation_source": "none",
-		"continuation_loop":   false,
-		"channel_delivery":    channelDelivery,
-	}
-	if m := strings.TrimSpace(cfg.DefaultModel); m != "" {
-		runData["model"] = m
-	}
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
+	})
 	if err != nil {
 		return err
 	}
-
-	jobPayload := map[string]any{
-		"source":           "weixin",
-		"channel_delivery": channelDelivery,
-		"context_token":    msg.ContextToken,
+	if !accepted {
+		return commitTx()
 	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
-		return err
+	if dispatchResult.Delivered {
+		slog.InfoContext(ctx, "weixin_inbound_processed",
+			"stage", "delivered_to_existing_run",
+			"channel_id", ch.ID, "run_id", dispatchResult.RunID, "thread_id", dispatchResult.ThreadID,
+		)
+		c.notifyInput(ctx, dispatchResult.RunID)
 	}
 	return commitTx()
 }
@@ -427,4 +416,27 @@ func (c *weixinConnector) notifyInput(ctx context.Context, runID uuid.UUID) {
 		return
 	}
 	c.inputNotify(ctx, runID)
+}
+
+// sendWeixinReply 通过 iLink API 发送文本回复（best-effort，commit 后调用）。
+func (c *weixinConnector) sendWeixinReply(ctx context.Context, msg weixinclient.WeixinMessage, replyText string) {
+	if c.weixinClient == nil || strings.TrimSpace(replyText) == "" {
+		return
+	}
+	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	_, err := c.weixinClient.SendMessage(sendCtx, &weixinclient.SendMessageRequest{
+		ToUserID:     msg.FromUserID,
+		FromUserID:   msg.ToUserID,
+		MessageType:  1,
+		MessageState: 2,
+		ClientID:     uuid.NewString(),
+		ContextToken: msg.ContextToken,
+		ItemList: []weixinclient.MessageItem{
+			{Type: 1, TextItem: &weixinclient.TextItem{Text: replyText}},
+		},
+	})
+	if err != nil {
+		slog.WarnContext(ctx, "weixin_send_reply_failed", "error", err, "reply_len", len(replyText))
+	}
 }

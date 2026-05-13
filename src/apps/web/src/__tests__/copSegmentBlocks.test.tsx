@@ -39,7 +39,7 @@ afterEach(() => {
 
 async function renderBlocks(
   segment: Extract<AssistantTurnSegment, { type: 'cop' }>,
-  options: { todoWritesForFinalDisplay?: TodoWriteRef[] } = {},
+  options: { todoWritesForFinalDisplay?: TodoWriteRef[]; live?: boolean; isComplete?: boolean } = {},
 ) {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -52,7 +52,8 @@ async function renderBlocks(
           keyPrefix="test"
           fileOps={[{ id: 'read-1', toolName: 'read_file', label: 'Read app.tsx', status: 'success', seq: 2, filePath: 'app.tsx', displayKind: 'read' }]}
           sources={[]}
-          isComplete
+          isComplete={options.isComplete ?? true}
+          live={options.live}
           todoWritesForFinalDisplay={options.todoWritesForFinalDisplay}
         />
       </LocaleProvider>,
@@ -68,7 +69,7 @@ async function renderBlocks(
 }
 
 describe('CopSegmentBlocks', () => {
-  it('renders exec_command as a top-level sibling, not inside CopTimeline', async () => {
+  it('renders exec_command inside CopTimeline, not as top-level sibling', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
       title: null,
@@ -81,13 +82,13 @@ describe('CopSegmentBlocks', () => {
       const timeline = container.querySelector('.cop-timeline-root')
       expect(container.textContent).toContain('pwd')
       expect(timeline).not.toBeNull()
-      expect(timeline?.textContent).not.toContain('pwd')
+      expect(timeline?.textContent).toContain('pwd')
     } finally {
       cleanup()
     }
   })
 
-  it('renders todo_write as a top-level sibling, not inside CopTimeline', async () => {
+  it('renders todo_write as a top-level sibling; remaining single tool renders in card mode without COP shell', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
       title: null,
@@ -110,11 +111,85 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      const timeline = container.querySelector('.cop-timeline-root')
       expect(container.textContent).toContain('Write focused test')
       expect(container.textContent).toContain('1 of 2 Done')
-      expect(timeline).not.toBeNull()
-      expect(timeline?.textContent).not.toContain('Write focused test')
+      // todo_write is promoted as top-level, read renders in card mode without COP shell
+      expect(container.querySelector('.cop-timeline-root')).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('renders single document_write in card mode without COP shell', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md', content: '# Report\nBody' },
+          },
+          seq: 1,
+        },
+      ],
+    })
+    try {
+      expect(container.textContent).toContain('report.md')
+      expect(container.querySelector('[aria-label="Document"]')).not.toBeNull()
+      expect(container.querySelector('.cop-timeline-root')).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('timeline_title with single document_write renders in card mode without COP shell', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: 'Writing report',
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md', content: '# Report\nBody' },
+          },
+          seq: 1,
+        },
+      ],
+    })
+    try {
+      expect(container.textContent).toContain('report.md')
+      expect(container.querySelector('[aria-label="Document"]')).not.toBeNull()
+      expect(container.querySelector('.cop-timeline-root')).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('keeps single document_write with thought inside COP', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        { kind: 'thinking', content: 'Need to write the report', seq: 1 },
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md', content: '# Report\nBody' },
+          },
+          seq: 2,
+        },
+      ],
+    })
+    try {
+      expect(container.textContent).toContain('document_write')
+      expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
     } finally {
       cleanup()
     }

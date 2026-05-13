@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { ArtifactIframe, type ArtifactAction, type ArtifactIframeHandle } from './ArtifactIframe'
 import { CopTimelineHeaderLabel } from './cop-timeline/CopTimelineHeader'
 import { noteShowWidgetPhase } from '../streamDebug'
@@ -19,7 +19,7 @@ type Props = {
   onAction?: (action: ArtifactAction) => void
 }
 
-export function WidgetBlock({ html, title, complete, loadingMessages, compact = false, debugMeta, onAction }: Props) {
+export const WidgetBlock = memo(function WidgetBlock({ html, title, complete, loadingMessages, compact = false, debugMeta, onAction }: Props) {
   const iframeRef = useRef<ArtifactIframeHandle>(null)
   const lastRenderRef = useRef<{ html: string; complete: boolean } | null>(null)
   const [runtimeError, setRuntimeError] = useState<string | null>(null)
@@ -131,4 +131,4 @@ export function WidgetBlock({ html, title, complete, loadingMessages, compact = 
       )}
     </div>
   )
-}
+})

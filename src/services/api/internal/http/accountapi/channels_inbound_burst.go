@@ -419,39 +419,44 @@ func (r channelInboundBurstRunner) recoverBatch(
 	if message == nil {
 		return fmt.Errorf("pending batch latest message not found")
 	}
-	jobPayload, err := buildChannelBurstJobPayload(ch, latestEntry)
+	incoming, err := buildChannelBurstInboundMessage(ch, latestEntry)
 	if err != nil {
 		return err
 	}
-	runStartedData := buildChannelBurstRunStartedData(
-		personaRef,
-		resolveChannelBurstDefaultModel(ch.ConfigJSON),
-		jobPayload,
-	)
-	runStartedData["thread_tail_message_id"] = latestEntry.MessageID.String()
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(
-		ctx,
-		ch.AccountID,
-		openBatch.ThreadID,
-		channelOwnerUserID(ch),
-		"run.started",
-		runStartedData,
-	)
+
+	var chCfg struct {
+		DefaultModel string `json:"default_model,omitempty"`
+	}
+	if len(ch.ConfigJSON) > 0 {
+		_ = json.Unmarshal(ch.ConfigJSON, &chCfg)
+	}
+	if strings.TrimSpace(chCfg.DefaultModel) != "" {
+		if err := ensureInboundThreadDefaultModel(ctx, tx, openBatch.ThreadID, strings.TrimSpace(chCfg.DefaultModel)); err != nil {
+			return err
+		}
+	}
+
+	dispatchResult, err := DispatchInbound(ctx, tx, InboundDispatchRequest{
+		TraceID:             observability.NewTraceID(),
+		Channel:             ch,
+		PersonaRef:          personaRef,
+		Identity:            data.ChannelIdentity{ID: *latestEntry.SenderChannelIdentityID},
+		Incoming:            incoming,
+		ThreadID:            openBatch.ThreadID,
+		MessageID:           *latestEntry.MessageID,
+		ThreadTailMessageID: latestEntry.MessageID.String(),
+		Source:              "channel_burst_recovery",
+		ForceActive:         true,
+		RunEventRepo:        r.runEventRepo,
+		JobRepo:             r.jobRepo,
+	})
 	if err != nil {
 		return err
 	}
-	if _, err := r.jobRepo.WithTx(tx).EnqueueRun(
-		ctx,
-		ch.AccountID,
-		run.ID,
-		observability.NewTraceID(),
-		data.RunExecuteJobType,
-		jobPayload,
-		nil,
-	); err != nil {
-		return err
+	if dispatchResult.FinalState != inboundStateEnqueuedNewRun {
+		return tx.Commit(ctx)
 	}
-	if err := markPendingBatchStateTx(ctx, ledgerRepoTx, ch.ID, entries, &run.ID, inboundStateEnqueuedNewRun); err != nil {
+	if err := markPendingBatchStateTx(ctx, ledgerRepoTx, ch.ID, entries, &dispatchResult.RunID, inboundStateEnqueuedNewRun); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -573,78 +578,42 @@ func resolveInboundBurstPersonaRef(ctx context.Context, personasRepo *data.Perso
 	return buildPersonaRef(*persona), nil
 }
 
-func buildChannelBurstRunStartedData(personaRef string, defaultModel string, jobPayload map[string]any) map[string]any {
-	channelDelivery, _ := jobPayload["channel_delivery"].(map[string]any)
-	return buildChannelRunStartedData(personaRef, defaultModel, "", channelDelivery)
-}
-
-func resolveChannelBurstDefaultModel(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return ""
-	}
-	model, _ := payload["default_model"].(string)
-	return strings.TrimSpace(model)
-}
-
-func buildChannelBurstJobPayload(ch data.Channel, entry data.ChannelInboundLedgerEntry) (map[string]any, error) {
+func buildChannelBurstInboundMessage(ch data.Channel, entry data.ChannelInboundLedgerEntry) (InboundMessage, error) {
 	if entry.SenderChannelIdentityID == nil || *entry.SenderChannelIdentityID == uuid.Nil {
-		return nil, fmt.Errorf("pending batch entry missing sender_channel_identity_id")
+		return InboundMessage{}, fmt.Errorf("pending batch entry missing sender_channel_identity_id")
 	}
 	platformChatID := strings.TrimSpace(entry.PlatformConversationID)
 	platformMessageID := strings.TrimSpace(entry.PlatformMessageID)
 	if platformChatID == "" || platformMessageID == "" {
-		return nil, fmt.Errorf("pending batch entry missing platform ids")
+		return InboundMessage{}, fmt.Errorf("pending batch entry missing platform ids")
 	}
 
-	conversationRef := map[string]any{"target": platformChatID}
+	incoming := InboundMessage{
+		ChannelID:      ch.ID,
+		ChannelType:    ch.ChannelType,
+		PlatformChatID: platformChatID,
+		PlatformMsgID:  platformMessageID,
+	}
 	if entry.PlatformThreadID != nil && strings.TrimSpace(*entry.PlatformThreadID) != "" {
 		threadID := strings.TrimSpace(*entry.PlatformThreadID)
-		conversationRef["thread_id"] = threadID
-	}
-
-	payload := map[string]any{
-		"source": "channel_burst_recovery",
-		"channel_delivery": map[string]any{
-			"channel_id":   ch.ID.String(),
-			"channel_type": ch.ChannelType,
-			"conversation_ref": map[string]any{
-				"target": conversationRef["target"],
-			},
-			"inbound_message_ref": map[string]any{
-				"message_id": platformMessageID,
-			},
-			"trigger_message_ref": map[string]any{
-				"message_id": platformMessageID,
-			},
-			"platform_chat_id":           platformChatID,
-			"platform_message_id":        platformMessageID,
-			"sender_channel_identity_id": entry.SenderChannelIdentityID.String(),
-		},
-	}
-	delivery := payload["channel_delivery"].(map[string]any)
-	if threadID, ok := conversationRef["thread_id"].(string); ok && strings.TrimSpace(threadID) != "" {
-		delivery["conversation_ref"].(map[string]any)["thread_id"] = threadID
-		delivery["message_thread_id"] = threadID
+		incoming.MessageThreadID = &threadID
 	}
 	if entry.PlatformParentMessageID != nil && strings.TrimSpace(*entry.PlatformParentMessageID) != "" {
-		delivery["inbound_reply_to_message_id"] = strings.TrimSpace(*entry.PlatformParentMessageID)
+		replyTo := strings.TrimSpace(*entry.PlatformParentMessageID)
+		incoming.ReplyToMsgID = &replyTo
 	}
-	if conversationType, ok := inboundLedgerString(entry.MetadataJSON, "conversation_type"); ok {
-		delivery["conversation_type"] = conversationType
+	if conversationType, ok := inboundLedgerString(entry.MetadataJSON, inboundLedgerKeyConversationType); ok {
+		incoming.ConversationType = conversationType
 	} else {
-		delivery["conversation_type"] = "private"
+		incoming.ConversationType = "private"
 	}
-	if mentionsBot, ok := inboundLedgerBool(entry.MetadataJSON, "mentions_bot"); ok {
-		delivery["mentions_bot"] = mentionsBot
+	if mentionsBot, ok := inboundLedgerBool(entry.MetadataJSON, inboundLedgerKeyMentionsBot); ok {
+		incoming.MentionsBot = mentionsBot
 	}
-	if replyToBot, ok := inboundLedgerBool(entry.MetadataJSON, "is_reply_to_bot"); ok {
-		delivery["is_reply_to_bot"] = replyToBot
+	if replyToBot, ok := inboundLedgerBool(entry.MetadataJSON, inboundLedgerKeyIsReplyToBot); ok {
+		incoming.IsReplyToBot = replyToBot
 	}
-	return payload, nil
+	return incoming, nil
 }
 
 func extendPendingInboundBurstWindowTx(

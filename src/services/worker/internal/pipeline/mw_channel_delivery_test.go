@@ -59,7 +59,7 @@ func TestEscapeTelegramMarkdownV2EscapesReservedCharacters(t *testing.T) {
 }
 
 func TestSplitTelegramMessagePrefersParagraphBoundary(t *testing.T) {
-	segments := splitTelegramMessage("alpha paragraph.\n\nbeta gamma delta", 20)
+	segments := splitByRuneLimit("alpha paragraph.\n\nbeta gamma delta", 20)
 	if len(segments) != 2 {
 		t.Fatalf("expected 2 segments, got %d", len(segments))
 	}
@@ -72,7 +72,7 @@ func TestSplitTelegramMessagePrefersParagraphBoundary(t *testing.T) {
 }
 
 func TestSplitTelegramMessageFallsBackToHardLimit(t *testing.T) {
-	segments := splitTelegramMessage(strings.Repeat("x", 9), 4)
+	segments := splitByRuneLimit(strings.Repeat("x", 9), 4)
 	if len(segments) != 3 {
 		t.Fatalf("expected 3 segments, got %d", len(segments))
 	}
@@ -83,7 +83,7 @@ func TestSplitTelegramMessageFallsBackToHardLimit(t *testing.T) {
 
 func TestSplitTelegramMessagePreservesUTF8Boundaries(t *testing.T) {
 	input := "你好世界今天"
-	segments := splitTelegramMessage(input, 3)
+	segments := splitByRuneLimit(input, 3)
 	if len(segments) != 2 {
 		t.Fatalf("expected 2 segments, got %d", len(segments))
 	}
@@ -93,7 +93,7 @@ func TestSplitTelegramMessagePreservesUTF8Boundaries(t *testing.T) {
 }
 
 func TestSplitDiscordMessagePrefersParagraphBoundary(t *testing.T) {
-	segments := splitDiscordMessage("alpha paragraph.\n\nbeta gamma delta", 20)
+	segments := splitByRuneLimit("alpha paragraph.\n\nbeta gamma delta", 20)
 	if len(segments) != 2 {
 		t.Fatalf("expected 2 segments, got %d", len(segments))
 	}

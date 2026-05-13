@@ -26,6 +26,7 @@ import (
 	"arkloop/services/api/internal/mcpfilesync"
 	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/api/internal/plugincontrib"
 	"arkloop/services/api/internal/skillseed"
 
 	sharedconfig "arkloop/services/shared/config"
@@ -37,6 +38,7 @@ import (
 	"arkloop/services/shared/eventbus"
 	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/pluginstore"
 	"arkloop/services/shared/telegrambot"
 )
 
@@ -272,6 +274,18 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init workspace skill enable repo: %w", err)
 	}
+	pluginPackagesRepo, err := data.NewPluginPackagesRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init plugin packages repo: %w", err)
+	}
+	pluginEnablementsRepo, err := data.NewPluginEnablementsRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init plugin enablements repo: %w", err)
+	}
+	pluginRuntimeStateRepo, err := data.NewPluginRuntimeStateRepository(pgxPool)
+	if err != nil {
+		return fmt.Errorf("init plugin runtime state repo: %w", err)
+	}
 	platformSkillOverridesRepo, err := data.NewPlatformSkillOverridesRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init platform skill overrides repo: %w", err)
@@ -460,6 +474,31 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open skill store: %w", err)
 	}
+	pluginStore, err := pluginstore.NewLocalStore(filepath.Join(cfg.DataDir, "plugins"))
+	if err != nil {
+		return fmt.Errorf("open plugin store: %w", err)
+	}
+	pluginServices, err := plugincontrib.NewServices(plugincontrib.Deps{
+		Pool:               pgxPool,
+		PackagesRepo:       pluginPackagesRepo,
+		EnablementsRepo:    pluginEnablementsRepo,
+		RuntimeRepo:        pluginRuntimeStateRepo,
+		MCPInstallsRepo:    profileMCPInstallsRepo,
+		WorkspaceMCPRepo:   workspaceMCPEnableRepo,
+		SkillPackagesRepo:  skillPackagesRepo,
+		SkillInstallsRepo:  profileSkillInstallsRepo,
+		WorkspaceSkillRepo: workspaceSkillEnableRepo,
+		ProfileRepo:        profileRegistriesRepo,
+		WorkspaceRepo:      workspaceRegistriesRepo,
+		SkillStore:         skillStore,
+		PluginStore:        pluginStore,
+	})
+	if err != nil {
+		return fmt.Errorf("init plugin services: %w", err)
+	}
+	if seedErr := pluginServices.Installer.SeedBuiltinCUA(ctx, auth.DesktopAccountID, auth.DesktopUserID); seedErr != nil {
+		logger.Warn("builtin_plugin_seed_failed", "plugin_id", "arkloop.plugins.cua", "error", seedErr.Error())
+	}
 
 	// ---- platform skill seeder ----
 	// Desktop runs as a single process — skip the PG advisory-lock election
@@ -530,6 +569,11 @@ func RunDesktop(ctx context.Context) error {
 		SkillPackagesRepo:            skillPackagesRepo,
 		ProfileSkillInstallsRepo:     profileSkillInstallsRepo,
 		WorkspaceSkillEnableRepo:     workspaceSkillEnableRepo,
+		PluginPackagesRepo:           pluginPackagesRepo,
+		PluginEnablementsRepo:        pluginEnablementsRepo,
+		PluginRuntimeStateRepo:       pluginRuntimeStateRepo,
+		PluginInstaller:              pluginServices.Installer,
+		PluginEnabler:                pluginServices.Enabler,
 		PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 		ProfileRegistriesRepo:        profileRegistriesRepo,
 		WorkspaceRegistriesRepo:      workspaceRegistriesRepo,

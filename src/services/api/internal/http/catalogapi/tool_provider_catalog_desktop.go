@@ -14,6 +14,7 @@ import (
 var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_search", ProviderName: "web_search.basic"},
 	{GroupName: "web_search", ProviderName: "web_search.tavily", RequiresAPIKey: true},
+	{GroupName: "web_search", ProviderName: "web_search.exa"},
 	{GroupName: "web_search", ProviderName: "web_search.searxng", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://searxng:8080"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},

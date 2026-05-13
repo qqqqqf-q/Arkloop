@@ -1,0 +1,120 @@
+.local-file-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  color: var(--c-text-secondary);
+  background: var(--c-bg-page);
+  border: 0;
+  border-radius: 0;
+  font-size: 13.5px;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
+.local-file-tree__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-file-tree__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 5px;
+}
+
+.local-file-tree__item {
+  min-width: max-content;
+  padding: 1px 0;
+}
+
+.local-file-tree__row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  min-height: 31px;
+  padding-top: 3px;
+  padding-right: 10px;
+  padding-bottom: 3px;
+  color: var(--c-text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.local-file-tree__row:hover {
+  color: var(--c-text-primary);
+  background: var(--c-bg-deep);
+}
+
+.local-file-tree__row--selected,
+.local-file-tree__row--selected:hover {
+  color: var(--c-text-primary);
+  background: var(--c-bg-deep);
+}
+
+.local-file-tree__row--muted {
+  color: var(--c-text-muted);
+}
+
+.local-file-tree__row--muted .local-file-tree__icon-image {
+  opacity: 0.58;
+}
+
+.local-file-tree__row--accent {
+  color: color-mix(in srgb, var(--c-text-primary) 72%, #d1784d 28%);
+}
+
+.local-file-tree__row:focus-visible {
+  outline: 1px solid var(--c-border-mid);
+  outline-offset: -2px;
+}
+
+.local-file-tree__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-icon);
+  width: 16px;
+  height: 20px;
+}
+
+.local-file-tree__icon-image,
+.local-file-tree__icon-fallback {
+  display: block;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.local-file-tree__icon-image {
+  object-fit: contain;
+}
+
+.local-file-tree__icon-fallback {
+  border-radius: 2px;
+  background: var(--c-text-icon);
+  opacity: 0.5;
+}
+
+.local-file-tree__meta {
+  min-height: 30px;
+  padding-top: 6px;
+  padding-right: 10px;
+  padding-bottom: 6px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.local-file-tree__meta--standalone {
+  padding: 8px;
+}

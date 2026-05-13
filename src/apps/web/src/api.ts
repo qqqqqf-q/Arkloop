@@ -19,6 +19,7 @@ export type { RunEvent } from './sse'
 import {
   apiFetch,
   ApiError,
+  isApiError,
   TRACE_ID_HEADER,
   buildUrl,
   apiBaseUrl,
@@ -935,6 +936,7 @@ export type MessageContent = {
 export type CreateMessageRequest = {
   content?: string
   content_json?: MessageContent
+  client_message_id?: string
 }
 
 export type MessageResponse = {
@@ -947,6 +949,7 @@ export type MessageResponse = {
   content_json?: MessageContent
   created_at: string
   run_id?: string
+  client_message_id?: string
 }
 
 export type UploadedThreadAttachment = {
@@ -1910,6 +1913,9 @@ export type RunDetail = {
   total_cost_usd?: number
   duration_ms?: number
   cache_hit_rate?: number
+  cache_creation_tokens?: number
+  cache_read_tokens?: number
+  cached_tokens?: number
   credits_used?: number
   created_at: string
   completed_at?: string
@@ -1939,6 +1945,9 @@ export type Run = {
   total_cost_usd?: number
   duration_ms?: number
   cache_hit_rate?: number
+  cache_creation_tokens?: number
+  cache_read_tokens?: number
+  cached_tokens?: number
   credits_used?: number
   created_at: string
   completed_at?: string
@@ -2350,6 +2359,111 @@ export async function setExternalDirs(accessToken: string, dirs: string[]): Prom
   )
 }
 
+export type PluginPackage = {
+  id: string
+  package_id: string
+  version: string
+  display_name: string
+  description?: string
+  manifest: Record<string, unknown>
+  source_kind: string
+  source_uri?: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type PluginEnablement = {
+  id: string
+  account_id: string
+  package_id: string
+  plugin_id: string
+  plugin_version: string
+  profile_ref: string
+  workspace_ref: string
+  enabled: boolean
+  enabled_by_user_id: string
+  settings: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type PluginRuntimeState = {
+  account_id?: string
+  package_id?: string
+  plugin_id?: string
+  plugin_version?: string
+  profile_ref?: string
+  workspace_ref?: string
+  status: 'installed' | 'not_installed' | 'partial' | 'error' | string
+  status_json?: Record<string, unknown>
+  updated_at?: string
+}
+
+export async function listPlugins(accessToken: string): Promise<PluginPackage[]> {
+  const response = await apiFetch<{ items: PluginPackage[] }>('/v1/plugins', { accessToken })
+  return response.items ?? []
+}
+
+export async function getPluginEnablement(accessToken: string, pluginID: string): Promise<PluginEnablement | null> {
+  try {
+    return await apiFetch<PluginEnablement>(`/v1/plugins/${encodeURIComponent(pluginID)}/enablements`, {
+      accessToken,
+    })
+  } catch (error) {
+    if (isApiError(error) && error.status === 404) return null
+    throw error
+  }
+}
+
+export async function setPluginEnabled(
+  accessToken: string,
+  pluginID: string,
+  enabled: boolean,
+): Promise<PluginEnablement> {
+  return apiFetch<PluginEnablement>(`/v1/plugins/${encodeURIComponent(pluginID)}/enablements`, {
+    method: 'PUT',
+    accessToken,
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+export async function updatePluginSettings(
+  accessToken: string,
+  pluginID: string,
+  settings: Record<string, unknown>,
+): Promise<PluginEnablement> {
+  return apiFetch<PluginEnablement>(`/v1/plugins/${encodeURIComponent(pluginID)}/settings`, {
+    method: 'PATCH',
+    accessToken,
+    body: JSON.stringify({ settings }),
+  })
+}
+
+export async function getPluginRuntimeStatus(accessToken: string, pluginID: string): Promise<PluginRuntimeState> {
+  return apiFetch<PluginRuntimeState>(`/v1/plugins/${encodeURIComponent(pluginID)}/runtime/status`, {
+    accessToken,
+  })
+}
+
+export async function installPluginRuntime(accessToken: string, pluginID: string): Promise<PluginRuntimeState> {
+  return apiFetch<PluginRuntimeState>(`/v1/plugins/${encodeURIComponent(pluginID)}/runtime/install`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(300_000),
+  })
+}
+
+export async function checkPluginRuntime(accessToken: string, pluginID: string): Promise<PluginRuntimeState> {
+  return apiFetch<PluginRuntimeState>(`/v1/plugins/${encodeURIComponent(pluginID)}/runtime/check`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(30_000),
+  })
+}
+
 export type MCPInstall = {
   id: string
   install_key: string
@@ -2406,6 +2520,20 @@ export type UpsertMCPInstallRequest = {
   clear_auth?: boolean
 }
 
+export type MCPOAuthStartResponse = {
+  authorization_url: string
+  state: string
+  expires_at: string
+}
+
+export type MCPOAuthStatusResponse = {
+  state: string
+  completed: boolean
+  expired: boolean
+  expires_at: string
+  completed_at?: string
+}
+
 export async function listMCPInstalls(accessToken: string): Promise<MCPInstall[]> {
   return apiFetch<MCPInstall[]>('/v1/mcp-installs', { accessToken })
 }
@@ -2444,7 +2572,31 @@ export async function checkMCPInstall(accessToken: string, id: string): Promise<
   return apiFetch<MCPInstall>(`/v1/mcp-installs/${id}:check`, {
     method: 'POST',
     accessToken,
+    signal: AbortSignal.timeout(30_000),
   })
+}
+
+export async function startMCPOAuth(accessToken: string, id: string): Promise<MCPOAuthStartResponse> {
+  return apiFetch<MCPOAuthStartResponse>(`/v1/mcp-installs/${id}:oauth/start`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(30_000),
+  })
+}
+
+export async function getMCPOAuthStatus(
+  accessToken: string,
+  id: string,
+  state: string,
+): Promise<MCPOAuthStatusResponse> {
+  return apiFetch<MCPOAuthStatusResponse>(
+    `/v1/mcp-installs/${id}:oauth/status?state=${encodeURIComponent(state)}`,
+    {
+      accessToken,
+      signal: AbortSignal.timeout(30_000),
+    },
+  )
 }
 
 export async function setWorkspaceMCPEnablement(

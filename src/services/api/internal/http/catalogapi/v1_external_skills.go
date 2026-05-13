@@ -12,7 +12,7 @@ import (
 )
 
 type externalSkillDirEntry struct {
-	Path   string                    `json:"path"`
+	Path   string                     `json:"path"`
 	Skills []skillstore.ExternalSkill `json:"skills"`
 }
 

@@ -26,11 +26,13 @@ import (
 	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/personasync"
+	"arkloop/services/api/internal/plugincontrib"
 	"arkloop/services/api/internal/scheduler"
 	"arkloop/services/api/internal/skillseed"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/pluginstore"
 	sharedredis "arkloop/services/shared/redis"
 	"arkloop/services/shared/telegrambot"
 
@@ -178,6 +180,10 @@ func (a *Application) Run(ctx context.Context) error {
 	var messageAttachmentStore objectstore.Store
 	var environmentStore objectstore.Store
 	var skillStore objectstore.Store
+	pluginStore, err := pluginstore.NewLocalStore(defaultPluginDataRoot())
+	if err != nil {
+		return err
+	}
 	bucketOpener, err := buildStorageBucketOpener(a.config)
 	if err != nil {
 		return err
@@ -240,6 +246,10 @@ func (a *Application) Run(ctx context.Context) error {
 		profileSkillInstallsRepo     *data.ProfileSkillInstallsRepository
 		platformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 		workspaceSkillEnableRepo     *data.WorkspaceSkillEnablementsRepository
+		pluginPackagesRepo           *data.PluginPackagesRepository
+		pluginEnablementsRepo        *data.PluginEnablementsRepository
+		pluginRuntimeStateRepo       *data.PluginRuntimeStateRepository
+		pluginServices               *plugincontrib.Services
 		profileRegistriesRepo        *data.ProfileRegistriesRepository
 		workspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 		ipRulesRepo                  *data.IPRulesRepository
@@ -392,6 +402,18 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		pluginPackagesRepo, err = data.NewPluginPackagesRepository(pool)
+		if err != nil {
+			return err
+		}
+		pluginEnablementsRepo, err = data.NewPluginEnablementsRepository(pool)
+		if err != nil {
+			return err
+		}
+		pluginRuntimeStateRepo, err = data.NewPluginRuntimeStateRepository(pool)
+		if err != nil {
+			return err
+		}
 		profileRegistriesRepo, err = data.NewProfileRegistriesRepository(pool)
 		if err != nil {
 			return err
@@ -537,6 +559,27 @@ func (a *Application) Run(ctx context.Context) error {
 		emailOTPTokenRepo, err = data.NewEmailOTPTokenRepository(pool)
 		if err != nil {
 			return err
+		}
+		pluginServices, err = plugincontrib.NewServices(plugincontrib.Deps{
+			Pool:               pool,
+			PackagesRepo:       pluginPackagesRepo,
+			EnablementsRepo:    pluginEnablementsRepo,
+			RuntimeRepo:        pluginRuntimeStateRepo,
+			MCPInstallsRepo:    profileMCPInstallsRepo,
+			WorkspaceMCPRepo:   workspaceMCPEnableRepo,
+			SkillPackagesRepo:  skillPackagesRepo,
+			SkillInstallsRepo:  profileSkillInstallsRepo,
+			WorkspaceSkillRepo: workspaceSkillEnableRepo,
+			ProfileRepo:        profileRegistriesRepo,
+			WorkspaceRepo:      workspaceRegistriesRepo,
+			SkillStore:         skillStore,
+			PluginStore:        pluginStore,
+		})
+		if err != nil {
+			return err
+		}
+		if seedErr := pluginServices.Installer.SeedBuiltinCUAForAccounts(ctx); seedErr != nil {
+			a.logger.Warn("builtin_plugin_seed_failed", "plugin_id", "arkloop.plugins.cua", "error", seedErr.Error())
 		}
 		// when encryption key is not configured, secrets/llm-credentials endpoints are unavailable but other features still start
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()
@@ -773,6 +816,13 @@ func (a *Application) Run(ctx context.Context) error {
 		Pool:                     pool,
 	})
 
+	var pluginInstaller *plugincontrib.Installer
+	var pluginEnabler *plugincontrib.Enabler
+	if pluginServices != nil {
+		pluginInstaller = pluginServices.Installer
+		pluginEnabler = pluginServices.Enabler
+	}
+
 	server := &http.Server{
 		Handler: apihttp.NewHandler(apihttp.HandlerConfig{
 			Pool:                         pool,
@@ -810,6 +860,11 @@ func (a *Application) Run(ctx context.Context) error {
 			ProfileSkillInstallsRepo:     profileSkillInstallsRepo,
 			PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 			WorkspaceSkillEnableRepo:     workspaceSkillEnableRepo,
+			PluginPackagesRepo:           pluginPackagesRepo,
+			PluginEnablementsRepo:        pluginEnablementsRepo,
+			PluginRuntimeStateRepo:       pluginRuntimeStateRepo,
+			PluginInstaller:              pluginInstaller,
+			PluginEnabler:                pluginEnabler,
 			ProfileRegistriesRepo:        profileRegistriesRepo,
 			WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
 			IPRulesRepo:                  ipRulesRepo,

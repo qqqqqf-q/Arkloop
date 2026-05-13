@@ -18,6 +18,29 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestLoadDesktopActiveToolProvidersIncludesDefaultExa(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "loadtp-default.db"))
+	if err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlitePool.Close()
+	})
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	platform, err := LoadDesktopActiveToolProviders(ctx, db)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(platform) != 1 {
+		t.Fatalf("expected 1 platform row, got %d", len(platform))
+	}
+	if platform[0].GroupName != "web_search" || platform[0].ProviderName != "web_search.exa" {
+		t.Fatalf("unexpected default provider: %+v", platform[0])
+	}
+}
+
 func TestLoadDesktopActiveToolProvidersPlatformRow(t *testing.T) {
 	ctx := context.Background()
 	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "loadtp.db"))
@@ -44,6 +67,9 @@ func TestLoadDesktopActiveToolProvidersPlatformRow(t *testing.T) {
 		ON CONFLICT (id) DO NOTHING`, accountID, userID,
 	); err != nil {
 		t.Fatalf("seed account: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE tool_provider_configs SET is_active = 0 WHERE group_name = 'web_search'`); err != nil {
+		t.Fatalf("deactivate default search provider: %v", err)
 	}
 
 	cfg := map[string]any{
@@ -154,11 +180,18 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if len(platform) != 1 {
-		t.Fatalf("expected 1 platform row, got %d", len(platform))
+	var readProvider *ActiveProviderConfig
+	for idx := range platform {
+		if platform[idx].ProviderName == "read.minimax" {
+			readProvider = &platform[idx]
+			break
+		}
 	}
-	if platform[0].APIKeyValue == nil || *platform[0].APIKeyValue != "minimax-secret" {
-		t.Fatalf("unexpected api key value: %#v", platform[0].APIKeyValue)
+	if readProvider == nil {
+		t.Fatalf("expected read.minimax provider, got %+v", platform)
+	}
+	if readProvider.APIKeyValue == nil || *readProvider.APIKeyValue != "minimax-secret" {
+		t.Fatalf("unexpected api key value: %#v", readProvider.APIKeyValue)
 	}
 
 	_, err = desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})

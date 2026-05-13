@@ -64,7 +64,6 @@ async function loadDesktopSettingsSubject() {
     DesktopAppearanceSettings: () => <div>appearance</div>,
     ProvidersSettings: () => <div>providers</div>,
     RoutingSettings: () => <div>routing</div>,
-    PersonasSettings: () => <div>personas</div>,
     DesktopChannelsSettings: () => <div>integrations</div>,
     SkillsSettings: () => <div>skills</div>,
     MCPSettings: () => <div>mcp</div>,
@@ -85,7 +84,6 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../components/settings/DesktopAppearanceSettings', () => ({ DesktopAppearanceSettings: () => <div>appearance</div> }))
   vi.doMock('../components/settings/ProvidersSettings', () => ({ ProvidersSettings: () => <div>providers</div> }))
   vi.doMock('../components/settings/RoutingSettings', () => ({ RoutingSettings: () => <div>routing</div> }))
-  vi.doMock('../components/settings/PersonasSettings', () => ({ PersonasSettings: () => <div>personas</div> }))
   vi.doMock('../components/settings/DesktopChannelsSettings', () => ({ DesktopChannelsSettings: () => <div>integrations</div> }))
   vi.doMock('../components/settings/SkillsSettings', () => ({ SkillsSettings: () => <div>skills</div> }))
   vi.doMock('../components/settings/MCPSettings', () => ({ MCPSettings: () => <div>mcp</div> }))
@@ -162,7 +160,6 @@ afterEach(() => {
   vi.doUnmock('../components/settings/DesktopAppearanceSettings')
   vi.doUnmock('../components/settings/ProvidersSettings')
   vi.doUnmock('../components/settings/RoutingSettings')
-  vi.doUnmock('../components/settings/PersonasSettings')
   vi.doUnmock('../components/settings/DesktopChannelsSettings')
   vi.doUnmock('../components/settings/SkillsSettings')
   vi.doUnmock('../components/settings/MCPSettings')

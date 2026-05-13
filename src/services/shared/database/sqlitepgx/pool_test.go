@@ -236,6 +236,15 @@ func TestRewriteSQL_JSONBSet(t *testing.T) {
 	}
 }
 
+func TestRewriteSQL_JSONTextExtract(t *testing.T) {
+	t.Parallel()
+	got := rewriteSQL("SELECT re.data_json #>> '{result,plan_file_path}' FROM run_events re WHERE COALESCE(re.data_json #>> '{result,plan_file_path}', '') <> ''")
+	want := "SELECT json_extract(re.data_json, '$.result.plan_file_path') FROM run_events re WHERE COALESCE(json_extract(re.data_json, '$.result.plan_file_path'), '') <> ''"
+	if got != want {
+		t.Errorf("rewriteSQL(json text extract) = %q; want %q", got, want)
+	}
+}
+
 func TestRewriteSQL_Interval(t *testing.T) {
 	t.Parallel()
 	got := rewriteSQL("datetime(created_at, interval '30 days')")

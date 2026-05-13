@@ -29,6 +29,9 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	if _, ok := resolved.ToolNameSet()["image_generate"]; ok {
 		t.Fatal("image_generate should be absent without artifact store")
 	}
+	if _, ok := resolved.ToolNameSet()["resource_copy"]; ok {
+		t.Fatal("resource_copy should be absent without artifact store")
+	}
 
 	resolved = ResolveBuiltin(ResolveInput{ArtifactStoreAvailable: true})
 	if _, ok := resolved.ToolNameSet()["create_artifact"]; !ok {
@@ -39,6 +42,9 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 	}
 	if _, ok := resolved.ToolNameSet()["image_generate"]; !ok {
 		t.Fatal("image_generate should be present with artifact store")
+	}
+	if _, ok := resolved.ToolNameSet()["resource_copy"]; !ok {
+		t.Fatal("resource_copy should be present with artifact store")
 	}
 }
 
@@ -134,6 +140,7 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"python_execute",
 		"read",
 		"resize_process",
+		"resource_copy",
 		"resume_agent",
 		"send_input",
 		"show_widget",

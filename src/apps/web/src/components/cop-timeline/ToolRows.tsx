@@ -4,12 +4,16 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import hljs from 'highlight.js/lib/common'
 import type { FileOpRef } from '../../storage'
 import { CopThoughtSummaryRow } from './ThinkingBlock'
-import type { ExploreGroupRef } from '../../toolPresentation'
+import { basename, type ExploreGroupRef } from '../../toolPresentation'
+import { useLocale } from '../../contexts/LocaleContext'
 import { COP_TIMELINE_CONTENT_PADDING_LEFT_PX, TypewriterText } from './utils'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
+import { localizeTimelineLabel } from './labels'
+import { markerForFileOp } from './markers'
+import { renderTimelineText } from '../../timelineText'
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
-const EXPLORE_VIEWPORT_BOTTOM_PAD = 10
+const EXPLORE_VIEWPORT_BOTTOM_PAD = 12
 const TIMELINE_ROW_TITLE_STYLE = {
   color: 'var(--c-cop-row-fg, var(--c-text-secondary))',
   fontSize: 'var(--c-cop-row-font-size)',
@@ -27,7 +31,7 @@ export function CopTimelineLocalExpansionProvider({ stabilizeScroll, children }:
   )
 }
 
-function useStabilizeLocalExpansionScroll() {
+function useLocalExpansionScrollStabilizer() {
   return useContext(LocalExpansionScrollContext)
 }
 
@@ -43,10 +47,6 @@ export function summarizeDiff(text: string | undefined): { added: number; remove
   return added > 0 || removed > 0 ? { added, removed } : null
 }
 
-
-function basename(path: string): string {
-  return path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? path
-}
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
@@ -82,9 +82,7 @@ function previewLines(text: string | undefined, limit = 30): string[] {
   return text.replace(/\r\n/g, '\n').split('\n').slice(0, limit)
 }
 
-function statusColor(_status: FileOpRef['status']): string {
-  return 'var(--c-cop-row-fg)'
-}
+const DEFAULT_FILEOP_COLOR = 'var(--c-cop-row-fg)'
 
 function ToolTitle({ title, live, status: _status, highlightedSuffix }: { title: string; live?: boolean; status?: FileOpRef['status']; highlightedSuffix?: string }) {
   const head = highlightedSuffix && title.endsWith(highlightedSuffix)
@@ -114,19 +112,74 @@ function ToolTitle({ title, live, status: _status, highlightedSuffix }: { title:
   )
 }
 
+function fileOpDiffCounts(op: FileOpRef): { added: number; removed: number } | null {
+  if (op.status === 'running') return null
+  if (typeof op.diffAdded === 'number' || typeof op.diffRemoved === 'number') {
+    const added = Math.max(0, op.diffAdded ?? 0)
+    const removed = Math.max(0, op.diffRemoved ?? 0)
+    return added > 0 || removed > 0 ? { added, removed } : null
+  }
+  return summarizeDiff(op.output || op.errorMessage)
+}
+
+function FileOpDiffSuffix({ added, removed }: { added: number; removed: number }) {
+  return (
+    <span
+      aria-label={`${added} added${removed > 0 ? `, ${removed} removed` : ''}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        flexShrink: 0,
+        fontVariantNumeric: 'tabular-nums',
+        fontSize: 12,
+        lineHeight: '16px',
+      }}
+    >
+      {added > 0 && (
+        <motion.span
+          key={`added-${added}`}
+          className="cop-diff-added"
+          initial={{ y: 5, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -5, opacity: 0 }}
+          transition={{ duration: 0.16, ease: 'easeOut' }}
+        >
+          +{added}
+        </motion.span>
+      )}
+      {removed > 0 && (
+        <motion.span
+          key={`removed-${removed}`}
+          className="cop-diff-removed"
+          initial={{ y: 5, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -5, opacity: 0 }}
+          transition={{ duration: 0.16, ease: 'easeOut' }}
+        >
+          -{removed}
+        </motion.span>
+      )}
+    </span>
+  )
+}
+
 export function FileOpToolCard({ op }: { op: FileOpRef }) {
-  const title = op.displayDescription || op.label || op.toolName
+  const { locale } = useLocale()
+  const title = op.displayText ? renderTimelineText(op.displayText, locale) : localizeTimelineLabel(op.displayDescription || op.label || op.toolName, locale)
   const filePath = op.filePath || op.displayDetail || ''
   const lines = previewLines(op.output || op.errorMessage)
   const cardTitle = op.pattern || op.displaySubject || (filePath ? basename(filePath) : title)
   const cardSubtitle = filePath && cardTitle !== filePath ? filePath : op.displayDetail || ''
+  const diffCounts = fileOpDiffCounts(op)
 
   return (
     <div style={{ marginTop: 4, borderRadius: 8, background: 'var(--c-attachment-bg)', overflow: 'hidden', border: '0.5px solid var(--c-border-subtle)' }}>
-      {(cardTitle || cardSubtitle) && (
+      {(cardTitle || cardSubtitle || diffCounts) && (
         <div style={{ padding: '8px 10px', fontFamily: MONO, fontSize: 12, color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderBottom: '0.5px solid var(--c-border-subtle)', display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
           <span style={{ fontWeight: 600, color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cardTitle}</span>
           {cardSubtitle && <span style={{ color: 'var(--c-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {cardSubtitle}</span>}
+          {diffCounts && <FileOpDiffSuffix added={diffCounts.added} removed={diffCounts.removed} />}
         </div>
       )}
       {lines.length > 0 ? (
@@ -161,18 +214,19 @@ export function FileOpToolCard({ op }: { op: FileOpRef }) {
 }
 
 
-type FileOpToolRowProps = { op: FileOpRef; live?: boolean }
+type FileOpToolRowProps = { op: FileOpRef; live?: boolean; expandedOffsetLeft?: number }
 
 function areFileOpToolRowPropsEqual(prev: FileOpToolRowProps, next: FileOpToolRowProps): boolean {
-  return prev.op === next.op && prev.live === next.live
+  return prev.op === next.op && prev.live === next.live && prev.expandedOffsetLeft === next.expandedOffsetLeft
 }
 
-export const FileOpToolRow = memo(function FileOpToolRow({ op, live }: FileOpToolRowProps) {
+export const FileOpToolRow = memo(function FileOpToolRow({ op, live, expandedOffsetLeft = 0 }: FileOpToolRowProps) {
+  const { locale } = useLocale()
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const stabilizeLocalExpansionScroll = useStabilizeLocalExpansionScroll()
+  const stabilizeLocalExpansionScroll = useLocalExpansionScrollStabilizer()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const title = op.displayDescription || op.label || op.toolName
+  const title = op.displayText ? renderTimelineText(op.displayText, locale) : localizeTimelineLabel(op.displayDescription || op.label || op.toolName, locale)
   const filePath = op.filePath || op.displayDetail || ''
   const lines = useMemo(() => previewLines(op.output || op.errorMessage), [op.output, op.errorMessage])
   const cardTitle = op.pattern || op.displaySubject || (filePath ? basename(filePath) : title)
@@ -235,7 +289,11 @@ export const FileOpToolRow = memo(function FileOpToolRow({ op, live }: FileOpToo
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.22, ease: 'easeOut' }}
-            style={{ overflow: 'hidden' }}
+            style={{
+              overflow: 'hidden',
+              marginLeft: expandedOffsetLeft,
+              width: expandedOffsetLeft < 0 ? `calc(100% + ${Math.abs(expandedOffsetLeft)}px)` : undefined,
+            }}
           >
             <div style={{ marginTop: 4, borderRadius: 8, background: 'var(--c-code-preview-bg)', overflow: 'hidden', border: '0.5px solid var(--c-border-subtle)' }}>
               {(cardTitle || cardSubtitle) && (
@@ -271,10 +329,11 @@ export const FileOpToolRow = memo(function FileOpToolRow({ op, live }: FileOpToo
 }, areFileOpToolRowPropsEqual)
 
 export function ExploreTimelineRow({ group, live, segmentLive, headerVariant = 'tool', attachedThinkingRows }: { group: ExploreGroupRef; live?: boolean; segmentLive?: boolean; headerVariant?: 'tool' | 'segment'; attachedThinkingRows?: Array<{ id: string; markdown: string; live?: boolean; durationSec?: number; startedAtMs?: number }> }) {
+  const { locale } = useLocale()
   const reduceMotion = useReducedMotion()
   const [expanded, setExpanded] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const stabilizeLocalExpansionScroll = useStabilizeLocalExpansionScroll()
+  const stabilizeLocalExpansionScroll = useLocalExpansionScrollStabilizer()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const [metrics, setMetrics] = useState({ fullHeight: 0, previewHeight: 0, previewOffset: 0 })
   const [viewportAnimating, setViewportAnimating] = useState(false)
@@ -370,10 +429,10 @@ export function ExploreTimelineRow({ group, live, segmentLive, headerVariant = '
               lineHeight: 'var(--c-cop-row-line-height)',
             }}
           >
-            <TypewriterText text={group.label} live={live && group.status === 'running'} className={live && group.status === 'running' ? 'thinking-shimmer-dim' : undefined} />
+            <TypewriterText text={group.text ? renderTimelineText(group.text, locale) : localizeTimelineLabel(group.label, locale)} live={live && group.status === 'running'} className={live && group.status === 'running' ? 'thinking-shimmer-dim' : undefined} />
           </span>
         ) : (
-          <ToolTitle title={group.label} live={live && group.status === 'running'} status={group.status} />
+          <ToolTitle title={group.text ? renderTimelineText(group.text, locale) : localizeTimelineLabel(group.label, locale)} live={live && group.status === 'running'} status={group.status} />
         )}
         {hasItems && (expanded ? <ChevronDown size={headerVariant === 'segment' ? 13 : 12} style={{ flexShrink: 0, color: 'currentColor' }} /> : <ChevronRight size={headerVariant === 'segment' ? 13 : 12} style={{ flexShrink: 0, color: 'currentColor' }} />)}
       </button>
@@ -413,9 +472,10 @@ export function ExploreTimelineRow({ group, live, segmentLive, headerVariant = '
                 isFirst={index === 0}
                 isLast={index === group.items.length - 1}
                 multiItems={group.items.length >= 2}
-                dotColor={statusColor(op.status)}
-                paddingBottom={8}
+                dotColor={DEFAULT_FILEOP_COLOR}
+                paddingBottom={10}
                 horizontalMotion={false}
+                marker={markerForFileOp(op)}
               >
                 <FileOpToolRow op={op} live={live} />
               </CopTimelineUnifiedRow>
@@ -446,95 +506,6 @@ export function ExploreTimelineRow({ group, live, segmentLive, headerVariant = '
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  )
-}
-
-export function EditTimelineSegment({ op, attachedThinkingRows }: { op: FileOpRef; live?: boolean; attachedThinkingRows?: Array<{ id: string; markdown: string; live?: boolean; durationSec?: number; startedAtMs?: number }> }) {
-  const [expanded, setExpanded] = useState(false)
-  const [hovered, setHovered] = useState(false)
-  const stabilizeLocalExpansionScroll = useStabilizeLocalExpansionScroll()
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const title = op.displayDescription || op.label || op.toolName
-  const diff = summarizeDiff(op.output || op.errorMessage)
-
-  return (
-    <div className="cop-timeline-root" style={{ maxWidth: '663px' }}>
-      <div style={{ maxWidth: 'min(100%, 760px)', minWidth: 0 }}>
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => {
-            stabilizeLocalExpansionScroll?.(triggerRef.current)
-            setExpanded((value) => !value)
-          }}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            maxWidth: '100%',
-            minWidth: 0,
-            border: 'none',
-            padding: '4px 0 2px',
-            background: 'transparent',
-            cursor: 'pointer',
-            color: hovered ? 'var(--c-cop-row-hover-fg, var(--c-cop-row-fg))' : 'var(--c-cop-row-fg)',
-            fontSize: 'var(--c-cop-row-font-size)',
-            fontWeight: 400,
-            lineHeight: 'var(--c-cop-row-line-height)',
-            transition: 'color 0.15s ease',
-          }}
-        >
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {title}
-          </span>
-          {diff && (
-            <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0, fontFamily: MONO }}>
-              <span className="cop-diff-added">+{diff.added}</span>
-              <span className="cop-diff-removed">-{diff.removed}</span>
-            </span>
-          )}
-          {expanded ? <ChevronDown size={13} style={{ flexShrink: 0, color: 'currentColor' }} /> : <ChevronRight size={13} style={{ flexShrink: 0, color: 'currentColor' }} />}
-        </button>
-      </div>
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
-            style={{ overflow: 'hidden' }}
-          >
-            <div style={{ paddingTop: 6 }}>
-              <FileOpToolCard op={op} />
-              {attachedThinkingRows && attachedThinkingRows.length > 0 && (
-                <div style={{ paddingTop: 6 }}>
-                  {attachedThinkingRows.map((row) => (
-                    <CopThoughtSummaryRow
-                      key={row.id}
-                      markdown={row.markdown}
-                      live={!!row.live}
-                      thoughtDurationSeconds={row.durationSec ?? 0}
-                      startedAtMs={row.startedAtMs}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
-export function ExploreTimelineSegment(props: { group: ExploreGroupRef; live?: boolean; segmentLive?: boolean; attachedThinkingRows?: Array<{ id: string; markdown: string; live?: boolean; durationSec?: number; startedAtMs?: number }> }) {
-  return (
-    <div className="cop-timeline-root" style={{ maxWidth: '663px' }}>
-      <ExploreTimelineRow {...props} headerVariant="segment" />
     </div>
   )
 }

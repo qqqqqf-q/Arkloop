@@ -1,20 +1,26 @@
+import type { CSSProperties } from 'react'
 import { Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { listPlatformSkills, setPlatformSkillOverride, type PlatformSkillItem } from '../../api'
 import type { ViewSkill } from './types'
 import { matchesSkillQuery } from './types'
 import { secondaryButtonBorderStyle, secondaryButtonXsCls } from '../buttonStyles'
 import { SettingsSwitch } from '../settings/_SettingsSwitch'
+import {
+  SETTINGS_CARD_INSET_RULE_CLASS,
+  SETTINGS_CARD_SURFACE_OVERFLOW_VISIBLE_CLASS,
+  SETTINGS_TWO_COLUMN_GRID_CLASS,
+  SettingsGroup,
+} from '../settings/_SettingsLayout'
+
+const builtinCardControlsCol = 'flex h-7 w-11 shrink-0 items-center justify-end'
 
 type SkillTextSubset = {
   builtinTitle: string
   builtinEmpty: string
   sourceBuiltin: string
-  enabledByDefault: string
-  manualAvailable: string
   restore: string
   disableFailed: string
   importFailed: string
-  scanStatusLabel: (status: string) => string
 }
 
 type Props = {
@@ -29,7 +35,7 @@ type Props = {
   refreshInstalled: () => Promise<unknown>
   setBuiltinSkills: (items: PlatformSkillItem[]) => void
   platformAvailabilityLabel: (status?: ViewSkill['platform_status']) => string
-  platformAvailabilityStyle: (status?: ViewSkill['platform_status']) => React.CSSProperties | null
+  platformAvailabilityStyle: (status?: ViewSkill['platform_status']) => CSSProperties | null
 }
 
 export function BuiltinSkillsView({
@@ -59,23 +65,21 @@ export function BuiltinSkillsView({
   )
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-        {skillText.builtinTitle}
-      </span>
+    <SettingsGroup title={skillText.builtinTitle}>
       {builtinLoading ? (
-        <div className="flex h-40 items-center justify-center">
-          <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
+        <div className={`${SETTINGS_TWO_COLUMN_GRID_CLASS}`}>
+          <div className="col-span-full flex h-40 items-center justify-center">
+            <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
+          </div>
         </div>
       ) : filtered.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center gap-1 rounded-xl py-12 text-center"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          <span className="text-sm font-medium text-[var(--c-text-heading)]">{skillText.builtinEmpty}</span>
+        <div className={`${SETTINGS_TWO_COLUMN_GRID_CLASS}`}>
+          <div className="col-span-full flex flex-col items-center justify-center rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-4 py-12 text-center">
+            <span className="text-sm font-medium text-[var(--c-text-primary)]">{skillText.builtinEmpty}</span>
+          </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className={SETTINGS_TWO_COLUMN_GRID_CLASS}>
           {filtered.map((skill) => {
             const isRemoved = skill.platform_status === 'removed'
             const isEnabled = skill.platform_status === 'auto'
@@ -85,110 +89,128 @@ export function BuiltinSkillsView({
             return (
               <div
                 key={`${skill.skill_key}@${skill.version}`}
-                className="flex items-center gap-3 rounded-xl p-3 transition-colors duration-100"
-                style={{
-                  border: '0.5px solid var(--c-border-subtle)',
-                  background: isRemoved ? 'var(--c-bg-page)' : 'var(--c-bg-menu)',
-                  opacity: isRemoved ? 0.55 : 1,
-                }}
+                className={[
+                  SETTINGS_CARD_SURFACE_OVERFLOW_VISIBLE_CLASS,
+                  'flex h-full flex-col',
+                  isRemoved ? 'opacity-55' : '',
+                ].filter(Boolean).join(' ')}
               >
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-[var(--c-text-heading)]">
+                {isRemoved ? (
+                  <div className="flex flex-wrap items-center gap-2 px-5 pt-3 pb-1.5">
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-[var(--c-text-heading)]">
                       {skill.display_name}
                     </span>
+                    <div className="ml-auto shrink-0">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                          try {
+                            await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'auto')
+                            const items = await listPlatformSkills(accessToken)
+                            setBuiltinSkills(items)
+                            await refreshInstalled()
+                          } catch {
+                            setError(skillText.importFailed)
+                          } finally {
+                            setBusySkillId(null)
+                          }
+                        }}
+                        className={secondaryButtonXsCls}
+                        style={secondaryButtonBorderStyle}
+                      >
+                        {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        {skillText.restore}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid items-center gap-2 px-5 pt-3 pb-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-6">
+                    <span className="min-w-0 truncate text-sm font-semibold text-[var(--c-text-heading)]">
+                      {skill.display_name}
+                    </span>
+                    <div className="flex min-w-0 items-center sm:justify-self-end">
+                      <SettingsSwitch
+                        checked={isEnabled}
+                        disabled={busy}
+                        size="sm"
+                        onChange={async () => {
+                          setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                          try {
+                            const newStatus = isEnabled ? 'manual' : 'auto'
+                            await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, newStatus)
+                            const refreshed = await listPlatformSkills(accessToken)
+                            setBuiltinSkills(refreshed)
+                            await refreshInstalled()
+                          } catch {
+                            setError(skillText.disableFailed)
+                          } finally {
+                            setBusySkillId(null)
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {skill.description ? (
+                  <div className="flex min-h-0 flex-1 flex-col px-5 pb-2.5">
+                    <span className="line-clamp-2 text-sm leading-snug text-[var(--c-text-tertiary)]">{skill.description}</span>
+                  </div>
+                ) : (
+                  <div className="min-h-0 flex-1 px-5 pb-2.5" />
+                )}
+
+                <div className={SETTINGS_CARD_INSET_RULE_CLASS} aria-hidden />
+
+                <div className="flex items-center gap-3 px-5 py-2.5">
+                  <div className="flex min-h-5 min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] leading-5 text-[var(--c-text-muted)]">
                     <span
-                      className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
+                      className="inline-flex h-5 shrink-0 items-center rounded px-1.5 text-[10px] font-medium leading-none text-[var(--c-text-secondary)]"
                       style={{ background: 'var(--c-bg-deep)' }}
                     >
                       {skillText.sourceBuiltin}
                     </span>
-                    {availabilityLabel && availabilityStyle && (
-                      <span
-                        className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight"
-                        style={availabilityStyle}
-                      >
+                    {availabilityLabel && availabilityStyle ? (
+                      <span className="inline-flex h-5 shrink-0 items-center rounded px-1.5 text-[10px] font-medium leading-none" style={availabilityStyle}>
                         {availabilityLabel}
                       </span>
-                    )}
+                    ) : null}
                   </div>
-                  {skill.description && (
-                    <span className="line-clamp-2 text-xs text-[var(--c-text-tertiary)]">{skill.description}</span>
+                  {!isRemoved ? (
+                    <div className={`relative ${builtinCardControlsCol}`}>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
+                          try {
+                            await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'removed')
+                            const refreshed = await listPlatformSkills(accessToken)
+                            setBuiltinSkills(refreshed)
+                            await refreshInstalled()
+                          } catch {
+                            setError(skillText.importFailed)
+                          } finally {
+                            setBusySkillId(null)
+                          }
+                        }}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
+                        style={{ color: 'var(--c-status-error-text)' }}
+                      >
+                        {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={builtinCardControlsCol} />
                   )}
                 </div>
-
-                {isRemoved ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                      try {
-                        await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'auto')
-                        const items = await listPlatformSkills(accessToken)
-                        setBuiltinSkills(items)
-                        await refreshInstalled()
-                      } catch {
-                        setError(skillText.importFailed)
-                      } finally {
-                        setBusySkillId(null)
-                      }
-                    }}
-                    className={secondaryButtonXsCls}
-                    style={secondaryButtonBorderStyle}
-                  >
-                    {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                    {skillText.restore}
-                  </button>
-                ) : (
-                  <>
-                    <SettingsSwitch
-                      checked={isEnabled}
-                      disabled={busy}
-                      size="sm"
-                      onChange={async () => {
-                        setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                        try {
-                          const newStatus = isEnabled ? 'manual' : 'auto'
-                          await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, newStatus)
-                          const refreshed = await listPlatformSkills(accessToken)
-                          setBuiltinSkills(refreshed)
-                          await refreshInstalled()
-                        } catch {
-                          setError(skillText.disableFailed)
-                        } finally {
-                          setBusySkillId(null)
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusySkillId(`builtin:${skill.skill_key}@${skill.version}`)
-                        try {
-                          await setPlatformSkillOverride(accessToken, skill.skill_key, skill.version, 'removed')
-                          const refreshed = await listPlatformSkills(accessToken)
-                          setBuiltinSkills(refreshed)
-                          await refreshInstalled()
-                        } catch {
-                          setError(skillText.importFailed)
-                        } finally {
-                          setBusySkillId(null)
-                        }
-                      }}
-                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--c-error-bg)]"
-                      style={{ color: 'var(--c-status-error-text)' }}
-                    >
-                      {busy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                    </button>
-                  </>
-                )}
               </div>
             )
           })}
         </div>
       )}
-    </div>
+    </SettingsGroup>
   )
 }

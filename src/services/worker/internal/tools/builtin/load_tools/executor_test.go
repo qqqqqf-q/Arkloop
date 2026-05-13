@@ -459,6 +459,40 @@ func TestBuildCatalogPrompt(t *testing.T) {
 	}
 }
 
+func TestDynamicSpecDescriptionSearchAndCatalog(t *testing.T) {
+	activator := &mockActivator{}
+	pool := map[string]llm.ToolSpec{
+		"mcp__nowledge__memory_search": {
+			Name:        "mcp__nowledge__memory_search",
+			Description: strPtr("Search semantic memory in Nowledge"),
+			JSONSchema:  map[string]any{"type": "object"},
+		},
+	}
+	exec := NewExecutor(activator, func() map[string]llm.ToolSpec { return pool }, nil)
+
+	result := exec.Execute(
+		context.Background(),
+		"load_tools",
+		map[string]any{"queries": []any{"semantic"}},
+		tools.ExecutionContext{},
+		"call_dynamic",
+	)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %s", result.Error.Message)
+	}
+	if got := result.ResultJSON["count"]; got != 1 {
+		t.Fatalf("expected count=1, got %v", got)
+	}
+	if len(activator.activated) != 1 || activator.activated[0].Name != "mcp__nowledge__memory_search" {
+		t.Fatalf("expected dynamic MCP tool activated, got %#v", activator.activated)
+	}
+
+	catalog := BuildCatalogPrompt(pool)
+	if !contains(catalog, "Search semantic memory in Nowledge") {
+		t.Fatalf("catalog missing dynamic description: %s", catalog)
+	}
+}
+
 func TestStatusBreakdownWithMixedMatches(t *testing.T) {
 	activator := &mockActivator{}
 	searchable := map[string]llm.ToolSpec{

@@ -1,8 +1,8 @@
 package catalogapi
 
 import (
-	"context"
 	httpkit "arkloop/services/api/internal/http/httpkit"
+	"context"
 	"strings"
 
 	"arkloop/services/api/internal/auth"
@@ -20,7 +20,7 @@ type toolDescriptionSource string
 const (
 	toolDescriptionSourceDefault  toolDescriptionSource = "default"
 	toolDescriptionSourcePlatform toolDescriptionSource = "platform"
-	toolDescriptionSourceProject toolDescriptionSource = "project"
+	toolDescriptionSourceProject  toolDescriptionSource = "project"
 )
 
 type toolCatalogItem struct {

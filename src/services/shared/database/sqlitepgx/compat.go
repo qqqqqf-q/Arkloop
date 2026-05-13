@@ -47,6 +47,10 @@ var jsonSetValueParamRe = regexp.MustCompile(`('\$\.[A-Za-z0-9_]+'\s*,\s*)(\$\d+
 // to the SQLite form '$.foo'.
 var pgJSONPathRe = regexp.MustCompile(`'\{([A-Za-z0-9_]+)\}'`)
 
+// pgJSONTextExtractRe rewrites PostgreSQL json text extraction (`col #>> '{a,b}'`)
+// to SQLite's json_extract(col, '$.a.b').
+var pgJSONTextExtractRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_\.]*)\s*#>>\s*'\{([A-Za-z0-9_,]+)\}'`)
+
 // rewriteSQL performs lightweight PostgreSQL-to-SQLite SQL preprocessing.
 // Only applies transformations when PG-specific patterns are detected.
 func rewriteSQL(sql string) string {
@@ -63,6 +67,10 @@ func rewriteSQL(sql string) string {
 
 	if strings.Contains(sql, "::") {
 		sql = typeCastRe.ReplaceAllString(sql, "")
+	}
+
+	if strings.Contains(sql, "#>>") {
+		sql = pgJSONTextExtractRe.ReplaceAllStringFunc(sql, rewriteJSONTextExtract)
 	}
 
 	if strings.Contains(sql, "jsonb_set(") {
@@ -105,6 +113,15 @@ func rewriteSQL(sql string) string {
 	}
 
 	return sql
+}
+
+func rewriteJSONTextExtract(match string) string {
+	parts := pgJSONTextExtractRe.FindStringSubmatch(match)
+	if len(parts) != 3 {
+		return match
+	}
+	path := strings.ReplaceAll(parts[2], ",", ".")
+	return "json_extract(" + parts[1] + ", '$." + path + "')"
 }
 
 // rewriteInterval converts "interval '30 days'" to "'+30 days'" for use as a

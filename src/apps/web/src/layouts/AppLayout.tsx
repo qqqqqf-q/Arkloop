@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { Bolt, Clock, Search, SquarePen } from 'lucide-react'
 import { isDesktop, getDesktopApi } from '@arkloop/shared/desktop'
 import { LoadingPage, TimeZoneProvider } from '@arkloop/shared'
 import { Sidebar } from '../components/Sidebar'
@@ -22,9 +23,30 @@ import {
   useSidebarUI,
   useSkillPromptUI,
   useTitleBarIncognitoUI,
+  useTitleBarRightPanelUI,
 } from '../contexts/app-ui'
 import { useCredits } from '../contexts/credits'
 import { isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
+
+const SIDEBAR_WIDTH_STORAGE_KEY = 'arkloop:web:sidebar_width'
+const SIDEBAR_COLLAPSED_WIDTH = 48
+const SIDEBAR_DEFAULT_WIDTH = 284
+const SIDEBAR_MIN_WIDTH = 224
+const SIDEBAR_MAX_WIDTH = 420
+const SIDEBAR_WIDTH_TRANSITION = '280ms cubic-bezier(0.16,1,0.3,1)'
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(Math.max(width, SIDEBAR_MIN_WIDTH), SIDEBAR_MAX_WIDTH)
+}
+
+function readSidebarWidth(): number {
+  try {
+    const raw = Number(localStorage.getItem?.(SIDEBAR_WIDTH_STORAGE_KEY))
+    return Number.isFinite(raw) ? clampSidebarWidth(raw) : SIDEBAR_DEFAULT_WIDTH
+  } catch {
+    return SIDEBAR_DEFAULT_WIDTH
+  }
+}
 
 const MainViewport = memo(function MainViewport({
   accessToken,
@@ -53,6 +75,42 @@ const MainViewport = memo(function MainViewport({
     </main>
   )
 })
+
+function CollapsedSidebarTransitionOverlay({
+  direction,
+  onDone,
+}: {
+  direction: 'enter' | 'exit'
+  onDone: () => void
+}) {
+  return (
+    <div
+      aria-hidden="true"
+      className={[
+        direction === 'enter' ? 'collapsed-sidebar-enter-overlay' : 'collapsed-sidebar-exit-overlay',
+        'theme-surface-sidebar pointer-events-none absolute inset-y-0 left-0 z-30 flex w-[48px] flex-col bg-[var(--c-bg-sidebar)]',
+      ].join(' ')}
+      style={{ borderRight: '0.5px solid var(--c-border)' }}
+      onAnimationEnd={onDone}
+    >
+      <div className="h-3 shrink-0" />
+      <div className="flex flex-col gap-px px-[8px] pt-1">
+        {[SquarePen, Search, Clock].map((Icon, index) => (
+          <div key={index} className="flex h-[32px] w-[32px] items-center justify-center rounded-lg text-[var(--c-text-secondary)]">
+            <Icon size={16} />
+          </div>
+        ))}
+      </div>
+      <div className="mt-auto px-2 pb-2 pt-1">
+        <div className="mt-0.5 pl-1">
+          <div className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--c-text-icon)]">
+            <Bolt size={18} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 type LayoutMainProps = {
   desktop: boolean
@@ -153,13 +211,14 @@ export function AppLayout() {
     togglePrivateMode,
     getFilteredThreads,
   } = useThreadList()
-  const { sidebarCollapsed, sidebarHiddenByWidth, toggleSidebar } = useSidebarUI()
+  const { sidebarCollapsed, sidebarHiddenByWidth, rightPanelOpen, toggleSidebar } = useSidebarUI()
   const { isSearchMode, searchOverlayOpen, exitSearchMode, closeSearchOverlay } = useSearchUI()
   const { appMode, availableAppModes, setAppMode } = useAppModeUI()
   const { openSettings, closeSettings } = useSettingsUI()
   const { closeNotifications } = useNotificationsUI()
   const { queueSkillPrompt } = useSkillPromptUI()
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI()
+  const { triggerTitleBarRightPanelClick } = useTitleBarRightPanelUI()
   useCredits()
   const { t } = useLocale()
   const navigate = useNavigate()
@@ -168,6 +227,11 @@ export function AppLayout() {
 
   const [appUpdateState, setAppUpdateState] = useState<import('@arkloop/shared/desktop').AppUpdaterState | null>(null)
   const [productUpdateNotifications, setProductUpdateNotifications] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth)
+  const [sidebarResizing, setSidebarResizing] = useState(false)
+  const [modeSwitchingCollapsedSidebar, setModeSwitchingCollapsedSidebar] = useState(false)
+  const [collapsedSidebarExitVisible, setCollapsedSidebarExitVisible] = useState(false)
+  const [collapsedSidebarEnterVisible, setCollapsedSidebarEnterVisible] = useState(false)
 
   // app updater
   useEffect(() => {
@@ -209,6 +273,42 @@ export function AppLayout() {
     openSettings(tab)
   }, [openSettings])
 
+  const handleSidebarResizeStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sidebarCollapsed) return
+    event.preventDefault()
+    setSidebarResizing(true)
+    const startX = event.clientX
+    const startWidth = sidebarWidth
+    const pointerId = event.pointerId
+    event.currentTarget.setPointerCapture(pointerId)
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const next = clampSidebarWidth(startWidth + moveEvent.clientX - startX)
+      setSidebarWidth(next)
+    }
+
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+      setSidebarResizing(false)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
+  }, [sidebarCollapsed, sidebarWidth])
+
+  useEffect(() => {
+    if (!sidebarCollapsed) {
+      try {
+        localStorage.setItem?.(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth))
+      } catch {
+        // ignore unavailable storage
+      }
+    }
+  }, [sidebarCollapsed, sidebarWidth])
+
   const pathnameSearchOpen = location.pathname.endsWith('/search')
   const isSearchOpen = searchOverlayOpen || pathnameSearchOpen
   const currentThreadId = location.pathname.match(/^\/t\/([^/]+)/)?.[1] ?? null
@@ -224,6 +324,19 @@ export function AppLayout() {
   )
   const activeAppMode = currentThread?.mode === 'work' ? 'work' : currentThread?.mode === 'chat' ? 'chat' : appMode
   const filteredThreads = useMemo(() => getFilteredThreads(activeAppMode), [getFilteredThreads, activeAppMode])
+
+  const handleSetAppMode = useCallback((mode: import('../storage').AppMode) => {
+    if (desktop && sidebarCollapsed && mode !== activeAppMode) {
+      if (activeAppMode === 'chat' && mode === 'work') {
+        setCollapsedSidebarExitVisible(true)
+      } else if (activeAppMode === 'work' && mode === 'chat') {
+        setCollapsedSidebarEnterVisible(true)
+      }
+      setModeSwitchingCollapsedSidebar(true)
+      requestAnimationFrame(() => setModeSwitchingCollapsedSidebar(false))
+    }
+    setAppMode(mode)
+  }, [activeAppMode, desktop, setAppMode, sidebarCollapsed])
 
   const handleDesktopTitleBarIncognitoClick = useCallback(() => {
     triggerTitleBarIncognitoClick(togglePrivateMode)
@@ -282,6 +395,13 @@ export function AppLayout() {
     productUpdateNotifications &&
     (appUpdateState?.phase === 'available' ||
       appUpdateState?.phase === 'downloaded')
+  const hideCollapsedWorkSidebar = desktop && activeAppMode === 'work' && sidebarCollapsed
+  const mainContentAxisPaddingLeft = desktop && sidebarCollapsed && activeAppMode === 'work'
+    ? `${SIDEBAR_COLLAPSED_WIDTH / 2}px`
+    : '0px'
+  const mainContentAxisPaddingRight = desktop && sidebarCollapsed && activeAppMode !== 'work'
+    ? `${SIDEBAR_COLLAPSED_WIDTH / 2}px`
+    : '0px'
 
   return (
     <TimeZoneProvider userTimeZone={me?.timezone ?? null} accountTimeZone={me?.account_timezone ?? null}>
@@ -291,12 +411,16 @@ export function AppLayout() {
           <DesktopTitleBar
             sidebarCollapsed={sidebarCollapsed}
             onToggleSidebar={() => toggleSidebar('titlebar')}
+            onNewThread={handleNewThread}
             appMode={activeAppMode}
-            onSetAppMode={setAppMode}
+            onSetAppMode={handleSetAppMode}
             availableModes={availableAppModes}
             showIncognitoToggle={activeAppMode !== 'work'}
             isPrivateMode={titleBarIncognitoActive}
             onTogglePrivateMode={handleDesktopTitleBarIncognitoClick}
+            rightPanelOpen={rightPanelOpen}
+            onToggleRightPanel={() => triggerTitleBarRightPanelClick()}
+            showTitleBarNewThread={activeAppMode === 'work' && sidebarCollapsed}
             hasAppUpdate={hasAppUpdate}
             onCheckAppUpdate={handleCheckAppUpdate}
             appUpdateState={appUpdateState}
@@ -306,14 +430,46 @@ export function AppLayout() {
           />
         )}
 
-        <div className="flex min-h-0 flex-1">
+        <div
+          className="relative flex min-h-0 flex-1"
+          style={{
+            '--main-content-axis-padding-left': mainContentAxisPaddingLeft,
+            '--main-content-axis-padding-right': mainContentAxisPaddingRight,
+          } as React.CSSProperties}
+        >
+          {collapsedSidebarExitVisible && (
+            <CollapsedSidebarTransitionOverlay direction="exit" onDone={() => setCollapsedSidebarExitVisible(false)} />
+          )}
+          {collapsedSidebarEnterVisible && (
+            <CollapsedSidebarTransitionOverlay direction="enter" onDone={() => setCollapsedSidebarEnterVisible(false)} />
+          )}
           {!sidebarHiddenByWidth && (
-            <Sidebar
-              threads={filteredThreads}
-              onNewThread={handleNewThread}
-              onThreadDeleted={handleThreadDeleted}
-              beforeNavigateToThread={handleBeforeNavigateToThread}
-            />
+            <div
+              className="relative h-full shrink-0 overflow-hidden"
+              style={{
+                width: hideCollapsedWorkSidebar ? 0 : sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth,
+                transition: sidebarResizing || modeSwitchingCollapsedSidebar ? undefined : `width ${SIDEBAR_WIDTH_TRANSITION}`,
+                visibility: collapsedSidebarEnterVisible ? 'hidden' : undefined,
+              }}
+            >
+              {!hideCollapsedWorkSidebar && (
+                <Sidebar
+                  threads={filteredThreads}
+                  onNewThread={handleNewThread}
+                  onThreadDeleted={handleThreadDeleted}
+                  beforeNavigateToThread={handleBeforeNavigateToThread}
+                />
+              )}
+              {!sidebarCollapsed && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  title="Resize history"
+                  onPointerDown={handleSidebarResizeStart}
+                  className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize"
+                />
+              )}
+            </div>
           )}
 
           <LayoutMain

@@ -115,13 +115,12 @@ var registry = []ToolMeta{
 		LLMDescription: "execute Python code in an isolated sandbox. Use for calculations, data processing, or visualization instead of computing manually. " +
 			"Pre-installed: numpy, pandas, matplotlib, plotly, scipy, sympy, pillow, scikit-learn, kaleido. " +
 			"For charts prefer Plotly; use fig.write_image() for PNG, fall back to fig.write_html() only on failure. Do not set pio.renderers. " +
-			"Working files go to /workspace/; final user-visible files go to /tmp/output/ (auto-uploaded as artifacts). " +
-			"Two distinct reference formats — use the correct one:\n" +
+			"Work in the sandbox current working directory, normally /workspace/. Put final downloadable files in /tmp/output/ only when you want them auto-uploaded as artifacts. " +
+			"Reference outputs with the real resource you have:\n" +
 			"  • /tmp/output/ files appear in result.artifacts → reference as artifact:<key>  (e.g. ![alt](artifact:abc/run/file.png))\n" +
-			"  • /workspace/ files do NOT appear in result.artifacts → reference as workspace:/relative/path  (strip /workspace prefix, e.g. ![alt](workspace:/data/file.png))\n" +
-			"WRONG: ![alt](workspace:/tmp/output/file.png)  — workspace: is only for /workspace/, never for /tmp/output/\n" +
+			"  • files in the current working directory → reference the exact absolute file_path  (e.g. [report](/workspace/data/report.html))\n" +
 			"Only reference artifact keys that actually appear in result.artifacts. " +
-			"Never output raw /workspace/ or /tmp/output/ paths. Never invent artifact keys.",
+			"Do not invent legacy resource links, artifact keys, or file paths. Never output raw /tmp/output/ paths.",
 	},
 	{
 		Name:      "exec_command",
@@ -163,13 +162,14 @@ var registry = []ToolMeta{
 			"  - CRITICAL: Always create NEW commits rather than amending, unless the user explicitly requests a git amend. When a pre-commit hook fails, the commit did NOT happen — so --amend would modify the PREVIOUS commit, which may destroy work.\n" +
 			"  - When staging files, prefer adding specific files by name rather than using \"git add -A\" or \"git add .\", which can accidentally include sensitive files or large binaries.\n" +
 			"  - NEVER commit changes unless the user explicitly asks you to.\n" +
-			"Working files go to /workspace/; final user-visible files go to /tmp/output/ (auto-uploaded as artifacts). " +
-			"Two distinct reference formats — use the correct one:\n" +
+			"Work in the current working directory, normally /workspace/ in sandbox runs. Put final downloadable files in /tmp/output/ only when you want them auto-uploaded as artifacts. " +
+			"Reference outputs with the real resource you have:\n" +
 			"  • /tmp/output/ files appear in result.artifacts → reference as artifact:<key>\n" +
-			"  • /workspace/ files do NOT appear in result.artifacts → reference as workspace:/relative/path  (strip /workspace prefix)\n" +
-			"WRONG: [name](workspace:/tmp/output/file.txt)  — workspace: is only for /workspace/, never for /tmp/output/\n" +
+			"  • files in the current working directory → reference the exact absolute file_path\n" +
+			"  • running web apps or pages that should open in the right panel → reference as browser:<http-or-https-url>, for example [preview](browser:http://localhost:5173)\n" +
+			"Normal http/https Markdown links open externally; use browser: only when the user should preview a URL inside Arkloop. " +
 			"Only reference artifact keys that actually appear in result.artifacts. " +
-			"Never output raw paths. Never invent artifact keys.",
+			"Do not invent legacy resource links, artifact keys, or file paths. Never output raw /tmp/output/ paths.",
 	},
 	{
 		Name:      "continue_process",
@@ -180,9 +180,9 @@ var registry = []ToolMeta{
 			"Pass the process_ref and the last next_cursor you received. " +
 			"Omit stdin_text to only read new output. Provide stdin_text together with input_seq when the process accepts stdin. " +
 			"Use close_stdin when the process is waiting for EOF rather than more text. " +
-			"Working files go to /workspace/; final files go to /tmp/output/. " +
-			"Show /workspace/ files via Markdown: images ![alt](workspace:/relative/path), others [name](workspace:/relative/path). " +
-			"Never invent artifact keys.",
+			"Work in the current working directory, normally /workspace/ in sandbox runs; final downloadable files go to /tmp/output/. " +
+			"Show existing work files by linking the exact absolute file_path. " +
+			"Never invent artifact keys, legacy resource links, or file paths.",
 	},
 	{
 		Name:           "terminate_process",
@@ -526,6 +526,18 @@ var registry = []ToolMeta{
 			"If the user also wants the generated file sent to Telegram or another tool that accepts artifacts, reuse the exact artifact key returned by this tool instead of inventing a URL or path. " +
 			"Do not mention raw storage paths. Do not invent artifact keys. " +
 			"If the tool fails, explain the failure plainly instead of pretending the image exists.",
+	},
+	{
+		Name:      "resource_copy",
+		Group:     GroupFilesystem,
+		Label:     "Copy resource",
+		ShortDesc: "copy artifact or uploaded attachment bytes into the agent work directory",
+		LLMDescription: "copy an existing resource into the agent filesystem. " +
+			"Use when you need to inspect, transform, or combine a user-uploaded attachment or generated artifact with filesystem tools. " +
+			"source_uri must be a real URI already present in the conversation or tool result: artifact:<key> or attachment:<key>. " +
+			"target_path must be an absolute file path inside the active work directory; in sandbox runs this is often /workspace/input.png, while Desktop may use a local project folder. " +
+			"The result includes file_path; reference that exact absolute file_path in Markdown when you want the user to open it. " +
+			"Do not call this just to show an existing file; link the exact absolute file_path already present. Do not invent resource keys or file paths.",
 	},
 	// ── orchestration ──
 	{

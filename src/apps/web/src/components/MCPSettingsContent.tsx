@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Plus, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { ConfirmDialog } from '@arkloop/shared'
 import {
   checkMCPInstall,
   createMCPInstall,
   deleteMCPInstall,
+  getMCPOAuthStatus,
   isApiError,
   listMCPInstalls,
   setWorkspaceMCPEnablement,
+  startMCPOAuth,
   updateMCPInstall,
   type MCPInstall,
 } from '../api'
@@ -28,21 +30,70 @@ type Props = {
   accessToken: string
 }
 
+const oauthPollIntervalMs = 2000
+const oauthFlowTimeoutMs = 10 * 60 * 1000
+const oauthPendingStorageKey = 'arkloop:web:mcp-oauth-pending'
+
+type PendingMCPOAuth = {
+  installID: string
+  state: string
+  expiresAt: string
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+function readPendingMCPOAuth(): PendingMCPOAuth | null {
+  try {
+    const raw = window.localStorage.getItem(oauthPendingStorageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PendingMCPOAuth>
+    if (!parsed.installID || !parsed.state || !parsed.expiresAt) return null
+    return {
+      installID: parsed.installID,
+      state: parsed.state,
+      expiresAt: parsed.expiresAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writePendingMCPOAuth(value: PendingMCPOAuth): void {
+  window.localStorage.setItem(oauthPendingStorageKey, JSON.stringify(value))
+}
+
+function clearPendingMCPOAuth(): void {
+  window.localStorage.removeItem(oauthPendingStorageKey)
+}
+
+function needsOAuthAuthorization(install: MCPInstall): boolean {
+  if (install.transport === 'stdio') return false
+  const status = install.discovery_status.trim()
+  const code = (install.last_error_code ?? '').toLowerCase()
+  const message = (install.last_error_message ?? '').toLowerCase()
+  return status === 'auth_invalid'
+    || code === 'auth_invalid'
+    || code === 'auth_required'
+    || message.includes('www-authenticate')
+    || message.includes('resource_metadata')
+    || message.includes('oauth')
+}
+
 export function MCPSettingsContent({ accessToken }: Props) {
-  const { t, locale } = useLocale()
+  const { locale, t } = useLocale()
   const ds = t.desktopSettings
 
   const copy: MCPCopy = useMemo(() => {
     if (locale === 'zh') {
       return {
         add: '添加服务器',
-        refresh: '刷新',
-        scan: '扫描导入',
+        scan: '扫描',
         create: '创建',
         save: '保存',
         cancel: '取消',
         delete: '删除',
-        edit: '编辑',
         recheck: '重检',
         enable: '启用',
         disable: '禁用',
@@ -52,6 +103,9 @@ export function MCPSettingsContent({ accessToken }: Props) {
         loading: '加载中...',
         empty: '还没有 MCP 安装项。',
         sourceEmpty: '扫描结果会显示在这里。',
+        externalEmpty: '未配置 MCP 来源文件',
+        externalScanSummary: (s: number, p: number) => `已扫描 ${s} 个来源，共 ${p} 个可导入项`,
+        externalRemoveDir: '移除',
         formTitleCreate: '新建 MCP 服务器',
         formTitleEdit: '编辑 MCP 服务器',
         scanTitle: '从文件导入',
@@ -80,6 +134,8 @@ export function MCPSettingsContent({ accessToken }: Props) {
         toastDeleteFailed: '删除 MCP 服务器失败。',
         toastCheckFailed: '检查 MCP 服务器失败。',
         toastToggleFailed: '切换工作区启用状态失败。',
+        toastOAuthFailed: 'OAuth 授权启动失败。',
+        toastOAuthTimeout: 'OAuth 授权未完成。',
         toastScanFailed: '扫描 MCP 文件失败。',
         toastImportFailed: '导入 MCP 服务器失败。',
         toastSaved: '已保存。',
@@ -99,13 +155,11 @@ export function MCPSettingsContent({ accessToken }: Props) {
     }
     return {
       add: 'Add Server',
-      refresh: 'Refresh',
-      scan: 'Scan & Import',
+      scan: 'Scan',
       create: 'Create',
       save: 'Save',
       cancel: 'Cancel',
       delete: 'Delete',
-      edit: 'Edit',
       recheck: 'Recheck',
       enable: 'Enable',
       disable: 'Disable',
@@ -115,6 +169,9 @@ export function MCPSettingsContent({ accessToken }: Props) {
       loading: 'Loading...',
       empty: 'No MCP installs yet.',
       sourceEmpty: 'Scan results will appear here.',
+      externalEmpty: 'No MCP source files configured',
+      externalScanSummary: (s: number, p: number) => `Scanned ${s} source${s !== 1 ? 's' : ''}, ${p} importable`,
+      externalRemoveDir: 'Remove',
       formTitleCreate: 'New MCP Server',
       formTitleEdit: 'Edit MCP Server',
       scanTitle: 'Import From File',
@@ -143,6 +200,8 @@ export function MCPSettingsContent({ accessToken }: Props) {
       toastDeleteFailed: 'Failed to delete MCP server.',
       toastCheckFailed: 'Failed to check MCP server.',
       toastToggleFailed: 'Failed to update workspace enablement.',
+      toastOAuthFailed: 'Failed to start OAuth authorization.',
+      toastOAuthTimeout: 'OAuth authorization was not completed.',
       toastScanFailed: 'Failed to scan MCP files.',
       toastImportFailed: 'Failed to import MCP server.',
       toastSaved: 'Saved.',
@@ -169,21 +228,8 @@ export function MCPSettingsContent({ accessToken }: Props) {
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const [busyID, setBusyID] = useState<string | null>(null)
-  const [menuID, setMenuID] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<MCPInstall | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  // close menu on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as HTMLElement)) {
-        setMenuID(null)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
 
   const loadInstalls = useCallback(async () => {
     setLoading(true)
@@ -225,6 +271,15 @@ export function MCPSettingsContent({ accessToken }: Props) {
     setEditing(null)
     setFormError('')
   }, [saving])
+
+  const requestDeleteFromModal = useCallback(() => {
+    if (!editing || saving) return
+    const target = editing
+    setFormOpen(false)
+    setEditing(null)
+    setFormError('')
+    setDeleteTarget(target)
+  }, [editing, saving])
 
   const handleSave = useCallback(async () => {
     try {
@@ -277,21 +332,97 @@ export function MCPSettingsContent({ accessToken }: Props) {
     }
   }, [accessToken, copy.toastDeleteFailed, copy.toastDeleted, deleteTarget, loadInstalls])
 
+  const waitForOAuthAndEnable = useCallback(async (
+    installID: string,
+    state: string,
+    expiresAt: string,
+  ): Promise<'enabled' | 'expired' | 'check_failed'> => {
+    const parsedExpiry = Date.parse(expiresAt)
+    const deadline = Number.isFinite(parsedExpiry) ? parsedExpiry : Date.now() + oauthFlowTimeoutMs
+    while (Date.now() < deadline) {
+      await sleep(oauthPollIntervalMs)
+      let status
+      try {
+        status = await getMCPOAuthStatus(accessToken, installID, state)
+      } catch {
+        continue
+      }
+      if (status.expired) return 'expired'
+      if (!status.completed) continue
+
+      let checked
+      try {
+        checked = await checkMCPInstall(accessToken, installID)
+      } catch {
+        await loadInstalls()
+        return 'check_failed'
+      }
+      if (checked.discovery_status !== 'ready') {
+        await loadInstalls()
+        return 'check_failed'
+      }
+      await setWorkspaceMCPEnablement(accessToken, {
+        install_id: installID,
+        enabled: true,
+      })
+      await loadInstalls()
+      return 'enabled'
+    }
+    return 'expired'
+  }, [accessToken, loadInstalls])
+
+  useEffect(() => {
+    const pending = readPendingMCPOAuth()
+    if (!pending) return
+    setBusyID(pending.installID)
+    void (async () => {
+      const result = await waitForOAuthAndEnable(pending.installID, pending.state, pending.expiresAt)
+      clearPendingMCPOAuth()
+      if (result === 'expired') setNotice(copy.toastOAuthTimeout)
+      if (result === 'check_failed') setNotice(copy.toastCheckFailed)
+      setBusyID(null)
+    })()
+  }, [copy.toastCheckFailed, copy.toastOAuthTimeout, waitForOAuthAndEnable])
+
   const handleToggle = useCallback(async (install: MCPInstall) => {
     setBusyID(install.id)
     try {
+      const enabling = !install.workspace_state?.enabled
+      if (enabling) {
+        const checked = await checkMCPInstall(accessToken, install.id)
+        if (needsOAuthAuthorization(checked)) {
+          let oauth: Awaited<ReturnType<typeof startMCPOAuth>>
+          try {
+            oauth = await startMCPOAuth(accessToken, install.id)
+          } catch {
+            setNotice(copy.toastOAuthFailed)
+            return
+          }
+          writePendingMCPOAuth({
+            installID: install.id,
+            state: oauth.state,
+            expiresAt: oauth.expires_at,
+          })
+          window.open(oauth.authorization_url, '_blank', 'noopener,noreferrer')
+          await loadInstalls()
+          const result = await waitForOAuthAndEnable(install.id, oauth.state, oauth.expires_at)
+          clearPendingMCPOAuth()
+          if (result === 'expired') setNotice(copy.toastOAuthTimeout)
+          if (result === 'check_failed') setNotice(copy.toastCheckFailed)
+          return
+        }
+      }
       await setWorkspaceMCPEnablement(accessToken, {
         install_id: install.id,
-        enabled: !install.workspace_state?.enabled,
+        enabled: enabling,
       })
       await loadInstalls()
-      setNotice(null)
     } catch {
       setNotice(copy.toastToggleFailed)
     } finally {
       setBusyID(null)
     }
-  }, [accessToken, copy.toastToggleFailed, loadInstalls])
+  }, [accessToken, copy.toastCheckFailed, copy.toastOAuthFailed, copy.toastOAuthTimeout, copy.toastToggleFailed, loadInstalls, waitForOAuthAndEnable])
 
   const handleCheck = useCallback(async (install: MCPInstall) => {
     setBusyID(install.id)
@@ -307,22 +438,13 @@ export function MCPSettingsContent({ accessToken }: Props) {
   }, [accessToken, copy.toastCheckFailed, copy.toastChecked, loadInstalls])
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-semibold text-[var(--c-text-heading)]">{ds.mcpTitle}</h3>
-          <p className="mt-1 text-sm text-[var(--c-text-secondary)]">{ds.mcpDesc}</p>
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-[24px] font-semibold leading-tight text-[var(--c-text-heading)]">{ds.mcpTitle}</h2>
+          <p className="mt-2 max-w-[560px] text-[13px] leading-5 text-[var(--c-text-muted)]">{ds.mcpDesc}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <SettingsButton
-            variant="secondary"
-            onClick={() => void loadInstalls()}
-            disabled={loading}
-            icon={loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          >
-            {copy.refresh}
-          </SettingsButton>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <SettingsButton
             variant="primary"
             onClick={openCreate}
@@ -333,12 +455,8 @@ export function MCPSettingsContent({ accessToken }: Props) {
         </div>
       </div>
 
-      {/* notice */}
       {notice && (
-        <div
-          className="rounded-xl px-4 py-3 text-sm text-[var(--c-text-secondary)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-menu)' }}
-        >
+        <div className="rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-5 py-4 text-sm text-[var(--c-text-secondary)]">
           {notice}
         </div>
       )}
@@ -348,14 +466,9 @@ export function MCPSettingsContent({ accessToken }: Props) {
         installs={installs}
         loading={loading}
         busyID={busyID}
-        menuID={menuID}
-        setMenuID={setMenuID}
         onEdit={openEdit}
-        onDelete={setDeleteTarget}
         onToggle={(i) => void handleToggle(i)}
-        onCheck={(i) => void handleCheck(i)}
         copy={copy}
-        menuRef={menuRef}
       />
 
       {/* scan & import */}
@@ -380,8 +493,11 @@ export function MCPSettingsContent({ accessToken }: Props) {
         setField={setField}
         formError={formError}
         saving={saving}
+        recheckBusy={editing != null && busyID === editing.id}
         onSave={() => void handleSave()}
         onClose={closeForm}
+        onRecheck={editing ? () => void handleCheck(editing) : undefined}
+        onRequestDelete={editing ? requestDeleteFromModal : undefined}
         copy={copy}
       />
       <ConfirmDialog

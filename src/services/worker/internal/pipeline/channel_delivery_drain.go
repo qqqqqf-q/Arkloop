@@ -141,146 +141,96 @@ func (d *ChannelDeliveryDrainer) drainRecord(ctx context.Context, row data.Chann
 	if err := validateOutboxPayload(payload); err != nil {
 		return d.handleFailure(ctx, row, err, outboxRepo)
 	}
+
 	switch row.ChannelType {
 	case "telegram":
-		return d.drainTelegram(ctx, row, payload, channel, outboxRepo)
+		client := d.opts.Telegram
+		if client == nil {
+			client = telegrambot.NewClient(os.Getenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL"), nil)
+		}
+		sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
+		if len(payload.Segments) > 0 {
+			return d.drainTelegramSegments(ctx, client, sender, row, payload, channel, outboxRepo)
+		}
+		return d.drainOutputs(ctx, sender, nil, true, row, payload, outboxRepo)
+
 	case "discord":
-		return d.drainDiscord(ctx, row, payload, channel, outboxRepo)
+		client := d.opts.Discord
+		if client == nil {
+			client = &http.Client{Timeout: 10 * time.Second}
+		}
+		baseURL := strings.TrimSpace(d.opts.DiscordAPIBase)
+		if baseURL == "" {
+			baseURL = strings.TrimSpace(os.Getenv("ARKLOOP_DISCORD_API_BASE_URL"))
+		}
+		sender := NewDiscordChannelSenderWithClient(client, baseURL, channel.Token, resolveSegmentDelay())
+		return d.drainOutputs(ctx, sender, nil, true, row, payload, outboxRepo)
+
 	case "qq":
-		return d.drainQQ(ctx, row, payload, channel, outboxRepo)
+		obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
+		if obBaseURL == "" {
+			obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))
+		}
+		obToken := strings.TrimSpace(channel.Token)
+		client := onebotclient.NewClient(obBaseURL, obToken, nil)
+		sender := NewOneBotChannelSender(client, resolveSegmentDelay())
+		metadata := map[string]any{}
+		if payload.ConversationType == "group" {
+			metadata["message_type"] = "group"
+		}
+		if payload.Metadata != nil {
+			if t, ok := payload.Metadata["message_type"].(string); ok && t == "group" {
+				metadata["message_type"] = "group"
+			}
+		}
+		return d.drainOutputs(ctx, sender, metadata, true, row, payload, outboxRepo)
+
 	case "qqbot":
-		return d.drainQQBot(ctx, row, payload, channel, outboxRepo)
+		sender, err := NewQQBotChannelSenderFromChannel(channel, resolveSegmentDelay())
+		if err != nil {
+			return d.handleFailure(ctx, row, err, outboxRepo)
+		}
+		metadata := payload.Metadata
+		if metadata == nil {
+			metadata = map[string]any{"conversation_type": payload.ConversationType}
+			if payload.ConversationType == "group" {
+				metadata["scope"] = "group"
+			} else {
+				metadata["scope"] = "c2c"
+			}
+		}
+		return d.drainOutputs(ctx, sender, metadata, false, row, payload, outboxRepo)
+
 	case "weixin":
-		return d.drainWeixin(ctx, row, payload, channel, outboxRepo)
+		wxBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_WEIXIN_API_BASE_URL"))
+		if wxBaseURL == "" {
+			wxBaseURL = "https://ilinkai.weixin.qq.com"
+		}
+		wxToken := strings.TrimSpace(channel.Token)
+		wxClient := weixinclient.NewClient(wxBaseURL, wxToken, nil)
+		sender := NewWeixinChannelSenderWithClient(wxClient, resolveSegmentDelay())
+		return d.drainOutputs(ctx, sender, payload.Metadata, true, row, payload, outboxRepo)
+
 	case "feishu":
-		return d.drainFeishu(ctx, row, payload, channel, outboxRepo)
+		sender := NewFeishuChannelSender(channel.ConfigJSON, channel.Token)
+		return d.drainOutputs(ctx, sender, nil, true, row, payload, outboxRepo)
+
 	default:
 		return fmt.Errorf("unsupported channel type: %s", row.ChannelType)
 	}
 }
 
-func (d *ChannelDeliveryDrainer) drainTelegram(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	client := d.opts.Telegram
-	if client == nil {
-		client = telegrambot.NewClient(os.Getenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL"), nil)
-	}
-	sender := NewTelegramChannelSenderWithClient(client, channel.Token, resolveSegmentDelay())
-
-	replyTo := d.replyRefFromPayload(payload)
-	if len(payload.Segments) > 0 {
-		for i := row.SegmentsSent; i < len(payload.Segments); i++ {
-			segment := payload.Segments[i]
-			ref := replyTo
-			if i > 0 {
-				ref = nil
-			}
-			var (
-				messageIDs []string
-				sendErr    error
-				textBody   string
-			)
-			switch segment.Kind {
-			case "sticker":
-				messageIDs, sendErr = SendTelegramStickerByID(ctx, d.pool, d.opts.StickerStore, client, channel.Token, ChannelDeliveryTarget{
-					ChannelType: row.ChannelType,
-					Conversation: ChannelConversationRef{
-						Target:   payload.PlatformChatID,
-						ThreadID: payload.PlatformThreadID,
-					},
-					ReplyTo: ref,
-				}, payload.AccountID, segment.StickerID)
-			default:
-				textBody = strings.TrimSpace(segment.Text)
-				if textBody == "" {
-					if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-						return fmt.Errorf("update progress failed: %w", err)
-					}
-					continue
-				}
-				messageIDs, sendErr = sender.SendText(ctx, ChannelDeliveryTarget{
-					ChannelType:  row.ChannelType,
-					Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-					ReplyTo:      ref,
-				}, textBody)
-			}
-			if sendErr != nil {
-				return d.handleFailure(ctx, row, sendErr, outboxRepo)
-			}
-			if len(messageIDs) > 0 {
-				if payload.IsTerminalNotice {
-					if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, textBody); err != nil {
-						return d.handleFailure(ctx, row, err, outboxRepo)
-					}
-				} else {
-					if err := d.recordDeliverySuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs); err != nil {
-						return d.handleFailure(ctx, row, err, outboxRepo)
-					}
-				}
-			}
-			if err := AdvanceOutboxProgress(ctx, d.pool, outboxRepo, row.ID, i+1, payload.AccountID, segment.StickerID); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			row.SegmentsSent = i + 1
-		}
-		if err := outboxRepo.UpdateSent(ctx, d.pool, row.ID); err != nil {
-			return fmt.Errorf("update sent failed: %w", err)
-		}
-		return nil
-	}
-
-	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
-		trimmed := strings.TrimSpace(payload.Outputs[i])
-		if trimmed == "" {
-			if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			continue
-		}
-		ref := replyTo
-		if i > 0 {
-			ref = nil
-		}
-		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-			ChannelType:  row.ChannelType,
-			Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-			ReplyTo:      ref,
-		}, trimmed)
-		if sendErr != nil {
-			return d.handleFailure(ctx, row, sendErr, outboxRepo)
-		}
-		if len(messageIDs) > 0 {
-			if payload.IsTerminalNotice {
-				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, trimmed); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			} else {
-				if err := d.recordDeliverySuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			}
-		}
-		if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-			return fmt.Errorf("update progress failed: %w", err)
-		}
-		row.SegmentsSent = i + 1
-	}
-	if err := outboxRepo.UpdateSent(ctx, d.pool, row.ID); err != nil {
-		return fmt.Errorf("update sent failed: %w", err)
-	}
-	return nil
-}
-
-func (d *ChannelDeliveryDrainer) drainDiscord(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	client := d.opts.Discord
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	baseURL := strings.TrimSpace(d.opts.DiscordAPIBase)
-	if baseURL == "" {
-		baseURL = strings.TrimSpace(os.Getenv("ARKLOOP_DISCORD_API_BASE_URL"))
-	}
-	sender := NewDiscordChannelSenderWithClient(client, baseURL, channel.Token, resolveSegmentDelay())
-
+// drainOutputs delivers payload.Outputs via the given sender.
+// clearReply controls whether reply reference is cleared for outputs after the first.
+func (d *ChannelDeliveryDrainer) drainOutputs(
+	ctx context.Context,
+	sender ChannelSender,
+	metadata map[string]any,
+	clearReply bool,
+	row data.ChannelDeliveryOutboxRecord,
+	payload data.OutboxPayload,
+	outboxRepo data.ChannelDeliveryOutboxRepository,
+) error {
 	replyTo := d.replyRefFromPayload(payload)
 	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
 		trimmed := strings.TrimSpace(payload.Outputs[i])
@@ -291,69 +241,7 @@ func (d *ChannelDeliveryDrainer) drainDiscord(ctx context.Context, row data.Chan
 			continue
 		}
 		ref := replyTo
-		if i > 0 {
-			ref = nil
-		}
-		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-			ChannelType:  row.ChannelType,
-			Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-			ReplyTo:      ref,
-		}, trimmed)
-		if sendErr != nil {
-			return d.handleFailure(ctx, row, sendErr, outboxRepo)
-		}
-		if len(messageIDs) > 0 {
-			if payload.IsTerminalNotice {
-				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, trimmed); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			} else {
-				if err := d.recordDeliverySuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			}
-		}
-		if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-			return fmt.Errorf("update progress failed: %w", err)
-		}
-		row.SegmentsSent = i + 1
-	}
-	if err := outboxRepo.UpdateSent(ctx, d.pool, row.ID); err != nil {
-		return fmt.Errorf("update sent failed: %w", err)
-	}
-	return nil
-}
-
-func (d *ChannelDeliveryDrainer) drainQQ(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	obBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_ONEBOT_API_BASE_URL"))
-	if obBaseURL == "" {
-		obBaseURL = fmt.Sprintf("http://127.0.0.1:%d", resolveOneBotAPIPort(channel))
-	}
-	obToken := strings.TrimSpace(channel.Token)
-	client := onebotclient.NewClient(obBaseURL, obToken, nil)
-	sender := NewOneBotChannelSender(client, resolveSegmentDelay())
-
-	metadata := map[string]any{}
-	if payload.ConversationType == "group" {
-		metadata["message_type"] = "group"
-	}
-	if payload.Metadata != nil {
-		if t, ok := payload.Metadata["message_type"].(string); ok && t == "group" {
-			metadata["message_type"] = "group"
-		}
-	}
-
-	replyTo := d.replyRefFromPayload(payload)
-	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
-		trimmed := strings.TrimSpace(payload.Outputs[i])
-		if trimmed == "" {
-			if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			continue
-		}
-		ref := replyTo
-		if i > 0 {
+		if clearReply && i > 0 {
 			ref = nil
 		}
 		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
@@ -387,96 +275,59 @@ func (d *ChannelDeliveryDrainer) drainQQ(ctx context.Context, row data.ChannelDe
 	return nil
 }
 
-func (d *ChannelDeliveryDrainer) drainQQBot(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	sender, err := NewQQBotChannelSenderFromChannel(channel, resolveSegmentDelay())
-	if err != nil {
-		return d.handleFailure(ctx, row, err, outboxRepo)
-	}
-	metadata := payload.Metadata
-	if metadata == nil {
-		metadata = map[string]any{"conversation_type": payload.ConversationType}
-		if payload.ConversationType == "group" {
-			metadata["scope"] = "group"
-		} else {
-			metadata["scope"] = "c2c"
-		}
-	}
-
+// drainTelegramSegments delivers payload.Segments (text + stickers) for Telegram.
+// Sticker sends use the raw telegramClient; text segments use sender.
+func (d *ChannelDeliveryDrainer) drainTelegramSegments(
+	ctx context.Context,
+	telegramClient *telegrambot.Client,
+	sender ChannelSender,
+	row data.ChannelDeliveryOutboxRecord,
+	payload data.OutboxPayload,
+	channel *data.DeliveryChannelRecord,
+	outboxRepo data.ChannelDeliveryOutboxRepository,
+) error {
 	replyTo := d.replyRefFromPayload(payload)
-	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
-		trimmed := strings.TrimSpace(payload.Outputs[i])
-		if trimmed == "" {
-			if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			continue
-		}
-		ref := replyTo
-		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-			ChannelType:  row.ChannelType,
-			Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-			ReplyTo:      ref,
-			Metadata:     metadata,
-		}, trimmed)
-		if sendErr != nil {
-			return d.handleFailure(ctx, row, sendErr, outboxRepo)
-		}
-		if len(messageIDs) > 0 {
-			if payload.IsTerminalNotice {
-				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, trimmed); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			} else {
-				if err := d.recordDeliverySuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			}
-		}
-		if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-			return fmt.Errorf("update progress failed: %w", err)
-		}
-		row.SegmentsSent = i + 1
-	}
-	if err := outboxRepo.UpdateSent(ctx, d.pool, row.ID); err != nil {
-		return fmt.Errorf("update sent failed: %w", err)
-	}
-	return nil
-}
-
-func (d *ChannelDeliveryDrainer) drainWeixin(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	wxBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_WEIXIN_API_BASE_URL"))
-	if wxBaseURL == "" {
-		wxBaseURL = "https://ilinkai.weixin.qq.com"
-	}
-	wxToken := strings.TrimSpace(channel.Token)
-	wxClient := weixinclient.NewClient(wxBaseURL, wxToken, nil)
-	sender := NewWeixinChannelSenderWithClient(wxClient, resolveSegmentDelay())
-
-	replyTo := d.replyRefFromPayload(payload)
-	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
-		trimmed := strings.TrimSpace(payload.Outputs[i])
-		if trimmed == "" {
-			if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			continue
-		}
+	for i := row.SegmentsSent; i < len(payload.Segments); i++ {
+		segment := payload.Segments[i]
 		ref := replyTo
 		if i > 0 {
 			ref = nil
 		}
-		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-			ChannelType:  row.ChannelType,
-			Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-			ReplyTo:      ref,
-			Metadata:     payload.Metadata,
-		}, trimmed)
+		var (
+			messageIDs []string
+			sendErr    error
+			textBody   string
+		)
+		switch segment.Kind {
+		case "sticker":
+			messageIDs, sendErr = SendTelegramStickerByID(ctx, d.pool, d.opts.StickerStore, telegramClient, channel.Token, ChannelDeliveryTarget{
+				ChannelType: row.ChannelType,
+				Conversation: ChannelConversationRef{
+					Target:   payload.PlatformChatID,
+					ThreadID: payload.PlatformThreadID,
+				},
+				ReplyTo: ref,
+			}, payload.AccountID, segment.StickerID)
+		default:
+			textBody = strings.TrimSpace(segment.Text)
+			if textBody == "" {
+				if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
+					return fmt.Errorf("update progress failed: %w", err)
+				}
+				continue
+			}
+			messageIDs, sendErr = sender.SendText(ctx, ChannelDeliveryTarget{
+				ChannelType:  row.ChannelType,
+				Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
+				ReplyTo:      ref,
+			}, textBody)
+		}
 		if sendErr != nil {
 			return d.handleFailure(ctx, row, sendErr, outboxRepo)
 		}
 		if len(messageIDs) > 0 {
 			if payload.IsTerminalNotice {
-				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, trimmed); err != nil {
+				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, textBody); err != nil {
 					return d.handleFailure(ctx, row, err, outboxRepo)
 				}
 			} else {
@@ -485,53 +336,7 @@ func (d *ChannelDeliveryDrainer) drainWeixin(ctx context.Context, row data.Chann
 				}
 			}
 		}
-		if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-			return fmt.Errorf("update progress failed: %w", err)
-		}
-		row.SegmentsSent = i + 1
-	}
-	if err := outboxRepo.UpdateSent(ctx, d.pool, row.ID); err != nil {
-		return fmt.Errorf("update sent failed: %w", err)
-	}
-	return nil
-}
-
-func (d *ChannelDeliveryDrainer) drainFeishu(ctx context.Context, row data.ChannelDeliveryOutboxRecord, payload data.OutboxPayload, channel *data.DeliveryChannelRecord, outboxRepo data.ChannelDeliveryOutboxRepository) error {
-	sender := NewFeishuChannelSender(channel.ConfigJSON, channel.Token)
-
-	replyTo := d.replyRefFromPayload(payload)
-	for i := row.SegmentsSent; i < len(payload.Outputs); i++ {
-		trimmed := strings.TrimSpace(payload.Outputs[i])
-		if trimmed == "" {
-			if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
-				return fmt.Errorf("update progress failed: %w", err)
-			}
-			continue
-		}
-		ref := replyTo
-		if i > 0 {
-			ref = nil
-		}
-		messageIDs, sendErr := sender.SendText(ctx, ChannelDeliveryTarget{
-			ChannelType:  row.ChannelType,
-			Conversation: ChannelConversationRef{Target: payload.PlatformChatID, ThreadID: payload.PlatformThreadID},
-			ReplyTo:      ref,
-		}, trimmed)
-		if sendErr != nil {
-			return d.handleFailure(ctx, row, sendErr, outboxRepo)
-		}
-		if len(messageIDs) > 0 {
-			if payload.IsTerminalNotice {
-				if _, err := d.recordTerminalNoticeSuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs, trimmed); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			} else {
-				if err := d.recordDeliverySuccess(ctx, payload, row.ChannelID, row.ChannelType, ref, messageIDs); err != nil {
-					return d.handleFailure(ctx, row, err, outboxRepo)
-				}
-			}
-		}
-		if err := outboxRepo.UpdateProgress(ctx, d.pool, row.ID, i+1); err != nil {
+		if err := AdvanceOutboxProgress(ctx, d.pool, outboxRepo, row.ID, i+1, payload.AccountID, segment.StickerID); err != nil {
 			return fmt.Errorf("update progress failed: %w", err)
 		}
 		row.SegmentsSent = i + 1

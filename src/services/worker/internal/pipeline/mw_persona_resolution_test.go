@@ -114,6 +114,56 @@ func TestPersonaResolutionUserRouteIDNotAffectedByPersonaCredential(t *testing.T
 	}
 }
 
+func TestPersonaResolutionPreservesDiscoveredMCPToolsAcrossAllowlist(t *testing.T) {
+	reg := buildPersonaRegistry(t, personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		PromptMD:       "# test",
+		ToolAllowlist:  []string{"memory_search"},
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+	})
+	mw := pipeline.NewPersonaResolutionMiddleware(
+		func() *personas.Registry { return reg },
+		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
+	)
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{"persona_id": "test-persona"},
+		AllowlistSet: map[string]struct{}{
+			"memory_search":                     {},
+			"mcp__nowledge__memory_search":      {},
+			"mcp__context7__resolve_library_id": {},
+			"mcp__nowledge__memory_write":       {},
+		},
+		MCPToolNames: map[string]struct{}{
+			"mcp__nowledge__memory_search":      {},
+			"mcp__context7__resolve_library_id": {},
+			"mcp__nowledge__memory_write":       {},
+		},
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if _, ok := rc.AllowlistSet["memory_search"]; !ok {
+			t.Fatal("expected builtin memory_search to remain allowed")
+		}
+		if _, ok := rc.AllowlistSet["mcp__nowledge__memory_search"]; !ok {
+			t.Fatal("expected MCP memory_search to remain allowed")
+		}
+		if _, ok := rc.AllowlistSet["mcp__context7__resolve_library_id"]; !ok {
+			t.Fatal("expected context7 MCP tool to remain allowed")
+		}
+		if _, ok := rc.AllowlistSet["mcp__nowledge__memory_write"]; !ok {
+			t.Fatal("expected discovered MCP write tool to remain allowed")
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestPersonaResolutionLoadsModelReasoningAndPromptCache(t *testing.T) {
 	model := "demo-cred^gpt-5-mini"
 	reg := buildPersonaRegistry(t, personas.Definition{
@@ -230,10 +280,9 @@ func TestPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) {
 		nil, data.RunsRepository{}, data.RunEventsRepository{}, nil,
 	)
 
-	threadID := uuid.New()
 	rc := &pipeline.RunContext{
 		Run: data.Run{
-			ThreadID: threadID,
+			ThreadID: uuid.New(),
 		},
 		InputJSON: map[string]any{
 			"persona_id":         "test-persona",
@@ -256,8 +305,8 @@ func TestPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) {
 	if !strings.Contains(gotRuntimePrompt, "<system-reminder>") {
 		t.Fatalf("expected plan mode prompt after persona reset, got %q", gotRuntimePrompt)
 	}
-	if !strings.Contains(gotRuntimePrompt, "plans/"+threadID.String()+".md") {
-		t.Fatalf("expected plan path in runtime prompt, got %q", gotRuntimePrompt)
+	if !strings.Contains(gotRuntimePrompt, tools.DefaultPlanDirectory()) {
+		t.Fatalf("expected plan directory in runtime prompt, got %q", gotRuntimePrompt)
 	}
 }
 

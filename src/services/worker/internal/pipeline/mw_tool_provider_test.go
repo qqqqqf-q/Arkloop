@@ -14,6 +14,7 @@ import (
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	readtool "arkloop/services/worker/internal/tools/builtin/read"
+	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
 	"arkloop/services/worker/internal/testutil"
 	"github.com/google/uuid"
@@ -140,5 +141,37 @@ func TestBuildProviderExecutor_ImageMiniMaxUsesReadExecutor(t *testing.T) {
 	}
 	if _, ok := exec.(*readtool.Executor); !ok {
 		t.Fatalf("expected *read.Executor, got %T", exec)
+	}
+}
+
+func TestBuildProviderExecutor_ExaUsesHostedMCPWithoutCredential(t *testing.T) {
+	exec := pipeline.BuildProviderExecutor(toolprovider.ActiveProviderConfig{
+		GroupName:    "web_search",
+		ProviderName: websearch.AgentSpecExa.Name,
+	})
+	if exec == nil {
+		t.Fatal("expected executor")
+	}
+	checker, ok := exec.(tools.NotConfiguredChecker)
+	if ok && checker.IsNotConfigured() {
+		t.Fatalf("expected configured executor, got %T", exec)
+	}
+}
+
+func TestBuildProviderExecutor_ExaIgnoresLegacyCredential(t *testing.T) {
+	key := "exa-test-key"
+	baseURL := "https://legacy.exa.local"
+	exec := pipeline.BuildProviderExecutor(toolprovider.ActiveProviderConfig{
+		GroupName:    "web_search",
+		ProviderName: websearch.AgentSpecExa.Name,
+		APIKeyValue:  &key,
+		BaseURL:      &baseURL,
+	})
+	if exec == nil {
+		t.Fatal("expected executor")
+	}
+	checker, ok := exec.(tools.NotConfiguredChecker)
+	if ok && checker.IsNotConfigured() {
+		t.Fatalf("expected configured executor, got %T", exec)
 	}
 }

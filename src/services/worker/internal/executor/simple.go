@@ -73,6 +73,7 @@ func (e *SimpleExecutor) Execute(
 		MaxTotalOutputTokens:             rc.MaxTotalOutputTokens,
 		PendingMemoryWrites:              rc.PendingMemoryWrites,
 		Runtime:                          rc.Runtime,
+		ToolExecutionTracker:             rc.ToolExecutionTracker,
 		LlmRetryMaxAttempts:              rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:              rc.LlmRetryBaseDelayMs,
 		WaitForInput:                     rc.WaitForInput,
@@ -83,6 +84,7 @@ func (e *SimpleExecutor) Execute(
 		CancelSignal: func() bool {
 			return ctx.Err() != nil
 		},
+		RunIdleTimeout:        rc.RunIdleTimeout,
 		RunDeadline:           rc.RunWallClockTimeout,
 		PausedInputTimeout:    rc.PausedInputTimeout,
 		IdleHeartbeatInterval: rc.IdleHeartbeatInterval,

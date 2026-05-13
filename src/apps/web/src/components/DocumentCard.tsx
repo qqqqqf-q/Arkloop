@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react'
 import type { ArtifactRef } from '../storage'
+import { useLocale } from '../contexts/LocaleContext'
 
 type Props = {
   artifact: ArtifactRef
@@ -7,7 +8,15 @@ type Props = {
   active?: boolean
 }
 
-export function DocumentCard({ artifact, onClick, active }: Props) {
+type DocumentResourceCardProps = {
+  title: string
+  kindLabel?: string
+  onClick: (trigger: HTMLButtonElement) => void
+  active?: boolean
+}
+
+export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, active }: DocumentResourceCardProps) {
+  const { locale } = useLocale()
   const restingBackground = active ? 'var(--c-bg-page)' : 'var(--c-bg-sub)'
   const iconBackground = active ? 'transparent' : 'var(--c-bg-page)'
   const iconBorder = active ? '0.5px solid transparent' : '0.5px solid var(--c-border-subtle)'
@@ -68,7 +77,7 @@ export function DocumentCard({ artifact, onClick, active }: Props) {
             lineHeight: '16px',
           }}
         >
-          {artifact.filename}
+          {title}
         </span>
         <span
           style={{
@@ -77,9 +86,19 @@ export function DocumentCard({ artifact, onClick, active }: Props) {
             lineHeight: '14px',
           }}
         >
-          Document
+          {kindLabel === 'Document' && locale === 'zh' ? '文档' : kindLabel}
         </span>
       </div>
     </button>
+  )
+}
+
+export function DocumentCard({ artifact, onClick, active }: Props) {
+  return (
+    <DocumentResourceCard
+      title={artifact.title || artifact.filename}
+      onClick={onClick}
+      active={active}
+    />
   )
 }

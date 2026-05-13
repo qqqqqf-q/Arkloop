@@ -222,6 +222,58 @@ func TestImpressionPrepareMiddlewareUsesAccountToolRoute(t *testing.T) {
 	}
 }
 
+func TestImpressionPrepareMiddlewareUpdatesModelIdentityAfterRouteOverride(t *testing.T) {
+	routeCfg := routing.ProviderRoutingConfig{
+		Credentials: []routing.ProviderCredential{
+			{
+				ID:           "cred-tool",
+				Name:         "tool-cred",
+				OwnerKind:    routing.CredentialScopePlatform,
+				ProviderKind: routing.ProviderKindStub,
+			},
+		},
+		Routes: []routing.ProviderRouteRule{
+			{ID: "route-chat", Model: "chat-model", CredentialID: "cred-tool"},
+			{ID: "route-tool", Model: "tool-model", CredentialID: "cred-tool", Priority: 10},
+		},
+	}
+	loader := routing.NewDesktopSQLiteRoutingLoader(func(context.Context) (routing.ProviderRoutingConfig, error) {
+		return routeCfg, nil
+	}, routing.ProviderRoutingConfig{})
+	auxGateway := impressionTestGateway{}
+	uid := uuid.New()
+	rc := &RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+		},
+		InputJSON: map[string]any{"run_kind": "impression"},
+		UserID:    &uid,
+		Gateway:   auxGateway,
+		SelectedRoute: &routing.SelectedProviderRoute{
+			Route:      routing.ProviderRouteRule{ID: "route-chat", Model: "chat-model"},
+			Credential: routeCfg.Credentials[0],
+		},
+	}
+
+	h := Build([]RunMiddleware{
+		NewImpressionPrepareMiddleware(nil, impressionTestDB{selector: "tool-cred^tool-model"}, auxGateway, false, loader),
+		NewModelIdentityMiddleware(),
+	}, func(_ context.Context, rc *RunContext) error {
+		prompt := rc.MaterializedSystemPrompt()
+		if !strings.Contains(prompt, "Model: tool-model") {
+			t.Fatalf("expected model identity to use tool-model, got: %s", prompt)
+		}
+		if strings.Contains(prompt, "Model: chat-model") {
+			t.Fatalf("model identity still contains stale chat-model: %s", prompt)
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestImpressionPrepareMiddlewareInjectsOverviewAndLeafReadContent(t *testing.T) {
 	uid := uuid.New()
 	rootURI := memory.SelfURI(uid.String())

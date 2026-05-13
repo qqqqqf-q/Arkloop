@@ -1,9 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, FolderOpen, Loader2, Plus, Trash2 } from 'lucide-react'
 import { discoverExternalSkills, getExternalDirs, setExternalDirs, type ExternalSkillDir } from '../../api'
 import type { ViewSkill } from './types'
 import { SkillList } from './SkillList'
-import { secondaryButtonBorderStyle, secondaryButtonXsCls } from '../buttonStyles'
+import { SettingsGroup, SETTINGS_CARD_SURFACE_CLASS } from '../settings/_SettingsLayout'
+import { SettingsButton, SettingsIconButton } from '../settings/_SettingsButton'
+import { SettingsInput } from '../settings/_SettingsInput'
 
 type SkillTextSubset = {
   searchResults: (count: number) => string
@@ -20,6 +22,9 @@ type SkillTextSubset = {
   download: string
   replace: string
   remove: string
+  cancelAction: string
+  removeConfirmTitle: string
+  removeConfirmBody: (displayName: string, skillKey: string, version: string) => string
   manualAvailable: string
   scanStatusLabel: (status: string) => string
   externalTitle: string
@@ -27,6 +32,8 @@ type SkillTextSubset = {
   externalNoSkills: string
   externalAddDir: string
   externalAddPlaceholder: string
+  externalRemoveDir: string
+  externalScanSummary: (dirCount: number, skillCount: number) => string
   externalLoadFailed: string
   externalSaveFailed: string
   externalRemoveFailed: string
@@ -78,7 +85,8 @@ export function InstalledSkillsView(props: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [newDir, setNewDir] = useState('')
   const [saving, setSaving] = useState(false)
-  const [externalOpen, setExternalOpen] = useState(false)
+
+  const totalSkillCount = useMemo(() => dirs.reduce((acc, d) => acc + d.skills.length, 0), [dirs])
 
   const refreshExternal = useCallback(async () => {
     setExternalLoading(true)
@@ -133,141 +141,126 @@ export function InstalledSkillsView(props: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-[var(--c-text-tertiary)]">
-        {skillText.searchResults(items.length)}
-      </span>
+    <div className="flex flex-col gap-6">
+      <SettingsGroup title={skillText.searchResults(items.length)}>
+        <SkillList
+          items={items}
+          loading={loading}
+          viewMode="installed"
+          busySkillId={busySkillId}
+          menuSkillId={menuSkillId}
+          setMenuSkillId={setMenuSkillId}
+          onDetailSkill={onDetailSkill}
+          onEnable={onEnable}
+          onDisable={onDisable}
+          onRemove={onRemove}
+          onTrySkill={onTrySkill}
+          skillText={skillText}
+          locale={locale}
+          platformAvailabilityLabel={platformAvailabilityLabel}
+          platformAvailabilityStyle={platformAvailabilityStyle}
+          scanStatusBadge={scanStatusBadge}
+          active={active}
+          cardMenuRef={cardMenuRef}
+        />
+      </SettingsGroup>
 
-      <SkillList
-        items={items}
-        loading={loading}
-        viewMode="installed"
-        busySkillId={busySkillId}
-        menuSkillId={menuSkillId}
-        setMenuSkillId={setMenuSkillId}
-        onDetailSkill={onDetailSkill}
-        onEnable={onEnable}
-        onDisable={onDisable}
-        onRemove={onRemove}
-        onTrySkill={onTrySkill}
-        skillText={skillText}
-        locale={locale}
-        platformAvailabilityLabel={platformAvailabilityLabel}
-        platformAvailabilityStyle={platformAvailabilityStyle}
-        scanStatusBadge={scanStatusBadge}
-        active={active}
-        cardMenuRef={cardMenuRef}
-      />
-
-      {/* external skills collapsible section */}
-      <div
-        className="mt-2 rounded-xl overflow-hidden"
-        style={{ border: '0.5px solid var(--c-border-subtle)' }}
-      >
-        <button
-          type="button"
-          className="flex w-full items-center gap-2 p-3 text-left select-none transition-colors bg-[var(--c-bg-menu)] hover:bg-[var(--c-bg-deep)]"
-          onClick={() => setExternalOpen((v) => !v)}
-        >
-          {externalOpen
-            ? <ChevronDown size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
-            : <ChevronRight size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
-          }
-          <FolderOpen size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
-          <span className="flex-1 text-sm font-medium text-[var(--c-text-heading)]">
-            {skillText.externalTitle}
-          </span>
-          {!externalLoading && (
-            <span
-              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
-              style={{ background: 'var(--c-bg-deep)' }}
-            >
-              {dirs.reduce((acc, d) => acc + d.skills.length, 0)}
-            </span>
-          )}
-        </button>
-
-        <div
-          className="grid transition-[grid-template-rows] duration-200 ease-out"
-          style={{ gridTemplateRows: externalOpen ? '1fr' : '0fr' }}
-        >
-          <div className="overflow-hidden" style={{ borderTop: externalOpen ? '0.5px solid var(--c-border-subtle)' : 'none' }}>
-          <div className="flex flex-col gap-2 p-3">
-            {externalError && (
-              <p className="text-xs pt-3" style={{ color: 'var(--c-status-error-text)' }}>{externalError}</p>
+      <SettingsGroup title={skillText.externalTitle}>
+        <div className={SETTINGS_CARD_SURFACE_CLASS}>
+          <div className="flex flex-col gap-4 p-4 sm:p-5">
+            {!externalLoading && dirs.length > 0 && (
+              <p className="text-[13px] leading-snug text-[var(--c-text-tertiary)]">
+                {skillText.externalScanSummary(dirs.length, totalSkillCount)}
+              </p>
             )}
+
+            {externalError && (
+              <p className="text-xs" style={{ color: 'var(--c-status-error-text)' }}>{externalError}</p>
+            )}
+
             {externalLoading ? (
-              <div className="flex h-20 items-center justify-center">
-                <Loader2 size={14} className="animate-spin text-[var(--c-text-tertiary)]" />
+              <div className="flex h-24 items-center justify-center">
+                <Loader2 size={16} className="animate-spin text-[var(--c-text-tertiary)]" />
               </div>
             ) : dirs.length === 0 ? (
-              <div className="py-4 text-center">
-                <span className="text-xs text-[var(--c-text-muted)]">{skillText.externalEmpty}</span>
-              </div>
+              <p className="py-1 text-center text-[13px] text-[var(--c-text-muted)]">{skillText.externalEmpty}</p>
             ) : (
-              <div className="flex flex-col gap-1 pt-2">
+              <div className="flex flex-col gap-2">
                 {dirs.map((dir) => {
-                  const open = expanded[dir.path] !== false
+                  const open = expanded[dir.path] === true
                   return (
                     <div
                       key={dir.path}
-                      className="rounded-lg overflow-hidden"
-                      style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+                      className="overflow-hidden rounded-[10px] border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-input)]"
                     >
                       <div
-                        className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors hover:bg-[var(--c-bg-deep)]"
+                        role="button"
+                        tabIndex={0}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-2.5 select-none outline-none transition-colors hover:bg-[color-mix(in_srgb,var(--c-bg-deep)_30%,transparent)] focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
                         onClick={() => toggleDir(dir.path)}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault()
+                          toggleDir(dir.path)
+                        }}
                       >
                         {open
-                          ? <ChevronDown size={12} className="shrink-0 text-[var(--c-text-tertiary)]" />
-                          : <ChevronRight size={12} className="shrink-0 text-[var(--c-text-tertiary)]" />
+                          ? <ChevronDown size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
+                          : <ChevronRight size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
                         }
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--c-text-heading)]">
+                        <FolderOpen size={14} className="shrink-0 text-[var(--c-text-tertiary)]" />
+                        <span
+                          className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--c-text-heading)] sm:text-[13px]"
+                          title={dir.path}
+                        >
                           {dir.path}
                         </span>
                         <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
-                          style={{ background: 'var(--c-bg-deep)' }}
+                          className="shrink-0 rounded-[6px] border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)] px-2 py-0.5 text-[10px] font-medium tabular-nums text-[var(--c-text-secondary)]"
                         >
                           {dir.skills.length}
                         </span>
-                        <button
-                          type="button"
+                        <SettingsIconButton
+                          label={skillText.externalRemoveDir}
+                          danger
+                          variant="framed"
                           disabled={saving}
-                          onClick={(e) => { e.stopPropagation(); void handleRemoveDir(dir.path) }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--c-error-bg)]"
-                          style={{ color: 'var(--c-status-error-text)' }}
+                          className="shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleRemoveDir(dir.path)
+                          }}
                         >
-                          {saving ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                        </button>
+                          {saving ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </SettingsIconButton>
                       </div>
                       <div
                         className="grid transition-[grid-template-rows] duration-200 ease-out"
                         style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
                       >
                         <div className="overflow-hidden">
-                        {dir.skills.length > 0 ? (
-                          <div className="flex flex-col gap-0.5 px-3 pb-2">
-                            {dir.skills.map((skill) => (
-                              <div
-                                key={skill.path}
-                                className="flex items-center gap-2 rounded px-2 py-1 pl-5"
-                                style={{ background: 'var(--c-bg-menu)' }}
-                              >
-                                <span className="min-w-0 flex-1 truncate text-xs text-[var(--c-text-heading)]">
-                                  {skill.name}
-                                </span>
-                                <span className="shrink-0 truncate text-[10px] text-[var(--c-text-muted)]">
-                                  {skill.instruction_path.split('/').pop()}
-                                </span>
-                              </div>
-                            ))}
+                          <div className="border-t border-[var(--c-border-subtle)] px-3 py-2">
+                            {dir.skills.length > 0 ? (
+                              <ul className="flex flex-col gap-1">
+                                {dir.skills.map((skill) => (
+                                  <li
+                                    key={skill.path}
+                                    className="flex min-h-[36px] items-center gap-2 rounded-[6.5px] px-2.5 py-1.5"
+                                    style={{ background: 'var(--c-bg-menu)' }}
+                                  >
+                                    <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-primary)]">
+                                      {skill.name}
+                                    </span>
+                                    <span className="shrink-0 max-w-[45%] truncate font-mono text-[11px] text-[var(--c-text-muted)]">
+                                      {skill.instruction_path.split('/').pop()}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="pl-1 text-[12px] text-[var(--c-text-muted)]">{skillText.externalNoSkills}</p>
+                            )}
                           </div>
-                        ) : (
-                          <div className="px-3 pb-2 pl-7">
-                            <span className="text-[10px] text-[var(--c-text-muted)]">{skillText.externalNoSkills}</span>
-                          </div>
-                        )}
                         </div>
                       </div>
                     </div>
@@ -276,30 +269,30 @@ export function InstalledSkillsView(props: Props) {
               </div>
             )}
 
-            <div className="flex items-center gap-2 pt-1">
-              <input
+            <div className="flex flex-col gap-2 border-t border-[var(--c-border-subtle)] pt-4 sm:flex-row sm:items-center">
+              <SettingsInput
+                variant="md"
+                className="min-w-0 flex-1"
                 value={newDir}
                 onChange={(e) => setNewDir(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleAddDir() }}
                 placeholder={skillText.externalAddPlaceholder}
-                className="h-8 min-w-0 flex-1 rounded-lg pl-3 pr-3 text-xs text-[var(--c-text-heading)] outline-none placeholder:text-[var(--c-text-tertiary)]"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+                disabled={saving || externalLoading}
               />
-              <button
-                type="button"
-                disabled={saving || !newDir.trim()}
+              <SettingsButton
+                variant="primary"
+                size="modal"
+                className="w-full shrink-0 sm:w-auto"
+                disabled={saving || externalLoading || !newDir.trim()}
+                icon={saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 onClick={() => void handleAddDir()}
-                className={`${secondaryButtonXsCls} h-8 shrink-0 px-3`}
-                style={secondaryButtonBorderStyle}
               >
-                {saving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                 {skillText.externalAddDir}
-              </button>
+              </SettingsButton>
             </div>
           </div>
-          </div>
         </div>
-      </div>
+      </SettingsGroup>
     </div>
   )
 }

@@ -166,6 +166,20 @@ func TestAutoMigrate(t *testing.T) {
 	if len(fkViolations) > 0 {
 		t.Fatalf("foreign key violations after migration: %v", fkViolations)
 	}
+
+	var defaultSearchProvider string
+	var defaultSearchActive int
+	err = pool.QueryRow(ctx, `
+		SELECT provider_name, is_active
+		FROM tool_provider_configs
+		WHERE owner_kind = 'platform' AND group_name = 'web_search'
+	`).Scan(&defaultSearchProvider, &defaultSearchActive)
+	if err != nil {
+		t.Fatalf("query default search provider: %v", err)
+	}
+	if defaultSearchProvider != "web_search.exa" || defaultSearchActive != 1 {
+		t.Fatalf("default search provider = %s active=%d", defaultSearchProvider, defaultSearchActive)
+	}
 }
 
 func TestRepairMissingColumnsMigratesOldPlanMode(t *testing.T) {

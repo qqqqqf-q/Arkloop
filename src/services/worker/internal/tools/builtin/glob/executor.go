@@ -56,11 +56,13 @@ func (e *Executor) Execute(
 
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 
+	tools.TrackPhase(execCtx, toolCallID, "backend.exec")
 	entries, truncated, err := globFiles(ctx, backend, pattern, searchPath)
 	if err != nil {
 		return errResult(fmt.Sprintf("glob failed: %s", err.Error()), started)
 	}
 
+	tools.TrackPhase(execCtx, toolCallID, "format_result")
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
 			"files":     entries,

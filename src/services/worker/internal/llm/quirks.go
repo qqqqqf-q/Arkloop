@@ -14,6 +14,7 @@ const (
 	QuirkForceTempOneOnThink     QuirkID = "force_temp_one_on_thinking"
 	QuirkEchoEmptyTextOnThink    QuirkID = "echo_empty_text_on_thinking"
 	QuirkStripCacheControl       QuirkID = "strip_cache_control"
+	QuirkStripToolChoice         QuirkID = "strip_tool_choice"
 )
 
 type Quirk struct {
@@ -104,6 +105,11 @@ var openAIQuirks = []Quirk{
 		ID:    QuirkDowngradeXHighReasoning,
 		Match: matchXHighReasoningUnsupported,
 		Apply: applyDowngradeXHighReasoning,
+	},
+	{
+		ID:    QuirkStripToolChoice,
+		Match: matchToolChoiceUnsupported,
+		Apply: applyStripToolChoice,
 	},
 }
 
@@ -209,6 +215,18 @@ func matchXHighReasoningUnsupported(status int, rawBody string) bool {
 		strings.Contains(lower, "literal_error")
 }
 
+func matchToolChoiceUnsupported(status int, rawBody string) bool {
+	if status != 400 {
+		return false
+	}
+	lower := strings.ToLower(rawBody)
+	if !strings.Contains(lower, "tool_choice") {
+		return false
+	}
+	return strings.Contains(lower, "does not support") ||
+		strings.Contains(lower, "unsupported")
+}
+
 func hasLowerAlphaToken(text string, want string) bool {
 	for _, token := range strings.FieldsFunc(text, func(r rune) bool {
 		return r < 'a' || r > 'z'
@@ -218,6 +236,10 @@ func hasLowerAlphaToken(text string, want string) bool {
 		}
 	}
 	return false
+}
+
+func applyStripToolChoice(payload map[string]any) {
+	delete(payload, "tool_choice")
 }
 
 func applyDowngradeXHighReasoning(payload map[string]any) {

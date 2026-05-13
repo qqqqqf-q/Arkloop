@@ -135,6 +135,32 @@ func mcpInstallEntry(
 			httpkit.WriteNotFound(w, r)
 			return
 		}
+		if strings.HasSuffix(tail, ":oauth/start") {
+			id, err := uuid.Parse(strings.TrimSuffix(tail, ":oauth/start"))
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+			if r.Method != nethttp.MethodPost {
+				httpkit.WriteMethodNotAllowed(w, r)
+				return
+			}
+			startMCPOAuth(w, r, traceID, id, authService, installsRepo, secretsRepo, pool)
+			return
+		}
+		if strings.HasSuffix(tail, ":oauth/status") {
+			id, err := uuid.Parse(strings.TrimSuffix(tail, ":oauth/status"))
+			if err != nil {
+				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
+				return
+			}
+			if r.Method != nethttp.MethodGet {
+				httpkit.WriteMethodNotAllowed(w, r)
+				return
+			}
+			getMCPOAuthStatus(w, r, traceID, id, authService, pool)
+			return
+		}
 		if strings.HasSuffix(tail, ":check") {
 			id, err := uuid.Parse(strings.TrimSuffix(tail, ":check"))
 			if err != nil {
@@ -1037,8 +1063,12 @@ func newMCPAuthPayload(headers map[string]string, env map[string]string) *shared
 	return &sharedmcpinstall.AuthPayload{Headers: headers, Env: env}
 }
 
+func hasMCPAuthPayload(payload *sharedmcpinstall.AuthPayload) bool {
+	return payload != nil && (len(payload.Headers) > 0 || len(payload.Env) > 0 || payload.OAuth != nil)
+}
+
 func upsertMCPAuthHeadersSecret(ctx context.Context, repo *data.SecretsRepository, userID uuid.UUID, installKey string, payload *sharedmcpinstall.AuthPayload) (uuid.UUID, error) {
-	if repo == nil || payload == nil || (len(payload.Headers) == 0 && len(payload.Env) == 0) {
+	if repo == nil || !hasMCPAuthPayload(payload) {
 		return uuid.Nil, nil
 	}
 	encoded, err := json.Marshal(payload)
@@ -1076,8 +1106,11 @@ func loadMCPAuthPayload(ctx context.Context, repo *data.SecretsRepository, secre
 }
 
 func notifyMCPChanged(ctx context.Context, pool data.DB, accountID uuid.UUID) {
-	if pool == nil || accountID == uuid.Nil {
+	if accountID == uuid.Nil {
 		return
 	}
-	_, _ = pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
+	if pool != nil {
+		_, _ = pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
+	}
+	notifyMCPChangedLocal(ctx, accountID)
 }

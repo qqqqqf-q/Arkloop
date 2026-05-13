@@ -97,6 +97,7 @@ describe('applyAgentEventToWebSearchSteps', () => {
     steps = applyAgentEventToWebSearchSteps(steps, result)
     expect(steps).toHaveLength(1)
     expect(steps[0]?.label).toBe(COMPLETED_SEARCHING_LABEL)
+    expect(steps[0]?.text).toEqual({ kind: 'search_completed' })
     expect(steps[0]?.sources).toEqual([{ title: 't', url: 'https://x.test', snippet: undefined }])
     expect(steps[0]?.seq).toBe(1)
     expect(steps[0]?.resultSeq).toBe(2)
@@ -159,5 +160,35 @@ describe('applyAgentEventToWebSearchSteps', () => {
     }))
     expect(interrupted).toHaveLength(1)
     expect(interrupted[0]?.status).toBe('done')
+    expect(interrupted[0]?.text).toEqual({ kind: 'search_completed' })
+  })
+
+  it('segment search 默认标题使用语义文本，并在结束时更新为完成语义', () => {
+    let steps = applyAgentEventToWebSearchSteps([], agentEvent({
+      type: 'segment-start',
+      order: 1,
+      timestamp: '',
+      id: 'e1',
+      streamId: 'r',
+      data: {
+        segment_id: 'seg1',
+        kind: 'search_queries',
+        display: {},
+      },
+    }))
+
+    expect(steps[0]?.text).toEqual({ kind: 'search', tense: 'live' })
+
+    steps = applyAgentEventToWebSearchSteps(steps, agentEvent({
+      type: 'segment-end',
+      order: 2,
+      timestamp: '',
+      id: 'e2',
+      streamId: 'r',
+      data: { segment_id: 'seg1' },
+    }))
+
+    expect(steps[0]?.label).toBe(COMPLETED_SEARCHING_LABEL)
+    expect(steps[0]?.text).toEqual({ kind: 'search_completed' })
   })
 })

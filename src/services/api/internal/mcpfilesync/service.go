@@ -553,10 +553,13 @@ func (s *Service) upsertAuthHeadersSecret(ctx context.Context, proposal Proposed
 }
 
 func (s *Service) notifyChanged(ctx context.Context, accountID uuid.UUID) {
-	if s == nil || s.pool == nil || accountID == uuid.Nil {
+	if s == nil || accountID == uuid.Nil {
 		return
 	}
-	_, _ = s.pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
+	if s.pool != nil {
+		_, _ = s.pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
+	}
+	notifyMCPChangedLocal(ctx, accountID)
 }
 
 func cloneHeaders(input map[string]string) map[string]string {

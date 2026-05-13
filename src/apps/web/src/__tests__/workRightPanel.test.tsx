@@ -20,7 +20,7 @@ describe('WorkRightPanel', () => {
     }
   })
 
-  it('不渲染 Work Mode 右侧信息卡片', async () => {
+  it('没有 work folder 时不渲染文件面板', async () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -36,6 +36,23 @@ describe('WorkRightPanel', () => {
     })
 
     expect(container.textContent).toBe('')
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('有 work folder 时渲染本地文件根', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(<WorkRightPanel workFolder="/Users/dev/project" />)
+    })
+
+    expect(container.textContent).toContain('/Users/dev/project')
 
     await act(async () => {
       root.unmount()

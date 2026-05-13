@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CopBlockItem } from '../assistantTurnSegments'
-import { aggregateMainTitle, buildSubSegments, categoryForTool, presentToProgressive } from '../copSubSegment'
+import { aggregateMainTitle, titleSpansToLocaleText, titleSpansToText, buildSubSegments, categoryForTool, runningToolLabel } from '../copSubSegment'
 
 function toolCall(
   id: string,
@@ -35,9 +35,9 @@ describe('copSubSegment image generation titles', () => {
     }
 
     expect(categoryForTool('image_generate')).toBe('image')
-    expect(presentToProgressive('image_generate', { prompt: 'a mountain at dawn' })).toBe('Generating image')
-    expect(aggregateMainTitle([openSegment], true, false)).toBe('Generating image...')
-    expect(aggregateMainTitle([openSegment], true, false)).not.toContain('image_generate')
+    expect(runningToolLabel('image_generate', { prompt: 'a mountain at dawn' })).toBe('Generating image')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).toBe('Generating image...')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).not.toContain('image_generate')
   })
 
   it('image_generate 完成和失败标题不退化为 step completed', () => {
@@ -49,10 +49,10 @@ describe('copSubSegment image generation titles', () => {
     ])
 
     expect(successSegments[0]?.title).toBe('Generated image')
-    expect(aggregateMainTitle(successSegments, false, true)).toBe('Generated image')
-    expect(aggregateMainTitle(successSegments, false, true)).not.toBe('1 step completed')
+    expect(titleSpansToText(aggregateMainTitle(successSegments, false, true))).toBe('Generated image')
+    expect(titleSpansToText(aggregateMainTitle(successSegments, false, true))).not.toBe('1 step completed')
     expect(failedSegments[0]?.title).toBe('Image generation failed')
-    expect(aggregateMainTitle(failedSegments, false, true)).toBe('Image generation failed')
+    expect(titleSpansToText(aggregateMainTitle(failedSegments, false, true))).toBe('Image generation failed')
   })
 })
 
@@ -72,9 +72,10 @@ describe('copSubSegment web search titles', () => {
       title: 'Searching...',
     }
 
-    expect(presentToProgressive('web_search', { query: 'rust crate niche' })).toBe('Searching for rust crate niche')
-    expect(aggregateMainTitle([openSegment], true, false)).toBe('Searching for rust crate niche...')
-    expect(aggregateMainTitle([openSegment], true, false)).not.toContain('web_search')
+    expect(runningToolLabel('web_search', { query: 'rust crate niche' })).toBe('Searching for rust crate niche')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).toBe('Searching for rust crate niche...')
+    expect(titleSpansToLocaleText(aggregateMainTitle([openSegment], true, false), 'zh')).toBe('正在搜索 rust crate niche...')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).not.toContain('web_search')
   })
 
   it('live adaptive title 使用抓取语义和域名，不裸露 web_fetch', () => {
@@ -88,9 +89,9 @@ describe('copSubSegment web search titles', () => {
     }
 
     expect(categoryForTool('web_fetch')).toBe('fetch')
-    expect(presentToProgressive('web_fetch', { url: 'https://www.example.com/docs/page' })).toBe('Fetching example.com')
-    expect(aggregateMainTitle([openSegment], true, false)).toBe('Fetching example.com...')
-    expect(aggregateMainTitle([openSegment], true, false)).not.toContain('web_fetch')
+    expect(runningToolLabel('web_fetch', { url: 'https://www.example.com/docs/page' })).toBe('Fetching example.com')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).toBe('Fetching example.com...')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).not.toContain('web_fetch')
   })
 
   it('完成态保留搜索标题，不退化成 step completed', () => {
@@ -99,8 +100,9 @@ describe('copSubSegment web search titles', () => {
     ])
 
     expect(segments[0]?.title).toBe('Searched for rust crate niche')
-    expect(aggregateMainTitle(segments, false, true)).toBe('Searched for rust crate niche')
-    expect(aggregateMainTitle(segments, false, true)).not.toBe('1 step completed')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Searched for rust crate niche')
+    expect(titleSpansToLocaleText(aggregateMainTitle(segments, false, true), 'zh')).toBe('搜索 rust crate niche')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toBe('1 step completed')
   })
 
   it('多次搜索完成态显示搜索数量，不退化成 steps completed', () => {
@@ -109,8 +111,36 @@ describe('copSubSegment web search titles', () => {
       toolCall('ws2', 'web_search', 2, { query: 'python library rewrite' }),
     ])
 
-    expect(aggregateMainTitle(segments, false, true)).toBe('Searched for rust crate niche +1')
-    expect(aggregateMainTitle(segments, false, true)).not.toBe('2 steps completed')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Searched for rust crate niche +1')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toBe('2 steps completed')
+  })
+})
+
+describe('copSubSegment plan mode titles', () => {
+  it('enter_plan_mode 使用计划分类和可读标题', () => {
+    const segments = buildSubSegments([
+      toolCall('plan1', 'enter_plan_mode', 1),
+    ])
+
+    expect(categoryForTool('enter_plan_mode')).toBe('plan')
+    expect(segments[0]?.category).toBe('plan')
+    expect(segments[0]?.title).toBe('Enter Plan Mode')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Enter Plan Mode')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toContain('enter_plan_mode')
+  })
+})
+
+describe('copSubSegment todo titles', () => {
+  it('todo generic titles 使用语义文本', () => {
+    const writeSegments = buildSubSegments([
+      toolCall('todo1', 'todo_write', 1),
+    ])
+    const readSegments = buildSubSegments([
+      toolCall('todo2', 'todo_read', 1),
+    ])
+
+    expect(titleSpansToLocaleText(aggregateMainTitle(writeSegments, false, true), 'zh')).toBe('更新待办')
+    expect(titleSpansToLocaleText(aggregateMainTitle(readSegments, false, true), 'zh')).toBe('读取待办')
   })
 })
 
@@ -121,8 +151,8 @@ describe('copSubSegment load tool titles', () => {
     ])
 
     expect(segments[0]?.title).toBe('Loaded 1 tool')
-    expect(aggregateMainTitle(segments, false, true)).toBe('Loaded 1 tool')
-    expect(aggregateMainTitle(segments, false, true)).not.toBe('Explored code')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Loaded 1 tool')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toBe('Explored code')
   })
 
   it('load_tools live 标题使用加载语义', () => {
@@ -135,7 +165,7 @@ describe('copSubSegment load tool titles', () => {
       title: 'Exploring code...',
     }
 
-    expect(aggregateMainTitle([openSegment], true, false)).toBe('Loading 2 tools...')
+    expect(titleSpansToText(aggregateMainTitle([openSegment], true, false))).toBe('Loading 2 tools...')
   })
 
   it('load_skill 完成态标题显示技能加载语义', () => {
@@ -144,7 +174,7 @@ describe('copSubSegment load tool titles', () => {
     ])
 
     expect(segments[0]?.title).toBe('Loaded 1 skill')
-    expect(aggregateMainTitle(segments, false, true)).toBe('Loaded 1 skill')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Loaded 1 skill')
   })
 
   it('thought 不影响 load_tools/load_skill 专属标题判断', () => {
@@ -158,7 +188,7 @@ describe('copSubSegment load tool titles', () => {
     ])
 
     expect(segments[0]?.title).toBe('Loaded 2 tools, 3 skills')
-    expect(aggregateMainTitle(segments, false, true)).toBe('Loaded 2 tools, 3 skills')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Loaded 2 tools, 3 skills')
   })
 
   it('同一 COP 混入代码探索工具时不显示加载标题', () => {
@@ -169,7 +199,7 @@ describe('copSubSegment load tool titles', () => {
     ])
 
     expect(segments[0]?.title).toBe('Read 1 file')
-    expect(aggregateMainTitle(segments, false, true)).toBe('Read 1 file')
-    expect(aggregateMainTitle(segments, false, true)).not.toContain('Loaded')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).toBe('Read 1 file')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toContain('Loaded')
   })
 })

@@ -171,13 +171,7 @@ func NewPersonaResolutionMiddleware(
 			def := resolution.Definition
 			rc.ToolDenylist = append([]string(nil), def.ToolDenylist...)
 			if len(def.ToolAllowlist) > 0 {
-				narrowed := make(map[string]struct{}, len(def.ToolAllowlist))
-				for _, name := range def.ToolAllowlist {
-					if ToolAllowed(rc.AllowlistSet, rc.ToolRegistry, name) {
-						narrowed[name] = struct{}{}
-					}
-				}
-				rc.AllowlistSet = narrowed
+				rc.AllowlistSet = NarrowAllowlistPreservingMCP(rc.AllowlistSet, rc.ToolRegistry, def.ToolAllowlist, rc.MCPToolNames)
 			}
 			for _, name := range def.ToolDenylist {
 				RemoveToolOrGroup(rc.AllowlistSet, rc.ToolRegistry, name)
@@ -197,6 +191,31 @@ func NewPersonaResolutionMiddleware(
 
 		return next(ctx, rc)
 	}
+}
+
+func NarrowAllowlistPreservingMCP(
+	current map[string]struct{},
+	registry *tools.Registry,
+	allowlist []string,
+	mcpToolNames map[string]struct{},
+) map[string]struct{} {
+	narrowed := make(map[string]struct{}, len(allowlist)+len(mcpToolNames))
+	for _, name := range allowlist {
+		cleaned := strings.TrimSpace(name)
+		if cleaned == "" {
+			continue
+		}
+		if ToolAllowed(current, registry, cleaned) {
+			narrowed[cleaned] = struct{}{}
+		}
+	}
+	for name := range mcpToolNames {
+		if _, ok := current[name]; !ok {
+			continue
+		}
+		narrowed[name] = struct{}{}
+	}
+	return narrowed
 }
 
 func toExecutionAgentConfigProfile(ac *ResolvedAgentConfig, name string) *sharedexec.AgentConfigProfile {

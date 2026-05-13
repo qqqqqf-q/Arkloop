@@ -26,6 +26,7 @@ type Props = {
   compactSpacing?: boolean
   onAction?: (action: ArtifactAction) => void
   frameTitle?: string
+  autoResize?: boolean
   className?: string
   style?: React.CSSProperties
 }
@@ -627,7 +628,7 @@ ${ARTIFACT_SVG_STYLES}
 }
 
 export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
-  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, compactSpacing = false, onAction, frameTitle, className, style }, ref) {
+  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, compactSpacing = false, onAction, frameTitle, autoResize = true, className, style }, ref) {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const [shellUrl, setShellUrl] = useState<string | null>(null)
     const [error, setError] = useState(false)
@@ -815,7 +816,9 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         if (event.data?.type !== 'arkloop:artifact:action') return
         const action = event.data.action
         if (action === 'resize' && typeof event.data.height === 'number') {
-          iframe.style.height = `${Math.min(event.data.height, 2000)}px`
+          if (autoResize) {
+            iframe.style.height = `${Math.min(event.data.height, 2000)}px`
+          }
           onAction?.({ type: 'resize', height: event.data.height })
           return
         }
@@ -840,7 +843,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
       }
       window.addEventListener('message', handler)
       return () => window.removeEventListener('message', handler)
-    }, [onAction])
+    }, [autoResize, onAction])
 
     useEffect(() => () => {
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current)

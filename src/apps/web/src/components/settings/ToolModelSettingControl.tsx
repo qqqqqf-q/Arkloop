@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, X, Zap } from 'lucide-react'
 import {
   deleteSpawnProfile,
@@ -29,8 +30,11 @@ export function ToolModelSettingControl({ accessToken, disabled = false }: Props
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; latency?: number; error?: string } | null>(null)
-  const [showTestError, setShowTestError] = useState(false)
+  const [testErrorMenuStyle, setTestErrorMenuStyle] = useState<CSSProperties | null>(null)
+  const testErrorTriggerRef = useRef<HTMLDivElement>(null)
+  const testErrorMenuRef = useRef<HTMLDivElement>(null)
   const nonSaaSUi = getDesktopMode() !== null || isDesktop() || isLocalMode()
+  const testErrorOpen = testErrorMenuStyle !== null
 
   useEffect(() => {
     listSpawnProfiles(accessToken).then(setProfiles).catch(() => {})
@@ -67,6 +71,59 @@ export function ToolModelSettingControl({ accessToken, disabled = false }: Props
     if (!provider || !model) return null
     return { provider, model }
   }, [effectiveToolModelValue, providers])
+
+  const computeTestErrorMenuStyle = useCallback((): CSSProperties | null => {
+    const trigger = testErrorTriggerRef.current
+    if (!trigger || typeof window === 'undefined') return null
+
+    const rect = trigger.getBoundingClientRect()
+    const margin = 8
+    const gap = 6
+    const width = Math.min(320, Math.max(200, window.innerWidth - margin * 2))
+    const maxHeight = 160
+    const spaceBelow = window.innerHeight - rect.bottom - margin - gap
+    const spaceAbove = rect.top - margin - gap
+    const openAbove = spaceBelow < maxHeight && spaceAbove > spaceBelow
+    const top = openAbove
+      ? Math.max(margin, rect.top - gap - maxHeight)
+      : Math.min(rect.bottom + gap, window.innerHeight - margin - maxHeight)
+    const left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - margin - width)
+
+    return {
+      position: 'fixed',
+      top,
+      left,
+      width,
+      maxHeight,
+      zIndex: 10000,
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!testErrorOpen) return
+
+    const reposition = () => {
+      const next = computeTestErrorMenuStyle()
+      if (next) setTestErrorMenuStyle(next)
+    }
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        testErrorTriggerRef.current?.contains(target)
+        || testErrorMenuRef.current?.contains(target)
+      ) return
+      setTestErrorMenuStyle(null)
+    }
+
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    document.addEventListener('mousedown', close, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+      document.removeEventListener('mousedown', close, true)
+    }
+  }, [computeTestErrorMenuStyle, testErrorOpen])
 
   const buildOpenVikingConfigureParams = (
     rootApiKey: string | undefined,
@@ -173,6 +230,7 @@ export function ToolModelSettingControl({ accessToken, disabled = false }: Props
   const handleChange = async (value: string) => {
     setSaving(true)
     setTestResult(null)
+    setTestErrorMenuStyle(null)
     try {
       if (value === '') {
         await deleteSpawnProfile(accessToken, 'tool')
@@ -190,6 +248,7 @@ export function ToolModelSettingControl({ accessToken, disabled = false }: Props
   const handleTest = async () => {
     if (!toolModelSelection) return
     setTesting(true)
+    setTestErrorMenuStyle(null)
     try {
       const result = await testLlmProviderModel(accessToken, toolModelSelection.provider.id, toolModelSelection.model.id)
       setTestResult({ success: result.success, latency: result.latency_ms ?? undefined, error: result.error ?? undefined })
@@ -234,32 +293,38 @@ export function ToolModelSettingControl({ accessToken, disabled = false }: Props
               : <Zap size={14} strokeWidth={1.5} />}
         </SettingsIconButton>
         {testResult && !testResult.success && !testing && (
-          <div className="relative">
+          <div ref={testErrorTriggerRef}>
             <SettingsButton
               variant="danger"
-              onClick={() => setShowTestError((value) => !value)}
+              onClick={() => {
+                if (testErrorOpen) {
+                  setTestErrorMenuStyle(null)
+                  return
+                }
+                const next = computeTestErrorMenuStyle()
+                if (next) setTestErrorMenuStyle(next)
+              }}
               className="h-9 shrink-0 text-xs"
             >
               Error
             </SettingsButton>
-            {showTestError && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowTestError(false)} />
-                <div
-                  className="dropdown-menu absolute right-0 top-[calc(100%+6px)] z-50 max-w-[320px] min-w-[200px]"
-                  style={{
-                    border: '0.5px solid var(--c-border-subtle)',
-                    borderRadius: '10px',
-                    padding: '12px',
-                    background: 'var(--c-bg-menu)',
-                    boxShadow: 'var(--c-dropdown-shadow)',
-                    maxHeight: '160px',
-                    overflowY: 'auto',
-                  }}
-                >
-                  <pre className="whitespace-pre-wrap break-all text-xs text-[var(--c-text-secondary)]">{testResult.error ?? ''}</pre>
-                </div>
-              </>
+            {testErrorMenuStyle && createPortal(
+              <div
+                ref={testErrorMenuRef}
+                className="dropdown-menu overflow-y-auto"
+                style={{
+                  ...testErrorMenuStyle,
+                  border: '0.5px solid var(--c-border-subtle)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: 'var(--c-bg-menu)',
+                  boxShadow: 'var(--c-dropdown-shadow)',
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <pre className="whitespace-pre-wrap break-all text-xs text-[var(--c-text-secondary)]">{testResult.error ?? ''}</pre>
+              </div>,
+              document.body,
             )}
           </div>
         )}

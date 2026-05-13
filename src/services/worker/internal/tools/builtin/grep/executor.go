@@ -122,6 +122,7 @@ func (e *Executor) Execute(
 	rgCtx, rgCancel := context.WithTimeout(ctx, rgTimeoutSecs*time.Second)
 	defer rgCancel()
 
+	tools.TrackPhase(execCtx, toolCallID, "backend.exec")
 	switch outputMode {
 	case "files_with_matches":
 		return executeFilesWithMatches(rgCtx, backend, pattern, searchPath, include, rgExtra, limit, offset, started)

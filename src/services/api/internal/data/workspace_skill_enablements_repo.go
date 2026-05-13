@@ -13,7 +13,7 @@ import (
 
 type WorkspaceSkillEnablement struct {
 	WorkspaceRef        string
-	AccountID               uuid.UUID
+	AccountID           uuid.UUID
 	EnabledByUserID     uuid.UUID
 	SkillKey            string
 	Version             string
@@ -51,6 +51,10 @@ func NewWorkspaceSkillEnablementsRepository(db Querier) (*WorkspaceSkillEnableme
 	return &WorkspaceSkillEnablementsRepository{db: db}, nil
 }
 
+func (r *WorkspaceSkillEnablementsRepository) WithTx(tx pgx.Tx) *WorkspaceSkillEnablementsRepository {
+	return &WorkspaceSkillEnablementsRepository{db: tx}
+}
+
 func (r *WorkspaceSkillEnablementsRepository) Replace(ctx context.Context, tx pgx.Tx, accountID uuid.UUID, workspaceRef string, enabledByUserID uuid.UUID, items []WorkspaceSkillEnablement) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -86,20 +90,75 @@ func (r *WorkspaceSkillEnablementsRepository) Replace(ctx context.Context, tx pg
 	return nil
 }
 
+func (r *WorkspaceSkillEnablementsRepository) Set(ctx context.Context, accountID uuid.UUID, workspaceRef string, enabledByUserID uuid.UUID, skillKey, version string, enabled bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	workspaceRef = strings.TrimSpace(workspaceRef)
+	skillKey = strings.TrimSpace(skillKey)
+	version = strings.TrimSpace(version)
+	if accountID == uuid.Nil || enabledByUserID == uuid.Nil || workspaceRef == "" || skillKey == "" || version == "" {
+		return fmt.Errorf("workspace skill enablement is invalid")
+	}
+	if !enabled {
+		_, err := r.db.Exec(
+			ctx,
+			`DELETE FROM workspace_skill_enablements
+			  WHERE account_id = $1 AND workspace_ref = $2 AND skill_key = $3 AND version = $4`,
+			accountID,
+			workspaceRef,
+			skillKey,
+			version,
+		)
+		return err
+	}
+	_, err := r.db.Exec(
+		ctx,
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, $4, $5)
+		 ON CONFLICT (workspace_ref, skill_key) DO UPDATE
+		 SET version = EXCLUDED.version,
+		     enabled_by_user_id = EXCLUDED.enabled_by_user_id,
+		     updated_at = now()`,
+		workspaceRef,
+		accountID,
+		enabledByUserID,
+		skillKey,
+		version,
+	)
+	return err
+}
+
+func (r *WorkspaceSkillEnablementsRepository) DeleteSkill(ctx context.Context, accountID uuid.UUID, skillKey, version string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err := r.db.Exec(
+		ctx,
+		`DELETE FROM workspace_skill_enablements
+		  WHERE account_id = $1 AND skill_key = $2 AND version = $3`,
+		accountID,
+		strings.TrimSpace(skillKey),
+		strings.TrimSpace(version),
+	)
+	return err
+}
+
 func (r *WorkspaceSkillEnablementsRepository) ListByWorkspace(ctx context.Context, accountID uuid.UUID, workspaceRef string) ([]WorkspaceSkillEnablement, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	rows, err := r.db.Query(
 		ctx,
-		`SELECT wse.workspace_ref, wse.account_id, wse.enabled_by_user_id, wse.skill_key, wse.version, sp.display_name, sp.description,
-		        sp.instruction_path, sp.manifest_key, sp.bundle_key, sp.registry_provider, sp.registry_slug,
+		`SELECT wse.workspace_ref, wse.account_id, wse.enabled_by_user_id, wse.skill_key, wse.version,
+		        COALESCE(sp.display_name, wse.skill_key), sp.description,
+		        COALESCE(sp.instruction_path, ''), COALESCE(sp.manifest_key, ''), COALESCE(sp.bundle_key, ''), sp.registry_provider, sp.registry_slug,
 		        sp.registry_owner_handle, sp.registry_version, sp.registry_detail_url, sp.registry_download_url,
-		        sp.registry_source_kind, sp.registry_source_url, sp.scan_status, sp.scan_has_warnings, sp.scan_checked_at,
+		        sp.registry_source_kind, sp.registry_source_url, COALESCE(sp.scan_status, 'unknown'), COALESCE(sp.scan_has_warnings, FALSE), sp.scan_checked_at,
 		        sp.scan_engine, sp.scan_summary, sp.moderation_verdict,
-		        wse.created_at, sp.updated_at
+		        wse.created_at, COALESCE(sp.updated_at, wse.updated_at)
 		   FROM workspace_skill_enablements wse
-		   JOIN skill_packages sp ON sp.account_id = wse.account_id AND sp.skill_key = wse.skill_key AND sp.version = wse.version
+		   LEFT JOIN skill_packages sp ON sp.account_id = wse.account_id AND sp.skill_key = wse.skill_key AND sp.version = wse.version
 		  WHERE wse.account_id = $1 AND wse.workspace_ref = $2
 		  ORDER BY wse.skill_key`,
 		accountID,

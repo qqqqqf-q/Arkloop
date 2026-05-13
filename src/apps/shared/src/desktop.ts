@@ -3,18 +3,21 @@ export type LocalPortMode = 'auto' | 'manual'
 export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
-export type SearchProvider = 'none' | 'basic' | 'tavily' | 'searxng'
+export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
 
 export type FetchConnectorConfig = {
   provider: FetchProvider
   jinaApiKey?: string
+  jinaApiKeyStored?: boolean
   firecrawlApiKey?: string
+  firecrawlApiKeyStored?: boolean
   firecrawlBaseUrl?: string
 }
 
 export type SearchConnectorConfig = {
   provider: SearchProvider
   tavilyApiKey?: string
+  tavilyApiKeyStored?: boolean
   searxngBaseUrl?: string
 }
 
@@ -262,6 +265,7 @@ export type ArkloopDesktopApi = {
     quit: () => Promise<void>
     getOsUsername?: () => Promise<string>
     openExternal?: (url: string) => Promise<void>
+    fetchPageMetadata?: (url: string) => Promise<{ title?: string }>
   }
   notifications?: {
     show: (input: { title: string; body?: string }) => Promise<{ ok: boolean }>

@@ -17,7 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const defaultMCPDiscoverySlowEventMs = 3000
+const defaultMCPDiscoverySlowEventMs = 100
 
 // NewMCPDiscoveryMiddleware 按 account 从 DB 加载 MCP 工具（带缓存），合并到 RunContext 的工具集。
 func NewMCPDiscoveryMiddleware(
@@ -58,6 +58,7 @@ func NewMCPDiscoveryMiddleware(
 				// 过滤与内置 spawn_agent 系列同名的 MCP 工具，避免后续注册冲突
 				filteredSpecs := filterBuiltinConflicts(accountReg.AgentSpecs)
 				runRegistry = ForkRegistry(baseRegistry, filteredSpecs)
+				rc.MCPToolNames = map[string]struct{}{}
 				for name, exec := range accountReg.Executors {
 					if _, builtin := spawnagent.BuiltinNames[name]; builtin {
 						continue
@@ -72,6 +73,7 @@ func NewMCPDiscoveryMiddleware(
 				}
 				for _, spec := range filteredSpecs {
 					runAllowlistSet[spec.Name] = struct{}{}
+					rc.MCPToolNames[spec.Name] = struct{}{}
 				}
 			}
 			emitMCPDiscoveryEvent(ctx, rc, eventsRepo, durationMs, cacheMeta, diag, accountErr)
@@ -81,9 +83,35 @@ func NewMCPDiscoveryMiddleware(
 		rc.ToolSpecs = runAllLlmSpecs
 		rc.AllowlistSet = runAllowlistSet
 		rc.ToolRegistry = runRegistry
+		emitMCPDiscoveryTrace(rc, durationMs, cacheMeta, diag, accountErr)
 
 		return next(ctx, rc)
 	}
+}
+
+func emitMCPDiscoveryTrace(
+	rc *RunContext,
+	durationMs int64,
+	cacheMeta mcp.CacheResult,
+	diag mcp.DiscoverDiagnostics,
+	discoverErr error,
+) {
+	if rc == nil || rc.Tracer == nil {
+		return
+	}
+	status := "completed"
+	if discoverErr != nil {
+		status = "failed"
+	}
+	toolNames := make([]string, 0, len(rc.MCPToolNames))
+	for name := range rc.MCPToolNames {
+		toolNames = append(toolNames, name)
+	}
+	sort.Strings(toolNames)
+	payload := buildMCPDiscoveryEventData(status, durationMs, loadMCPDiscoverySlowEventMs(), cacheMeta, diag, discoverErr)
+	payload["registered_tool_count"] = len(toolNames)
+	payload["registered_tool_names"] = traceToolNames(toolNames)
+	emitTraceEvent(rc, "mcp_discovery", "mcp_discovery.completed", payload)
 }
 
 // filterBuiltinConflicts 移除与内置 spawn_agent 工具同名的 MCP spec

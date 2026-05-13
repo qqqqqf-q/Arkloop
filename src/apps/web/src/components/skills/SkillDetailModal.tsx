@@ -1,9 +1,16 @@
-import { Download, Github, MessageSquare, Trash2, X } from 'lucide-react'
+import { useState } from 'react'
+import { Download, Github, MessageSquare, Trash2 } from 'lucide-react'
+import { ConfirmDialog } from '@arkloop/shared'
 import type { ViewSkill } from './types'
-import { formatDate } from './types'
+import { formatDate, formatSkillRegistryProviderLabel } from './types'
 import { openExternal } from '../../openExternal'
-import { secondaryButtonBorderStyle, secondaryButtonSmCls, secondaryButtonXsCls } from '../buttonStyles'
+import { SettingsModalFrame } from '../settings/_SettingsModalFrame'
+import { SettingsButton } from '../settings/_SettingsButton'
 import { SettingsSwitch } from '../settings/_SettingsSwitch'
+
+const fieldLabelCls = 'text-[11px] font-medium text-[var(--c-placeholder)]'
+const statCardCls =
+  'flex flex-col gap-1 rounded-[10px] border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] p-3'
 
 type SkillTextSubset = {
   sourceOfficial: string
@@ -17,6 +24,9 @@ type SkillTextSubset = {
   trySkillPrompt: (skillKey: string) => string
   download: string
   remove: string
+  cancelAction: string
+  removeConfirmTitle: string
+  removeConfirmBody: (displayName: string, skillKey: string, version: string) => string
   detailDescription: string
   noDescription: string
   detailVersion: string
@@ -54,164 +64,194 @@ export function SkillDetailModal({
   platformAvailabilityStyle,
   scanStatusBadge,
 }: Props) {
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false)
   const enabled = active(item)
   const platformBadgeLabel = item.is_platform ? platformAvailabilityLabel(item.platform_status) : ''
   const platformBadgeStyle = item.is_platform ? platformAvailabilityStyle(item.platform_status) : null
   const scanBadge = scanStatusBadge(item)
-  const providerLabel = item.registry_provider?.trim().toLowerCase() === 'clawhub'
-    ? 'ClawHub'
-    : item.registry_provider?.trim() || (
-      item.source === 'official' ? skillText.sourceOfficial
-      : item.source === 'github' ? skillText.sourceGitHub
-      : item.is_platform ? skillText.sourceBuiltin
-      : skillText.sourceCustom
-    )
+  const providerDisplay = formatSkillRegistryProviderLabel(
+    item.registry_provider,
+    item.source,
+    skillText.sourceOfficial,
+  )
+  const detailSourceLabel =
+    providerDisplay ||
+    (item.source === 'github'
+      ? skillText.sourceGitHub
+      : item.is_platform
+        ? skillText.sourceBuiltin
+        : item.source === 'custom'
+          ? skillText.sourceCustom
+          : item.source)
+  const showOfficialBadge = item.source === 'official' && Boolean(providerDisplay)
+  const showCustomProvider = item.source === 'custom' && Boolean(providerDisplay)
+
+  const tryThenClose = () => {
+    onClose()
+    onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
+  }
+
+  const confirmRemove = () => {
+    if (!item.version) return
+    setRemoveConfirmOpen(false)
+    onClose()
+    onRemove(item)
+  }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.12)', backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)' }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
-      <div
-        className="modal-enter flex w-full max-w-lg flex-col overflow-hidden rounded-2xl"
-        style={{ background: 'var(--c-bg-page)', border: '0.5px solid var(--c-border-subtle)', maxHeight: '80vh' }}
-      >
-        {/* header */}
-        <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: 'var(--c-border-subtle)' }}>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-base font-semibold text-[var(--c-text-heading)]">{item.display_name}</span>
-              {item.source === 'official' && (
-                <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={{ background: 'var(--c-pro-bg)', color: '#6ba3f6' }}>
-                  {providerLabel}
-                </span>
+    <>
+      <SettingsModalFrame open title={item.display_name} onClose={onClose} width={510}
+        footer={(
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <SettingsButton
+                size="modal"
+                variant="secondary"
+                disabled={!item.installed}
+                icon={<MessageSquare size={14} />}
+                onClick={() => tryThenClose()}
+              >
+                {skillText.trySkill}
+              </SettingsButton>
+              {!item.is_platform && (
+                <SettingsButton
+                  size="modal"
+                  variant="secondary"
+                  disabled={!item.detail_url}
+                  icon={<Download size={14} />}
+                  onClick={() => item.detail_url && openExternal(item.detail_url)}
+                >
+                  {skillText.download}
+                </SettingsButton>
               )}
-              {item.source === 'github' && (
-                <span className="flex shrink-0 items-center gap-0.5 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-tertiary)]" style={{ background: 'var(--c-bg-deep)' }}>
-                  <Github size={9} />
-                  {skillText.sourceGitHub}
-                </span>
-              )}
-              {item.is_platform && (
-                <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]" style={{ background: 'var(--c-bg-deep)' }}>
-                  {skillText.sourceBuiltin}
-                </span>
-              )}
-              {platformBadgeLabel && platformBadgeStyle && (
-                <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={platformBadgeStyle}>
-                  {platformBadgeLabel}
-                </span>
-              )}
-              {scanBadge && (
-                <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium leading-tight" style={scanBadge.style}>
-                  {scanBadge.label}
-                </span>
+              {item.installed && item.version && (
+                <SettingsButton
+                  size="modal"
+                  variant="danger"
+                  icon={<Trash2 size={14} />}
+                  onClick={() => setRemoveConfirmOpen(true)}
+                >
+                  {skillText.remove}
+                </SettingsButton>
               )}
             </div>
-            <span className="text-xs text-[var(--c-text-tertiary)]">{item.skill_key}{item.version ? ` v${item.version}` : ''}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-xs text-[var(--c-text-tertiary)]">
+                {platformAvailabilityLabel(item.platform_status) ||
+                  (enabled ? skillText.enabledByDefault : skillText.disable)}
+              </span>
+              <SettingsSwitch
+                checked={enabled}
+                onChange={() => {
+                  if (enabled) onDisable(item)
+                  else onEnable(item)
+                }}
+              />
+            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                onClose()
-                onTrySkill?.(skillText.trySkillPrompt(item.skill_key))
-              }}
-              disabled={!item.installed}
-              className={secondaryButtonSmCls}
-              style={secondaryButtonBorderStyle}
-            >
-              <MessageSquare size={13} />
-              {skillText.trySkill}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--c-text-tertiary)] transition-colors hover:bg-[var(--c-bg-deep)]"
-            >
-              <X size={16} />
-            </button>
+        )}
+      >
+        <div className="mt-4 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {showOfficialBadge && (
+              <span
+                className="shrink-0 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight"
+                style={{ background: 'var(--c-pro-bg)', color: '#6ba3f6' }}
+              >
+                {providerDisplay}
+              </span>
+            )}
+            {item.source === 'github' && (
+              <span
+                className="flex shrink-0 items-center gap-0.5 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight text-[var(--c-text-tertiary)]"
+                style={{ background: 'var(--c-bg-input)', border: '0.5px solid var(--c-border-subtle)' }}
+              >
+                <Github size={9} />
+                {skillText.sourceGitHub}
+              </span>
+            )}
+            {item.is_platform && (
+              <span
+                className="shrink-0 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
+                style={{ background: 'var(--c-bg-input)', border: '0.5px solid var(--c-border-subtle)' }}
+              >
+                {skillText.sourceBuiltin}
+              </span>
+            )}
+            {showCustomProvider && (
+              <span
+                className="shrink-0 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight text-[var(--c-text-secondary)]"
+                style={{ background: 'var(--c-bg-input)', border: '0.5px solid var(--c-border-subtle)' }}
+              >
+                {providerDisplay}
+              </span>
+            )}
+            {platformBadgeLabel && platformBadgeStyle && (
+              <span
+                className="shrink-0 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight"
+                style={platformBadgeStyle}
+              >
+                {platformBadgeLabel}
+              </span>
+            )}
+            {scanBadge && (
+              <span
+                className="shrink-0 rounded-[6px] px-2 py-0.5 text-[10px] font-medium leading-tight"
+                style={scanBadge.style}
+              >
+                {scanBadge.label}
+              </span>
+            )}
           </div>
-        </div>
 
-        {/* body */}
-        <div className="flex-1 overflow-auto p-5">
-          <div className="flex flex-col gap-4">
+          <div className="max-h-[min(52vh,480px)] space-y-4 overflow-y-auto pr-0.5">
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium text-[var(--c-text-tertiary)]">{skillText.detailDescription}</span>
+              <span className={fieldLabelCls}>{skillText.detailDescription}</span>
               <p className="text-sm leading-relaxed text-[var(--c-text-secondary)]">
                 {item.description || skillText.noDescription}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
+              <div className={statCardCls}>
                 <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailVersion}</span>
                 <span className="text-sm text-[var(--c-text-heading)]">{item.version || '-'}</span>
               </div>
-              <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
+              <div className={statCardCls}>
                 <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailSource}</span>
-                <span className="text-sm text-[var(--c-text-heading)]">{providerLabel || item.source}</span>
+                <span className="text-sm text-[var(--c-text-heading)]">{detailSourceLabel}</span>
               </div>
             </div>
 
             {item.updated_at && (
-              <div className="flex flex-col gap-1 rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
+              <div className={statCardCls}>
                 <span className="text-[10px] font-medium text-[var(--c-text-muted)]">{skillText.detailUpdatedAt}</span>
                 <span className="text-sm text-[var(--c-text-heading)]">{formatDate(item.updated_at, locale)}</span>
               </div>
             )}
 
             {item.scan_summary && (
-              <div className="rounded-lg p-3" style={{ background: 'var(--c-bg-deep)' }}>
+              <div className={statCardCls}>
                 <p className="text-xs leading-relaxed text-[var(--c-text-tertiary)]">{item.scan_summary}</p>
               </div>
             )}
           </div>
         </div>
+      </SettingsModalFrame>
 
-        {/* footer */}
-        <div className="flex items-center justify-between border-t px-5 py-3" style={{ borderColor: 'var(--c-border-subtle)' }}>
-          <div className="flex items-center gap-2">
-            {!item.is_platform && (
-              <button
-                type="button"
-                disabled={!item.detail_url}
-                onClick={() => item.detail_url && openExternal(item.detail_url)}
-                className={secondaryButtonXsCls}
-                style={secondaryButtonBorderStyle}
-              >
-                <Download size={12} />
-                {skillText.download}
-              </button>
-            )}
-            {item.installed && item.version && (
-              <button
-                type="button"
-                onClick={() => { onClose(); onRemove(item) }}
-                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--c-error-bg)]"
-                style={{ color: 'var(--c-status-error-text)' }}
-              >
-                <Trash2 size={12} />
-                {skillText.remove}
-              </button>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="text-xs text-[var(--c-text-tertiary)]">
-              {platformAvailabilityLabel(item.platform_status) || (enabled ? skillText.enabledByDefault : skillText.disable)}
-            </span>
-            <SettingsSwitch
-              checked={enabled}
-              onChange={() => {
-                if (enabled) onDisable(item)
-                else onEnable(item)
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
+      <ConfirmDialog
+        open={removeConfirmOpen}
+        title={skillText.removeConfirmTitle}
+        message={
+          item.version
+            ? skillText.removeConfirmBody(item.display_name, item.skill_key, item.version)
+            : ''
+        }
+        confirmLabel={skillText.remove}
+        cancelLabel={skillText.cancelAction}
+        onClose={() => setRemoveConfirmOpen(false)}
+        onConfirm={confirmRemove}
+      />
+    </>
   )
 }

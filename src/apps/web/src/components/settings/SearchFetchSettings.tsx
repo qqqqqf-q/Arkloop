@@ -1,120 +1,107 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
-import {
-  Globe,
-  Search,
-  Loader2,
-  Eye,
-  EyeOff,
-  Key,
-  Link,
-} from 'lucide-react'
-import { useLocale } from '../../contexts/LocaleContext'
-import { listToolProviders } from '../../api-admin'
-import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useToast } from '@arkloop/shared'
-import { ProviderSelectCard } from './ProviderSelectCard'
+import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
+import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopConnectorsApi } from '../../desktopConnectorsApi'
+import { SettingsInput } from './_SettingsInput'
+import { SettingsSelect } from './_SettingsSelect'
 
-// ---------------------------------------------------------------------------
-// Shared styles — all colours use CSS variables so they adapt to dark/light
-// ---------------------------------------------------------------------------
-
-import { settingsInputCls } from './_SettingsInput'
-import { settingsLabelCls } from './_SettingsLabel'
-
-const inputCls =
-  settingsInputCls('md') + ' transition-colors duration-150'
-
-const labelCls = settingsLabelCls('md')
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Status badge
-// ---------------------------------------------------------------------------
-
-type BadgeVariant = 'free' | 'configured' | 'always' | 'missing'
-
-const BADGE: Record<BadgeVariant, { cls: string; label: (t: BadgeT) => string }> = {
-  free:       { cls: 'bg-blue-500/15 text-blue-400',                     label: (t) => t.connectorFreeTier },
-  configured: { cls: 'bg-green-500/15 text-green-400',                   label: (t) => t.connectorConfigured },
-  always:     { cls: 'bg-green-500/15 text-green-400',                   label: (t) => t.connectorConfigured },
-  missing:    { cls: 'bg-[var(--c-bg-deep)] text-[var(--c-text-muted)]', label: (t) => t.connectorNotConfigured },
+type Props = {
+  accessToken: string
 }
 
-type BadgeT = { connectorFreeTier: string; connectorConfigured: string; connectorNotConfigured: string }
-
-function StatusBadge({ variant, t }: { variant: BadgeVariant; t: BadgeT }) {
-  const s = BADGE[variant]
+function SettingsGroup({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${s.cls}`}>
-      {s.label(t)}
-    </span>
+    <section className="flex flex-col gap-2.5">
+      <h3 className="pl-2.5 text-[13px] font-normal text-[var(--c-text-secondary)]">{title}</h3>
+      {children}
+    </section>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Section header
-// ---------------------------------------------------------------------------
-
-function Section({ icon, title, subtitle, children }: {
-  icon: React.ReactNode
-  title: string
-  subtitle: string
-  children: React.ReactNode
-}) {
+function SettingsCard({ children }: { children: ReactNode }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-[var(--c-text-secondary)]">{icon}</span>
-        <div>
-          <h4 className="text-sm font-semibold text-[var(--c-text-heading)]">{title}</h4>
-          <p className="text-xs text-[var(--c-text-muted)]">{subtitle}</p>
-        </div>
-      </div>
-      <div className="space-y-2">{children}</div>
+    <div className="overflow-hidden rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]">
+      {children}
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Password input
-// ---------------------------------------------------------------------------
+function SettingsRow({
+  title,
+  description,
+  control,
+  disabled,
+}: {
+  title: string
+  description?: ReactNode
+  control: ReactNode
+  disabled?: boolean
+}) {
+  return (
+    <div
+      className={[
+        'relative grid items-center gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(220px,320px)] sm:gap-6 [&+&]:before:absolute [&+&]:before:left-5 [&+&]:before:right-5 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-[\'\']',
+        disabled ? 'opacity-50' : '',
+      ].filter(Boolean).join(' ')}
+    >
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--c-text-primary)]">{title}</div>
+        {description && (
+          <div className="mt-1 text-xs leading-5 text-[var(--c-text-tertiary)]">{description}</div>
+        )}
+      </div>
+      <div className="min-w-0 sm:justify-self-end sm:[&>*]:w-[320px]">{control}</div>
+    </div>
+  )
+}
 
-function PasswordInput({ value, onChange, placeholder }: {
+function PasswordInput({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  showLabel,
+  hideLabel,
+}: {
   value: string
-  onChange: (v: string) => void
+  onChange: (value: string) => void
   placeholder?: string
+  disabled?: boolean
+  showLabel: string
+  hideLabel: string
 }) {
   const [show, setShow] = useState(false)
+
   return (
     <div className="relative">
-      <input
+      <SettingsInput
         type={show ? 'text' : 'password'}
-        className={inputCls}
-        placeholder={placeholder}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        variant="md"
+        className="pr-9"
       />
       <button
         type="button"
-        onClick={() => setShow((v) => !v)}
-        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--c-text-muted)] transition-colors hover:text-[var(--c-text-secondary)]"
+        onClick={() => setShow((value) => !value)}
+        disabled={disabled}
+        aria-label={show ? hideLabel : showLabel}
+        className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-secondary)] disabled:pointer-events-none"
       >
         {show ? <EyeOff size={13} /> : <Eye size={13} />}
       </button>
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
-type Props = {
-  accessToken: string
 }
 
 export function SearchFetchSettings({ accessToken }: Props) {
@@ -125,82 +112,46 @@ export function SearchFetchSettings({ accessToken }: Props) {
 
   const [config, setConfig] = useState<ConnectorsConfig | null>(null)
   const [loading, setLoading] = useState(!!connectorsApi)
-  const [savedAt, setSavedAt] = useState(0)
-  const [runtimeProviders, setRuntimeProviders] = useState<
-    Record<string, { runtime_state?: string; runtime_reason?: string }>
-  >({})
-
-  const savedConfigRef = useRef<ConnectorsConfig | null>(null)
   const initializedRef = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (!connectorsApi) return
-    setLoading(true)
-    void connectorsApi.get().then((c) => {
-      setConfig(c)
-      savedConfigRef.current = c
+    let active = true
+    void connectorsApi.get().then((nextConfig) => {
+      if (!active) return
+      setConfig(nextConfig)
       setLoading(false)
       initializedRef.current = true
-    }).catch(() => setLoading(false))
+    }).catch(() => {
+      if (active) setLoading(false)
+    })
+    return () => {
+      active = false
+    }
   }, [connectorsApi])
 
   useEffect(() => {
-    let canceled = false
-    const load = async () => {
-      if (!accessToken) {
-        if (!canceled) setRuntimeProviders({})
-        return
-      }
-      try {
-        const groups = await listToolProviders(accessToken)
-        if (canceled) return
-        const next: Record<string, { runtime_state?: string; runtime_reason?: string }> = {}
-        groups.forEach((group) => {
-          group.providers.forEach((provider) => {
-            next[provider.provider_name] = {
-              runtime_state: provider.runtime_state,
-              runtime_reason: provider.runtime_reason,
-            }
-          })
-        })
-        setRuntimeProviders(next)
-      } catch {
-        if (!canceled) setRuntimeProviders({})
-      }
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-    void load()
-    return () => { canceled = true }
-  }, [accessToken, savedAt])
+  }, [])
 
-  const runtimeStatusForName = (providerName?: string, fallbackReason?: string) => {
-    const runtime = providerName ? runtimeProviders[providerName] : undefined
-    if (runtime && (runtime.runtime_state || runtime.runtime_reason)) {
-      return runtime
-    }
-    return {
-      runtime_state: 'inactive',
-      runtime_reason: fallbackReason,
-    }
-  }
-
-  const handleSave = useCallback(async (cfg: ConnectorsConfig) => {
+  const handleSave = useCallback(async (nextConfig: ConnectorsConfig) => {
     if (!connectorsApi) return
     try {
-      await connectorsApi.set(cfg)
-      savedConfigRef.current = cfg
-      setSavedAt(Date.now())
+      await connectorsApi.set(nextConfig)
       addToast(ds.connectorSaved, 'success')
     } catch {
-      addToast('Save failed', 'error')
+      addToast(ds.connectorSaveFailed, 'error')
     }
-  }, [connectorsApi, addToast, ds.connectorSaved])
+  }, [addToast, connectorsApi, ds.connectorSaved, ds.connectorSaveFailed])
 
-  const scheduleAutoSave = useCallback((cfg: ConnectorsConfig) => {
+  const scheduleAutoSave = useCallback((nextConfig: ConnectorsConfig) => {
     if (!initializedRef.current) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      void handleSave(cfg)
+      void handleSave(nextConfig)
     }, 500)
   }, [handleSave])
 
@@ -222,200 +173,148 @@ export function SearchFetchSettings({ accessToken }: Props) {
     })
   }, [scheduleAutoSave])
 
-  const fetchRuntimeStatus = {
-    jina: runtimeStatusForName('web_fetch.jina'),
-    basic: runtimeStatusForName('web_fetch.basic'),
-    firecrawl: runtimeStatusForName('web_fetch.firecrawl'),
-  }
-  const searchRuntimeStatus = {
-    basic: runtimeStatusForName('web_search.basic'),
-    tavily: runtimeStatusForName('web_search.tavily'),
-    searxng: runtimeStatusForName('web_search.searxng'),
-  }
-
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-4">
-        <PageHeader ds={ds} />
-        <div className="flex items-center justify-center py-20">
-          <Loader2 size={20} className="animate-spin text-[var(--c-text-muted)]" />
-        </div>
-      </div>
-    )
-  }
-
-  if (!config || !connectorsApi) {
-    return (
-      <div className="flex flex-col gap-4">
-        <PageHeader ds={ds} />
-        <div
-          className="flex flex-col items-center justify-center rounded-xl bg-[var(--c-bg-menu)] py-16"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          <p className="text-sm text-[var(--c-text-muted)]">Not available outside Desktop mode.</p>
-        </div>
-      </div>
-    )
-  }
-
-  const fetchP = config.fetch.provider
-  const searchP = config.search.provider
-
-  const badgeT: BadgeT = {
-    connectorFreeTier: ds.connectorFreeTier,
-    connectorConfigured: ds.connectorConfigured,
-    connectorNotConfigured: ds.connectorNotConfigured,
-  }
+  const fetchProviderOptions = [
+    { value: 'none', label: ds.providerNone },
+    { value: 'jina', label: ds.fetchProviderJina },
+    { value: 'basic', label: ds.fetchProviderBasic },
+    { value: 'firecrawl', label: ds.fetchProviderFirecrawl },
+  ]
+  const searchProviderOptions = [
+    { value: 'none', label: ds.providerNone },
+    { value: 'basic', label: ds.searchProviderBasic },
+    { value: 'tavily', label: ds.searchProviderTavily },
+    { value: 'exa', label: ds.searchProviderExa },
+    { value: 'searxng', label: ds.searchProviderSearxng },
+  ]
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader ds={ds} />
+    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
+      <div>
+        <h2 className="text-[24px] font-semibold leading-tight tracking-normal text-[var(--c-text-heading)]">
+          {ds.tools}
+        </h2>
+      </div>
 
-      {/* ── Fetch ── */}
-      <Section icon={<Globe size={16} />} title={ds.fetchConnectorTitle} subtitle={ds.fetchConnectorDesc}>
-        <ProviderSelectCard
-          title={ds.fetchProviderJina}
-          description={ds.fetchProviderJinaDesc}
-          badge={<StatusBadge variant={config.fetch.jinaApiKey ? 'configured' : 'free'} t={badgeT} />}
-          selected={fetchP === 'jina'}
-          onSelect={() => patchFetch({ provider: 'jina' as FetchProvider })}
-          status={<RuntimeStatusLabel state={fetchRuntimeStatus.jina.runtime_state} reason={fetchRuntimeStatus.jina.runtime_reason} />}
-        >
-          <div>
-            <label className={labelCls}><span className="flex items-center gap-1.5"><Key size={11} />{ds.apiKeyOptionalLabel}</span></label>
-            <PasswordInput
-              value={config.fetch.jinaApiKey ?? ''}
-              onChange={(v) => patchFetch({ jinaApiKey: v || undefined })}
-              placeholder="jina_..."
-            />
-          </div>
-        </ProviderSelectCard>
-
-        <ProviderSelectCard
-          title={ds.fetchProviderBasic}
-          description={ds.fetchProviderBasicDesc}
-          badge={<StatusBadge variant="always" t={badgeT} />}
-          selected={fetchP === 'basic'}
-          onSelect={() => patchFetch({ provider: 'basic' as FetchProvider })}
-          status={<RuntimeStatusLabel state={fetchRuntimeStatus.basic.runtime_state} reason={fetchRuntimeStatus.basic.runtime_reason} />}
-        />
-
-        <ProviderSelectCard
-          title={ds.fetchProviderFirecrawl}
-          description={ds.fetchProviderFirecrawlDesc}
-          badge={<StatusBadge variant={fetchP === 'firecrawl' ? (config.fetch.firecrawlApiKey ? 'configured' : 'missing') : 'missing'} t={badgeT} />}
-          selected={fetchP === 'firecrawl'}
-          onSelect={() => patchFetch({ provider: 'firecrawl' as FetchProvider })}
-          status={<RuntimeStatusLabel state={fetchRuntimeStatus.firecrawl.runtime_state} reason={fetchRuntimeStatus.firecrawl.runtime_reason} />}
-        >
-          <div className="space-y-3">
-            <div>
-              <label className={labelCls}><span className="flex items-center gap-1.5"><Key size={11} />{ds.apiKeyLabel}</span></label>
-              <PasswordInput
-                value={config.fetch.firecrawlApiKey ?? ''}
-                onChange={(v) => patchFetch({ firecrawlApiKey: v || undefined })}
-                placeholder="fc-..."
-              />
+      <SettingsGroup title={ds.desktopConnectorsTitle}>
+        <SettingsCard>
+          {loading && (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 size={20} className="animate-spin text-[var(--c-text-muted)]" />
             </div>
-            <div>
-              <label className={labelCls}><span className="flex items-center gap-1.5"><Link size={11} />{ds.baseUrlLabel}</span></label>
-              <input type="text" className={inputCls} placeholder="https://api.firecrawl.dev"
-                value={config.fetch.firecrawlBaseUrl ?? ''}
-                onChange={(e) => patchFetch({ firecrawlBaseUrl: e.target.value || undefined })}
-              />
+          )}
+
+          {!loading && (!config || !connectorsApi) && (
+            <div className="px-5 py-10 text-center text-sm text-[var(--c-text-tertiary)]">
+              {ds.desktopConnectorsUnavailable}
             </div>
-          </div>
-        </ProviderSelectCard>
-      </Section>
+          )}
 
-      <div className="border-t border-[var(--c-border-subtle)]" />
+          {!loading && config && connectorsApi && (
+            <>
+              <SettingsRow
+                title={ds.fetchConnectorTitle}
+                description={ds.fetchConnectorDesc}
+                control={(
+                  <SettingsSelect
+                    value={config.fetch.provider}
+                    options={fetchProviderOptions}
+                    onChange={(value) => patchFetch({ provider: value as FetchProvider })}
+                    triggerClassName="h-9"
+                  />
+                )}
+              />
+              {config.fetch.provider === 'jina' && (
+                <SettingsRow
+                  title={ds.apiKeyOptionalLabel}
+                  description={ds.fetchProviderJina}
+                  control={(
+                    <PasswordInput
+                      value={config.fetch.jinaApiKey ?? ''}
+                      onChange={(value) => patchFetch({ jinaApiKey: value || undefined, jinaApiKeyStored: false })}
+                      placeholder="jina_..."
+                      showLabel={ds.connectorShowSecret}
+                      hideLabel={ds.connectorHideSecret}
+                    />
+                  )}
+                />
+              )}
+              {config.fetch.provider === 'firecrawl' && (
+                <>
+                  <SettingsRow
+                    title={ds.apiKeyLabel}
+                    description={ds.fetchProviderFirecrawl}
+                    control={(
+                      <PasswordInput
+                        value={config.fetch.firecrawlApiKey ?? ''}
+                        onChange={(value) => patchFetch({ firecrawlApiKey: value || undefined, firecrawlApiKeyStored: false })}
+                        placeholder="fc-..."
+                        showLabel={ds.connectorShowSecret}
+                        hideLabel={ds.connectorHideSecret}
+                      />
+                    )}
+                  />
+                  <SettingsRow
+                    title={ds.baseUrlLabel}
+                    description={ds.fetchProviderFirecrawl}
+                    control={(
+                      <SettingsInput
+                        type="text"
+                        value={config.fetch.firecrawlBaseUrl ?? ''}
+                        onChange={(event) => patchFetch({ firecrawlBaseUrl: event.target.value || undefined })}
+                        placeholder="https://api.firecrawl.dev"
+                        variant="md"
+                      />
+                    )}
+                  />
+                </>
+              )}
 
-      {/* ── Search ── */}
-      <Section icon={<Search size={16} />} title={ds.searchConnectorTitle} subtitle={ds.searchConnectorDesc}>
-        <ProviderSelectCard
-          title={ds.searchProviderBasic}
-          description={ds.searchProviderBasicDesc}
-          badge={<StatusBadge variant="free" t={badgeT} />}
-          selected={searchP === 'basic'}
-          onSelect={() => patchSearch({ provider: 'basic' as SearchProvider })}
-          status={<RuntimeStatusLabel state={searchRuntimeStatus.basic.runtime_state} reason={searchRuntimeStatus.basic.runtime_reason} />}
-        />
-
-        <ProviderSelectCard
-          title={ds.searchProviderTavily}
-          description={ds.searchProviderTavilyDesc}
-          badge={<StatusBadge variant={searchP === 'tavily' ? (config.search.tavilyApiKey ? 'configured' : 'missing') : 'missing'} t={badgeT} />}
-          selected={searchP === 'tavily'}
-          onSelect={() => patchSearch({ provider: 'tavily' as SearchProvider })}
-          status={<RuntimeStatusLabel state={searchRuntimeStatus.tavily.runtime_state} reason={searchRuntimeStatus.tavily.runtime_reason} />}
-        >
-          <div>
-            <label className={labelCls}><span className="flex items-center gap-1.5"><Key size={11} />{ds.apiKeyLabel}</span></label>
-            <PasswordInput
-              value={config.search.tavilyApiKey ?? ''}
-              onChange={(v) => patchSearch({ tavilyApiKey: v || undefined })}
-              placeholder="tvly-..."
-            />
-          </div>
-        </ProviderSelectCard>
-
-        <ProviderSelectCard
-          title={ds.searchProviderSearxng}
-          description={ds.searchProviderSearxngDesc}
-          badge={<StatusBadge variant={searchP === 'searxng' ? (config.search.searxngBaseUrl ? 'configured' : 'missing') : 'missing'} t={badgeT} />}
-          selected={searchP === 'searxng'}
-          onSelect={() => patchSearch({ provider: 'searxng' as SearchProvider })}
-          status={<RuntimeStatusLabel state={searchRuntimeStatus.searxng.runtime_state} reason={searchRuntimeStatus.searxng.runtime_reason} />}
-        >
-          <div>
-            <label className={labelCls}><span className="flex items-center gap-1.5"><Link size={11} />{ds.baseUrlLabel}</span></label>
-            <input type="text" className={inputCls} placeholder="http://localhost:4000"
-              value={config.search.searxngBaseUrl ?? ''}
-              onChange={(e) => patchSearch({ searxngBaseUrl: e.target.value || undefined })}
-            />
-          </div>
-        </ProviderSelectCard>
-      </Section>
+              <SettingsRow
+                title={ds.searchConnectorTitle}
+                description={ds.searchConnectorDesc}
+                control={(
+                  <SettingsSelect
+                    value={config.search.provider}
+                    options={searchProviderOptions}
+                    onChange={(value) => patchSearch({ provider: value as SearchProvider })}
+                    triggerClassName="h-9"
+                  />
+                )}
+              />
+              {config.search.provider === 'tavily' && (
+                <SettingsRow
+                  title={ds.apiKeyLabel}
+                  description={ds.searchProviderTavily}
+                  control={(
+                    <PasswordInput
+                      value={config.search.tavilyApiKey ?? ''}
+                      onChange={(value) => patchSearch({ tavilyApiKey: value || undefined, tavilyApiKeyStored: false })}
+                      placeholder="tvly-..."
+                      showLabel={ds.connectorShowSecret}
+                      hideLabel={ds.connectorHideSecret}
+                    />
+                  )}
+                />
+              )}
+              {config.search.provider === 'searxng' && (
+                <SettingsRow
+                  title={ds.baseUrlLabel}
+                  description={ds.searchProviderSearxng}
+                  control={(
+                    <SettingsInput
+                      type="text"
+                      value={config.search.searxngBaseUrl ?? ''}
+                      onChange={(event) => patchSearch({ searxngBaseUrl: event.target.value || undefined })}
+                      placeholder="http://localhost:4000"
+                      variant="md"
+                    />
+                  )}
+                />
+              )}
+            </>
+          )}
+        </SettingsCard>
+      </SettingsGroup>
     </div>
   )
-}
-
-import { SettingsSectionHeader } from './_SettingsSectionHeader'
-
-function PageHeader({ ds }: { ds: { desktopConnectorsTitle: string; desktopConnectorsDesc: string } }) {
-  return <SettingsSectionHeader title={ds.desktopConnectorsTitle} description={ds.desktopConnectorsDesc} />
-}
-
-function RuntimeStatusLabel({ state, reason }: { state?: string; reason?: string }) {
-  const info = runtimeStateInfo(state)
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${info.text}`}>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${info.dot}`} />
-      <span>{info.label}</span>
-      {reason ? <span className="text-[var(--c-text-muted)]">({formatRuntimeReason(reason)})</span> : null}
-    </span>
-  )
-}
-
-function runtimeStateInfo(state?: string) {
-  const normalized = state ?? 'inactive'
-  switch (normalized) {
-  case 'ready':
-    return { label: 'Ready', dot: 'bg-green-400', text: 'text-green-400' }
-  case 'missing_config':
-    return { label: 'Missing config', dot: 'bg-amber-400', text: 'text-amber-400' }
-  case 'decrypt_failed':
-    return { label: 'Decrypt failed', dot: 'bg-rose-400', text: 'text-rose-400' }
-  case 'invalid_config':
-    return { label: 'Invalid config', dot: 'bg-rose-400', text: 'text-rose-400' }
-  default:
-    return { label: 'Inactive', dot: 'bg-[var(--c-text-muted)]', text: 'text-[var(--c-text-muted)]' }
-  }
-}
-
-function formatRuntimeReason(reason: string) {
-  return reason
-    .split('_')
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ')
 }

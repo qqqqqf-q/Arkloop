@@ -195,6 +195,11 @@ func (e *Executor) Execute(
 	if diff != "" {
 		result["diff"] = diff
 	}
+	if planMetadata, ok := tools.PlanModePlanFileMetadata(execCtx.PipelineRC, execCtx.WorkDir, filePath); ok {
+		for key, value := range planMetadata {
+			result[key] = value
+		}
+	}
 	return tools.ExecutionResult{
 		ResultJSON: result,
 		DurationMs: durationMs(started),
@@ -215,12 +220,18 @@ func (e *Executor) createFile(ctx context.Context, backend fileops.Backend, exec
 	}
 
 	lines := strings.Count(content, "\n") + 1
+	result := map[string]any{
+		"file_path": filePath,
+		"status":    "created",
+		"additions": lines,
+	}
+	if planMetadata, ok := tools.PlanModePlanFileMetadata(execCtx.PipelineRC, execCtx.WorkDir, filePath); ok {
+		for key, value := range planMetadata {
+			result[key] = value
+		}
+	}
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{
-			"file_path": filePath,
-			"status":    "created",
-			"additions": lines,
-		},
+		ResultJSON: result,
 		DurationMs: durationMs(started),
 	}
 }

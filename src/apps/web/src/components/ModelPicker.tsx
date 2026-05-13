@@ -1,10 +1,11 @@
 import { useRef, useEffect, useState, useCallback, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, Brain, Check } from 'lucide-react'
+import { PillToggle } from '@arkloop/shared'
 import { listLlmProviders, type LlmProvider } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { getAvailableCatalogFromAdvancedJson } from '@arkloop/shared/llm/available-catalog-advanced-json'
-import { SettingsSwitch } from './settings/_SettingsSwitch'
 
 const REASONING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'max'] as const
 const SUBMENU_INSET_LEFT = 10
@@ -41,17 +42,29 @@ type Props = {
   onChange: (model: string | null) => void
   onAddModel: () => void
   variant?: 'welcome' | 'chat'
-  controlHeight?: 'default' | 'legacyChat'
   thinkingEnabled: string
   onThinkingChange: (mode: string) => void
+  onOpenChange?: (open: boolean) => void
 }
 
-export function ModelPicker({ accessToken, value, onChange, onAddModel, variant = 'chat', controlHeight = 'default', thinkingEnabled, onThinkingChange }: Props) {
+type MenuPosition = {
+  left: number
+  top?: number
+  bottom?: number
+  maxHeight: number
+  placement: 'up' | 'down'
+}
+
+export function ModelPicker({ accessToken, value, onChange, onAddModel, thinkingEnabled, onThinkingChange, onOpenChange }: Props) {
   const { t } = useLocale()
   const mp = t.modelPicker
   const desktopShell = isDesktop()
   const [open, setOpen] = useState(false)
   const cached = accessToken ? (providersCache.get(accessToken) ?? null) : null
+
+  useEffect(() => {
+    onOpenChange?.(open)
+  }, [open, onOpenChange])
   const [providers, setProviders] = useState<LlmProvider[]>(cached ?? [])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -60,6 +73,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
   const [optionsFor, setOptionsFor] = useState<string | null>(null)
   const [optionsAnchorY, setOptionsAnchorY] = useState<number | null>(null)
   const [optionsTop, setOptionsTop] = useState<number | null>(null)
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -79,6 +93,28 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
       if (!silent) setLoading(false)
     }
   }, [accessToken])
+
+  const updateMenuPosition = useCallback(() => {
+    const button = btnRef.current
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const gap = 8
+    const viewportPadding = 8
+    const menuWidth = Math.min(280, Math.max(220, window.innerWidth - viewportPadding * 2))
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding
+    const spaceAbove = rect.top - gap - viewportPadding
+    const placement: MenuPosition['placement'] = spaceBelow >= 220 || spaceBelow >= spaceAbove ? 'down' : 'up'
+    const availableHeight = placement === 'up' ? spaceAbove : spaceBelow
+    const maxHeight = Math.max(96, Math.min(420, availableHeight))
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - menuWidth),
+      Math.max(viewportPadding, window.innerWidth - menuWidth - viewportPadding),
+    )
+
+    setMenuPosition(placement === 'up'
+      ? { left, bottom: window.innerHeight - rect.top + gap, maxHeight, placement }
+      : { left, top: rect.bottom + gap, maxHeight, placement })
+  }, [])
 
   // 桌面壳：无需点开下拉即可拿到模型列表，供自动选第一条
   useEffect(() => {
@@ -126,15 +162,26 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
   }, [open])
 
   useLayoutEffect(() => {
-    if (!optionsFor || optionsAnchorY == null || !optionsRef.current || !menuRef.current || !rootRef.current) return
-    const rootRect = rootRef.current.getBoundingClientRect()
+    if (!optionsFor || optionsAnchorY == null || !optionsRef.current || !menuRef.current) return
     const menuRect = menuRef.current.getBoundingClientRect()
     const optionsRect = optionsRef.current.getBoundingClientRect()
-    const minCenterY = menuRect.top - rootRect.top + optionsRect.height / 2
-    const nextTop = Math.max(optionsAnchorY, minCenterY)
+    const minCenterY = optionsRect.height / 2
+    const maxCenterY = Math.max(minCenterY, menuRect.height - optionsRect.height / 2)
+    const nextTop = Math.min(Math.max(optionsAnchorY, minCenterY), maxCenterY)
     if (optionsTop != null && Math.abs(nextTop - optionsTop) < 0.5) return
     setOptionsTop(nextTop)
   }, [open, optionsFor, optionsAnchorY, optionsTop, thinkingEnabled])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition)
+      window.removeEventListener('scroll', updateMenuPosition, true)
+    }
+  }, [open, updateMenuPosition])
 
   const anyPickerModel = pickFirstChatPickerModel(providers) !== null
 
@@ -200,7 +247,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
         onMouseLeave={() => setHovered(false)}
         className={[
           'relative flex items-center gap-1 rounded-lg',
-          controlHeight === 'legacyChat' ? 'h-[31.5px]' : 'h-[33px]',
+          'h-[33.5px]',
         ].join(' ')}
         style={{
           padding: '0 8px 0 10px',
@@ -225,22 +272,25 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
         <ChevronDown size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
       </button>
 
-      {open && (
-        <>
+      {open && menuPosition && createPortal((
+        <div
+          className={`fixed z-50 ${menuPosition.placement === 'down' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
+          style={{
+            left: `${menuPosition.left}px`,
+            top: menuPosition.top === undefined ? undefined : `${menuPosition.top}px`,
+            bottom: menuPosition.bottom === undefined ? undefined : `${menuPosition.bottom}px`,
+            width: 'min(280px, calc(100vw - 16px))',
+          }}
+        >
           <div
             ref={menuRef}
-            className={`absolute right-0 z-50 ${variant === 'welcome' ? 'dropdown-menu' : 'dropdown-menu-up'}`}
             style={{
-              ...(variant === 'welcome'
-                ? { top: 'calc(100% + 8px)' }
-                : { bottom: 'calc(100% + 8px)' }),
               border: '0.5px solid var(--c-border-subtle)',
               borderRadius: '10px',
               padding: '4px',
               background: 'var(--c-bg-menu)',
-              minWidth: '220px',
-              maxWidth: '280px',
-              maxHeight: 'min(420px, calc(100vh - 120px))',
+              width: '100%',
+              maxHeight: `${menuPosition.maxHeight}px`,
               overflowY: 'auto',
               boxShadow: 'var(--c-dropdown-shadow)',
             }}
@@ -367,10 +417,10 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
                                         return
                                       }
                                       const triggerRect = e.currentTarget.getBoundingClientRect()
-                                      const rootRect = rootRef.current?.getBoundingClientRect()
-                                      if (!rootRect) return
+                                      const menuRect = menuRef.current?.getBoundingClientRect()
+                                      if (!menuRect) return
                                       setOptionsFor(combo)
-                                      setOptionsAnchorY(triggerRect.top - rootRect.top + triggerRect.height / 2)
+                                      setOptionsAnchorY(triggerRect.top - menuRect.top + triggerRect.height / 2)
                                       setOptionsTop(null)
                                     }}
                                     onKeyDown={(e) => {
@@ -378,8 +428,8 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
                                       e.preventDefault()
                                       e.stopPropagation()
                                       const triggerRect = e.currentTarget.getBoundingClientRect()
-                                      const rootRect = rootRef.current?.getBoundingClientRect()
-                                      if (!rootRect) return
+                                      const menuRect = menuRef.current?.getBoundingClientRect()
+                                      if (!menuRect) return
                                       if (optionsFor === combo) {
                                         setOptionsFor(null)
                                         setOptionsAnchorY(null)
@@ -387,7 +437,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
                                         return
                                       }
                                       setOptionsFor(combo)
-                                      setOptionsAnchorY(triggerRect.top - rootRect.top + triggerRect.height / 2)
+                                      setOptionsAnchorY(triggerRect.top - menuRect.top + triggerRect.height / 2)
                                       setOptionsTop(null)
                                     }}
                                     style={{
@@ -485,7 +535,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
                   >
                     <span>{mp.thinking}</span>
                     <span onClick={(e) => e.stopPropagation()} style={{ lineHeight: 0 }}>
-                      <SettingsSwitch
+                      <PillToggle
                         checked={thinkingEnabled !== 'off'}
                         onChange={(v) => {
                           if (v) onThinkingChange('medium')
@@ -525,8 +575,8 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, variant 
               </div>
             )
           })()}
-        </>
-      )}
+        </div>
+      ), document.body)}
     </div>
   )
 }

@@ -8,6 +8,7 @@ import (
 
 const (
 	inboundStatePendingDispatch     = "pending_dispatch"
+	inboundStateReceived            = "received"
 	inboundStateDeliveredToRun      = "delivered_to_existing_run"
 	inboundStateEnqueuedNewRun      = "new_run_enqueued"
 	inboundStateIgnoredUnlinked     = "ignored_unlinked"
@@ -20,6 +21,12 @@ const (
 	inboundMetadataDispatchModeKey  = "dispatch_mode"
 	inboundMetadataPreTailKey       = "pre_tail_message_id"
 	inboundDispatchModeBurstV1      = "burst_v1"
+
+	inboundLedgerKeySource           = "source"
+	inboundLedgerKeyConversationType = "conversation_type"
+	inboundLedgerKeyMentionsBot      = "mentions_bot"
+	inboundLedgerKeyIsReplyToBot     = "is_reply_to_bot"
+	inboundLedgerKeyMatchesKeyword   = "matches_keyword"
 )
 
 var channelInboundBurstWindow = 1000 * time.Millisecond

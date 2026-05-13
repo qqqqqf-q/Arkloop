@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { XCircle } from 'lucide-react'
 import { useLocale } from '../../contexts/LocaleContext'
 import {
   listPlatformSettings,
@@ -8,6 +7,7 @@ import {
 import { bridgeClient } from '../../api-bridge'
 import { useToast } from '@arkloop/shared'
 import type { DesktopSettingsHydrationSnapshot } from '../DesktopSettings'
+import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow, SettingsSwitchRow } from './_SettingsLayout'
 import { SettingsSwitch } from './_SettingsSwitch'
 
 const DEFAULT_FALLBACK_WINDOW = 128_000
@@ -16,9 +16,6 @@ const KEY_ENABLED = 'context.compact.enabled'
 const KEY_PCT = 'context.compact.persist_trigger_context_pct'
 const KEY_TARGET = 'context.compact.target_context_pct'
 const KEY_FALLBACK = 'context.compact.fallback_context_window_tokens'
-
-const cardShell =
-  'rounded-xl border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]'
 
 const rangeClass =
   'h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-[var(--c-bg-deep)] ' +
@@ -64,8 +61,6 @@ export function ChatSettings({
   const [autoOn, setAutoOn] = useState(false)
   const [thresholdPct, setThresholdPct] = useState(80)
   const [targetPct, setTargetPct] = useState(75)
-  const [compactCardHovered, setCompactCardHovered] = useState(false)
-  const [execCardHovered, setExecCardHovered] = useState(false)
 
   const [executionMode, setExecutionMode] = useState<'local' | 'vm'>('local')
   const [execModeLoading, setExecModeLoading] = useState(true)
@@ -223,136 +218,103 @@ export function ChatSettings({
 
   if (loading) {
     return (
-      <div className="text-sm text-[var(--c-text-muted)]">
-        {st.chatCompactLoading}
-      </div>
+      <SettingsPage title={st.chat}>
+        <SettingsGroup title={st.chatCompactCardTitle}>
+          <SettingsCard>
+            <div className="px-5 py-10 text-center text-sm text-[var(--c-text-muted)]">
+              {st.chatCompactLoading}
+            </div>
+          </SettingsCard>
+        </SettingsGroup>
+      </SettingsPage>
     )
   }
 
   return (
-    <div className="flex max-w-xl flex-col gap-4">
-      <p className="text-sm font-medium text-[var(--c-text-heading)]">{st.chatCompactCardTitle}</p>
-
-      {loadErr ? (
-        <p className="text-sm text-[var(--c-status-error)]">{loadErr}</p>
-      ) : null}
-
-      <div className={cardShell}>
-        <div
-          role="button"
-          tabIndex={0}
-          className="flex cursor-pointer items-center justify-between gap-4 px-4 py-4 outline-none transition-colors hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--c-bg-page)]"
-          onMouseEnter={() => setCompactCardHovered(true)}
-          onMouseLeave={() => setCompactCardHovered(false)}
-          onClick={() => setAutoOn((v) => !v)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              setAutoOn((v) => !v)
-            }
-          }}
-        >
-          <div className="min-w-0 flex-1 pr-2">
-            <p className="text-sm font-medium text-[var(--c-text-heading)]">{st.chatCompactEnableLabel}</p>
-            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{st.chatCompactEnableDesc}</p>
-          </div>
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-            <SettingsSwitch checked={autoOn} onChange={setAutoOn} forceHover={compactCardHovered} />
-          </div>
-        </div>
-
-        <div
-          className={`flex flex-col gap-3 border-t border-[var(--c-border-subtle)] px-4 py-4 transition-opacity ${autoOn ? '' : 'pointer-events-none opacity-40'}`}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-medium text-[var(--c-text-heading)]">
-              {st.chatCompactThresholdLabel}
-            </span>
-            <span className="shrink-0 rounded-md bg-[var(--c-bg-deep)] px-2.5 py-0.5 text-xs font-medium tabular-nums text-[var(--c-text-secondary)]">
-              {thresholdPct}%
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-9 shrink-0 text-center text-[10px] font-medium uppercase tracking-wide text-[var(--c-text-muted)]">
-              {st.chatCompactThresholdEarly}
-            </span>
-            <input
-              type="range"
-              min={5}
-              max={100}
-              step={1}
-              value={thresholdPct}
-              onChange={(ev) => setThresholdPct(Number(ev.target.value))}
-              className={rangeClass}
+    <SettingsPage title={st.chat}>
+      <SettingsGroup title={st.chatCompactCardTitle}>
+        <SettingsCard>
+          {loadErr ? (
+            <SettingsRow
+              title={st.chatCompactSaveError}
+              description={<span className="text-[var(--c-status-error-text)]">{loadErr}</span>}
             />
-            <span className="w-9 shrink-0 text-center text-[10px] font-medium uppercase tracking-wide text-[var(--c-text-muted)]">
-              {st.chatCompactThresholdLate}
-            </span>
-          </div>
-        </div>
+          ) : null}
 
-        <div
-          className={`flex items-center justify-between gap-4 border-t border-[var(--c-border-subtle)] px-4 py-4 transition-opacity ${autoOn ? '' : 'pointer-events-none opacity-40'}`}
-        >
-          <div className="min-w-0 flex-1 pr-2">
-            <p className="text-sm font-medium text-[var(--c-text-heading)]">{st.chatCompactKeepLabel}</p>
-            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{st.chatCompactKeepDesc}</p>
-          </div>
-          <input
-            type="number"
-            min={5}
-            max={95}
-            step={1}
-            value={targetPct}
-            onChange={(ev) => {
-              const n = Number.parseInt(ev.target.value, 10)
-              if (Number.isFinite(n)) setTargetPct(n)
-            }}
-            className="h-9 w-14 shrink-0 rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none transition-colors duration-150 focus:border-[var(--c-border)]"
+          <SettingsSwitchRow
+            title={st.chatCompactEnableLabel}
+            description={st.chatCompactEnableDesc}
+            checked={autoOn}
+            onChange={setAutoOn}
           />
-        </div>
-      </div>
 
-      {/* Execution Mode */}
-      <div className={cardShell}>
-        <div
-          role="button"
-          tabIndex={0}
-          className="flex cursor-pointer items-center justify-between gap-4 px-4 py-4 outline-none transition-colors hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--c-bg-page)]"
-          onMouseEnter={() => setExecCardHovered(true)}
-          onMouseLeave={() => setExecCardHovered(false)}
-          onClick={() => { if (!execModeLoading) void handleExecutionModeToggle(executionMode !== 'vm') }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              if (!execModeLoading) void handleExecutionModeToggle(executionMode !== 'vm')
-            }
-          }}
-        >
-          <div className="min-w-0 flex-1 pr-2">
-            <p className="text-sm font-medium text-[var(--c-text-heading)]">{st.chatCompactExecutionModeLabel}</p>
-            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">
-              {executionMode === 'vm' ? st.chatCompactExecutionModeSandbox : st.chatCompactExecutionModeTerminal}
-            </p>
-          </div>
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-            {execModeLoading ? (
+          <SettingsRow
+            title={st.chatCompactThresholdLabel}
+            disabled={!autoOn}
+            control={(
+              <div className="flex w-[min(460px,48vw)] min-w-[240px] items-center gap-3">
+                <input
+                  type="range"
+                  min={5}
+                max={100}
+                step={1}
+                value={thresholdPct}
+                  onChange={(ev) => setThresholdPct(Number(ev.target.value))}
+                  className={rangeClass}
+                />
+                <span className="w-12 shrink-0 rounded-md bg-[var(--c-bg-deep)] px-2.5 py-1 text-center text-xs font-medium tabular-nums text-[var(--c-text-secondary)]">
+                  {thresholdPct}%
+                </span>
+              </div>
+            )}
+          />
+
+          <SettingsRow
+            title={st.chatCompactKeepLabel}
+            description={st.chatCompactKeepDesc}
+            disabled={!autoOn}
+            control={(
+              <input
+                type="number"
+                min={5}
+                max={95}
+                step={1}
+                value={targetPct}
+                onChange={(ev) => {
+                  const n = Number.parseInt(ev.target.value, 10)
+                  if (Number.isFinite(n)) setTargetPct(n)
+                }}
+                className="h-9 w-14 shrink-0 rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-1 text-center text-sm tabular-nums text-[var(--c-text-primary)] outline-none transition-colors duration-150 focus:border-[var(--c-border)]"
+              />
+            )}
+          />
+        </SettingsCard>
+      </SettingsGroup>
+
+      <SettingsGroup title={st.chatCompactExecutionModeLabel}>
+        <SettingsCard>
+          <SettingsRow
+            title={st.chatCompactExecutionModeLabel}
+            description={executionMode === 'vm' ? st.chatCompactExecutionModeSandbox : st.chatCompactExecutionModeTerminal}
+            disabled={execModeLoading}
+            onClick={() => { if (!execModeLoading) void handleExecutionModeToggle(executionMode !== 'vm') }}
+            control={execModeLoading ? (
               <div className="h-6 w-12 animate-pulse rounded-full bg-[var(--c-bg-deep)]" />
             ) : (
               <SettingsSwitch
                 checked={executionMode === 'vm'}
                 onChange={handleExecutionModeToggle}
-                forceHover={execCardHovered}
               />
             )}
-          </div>
-        </div>
-        {execModeError ? (
-          <div className="border-t border-[var(--c-border-subtle)] flex items-center gap-2 px-4 py-2 text-xs">
-            <span className="flex items-center gap-1.5 text-[var(--c-status-error)]"><XCircle size={13} />{execModeError}</span>
-          </div>
-        ) : null}
-      </div>
-    </div>
+          />
+          {execModeError ? (
+            <SettingsRow
+              title={st.chatCompactSaveError}
+              description={<span className="text-[var(--c-status-error-text)]">{execModeError}</span>}
+            />
+          ) : null}
+        </SettingsCard>
+      </SettingsGroup>
+    </SettingsPage>
   )
 }

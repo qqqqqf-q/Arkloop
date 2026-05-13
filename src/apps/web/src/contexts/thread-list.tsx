@@ -48,8 +48,6 @@ import { useAuth } from './auth'
 
 export interface ThreadListContextValue {
   threads: ThreadResponse[]
-  runningThreadIds: Set<string>
-  completedUnreadThreadIds: Set<string>
   privateThreadIds: Set<string>
   isPrivateMode: boolean
   pendingIncognitoMode: boolean
@@ -67,6 +65,14 @@ export interface ThreadListContextValue {
 }
 
 const ThreadListContext = createContext<ThreadListContextValue | null>(null)
+
+export interface ThreadLiveState {
+  runningThreadIds: Set<string>
+  completedUnreadThreadIds: Set<string>
+}
+
+const ThreadLiveStateContext = createContext<ThreadLiveState | null>(null)
+
 const THREAD_RUN_STATE_RECONNECT_DELAY_MS = 1000
 const GTD_BUCKETS: readonly ThreadGtdBucket[] = ['inbox', 'todo', 'waiting', 'someday', 'archived']
 const COMPLETION_PROMPT_PREVIEW_LIMIT = 180
@@ -597,10 +603,8 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     [threadsByMode],
   )
 
-  const value = useMemo<ThreadListContextValue>(() => ({
+  const stableValue = useMemo<ThreadListContextValue>(() => ({
     threads,
-    runningThreadIds,
-    completedUnreadThreadIds,
     privateThreadIds,
     isPrivateMode,
     pendingIncognitoMode,
@@ -617,8 +621,6 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     getFilteredThreads,
   }), [
     threads,
-    runningThreadIds,
-    completedUnreadThreadIds,
     privateThreadIds,
     isPrivateMode,
     pendingIncognitoMode,
@@ -634,9 +636,16 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     getFilteredThreads,
   ])
 
+  const liveValue = useMemo<ThreadLiveState>(() => ({
+    runningThreadIds,
+    completedUnreadThreadIds,
+  }), [runningThreadIds, completedUnreadThreadIds])
+
   return (
-    <ThreadListContext.Provider value={value}>
-      {children}
+    <ThreadListContext.Provider value={stableValue}>
+      <ThreadLiveStateContext.Provider value={liveValue}>
+        {children}
+      </ThreadLiveStateContext.Provider>
     </ThreadListContext.Provider>
   )
 }
@@ -659,4 +668,24 @@ export function useThreadList(): ThreadListContextValue {
   const ctx = useContext(ThreadListContext)
   if (!ctx) throw new Error('useThreadList must be used within ThreadListProvider')
   return ctx
+}
+
+export function useThreadLiveState(): ThreadLiveState {
+  const ctx = useContext(ThreadLiveStateContext)
+  if (!ctx) throw new Error('useThreadLiveState must be used within ThreadListProvider')
+  return ctx
+}
+
+export function ThreadLiveStateBridge({
+  value,
+  children,
+}: {
+  value: ThreadLiveState
+  children: ReactNode
+}) {
+  return (
+    <ThreadLiveStateContext.Provider value={value}>
+      {children}
+    </ThreadLiveStateContext.Provider>
+  )
 }

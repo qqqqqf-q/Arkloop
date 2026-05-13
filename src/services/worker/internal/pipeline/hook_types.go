@@ -105,6 +105,7 @@ type PersistObserver struct {
 type PersistObservers []PersistObserver
 
 type ModelResponse struct {
+	Model         string
 	AssistantText string
 	ToolCalls     []llm.ToolCall
 	ToolResults   []llm.StreamToolResult

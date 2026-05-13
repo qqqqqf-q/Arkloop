@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	sharedmcpoauth "arkloop/services/shared/mcpoauth"
 	sharedoutbound "arkloop/services/shared/outboundurl"
 )
 
@@ -24,15 +26,27 @@ import (
 type HTTPClient struct {
 	server      ServerConfig
 	httpClient  *http.Client
+	authStore   AuthStore
+	oauth       *sharedmcpoauth.AuthState
+	authSecret  string
 	nextID      atomic.Int64
 	mu          sync.Mutex
 	closed      bool
 	initialized bool
 	sessionID   string
 	initMu      sync.Mutex
+	oauthMu     sync.Mutex
 }
 
-func NewHTTPClient(server ServerConfig) (*HTTPClient, error) {
+type HTTPClientOption func(*HTTPClient)
+
+func WithHTTPAuthStore(store AuthStore) HTTPClientOption {
+	return func(c *HTTPClient) {
+		c.authStore = store
+	}
+}
+
+func NewHTTPClient(server ServerConfig, options ...HTTPClientOption) (*HTTPClient, error) {
 	u, err := url.Parse(server.URL)
 	if err != nil {
 		return nil, fmt.Errorf("mcp: invalid server url: %w", err)
@@ -45,6 +59,12 @@ func NewHTTPClient(server ServerConfig) (*HTTPClient, error) {
 		server:     server,
 		httpClient: newSafeHTTPClient(),
 	}
+	for _, option := range options {
+		if option != nil {
+			option(client)
+		}
+	}
+	client.loadAuthState()
 	client.nextID.Store(1)
 	return client, nil
 }
@@ -266,25 +286,59 @@ func (c *HTTPClient) sendHTTP(ctx context.Context, encoded []byte, timeoutMs int
 		cancel()
 		return nil, nil, fmt.Errorf("mcp: build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	if sessionID := c.currentSessionID(); sessionID != "" {
-		req.Header.Set("Mcp-Session-Id", sessionID)
-	}
-	for key, value := range c.server.Headers {
-		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-			continue
-		}
-		req.Header.Set(key, value)
+	if err := c.prepareRequest(ctx, req); err != nil {
+		cancel()
+		return nil, nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doHTTP(req)
 	if err != nil {
 		cancel()
 		if ctx.Err() != nil {
 			return nil, nil, TimeoutError{Message: "MCP HTTP call timed out"}
 		}
 		return nil, nil, DisconnectedError{Message: "MCP HTTP request failed: " + err.Error()}
+	}
+	if isAuthStatus(resp.StatusCode) {
+		_ = resp.Body.Close()
+		if err := c.refreshOAuth(ctx); err != nil {
+			cancel()
+			var authErr AuthRequiredError
+			if errors.As(err, &authErr) {
+				if authErr.StatusCode == 0 {
+					authErr.StatusCode = resp.StatusCode
+				}
+				return nil, nil, authErr
+			}
+			return nil, nil, AuthRequiredError{
+				ServerID:   c.server.ServerID,
+				StatusCode: resp.StatusCode,
+				Reason:     "refresh_failed",
+				Cause:      err,
+			}
+		}
+		req, err = http.NewRequestWithContext(ctx, http.MethodPost, c.server.URL, bytes.NewReader(encoded))
+		if err != nil {
+			cancel()
+			return nil, nil, fmt.Errorf("mcp: build request: %w", err)
+		}
+		if err := c.prepareRequest(ctx, req); err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		resp, err = c.doHTTP(req)
+		if err != nil {
+			cancel()
+			if ctx.Err() != nil {
+				return nil, nil, TimeoutError{Message: "MCP HTTP call timed out"}
+			}
+			return nil, nil, DisconnectedError{Message: "MCP HTTP request failed: " + err.Error()}
+		}
+		if isAuthStatus(resp.StatusCode) {
+			_ = resp.Body.Close()
+			cancel()
+			return nil, nil, AuthRequiredError{ServerID: c.server.ServerID, StatusCode: resp.StatusCode, Reason: "auth_required"}
+		}
 	}
 	return resp, cancel, nil
 }

@@ -24,6 +24,7 @@ import (
 	"arkloop/services/worker/internal/executor"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
+	"arkloop/services/worker/internal/tooldiagnostics"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -38,7 +39,7 @@ func RunDesktop(ctx context.Context) error {
 	// 统一 slog 输出格式（彩色终端或 JSON）
 	slog.SetDefault(sharedlog.New(sharedlog.Config{
 		Component: "worker",
-		Level:     slog.LevelDebug,
+		Level:     slog.LevelDebug + 1,
 		Output:    os.Stdout,
 	}))
 
@@ -52,6 +53,7 @@ func RunDesktop(ctx context.Context) error {
 	}
 
 	logger := slog.Default()
+	tooldiagnostics.StartWatchdog(ctx.Done(), logger)
 
 	bus, ok := desktop.GetEventBus().(eventbus.EventBus)
 	if !ok || bus == nil {
@@ -88,6 +90,7 @@ func RunDesktop(ctx context.Context) error {
 	}
 	desktop.SetLLMProviderModelTester(engine)
 	defer engine.Shutdown(context.Background())
+	engine.StartMCPDiscoveryPrewarm(ctx)
 
 	lifecycle := newLifecycleManager(db, cq, bus, logger)
 	if err := lifecycle.Bootstrap(ctx); err != nil {

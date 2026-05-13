@@ -13,6 +13,13 @@ type DesktopConnectorsApi = NonNullable<ArkloopDesktopApi['connectors']>
 let cachedLocalToken = ''
 let cachedLocalConnectorsApi: DesktopConnectorsApi | null = null
 
+function secretPreview(keyPrefix?: string): string | undefined {
+  const prefix = keyPrefix?.trim()
+  if (!prefix) return undefined
+  const paddingLength = Math.max(0, 12 - prefix.length)
+  return `${prefix}${'*'.repeat(paddingLength)}`
+}
+
 function findProviderGroup(groups: ToolProviderGroup[], groupName: string): ToolProviderGroup | undefined {
   return groups.find((group) => group.group_name === groupName)
 }
@@ -36,6 +43,8 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
     return 'basic'
   case 'web_search.searxng':
     return 'searxng'
+  case 'web_search.exa':
+    return 'exa'
   case 'web_search.tavily':
     return 'tavily'
   default:
@@ -52,10 +61,22 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
   return {
     fetch: {
       provider: activeFetch ? providerNameToFetch(activeFetch.provider_name) : 'none',
+      jinaApiKey: activeFetch?.provider_name === 'web_fetch.jina'
+        ? secretPreview(activeFetch.key_prefix)
+        : undefined,
+      jinaApiKeyStored: activeFetch?.provider_name === 'web_fetch.jina' && Boolean(activeFetch.key_prefix),
+      firecrawlApiKey: activeFetch?.provider_name === 'web_fetch.firecrawl'
+        ? secretPreview(activeFetch.key_prefix)
+        : undefined,
+      firecrawlApiKeyStored: activeFetch?.provider_name === 'web_fetch.firecrawl' && Boolean(activeFetch.key_prefix),
       firecrawlBaseUrl: activeFetch?.provider_name === 'web_fetch.firecrawl' ? activeFetch.base_url : undefined,
     },
     search: {
       provider: activeSearch ? providerNameToSearch(activeSearch.provider_name) : 'none',
+      tavilyApiKey: activeSearch?.provider_name === 'web_search.tavily'
+        ? secretPreview(activeSearch.key_prefix)
+        : undefined,
+      tavilyApiKeyStored: activeSearch?.provider_name === 'web_search.tavily' && Boolean(activeSearch.key_prefix),
       searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng' ? activeSearch.base_url : undefined,
     },
   }
@@ -79,9 +100,15 @@ async function applySearchConnector(accessToken: string, search: ConnectorsConfi
   }
   if (search.provider === 'tavily') {
     await activateToolProvider(accessToken, 'web_search', 'web_search.tavily')
-    await updateToolProviderCredential(accessToken, 'web_search', 'web_search.tavily', {
-      api_key: search.tavilyApiKey ?? '',
-    })
+    if (!search.tavilyApiKeyStored) {
+      await updateToolProviderCredential(accessToken, 'web_search', 'web_search.tavily', {
+        api_key: search.tavilyApiKey ?? '',
+      })
+    }
+    return
+  }
+  if (search.provider === 'exa') {
+    await activateToolProvider(accessToken, 'web_search', 'web_search.exa')
     return
   }
   if (search.provider === 'searxng') {
@@ -100,17 +127,22 @@ async function applyFetchConnector(accessToken: string, fetch: ConnectorsConfig[
   }
   if (fetch.provider === 'jina') {
     await activateToolProvider(accessToken, 'web_fetch', 'web_fetch.jina')
-    await updateToolProviderCredential(accessToken, 'web_fetch', 'web_fetch.jina', {
-      api_key: fetch.jinaApiKey ?? '',
-    })
+    if (!fetch.jinaApiKeyStored) {
+      await updateToolProviderCredential(accessToken, 'web_fetch', 'web_fetch.jina', {
+        api_key: fetch.jinaApiKey ?? '',
+      })
+    }
     return
   }
   if (fetch.provider === 'firecrawl') {
     await activateToolProvider(accessToken, 'web_fetch', 'web_fetch.firecrawl')
-    await updateToolProviderCredential(accessToken, 'web_fetch', 'web_fetch.firecrawl', {
-      api_key: fetch.firecrawlApiKey ?? '',
+    const credential: Record<string, string> = {
       base_url: fetch.firecrawlBaseUrl ?? '',
-    })
+    }
+    if (!fetch.firecrawlApiKeyStored) {
+      credential.api_key = fetch.firecrawlApiKey ?? ''
+    }
+    await updateToolProviderCredential(accessToken, 'web_fetch', 'web_fetch.firecrawl', credential)
   }
 }
 

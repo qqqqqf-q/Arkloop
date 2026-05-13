@@ -503,6 +503,7 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 
 	var basicFound bool
 	var tavilyFound bool
+	var exaFound bool
 	for _, group := range payload.Groups {
 		if group.GroupName != "web_search" {
 			continue
@@ -519,11 +520,16 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 				if provider.RuntimeStatus != "unavailable" {
 					t.Fatalf("expected tavily unavailable, got %q", provider.RuntimeStatus)
 				}
+			case "web_search.exa":
+				exaFound = true
+				if provider.RuntimeStatus != "available" {
+					t.Fatalf("expected exa available, got %q", provider.RuntimeStatus)
+				}
 			}
 		}
 	}
-	if !basicFound || !tavilyFound {
-		t.Fatalf("expected both basic and tavily in payload: basic=%v tavily=%v", basicFound, tavilyFound)
+	if !basicFound || !tavilyFound || !exaFound {
+		t.Fatalf("expected basic, tavily, and exa in payload: basic=%v tavily=%v exa=%v", basicFound, tavilyFound, exaFound)
 	}
 }
 

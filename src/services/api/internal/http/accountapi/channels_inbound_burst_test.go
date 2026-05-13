@@ -12,6 +12,7 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/eventbus"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -122,6 +123,81 @@ func TestChannelInboundBurstRunnerScanEnqueuesSingleRunForDueBatch(t *testing.T)
 	conversationRef, _ := delivery["conversation_ref"].(map[string]any)
 	if got := asString(conversationRef["target"]); got != "dm-burst" {
 		t.Fatalf("unexpected run.started conversation_ref: %#v", delivery)
+	}
+}
+
+func TestChannelInboundBurstRunnerScanLeavesBatchPendingWhenThrottled(t *testing.T) {
+	t.Setenv("ARKLOOP_CHANNEL_RATE_LIMIT_PER_MIN", "1")
+	env := setupDiscordChannelsTestEnv(t, nil)
+	channel := createActiveDiscordChannelWithConfig(t, env, "burst-token-throttled", map[string]any{})
+	identity := mustLinkDiscordIdentity(t, env, channel.ID, "u-throttled", "throttled-user")
+
+	channelRunTriggerLog.Lock()
+	channelRunTriggerByChannel = map[uuid.UUID][]time.Time{channel.ID: {time.Now()}}
+	channelRunTriggerLog.Unlock()
+	t.Cleanup(func() {
+		channelRunTriggerLog.Lock()
+		channelRunTriggerByChannel = map[uuid.UUID][]time.Time{}
+		channelRunTriggerLog.Unlock()
+	})
+
+	thread, err := env.threadRepo.Create(context.Background(), env.accountID, identity.UserID, env.projectID, nil, false)
+	if err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	msg, err := env.messageRepo.Create(context.Background(), env.accountID, thread.ID, "user", "throttled burst input", identity.UserID)
+	if err != nil {
+		t.Fatalf("create msg: %v", err)
+	}
+	metadata := applyInboundBurstMetadata(
+		inboundLedgerMetadata(map[string]any{
+			"source":            "discord",
+			"conversation_type": "private",
+		}, inboundStatePendingDispatch),
+		time.Now().UTC().Add(-1*time.Second).UnixMilli(),
+	)
+	if _, err := env.channelLedgerRepo.Record(context.Background(), data.ChannelMessageLedgerRecordInput{
+		ChannelID:               channel.ID,
+		ChannelType:             channel.ChannelType,
+		Direction:               data.ChannelMessageDirectionInbound,
+		ThreadID:                &thread.ID,
+		PlatformConversationID:  "dm-throttled",
+		PlatformMessageID:       "msg-throttled-1",
+		SenderChannelIdentityID: &identity.ID,
+		MessageID:               &msg.ID,
+		MetadataJSON:            metadata,
+	}); err != nil {
+		t.Fatalf("record ledger: %v", err)
+	}
+
+	runner := channelInboundBurstRunner{
+		channelsRepo: env.channelsRepo,
+		personasRepo: env.personasRepo,
+		ledgerRepo:   env.channelLedgerRepo,
+		runEventRepo: env.runEventRepo,
+		jobRepo:      env.jobRepo,
+		messageRepo:  env.messageRepo,
+		pool:         env.pool,
+	}
+	if err := runner.scan(context.Background()); err != nil {
+		t.Fatalf("runner scan: %v", err)
+	}
+
+	if got := countRows(t, env.pool, `SELECT COUNT(*) FROM runs`); got != 0 {
+		t.Fatalf("runs = %d, want 0", got)
+	}
+	if got := countRows(t, env.pool, `SELECT COUNT(*) FROM jobs WHERE job_type = $1`, data.RunExecuteJobType); got != 0 {
+		t.Fatalf("run.execute jobs = %d, want 0", got)
+	}
+	if got := countRows(t, env.pool, `
+		SELECT COUNT(*) FROM channel_message_ledger
+		 WHERE channel_id = $1
+		   AND direction = 'inbound'
+		   AND metadata_json->>'ingress_state' = $2`,
+		channel.ID,
+		inboundStatePendingDispatch,
+	); got != 1 {
+		t.Fatalf("pending inbound ledger rows = %d, want 1", got)
 	}
 }
 

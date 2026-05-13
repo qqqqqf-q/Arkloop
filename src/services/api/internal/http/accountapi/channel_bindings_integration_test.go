@@ -12,7 +12,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/discordbot"
-	"github.com/google/uuid"
 )
 
 func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) {
@@ -96,32 +95,11 @@ func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) 
 		heartbeatReq,
 		authHeader(env.accessToken),
 	)
-	if updateResp.Code != nethttp.StatusOK {
-		t.Fatalf("update heartbeat: %d %s", updateResp.Code, updateResp.Body.String())
+	if updateResp.Code != nethttp.StatusUnprocessableEntity {
+		t.Fatalf("heartbeat binding update should be rejected: %d %s", updateResp.Code, updateResp.Body.String())
 	}
-
-	var updatedAdminBinding channelBindingResponse
-	if err := json.Unmarshal(updateResp.Body.Bytes(), &updatedAdminBinding); err != nil {
-		t.Fatalf("decode update response: %v", err)
-	}
-	if !updatedAdminBinding.HeartbeatEnabled || updatedAdminBinding.HeartbeatIntervalMinutes != 12 {
-		t.Fatalf("unexpected heartbeat config in response: %#v", updatedAdminBinding)
-	}
-	if updatedAdminBinding.HeartbeatModel == nil || *updatedAdminBinding.HeartbeatModel != "gpt-5.4" {
-		t.Fatalf("unexpected heartbeat model in response: %#v", updatedAdminBinding)
-	}
-	trigger, err := (data.ScheduledTriggersRepository{}).GetHeartbeat(context.Background(), env.pool, channel.ID, uuid.MustParse(updatedAdminBinding.ChannelIdentityID))
-	if err != nil {
-		t.Fatalf("get heartbeat trigger: %v", err)
-	}
-	if trigger == nil {
-		t.Fatal("expected heartbeat trigger to be created immediately")
-	}
-	if trigger.PersonaKey != "discord-persona" {
-		t.Fatalf("unexpected heartbeat persona key: %q", trigger.PersonaKey)
-	}
-	if trigger.Model != "gpt-5.4" || trigger.IntervalMin != 12 {
-		t.Fatalf("unexpected heartbeat trigger config: model=%q interval=%d", trigger.Model, trigger.IntervalMin)
+	if got := countRows(t, env.pool, `SELECT COUNT(*) FROM scheduled_triggers`); got != 0 {
+		t.Fatalf("scheduled triggers = %d, want 0", got)
 	}
 
 	makeOwnerResp := doJSONAccount(

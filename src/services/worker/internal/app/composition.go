@@ -177,7 +177,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 	allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 
 	// 全局 MCP pool，用于 env-loaded 工具及 per-run account 工具的连接复用
-	mcpPool := mcp.NewPool()
+	mcpPool := mcp.NewPool(mcp.WithAuthStore(mcp.NewDBAuthStore(pool)))
 	mcpRegistration, err := mcp.DiscoverFromEnv(ctx, mcpPool)
 	if err != nil {
 		return nil, err
@@ -319,12 +319,12 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		allLlmSpecs = append(allLlmSpecs, conversationtool.GroupSearchLlmSpec)
 	}
 
-	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, pool, configResolver, routingLoader)
+	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, pool, configResolver, routingLoader, messageAttachmentStore)
 	if err != nil {
 		return nil, err
 	}
 	if artifactToolsRegistered {
-		slog.InfoContext(ctx, "stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate"})
+		slog.InfoContext(ctx, "stored artifact tools registered", "tools", []string{"create_artifact", "document_write", "image_generate", "resource_copy"})
 	}
 
 	var toolDescriptionOverridesRepo *data.ToolDescriptionOverridesRepository
@@ -335,7 +335,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		}
 	}
 
-	llmRetryMaxAttempts := 3
+	llmRetryMaxAttempts := 10
 	llmRetryBaseDelayMs := 1000
 	if configResolver != nil {
 		m, err := configResolver.ResolvePrefix(ctx, "llm.retry.", sharedconfig.Scope{})

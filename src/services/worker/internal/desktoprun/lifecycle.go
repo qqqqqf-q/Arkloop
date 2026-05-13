@@ -5,6 +5,7 @@ package desktoprun
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/queue"
+	"arkloop/services/worker/internal/tooldiagnostics"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -555,7 +557,8 @@ func requestCancelDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.
 	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status)
+	var accountID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT status, account_id FROM runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status, &accountID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -575,6 +578,10 @@ func requestCancelDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.
 		return false, nil
 	}
 
+	if err := appendStaleActiveToolsDiagnostic(ctx, tx, runID, accountID); err != nil {
+		slog.WarnContext(ctx, "desktop stale active tools diagnostic failed", "run_id", runID.String(), "err", err.Error())
+	}
+
 	emitter := events.NewEmitter(strings.TrimSpace(traceID))
 	event := emitter.Emit("run.cancel_requested", map[string]any{"reason": "stale run timeout"}, nil, nil)
 	if _, err := repo.AppendRunEvent(ctx, tx, runID, event); err != nil {
@@ -585,6 +592,41 @@ func requestCancelDesktopRun(ctx context.Context, db data.DesktopDB, runID uuid.
 		return false, fmt.Errorf("commit desktop cancel tx: %w", err)
 	}
 	return true, nil
+}
+
+func appendStaleActiveToolsDiagnostic(ctx context.Context, tx pgx.Tx, runID, accountID uuid.UUID) error {
+	snapshots := tooldiagnostics.DefaultTracker.ActiveForRun(runID)
+	if len(snapshots) == 0 {
+		return nil
+	}
+	activeTools := make([]map[string]any, 0, len(snapshots))
+	for _, snapshot := range snapshots {
+		activeTools = append(activeTools, snapshot.ToFields())
+	}
+	payload, err := json.Marshal(map[string]any{
+		"active_tool_count": len(activeTools),
+		"active_tools":      activeTools,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal stale active tools diagnostic: %w", err)
+	}
+	_, err = tx.Exec(ctx,
+		`INSERT INTO run_pipeline_events (
+		    run_id, account_id, middleware, event_name, seq, fields_json
+		 ) VALUES (
+		    $1, $2, $3, $4, $5, $6
+		 )`,
+		runID.String(),
+		accountID.String(),
+		"tool_exec",
+		"tool_exec.stale_active_tools",
+		0,
+		string(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("insert stale active tools diagnostic: %w", err)
+	}
+	return nil
 }
 
 func stringPtr(value string) *string {

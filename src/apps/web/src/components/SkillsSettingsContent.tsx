@@ -162,6 +162,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
       if (addMenuRef.current && !addMenuRef.current.contains(target)) {
         setShowAddMenu(false)
       }
+      if (target.closest('[data-skill-card-menu]')) return
       if (cardMenuRef.current && !cardMenuRef.current.contains(target)) {
         setMenuSkillId(null)
       }
@@ -395,7 +396,7 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   const active = (item: ViewSkill) => item.installed && item.enabled_by_default
 
   const platformAvailabilityLabel = (status?: ViewSkill['platform_status']) => {
-    if (status === 'auto') return skillText.enabledByDefault
+    if (status === 'auto') return ''
     if (status === 'manual') return skillText.manualAvailable
     return ''
   }
@@ -466,53 +467,53 @@ export function SkillsSettingsContent({ accessToken, onTrySkill }: Props) {
   const allCandidatesSelected = candidatePaths.length > 0 && candidatePaths.every((path) => selectedCandidatePaths.includes(path))
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* 分段切换 + 搜索 + 添加 */}
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <SettingsSegmentedControl<SkillTab>
           options={tabItems.map((item) => ({ value: item.key, label: item.label }))}
           value={viewMode}
           onChange={(tab) => { setViewMode(tab); setQuery('') }}
         />
-        <div className="flex-1" />
-        <div className="relative min-w-[220px]">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
-          <SettingsInput
-            ref={searchInputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={viewMode === 'marketplace' ? skillText.searchPlaceholderMarketplace : skillText.searchPlaceholder}
-            className="h-9 pl-9 pr-3"
-          />
-          {viewMode === 'marketplace' && marketLoading && (
-            <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--c-text-tertiary)]" />
-          )}
-        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px]">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--c-text-tertiary)]" />
+            <SettingsInput
+              ref={searchInputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={viewMode === 'marketplace' ? skillText.searchPlaceholderMarketplace : skillText.searchPlaceholder}
+              className="h-9 pl-9 pr-3"
+            />
+            {viewMode === 'marketplace' && marketLoading && (
+              <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[var(--c-text-tertiary)]" />
+            )}
+          </div>
 
-        <div className="relative" ref={addMenuRef}>
-          <SettingsButton
-            variant="primary"
-            onClick={() => setShowAddMenu((v) => !v)}
-            icon={<PackagePlus size={14} />}
-          >
-            {skillText.add}
-          </SettingsButton>
-          {showAddMenu && (
-            <div
-              className="dropdown-menu absolute right-0 top-[calc(100%+4px)] z-50"
-              style={{
-                border: '0.5px solid var(--c-border-subtle)',
-                borderRadius: '10px',
-                padding: '4px',
-                background: 'var(--c-bg-menu)',
-                minWidth: '200px',
-                boxShadow: 'var(--c-dropdown-shadow)',
-              }}
+          <div className="relative" ref={addMenuRef}>
+            <SettingsButton
+              variant="primary"
+              onClick={() => setShowAddMenu((v) => !v)}
+              icon={<PackagePlus size={14} />}
             >
-              <DropdownAction icon={<Upload size={14} />} label={skillText.addFromUpload} onClick={() => { setShowAddMenu(false); setUploadOpen(true) }} />
-              <DropdownAction icon={<Github size={14} />} label={skillText.addFromGitHub} onClick={() => { setShowAddMenu(false); setGitHubOpen(true) }} />
-            </div>
-          )}
+              {skillText.add}
+            </SettingsButton>
+            {showAddMenu && (
+              <div
+                className="dropdown-menu absolute right-0 top-[calc(100%+4px)] z-50"
+                style={{
+                  border: '0.5px solid var(--c-border-subtle)',
+                  borderRadius: '10px',
+                  padding: '4px',
+                  background: 'var(--c-bg-menu)',
+                  minWidth: '200px',
+                  boxShadow: 'var(--c-dropdown-shadow)',
+                }}
+              >
+                <DropdownAction icon={<Upload size={14} />} label={skillText.addFromUpload} onClick={() => { setShowAddMenu(false); setUploadOpen(true) }} />
+                <DropdownAction icon={<Github size={14} />} label={skillText.addFromGitHub} onClick={() => { setShowAddMenu(false); setGitHubOpen(true) }} />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

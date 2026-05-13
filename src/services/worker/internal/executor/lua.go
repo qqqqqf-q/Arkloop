@@ -386,35 +386,18 @@ func (rt *luaRuntime) agentClassify(L *lua.LState) int {
 		"Classify into exactly one of: %s.\nRespond with only the label, nothing else.",
 		strings.Join(labels, ", "),
 	)
-	planned := planRequestFromRunContext(rt.rc, requestPlannerInput{
-		Model: rt.rc.SelectedRoute.Route.Model,
-		BaseMessages: []llm.Message{
+	outputText, _, streamFailed, err := rt.streamWithGateway(
+		rt.rc.Gateway,
+		rt.rc.SelectedRoute.Route.Model,
+		[]llm.Message{
 			{Role: "system", Content: []llm.TextPart{{Text: sysPrompt}}},
 			{Role: "user", Content: []llm.TextPart{{Text: prompt}}},
 		},
-		PromptMode: promptPlanModeRuntimeTail,
-	})
-	req := planned.Request
-
-	var chunks []string
-	var streamFailed *llm.StreamRunFailed
-	sentinel := fmt.Errorf("stop")
-
-	err := rt.rc.Gateway.Stream(rt.ctx, req, func(ev llm.StreamEvent) error {
-		switch typed := ev.(type) {
-		case llm.StreamMessageDelta:
-			if typed.ContentDelta != "" {
-				chunks = append(chunks, typed.ContentDelta)
-			}
-		case llm.StreamRunFailed:
-			streamFailed = &typed
-			return sentinel
-		case llm.StreamRunCompleted:
-			return sentinel
-		}
-		return nil
-	})
-	if err != nil && err != sentinel {
+		nil,
+		promptPlanModeRuntimeTail,
+		false,
+	)
+	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
@@ -425,7 +408,7 @@ func (rt *luaRuntime) agentClassify(L *lua.LState) int {
 		return 2
 	}
 
-	L.Push(lua.LString(strings.TrimSpace(strings.Join(chunks, ""))))
+	L.Push(lua.LString(strings.TrimSpace(outputText)))
 	L.Push(lua.LNil)
 	return 2
 }
@@ -480,9 +463,10 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 		RuntimeSnapshot:                  rt.rc.Runtime,
 		PromptCacheSnapshot:              promptCacheSnapshotFromRunContext(rt.rc, rt.rc.Messages),
 		Channel:                          rt.rc.ChannelToolSurface,
+		PipelineRC:                       rt.rc,
 		StreamEvent:                      func(ev events.RunEvent) error { return rt.yield(ev) },
 	}
-	result := rt.rc.ToolExecutor.Execute(rt.ctx, toolName, args, execCtx, "")
+	_, result := rt.executeToolWithPluginHooks(toolName, args, execCtx, "")
 
 	for _, ev := range result.Events {
 		if err := rt.yield(ev); err != nil {
@@ -508,6 +492,27 @@ func (rt *luaRuntime) toolsCall(L *lua.LState) int {
 	L.Push(lua.LString(string(encoded)))
 	L.Push(lua.LNil)
 	return 2
+}
+
+func (rt *luaRuntime) executeToolWithPluginHooks(toolName string, args map[string]any, execCtx tools.ExecutionContext, toolCallID string) (llm.ToolCall, tools.ExecutionResult) {
+	call := llm.CanonicalToolCall(llm.ToolCall{
+		ToolName:      toolName,
+		ArgumentsJSON: args,
+		ToolCallID:    toolCallID,
+	})
+	if rt.rc != nil && rt.rc.PluginHookRunner != nil {
+		before := pipeline.RunPluginBeforeToolUse(rt.ctx, rt.rc, call)
+		call = before.Call
+		if before.Result != nil {
+			pipeline.RunPluginAfterToolUse(rt.ctx, rt.rc, call, *before.Result)
+			return call, *before.Result
+		}
+	}
+	result := rt.rc.ToolExecutor.Execute(rt.ctx, call.ToolName, call.ArgumentsJSON, execCtx, call.ToolCallID)
+	if rt.rc != nil && rt.rc.PluginHookRunner != nil {
+		pipeline.RunPluginAfterToolUse(rt.ctx, rt.rc, call, result)
+	}
+	return call, result
 }
 
 // context.get(key) -> value（string 直接返回，其他类型 JSON marshal）
@@ -1056,37 +1061,18 @@ func (rt *luaRuntime) agentGenerate(L *lua.LState) int {
 	sysPrompt := L.CheckString(1)
 	userMessage := L.CheckString(2)
 
-	planned := planRequestFromRunContext(rt.rc, requestPlannerInput{
-		Model: rt.rc.SelectedRoute.Route.Model,
-		BaseMessages: []llm.Message{
+	outputText, _, streamFailed, err := rt.streamWithGateway(
+		rt.rc.Gateway,
+		rt.rc.SelectedRoute.Route.Model,
+		[]llm.Message{
 			{Role: "system", Content: []llm.TextPart{{Text: sysPrompt}}},
 			{Role: "user", Content: []llm.TextPart{{Text: userMessage}}},
 		},
-		PromptMode:      promptPlanModeRuntimeTail,
-		MaxOutputTokens: parseMaxTokensOption(L.OptTable(3, nil)),
-	})
-	req := planned.Request
-
-	var chunks []string
-	var streamFailed *llm.StreamRunFailed
-	sentinel := fmt.Errorf("stop")
-
-	err := rt.rc.Gateway.Stream(rt.ctx, req, func(ev llm.StreamEvent) error {
-		switch typed := ev.(type) {
-		case llm.StreamMessageDelta:
-			if typed.ContentDelta != "" {
-				chunks = append(chunks, typed.ContentDelta)
-			}
-		case llm.StreamRunFailed:
-			streamFailed = &typed
-			return sentinel
-		case llm.StreamRunCompleted:
-			rt.mergeUsage(typed.Usage)
-			return sentinel
-		}
-		return nil
-	})
-	if err != nil && err != sentinel {
+		parseMaxTokensOption(L.OptTable(3, nil)),
+		promptPlanModeRuntimeTail,
+		false,
+	)
+	if err != nil {
 		L.Push(lua.LNil)
 		L.Push(lua.LString(err.Error()))
 		return 2
@@ -1097,7 +1083,7 @@ func (rt *luaRuntime) agentGenerate(L *lua.LState) int {
 		return 2
 	}
 
-	L.Push(lua.LString(strings.TrimSpace(strings.Join(chunks, ""))))
+	L.Push(lua.LString(strings.TrimSpace(outputText)))
 	L.Push(lua.LNil)
 	return 2
 }
@@ -1364,9 +1350,16 @@ func (rt *luaRuntime) streamWithGateway(
 		MaxOutputTokens: maxTokens,
 	})
 	req := planned.Request
+	var pluginErr error
+	req, pluginErr = pipeline.RunPluginBeforeModelCall(rt.ctx, rt.rc, req)
+	if pluginErr != nil {
+		return "", false, nil, pluginErr
+	}
 
 	var chunks []string
 	var streamFailed *llm.StreamRunFailed
+	completed := map[string]any{}
+	terminal := false
 	streamStarted := false
 	sentinel := fmt.Errorf("stop")
 
@@ -1390,12 +1383,22 @@ func (rt *luaRuntime) streamWithGateway(
 			return sentinel
 		case llm.StreamRunCompleted:
 			rt.mergeUsage(typed.Usage)
+			completed = typed.ToDataJSON()
+			terminal = true
 			return sentinel
 		}
 		return nil
 	})
 	if err != nil && err != sentinel {
 		return "", streamStarted, nil, err
+	}
+	if streamFailed == nil {
+		pipeline.RunPluginAfterModelResponse(rt.ctx, rt.rc, pipeline.ModelResponse{
+			Model:         req.Model,
+			AssistantText: strings.TrimSpace(strings.Join(chunks, "")),
+			Completed:     completed,
+			Terminal:      terminal,
+		})
 	}
 	return strings.Join(chunks, ""), streamStarted, streamFailed, nil
 }
@@ -1536,6 +1539,7 @@ func (rt *luaRuntime) runAgentLoop(
 		MaxTotalOutputTokens:   rt.rc.MaxTotalOutputTokens,
 		PendingMemoryWrites:    rt.rc.PendingMemoryWrites,
 		Runtime:                rt.rc.Runtime,
+		ToolExecutionTracker:   rt.rc.ToolExecutionTracker,
 		LlmRetryMaxAttempts:    rt.rc.LlmRetryMaxAttempts,
 		LlmRetryBaseDelayMs:    rt.rc.LlmRetryBaseDelayMs,
 		WaitForInput:           rt.rc.WaitForInput,
@@ -1546,6 +1550,7 @@ func (rt *luaRuntime) runAgentLoop(
 		CancelSignal: func() bool {
 			return rt.ctx.Err() != nil
 		},
+		RunIdleTimeout:        rt.rc.RunIdleTimeout,
 		RunDeadline:           rt.rc.RunWallClockTimeout,
 		PausedInputTimeout:    rt.rc.PausedInputTimeout,
 		IdleHeartbeatInterval: rt.rc.IdleHeartbeatInterval,
@@ -1724,11 +1729,12 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 				RuntimeSnapshot:                  rt.rc.Runtime,
 				PromptCacheSnapshot:              promptCacheSnapshotFromRunContext(rt.rc, rt.rc.Messages),
 				Channel:                          rt.rc.ChannelToolSurface,
+				PipelineRC:                       rt.rc,
 				StreamEvent: func(ev events.RunEvent) error {
 					return rt.yield(ev)
 				},
 			}
-			result := rt.rc.ToolExecutor.Execute(rt.ctx, c.name, c.args, execCtx, "")
+			call, result := rt.executeToolWithPluginHooks(c.name, c.args, execCtx, "")
 
 			// 序列化事件推送
 			mu.Lock()
@@ -1745,9 +1751,9 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 			}
 			if !emittedCall {
 				_ = rt.yield(rt.emitter.Emit("tool.call", map[string]any{
-					"tool_name": c.name,
-					"arguments": c.args,
-				}, stringPtr(c.name), nil))
+					"tool_name": call.ToolName,
+					"arguments": call.ArgumentsJSON,
+				}, stringPtr(call.ToolName), nil))
 			}
 			// 发射 tool.result
 			var errorClass *string
@@ -1755,7 +1761,7 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 				errorClass = stringPtr(result.Error.ErrorClass)
 			}
 			resultData := map[string]any{
-				"tool_name": c.name,
+				"tool_name": call.ToolName,
 			}
 			if result.ResultJSON != nil {
 				resultData["result"] = result.ResultJSON
@@ -1766,7 +1772,7 @@ func (rt *luaRuntime) toolsCallParallel(L *lua.LState) int {
 					"message":     result.Error.Message,
 				}
 			}
-			_ = rt.yield(rt.emitter.Emit("tool.result", resultData, stringPtr(c.name), errorClass))
+			_ = rt.yield(rt.emitter.Emit("tool.result", resultData, stringPtr(call.ToolName), errorClass))
 			mu.Unlock()
 
 			if result.Error != nil {

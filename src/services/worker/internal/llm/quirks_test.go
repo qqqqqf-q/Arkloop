@@ -65,6 +65,33 @@ func TestQuirkMatch_DowngradeXHighReasoning(t *testing.T) {
 	}
 }
 
+func TestQuirkMatch_StripToolChoice(t *testing.T) {
+	q := openAIQuirks[2]
+	if q.ID != QuirkStripToolChoice {
+		t.Fatalf("expected strip_tool_choice, got %s", q.ID)
+	}
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"deepseek_reasoner", 400, `{"message":"deepseek-reasoner does not support this tool_choice","type":"invalid_request_error"}`, true},
+		{"unsupported", 400, `tool_choice unsupported for this model`, true},
+		{"wrong_status", 500, `tool_choice unsupported`, false},
+		{"missing_field", 400, `this model does not support forced tools`, false},
+		{"validation_error", 400, `tool_choice must be a string`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := q.Match(tc.status, tc.body)
+			if got != tc.want {
+				t.Fatalf("Match(%d,%q)=%v want %v", tc.status, tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestQuirkMatch_StripUnsignedThinking(t *testing.T) {
 	q := anthropicQuirks[0]
 	if q.ID != QuirkStripUnsignedThinking {
@@ -188,6 +215,21 @@ func TestQuirkApply_DowngradeXHighReasoning(t *testing.T) {
 	applyDowngradeXHighReasoning(unchanged)
 	if unchanged["reasoning_effort"] != "medium" || unchanged["reasoning"].(map[string]any)["effort"] != "low" {
 		t.Fatalf("non-xhigh reasoning must not change: %#v", unchanged)
+	}
+}
+
+func TestQuirkApply_StripToolChoice(t *testing.T) {
+	payload := map[string]any{
+		"model":       "deepseek-v4-flash",
+		"tool_choice": map[string]any{"type": "function"},
+		"tools":       []any{map[string]any{"type": "function"}},
+	}
+	applyStripToolChoice(payload)
+	if _, ok := payload["tool_choice"]; ok {
+		t.Fatalf("tool_choice should be removed: %#v", payload)
+	}
+	if _, ok := payload["tools"]; !ok {
+		t.Fatalf("tools should be preserved: %#v", payload)
 	}
 }
 

@@ -79,15 +79,6 @@ export function AccountContent({
           </button>
         </div>
       </div>
-
-      <div
-        className="rounded-xl p-4 bg-[var(--c-bg-menu)]"
-        style={{ border: '0.5px solid var(--c-border-subtle)' }}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-[var(--c-text-heading)]">{t.enterprisePlan}</span>
-        </div>
-      </div>
     </div>
   )
 }

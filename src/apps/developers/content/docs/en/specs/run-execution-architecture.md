@@ -157,7 +157,7 @@ Persona configuration fields: `id`, `executor_type`, `executor_config`, `tool_al
 - LLM only sees tools within the allowlist
 - Each tool execution has a timeout control (`tool_timeout_ms`)
 
-Note: `web_search` / `web_fetch` are Tool Group names (LLM only sees the group). At runtime, Worker resolves these to specific Providers (e.g., `web_search.tavily`, `web_fetch.jina`). Resolution priority is:
+Note: `web_search` / `web_fetch` are Tool Group names (LLM only sees the group). At runtime, Worker resolves these to specific Providers (e.g., `web_search.exa`, `web_search.tavily`, `web_fetch.jina`). For provider-owned tools such as `web_search`, the LLM-facing tool name remains the group name while the JSON schema and description come from the active provider. Resolution priority is:
 
 1) Provider activated at org scope (DB `tool_provider_configs.scope='org'`)
 2) Provider activated at platform scope (DB `tool_provider_configs.scope='platform'`)

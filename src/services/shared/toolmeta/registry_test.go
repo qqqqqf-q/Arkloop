@@ -7,20 +7,29 @@ import (
 	"testing"
 )
 
-func TestSandboxToolDescriptionsExplainWorkspaceAndArtifacts(t *testing.T) {
+func TestSandboxToolDescriptionsPreferArtifactsAndAbsoluteFilePaths(t *testing.T) {
 	python := Must("python_execute").LLMDescription
 	if !strings.Contains(python, "/workspace/") || !strings.Contains(python, "/tmp/output/") {
 		t.Fatalf("python_execute description should mention /workspace/ and /tmp/output/: %s", python)
+	}
+	if !strings.Contains(python, "exact absolute file_path") {
+		t.Fatalf("python_execute description should prefer absolute file paths: %s", python)
 	}
 
 	execDesc := Must("exec_command").LLMDescription
 	if !strings.Contains(execDesc, "/workspace/") || !strings.Contains(execDesc, "/tmp/output/") {
 		t.Fatalf("exec_command description should mention /workspace/ and /tmp/output/: %s", execDesc)
 	}
+	if !strings.Contains(execDesc, "exact absolute file_path") {
+		t.Fatalf("exec_command description should prefer absolute file paths: %s", execDesc)
+	}
+	if !strings.Contains(execDesc, "browser:<http-or-https-url>") || !strings.Contains(execDesc, "browser:http://localhost:5173") {
+		t.Fatalf("exec_command description should explain browser resource links: %s", execDesc)
+	}
 
 	continueDesc := Must("continue_process").LLMDescription
-	if !strings.Contains(continueDesc, "process_ref") || !strings.Contains(continueDesc, "/workspace") {
-		t.Fatalf("continue_process description should mention process_ref and /workspace: %s", continueDesc)
+	if !strings.Contains(continueDesc, "process_ref") || !strings.Contains(continueDesc, "exact absolute file_path") {
+		t.Fatalf("continue_process description should mention process_ref and absolute file paths: %s", continueDesc)
 	}
 
 	browserDesc := Must("browser").LLMDescription
@@ -41,10 +50,10 @@ func TestSandboxToolDescriptionsExplainWorkspaceAndArtifacts(t *testing.T) {
 	}
 
 	for _, desc := range []string{python, execDesc, continueDesc} {
-		if !strings.Contains(desc, "workspace:/relative/path") {
-			t.Fatalf("sandbox tool description should mention workspace protocol: %s", desc)
+		if strings.Contains(desc, "workspace:/relative/path") || strings.Contains(desc, "workspace: links") {
+			t.Fatalf("sandbox tool description should not recommend workspace protocol: %s", desc)
 		}
-		if !strings.Contains(desc, "Never invent artifact keys") {
+		if !strings.Contains(desc, "artifact keys") || !strings.Contains(desc, "invent") {
 			t.Fatalf("sandbox tool description should forbid invented artifact keys: %s", desc)
 		}
 	}
@@ -57,10 +66,16 @@ func TestSearchOutputPromptExplainsWorkspaceAndArtifactRules(t *testing.T) {
 		t.Fatalf("read prompt: %v", err)
 	}
 	content := string(body)
-	if !strings.Contains(content, "workspace:/path") {
-		t.Fatalf("prompt should mention workspace protocol: %s", content)
+	if !strings.Contains(content, "绝对 `file_path`") {
+		t.Fatalf("prompt should mention absolute file_path references: %s", content)
 	}
-	if !strings.Contains(content, "禁止根据 stdout、stderr、本地路径或文件名臆造新的 `artifact:<key>` 或 `workspace:/path`") {
+	if !strings.Contains(content, "不要把绝对文件路径改写成 legacy workspace 资源链接") {
+		t.Fatalf("prompt should forbid rewriting absolute file paths to legacy workspace links: %s", content)
+	}
+	if !strings.Contains(content, "`browser:<url>`") {
+		t.Fatalf("prompt should preserve browser resource links: %s", content)
+	}
+	if !strings.Contains(content, "禁止根据 stdout、stderr、本地路径或文件名臆造新的 `artifact:<key>`、`browser:<url>`、legacy workspace 资源链接或绝对文件路径") {
 		t.Fatalf("prompt should forbid invented file references: %s", content)
 	}
 }

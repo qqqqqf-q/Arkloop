@@ -17,6 +17,8 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
+
+	"github.com/google/uuid"
 )
 
 func TestBuildNowledgeSnapshotBlock(t *testing.T) {
@@ -149,6 +151,71 @@ func TestGetStatusTreatsLocalNowledgeWithoutAPIKeyAsConfigured(t *testing.T) {
 	}
 	if !status.Configured {
 		t.Fatalf("expected local nowledge without api key to be configured: %#v", status)
+	}
+}
+
+func TestFindActiveImpressionRunReturnsOnlyRunningImpressionRuns(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
+		t.Fatalf("seed desktop user: %v", err)
+	}
+
+	accountID := auth.DesktopAccountID.String()
+	userID := auth.DesktopUserID.String()
+	projectID := uuid.NewString()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO projects (id, account_id, name, owner_user_id) VALUES ($1, $2, $3, $4)`,
+		projectID, accountID, "Memory", userID,
+	); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+
+	seedRun := func(status, runKind string) string {
+		t.Helper()
+		threadID := uuid.NewString()
+		runID := uuid.NewString()
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO threads (id, account_id, project_id, created_by_user_id) VALUES ($1, $2, $3, $4)`,
+			threadID, accountID, projectID, userID,
+		); err != nil {
+			t.Fatalf("insert thread: %v", err)
+		}
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO runs (id, account_id, thread_id, status, created_by_user_id) VALUES ($1, $2, $3, $4, $5)`,
+			runID, accountID, threadID, status, userID,
+		); err != nil {
+			t.Fatalf("insert run: %v", err)
+		}
+		startedJSON, _ := json.Marshal(map[string]any{"run_kind": runKind, "persona_id": "impression-builder"})
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2)`,
+			runID, string(startedJSON),
+		); err != nil {
+			t.Fatalf("insert run event: %v", err)
+		}
+		return runID
+	}
+
+	seedRun("running", "chat")
+	seedRun("completed", "impression")
+	activeRunID := seedRun("running", "impression")
+
+	got, ok, err := findActiveImpressionRun(ctx, pool, accountID, userID)
+	if err != nil {
+		t.Fatalf("find active impression run: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected active impression run")
+	}
+	if got.String() != activeRunID {
+		t.Fatalf("active run = %s, want %s", got, activeRunID)
 	}
 }
 

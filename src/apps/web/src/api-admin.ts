@@ -226,7 +226,7 @@ export async function updateToolProviderCredential(
   accessToken: string,
   group: string,
   provider: string,
-  payload: Record<string, string>,
+  payload: Record<string, string | null>,
 ): Promise<void> {
   await apiFetch<void>(
     scopedPath(`/v1/tool-providers/${group}/${provider}/credential`),

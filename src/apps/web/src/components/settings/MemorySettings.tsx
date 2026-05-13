@@ -8,12 +8,11 @@ import { formatDateTime } from '@arkloop/shared'
 import type { MemoryConfig, SnapshotHit } from '@arkloop/shared/desktop'
 import { checkBridgeAvailable, bridgeClient, type ModuleStatus } from '../../api-bridge'
 import { secondaryButtonSmCls, secondaryButtonXsCls, secondaryButtonBorderStyle } from '../buttonStyles'
-import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { MemoryConfigModal } from './MemoryConfigModal'
 import { listMemoryErrors, type MemoryErrorEvent } from '../../api'
 import { PastedContentModal } from '../PastedContentModal'
 import { getDesktopMemoryApi } from '../../desktopMemoryApi'
-import { SettingsSwitch } from './_SettingsSwitch'
+import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow, SettingsSwitchRow } from './_SettingsLayout'
 
 // ---------------------------------------------------------------------------
 // Status dot — shows health on the provider card
@@ -30,9 +29,9 @@ let memoryConfigCache: MemoryConfig | null = null
 
 function statusDotColor(s: HealthStatus): string {
   switch (s) {
-    case 'ok': return '#22c55e'
-    case 'warning': return '#f59e0b'
-    case 'error': return '#ef4444'
+    case 'ok': return 'var(--c-status-success-text)'
+    case 'warning': return 'var(--c-status-warning-text)'
+    case 'error': return 'var(--c-status-error-text)'
     default: return 'var(--c-text-muted)'
   }
 }
@@ -787,6 +786,7 @@ export function MemorySettings({ accessToken }: Props) {
 
   const rebuildImpression = useCallback(async () => {
     if (!memoryApi?.rebuildImpression) return
+    if (memoryUiActionState.rebuildingImpression) return
     memoryUiActionState.rebuildingImpression = true
     setRebuildingImpression(true)
     try {
@@ -829,31 +829,31 @@ export function MemorySettings({ accessToken }: Props) {
     return resp.content ?? ''
   }, [memoryApi])
 
-  const [enableCardHovered, setEnableCardHovered] = useState(false)
-  const [summarizeCardHovered, setSummarizeCardHovered] = useState(false)
-
   // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
-      <div className="flex flex-col gap-4">
-        <SettingsSectionHeader title={ds.memorySettingsTitle} description={ds.memorySettingsDesc} />
-        <div className="flex items-center justify-center py-20"><SpinnerIcon /></div>
-      </div>
+      <SettingsPage title={ds.memorySettingsTitle}>
+        <SettingsGroup title={ds.memorySettingsTitle}>
+          <SettingsCard>
+            <div className="flex items-center justify-center px-5 py-20"><SpinnerIcon /></div>
+          </SettingsCard>
+        </SettingsGroup>
+      </SettingsPage>
     )
   }
 
   if (!memoryApi) {
     return (
-      <div className="flex flex-col gap-4">
-        <SettingsSectionHeader title={ds.memorySettingsTitle} description={ds.memorySettingsDesc} />
-        <div
-          className="rounded-xl bg-[var(--c-bg-menu)] py-16 text-center text-sm text-[var(--c-text-muted)]"
-          style={{ border: '0.5px solid var(--c-border-subtle)' }}
-        >
-          Not available outside Desktop mode.
-        </div>
-      </div>
+      <SettingsPage title={ds.memorySettingsTitle}>
+        <SettingsGroup title={ds.memorySettingsTitle}>
+          <SettingsCard>
+            <div className="px-5 py-16 text-center text-sm text-[var(--c-text-muted)]">
+              Not available outside Desktop mode.
+            </div>
+          </SettingsCard>
+        </SettingsGroup>
+      </SettingsPage>
     )
   }
 
@@ -866,82 +866,32 @@ export function MemorySettings({ accessToken }: Props) {
   const showSnapshotCard = showSemanticCards
 
   return (
-    <div className="flex flex-col gap-6">
-      <SettingsSectionHeader title={ds.memorySettingsTitle} description={ds.memorySettingsDesc} />
+    <SettingsPage title={ds.memorySettingsTitle}>
+      <SettingsGroup title={ds.memorySettingsTitle}>
+        <SettingsCard>
+          <SettingsSwitchRow
+            title={ds.memoryEnabled}
+            description={ds.memoryEnabledDesc}
+            checked={enabled}
+            onChange={(next) => { if (memConfig) void saveConfig({ ...memConfig, enabled: next }) }}
+          />
 
-      {/* Enable Memory + Auto-summarize compound card */}
-      <div
-        className="group/switch-card rounded-xl border-[0.5px] border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]"
-        onMouseEnter={() => {
-          setEnableCardHovered(true)
-          setSummarizeCardHovered(true)
-        }}
-        onMouseLeave={() => {
-          setEnableCardHovered(false)
-          setSummarizeCardHovered(false)
-        }}
-      >
-        <div
-          role="button"
-          tabIndex={0}
-          className="flex cursor-pointer items-center justify-between gap-4 px-4 py-4 outline-none transition-colors hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)]"
-          onMouseEnter={() => setEnableCardHovered(true)}
-          onMouseLeave={() => setEnableCardHovered(false)}
-          onClick={() => { if (memConfig) void saveConfig({ ...memConfig, enabled: !enabled }) }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              if (memConfig) void saveConfig({ ...memConfig, enabled: !enabled })
-            }
-          }}
-        >
-          <div className="min-w-0 flex-1 pr-2">
-            <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryEnabled}</p>
-            <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{ds.memoryEnabledDesc}</p>
-          </div>
-          <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-            <SettingsSwitch
-              checked={enabled}
-              onChange={(next) => { if (memConfig) void saveConfig({ ...memConfig, enabled: next }) }}
-              forceHover={enableCardHovered}
+          {memConfig && (
+            <SettingsSwitchRow
+              title={ds.memoryAutoSummarizeLabel}
+              description={ds.memoryAutoSummarizeDesc}
+              checked={memConfig.memoryCommitEachTurn !== false}
+              onChange={(next) => void saveConfig({ ...memConfig, memoryCommitEachTurn: next })}
+              disabled={!enabled}
             />
-          </div>
-        </div>
-
-        {memConfig && (
-          <div
-            role="button"
-            tabIndex={0}
-            className={`flex cursor-pointer items-center justify-between gap-4 border-t border-[var(--c-border-subtle)] px-4 py-4 outline-none transition-all hover:bg-[var(--c-bg-deep)]/25 focus-visible:ring-2 focus-visible:ring-[var(--c-accent)] ${enabled ? '' : 'pointer-events-none opacity-40'}`}
-            onMouseEnter={() => setSummarizeCardHovered(true)}
-            onMouseLeave={() => setSummarizeCardHovered(false)}
-            onClick={() => { if (enabled) void saveConfig({ ...memConfig, memoryCommitEachTurn: memConfig.memoryCommitEachTurn === false }) }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                if (enabled) void saveConfig({ ...memConfig, memoryCommitEachTurn: memConfig.memoryCommitEachTurn === false })
-              }
-            }}
-          >
-            <div className="min-w-0 flex-1 pr-2">
-              <p className="text-sm font-medium text-[var(--c-text-heading)]">{ds.memoryAutoSummarizeLabel}</p>
-              <p className="mt-0.5 text-xs text-[var(--c-text-muted)]">{ds.memoryAutoSummarizeDesc}</p>
-            </div>
-            <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
-              <SettingsSwitch
-                checked={memConfig.memoryCommitEachTurn !== false}
-                onChange={(next) => void saveConfig({ ...memConfig, memoryCommitEachTurn: next })}
-                forceHover={summarizeCardHovered}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </SettingsCard>
+      </SettingsGroup>
 
       {enabled && memConfig && (
         <>
           {showSemanticCards && (
-            <>
+            <div className="flex flex-col gap-3">
               <ImpressionCard
                 impression={impression}
                 updatedAt={impressionUpdatedAt}
@@ -975,51 +925,55 @@ export function MemorySettings({ accessToken }: Props) {
                   }}
                 />
               )}
-            </>
+            </div>
           )}
 
-          {/* 向量记忆后端选择 */}
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-3">
-              <ProviderSelectCard
-                title={ds.memoryNowledgeProvider}
-                description={ds.memoryNowledgeProviderDesc}
-                selected={activeProvider === 'nowledge'}
-                onSelect={() => {
-                  if (!memConfig || activeProvider === 'nowledge') return
-                  setSwitching(true)
-                  void (async () => {
-                    let baseUrl = memConfig.nowledge?.baseUrl ?? ''
-                    if (!baseUrl) {
-                      try {
-                        const res = await fetch('http://127.0.0.1:14242/health', { signal: AbortSignal.timeout(3000) })
-                        if (res.ok) baseUrl = 'http://127.0.0.1:14242'
-                      } catch { /* 未检测到 */ }
-                    }
-                    const next: MemoryConfig = {
-                      ...memConfig,
-                      provider: 'nowledge',
-                      nowledge: { ...memConfig.nowledge, baseUrl: baseUrl || memConfig.nowledge?.baseUrl },
-                    }
-                    await saveConfig(next)
-                  })().finally(() => setSwitching(false))
-                }}
-                disabled={switching}
-              />
-              <ProviderSelectCard
-                title={ds.memoryProviderOpenviking}
-                description={ds.memoryOpenvikingProviderDesc}
-                selected={activeProvider === 'openviking'}
-                onSelect={() => {
-                  if (!memConfig || activeProvider === 'openviking') return
-                  setSwitching(true)
-                  void saveConfig({ ...memConfig, provider: 'openviking' }).finally(() => setSwitching(false))
-                }}
-                disabled={switching}
-              />
-            </div>
+          <SettingsGroup title={ds.memoryConfigureModalTitle}>
+            <SettingsCard>
+              <div className="grid gap-3 px-5 py-4 sm:grid-cols-2">
+                <ProviderSelectCard
+                  title={ds.memoryNowledgeProvider}
+                  description={ds.memoryNowledgeProviderDesc}
+                  selected={activeProvider === 'nowledge'}
+                  onSelect={() => {
+                    if (!memConfig || activeProvider === 'nowledge') return
+                    setSwitching(true)
+                    void (async () => {
+                      let baseUrl = memConfig.nowledge?.baseUrl ?? ''
+                      if (!baseUrl) {
+                        try {
+                          const res = await fetch('http://127.0.0.1:14242/health', { signal: AbortSignal.timeout(3000) })
+                          if (res.ok) baseUrl = 'http://127.0.0.1:14242'
+                        } catch { /* 未检测到 */ }
+                      }
+                      const next: MemoryConfig = {
+                        ...memConfig,
+                        provider: 'nowledge',
+                        nowledge: { ...memConfig.nowledge, baseUrl: baseUrl || memConfig.nowledge?.baseUrl },
+                      }
+                      await saveConfig(next)
+                    })().finally(() => setSwitching(false))
+                  }}
+                  disabled={switching}
+                />
+                <ProviderSelectCard
+                  title={ds.memoryProviderOpenviking}
+                  description={ds.memoryOpenvikingProviderDesc}
+                  selected={activeProvider === 'openviking'}
+                  onSelect={() => {
+                    if (!memConfig || activeProvider === 'openviking') return
+                    setSwitching(true)
+                    void saveConfig({ ...memConfig, provider: 'openviking' }).finally(() => setSwitching(false))
+                  }}
+                  disabled={switching}
+                />
+              </div>
             {(activeProvider === 'openviking' || activeProvider === 'nowledge') && (
-              <div className="flex items-center gap-2">
+              <SettingsRow
+                title={activeProvider === 'nowledge' ? ds.memoryNowledgeProvider : ds.memoryProviderOpenviking}
+                description={healthLabel}
+                control={(
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                 {activeProvider === 'openviking' && memoryErrors.length > 0 && (
                   <button
                     type="button"
@@ -1050,8 +1004,11 @@ export function MemorySettings({ accessToken }: Props) {
                   {ds.memoryConfigureButton}
                 </button>
               </div>
+                )}
+              />
             )}
-          </div>
+            </SettingsCard>
+          </SettingsGroup>
         </>
       )}
 
@@ -1087,6 +1044,6 @@ export function MemorySettings({ accessToken }: Props) {
           ))}
         </div>
       </Modal>
-    </div>
+    </SettingsPage>
   )
 }

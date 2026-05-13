@@ -5,13 +5,20 @@ import (
 	"net/url"
 	"strings"
 	"unicode/utf8"
+
+	"arkloop/services/worker/internal/tools"
 )
 
 type Result struct {
-	QueryIndex int
-	Title      string
-	URL        string
-	Snippet    string
+	QueryIndex      int
+	Title           string
+	URL             string
+	Snippet         string
+	Published       string
+	SiteName        string
+	Summary         string
+	Text            string
+	HighlightScores []float64
 }
 
 func (r Result) ToJSON() map[string]any {
@@ -27,15 +34,41 @@ func (r Result) ToJSON() map[string]any {
 	if snippet != "" {
 		payload["snippet"] = snippet
 	}
+	if published := strings.TrimSpace(r.Published); published != "" {
+		payload["published"] = published
+	}
+	if siteName := normalizeInlineText(r.SiteName, 80); siteName != "" {
+		payload["siteName"] = siteName
+	}
+	if summary := normalizeBlockText(r.Summary); summary != "" {
+		payload["summary"] = summary
+	}
+	if text := normalizeBlockText(r.Text); text != "" {
+		payload["text"] = text
+	}
+	if len(r.HighlightScores) > 0 {
+		payload["highlightScores"] = append([]float64{}, r.HighlightScores...)
+	}
 	return payload
 }
 
+type SearchRequest struct {
+	Query      string
+	MaxResults int
+	Args       map[string]any
+}
+
 type Provider interface {
-	Search(ctx context.Context, query string, maxResults int) ([]Result, error)
+	Search(ctx context.Context, request SearchRequest) ([]Result, error)
+}
+
+type RequestParser interface {
+	ParseSearchRequests(args map[string]any) ([]SearchRequest, *tools.ExecutionError)
 }
 
 type HttpError struct {
 	StatusCode int
+	Body       string
 }
 
 func (e HttpError) Error() string {
@@ -49,6 +82,10 @@ func normalizeInlineText(value string, maxChars int) string {
 	}
 	cleaned = strings.Join(strings.Fields(cleaned), " ")
 	return truncateRunes(cleaned, maxChars)
+}
+
+func normalizeBlockText(value string) string {
+	return strings.TrimSpace(value)
 }
 
 func truncateRunes(value string, maxChars int) string {

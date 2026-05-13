@@ -10,6 +10,7 @@ import (
 	"arkloop/services/worker/internal/tools"
 	loadtools "arkloop/services/worker/internal/tools/builtin/load_tools"
 	"arkloop/services/worker/internal/tools/builtin/read"
+	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
 	"github.com/google/uuid"
 )
@@ -33,6 +34,7 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"memory_timeline":      {},
 	"memory_write":         {},
 	"python_execute":       {},
+	"resource_copy":        {},
 	"resize_process":       {},
 	"terminate_process":    {},
 	"web_fetch":            {},
@@ -109,6 +111,7 @@ func NewToolBuildMiddleware() RunMiddleware {
 		dispatchRef = executor
 
 		allSpecs := FilterToolSpecs(rc.ToolSpecs, filteredAllowlist, rc.ToolRegistry)
+		allSpecs = applyProviderOwnedToolSpecs(allSpecs, rc.ActiveToolProviderByGroup)
 		readImageBridgeEnabled := hasImageBridgeProvider(rc.ActiveToolProviderByGroup)
 		nativeImageInput := supportsImageInput(rc.SelectedRoute)
 		allSpecs = ApplyReadImageSourceVisibility(allSpecs, readImageBridgeEnabled, nativeImageInput)
@@ -129,8 +132,14 @@ func NewToolBuildMiddleware() RunMiddleware {
 		}
 
 		coreSet := resolveCoreToolSet(rc)
+		searchableToolNames := []string{}
 		if coreSet != nil {
 			coreSpecs, searchableSpecs := splitToolSpecs(allSpecs, coreSet)
+			for _, spec := range searchableSpecs {
+				if name := strings.TrimSpace(spec.Name); name != "" {
+					searchableToolNames = append(searchableToolNames, name)
+				}
+			}
 
 			// Populate coreSpecsMap so load_tools can resolve queries against active tools.
 			if len(coreSpecs) > 0 {
@@ -180,12 +189,31 @@ func NewToolBuildMiddleware() RunMiddleware {
 			}
 		}
 		emitTraceEvent(rc, "tool_build", "tool_build.completed", map[string]any{
-			"final_tool_count": len(rc.FinalSpecs),
-			"tool_names":       traceToolNames(toolNames),
+			"final_tool_count":      len(rc.FinalSpecs),
+			"tool_names":            traceToolNames(toolNames),
+			"searchable_tool_count": len(searchableToolNames),
+			"searchable_tool_names": traceToolNames(searchableToolNames),
 		})
 
 		return next(ctx, rc)
 	}
+}
+
+func applyProviderOwnedToolSpecs(specs []llm.ToolSpec, activeByGroup map[string]string) []llm.ToolSpec {
+	if len(specs) == 0 || len(activeByGroup) == 0 {
+		return specs
+	}
+	out := append([]llm.ToolSpec(nil), specs...)
+	if providerName := strings.TrimSpace(activeByGroup["web_search"]); providerName != "" {
+		if providerSpec, ok := websearch.ProviderLlmSpec(providerName); ok {
+			for i := range out {
+				if out[i].Name == "web_search" {
+					out[i] = providerSpec
+				}
+			}
+		}
+	}
+	return out
 }
 
 // resolveCoreToolSet returns the set of core tool names from persona config.

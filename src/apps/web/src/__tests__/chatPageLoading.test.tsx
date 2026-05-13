@@ -8,7 +8,7 @@ import { ArtifactStreamBlock, extractPartialArtifactFields, extractPartialWidget
 import { WidgetBlock } from '../components/WidgetBlock'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import { AuthContextBridge, type AuthContextValue } from '../contexts/auth'
-import { ThreadListContextBridge, type ThreadListContextValue } from '../contexts/thread-list'
+import { ThreadListContextBridge, ThreadLiveStateBridge, type ThreadListContextValue } from '../contexts/thread-list'
 import { AppUIContextBridge, type AppUIContextValue } from '../contexts/app-ui'
 import { CreditsContextBridge, type CreditsContextValue } from '../contexts/credits'
 import { useLatest } from '../hooks/useLatest'
@@ -787,8 +787,6 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
 
   const threadListValue: ThreadListContextValue = {
     threads: context.threads,
-    runningThreadIds: new Set(),
-    completedUnreadThreadIds: new Set(),
     privateThreadIds: context.privateThreadIds,
     isPrivateMode: context.isPrivateMode,
     pendingIncognitoMode: false,
@@ -837,6 +835,8 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
     consumeSkillPrompt: () => {},
     setTitleBarIncognitoClick: () => {},
     triggerTitleBarIncognitoClick: (fallback) => fallback(),
+    setTitleBarRightPanelClick: () => {},
+    triggerTitleBarRightPanelClick: (fallback) => fallback?.(),
   }
 
   const creditsValue: CreditsContextValue = {
@@ -848,11 +848,13 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
   return (
     <AuthContextBridge value={authValue}>
       <ThreadListContextBridge value={threadListValue}>
-        <AppUIContextBridge value={appUIValue}>
-          <CreditsContextBridge value={creditsValue}>
-            <Outlet />
-          </CreditsContextBridge>
-        </AppUIContextBridge>
+        <ThreadLiveStateBridge value={{ runningThreadIds: new Set(), completedUnreadThreadIds: new Set() }}>
+          <AppUIContextBridge value={appUIValue}>
+            <CreditsContextBridge value={creditsValue}>
+              <Outlet />
+            </CreditsContextBridge>
+          </AppUIContextBridge>
+        </ThreadLiveStateBridge>
       </ThreadListContextBridge>
     </AuthContextBridge>
   )
@@ -1717,7 +1719,7 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    expect(container.textContent ?? '').toContain('Finding the right words')
+    expect(container.textContent ?? '').toContain('整理措辞')
     expect(container.textContent ?? '').toContain('streaming')
 
     act(() => {
@@ -2352,6 +2354,98 @@ describe('ChatPage loading state', () => {
     expect(container.textContent).toContain('半截回复')
     expect(container.textContent).toContain('send immediately')
     expect(countMatches(container.textContent ?? '', '半截回复')).toBe(1)
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('新发送会先补发前面未送达的本地 user prompt', async () => {
+    mockedListMessages.mockResolvedValue([])
+    mockedListThreadRuns.mockResolvedValue([])
+    mockedCreateMessage
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        id: 'msg-1',
+        role: 'user',
+        content: '1',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      })
+      .mockResolvedValueOnce({
+        id: 'msg-2',
+        role: 'user',
+        content: '2',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:02Z',
+      })
+    mockedCreateRun.mockResolvedValue({ run_id: 'run-after-batch', trace_id: 'trace-batch' })
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const outletContext = buildOutletContext()
+
+    const renderTree = () => (
+      <LocaleProvider>
+        <MemoryRouter initialEntries={['/t/thread-1']}>
+          <Routes>
+            <Route element={<OutletShell context={outletContext} />}>
+              <Route path="/t/:threadId" element={<ChatPage />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LocaleProvider>
+    )
+
+    await act(async () => {
+      root.render(renderTree())
+      await flushMicrotasks()
+    })
+
+    const input = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
+    const form = container.querySelector('form')
+    if (!input || !form) {
+      throw new Error('chat input mock not rendered')
+    }
+    const setInputValue = async (value: string) => {
+      await act(async () => {
+        const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+        valueSetter?.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    }
+    const submitInput = async () => {
+      await act(async () => {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        await flushMicrotasks()
+      })
+    }
+
+    await setInputValue('1')
+    await submitInput()
+
+    await waitForAssertion(() => {
+      expect(mockedCreateMessage).toHaveBeenCalledTimes(1)
+      expect(container.textContent).toContain('1')
+    })
+    expect(mockedCreateRun).not.toHaveBeenCalled()
+
+    await setInputValue('2')
+    await submitInput()
+
+    await waitForAssertion(() => {
+      expect(mockedCreateMessage).toHaveBeenCalledTimes(3)
+      expect(mockedCreateRun).toHaveBeenCalledTimes(1)
+    })
+    expect(mockedCreateMessage.mock.calls[1]?.[2]).toEqual(expect.objectContaining({ content: '1' }))
+    expect(mockedCreateMessage.mock.calls[2]?.[2]).toEqual(expect.objectContaining({ content: '2' }))
+    expect(mockedCreateRun.mock.invocationCallOrder[0]).toBeGreaterThan(mockedCreateMessage.mock.invocationCallOrder[2])
 
     act(() => {
       root.unmount()
@@ -3149,7 +3243,7 @@ describe('ChatPage loading state', () => {
     expect(outletContext.onThreadCreated).toHaveBeenCalledTimes(threadCreatedCallsBeforeRetry)
     expect(outletContext.onRunStarted).toHaveBeenCalledWith('thread-1')
     expect(container.textContent).not.toContain('answer')
-    expect(container.textContent).toContain('Finding the right words')
+    expect(container.textContent).toContain('整理措辞')
 
     act(() => {
       root.unmount()
@@ -3642,48 +3736,57 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    sseMock.state = 'connected'
-    sseMock.events = [
-      {
-        event_id: 'evt-1',
-        run_id: runId,
-        seq: 1,
-        ts: '2026-03-10T00:00:00Z',
-        type: 'message.delta',
-        data: {
-          role: 'assistant',
-          content_delta: '我来帮你看看这个文件夹的内容。',
-        },
-      },
-      {
-        event_id: 'evt-2',
-        run_id: runId,
-        seq: 2,
-        ts: '2026-03-10T00:00:00Z',
-        type: 'tool.call',
-        data: {
-          tool_name: 'exec_command',
-          tool_call_id: 'call-ls',
-          arguments: {
-            command: 'ls -la ~/Documents/mirrorflow',
+    await waitForAssertion(() => {
+      expect(container.textContent ?? '').toContain('streaming')
+      expect(sseMock.reset).toHaveBeenCalled()
+      expect(sseMock.connect).toHaveBeenCalled()
+    })
+
+    await act(async () => {
+      sseMock.state = 'connected'
+      sseMock.events = [
+        {
+          event_id: 'evt-1',
+          run_id: runId,
+          seq: 1,
+          ts: '2026-03-10T00:00:00Z',
+          type: 'message.delta',
+          data: {
+            role: 'assistant',
+            content_delta: '我来帮你看看这个文件夹的内容。',
           },
         },
-      },
-      {
-        event_id: 'evt-3',
-        run_id: runId,
-        seq: 3,
-        ts: '2026-03-10T00:00:00Z',
-        type: 'tool.result',
-        data: {
-          tool_name: 'exec_command',
-          tool_call_id: 'call-ls',
-          result: {
-            output: 'README.md',
+        {
+          event_id: 'evt-2',
+          run_id: runId,
+          seq: 2,
+          ts: '2026-03-10T00:00:00Z',
+          type: 'tool.call',
+          data: {
+            tool_name: 'exec_command',
+            tool_call_id: 'call-ls',
+            arguments: {
+              command: 'ls -la ~/Documents/mirrorflow',
+            },
           },
         },
-      },
-    ]
+        {
+          event_id: 'evt-3',
+          run_id: runId,
+          seq: 3,
+          ts: '2026-03-10T00:00:00Z',
+          type: 'tool.result',
+          data: {
+            tool_name: 'exec_command',
+            tool_call_id: 'call-ls',
+            result: {
+              output: 'README.md',
+            },
+          },
+        },
+      ]
+      await flushMicrotasks()
+    })
 
     await act(async () => {
       root.render(renderTree())
@@ -3691,12 +3794,14 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    const text = container.textContent ?? ''
-    expect(text).toContain('我来帮你看看这个文件夹的内容。')
-    expect(text).toContain('ls -la ~/Documents/mirrorflow')
-    expect(text).not.toContain('cop-inline:我来帮你看看这个文件夹的内容。')
-    expect(countMatches(text, '我来帮你看看这个文件夹的内容。')).toBe(1)
-    expect(text.indexOf('我来帮你看看这个文件夹的内容。')).toBeLessThan(text.indexOf('ls -la ~/Documents/mirrorflow'))
+    await waitForAssertion(() => {
+      const text = container.textContent ?? ''
+      expect(text).toContain('我来帮你看看这个文件夹的内容。')
+      expect(text).toContain('ls -la ~/Documents/mirrorflow')
+      expect(text).not.toContain('cop-inline:我来帮你看看这个文件夹的内容。')
+      expect(countMatches(text, '我来帮你看看这个文件夹的内容。')).toBe(1)
+      expect(text.indexOf('我来帮你看看这个文件夹的内容。')).toBeLessThan(text.indexOf('ls -la ~/Documents/mirrorflow'))
+    })
 
     act(() => {
       root.unmount()

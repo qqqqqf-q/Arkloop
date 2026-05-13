@@ -69,8 +69,29 @@ const DESKTOP_EXPORT_BUNDLE_FILE_SET = new Set([
 const DESKTOP_GITHUB_REPO = 'qqqqqf-q/Arkloop'
 const DESKTOP_GITHUB_URL = `https://github.com/${DESKTOP_GITHUB_REPO}`
 const LONG_RUNNING_MEMORY_REQUEST_TIMEOUT_MS = 120_000
+const PAGE_METADATA_TIMEOUT_MS = 8_000
 
 const memoryRebuildInFlight = new Map<string, Promise<unknown>>()
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_match, value: string) => String.fromCodePoint(Number(value)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, value: string) => String.fromCodePoint(Number.parseInt(value, 16)))
+}
+
+function extractHtmlTitle(html: string): string | undefined {
+  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)
+  const title = match?.[1]
+    ?.replace(/<[^>]*>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return title ? decodeHtmlEntities(title).slice(0, 180) : undefined
+}
 
 type DesktopBundleFile = 'config.json' | 'data.sqlite' | 'themes.json'
 
@@ -419,6 +440,38 @@ export function registerIpcHandlers(
     await shell.openExternal(url)
   })
 
+  ipcMain.handle('arkloop:app:fetch-page-metadata', async (_event, url: string) => {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error(`Invalid URL: ${url}`)
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error(`Blocked protocol: ${parsed.protocol}`)
+    }
+
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), PAGE_METADATA_TIMEOUT_MS)
+    try {
+      const response = await fetch(parsed.toString(), {
+        signal: controller.signal,
+        headers: {
+          accept: 'text/html,application/xhtml+xml',
+          'user-agent': 'Arkloop Desktop',
+        },
+      })
+      const contentType = response.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+        return {}
+      }
+      const html = await response.text()
+      return { title: extractHtmlTitle(html) }
+    } finally {
+      clearTimeout(timeout)
+    }
+  })
+
   ipcMain.handle('arkloop:app:os-username', () => {
     try {
       return os.userInfo().username
@@ -628,6 +681,7 @@ type ToolProviderItem = {
   group_name: string
   provider_name: string
   is_active: boolean
+  key_prefix?: string
   base_url?: string
   runtime_state?: string
   runtime_reason?: string
@@ -653,6 +707,13 @@ function findProviderGroup(groups: ToolProviderGroup[], groupName: string): Tool
   return groups.find((group) => group.group_name === groupName)
 }
 
+function secretPreview(keyPrefix?: string): string | undefined {
+  const prefix = keyPrefix?.trim()
+  if (!prefix) return undefined
+  const paddingLength = Math.max(0, 12 - prefix.length)
+  return `${prefix}${'*'.repeat(paddingLength)}`
+}
+
 function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsConfig {
   const fetchGroup = findProviderGroup(groups, 'web_fetch')
   const searchGroup = findProviderGroup(groups, 'web_search')
@@ -665,6 +726,14 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
       provider: activeFetch
         ? providerNameToFetch(activeFetch.provider_name)
         : 'none',
+      jinaApiKey: activeFetch?.provider_name === 'web_fetch.jina'
+        ? secretPreview(activeFetch.key_prefix)
+        : undefined,
+      jinaApiKeyStored: activeFetch?.provider_name === 'web_fetch.jina' && Boolean(activeFetch.key_prefix),
+      firecrawlApiKey: activeFetch?.provider_name === 'web_fetch.firecrawl'
+        ? secretPreview(activeFetch.key_prefix)
+        : undefined,
+      firecrawlApiKeyStored: activeFetch?.provider_name === 'web_fetch.firecrawl' && Boolean(activeFetch.key_prefix),
       firecrawlBaseUrl: activeFetch?.provider_name === 'web_fetch.firecrawl'
         ? activeFetch.base_url ?? DEFAULT_CONFIG.connectors.fetch.firecrawlBaseUrl
         : DEFAULT_CONFIG.connectors.fetch.firecrawlBaseUrl,
@@ -673,6 +742,10 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
       provider: activeSearch
         ? providerNameToSearch(activeSearch.provider_name)
         : 'none',
+      tavilyApiKey: activeSearch?.provider_name === 'web_search.tavily'
+        ? secretPreview(activeSearch.key_prefix)
+        : undefined,
+      tavilyApiKeyStored: activeSearch?.provider_name === 'web_search.tavily' && Boolean(activeSearch.key_prefix),
       searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng'
         ? activeSearch.base_url ?? DEFAULT_CONFIG.connectors.search.searxngBaseUrl
         : DEFAULT_CONFIG.connectors.search.searxngBaseUrl,
@@ -699,6 +772,8 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
       return 'basic'
     case 'web_search.searxng':
       return 'searxng'
+    case 'web_search.exa':
+      return 'exa'
     case 'web_search.tavily':
       return 'tavily'
     default:
@@ -726,6 +801,7 @@ async function migrateLegacyConnectorsIfNeeded(config: AppConfig): Promise<void>
 function hasLegacySearchConfig(connectors: ConnectorsConfig): boolean {
   return connectors.search.provider === 'basic'
     || (connectors.search.provider === 'tavily' && Boolean(connectors.search.tavilyApiKey))
+    || connectors.search.provider === 'exa'
     || (connectors.search.provider === 'searxng' && Boolean(connectors.search.searxngBaseUrl))
 }
 
@@ -748,9 +824,15 @@ async function applySearchConnector(search: ConnectorsConfig['search']): Promise
   }
   if (search.provider === 'tavily') {
     await activateToolProvider('web_search', 'web_search.tavily')
-    await upsertToolProviderCredential('web_search', 'web_search.tavily', {
-      api_key: search.tavilyApiKey ?? '',
-    })
+    if (!search.tavilyApiKeyStored) {
+      await upsertToolProviderCredential('web_search', 'web_search.tavily', {
+        api_key: search.tavilyApiKey ?? '',
+      })
+    }
+    return
+  }
+  if (search.provider === 'exa') {
+    await activateToolProvider('web_search', 'web_search.exa')
     return
   }
   if (search.provider === 'searxng') {
@@ -770,17 +852,22 @@ async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<vo
   }
   if (fetch.provider === 'jina') {
     await activateToolProvider('web_fetch', 'web_fetch.jina')
-    await upsertToolProviderCredential('web_fetch', 'web_fetch.jina', {
-      api_key: fetch.jinaApiKey ?? '',
-    })
+    if (!fetch.jinaApiKeyStored) {
+      await upsertToolProviderCredential('web_fetch', 'web_fetch.jina', {
+        api_key: fetch.jinaApiKey ?? '',
+      })
+    }
     return
   }
   if (fetch.provider === 'firecrawl') {
     await activateToolProvider('web_fetch', 'web_fetch.firecrawl')
-    await upsertToolProviderCredential('web_fetch', 'web_fetch.firecrawl', {
-      api_key: fetch.firecrawlApiKey ?? '',
+    const credential: Record<string, string> = {
       base_url: fetch.firecrawlBaseUrl ?? '',
-    })
+    }
+    if (!fetch.firecrawlApiKeyStored) {
+      credential.api_key = fetch.firecrawlApiKey ?? ''
+    }
+    await upsertToolProviderCredential('web_fetch', 'web_fetch.firecrawl', credential)
   }
 }
 
@@ -801,7 +888,7 @@ async function activateToolProvider(groupName: string, providerName: string): Pr
 async function upsertToolProviderCredential(
   groupName: string,
   providerName: string,
-  payload: Record<string, string>,
+  payload: Record<string, string | null>,
 ): Promise<void> {
   const body = JSON.stringify(payload)
   await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/credential`, 'PUT', body)
@@ -850,6 +937,8 @@ async function makeApiRequestRaw(url: string, method: string, token: string, bod
   const config = loadConfig()
   const timeoutMs = timeoutMsOverride ?? config.network.requestTimeoutMs ?? 30000
   const maxAttempts = Math.max(1, (config.network.retryCount ?? 1) + 1)
+  const normalizedMethod = method.toUpperCase()
+  const retryableMethod = normalizedMethod === 'GET' || normalizedMethod === 'HEAD' || normalizedMethod === 'OPTIONS'
   let attempt = 0
 
   const run = (): Promise<{ status: number; body: string }> => new Promise((resolve, reject) => {
@@ -858,7 +947,7 @@ async function makeApiRequestRaw(url: string, method: string, token: string, bod
       hostname: parsed.hostname,
       port: parseInt(parsed.port, 10) || 80,
       path: parsed.pathname + parsed.search,
-      method,
+      method: normalizedMethod,
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -893,7 +982,7 @@ async function makeApiRequestRaw(url: string, method: string, token: string, bod
       return await run()
     } catch (error) {
       attempt += 1
-      if (attempt >= maxAttempts) throw error
+      if (!retryableMethod || attempt >= maxAttempts) throw error
     }
   }
 }
@@ -944,18 +1033,6 @@ function getDesktopIconDataUrl(): string | null {
   return null
 }
 
-function readReleaseLabel(): string {
-  const fs = require('fs') as typeof import('fs')
-  const path = require('path') as typeof import('path')
-  try {
-    const metaPath = path.join(__dirname, '..', 'release-meta.json')
-    const raw = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as { releaseLabel?: string }
-    return raw.releaseLabel?.trim() || ''
-  } catch {
-    return ''
-  }
-}
-
 async function buildAdvancedOverview(): Promise<{
   appName: string
   appVersion: string
@@ -979,11 +1056,9 @@ async function buildAdvancedOverview(): Promise<{
   } catch {
     updater = null
   }
-  const releaseLabel = readReleaseLabel()
-  const versionDisplay = releaseLabel ? `${app.getVersion()} ${releaseLabel}` : app.getVersion()
   return {
     appName: 'Arkloop',
-    appVersion: versionDisplay,
+    appVersion: app.getVersion(),
     githubUrl: DESKTOP_GITHUB_URL,
     telegramUrl: null,
     iconDataUrl: getDesktopIconDataUrl(),

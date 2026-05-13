@@ -6,6 +6,9 @@ import type { UploadedThreadAttachment } from './api'
 import type { FontFamily, CodeFontFamily, FontSize, ThemePreset, ThemeDefinition, ThemeBackgroundImage } from './themes/types'
 import type { AssistantTurnSegment, AssistantTurnUi, CopBlockItem, TurnToolCallRef } from './assistantTurnSegments'
 import type { AgentUIEvent } from './agent-ui/contract'
+import { isTimelineText, type TimelineText } from './timelineText'
+import type { ArtifactResourceRef, BrowserResourceRef, LocalFileResourceRef, ResourceRef, WorkspaceFileResourceRef } from './components/resource-preview/types'
+import { browserFaviconUrl, browserTitleFromUrl, normalizeBrowserUrl } from './components/resource-preview/browserIdentity'
 import {
   normalizeAgentEventData,
   normalizeAgentEventToolName,
@@ -748,6 +751,7 @@ export type CodeExecutionRef = {
   mode?: 'buffered' | 'follow' | 'stdin' | 'pty'
   code?: string
   displayDescription?: string
+  displayText?: TimelineText
   output?: string
   emptyLabel?: string
   exitCode?: number
@@ -774,6 +778,7 @@ function isCodeExecutionRef(value: unknown): value is CodeExecutionRef {
   if (!isCodeExecutionStatus(item.status)) return false
   if (item.code != null && typeof item.code !== 'string') return false
   if (item.output != null && typeof item.output !== 'string') return false
+  if (item.displayText != null && !isTimelineText(item.displayText)) return false
   if (item.emptyLabel != null && typeof item.emptyLabel !== 'string') return false
   if (item.exitCode != null && typeof item.exitCode !== 'number') return false
   if (item.processRef != null && typeof item.processRef !== 'string') return false
@@ -827,6 +832,7 @@ export type ThinkingSegmentRef = {
   kind: string
   mode: string
   label: string
+  text?: TimelineText
   content: string
 }
 
@@ -876,6 +882,7 @@ export type MessageSearchStepRef = {
   id: string
   kind: 'planning' | 'searching' | 'reviewing' | 'finished'
   label: string
+  text?: TimelineText
   status: 'active' | 'done'
   queries?: string[]
   seq?: number
@@ -900,6 +907,7 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         const id = typeof item.id === 'string' ? item.id : ''
         const kind = item.kind
         const label = typeof item.label === 'string' ? item.label : ''
+        const text = isTimelineText(item.text) ? item.text : undefined
         const status = item.status
         const seq = typeof item.seq === 'number' ? item.seq : undefined
         const resultSeq = typeof item.resultSeq === 'number' ? item.resultSeq : undefined
@@ -921,7 +929,7 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         if (!id) return null
         if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
         if (status !== 'active' && status !== 'done') return null
-        return { id, kind, label, status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}), ...(sources && sources.length > 0 ? { sources } : {}) }
+        return { id, kind, label, ...(text ? { text } : {}), status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}), ...(sources && sources.length > 0 ? { sources } : {}) }
       })
       .filter((step): step is MessageSearchStepRef => step != null)
     return steps.length > 0 ? steps : null
@@ -1033,6 +1041,7 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   const id = typeof s.id === 'string' ? s.id : ''
   const kind = s.kind
   const label = typeof s.label === 'string' ? s.label : ''
+  const text = isTimelineText(s.text) ? s.text : undefined
   const status = s.status
   const seq = typeof s.seq === 'number' ? s.seq : undefined
   const resultSeq = typeof s.resultSeq === 'number' ? s.resultSeq : undefined
@@ -1042,7 +1051,7 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   if (!id) return null
   if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
   if (status !== 'active' && status !== 'done') return null
-  return { id, kind, label, status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}) }
+  return { id, kind, label, ...(text ? { text } : {}), status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}) }
 }
 
 export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | null {
@@ -1267,8 +1276,11 @@ export type FileOpRef = {
   operation?: string
   displayKind?: string
   displayDescription?: string
+  displayText?: TimelineText
   displaySubject?: string
   displayDetail?: string
+  diffAdded?: number
+  diffRemoved?: number
 }
 
 function isFileOpRef(v: unknown): v is FileOpRef {
@@ -1279,6 +1291,7 @@ function isFileOpRef(v: unknown): v is FileOpRef {
   if (typeof o.label !== 'string') return false
   const s = o.status
   if (s !== 'running' && s !== 'success' && s !== 'failed') return false
+  if (o.displayText != null && !isTimelineText(o.displayText)) return false
   return true
 }
 
@@ -1881,9 +1894,193 @@ export function writeLegacyThreadModesForMigration(modes: Record<string, AppMode
 
 const WORK_FOLDER_KEY = 'arkloop:web:work_folder'
 const WORK_RECENT_FOLDERS_KEY = 'arkloop:web:work_recent_folders'
+const THREAD_RIGHT_PANEL_PREFIX = 'arkloop:web:right_panel:'
+
+export type ThreadRightPanelBrowserTab = {
+  id: string
+  resource: BrowserResourceRef | null
+}
+
+export type ThreadRightPanelResourceTab = {
+  id: string
+  title: string
+  resource: Exclude<ResourceRef, BrowserResourceRef>
+}
+
+export type ThreadRightPanelState = {
+  visible: boolean
+  activeTabId: string | null
+  tabOrder: string[]
+  web: BrowserResourceRef | null
+  browserTabs: ThreadRightPanelBrowserTab[]
+  resourceTabs: ThreadRightPanelResourceTab[]
+  filesPreview: LocalFileResourceRef | null
+}
 
 function threadWorkFolderKey(threadId: string): string {
   return `arkloop:web:work_folder:${threadId}`
+}
+
+function threadRightPanelKey(threadId: string): string {
+  return `${THREAD_RIGHT_PANEL_PREFIX}${threadId}`
+}
+
+function sanitizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+function sanitizeBrowserResource(value: unknown): BrowserResourceRef | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'browser') return null
+  const normalizedUrl = typeof record.url === 'string' ? normalizeBrowserUrl(record.url) : null
+  if (!normalizedUrl) return null
+  const title = sanitizeOptionalString(record.title) ?? browserTitleFromUrl(normalizedUrl)
+  return {
+    kind: 'browser',
+    source: 'browser',
+    url: normalizedUrl,
+    title,
+    faviconUrl: sanitizeOptionalString(record.faviconUrl) ?? browserFaviconUrl(normalizedUrl),
+  }
+}
+
+function sanitizeLocalFileResource(value: unknown, workFolder?: string | null): LocalFileResourceRef | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'local-file') return null
+  if (typeof record.rootPath !== 'string' || typeof record.path !== 'string') return null
+  const rootPath = record.rootPath.trim()
+  const path = record.path.trim()
+  if (!rootPath || !path) return null
+  if (workFolder?.trim() && rootPath !== workFolder.trim()) return null
+  return {
+    kind: 'local-file',
+    source: 'local-file',
+    rootPath,
+    path,
+    name: sanitizeOptionalString(record.name),
+    filename: sanitizeOptionalString(record.filename),
+    mimeType: sanitizeOptionalString(record.mimeType),
+    size: Number.isFinite(record.size) ? Number(record.size) : undefined,
+  }
+}
+
+function sanitizeArtifactResource(value: unknown): ArtifactResourceRef | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'artifact') return null
+  const key = sanitizeOptionalString(record.key)
+  if (!key) return null
+  return {
+    kind: 'artifact',
+    source: 'artifact',
+    key,
+    filename: sanitizeOptionalString(record.filename),
+    mimeType: sanitizeOptionalString(record.mimeType),
+    size: Number.isFinite(record.size) ? Number(record.size) : undefined,
+    title: sanitizeOptionalString(record.title),
+  }
+}
+
+function sanitizeWorkspaceFileResource(value: unknown): WorkspaceFileResourceRef | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if (record.kind !== 'workspace-file') return null
+  const path = sanitizeOptionalString(record.path)
+  if (!path) return null
+  return {
+    kind: 'workspace-file',
+    source: 'workspace-file',
+    path,
+    name: sanitizeOptionalString(record.name),
+    filename: sanitizeOptionalString(record.filename),
+    mimeType: sanitizeOptionalString(record.mimeType),
+    size: Number.isFinite(record.size) ? Number(record.size) : undefined,
+    runId: sanitizeOptionalString(record.runId),
+    projectId: sanitizeOptionalString(record.projectId),
+  }
+}
+
+function sanitizePersistentResource(value: unknown, workFolder?: string | null): Exclude<ResourceRef, BrowserResourceRef> | null {
+  if (!value || typeof value !== 'object') return null
+  const kind = (value as Record<string, unknown>).kind
+  if (kind === 'local-file') return sanitizeLocalFileResource(value, workFolder)
+  if (kind === 'artifact') return sanitizeArtifactResource(value)
+  if (kind === 'workspace-file') return sanitizeWorkspaceFileResource(value)
+  return null
+}
+
+function sanitizeRightPanelState(value: unknown, options?: { workFolder?: string | null }): ThreadRightPanelState | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const activeTabId = typeof record.activeTabId === 'string' && record.activeTabId.trim() ? record.activeTabId.trim() : null
+  const tabOrder = Array.isArray(record.tabOrder)
+    ? record.tabOrder.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim())
+    : []
+  const browserTabs = Array.isArray(record.browserTabs)
+    ? record.browserTabs
+        .map((item): ThreadRightPanelBrowserTab | null => {
+          if (!item || typeof item !== 'object') return null
+          const tab = item as Record<string, unknown>
+          if (typeof tab.id !== 'string' || !/^web:\d+$/.test(tab.id)) return null
+          return { id: tab.id, resource: sanitizeBrowserResource(tab.resource) }
+        })
+        .filter((item): item is ThreadRightPanelBrowserTab => !!item)
+    : []
+  const resourceTabs = Array.isArray(record.resourceTabs)
+    ? record.resourceTabs
+        .map((item): ThreadRightPanelResourceTab | null => {
+          if (!item || typeof item !== 'object') return null
+          const tab = item as Record<string, unknown>
+          const id = sanitizeOptionalString(tab.id)
+          const title = sanitizeOptionalString(tab.title)
+          const resource = sanitizePersistentResource(tab.resource, options?.workFolder)
+          if (!id || !title || !resource) return null
+          return { id, title, resource }
+        })
+        .filter((item): item is ThreadRightPanelResourceTab => !!item)
+    : []
+
+  return {
+    visible: record.visible === true,
+    activeTabId,
+    tabOrder: Array.from(new Set(tabOrder)),
+    web: sanitizeBrowserResource(record.web),
+    browserTabs,
+    resourceTabs,
+    filesPreview: sanitizeLocalFileResource(record.filesPreview, options?.workFolder),
+  }
+}
+
+export function readThreadRightPanelState(threadId: string, options?: { workFolder?: string | null }): ThreadRightPanelState | null {
+  if (!canUseLocalStorage() || !threadId) return null
+  try {
+    const raw = localStorage.getItem(threadRightPanelKey(threadId))
+    if (!raw) return null
+    return sanitizeRightPanelState(JSON.parse(raw), options)
+  } catch {
+    try { localStorage.removeItem(threadRightPanelKey(threadId)) } catch { /* ignore */ }
+    return null
+  }
+}
+
+export function writeThreadRightPanelState(threadId: string, state: ThreadRightPanelState, options?: { workFolder?: string | null }): void {
+  if (!canUseLocalStorage() || !threadId) return
+  const sanitized = sanitizeRightPanelState(state, options)
+  if (!sanitized) return
+  try {
+    localStorage.setItem(threadRightPanelKey(threadId), JSON.stringify(sanitized))
+  } catch { /* ignore */ }
+}
+
+export function clearThreadRightPanelState(threadId: string): void {
+  if (!canUseLocalStorage() || !threadId) return
+  try {
+    localStorage.removeItem(threadRightPanelKey(threadId))
+  } catch { /* ignore */ }
 }
 
 function addToRecents(folder: string): void {

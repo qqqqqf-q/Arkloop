@@ -19,8 +19,15 @@ export type WorkRightPanelProps = {
   onForbidden?: () => void
   readFiles?: string[]
   threadId?: string
+  workFolder?: string | null
 }
 
-export function WorkRightPanel(_props: WorkRightPanelProps) {
-  return null
+export function WorkRightPanel({ workFolder }: WorkRightPanelProps) {
+  if (!workFolder?.trim()) return null
+
+  return (
+    <div style={{ height: '100%', color: 'var(--c-text-secondary)', fontSize: 13 }}>
+      {workFolder}
+    </div>
+  )
 }

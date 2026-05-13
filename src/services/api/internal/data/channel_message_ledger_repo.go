@@ -199,6 +199,29 @@ func (r *ChannelMessageLedgerRepository) HasOutboundForRun(ctx context.Context, 
 	return exists, nil
 }
 
+func (r *ChannelMessageLedgerRepository) HasOutboundMessage(ctx context.Context, channelID uuid.UUID, platformConversationID string, platformMessageID string) (bool, error) {
+	if channelID == uuid.Nil || strings.TrimSpace(platformConversationID) == "" || strings.TrimSpace(platformMessageID) == "" {
+		return false, nil
+	}
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1 FROM channel_message_ledger
+			 WHERE channel_id = $1
+			   AND direction = 'outbound'
+			   AND platform_conversation_id = $2
+			   AND platform_message_id = $3
+		)`,
+		channelID,
+		strings.TrimSpace(platformConversationID),
+		strings.TrimSpace(platformMessageID),
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("channel_message_ledger.HasOutboundMessage: %w", err)
+	}
+	return exists, nil
+}
+
 func (r *ChannelMessageLedgerRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	tag, err := r.db.Exec(ctx, `DELETE FROM channel_message_ledger WHERE created_at < $1`, cutoff.UTC())
 	if err != nil {

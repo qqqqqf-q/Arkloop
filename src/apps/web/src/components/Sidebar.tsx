@@ -28,7 +28,7 @@ import { useLocale } from '../contexts/LocaleContext'
 import { ShareModal } from './ShareModal'
 import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
 import { useAuth } from '../contexts/auth'
-import { useThreadList } from '../contexts/thread-list'
+import { useThreadList, useThreadLiveState } from '../contexts/thread-list'
 import { useAppModeUI, useSearchUI, useSettingsUI, useSidebarUI } from '../contexts/app-ui'
 import {
   readGtdInboxThreadIds, writeGtdInboxThreadIds,
@@ -111,8 +111,6 @@ function withSidebarPatch(thread: ThreadResponse, patch: UpdateThreadSidebarRequ
 type SidebarThreadItemProps = {
   thread: ThreadResponse
   section: 'starred' | 'regular'
-  isRunning: boolean
-  isCompletedUnread: boolean
   isMenuOpen: boolean
   isEditing: boolean
   isActive: boolean
@@ -134,8 +132,6 @@ type SidebarThreadItemProps = {
 const SidebarThreadItem = memo(function SidebarThreadItem({
   thread,
   section,
-  isRunning,
-  isCompletedUnread,
   isMenuOpen,
   isEditing,
   isActive,
@@ -153,6 +149,9 @@ const SidebarThreadItem = memo(function SidebarThreadItem({
   navigate,
   openMenu,
 }: SidebarThreadItemProps) {
+  const { runningThreadIds, completedUnreadThreadIds } = useThreadLiveState()
+  const isRunning = runningThreadIds.has(thread.id)
+  const isCompletedUnread = completedUnreadThreadIds.has(thread.id)
   return (
     <div
       key={`${thread.id}-${section}`}
@@ -259,15 +258,14 @@ export function Sidebar({
 }: Props) {
   const { me, accessToken } = useAuth()
   const {
-    runningThreadIds,
-    completedUnreadThreadIds,
     isPrivateMode,
     pendingIncognitoMode,
     updateTitle: onThreadTitleUpdated,
     upsertThread,
     markCompletionRead,
   } = useThreadList()
-  const { sidebarCollapsed: collapsed, toggleSidebar: onToggleCollapse, rightPanelOpen: narrow } = useSidebarUI()
+  const { runningThreadIds, completedUnreadThreadIds } = useThreadLiveState()
+  const { sidebarCollapsed: collapsed, toggleSidebar: onToggleCollapse } = useSidebarUI()
   const { openSearchOverlay: onOpenSearchOverlay } = useSearchUI()
   const { settingsOpen: suppressActiveThreadHighlight, openSettings: onOpenSettings } = useSettingsUI()
   const { appMode } = useAppModeUI()
@@ -511,8 +509,6 @@ export function Sidebar({
         key={thread.id}
         thread={thread}
         section="regular"
-        isRunning={runningThreadIds.has(thread.id)}
-        isCompletedUnread={completedUnreadThreadIds.has(thread.id)}
         isMenuOpen={menuThreadId === thread.id}
         isEditing={editingThreadId === thread.id}
         isActive={thread.id === activeThreadId}
@@ -531,7 +527,7 @@ export function Sidebar({
         openMenu={openMenu}
       />
     )
-  }, [runningThreadIds, completedUnreadThreadIds, menuThreadId, editingThreadId, activeThreadId, starredSet, draggingThreadId, editingTitle, t.untitled, editInputRef, setEditingTitle, setEditingThreadId, commitRename, markCompletionRead, beforeNavigateToThread, navigate, openMenu])
+  }, [menuThreadId, editingThreadId, activeThreadId, starredSet, draggingThreadId, editingTitle, t.untitled, editInputRef, setEditingTitle, setEditingThreadId, commitRename, markCompletionRead, beforeNavigateToThread, navigate, openMenu])
 
   const renderDropRow = (icon: React.ReactNode, label: string, active: boolean) => (
     <div
@@ -1192,7 +1188,6 @@ export function Sidebar({
     recordPerfValue('sidebar_render_count', 1, 'count', {
       collapsed,
       desktopMode: !!desktopMode,
-      narrow: !!narrow,
       isPrivateMode: isPrivateModeEffective,
       threadCount: threads.length,
       starredCount: starredIds.length,
@@ -1493,8 +1488,7 @@ export function Sidebar({
       <aside
       ref={asideRef}
       className={[
-        'theme-surface-sidebar flex h-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
-        collapsed ? 'w-[48px]' : narrow ? 'w-[224px]' : desktopMode ? 'w-[284px]' : 'w-[304px]',
+        'theme-surface-sidebar flex h-full w-full shrink-0 flex-col overflow-hidden bg-[var(--c-bg-sidebar)]',
       ].join(' ')}
       style={{
         transition: 'width 280ms cubic-bezier(0.16,1,0.3,1)',
@@ -1561,68 +1555,68 @@ export function Sidebar({
         )
       )}
 
-      {/* Nav buttons — always rendered, text clips when sidebar narrows */}
-      <nav className="flex flex-col items-start gap-px pl-[8px] pr-[7px] pt-1">
-        <button
-          onClick={onNewThread}
-          aria-label={newThreadNavLabel}
-          className={navButtonClass}
-          style={navButtonStyle}
-        >
-          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
-            <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          </span>
-          <span className={navLabelClass}>{newThreadNavLabel}</span>
-        </button>
+      {!(collapsed && isWorkMode) && (
+        <nav className="flex flex-col items-start gap-px pl-[8px] pr-[7px] pt-1">
+          <button
+            onClick={onNewThread}
+            aria-label={newThreadNavLabel}
+            className={navButtonClass}
+            style={navButtonStyle}
+          >
+            <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+              <SquarePen size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+            </span>
+            <span className={navLabelClass}>{newThreadNavLabel}</span>
+          </button>
 
-        <button
-          onClick={() => {
-            endPerfTrace(searchPointerTraceRef.current, {
-              phase: 'click',
-              collapsed,
-              threadCount: threads.length,
-              appMode: appMode ?? 'chat',
-              pathname: location.pathname,
-            })
-            searchPointerTraceRef.current = null
-            recordSearchOpenStart()
-            onOpenSearchOverlay()
-          }}
-          onPointerDown={() => {
-            searchPointerTraceRef.current = beginPerfTrace('sidebar_search_interaction', {
-              phase: 'pointerdown',
-              collapsed,
-              threadCount: threads.length,
-              appMode: appMode ?? 'chat',
-              pathname: location.pathname,
-            })
-          }}
-          onPointerLeave={() => {
-            searchPointerTraceRef.current = null
-          }}
-          aria-label={searchNavLabel}
-          className={navButtonClass}
-          style={navButtonStyle}
-        >
-          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
-            <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          </span>
-          <span className={navLabelClass}>{searchNavLabel}</span>
-        </button>
+          <button
+            onClick={() => {
+              endPerfTrace(searchPointerTraceRef.current, {
+                phase: 'click',
+                collapsed,
+                threadCount: threads.length,
+                appMode: appMode ?? 'chat',
+                pathname: location.pathname,
+              })
+              searchPointerTraceRef.current = null
+              recordSearchOpenStart()
+              onOpenSearchOverlay()
+            }}
+            onPointerDown={() => {
+              searchPointerTraceRef.current = beginPerfTrace('sidebar_search_interaction', {
+                phase: 'pointerdown',
+                collapsed,
+                threadCount: threads.length,
+                appMode: appMode ?? 'chat',
+                pathname: location.pathname,
+              })
+            }}
+            onPointerLeave={() => {
+              searchPointerTraceRef.current = null
+            }}
+            aria-label={searchNavLabel}
+            className={navButtonClass}
+            style={navButtonStyle}
+          >
+            <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+              <Search size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+            </span>
+            <span className={navLabelClass}>{searchNavLabel}</span>
+          </button>
 
-        <button
-          onClick={() => navigate('/scheduled-jobs')}
-          aria-label={t.scheduledJobs}
-          className={navButtonClass}
-          style={navButtonStyle}
-        >
-          <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
-            <Clock size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
-          </span>
-          <span className={navLabelClass}>{t.scheduledJobs}</span>
-        </button>
-
-      </nav>
+          <button
+            onClick={() => navigate('/scheduled-jobs')}
+            aria-label={t.scheduledJobs}
+            className={navButtonClass}
+            style={navButtonStyle}
+          >
+            <span className="flex h-[16px] w-[16px] shrink-0 items-center justify-center">
+              <Clock size={16} className="shrink-0 transition-transform duration-100 group-hover:scale-[1.05]" />
+            </span>
+            <span className={navLabelClass}>{t.scheduledJobs}</span>
+          </button>
+        </nav>
+      )}
 
       {/* Thread list — hidden when collapsed */}
       <div
@@ -1752,9 +1746,6 @@ export function Sidebar({
             <div className="flex min-w-0 flex-1 flex-col gap-[2px] text-left">
               <div className="truncate text-sm font-medium text-[var(--c-text-secondary)]">
                 {me?.username ?? t.loading}
-              </div>
-              <div className="text-xs font-normal text-[var(--c-text-tertiary)]">
-                {t.enterprisePlan}
               </div>
             </div>
           </button>

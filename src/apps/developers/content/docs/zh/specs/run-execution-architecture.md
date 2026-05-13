@@ -157,7 +157,7 @@ Persona 配置字段：`id`、`executor_type`、`executor_config`、`tool_allowl
 - LLM 只能看到白名单内的工具
 - 每个工具执行有超时控制（`tool_timeout_ms`）
 
-补充：`web_search` / `web_fetch` 是 Tool Group 名（LLM 只会看到 group）。Worker 运行时会解析到具体 Provider（例如 `web_search.tavily`、`web_fetch.jina`），解析优先级为：
+补充：`web_search` / `web_fetch` 是 Tool Group 名（LLM 只会看到 group）。Worker 运行时会解析到具体 Provider（例如 `web_search.exa`、`web_search.tavily`、`web_fetch.jina`）。对于 `web_search` 这类 provider-owned 工具，LLM-facing tool name 仍保持 group 名，JSON schema 和 description 来自当前 active provider。解析优先级为：
 
 1) org scope 激活的 provider（DB `tool_provider_configs.scope='org'`）  
 2) platform scope 激活的 provider（DB `tool_provider_configs.scope='platform'`）  

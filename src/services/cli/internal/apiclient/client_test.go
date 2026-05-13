@@ -2,7 +2,9 @@ package apiclient
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -188,5 +190,62 @@ func TestListAllThreadsRejectsIncompleteCursor(t *testing.T) {
 
 	if _, err := client.ListAllThreads(context.Background()); err == nil {
 		t.Fatal("expected pagination cursor error")
+	}
+}
+
+func TestInstallPluginSendsManifestPath(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/plugins" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["manifest_path"] != "/tmp/plugin.json" {
+			t.Fatalf("unexpected body: %s", raw)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"demo.plugin","version":"1.0.0","display_name":"Demo","source_kind":"manifest","is_active":true}`))
+	})
+
+	got, err := client.InstallPlugin(context.Background(), PluginInstallRequest{ManifestPath: "/tmp/plugin.json"})
+	if err != nil {
+		t.Fatalf("InstallPlugin: %v", err)
+	}
+	if got.ID != "demo.plugin" || got.Version != "1.0.0" {
+		t.Fatalf("unexpected plugin: %#v", got)
+	}
+}
+
+func TestSetPluginEnablementRequest(t *testing.T) {
+	client := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/v1/plugins/demo.plugin/enablements" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if body["enabled"] != true || body["workspace_ref"] != "wsref_1" {
+			t.Fatalf("unexpected body: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"plugin_id":"demo.plugin","plugin_version":"1.0.0","workspace_ref":"wsref_1","enabled":true,"settings":{}}`))
+	})
+
+	got, err := client.SetPluginEnablement(context.Background(), "demo.plugin", PluginEnablementRequest{
+		WorkspaceRef: "wsref_1",
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatalf("SetPluginEnablement: %v", err)
+	}
+	if got.PluginID != "demo.plugin" || !got.Enabled {
+		t.Fatalf("unexpected enablement: %#v", got)
 	}
 }

@@ -7,6 +7,7 @@ import { AssistantMessage } from './messagebubble/AssistantMessage'
 import type { ArtifactAction } from './ArtifactIframe'
 import { memo } from 'react'
 import { useTypewriter } from '../hooks/useTypewriter'
+import type { ResourceRef } from './resource-preview/types'
 
 type Props = {
   message: AgentMessage
@@ -24,9 +25,11 @@ type Props = {
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
+  workFolder?: string | null
   onWidgetAction?: (action: ArtifactAction) => void
   onShowSources?: () => void
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onViewRunDetail?: () => void
   contentPrefix?: string
   contentOverride?: string
@@ -36,7 +39,7 @@ type Props = {
   suppressActionBar?: boolean
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, onWidgetAction, onShowSources, onOpenDocument, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, workFolder, onWidgetAction, onShowSources, onOpenDocument, onOpenResource, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
@@ -63,9 +66,11 @@ export const MessageBubble = memo(function MessageBubble({ message, streamAssist
       browserActions={browserActions}
       widgets={widgets}
       accessToken={accessToken}
+      workFolder={workFolder}
       onWidgetAction={onWidgetAction}
       onShowSources={onShowSources}
       onOpenDocument={onOpenDocument}
+      onOpenResource={onOpenResource}
       onViewRunDetail={onViewRunDetail}
       contentPrefix={contentPrefix}
       contentOverride={contentOverride}

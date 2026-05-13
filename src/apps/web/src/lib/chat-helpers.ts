@@ -161,6 +161,7 @@ function finalizeBlockSteps(steps: WebSearchPhaseStep[]): MessageSearchStepRef[]
     id: step.id,
     kind: step.kind,
     label: step.label,
+    text: step.text,
     status: 'done',
     queries: step.queries ? [...step.queries] : undefined,
     resultSeq: step.resultSeq,

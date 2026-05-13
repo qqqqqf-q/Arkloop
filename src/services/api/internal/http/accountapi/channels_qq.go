@@ -78,6 +78,8 @@ func qqUserAllowed(cfg qqChannelConfig, userID, groupID string) bool {
 // --- incoming message ---
 
 type qqIncomingMessage struct {
+	ChannelID      uuid.UUID
+	ChannelType    string
 	PlatformChatID string
 	PlatformMsgID  string
 	PlatformUserID string
@@ -96,12 +98,36 @@ func (m qqIncomingMessage) IsPrivate() bool {
 	return m.ChatType == "private"
 }
 
-func (m qqIncomingMessage) ShouldCreateRun() bool {
-	return m.IsPrivate() || m.MentionsBot || m.IsReplyToBot || m.MatchesKeyword
-}
-
 func (m qqIncomingMessage) HasContent() bool {
 	return m.Text != "" || len(m.ImageURLs) > 0
+}
+
+func (m qqIncomingMessage) inboundMessage() InboundMessage {
+	attachments := make([]InboundAttachment, 0, len(m.ImageURLs))
+	for _, url := range m.ImageURLs {
+		if strings.TrimSpace(url) == "" {
+			continue
+		}
+		attachments = append(attachments, InboundAttachment{Type: "image", URL: strings.TrimSpace(url)})
+	}
+	return InboundMessage{
+		ChannelID:        m.ChannelID,
+		ChannelType:      m.ChannelType,
+		PlatformChatID:   m.PlatformChatID,
+		PlatformMsgID:    m.PlatformMsgID,
+		PlatformUserID:   m.PlatformUserID,
+		ConversationType: m.ChatType,
+		ChatType:         m.ChatType,
+		Text:             m.Text,
+		CommandText:      m.Text,
+		MentionsBot:      m.MentionsBot,
+		IsReplyToBot:     m.IsReplyToBot,
+		MatchesKeyword:   m.MatchesKeyword,
+		ReplyToMsgID:     m.ReplyToMsgID,
+		ReplyToPreview:   m.ReplyPreview,
+		MediaAttachments: attachments,
+		ForwardFromName:  m.ForwardFrom,
+	}
 }
 
 // --- connector ---
@@ -181,6 +207,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 
 	// 构建归一化入站消息
 	incoming := qqIncomingMessage{
+		ChannelID:      ch.ID,
+		ChannelType:    ch.ChannelType,
 		PlatformChatID: platformChatID,
 		PlatformMsgID:  event.MessageID.String(),
 		PlatformUserID: userID,
@@ -232,14 +260,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		return nil
 	}
 
-	accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, platformChatID, incoming.PlatformMsgID)
-	if err != nil {
-		return err
-	}
-	if !accepted {
-		return commitTx()
-	}
-
 	displayName := event.SenderDisplayName()
 	if displayName == "" {
 		displayName = userID
@@ -247,6 +267,38 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	identity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, "qq", userID, &displayName, nil, nil)
 	if err != nil {
 		return err
+	}
+
+	if c.channelLedgerRepo != nil {
+		accepted, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
+			ChannelID:               ch.ID,
+			ChannelType:             ch.ChannelType,
+			Direction:               data.ChannelMessageDirectionInbound,
+			PlatformConversationID:  platformChatID,
+			PlatformMessageID:       incoming.PlatformMsgID,
+			PlatformParentMessageID: incoming.ReplyToMsgID,
+			SenderChannelIdentityID: &identity.ID,
+			MetadataJSON: inboundLedgerMetadata(map[string]any{
+				inboundLedgerKeySource:           "qq",
+				inboundLedgerKeyConversationType: chatType,
+				inboundLedgerKeyMentionsBot:      incoming.MentionsBot,
+				inboundLedgerKeyIsReplyToBot:     incoming.IsReplyToBot,
+			}, inboundStateReceived),
+		})
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return commitTx()
+		}
+	} else {
+		accepted, err := c.channelReceiptsRepo.WithTx(tx).Record(ctx, ch.ID, platformChatID, incoming.PlatformMsgID)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return commitTx()
+		}
 	}
 
 	// 群聊 upsert group identity（heartbeat 依赖）
@@ -351,78 +403,51 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	// --- 群聊命令路径 ---
 	if !isPrivate {
 		cmdText := stripLeadingMention(text)
-		if cmd, ok := telegramCommandBase(cmdText, ""); ok {
-			switch {
-			case cmd == "/new":
-				replyText := c.handleQQGroupNew(ctx, tx, ch, cfg, identity, platformChatID)
-				if err := commitTx(); err != nil {
-					return err
-				}
-				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
-				return nil
-
-			case cmd == "/stop":
-				replyText, cancelRunID := c.handleQQGroupStop(ctx, tx, ch, cfg, identity, platformChatID, traceID)
-				if err := commitTx(); err != nil {
-					return err
-				}
-				if cancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-				}
-				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
-				return nil
-
-			case strings.HasPrefix(cmd, "/heartbeat"):
-				groupIdentity, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
-				if err != nil {
-					return err
-				}
-				replyText, err := handleTelegramHeartbeatCommand(
-					ctx, tx,
-					ch.ID, ch.AccountID, ch.PersonaID,
-					cfg.DefaultModel,
-					groupIdentity,
-					cmdText,
-					c.channelIdentitiesRepo,
-					c.personasRepo,
-					nil,
-				)
-				if err != nil {
-					return err
-				}
-				// heartbeat on 时预创建 thread，确保 scheduler 首次 fire 能找到
-				if !strings.Contains(replyText, "已关闭") {
-					threadProjectID := derefUUID(persona.ProjectID)
-					if threadProjectID == uuid.Nil {
-						ownerUserID := uuid.Nil
-						if ch.OwnerUserID != nil {
-							ownerUserID = *ch.OwnerUserID
-						}
-						if ownerUserID != uuid.Nil {
-							if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
-								threadProjectID = pid
-							}
-						}
+		_, replyText, _, cancelRunID, err := DispatchChannelCommand(
+			ctx, tx, ch, *persona, identity,
+			cmdText, false, platformChatID,
+			cfg.DefaultModel, nil,
+			ChannelCommandResolver{
+				ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
+					return c.resolveQQThreadID(ctx, tx, ch, personaID, projectID, identity, false, chatID, "")
+				},
+				ResolveHeartbeatIdentity: func(ctx context.Context, tx pgx.Tx) (*data.ChannelIdentity, error) {
+					gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, platformChatID, nil, nil, nil)
+					if err != nil {
+						return nil, err
 					}
-					if threadProjectID != uuid.Nil {
-						_, _ = c.resolveQQThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, false, platformChatID, "")
-					}
-				}
-				if err := commitTx(); err != nil {
-					return err
-				}
+					return &gi, nil
+				},
+				IsGroupAdmin: func(ctx context.Context) bool {
+					return c.isQQGroupAdmin(ctx, cfg, platformChatID, identity.PlatformSubjectID)
+				},
+			},
+			c.channelIdentitiesRepo, c.channelDMThreadsRepo, c.channelGroupThreadsRepo,
+			c.personasRepo, c.runEventRepo,
+		)
+		if err != nil {
+			return err
+		}
+		if replyText != "" {
+			if err := commitTx(); err != nil {
+				return err
+			}
+			if cancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
+			}
+			if strings.HasPrefix(cmdText, "/heartbeat") {
 				pendingHeartbeatNotify = false
 				if c.bus != nil {
 					_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
 				}
-				c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
-				return nil
 			}
+			c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
+			return nil
 		}
 	}
 
 	// --- Passive persist（群消息无 @/回复 bot） ---
-	if !isPrivate && !incoming.ShouldCreateRun() {
+	if !isPrivate && !incoming.inboundMessage().ShouldCreateRun() {
 		slog.InfoContext(ctx, "qq_inbound_processed",
 			"stage", "passive_persisted",
 			"channel_id", ch.ID,
@@ -437,143 +462,105 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	}
 
 	// --- Active 路径（创建/复用 Run）---
-	if c.channelLedgerRepo != nil {
-		ledgerMeta, _ := json.Marshal(map[string]any{
-			"source":            "qq",
-			"conversation_type": chatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-		})
-		if _, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			PlatformConversationID:  platformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMeta,
-		}); err != nil {
-			return err
-		}
-	}
-
 	projection := buildQQEnvelopeText(identity.ID, displayName, chatType, text, event.Time, incoming)
 
-	threadProjectID := derefUUID(persona.ProjectID)
-	if threadProjectID == uuid.Nil {
-		ownerUserID := uuid.Nil
-		if ch.OwnerUserID != nil {
-			ownerUserID = *ch.OwnerUserID
-		}
-		if ownerUserID == uuid.Nil {
-			if identity.UserID != nil {
-				ownerUserID = *identity.UserID
+	dispatchResult, _, err := DispatchInboundImmediate(ctx, tx, InboundImmediatePipelineRequest{
+		TraceID:      traceID,
+		Channel:      ch,
+		PersonaRef:   personaRef,
+		Identity:     identity,
+		Incoming:     incoming.inboundMessage(),
+		Source:       "qq",
+		SkipDedup:    true,
+		LedgerRepo:   c.channelLedgerRepo,
+		RunEventRepo: c.runEventRepo,
+		JobRepo:      c.jobRepo,
+		ReceivedLedgerMetadata: inboundLedgerMetadata(map[string]any{
+			inboundLedgerKeySource:           "qq",
+			inboundLedgerKeyConversationType: chatType,
+			inboundLedgerKeyMentionsBot:      incoming.MentionsBot,
+			inboundLedgerKeyIsReplyToBot:     incoming.IsReplyToBot,
+		}, inboundStateReceived),
+		ResolveAndPersist: func(ctx context.Context, tx pgx.Tx) (InboundPipelinePersistResult, error) {
+			threadProjectID := derefUUID(persona.ProjectID)
+			if threadProjectID == uuid.Nil {
+				ownerUserID := uuid.Nil
+				if ch.OwnerUserID != nil {
+					ownerUserID = *ch.OwnerUserID
+				}
+				if ownerUserID == uuid.Nil {
+					if identity.UserID != nil {
+						ownerUserID = *identity.UserID
+					}
+				}
+				if ownerUserID != uuid.Nil {
+					if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
+						threadProjectID = pid
+					}
+				}
 			}
-		}
-		if ownerUserID != uuid.Nil {
-			if pid, err := c.personasRepo.GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, ownerUserID); err == nil {
-				threadProjectID = pid
+			if threadProjectID == uuid.Nil {
+				return InboundPipelinePersistResult{}, fmt.Errorf("cannot resolve project for persona %s", persona.ID)
 			}
-		}
-	}
-	if threadProjectID == uuid.Nil {
-		return fmt.Errorf("cannot resolve project for persona %s", persona.ID)
-	}
-	threadID, err := c.resolveQQThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, isPrivate, platformChatID, displayName)
-	if err != nil {
-		return err
-	}
-
-	content, contentJSON, err := c.buildQQContentWithMedia(ctx, cfg, projection, incoming, ch.AccountID, threadID, identity.UserID)
-	if err != nil {
-		return err
-	}
-	_ = content
-	metadataJSON, _ := json.Marshal(map[string]any{
-		"source":              "qq",
-		"channel_identity_id": identity.ID.String(),
-		"display_name":        displayName,
-		"platform_chat_id":    platformChatID,
-		"platform_message_id": incoming.PlatformMsgID,
-		"platform_user_id":    userID,
-		"chat_type":           chatType,
-		"mentions_bot":        incoming.MentionsBot,
-		"is_reply_to_bot":     incoming.IsReplyToBot,
-		"reply_to_message_id": incoming.ReplyToMsgID,
+			threadID, err := c.resolveQQThreadID(ctx, tx, ch, persona.ID, threadProjectID, identity, isPrivate, platformChatID, displayName)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, cfg.DefaultModel); err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			_, contentJSON, err := c.buildQQContentWithMedia(ctx, cfg, projection, incoming, ch.AccountID, threadID, identity.UserID)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			metadataJSON, _ := json.Marshal(map[string]any{
+				"source":              "qq",
+				"channel_identity_id": identity.ID.String(),
+				"display_name":        displayName,
+				"platform_chat_id":    platformChatID,
+				"platform_message_id": incoming.PlatformMsgID,
+				"platform_user_id":    userID,
+				"chat_type":           chatType,
+				"mentions_bot":        incoming.MentionsBot,
+				"is_reply_to_bot":     incoming.IsReplyToBot,
+				"reply_to_message_id": incoming.ReplyToMsgID,
+			})
+			msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(ctx, ch.AccountID, threadID, "user", projection, contentJSON, metadataJSON, identity.UserID)
+			if err != nil {
+				return InboundPipelinePersistResult{}, err
+			}
+			return InboundPipelinePersistResult{
+				ThreadID:            threadID,
+				MessageID:           msg.ID,
+				InputContent:        projection,
+				ThreadTailMessageID: msg.ID.String(),
+			}, nil
+		},
+		DeliverToActiveRun: func(ctx context.Context, repo *data.RunEventRepository, run *data.Run, content string, traceID string) (bool, error) {
+			return c.deliverToActiveRun(ctx, repo, run, content, traceID)
+		},
 	})
-
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
-		ctx, ch.AccountID, threadID, "user", projection, contentJSON, metadataJSON, identity.UserID,
-	); err != nil {
+	if err != nil {
 		return err
 	}
-
-	runRepoTx := c.runEventRepo.WithTx(tx)
-	if err := runRepoTx.LockThreadRow(ctx, threadID); err != nil {
-		return err
-	}
-	if activeRun, err := runRepoTx.GetActiveRootRunForThread(ctx, threadID); err != nil {
-		return err
-	} else if activeRun != nil {
-		delivered, err := c.deliverToActiveRun(ctx, runRepoTx, activeRun, projection, traceID)
-		if err != nil {
+	if dispatchResult.Delivered {
+		if err := commitTx(); err != nil {
 			return err
 		}
-		if delivered {
-			if err := commitTx(); err != nil {
-				return err
-			}
-			slog.InfoContext(ctx, "qq_inbound_processed",
-				"stage", "delivered_to_existing_run",
-				"channel_id", ch.ID, "run_id", activeRun.ID, "thread_id", threadID,
-			)
-			c.notifyInput(ctx, activeRun.ID)
-			return nil
-		}
+		slog.InfoContext(ctx, "qq_inbound_processed",
+			"stage", "delivered_to_existing_run",
+			"channel_id", ch.ID, "run_id", dispatchResult.RunID, "thread_id", dispatchResult.ThreadID,
+		)
+		c.notifyInput(ctx, dispatchResult.RunID)
+		return nil
 	}
-
-	if !channelAgentTriggerConsume(ch.ID) {
+	if dispatchResult.FinalState == inboundStateThrottledNoRun || dispatchResult.FinalState == inboundStatePassivePersisted {
 		return commitTx()
-	}
-
-	runData := map[string]any{"persona_id": personaRef}
-	if m := strings.TrimSpace(cfg.DefaultModel); m != "" {
-		runData["model"] = m
-	}
-	run, _, err := runRepoTx.CreateRunWithStartedEvent(ctx, ch.AccountID, threadID, channelOwnerUserID(ch), "run.started", runData)
-	if err != nil {
-		return err
-	}
-
-	jobPayload := map[string]any{
-		"source": "qq",
-		"channel_delivery": map[string]any{
-			"channel_id":   ch.ID.String(),
-			"channel_type": "qq",
-			"conversation_ref": map[string]any{
-				"target": platformChatID,
-			},
-			"inbound_message_ref": map[string]any{
-				"message_id": incoming.PlatformMsgID,
-			},
-			"trigger_message_ref": map[string]any{
-				"message_id": incoming.PlatformMsgID,
-			},
-			"platform_chat_id":           platformChatID,
-			"platform_message_id":        incoming.PlatformMsgID,
-			"sender_channel_identity_id": identity.ID.String(),
-			"conversation_type":          chatType,
-			"message_type":               chatType,
-		},
-	}
-	if _, err := c.jobRepo.WithTx(tx).EnqueueRun(ctx, ch.AccountID, run.ID, traceID, data.RunExecuteJobType, jobPayload, nil); err != nil {
-		return err
 	}
 
 	slog.InfoContext(ctx, "qq_inbound_processed",
 		"stage", "new_run_enqueued",
-		"channel_id", ch.ID, "run_id", run.ID, "thread_id", threadID,
+		"channel_id", ch.ID, "run_id", dispatchResult.RunID, "thread_id", dispatchResult.ThreadID,
 	)
 
 	return commitTx()
@@ -604,49 +591,6 @@ func (c *qqConnector) checkReplyToBot(ctx context.Context, cfg qqChannelConfig, 
 }
 
 // --- commands ---
-
-func (c *qqConnector) handleQQGroupNew(
-	ctx context.Context, tx pgx.Tx,
-	ch data.Channel, cfg qqChannelConfig,
-	identity data.ChannelIdentity, platformChatID string,
-) string {
-	if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-		return "当前会话未配置 persona。"
-	}
-	if !c.isQQGroupAdmin(ctx, cfg, platformChatID, identity.PlatformSubjectID) {
-		return "无权限。"
-	}
-	if err := c.channelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, platformChatID, *ch.PersonaID); err != nil {
-		slog.Warn("qq_group_new_failed", "error", err)
-		return "操作失败。"
-	}
-	return "已开启新会话。"
-}
-
-func (c *qqConnector) handleQQGroupStop(
-	ctx context.Context, tx pgx.Tx,
-	ch data.Channel, cfg qqChannelConfig,
-	identity data.ChannelIdentity, platformChatID, traceID string,
-) (string, uuid.UUID) {
-	if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-		return "当前没有运行中的任务。", uuid.Nil
-	}
-	if !c.isQQGroupAdmin(ctx, cfg, platformChatID, identity.PlatformSubjectID) {
-		return "无权限。", uuid.Nil
-	}
-	threadMap, err := c.channelGroupThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, platformChatID, *ch.PersonaID)
-	if err != nil || threadMap == nil {
-		return "当前没有运行中的任务。", uuid.Nil
-	}
-	activeRun, err := c.runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
-	if err != nil || activeRun == nil {
-		return "当前没有运行中的任务。", uuid.Nil
-	}
-	if _, err := c.runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, traceID, 0, nil); err != nil {
-		return "操作失败。", uuid.Nil
-	}
-	return "已请求停止当前任务。", activeRun.ID
-}
 
 // isQQGroupAdmin 通过 OneBot API 校验群管理员权限
 func (c *qqConnector) isQQGroupAdmin(ctx context.Context, cfg qqChannelConfig, groupID, userID string) bool {
@@ -696,25 +640,8 @@ func (c *qqConnector) persistQQGroupPassiveMessage(
 	if err != nil {
 		return err
 	}
-
-	if c.channelLedgerRepo != nil {
-		ledgerMeta, _ := json.Marshal(map[string]any{
-			"source":            "qq",
-			"conversation_type": incoming.ChatType,
-			"mentions_bot":      incoming.MentionsBot,
-			"is_reply_to_bot":   incoming.IsReplyToBot,
-			"passive":           true,
-		})
-		if _, err := c.channelLedgerRepo.WithTx(tx).Record(ctx, data.ChannelMessageLedgerRecordInput{
-			ChannelID:               ch.ID,
-			ChannelType:             ch.ChannelType,
-			Direction:               data.ChannelMessageDirectionInbound,
-			PlatformConversationID:  incoming.PlatformChatID,
-			PlatformMessageID:       incoming.PlatformMsgID,
-			PlatformParentMessageID: incoming.ReplyToMsgID,
-			SenderChannelIdentityID: &identity.ID,
-			MetadataJSON:            ledgerMeta,
-		}); err != nil {
+	if cfg, cfgErr := resolveQQChannelConfig(ch.ConfigJSON); cfgErr == nil {
+		if err := ensureInboundThreadDefaultModel(ctx, tx, threadID, cfg.DefaultModel); err != nil {
 			return err
 		}
 	}
@@ -738,10 +665,31 @@ func (c *qqConnector) persistQQGroupPassiveMessage(
 		"passive":             true,
 	})
 
-	if _, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
+	msg, err := c.messageRepo.WithTx(tx).CreateStructuredWithMetadata(
 		ctx, ch.AccountID, threadID, "user", projection, contentJSON, metadataJSON, identity.UserID,
-	); err != nil {
+	)
+	if err != nil {
 		return err
+	}
+	if c.channelLedgerRepo != nil {
+		if _, err := c.channelLedgerRepo.WithTx(tx).UpdateInboundEntry(
+			ctx,
+			ch.ID,
+			incoming.PlatformChatID,
+			incoming.PlatformMsgID,
+			&threadID,
+			nil,
+			&msg.ID,
+			inboundLedgerMetadata(map[string]any{
+				inboundLedgerKeySource:           "qq",
+				inboundLedgerKeyConversationType: incoming.ChatType,
+				inboundLedgerKeyMentionsBot:      incoming.MentionsBot,
+				inboundLedgerKeyIsReplyToBot:     incoming.IsReplyToBot,
+				"passive":           true,
+			}, inboundStatePassivePersisted),
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1049,6 +997,9 @@ func buildQQEnvelopeText(identityID uuid.UUID, displayName, chatType, body strin
 	}
 	if incoming.MentionsBot {
 		lines = append(lines, `mentions-bot: true`)
+	}
+	if incoming.IsReplyToBot {
+		lines = append(lines, `is-reply-to-bot: true`)
 	}
 	if ts != "" {
 		lines = append(lines, fmt.Sprintf(`time: "%s"`, ts))

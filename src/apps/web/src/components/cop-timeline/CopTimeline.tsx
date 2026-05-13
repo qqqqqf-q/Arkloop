@@ -1,17 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { memo, useState, useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
 import type { CodeExecution } from '../CodeExecutionCard'
 import type { SubAgentRef } from '../../storage'
 import { useLocale } from '../../contexts/LocaleContext'
 import type { CopSubSegment, ResolvedPool } from '../../copSubSegment'
-import { aggregateMainTitle } from '../../copSubSegment'
+import { aggregateMainTitle, titleSpansToLocaleText, TOP_LEVEL_TOOL_NAMES } from '../../copSubSegment'
 import { recordPerfCount, recordPerfValue } from '../../perfDebug'
 import {
   COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX,
   COP_TIMELINE_DOT_TOP,
   COP_TIMELINE_DOT_SIZE,
   extractThinkingTitles,
+  RenderTitleSpans,
 } from './utils'
 import {
   useThinkingElapsedSeconds,
@@ -21,10 +22,10 @@ import {
 import { AssistantThinkingMarkdown } from './ThinkingBlock'
 import { CopTimelineSegment } from './CopTimelineSegment'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
+import { localizeTimelineLabel, localizeTimelineTitleSpan } from './labels'
+import { markerForCategory } from './markers'
 
 export type { WebSearchPhaseStep } from './types'
-
-const TOP_LEVEL_TOOL_NAMES = new Set(['python_execute', 'exec_command', 'continue_process', 'terminate_process', 'todo_write'])
 
 function isTopLevelOnlySegment(segment: CopSubSegment): boolean {
   const calls = segment.items.filter((item): item is Extract<CopSubSegment['items'][number], { kind: 'call' }> => item.kind === 'call')
@@ -35,7 +36,7 @@ function isSingleImageToolSegment(segment: CopSubSegment): boolean {
   return segment.category === 'image' && segment.items.length === 1 && segment.items[0]?.kind === 'call'
 }
 
-export function CopTimeline({
+export const CopTimeline = memo(function CopTimeline({
   segments,
   pool,
   thinkingOnly,
@@ -68,7 +69,7 @@ export function CopTimeline({
   baseUrl?: string
   typography?: 'default' | 'work'
 }) {
-  const { t } = useLocale()
+  const { t, locale } = useLocale()
   const reduceMotion = useReducedMotion()
   const timelineSegments = segments.filter((s) => !isTopLevelOnlySegment(s))
   const segmentDotTop = (segment: CopSubSegment) => isSingleImageToolSegment(segment) ? COP_TIMELINE_DOT_TOP : 8
@@ -81,34 +82,22 @@ export function CopTimeline({
   const anyThinkingLive = thinkingLive
   const timelineIsLive = !!live || anyThinkingLive
   const bodyHasContent = hasSegments || hasThinkingOnly
-  const [collapsed, setCollapsed] = useState(() => {
-    if (timelineIsLive && !isComplete) return hasThinkingOnly
-    if (hasThinkingOnly && !isComplete) return false
-    if (hasThinkingOnly && isComplete) return true
-    return true
-  })
-  const [userToggled, setUserToggled] = useState(false)
-  const prevLive = useRef(timelineIsLive)
+  const [collapsed, setCollapsed] = useState(true)
+  const userToggledRef = useRef(false)
 
-  // Auto-collapse when live ends
   useEffect(() => {
-    if (userToggled) return
-    if (prevLive.current && !timelineIsLive && isComplete) {
-      setCollapsed(true)
-    }
-    prevLive.current = timelineIsLive
-  }, [timelineIsLive, isComplete, userToggled])
-
-  // Auto-expand when new segment appears (live mode)
-  useEffect(() => {
-    if (userToggled) return
+    if (userToggledRef.current) return
     if (timelineIsLive && !isComplete) {
       setCollapsed(hasThinkingOnly)
-    }
-    if (hasThinkingOnly && isComplete) {
+    } else if (!timelineIsLive && isComplete) {
       setCollapsed(true)
     }
-  }, [hasThinkingOnly, isComplete, timelineIsLive, userToggled])
+  }, [timelineIsLive, isComplete, hasThinkingOnly])
+
+  const toggleBody = () => {
+    userToggledRef.current = true
+    setCollapsed((v) => !v)
+  }
 
   const aggregatedDurationSec = thinkingOnly?.durationSec ?? 0
   const segmentThinkingStartedAtMs = thinkingOnly?.startedAtMs
@@ -153,19 +142,20 @@ export function CopTimeline({
             ? 'complete'
             : 'idle'
 
+  const timelineCompleteForTitle = isComplete || (!!live && !timelineLive)
+  const aggregatedSpans = hasSegments ? aggregateMainTitle(timelineSegments, timelineLive, timelineCompleteForTitle) : []
   const headerLabel = headerOverride ?? (() => {
     if (anyThinkingLive || (anyThinking && live)) return thinkingLiveHeaderLabel
     if (anyThinking && isComplete && !hasSegments) return thoughtDurationLabel
     if (pendingShowThinkingHeader) return pendingThinkingHeaderLabel ?? ''
     if (hasSegments) {
-      const timelineComplete = isComplete || (!!live && !timelineLive)
-      const aggregated = aggregateMainTitle(timelineSegments, timelineLive, timelineComplete)
-      if (aggregated) return aggregated
+      if (aggregatedSpans.length > 0) return titleSpansToLocaleText(aggregatedSpans, locale)
     }
     if (anyThinking) return thoughtDurationLabel
     if (isComplete) return 'Completed'
     return thinkingHint ? `${thinkingHint}...` : 'Working...'
   })()
+  const localizedHeaderLabel = localizeTimelineLabel(headerLabel, locale)
 
   const seededStatusAnimation =
     timelineLive || !!shimmer || headerPhaseKey === 'thinking-pending' || headerPhaseKey === 'thinking-live'
@@ -191,11 +181,6 @@ export function CopTimeline({
   }, [collapsed, hasThinkingOnly, live, timelineSegments.length])
 
   if (!shouldRender) return null
-
-  const toggleBody = () => {
-    setUserToggled(true)
-    setCollapsed((v) => !v)
-  }
 
   return (
     <div className={`cop-timeline-root${typography === 'work' ? ' cop-timeline-root--work' : ''}`} style={typography !== 'work' ? { maxWidth: '663px' } : undefined}>
@@ -224,13 +209,21 @@ export function CopTimeline({
               alignSelf: 'stretch',
             }}
           >
-            <CopTimelineHeaderLabel
-              text={headerLabel}
-              phaseKey={headerPhaseKey}
-              shimmer={!!shimmer}
-              incremental={headerUsesIncrementalTypewriter}
-              animationSeedText={headerAnimationSeedText}
-            />
+            {isComplete && aggregatedSpans.length > 0 && !anyThinking && !headerOverride ? (
+              <span data-phase="complete">
+                <RenderTitleSpans
+                  spans={aggregatedSpans.map(s => localizeTimelineTitleSpan(s, locale))}
+                />
+              </span>
+            ) : (
+              <CopTimelineHeaderLabel
+                text={localizedHeaderLabel}
+                phaseKey={headerPhaseKey}
+                shimmer={!!shimmer}
+                incremental={headerUsesIncrementalTypewriter}
+                animationSeedText={headerAnimationSeedText}
+              />
+            )}
             {(isComplete || live) && bodyHasContent && (
               <motion.div
                 animate={{ rotate: collapsed ? 0 : 90 }}
@@ -269,7 +262,7 @@ export function CopTimeline({
                         multiItems={multiItems}
                         dotColor={thinkingOnly.live && !isComplete ? 'var(--c-text-secondary)' : 'var(--c-border-mid)'}
                         dotTop={COP_TIMELINE_DOT_TOP}
-                        paddingBottom={8}
+                        paddingBottom={10}
                         horizontalMotion={false}
                       >
                         <div
@@ -343,8 +336,9 @@ export function CopTimeline({
                     multiItems={timelineSegments.length >= 2}
                     dotColor={segDotColor}
                     dotTop={segmentDotTop(seg)}
-                    paddingBottom={7}
+                    paddingBottom={10}
                     horizontalMotion={false}
+                    marker={markerForCategory(seg.category)}
                   >
                     <CopTimelineSegment
                       segment={seg}
@@ -370,4 +364,4 @@ export function CopTimeline({
       )}
     </div>
   )
-}
+})

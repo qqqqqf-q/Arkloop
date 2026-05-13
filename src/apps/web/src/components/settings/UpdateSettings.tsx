@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopApi, getDesktopAppVersion, type UpdaterComponent, type AppUpdaterState } from '@arkloop/shared/desktop'
-import { SettingsSectionHeader } from './_SettingsSectionHeader'
 
 type ComponentStatus = {
   current: string | null
@@ -65,6 +64,105 @@ type UpdatingState = {
   phase: 'connecting' | 'downloading' | 'verifying' | 'done' | 'error'
   percent: number
   error?: string
+}
+
+function UpdateSection({
+  title,
+  action,
+  children,
+}: {
+  title: string
+  action?: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <section className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-3 pl-2.5">
+        <h3 className="text-[13px] font-normal text-[var(--c-text-secondary)]">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function UpdateCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-[var(--c-border-subtle)] bg-[var(--c-bg-menu)]">
+      {children}
+    </div>
+  )
+}
+
+function UpdateRow({
+  title,
+  description,
+  value,
+  control,
+}: {
+  title: string
+  description?: ReactNode
+  value?: ReactNode
+  control?: ReactNode
+}) {
+  const hasRight = value !== undefined || control !== undefined
+
+  return (
+    <div
+      className={[
+        'relative grid items-center gap-3 px-5 py-4 sm:gap-6',
+        hasRight ? 'sm:grid-cols-[minmax(0,1fr)_auto]' : '',
+        "[&+&]:before:absolute [&+&]:before:left-5 [&+&]:before:right-5 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-[var(--c-border-subtle)] [&+&]:before:content-['']",
+      ].join(' ')}
+    >
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-[var(--c-text-primary)]">{title}</div>
+        {description && (
+          <div className="mt-1 text-xs leading-5 text-[var(--c-text-tertiary)]">{description}</div>
+        )}
+      </div>
+      {hasRight && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+          {value}
+          {control}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VersionValue({
+  current,
+  latest,
+  missingText,
+}: {
+  current?: string | null
+  latest?: string | null
+  missingText?: string
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-[var(--c-text-secondary)]">
+      {current ? (
+        <span>{current}</span>
+      ) : missingText ? (
+        <span className="text-[var(--c-text-muted)]">{missingText}</span>
+      ) : null}
+      {latest && latest !== current && (
+        <>
+          <span className="text-[var(--c-text-muted)]">→</span>
+          <span
+            className="rounded-full px-1.5 py-0.5 text-xs font-medium"
+            style={{
+              background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))',
+              color: 'var(--c-accent)',
+            }}
+          >
+            {latest}
+          </span>
+        </>
+      )}
+    </div>
+  )
 }
 
 function isAppUpdaterBusy(state: AppUpdaterState | null) {
@@ -271,135 +369,82 @@ export function UpdateSettingsContent() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <SettingsSectionHeader title={t.nav.updates} />
-        <Button
-          onClick={checkUpdates}
-          disabled={checking || isAppUpdaterBusy(appUpdateState)}
-          variant="outline"
-          size="sm"
-          loading={checking}
-        >
-          {!checking && <RefreshCw size={14} />}
-          <span>{t.desktopSettings.checkForUpdates}</span>
-        </Button>
-      </div>
-
-      {checkError && (
-        <p className="text-sm" style={{ color: 'var(--c-status-error)' }}>{checkError}</p>
-      )}
-
-      <div
-        className="flex flex-col gap-3 rounded-xl px-4 py-4"
-        style={{ border: '1px solid var(--c-border-subtle)' }}
-      >
-        <SettingsSectionHeader title={t.desktopSettings.appUpdateTitle} />
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="w-32 shrink-0 text-sm font-medium text-[var(--c-text-heading)]">
-            {t.desktopSettings.appUpdateVersion}
-          </span>
-          <div className="flex min-w-[12rem] flex-1 items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-            {appUpdateState?.currentVersion && <span>{appUpdateState.currentVersion}</span>}
-            {appUpdateState?.latestVersion && appUpdateState.latestVersion !== appUpdateState.currentVersion && (
+      <UpdateSection title={t.desktopSettings.appUpdateTitle}>
+        <UpdateCard>
+          <UpdateRow
+            title={t.desktopSettings.appUpdateVersion}
+            description={(checkError || (appStateText && !appBusy)) ? (
+              <span className={(checkError || appUpdateState?.phase === 'error') ? 'text-[var(--c-status-error)]' : undefined}>
+                {checkError ?? appStateText}
+              </span>
+            ) : undefined}
+            value={(
+              <VersionValue
+                current={appUpdateState?.currentVersion}
+                latest={appUpdateState?.latestVersion}
+              />
+            )}
+            control={(
               <>
-                <span style={{ color: 'var(--c-text-muted)' }}>→</span>
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-xs font-medium"
-                  style={{
-                    background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))',
-                    color: 'var(--c-accent)',
-                  }}
+                {appBusy && !checking ? (
+                  <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
+                    <SpinnerIcon />
+                    <span>{appStateText}</span>
+                  </div>
+                ) : appUpdateState?.phase === 'available' ? (
+                  <Button
+                    onClick={handleDownloadApp}
+                    variant="primary"
+                    size="sm"
+                  >
+                    {t.desktopSettings.appUpdateDownload}
+                  </Button>
+                ) : appUpdateState?.phase === 'downloaded' ? (
+                  <Button
+                    onClick={handleInstallApp}
+                    variant="primary"
+                    size="sm"
+                  >
+                    {t.desktopSettings.appUpdateInstall}
+                  </Button>
+                ) : null}
+                <Button
+                  onClick={checkUpdates}
+                  disabled={appBusy}
+                  variant="outline"
+                  size="sm"
+                  loading={checking}
                 >
-                  {appUpdateState.latestVersion}
-                </span>
+                  {!checking && <RefreshCw size={14} />}
+                  <span>{t.desktopSettings.checkForUpdates}</span>
+                </Button>
               </>
             )}
-            {appStateText && !appBusy && (
-              <span
-                className="text-sm"
-                style={{ color: appUpdateState?.phase === 'error' ? 'var(--c-status-error)' : 'var(--c-text-secondary)' }}
-              >
-                {appStateText}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {appBusy ? (
-              <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-                <SpinnerIcon />
-                <span>{appStateText}</span>
-              </div>
-            ) : appUpdateState?.phase === 'available' ? (
-              <Button
-                onClick={handleDownloadApp}
-                variant="primary"
-                size="sm"
-              >
-                {t.desktopSettings.appUpdateDownload}
-              </Button>
-            ) : appUpdateState?.phase === 'downloaded' ? (
-              <Button
-                onClick={handleInstallApp}
-                variant="primary"
-                size="sm"
-              >
-                {t.desktopSettings.appUpdateInstall}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </div>
+          />
+        </UpdateCard>
+      </UpdateSection>
 
       {updateStatus && (
-        <div
-          className="flex flex-col overflow-hidden rounded-xl"
-          style={{ border: '1px solid var(--c-border-subtle)' }}
-        >
-          <div className="px-4 py-3">
-            <SettingsSectionHeader title={t.desktopSettings.componentUpdateTitle} />
-          </div>
-          {rows.map((row) => {
-            const updating = updatingMap[row.key]
-            const isUpdating = !!updating
-            return (
-              <div
-                key={row.key}
-                className="flex items-center gap-3 px-4 py-3"
-                style={{
-                  borderTop: '1px solid var(--c-border-subtle)',
-                }}
-              >
-                <span className="w-32 shrink-0 text-sm font-medium text-[var(--c-text-heading)]">
-                  {row.label}
-                </span>
-
-                <div className="flex flex-1 items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-                  {row.status.current ? (
-                    <span>{row.status.current}</span>
-                  ) : (
-                    <span style={{ color: 'var(--c-text-muted)' }}>{t.desktopSettings.componentNotInstalled}</span>
+        <UpdateSection title={t.desktopSettings.componentUpdateTitle}>
+          <UpdateCard>
+            {rows.map((row) => {
+              const updating = updatingMap[row.key]
+              const isUpdating = !!updating
+              return (
+                <UpdateRow
+                  key={row.key}
+                  title={row.label}
+                  value={(
+                    <VersionValue
+                      current={row.status.current}
+                      latest={row.status.available ? row.status.latest : null}
+                      missingText={t.desktopSettings.componentNotInstalled}
+                    />
                   )}
-                  {row.status.available && row.status.latest && (
-                    <>
-                      <span style={{ color: 'var(--c-text-muted)' }}>→</span>
-                      <span
-                        className="rounded-full px-1.5 py-0.5 text-xs font-medium"
-                        style={{
-                          background: 'var(--c-accent-subtle, color-mix(in srgb, var(--c-accent) 15%, transparent))',
-                          color: 'var(--c-accent)',
-                        }}
-                      >
-                        {row.status.latest}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {isUpdating ? (
+                  control={isUpdating ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
                       {updating.phase === 'error' ? (
-                        <span style={{ color: 'var(--c-status-error)' }}>
+                        <span className="text-[var(--c-status-error)]">
                           {updating.error ?? 'error'}
                         </span>
                       ) : (
@@ -417,14 +462,13 @@ export function UpdateSettingsContent() {
                     >
                       {t.skills.update}
                     </Button>
-                  ) : null}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                  ) : undefined}
+                />
+              )
+            })}
+          </UpdateCard>
+        </UpdateSection>
       )}
-
     </div>
   )
 }

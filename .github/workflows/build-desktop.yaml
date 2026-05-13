@@ -10,11 +10,6 @@ on:
         description: "Version override (e.g. 0.2.0)"
         required: false
         type: string
-      release_label:
-        description: "Release label (e.g. Early Access, Beta)"
-        required: false
-        type: string
-        default: "Early Access"
 
 permissions:
   contents: read
@@ -153,7 +148,7 @@ jobs:
             VERSION="$(node -p "require('./src/apps/desktop/package.json').version")"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "label=${{ inputs.release_label || 'Early Access' }}" >> "$GITHUB_OUTPUT"
+          echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -180,10 +175,8 @@ jobs:
       - name: Build web app
         run: pnpm --filter @arkloop/desktop build:web
 
-      - name: Generate release meta
-        run: |
-          mkdir -p src/apps/desktop/dist
-          echo '{"releaseLabel":"${{ steps.release_meta.outputs.label }}"}' > src/apps/desktop/dist/release-meta.json
+      - name: Clear release meta
+        run: rm -f src/apps/desktop/dist/release-meta.json
 
       - name: Build Electron TypeScript
         run: pnpm --filter @arkloop/desktop build:electron
@@ -310,6 +303,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -327,7 +322,7 @@ jobs:
             VERSION="$(node -p "require('./src/apps/desktop/package.json').version")"
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "label=${{ inputs.release_label || 'Early Access' }}" >> "$GITHUB_OUTPUT"
+          echo "name=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Download all installer artifacts
         uses: actions/download-artifact@v4
@@ -520,18 +515,17 @@ jobs:
               raise SystemExit('latest-mac.yml missing x64 zip entry')
           PY
 
-      - name: Write release notes
+      - name: Install Cursor CLI
         run: |
-          cat > release-notes.md <<'EOF'
-          ## 下载
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
 
-          - Windows：下载 `Arkloop-win-x64.exe`
-          - macOS Apple Silicon：下载 `Arkloop-mac-arm64.dmg`
-          - macOS Intel：下载 `Arkloop-mac-x64.dmg`
-          - Linux x64：下载 `Arkloop-linux-amd64.deb`、`Arkloop-linux-x86_64.rpm`、`Arkloop-linux-x86_64.AppImage` 或 `arkloop-bin-*.pkg.tar.zst`
-
-          ## 说明
-          EOF
+      - name: Write release notes
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          RELEASE_VERSION: ${{ steps.release_meta.outputs.version }}
+          CURSOR_MODEL: composer-2
+        run: node .github/scripts/write-release-notes.mjs
 
       - name: Generate desktop manifest
         env:
@@ -540,7 +534,6 @@ jobs:
           ARKLOOP_RELEASE_DIR: release-files
           ARKLOOP_OPENVIKING_IMAGE: ghcr.io/volcengine/openviking:v0.3.3
           ARKLOOP_OPENVIKING_VERSION: v0.3.3
-          ARKLOOP_RELEASE_LABEL: ${{ steps.release_meta.outputs.label }}
         run: node src/apps/desktop/scripts/generate-desktop-manifest.mjs
 
       - name: Validate desktop manifest
@@ -586,9 +579,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "v${{ steps.release_meta.outputs.version }} ${{ steps.release_meta.outputs.label }}"
+          name: ${{ steps.release_meta.outputs.name }}
           body_path: release-notes.md
-          generate_release_notes: true
           files: release-files/*
 
       - name: Dispatch package update workflows

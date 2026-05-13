@@ -241,8 +241,7 @@ func createMCPConfig(
 		return
 	}
 
-	// 主动失效 Worker 侧 MCP 发现缓存
-	_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.AccountID.String())
+	notifyMCPChanged(r.Context(), pool, actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toMCPConfigResponse(cfg))
 }
@@ -384,8 +383,7 @@ func patchMCPConfig(
 		return
 	}
 
-	// 主动失效 Worker 侧 MCP 发现缓存
-	_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.AccountID.String())
+	notifyMCPChanged(r.Context(), pool, actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toMCPConfigResponse(*updated))
 }
@@ -432,10 +430,7 @@ func deleteMCPConfig(
 		return
 	}
 
-	// 主动失效 Worker 侧 MCP 发现缓存
-	if pool != nil {
-		_, _ = pool.Exec(r.Context(), "SELECT pg_notify('mcp_config_changed', $1)", actor.AccountID.String())
-	}
+	notifyMCPChanged(r.Context(), pool, actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }

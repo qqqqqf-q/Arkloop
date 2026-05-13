@@ -2,7 +2,7 @@ package exit_plan_mode
 
 import (
 	"context"
-	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,12 +49,12 @@ func (executor) Execute(
 
 	planPath := binding.PlanFilePathValue()
 	if planPath == "" {
-		planPath = fmt.Sprintf("plans/%s.md", execCtx.ThreadID.String())
+		return errResult("plan file has not been created yet", started)
 	}
 	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
 	planBytes, err := backend.ReadFile(ctx, planPath)
 	if err != nil {
-		return errResult("plan file is required before exiting plan mode", started)
+		return errResult("plan file is required before marking the plan ready", started)
 	}
 	planText := strings.TrimSpace(string(planBytes))
 	if planText == "" {
@@ -75,7 +75,9 @@ func (executor) Execute(
 		ResultJSON: map[string]any{
 			"status":         "plan_mode_exited",
 			"plan_file_path": planPath,
+			"filename":       filepath.Base(planPath),
 			"plan":           planText,
+			"next_action":    "Plan Mode has ended. Continue in this same run by executing the approved plan with normal tools; do not stop after this tool call.",
 		},
 		DurationMs: int(time.Since(started).Milliseconds()),
 		Events:     []events.RunEvent{event},

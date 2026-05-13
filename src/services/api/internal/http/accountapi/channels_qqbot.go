@@ -437,6 +437,49 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 		return err
 	}
 
+	// 处理需要 persona 和 threadID 的命令（/model、/think、/heartbeat、/new、/stop）
+	cmdText := text
+	var cancelRunID uuid.UUID
+	_, replyText, _, cancelRunID, err = DispatchChannelCommand(
+		ctx, tx, ch, *persona, identity,
+		cmdText, conversationType == "private", platformChatID,
+		cfg.DefaultModel, nil,
+		ChannelCommandResolver{
+			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
+				return c.resolveThreadID(ctx, tx, ch, personaID, projectID, identity, isPrivate, chatID, displayName)
+			},
+			ResolveHeartbeatIdentity: func(ctx context.Context, tx pgx.Tx) (*data.ChannelIdentity, error) {
+				if conversationType == "group" {
+					gi, err := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, "qqbot", platformChatID, nil, nil, nil)
+					if err != nil {
+						return nil, err
+					}
+					return &gi, nil
+				}
+				return nil, nil
+			},
+		},
+		c.channelIdentitiesRepo, c.channelDMThreadsRepo, c.channelGroupThreadsRepo,
+		c.personasRepo, c.runEventRepo,
+	)
+	if err != nil {
+		return err
+	}
+	if replyText != "" {
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		if cancelRunID != uuid.Nil {
+			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
+		}
+		replyScope := qqbotclient.ScopeC2C
+		if conversationType == "group" {
+			replyScope = qqbotclient.ScopeGroup
+		}
+		c.sendTextReply(ctx, replyScope, platformChatID, replyText, messageID)
+		return nil
+	}
+
 	projection := buildQQBotEnvelopeText(identity.ID, displayName, conversationType, text, msg.Timestamp, senderID, messageID)
 	contentJSON, err := messagecontent.FromText(projection).JSON()
 	if err != nil {

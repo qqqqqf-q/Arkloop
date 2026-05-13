@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/api/internal/auth"
@@ -101,6 +102,7 @@ type memoryRuntimeStatus struct {
 
 var impressionRebuildWaitTimeout = 90 * time.Second
 var impressionRebuildPollInterval = 300 * time.Millisecond
+var impressionRebuildCreateMu sync.Mutex
 
 type impressionState struct {
 	impression string
@@ -1273,6 +1275,39 @@ func getRunStatus(ctx context.Context, pool data.Querier, runID uuid.UUID) (stri
 	return strings.TrimSpace(status), nil
 }
 
+func findActiveImpressionRun(ctx context.Context, pool data.Querier, accountID, userID string) (uuid.UUID, bool, error) {
+	var runIDText string
+	err := pool.QueryRow(ctx, `
+		SELECT r.id
+		FROM runs r
+		WHERE r.account_id = $1
+		  AND r.created_by_user_id = $2
+		  AND r.status NOT IN ('completed', 'failed', 'interrupted', 'cancelled')
+		  AND EXISTS (
+		    SELECT 1
+		    FROM run_events e
+		    WHERE e.run_id = r.id
+		      AND e.seq = 1
+		      AND e.type = 'run.started'
+		      AND json_extract(e.data_json, '$.run_kind') = 'impression'
+		  )
+		ORDER BY r.created_at DESC
+		LIMIT 1`,
+		accountID, userID,
+	).Scan(&runIDText)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, false, nil
+		}
+		return uuid.Nil, false, err
+	}
+	runID, err := uuid.Parse(runIDText)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	return runID, true, nil
+}
+
 func isRunTerminalStatus(status string) bool {
 	switch strings.TrimSpace(status) {
 	case "completed", "failed", "interrupted", "cancelled":
@@ -1344,11 +1379,28 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 	}
 
 	ctx := r.Context()
+
+	impressionRebuildCreateMu.Lock()
+	activeRunID, active, err := findActiveImpressionRun(ctx, h.pool, accountIDText, userIDText)
+	if err != nil {
+		impressionRebuildCreateMu.Unlock()
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
+		return
+	}
+	if active {
+		impressionRebuildCreateMu.Unlock()
+		httpkit.WriteError(w, nethttp.StatusConflict, "impression_rebuild_running", "rebuild already running", "", map[string]any{
+			"run_id": activeRunID.String(),
+		})
+		return
+	}
+
 	threadID := uuid.New()
 	runID := uuid.New()
 	traceID := uuid.NewString()
 	before, err := getImpressionState(ctx, h.pool, accountIDText, userIDText, agentID)
 	if err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
@@ -1358,6 +1410,7 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		`SELECT id FROM projects WHERE account_id = $1 ORDER BY created_at ASC LIMIT 1`,
 		accountIDText,
 	).Scan(&projectID); err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
@@ -1368,6 +1421,7 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		`INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
 		threadID, accountIDText, projectID,
 	); err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
@@ -1377,6 +1431,7 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		`INSERT INTO runs (id, account_id, thread_id, status, created_by_user_id) VALUES ($1, $2, $3, 'running', $4)`,
 		runID, accountIDText, threadID, userIDText,
 	); err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
@@ -1384,6 +1439,7 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		`INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', $2)`,
 		runID, string(startedJSON),
 	); err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
@@ -1393,9 +1449,11 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		"run_kind": "impression",
 	}
 	if _, err := enq.EnqueueRun(ctx, accountID, runID, traceID, "run.execute", payload, nil); err != nil {
+		impressionRebuildCreateMu.Unlock()
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
 		return
 	}
+	impressionRebuildCreateMu.Unlock()
 
 	waitCtx, cancel := context.WithTimeout(ctx, impressionRebuildWaitTimeout)
 	defer cancel()

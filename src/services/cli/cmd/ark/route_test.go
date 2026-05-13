@@ -23,6 +23,7 @@ func TestRouteCommand(t *testing.T) {
 		{name: "personas list", args: []string{"personas", "list"}, want: commandPersonasList},
 		{name: "sessions list", args: []string{"sessions", "list"}, want: commandSessionsList},
 		{name: "sessions resume", args: []string{"sessions", "resume", "abc"}, want: commandSessionsChat},
+		{name: "plugin", args: []string{"plugin", "list"}, want: commandPlugin},
 	}
 
 	for _, tt := range tests {
@@ -35,6 +36,47 @@ func TestRouteCommand(t *testing.T) {
 				t.Fatalf("expected %s, got %s", tt.want, got.kind)
 			}
 		})
+	}
+}
+
+func TestPluginInstallRequestClassifiesLocalPath(t *testing.T) {
+	dir := t.TempDir()
+	got, err := pluginInstallRequest(dir)
+	if err != nil {
+		t.Fatalf("pluginInstallRequest: %v", err)
+	}
+	if got.ManifestPath == "" || got.SourceURI != "" || got.SourceKind != "" {
+		t.Fatalf("unexpected request: %#v", got)
+	}
+}
+
+func TestPluginInstallRequestClassifiesRegistrySource(t *testing.T) {
+	got, err := pluginInstallRequest("acme.demo")
+	if err != nil {
+		t.Fatalf("pluginInstallRequest: %v", err)
+	}
+	if got.SourceKind != "registry" || got.SourceURI != "acme.demo" || got.ManifestPath != "" {
+		t.Fatalf("unexpected request: %#v", got)
+	}
+}
+
+func TestPluginInstallRequestClassifiesURLSource(t *testing.T) {
+	got, err := pluginInstallRequest("https://registry.example/plugins/acme.demo")
+	if err != nil {
+		t.Fatalf("pluginInstallRequest: %v", err)
+	}
+	if got.SourceKind != "url" || got.SourceURI != "https://registry.example/plugins/acme.demo" || got.ManifestPath != "" {
+		t.Fatalf("unexpected request: %#v", got)
+	}
+}
+
+func TestParsePluginSettingsUsesJSONValues(t *testing.T) {
+	got, err := parsePluginSettings([]string{"enabled=true", "limit=3", "name=demo"})
+	if err != nil {
+		t.Fatalf("parsePluginSettings: %v", err)
+	}
+	if got["enabled"] != true || got["limit"] != float64(3) || got["name"] != "demo" {
+		t.Fatalf("unexpected settings: %#v", got)
 	}
 }
 

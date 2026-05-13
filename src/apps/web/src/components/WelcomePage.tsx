@@ -5,6 +5,12 @@ import type { LocaleStrings } from '../locales'
 import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { ErrorCallout, type AppError } from './ErrorCallout'
 import { NotificationBell } from './NotificationBell'
+import { RightPanel, type RightPanelTab } from './RightPanel'
+import { rightPanelIconSize } from './rightPanelControls'
+import { LocalFilesPanel } from './local-files/LocalFilesPanel'
+import { ResourcePreviewPanel } from './resource-preview/ResourcePreviewPanel'
+import { BrowserSiteIcon } from './resource-preview/BrowserSiteIcon'
+import type { BrowserResourceRef } from './resource-preview/types'
 import { isDesktop } from '@arkloop/shared/desktop'
 import { DebugTrigger, useTimeZone } from '@arkloop/shared'
 import { buildDraftAttachmentRecords, restoreAttachmentFromDraftRecord } from '../draftAttachments'
@@ -30,11 +36,16 @@ import { useThreadList } from '../contexts/thread-list'
 import {
   useAppModeUI,
   useNotificationsUI,
+  useRightPanelActions,
   useSearchUI,
   useSettingsUI,
   useSkillPromptUI,
+  useTitleBarRightPanelUI,
 } from '../contexts/app-ui'
 import { useCredits } from '../contexts/credits'
+
+const welcomeRightPanelWidth = 520
+const welcomeRightPanelTransitionCss = '220ms cubic-bezier(0.16, 1, 0.3, 1)'
 
 function normalizeError(error: unknown, fallback: string): AppError {
   if (isApiError(error)) {
@@ -155,9 +166,15 @@ export function WelcomePage() {
   const { openNotifications: onOpenNotifications, notificationVersion } = useNotificationsUI()
   const { openSettings: onOpenSettings } = useSettingsUI()
   const { appMode } = useAppModeUI()
+  const { setRightPanelOpen } = useRightPanelActions()
+  const { setTitleBarRightPanelClick } = useTitleBarRightPanelUI()
   const { pendingSkillPrompt, consumeSkillPrompt } = useSkillPromptUI()
   const { refreshCredits } = useCredits()
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
+  const [rightPanelVisible, setRightPanelVisible] = useState(false)
+  const [activeRightPanelTabId, setActiveRightPanelTabId] = useState<string | null>('web')
+  const [webPanelResource, setWebPanelResource] = useState<BrowserResourceRef | null>(null)
+  const [workFolder, setWorkFolder] = useState(() => readWorkFolder())
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [initialPlanMode, setInitialPlanMode] = useState(false)
@@ -169,6 +186,72 @@ export function WelcomePage() {
   const [error, setError] = useState<AppError | null>(null)
   const navigate = useNavigate()
   const { t } = useLocale()
+
+  const hasWorkFilesPanel = appMode === 'work' && !!workFolder?.trim()
+  const isRightPanelOpen = rightPanelVisible
+
+  useEffect(() => {
+    setRightPanelOpen(isRightPanelOpen)
+  }, [isRightPanelOpen, setRightPanelOpen])
+
+  useEffect(() => {
+    setTitleBarRightPanelClick(() => {
+      setRightPanelVisible((visible) => !visible)
+    })
+    return () => setTitleBarRightPanelClick(null)
+  }, [setTitleBarRightPanelClick])
+
+  useEffect(() => {
+    setWorkFolder(readWorkFolder())
+
+    const handleWorkFolderChange = () => {
+      const nextFolder = readWorkFolder()
+      setWorkFolder(nextFolder)
+    }
+    const handleStorageChange = () => {
+      setWorkFolder(readWorkFolder())
+    }
+    window.addEventListener('arkloop:work-folder-changed', handleWorkFolderChange)
+    window.addEventListener('storage', handleStorageChange)
+    return () => {
+      window.removeEventListener('arkloop:work-folder-changed', handleWorkFolderChange)
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [appMode])
+
+  const rightPanelTabs = useMemo<RightPanelTab[]>(() => {
+    const tabs: RightPanelTab[] = [{
+      id: 'web',
+      kind: 'web',
+      title: webPanelResource?.title ?? t.rightPanel.browser,
+      closable: false,
+      hideTitle: !webPanelResource,
+      icon: <BrowserSiteIcon url={webPanelResource?.url} faviconUrl={webPanelResource?.faviconUrl} size={rightPanelIconSize} />,
+      content: (
+        <ResourcePreviewPanel
+          resource={webPanelResource ?? { kind: 'browser', url: '', title: t.rightPanel.browser }}
+          accessToken={accessToken}
+          onResourceChange={(resource) => {
+            if (resource.kind === 'browser') setWebPanelResource(resource)
+          }}
+        />
+      ),
+    }]
+    if (hasWorkFilesPanel && workFolder?.trim()) {
+      tabs.push({
+        id: 'files',
+        kind: 'files',
+        title: t.rightPanel.files,
+        hideTitle: true,
+        closable: false,
+        content: <LocalFilesPanel rootPath={workFolder} accessToken={accessToken} />,
+      })
+    }
+    return tabs
+  }, [accessToken, hasWorkFilesPanel, t.rightPanel.browser, t.rightPanel.files, webPanelResource, workFolder])
+  const effectiveRightPanelTabId = rightPanelTabs.some((tab) => tab.id === activeRightPanelTabId)
+    ? activeRightPanelTabId
+    : rightPanelTabs[0]?.id ?? null
 
   const greeting = useMemo(
     () => buildGreeting(t.welcomeGreeting, me?.username ?? null, getGreetingParts(new Date(), timeZone)),
@@ -418,36 +501,40 @@ export function WelcomePage() {
   }
 
   return (
-    <div className="theme-surface-page theme-chat-surface flex h-full flex-col bg-[var(--c-bg-page)]">
-      {/* 顶部 header */}
-      <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
-        {!isDesktop() && (
-          <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
-        )}
-        {!isDesktop() && (
-          <button
-            onClick={onTogglePrivateMode}
-            title={isPrivateMode ? t.disableIncognito : t.enableIncognito}
-            className={[
-              'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              isPrivateMode
-                ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
-                : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
-            ].join(' ')}
-          >
-            <Glasses size={18} />
-          </button>
-        )}
-      </div>
+    <div className="flex h-full min-w-0 overflow-hidden">
+      <div className="theme-surface-page theme-chat-surface flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg-page)]">
+        {/* 顶部 header */}
+        <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
+          {!isDesktop() && (
+            <NotificationBell accessToken={accessToken} onClick={onOpenNotifications} refreshKey={notificationVersion} title={t.notificationsTitle} />
+          )}
+          {!isDesktop() && (
+            <button
+              onClick={onTogglePrivateMode}
+              title={isPrivateMode ? t.disableIncognito : t.enableIncognito}
+              className={[
+                'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+                isPrivateMode
+                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                  : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+              ].join(' ')}
+            >
+              <Glasses size={18} />
+            </button>
+          )}
+        </div>
 
-      {/* 居中内容 — paddingTop 带过渡动画，模式切换时平滑移动 */}
-      <div
-        className="flex flex-1 flex-col items-center px-5"
-        style={{
-          paddingTop: appMode === 'work' ? '32vh' : '27vh',
-          transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
-      >
+
+        <div
+          className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain"
+          style={{
+            paddingTop: appMode === 'work' ? '32vh' : '27vh',
+            paddingBottom: appMode === 'work' ? '28vh' : '18vh',
+            paddingLeft: 'calc(20px + var(--main-content-axis-padding-left, 0px))',
+            paddingRight: 'calc(20px + var(--main-content-axis-padding-right, 0px))',
+            transition: 'padding-top 0.38s cubic-bezier(0.16, 1, 0.3, 1), padding-bottom 0.38s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
         {/* 标题：三层绝对定位交叉淡出 */}
         <div className="mb-[40px]" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {/* 常规问候 / 无痕文本 */}
@@ -497,6 +584,7 @@ export function WelcomePage() {
 
         <div className="w-full max-w-[675px]">
           <ChatInput
+            key={`welcome:${isSearchMode ? 'search' : 'default'}`}
             ref={chatInputRef}
             onSubmit={handleSubmit}
             placeholder={isSearchMode ? '今天有什么想搜索的吗？' : t.chatPlaceholder}
@@ -540,8 +628,22 @@ export function WelcomePage() {
           </div>
           {error && <ErrorCallout error={error} />}
         </div>
+        </div>
+        {showDebugPanel && <DebugTrigger />}
       </div>
-      {showDebugPanel && <DebugTrigger />}
+      <div
+        className="shrink-0 overflow-hidden bg-[var(--c-bg-page)]"
+        style={{
+          width: isRightPanelOpen ? welcomeRightPanelWidth : 0,
+          opacity: isRightPanelOpen ? 1 : 0,
+          borderLeft: isRightPanelOpen ? '0.5px solid var(--c-border-subtle)' : 'none',
+          pointerEvents: isRightPanelOpen ? 'auto' : 'none',
+          transition: `width ${welcomeRightPanelTransitionCss}, opacity ${welcomeRightPanelTransitionCss}`,
+          willChange: 'width, opacity',
+        }}
+      >
+        <RightPanel tabs={rightPanelTabs} activeTabId={effectiveRightPanelTabId} onSelectTab={setActiveRightPanelTabId} />
+      </div>
     </div>
   )
 }

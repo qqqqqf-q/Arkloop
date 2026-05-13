@@ -802,11 +802,9 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       animateAnchorIntoPlace()
     }
 
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        finishActivation(6)
-      })
-    })
+    // Single rAF lets React commit the DOM from setMessages before we read the turn ref.
+    // Avoids anchoring to a stale element that would collapse into an instant jump.
+    requestAnimationFrame(() => finishActivation(6))
   }, [animateAnchorIntoPlace, clearBottomScrollFrame, clearBottomSmoothScrollMonitor, promptPinningDisabled, recalcSpacer, scrollToBottom, setAtBottomState, syncBottomStateFromContainer])
 
   const stickToBottomAfterLayoutScroll = useCallback((container: HTMLDivElement) => {

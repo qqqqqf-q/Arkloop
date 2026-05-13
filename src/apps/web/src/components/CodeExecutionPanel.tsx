@@ -59,7 +59,7 @@ export function CodeExecutionPanel({ execution, onClose }: Props) {
   return (
     <div
       style={{
-        width: '420px',
+        width: '100%',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',

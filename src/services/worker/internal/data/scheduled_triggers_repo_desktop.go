@@ -26,6 +26,7 @@ type ScheduledTriggerRow struct {
 	ID                uuid.UUID
 	ChannelID         uuid.UUID
 	ChannelIdentityID uuid.UUID
+	ThreadID          *uuid.UUID
 	PersonaKey        string
 	AccountID         uuid.UUID
 	Model             string
@@ -36,6 +37,62 @@ type ScheduledTriggerRow struct {
 	CooldownLevel     int
 	LastUserMsgAt     *time.Time
 	BurstStartAt      *time.Time
+}
+
+func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
+	ctx context.Context,
+	db DesktopDB,
+	accountID uuid.UUID,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	threadID uuid.UUID,
+	personaKey string,
+	model string,
+	intervalMin int,
+) error {
+	if threadID == uuid.Nil {
+		return fmt.Errorf("thread_id must not be empty")
+	}
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return fmt.Errorf("channel_identity_id must not be empty")
+	}
+	intervalMin = normalizeHeartbeatInterval(intervalMin)
+	now := time.Now().UTC()
+	nextFire := now.Add(time.Duration(intervalMin) * time.Minute)
+	id := uuid.New()
+	if _, err := db.Exec(ctx, `
+		DELETE FROM scheduled_triggers
+		 WHERE channel_id = $1
+		   AND channel_identity_id = $2
+		   AND thread_id IS NULL`,
+		channelID.String(), channelIdentityID.String(),
+	); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, `
+		INSERT INTO scheduled_triggers
+		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		ON CONFLICT (thread_id) WHERE thread_id IS NOT NULL DO UPDATE
+		    SET thread_id       = excluded.thread_id,
+		        channel_id      = excluded.channel_id,
+		        channel_identity_id = excluded.channel_identity_id,
+		        persona_key     = excluded.persona_key,
+		        account_id      = excluded.account_id,
+		        model           = excluded.model,
+		        interval_min    = excluded.interval_min,
+		        cooldown_level  = 0,
+		        last_user_msg_at = NULL,
+		        burst_start_at  = NULL,
+		        updated_at      = excluded.updated_at`,
+		id, channelID, channelIdentityID, threadID, personaKey, accountID, model, intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano),
+	)
+	return err
 }
 
 // ScheduledTriggersRepository 是 SQLite 实现（desktop）。
@@ -93,12 +150,11 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 		INSERT INTO scheduled_triggers
 		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
-		ON CONFLICT (channel_id, channel_identity_id) DO UPDATE
+		ON CONFLICT (channel_id, channel_identity_id) WHERE thread_id IS NULL DO UPDATE
 		    SET persona_key     = excluded.persona_key,
 		        account_id      = excluded.account_id,
 		        model           = excluded.model,
 		        interval_min    = excluded.interval_min,
-		        next_fire_at    = excluded.next_fire_at,
 		        cooldown_level  = 0,
 		        last_user_msg_at = NULL,
 		        burst_start_at  = NULL,
@@ -126,14 +182,50 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 
 	var row ScheduledTriggerRow
 	var idStr, channelStr, identityStr, accountStr string
+	var threadStr *string
 	err := db.QueryRow(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
+		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
-		   AND channel_identity_id = $2`,
+		   AND channel_identity_id = $2
+		   AND thread_id IS NULL`,
 		channelID.String(),
 		channelIdentityID.String(),
-	).Scan(&idStr, &channelStr, &identityStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
+	).Scan(&idStr, &channelStr, &identityStr, &threadStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	row.ID, _ = uuid.Parse(idStr)
+	row.ChannelID, _ = uuid.Parse(channelStr)
+	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
+	if threadStr != nil {
+		if tid, parseErr := uuid.Parse(*threadStr); parseErr == nil {
+			row.ThreadID = &tid
+		}
+	}
+	row.AccountID, _ = uuid.Parse(accountStr)
+	return &row, nil
+}
+
+func (ScheduledTriggersRepository) GetHeartbeatForThread(
+	ctx context.Context,
+	db DesktopDB,
+	threadID uuid.UUID,
+) (*ScheduledTriggerRow, error) {
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	var row ScheduledTriggerRow
+	var idStr, channelStr, identityStr, accountStr, threadStr string
+	err := db.QueryRow(ctx, `
+		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
+		  FROM scheduled_triggers
+		 WHERE thread_id = $1`,
+		threadID.String(),
+	).Scan(&idStr, &channelStr, &identityStr, &threadStr, &row.PersonaKey, &accountStr, &row.Model, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil
@@ -144,6 +236,8 @@ func (ScheduledTriggersRepository) GetHeartbeat(
 	row.ChannelID, _ = uuid.Parse(channelStr)
 	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
 	row.AccountID, _ = uuid.Parse(accountStr)
+	tid, _ := uuid.Parse(threadStr)
+	row.ThreadID = &tid
 	return &row, nil
 }
 
@@ -170,7 +264,8 @@ func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 		       cooldown_level = 0,
 		       updated_at = $3
 		 WHERE channel_id = $4
-		   AND channel_identity_id = $5`,
+		   AND channel_identity_id = $5
+		   AND thread_id IS NULL`,
 		intervalMin,
 		nextFire.Format(time.RFC3339Nano),
 		time.Now().UTC().Format(time.RFC3339Nano),
@@ -229,10 +324,22 @@ func (ScheduledTriggersRepository) DeleteHeartbeat(
 		return fmt.Errorf("channel_id must not be empty")
 	}
 	_, err := db.Exec(ctx,
-		`DELETE FROM scheduled_triggers WHERE channel_id = $1 AND channel_identity_id = $2`,
+		`DELETE FROM scheduled_triggers WHERE channel_id = $1 AND channel_identity_id = $2 AND thread_id IS NULL`,
 		channelID.String(),
 		channelIdentityID.String(),
 	)
+	return err
+}
+
+func (ScheduledTriggersRepository) DeleteHeartbeatForThread(
+	ctx context.Context,
+	db DesktopDB,
+	threadID uuid.UUID,
+) error {
+	if threadID == uuid.Nil {
+		return fmt.Errorf("thread_id must not be empty")
+	}
+	_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE thread_id = $1`, threadID.String())
 	return err
 }
 
@@ -248,7 +355,7 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 	}
 	now := time.Now().UTC()
 	rows, err := db.Query(ctx, `
-		SELECT id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id, cooldown_level
+		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id, cooldown_level
 		  FROM scheduled_triggers
 		 WHERE next_fire_at <= $1
 		 ORDER BY next_fire_at ASC
@@ -265,14 +372,20 @@ func (ScheduledTriggersRepository) ClaimDueTriggers(
 	for rows.Next() {
 		var r ScheduledTriggerRow
 		var idStr, channelStr, identityStr, accountStr, nextFireRaw string
+		var threadStr *string
 		var triggerKind string
 		var jobIDStr *string
-		if err := rows.Scan(&idStr, &channelStr, &identityStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr, &r.CooldownLevel); err != nil {
+		if err := rows.Scan(&idStr, &channelStr, &identityStr, &threadStr, &r.PersonaKey, &accountStr, &r.Model, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr, &r.CooldownLevel); err != nil {
 			return nil, err
 		}
 		r.ID, _ = uuid.Parse(idStr)
 		r.ChannelID, _ = uuid.Parse(channelStr)
 		r.ChannelIdentityID, _ = uuid.Parse(identityStr)
+		if threadStr != nil {
+			if tid, parseErr := uuid.Parse(*threadStr); parseErr == nil {
+				r.ThreadID = &tid
+			}
+		}
 		r.AccountID, _ = uuid.Parse(accountStr)
 		r.TriggerKind = triggerKind
 		if jobIDStr != nil {
@@ -337,7 +450,8 @@ func (ScheduledTriggersRepository) ResetCooldownForMessage(
 		       burst_start_at = $3,
 		       updated_at = $4
 		 WHERE channel_id = $5
-		   AND channel_identity_id = $6`,
+		   AND channel_identity_id = $6
+		   AND thread_id IS NULL`,
 		nextFireAt.Format(time.RFC3339Nano),
 		formatSQLiteTimestamp(lastUserMsgAt),
 		formatSQLiteTimestamp(burstStartAt),
@@ -375,12 +489,50 @@ func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
 		       updated_at = $3
 		 WHERE channel_id = $4
 		   AND channel_identity_id = $5
-		   AND (last_user_msg_at IS $6 OR last_user_msg_at = $6)`,
+		   AND (last_user_msg_at IS $6 OR last_user_msg_at = $6)
+		   AND thread_id IS NULL`,
 		newCooldownLevel,
 		nextFireAt.Format(time.RFC3339Nano),
 		time.Now().UTC().Format(time.RFC3339Nano),
 		channelID.String(),
 		channelIdentityID.String(),
+		snapshotVal,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrHeartbeatSnapshotStale
+	}
+	return nil
+}
+
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeatForThread(
+	ctx context.Context,
+	db DesktopDB,
+	threadID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
+) error {
+	if threadID == uuid.Nil {
+		return fmt.Errorf("thread_id must not be empty")
+	}
+	var snapshotVal any
+	if lastUserMsgSnapshot != nil {
+		snapshotVal = formatSQLiteTimestamp(*lastUserMsgSnapshot)
+	}
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE thread_id = $4
+		   AND (last_user_msg_at IS $5 OR last_user_msg_at = $5)`,
+		newCooldownLevel,
+		nextFireAt.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		threadID.String(),
 		snapshotVal,
 	)
 	if err != nil {
@@ -477,6 +629,40 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 	db DesktopDB,
 	row ScheduledTriggerRow,
 ) (*HeartbeatThreadContext, error) {
+	if row.ThreadID != nil && *row.ThreadID != uuid.Nil {
+		var channelType string
+		if err := db.QueryRow(ctx, `SELECT channel_type FROM channels WHERE id = $1`, row.ChannelID.String()).Scan(&channelType); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query heartbeat channel: %w", err)
+		}
+		var platformChatID string
+		conversationType := "private"
+		if err := db.QueryRow(ctx,
+			`SELECT platform_chat_id FROM channel_group_threads WHERE channel_id = $1 AND thread_id = $2 LIMIT 1`,
+			row.ChannelID.String(), row.ThreadID.String(),
+		).Scan(&platformChatID); err == nil {
+			conversationType = resolveGroupConversationType(channelType)
+		} else if err := db.QueryRow(ctx,
+			`SELECT ci.platform_subject_id
+			   FROM channel_dm_threads cdt
+			   JOIN channel_identities ci ON ci.id = cdt.channel_identity_id
+			  WHERE cdt.channel_id = $1 AND cdt.thread_id = $2
+			  LIMIT 1`,
+			row.ChannelID.String(), row.ThreadID.String(),
+		).Scan(&platformChatID); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query heartbeat dm binding: %w", err)
+		}
+		if strings.TrimSpace(platformChatID) != "" {
+			return &HeartbeatThreadContext{
+				ThreadID:         *row.ThreadID,
+				ChannelID:        row.ChannelID.String(),
+				ChannelType:      channelType,
+				PlatformChatID:   strings.TrimSpace(platformChatID),
+				IdentityID:       row.ChannelIdentityID.String(),
+				ConversationType: conversationType,
+			}, nil
+		}
+	}
+
 	var platformSubjectID, channelType string
 	err := db.QueryRow(ctx,
 		`SELECT platform_subject_id, channel_type FROM channel_identities WHERE id = $1`,

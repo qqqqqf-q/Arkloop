@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -60,16 +59,6 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 	metadata map[string]any,
 ) (uuid.UUID, error) {
 	if strings.TrimSpace(content) == "" {
-		metadataIntermediate, _ := metadata["intermediate"].(bool)
-		metadataStreamChunk, _ := metadata["stream_chunk"].(bool)
-		slog.DebugContext(ctx, "assistant_message_insert_skip_debug",
-			"run_id", runID.String(),
-			"thread_id", threadID.String(),
-			"content_json_len", len(contentJSON),
-			"hidden", hidden,
-			"metadata_intermediate", metadataIntermediate,
-			"metadata_stream_chunk", metadataStreamChunk,
-		)
 		return uuid.Nil, nil
 	}
 	metadataJSON := map[string]any{}
