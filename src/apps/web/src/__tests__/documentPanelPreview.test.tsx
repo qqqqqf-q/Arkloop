@@ -6,23 +6,29 @@ import { ResourcePreviewPanel } from '../components/resource-preview/ResourcePre
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 
-type URLWithObjectURL = typeof URL & {
-  createObjectURL?: (object: Blob) => string
-  revokeObjectURL?: (url: string) => void
-}
+vi.mock('../components/ArtifactIframe', async () => {
+  const { createElement } = await import('react')
+  return {
+    ArtifactIframe: ({ frameTitle }: { frameTitle?: string }) => createElement('iframe', {
+      'data-preview-renderer': 'artifact-html-preview',
+      title: frameTitle ?? 'artifact',
+    }),
+  }
+})
 
 type GlobalWithActEnvironment = typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
-
-const originalRAF = globalThis.requestAnimationFrame
-const originalCAF = globalThis.cancelAnimationFrame
 
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve()
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
+}
+
+function fetchInputUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
 }
 
 async function waitForPreviewWork(predicate: () => boolean): Promise<void> {
@@ -38,32 +44,17 @@ async function waitForPreviewWork(predicate: () => boolean): Promise<void> {
 }
 
 describe('ResourcePreviewPanel artifact preview', () => {
-  const urlWithObjectURL = URL as URLWithObjectURL
   const actEnvironmentGlobal = globalThis as GlobalWithActEnvironment
-  const originalCreateObjectURL = urlWithObjectURL.createObjectURL
-  const originalRevokeObjectURL = urlWithObjectURL.revokeObjectURL
   const originalFetch = globalThis.fetch
   const originalActEnvironment = actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT
 
   beforeEach(() => {
     actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = true
-    globalThis.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      cb(performance.now())
-      return 0
-    }
-    globalThis.cancelAnimationFrame = () => {}
-    urlWithObjectURL.createObjectURL = vi.fn(() => 'blob:artifact-preview')
-    urlWithObjectURL.revokeObjectURL = vi.fn()
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url = fetchInputUrl(input)
       if (url.endsWith('/doc.md')) {
         return new Response('[预览](artifact:preview.html)', {
           headers: { 'Content-Type': 'text/markdown' },
-        })
-      }
-      if (url.endsWith('/preview.html')) {
-        return new Response('<html><body>ok</body></html>', {
-          headers: { 'Content-Type': 'text/html' },
         })
       }
       return new Response('not-found', { status: 404 })
@@ -71,24 +62,12 @@ describe('ResourcePreviewPanel artifact preview', () => {
   })
 
   afterEach(() => {
-    if (originalCreateObjectURL) {
-      urlWithObjectURL.createObjectURL = originalCreateObjectURL
-    } else {
-      Reflect.deleteProperty(urlWithObjectURL, 'createObjectURL')
-    }
-    if (originalRevokeObjectURL) {
-      urlWithObjectURL.revokeObjectURL = originalRevokeObjectURL
-    } else {
-      Reflect.deleteProperty(urlWithObjectURL, 'revokeObjectURL')
-    }
     globalThis.fetch = originalFetch
     if (originalActEnvironment === undefined) {
       delete actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT
     } else {
       actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
     }
-    globalThis.requestAnimationFrame = originalRAF
-    globalThis.cancelAnimationFrame = originalCAF
     vi.restoreAllMocks()
   })
 
@@ -130,12 +109,13 @@ describe('ResourcePreviewPanel artifact preview', () => {
     })
 
     await waitForPreviewWork(() => (
-      vi.mocked(globalThis.fetch).mock.calls.length >= 2 &&
-      container.querySelector('iframe') !== null
+      container.querySelector('iframe[data-preview-renderer="artifact-html-preview"]') !== null
     ))
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-    expect(container.querySelector('iframe')).not.toBeNull()
+    const fetchUrls = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => fetchInputUrl(input))
+    expect(fetchUrls).toHaveLength(1)
+    expect(fetchUrls[0]).toMatch(/\/doc\.md$/)
+    expect(container.querySelector('iframe[data-preview-renderer="artifact-html-preview"]')?.getAttribute('title')).toBe('preview.html')
 
     act(() => {
       root.unmount()
