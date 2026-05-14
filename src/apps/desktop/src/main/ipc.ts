@@ -41,8 +41,18 @@ type DesktopExportSection =
   | 'themes'
 
 type DesktopThemeExportPayload = {
+  themePreset?: string | null
   customThemeId: string | null
   customThemes: Record<string, unknown>
+  backgroundImage?: {
+    dataUrl: string
+    name: string
+    mimeType: string
+    size: number
+    updatedAt: number
+  } | null
+  backgroundImageOpacity?: number | null
+  sidebarGrouping?: 'normal' | 'gtd' | null
 }
 
 type DesktopExportOptions = {
@@ -1111,7 +1121,14 @@ function exportDesktopBundle(destRoot: string, pathModule: typeof import('path')
   if (sections.includes('themes')) {
     fs.writeFileSync(
       pathModule.join(outDir, 'themes.json'),
-      JSON.stringify(options?.themes ?? { customThemeId: null, customThemes: {} }, null, 2),
+      JSON.stringify(options?.themes ?? {
+        themePreset: null,
+        customThemeId: null,
+        customThemes: {},
+        backgroundImage: null,
+        backgroundImageOpacity: null,
+        sidebarGrouping: null,
+      }, null, 2),
       'utf-8',
     )
     exportedFiles.push('themes.json')
