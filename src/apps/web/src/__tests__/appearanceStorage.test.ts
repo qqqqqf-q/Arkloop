@@ -4,9 +4,12 @@ import type { ThemeBackgroundImage } from '../themes/types'
 import {
   readBackgroundImageFromStorage,
   readBackgroundImageOpacityFromStorage,
+  readGtdEnabled,
   readThemePresetFromStorage,
+  subscribeGtdEnabled,
   writeBackgroundImageToStorage,
   writeBackgroundImageOpacityToStorage,
+  writeGtdEnabled,
   writeThemePresetToStorage,
 } from '../storage'
 
@@ -104,5 +107,20 @@ describe('appearance storage', () => {
   it('stores the custom background color scheme', () => {
     writeThemePresetToStorage('background-image')
     expect(readThemePresetFromStorage()).toBe('background-image')
+  })
+
+  it('同步 GTD 分组状态变更', () => {
+    const observed: boolean[] = []
+    const unsubscribe = subscribeGtdEnabled((enabled) => observed.push(enabled))
+
+    writeGtdEnabled(true)
+    expect(readGtdEnabled()).toBe(true)
+    expect(observed).toEqual([true])
+
+    writeGtdEnabled(false)
+    expect(readGtdEnabled()).toBe(false)
+    expect(observed).toEqual([true, false])
+
+    unsubscribe()
   })
 })

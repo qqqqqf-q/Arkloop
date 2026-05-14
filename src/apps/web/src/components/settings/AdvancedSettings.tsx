@@ -125,13 +125,7 @@ function normalizeThemeBackgroundImage(value: unknown): ThemeBackgroundImage | n
 
 function applySidebarGrouping(value: unknown): void {
   if (value !== 'normal' && value !== 'gtd') return
-  const enabled = value === 'gtd'
-  writeGtdEnabled(enabled)
-  window.dispatchEvent(new CustomEvent('arkloop:gtd-enabled-changed', { detail: enabled }))
-  window.dispatchEvent(new StorageEvent('storage', {
-    key: 'arkloop:web:gtd_enabled',
-    newValue: String(enabled),
-  }))
+  writeGtdEnabled(value === 'gtd')
 }
 
 function formatUsd(value: number) {
