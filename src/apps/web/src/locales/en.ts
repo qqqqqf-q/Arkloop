@@ -812,6 +812,8 @@ export const en: LocaleStrings = {
     qqOneBotHTTPUrlPlaceholder: 'http://127.0.0.1:3000',
     qqOneBotToken: 'Token',
     qqOneBotTokenPlaceholder: 'Access token',
+    qqBotName: 'Bot name',
+    qqBotNamePlaceholder: 'Chiffon',
     qqOneBotAutoFilled: 'Auto-filled from NapCat',
     qqExternalOneBotHint: 'Please deploy NapCat or another OneBot11 service externally, then fill in the connection info below',
     bindingsTitle: 'Linked accounts',

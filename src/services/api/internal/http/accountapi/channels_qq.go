@@ -403,6 +403,35 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	// --- 群聊命令路径 ---
 	if !isPrivate {
 		cmdText := stripLeadingMention(text)
+		if cmd, ok := telegramCommandBase(cmdText, ""); ok && cmd == "/bind" {
+			parts := strings.Fields(cmdText)
+			replyText := "用法：/bind <code>"
+			if len(parts) >= 2 {
+				var bindErr error
+				replyText, bindErr = bindChannelIdentity(
+					ctx,
+					tx,
+					&ch,
+					identity,
+					parts[1],
+					"QQ",
+					c.channelBindCodesRepo,
+					c.channelIdentitiesRepo,
+					c.channelIdentityLinksRepo,
+					c.channelDMThreadsRepo,
+					c.threadRepo,
+				)
+				if bindErr != nil {
+					return bindErr
+				}
+			}
+			if err := commitTx(); err != nil {
+				return err
+			}
+			c.sendQQReply(ctx, cfg, "group", platformChatID, replyText)
+			return nil
+		}
+
 		_, replyText, _, cancelRunID, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			cmdText, false, platformChatID,
@@ -685,7 +714,7 @@ func (c *qqConnector) persistQQGroupPassiveMessage(
 				inboundLedgerKeyConversationType: incoming.ChatType,
 				inboundLedgerKeyMentionsBot:      incoming.MentionsBot,
 				inboundLedgerKeyIsReplyToBot:     incoming.IsReplyToBot,
-				"passive":           true,
+				"passive":                        true,
 			}, inboundStatePassivePersisted),
 		); err != nil {
 			return err

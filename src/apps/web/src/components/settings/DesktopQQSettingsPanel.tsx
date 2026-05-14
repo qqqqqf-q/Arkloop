@@ -68,6 +68,7 @@ export function DesktopQQSettingsPanel({
   const [onebotWSUrl, setOnebotWSUrl] = useState((channel?.config_json?.onebot_ws_url as string | undefined) ?? '')
   const [onebotHTTPUrl, setOnebotHTTPUrl] = useState((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
   const [onebotToken, setOnebotToken] = useState((channel?.config_json?.onebot_token as string | undefined) ?? '')
+  const [botName, setBotName] = useState((channel?.config_json?.bot_name as string | undefined) ?? '')
   const [autoLoginUin, setAutoLoginUin] = useState((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
   const refreshBindings = useCallback(async () => {
     if (!channel?.id) {
@@ -92,6 +93,7 @@ export function DesktopQQSettingsPanel({
     setOnebotWSUrl((channel?.config_json?.onebot_ws_url as string | undefined) ?? '')
     setOnebotHTTPUrl((channel?.config_json?.onebot_http_url as string | undefined) ?? '')
     setOnebotToken((channel?.config_json?.onebot_token as string | undefined) ?? '')
+    setBotName((channel?.config_json?.bot_name as string | undefined) ?? '')
     setAutoLoginUin((channel?.config_json?.auto_login_uin as string | undefined) ?? '')
   }, [channel, personas])
 
@@ -127,6 +129,7 @@ export function DesktopQQSettingsPanel({
   const persistedOnebotWSUrl = (channel?.config_json?.onebot_ws_url as string | undefined) ?? ''
   const persistedOnebotHTTPUrl = (channel?.config_json?.onebot_http_url as string | undefined) ?? ''
   const persistedOnebotToken = (channel?.config_json?.onebot_token as string | undefined) ?? ''
+  const persistedBotName = (channel?.config_json?.bot_name as string | undefined) ?? ''
   const persistedAutoLoginUin = (channel?.config_json?.auto_login_uin as string | undefined) ?? ''
   const dirty = useMemo(() => {
     if ((channel?.is_active ?? false) !== enabled) return true
@@ -137,9 +140,11 @@ export function DesktopQQSettingsPanel({
     if (onebotWSUrl !== persistedOnebotWSUrl) return true
     if (onebotHTTPUrl !== persistedOnebotHTTPUrl) return true
     if (onebotToken !== persistedOnebotToken) return true
+    if (botName !== persistedBotName) return true
     if (autoLoginUin !== persistedAutoLoginUin) return true
     return false
   }, [
+    botName,
     channel,
     defaultModel,
     effectiveAllowedUserIDs,
@@ -156,6 +161,7 @@ export function DesktopQQSettingsPanel({
     persistedOnebotWSUrl,
     persistedOnebotHTTPUrl,
     persistedOnebotToken,
+    persistedBotName,
     autoLoginUin,
     persistedAutoLoginUin,
   ])
@@ -210,6 +216,8 @@ export function DesktopQQSettingsPanel({
       else delete configJSON.onebot_http_url
       if (onebotToken.trim()) configJSON.onebot_token = onebotToken.trim()
       else delete configJSON.onebot_token
+      if (botName.trim()) configJSON.bot_name = botName.trim()
+      else delete configJSON.bot_name
       if (autoLoginUin.trim()) configJSON.auto_login_uin = autoLoginUin.trim()
       else delete configJSON.auto_login_uin
 
@@ -402,6 +410,16 @@ export function DesktopQQSettingsPanel({
                 value={onebotToken}
                 placeholder={ct.qqOneBotTokenPlaceholder}
                 onChange={(v) => { setOnebotToken(v); setSaved(false) }}
+              />
+            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.qqBotName}>
+              <input
+                type="text"
+                value={botName}
+                onChange={(e) => { setBotName(e.target.value); setSaved(false) }}
+                placeholder={ct.qqBotNamePlaceholder}
+                disabled={saving}
+                className={inputCls}
               />
             </ChannelDetailRow>
             {/* access control card */}

@@ -813,6 +813,8 @@ export interface LocaleStrings {
     qqOneBotHTTPUrlPlaceholder: string
     qqOneBotToken: string
     qqOneBotTokenPlaceholder: string
+    qqBotName: string
+    qqBotNamePlaceholder: string
     qqOneBotAutoFilled: string
     qqExternalOneBotHint: string
     weixin: string
