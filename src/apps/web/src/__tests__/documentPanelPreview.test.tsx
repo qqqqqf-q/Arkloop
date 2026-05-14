@@ -25,11 +25,16 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
 }
 
-async function flushPreviewWork(): Promise<void> {
-  for (let i = 0; i < 8; i++) {
-    await flushMicrotasks()
-    await new Promise((resolve) => setTimeout(resolve, 0))
+async function waitForPreviewWork(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 40; i++) {
+    if (predicate()) return
+    await act(async () => {
+      await flushMicrotasks()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
   }
+  if (predicate()) return
+  throw new Error('preview did not settle')
 }
 
 describe('ResourcePreviewPanel artifact preview', () => {
@@ -124,9 +129,10 @@ describe('ResourcePreviewPanel artifact preview', () => {
       )
     })
 
-    await act(async () => {
-      await flushPreviewWork()
-    })
+    await waitForPreviewWork(() => (
+      vi.mocked(globalThis.fetch).mock.calls.length >= 2 &&
+      container.querySelector('iframe') !== null
+    ))
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
     expect(container.querySelector('iframe')).not.toBeNull()
