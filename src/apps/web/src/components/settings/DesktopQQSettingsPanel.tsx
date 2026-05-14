@@ -422,31 +422,21 @@ export function DesktopQQSettingsPanel({
                 className={inputCls}
               />
             </ChannelDetailRow>
-            {/* access control card */}
-            <div className="md:col-span-2">
-              <div
-                className="relative px-5 py-4"
-                style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
-              >
-                <div className="mb-4">
-                  <div className="text-sm font-medium text-[var(--c-text-heading)]">{ct.accessControl}</div>
-                </div>
-
-                <div className="mb-4">
-                  <ListField
-                    label={ct.qqAllowedUsers}
-                    values={allowedUserIDs}
-                    inputValue={allowedUserInput}
-                    placeholder={ct.qqAllowedUsersPlaceholder}
-                    addLabel={t.skills.add}
-                    onInputChange={setAllowedUserInput}
-                    onAdd={handleAddAllowedUsers}
-                    onRemove={(value) => {
-                      setAllowedUserIDs((current) => current.filter((item) => item !== value))
-                      setSaved(false)
-                    }}
-                  />
-                </div>
+            <ChannelDetailRow label={ct.accessControl}>
+              <div className="flex flex-col gap-4">
+                <ListField
+                  label={ct.qqAllowedUsers}
+                  values={allowedUserIDs}
+                  inputValue={allowedUserInput}
+                  placeholder={ct.qqAllowedUsersPlaceholder}
+                  addLabel={t.skills.add}
+                  onInputChange={setAllowedUserInput}
+                  onAdd={handleAddAllowedUsers}
+                  onRemove={(value) => {
+                    setAllowedUserIDs((current) => current.filter((item) => item !== value))
+                    setSaved(false)
+                  }}
+                />
 
                 <ListField
                   label={ct.qqAllowedGroups}
@@ -462,7 +452,7 @@ export function DesktopQQSettingsPanel({
                   }}
                 />
               </div>
-            </div>
+            </ChannelDetailRow>
 
             <div className="md:col-span-2">
               <label className="mb-1.5 block text-xs font-medium text-[var(--c-text-secondary)]">
