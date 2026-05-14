@@ -81,6 +81,31 @@ func ReadyProvidersFromStatuses(statuses []ProviderRuntimeStatus) []ProviderConf
 	return out
 }
 
+func MergeProviderOverrides(base []ProviderConfig, overrides []ProviderConfig) []ProviderConfig {
+	out := copyProviders(base)
+	indexByGroup := make(map[string]int, len(out))
+	for idx, provider := range out {
+		groupName := strings.TrimSpace(provider.GroupName)
+		if groupName == "" {
+			continue
+		}
+		indexByGroup[groupName] = idx
+	}
+	for _, provider := range overrides {
+		groupName := strings.TrimSpace(provider.GroupName)
+		if groupName == "" {
+			continue
+		}
+		if idx, ok := indexByGroup[groupName]; ok {
+			out[idx] = provider
+			continue
+		}
+		indexByGroup[groupName] = len(out)
+		out = append(out, provider)
+	}
+	return out
+}
+
 func LoadPlatformProviderStatuses(ctx context.Context, pool providerQuerier, decrypt ProviderSecretDecrypter) ([]ProviderRuntimeStatus, error) {
 	return loadProviderStatuses(ctx, pool, `
 		SELECT c.owner_kind, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,

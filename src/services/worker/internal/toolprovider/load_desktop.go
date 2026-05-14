@@ -77,10 +77,10 @@ func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatu
 	return out
 }
 
-// LoadDesktopActiveToolProviders returns active platform rows from SQLite.
-func LoadDesktopActiveToolProviders(ctx context.Context, db data.DesktopDB) ([]ActiveProviderConfig, error) {
+// LoadDesktopActiveToolProviders returns active platform and user rows from SQLite.
+func LoadDesktopActiveToolProviders(ctx context.Context, db data.DesktopDB, userID *uuid.UUID) ([]ActiveProviderConfig, []ActiveProviderConfig, error) {
 	if db == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var keyRing *sharedencryption.KeyRing
@@ -105,7 +105,17 @@ func LoadDesktopActiveToolProviders(ctx context.Context, db data.DesktopDB) ([]A
 
 	platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, db, decrypt)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return activeConfigsFromStatuses(platformStatuses), nil
+	platformProviders := activeConfigsFromStatuses(platformStatuses)
+
+	var userProviders []ActiveProviderConfig
+	if userID != nil && *userID != uuid.Nil {
+		userStatuses, err := sharedtoolruntime.LoadUserProviderStatuses(ctx, db, *userID, decrypt)
+		if err != nil {
+			return nil, nil, err
+		}
+		userProviders = activeConfigsFromStatuses(userStatuses)
+	}
+	return platformProviders, userProviders, nil
 }

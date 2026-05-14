@@ -28,7 +28,10 @@ func loadEffectiveBuiltinProviders(
 		if err != nil {
 			return nil, err
 		}
-		providers = append(providers, sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses)...)
+		providers = sharedtoolruntime.MergeProviderOverrides(
+			providers,
+			sharedtoolruntime.ReadyProvidersFromStatuses(userStatuses),
+		)
 	}
 	return providers, nil
 }

@@ -1051,12 +1051,12 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 		if db == nil || rc == nil {
 			return next(ctx, rc)
 		}
-		platformCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db)
+		platformCfgs, userCfgs, err := toolprovider.LoadDesktopActiveToolProviders(ctx, db, rc.Run.CreatedByUserID)
 		if err != nil {
 			slog.WarnContext(ctx, "desktop: failed to load tool providers, skipping", "err", err)
 			return next(ctx, rc)
 		}
-		if len(platformCfgs) == 0 {
+		if len(platformCfgs) == 0 && len(userCfgs) == 0 {
 			return next(ctx, rc)
 		}
 		if rc.ActiveToolProviderByGroup == nil {
@@ -1065,21 +1065,35 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 		if rc.ActiveToolProviderConfigsByGroup == nil {
 			rc.ActiveToolProviderConfigsByGroup = map[string]sharedtoolruntime.ProviderConfig{}
 		}
-		apply := func(cfg toolprovider.ActiveProviderConfig) {
+		apply := func(cfg toolprovider.ActiveProviderConfig, override bool) {
 			g := strings.TrimSpace(cfg.GroupName)
 			pn := strings.TrimSpace(cfg.ProviderName)
 			if g == "" || pn == "" {
 				return
 			}
 			exec := pipeline.BuildProviderExecutor(cfg)
-			rc.ActiveToolProviderByGroup[g] = pn
-			rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
+			_, exists := rc.ActiveToolProviderByGroup[g]
+			if exists && override {
+				if nc, ok := exec.(tools.NotConfiguredChecker); ok && nc.IsNotConfigured() {
+					slog.WarnContext(ctx, "desktop: user tool provider not configured, keeping platform provider", "group_name", g, "provider_name", pn)
+					return
+				}
+			}
+			if !exists || override {
+				rc.ActiveToolProviderByGroup[g] = pn
+				rc.ActiveToolProviderConfigsByGroup[g] = toolprovider.ToRuntimeProviderConfig(cfg)
+			} else if rc.ActiveToolProviderByGroup[g] != pn {
+				slog.WarnContext(ctx, "desktop: duplicate active tool provider", "group_name", g, "provider_name", pn)
+			}
 			if exec != nil {
 				rc.ToolExecutors[pn] = exec
 			}
 		}
 		for _, cfg := range platformCfgs {
-			apply(cfg)
+			apply(cfg, false)
+		}
+		for _, cfg := range userCfgs {
+			apply(cfg, true)
 		}
 		return next(ctx, rc)
 	}

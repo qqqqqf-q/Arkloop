@@ -29,9 +29,12 @@ func TestLoadDesktopActiveToolProvidersIncludesDefaultExa(t *testing.T) {
 	})
 	db := sqlitepgx.New(sqlitePool.Unwrap())
 
-	platform, err := LoadDesktopActiveToolProviders(ctx, db)
+	platform, user, err := LoadDesktopActiveToolProviders(ctx, db, nil)
 	if err != nil {
 		t.Fatalf("load: %v", err)
+	}
+	if len(user) != 0 {
+		t.Fatalf("expected no user row, got %d", len(user))
 	}
 	if len(platform) != 1 {
 		t.Fatalf("expected 1 platform row, got %d", len(platform))
@@ -89,9 +92,12 @@ func TestLoadDesktopActiveToolProvidersPlatformRow(t *testing.T) {
 		t.Fatalf("insert tool_provider_configs: %v", err)
 	}
 
-	platform, err := LoadDesktopActiveToolProviders(ctx, db)
+	platform, user, err := LoadDesktopActiveToolProviders(ctx, db, nil)
 	if err != nil {
 		t.Fatalf("load: %v", err)
+	}
+	if len(user) != 0 {
+		t.Fatalf("expected no user row, got %d", len(user))
 	}
 	if len(platform) != 1 {
 		t.Fatalf("expected 1 platform row, got %d", len(platform))
@@ -176,9 +182,12 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 		t.Fatalf("seed tool provider: %v", err)
 	}
 
-	platform, err := LoadDesktopActiveToolProviders(ctx, db)
+	platform, user, err := LoadDesktopActiveToolProviders(ctx, db, nil)
 	if err != nil {
 		t.Fatalf("load: %v", err)
+	}
+	if len(user) != 0 {
+		t.Fatalf("expected no user row, got %d", len(user))
 	}
 	var readProvider *ActiveProviderConfig
 	for idx := range platform {
@@ -197,5 +206,64 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 	_, err = desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
 	if err != nil {
 		t.Fatalf("desktop key ring should load: %v", err)
+	}
+}
+
+func TestLoadDesktopActiveToolProvidersUserRows(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "loadtp-user.db"))
+	if err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlitePool.Close()
+	})
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.MustParse("00000000-0000-4000-8000-000000000022")
+	userID := uuid.MustParse("00000000-0000-4000-8000-000000000021")
+	if _, err := db.Exec(ctx, `
+		INSERT INTO users (id, username, email, status)
+		VALUES ($1, 'u2', 'u2@test', 'active')
+		ON CONFLICT (id) DO NOTHING`, userID,
+	); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO accounts (id, slug, name, type, owner_user_id)
+		VALUES ($1, 'a2', 'A2', 'personal', $2)
+		ON CONFLICT (id) DO NOTHING`, accountID, userID,
+	); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO tool_provider_configs (
+			account_id, owner_kind, owner_user_id, group_name, provider_name, is_active
+		) VALUES ($1, 'user', $2, 'web_search', 'web_search.basic', 1)`,
+		accountID, userID,
+	); err != nil {
+		t.Fatalf("insert user tool provider: %v", err)
+	}
+
+	platform, user, err := LoadDesktopActiveToolProviders(ctx, db, &userID)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(platform) == 0 {
+		t.Fatal("expected platform default provider")
+	}
+	if len(user) != 1 {
+		t.Fatalf("expected 1 user row, got %d", len(user))
+	}
+	if user[0].OwnerKind != "user" || user[0].GroupName != "web_search" || user[0].ProviderName != "web_search.basic" {
+		t.Fatalf("unexpected user row: %+v", user[0])
+	}
+
+	_, none, err := LoadDesktopActiveToolProviders(ctx, db, nil)
+	if err != nil {
+		t.Fatalf("load without user: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("expected no user rows without user id, got %d", len(none))
 	}
 }
