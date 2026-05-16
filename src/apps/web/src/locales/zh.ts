@@ -812,7 +812,7 @@ export const zh: LocaleStrings = {
     qqOneBotToken: 'Token',
     qqOneBotTokenPlaceholder: '鉴权 Token',
     qqBotName: 'Bot 名称',
-    qqBotNamePlaceholder: '草洛',
+    qqBotNamePlaceholder: '输入 Bot 名称',
     qqOneBotAutoFilled: '已从 NapCat 自动填充',
     qqExternalOneBotHint: '当前平台不支持内置 QQ 管理，请自行部署 NapCat 或其他 OneBot11 服务后填写连接信息',
     bindingsTitle: '已关联账号',
