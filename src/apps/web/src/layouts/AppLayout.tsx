@@ -67,7 +67,7 @@ const MainViewport = memo(function MainViewport({
   })
 
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+    <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
       <Outlet />
       {notificationsOpen && (
         <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={markNotificationRead} />

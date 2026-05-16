@@ -1686,7 +1686,7 @@ button:not(:disabled) {
   }
 
   :root[data-background-image="custom"] {
-    --c-chat-bg-gradient-stop: color-mix(in srgb, var(--c-bg-page) 42%, transparent);
+    --c-chat-bg-gradient-stop: transparent;
   }
 
   :root[data-background-image="custom"] .theme-chat-surface {
