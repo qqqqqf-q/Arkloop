@@ -52,6 +52,10 @@ function topLevelEntryForTool(
   if (codeExecution) {
     return { kind: 'code', id, seq: entry.seq, item: codeExecution }
   }
+  const searchSteps = payload.steps.filter((item) => item.id === id || item.id.startsWith(`${id}::`))
+  if (searchSteps.length > 0) {
+    return null
+  }
   const todo = payload.todoWrites?.find((item) => item.id === id)
   if (todo) {
     return { kind: 'todo', id, seq: entry.seq, item: todoForFinalDisplay(todo, todoWritesForFinalDisplay ?? payload.todoWrites ?? []) }
@@ -217,7 +221,6 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
               />
             )
           }
-          return null
         }
 
         const timelineSegment: CopSegment = { ...segment, items: entry.items }

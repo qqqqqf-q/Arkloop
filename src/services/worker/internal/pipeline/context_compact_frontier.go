@@ -58,8 +58,12 @@ type compactFrontierSelection struct {
 	SelectedTokens int
 }
 
-// 极端保护上限，正常情况下 token 预算会先生效
-const compactMaxAtomsPerRound = 500
+const (
+	// 极端保护上限，正常情况下 token 预算会先生效
+	compactMaxAtomsPerRound = 500
+	// 小于这个量的源窗口不值得生成 replacement；它只会把历史切碎。
+	compactMinSourceTokensPerRound = 1024
+)
 
 type compactProgressRecorder struct {
 	base             map[string]any
@@ -645,6 +649,9 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 	if len(selection.Nodes) == 0 {
 		return compactFrontierSelection{}
 	}
+	if selection.SelectedTokens < compactMinSourceTokensPerRound {
+		return compactFrontierSelection{}
+	}
 	// 单 replacement 无法推进覆盖范围，向右扩展一个 eligible atom
 	if len(selection.Nodes) == 1 && selection.Nodes[0].Kind == FrontierNodeReplacement {
 		if selection.EndNodeIndex+1 < eligibleEnd {
@@ -660,6 +667,9 @@ func selectCompactAtomWindow(nodes []FrontierNode, deficitTokens int, maxInputTo
 		} else {
 			return compactFrontierSelection{}
 		}
+	}
+	if selection.SelectedTokens < compactMinSourceTokensPerRound {
+		return compactFrontierSelection{}
 	}
 	return selection
 }

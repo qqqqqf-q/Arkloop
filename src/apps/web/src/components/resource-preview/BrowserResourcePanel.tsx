@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Copy, ExternalLink, List, MoreHorizontal, RefreshCw, Search, Star, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Copy, ExternalLink, List, MoreHorizontal, RefreshCw, Search, ShieldAlert, Star, Trash2, X } from 'lucide-react'
 import { Button } from '@arkloop/shared'
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import { DropdownAction } from '../DropdownAction'
@@ -22,6 +22,12 @@ type Props = {
   resource: BrowserResourceRef
   onClose?: () => void
   onResourceChange?: (resource: BrowserResourceRef) => void
+}
+
+type PageMetadata = {
+  title?: string
+  xFrameOptions?: string
+  frameAncestors?: string
 }
 
 const storageKey = 'arkloop:web:browser-renderer'
@@ -110,6 +116,41 @@ function withCacheBust(url: string): string {
   }
 }
 
+function sameOrigin(left: string, right: string): boolean {
+  try {
+    return new URL(left).origin === new URL(right).origin
+  } catch {
+    return false
+  }
+}
+
+function frameAncestorAllowsApp(token: string, pageUrl: string, appUrl: string): boolean {
+  const value = token.trim().replace(/^'|'$/g, '').toLowerCase()
+  if (!value) return false
+  if (value === '*') return true
+  if (value === 'self') return sameOrigin(pageUrl, appUrl)
+  if (value === new URL(appUrl).origin.toLowerCase()) return true
+  if (value.endsWith(':')) return new URL(appUrl).protocol.toLowerCase() === value
+  try {
+    return sameOrigin(value, appUrl)
+  } catch {
+    return false
+  }
+}
+
+function isEmbeddingBlocked(metadata: PageMetadata | undefined, pageUrl: string): boolean {
+  if (!metadata) return false
+  const xFrameOptions = metadata.xFrameOptions?.trim().toLowerCase()
+  if (xFrameOptions === 'deny') return true
+  if (xFrameOptions === 'sameorigin' && !sameOrigin(pageUrl, window.location.href)) return true
+
+  const frameAncestors = metadata.frameAncestors?.trim()
+  if (!frameAncestors) return false
+  const tokens = frameAncestors.split(/\s+/).filter(Boolean)
+  if (tokens.some((token) => token.replace(/^'|'$/g, '').toLowerCase() === 'none')) return true
+  return !tokens.some((token) => frameAncestorAllowsApp(token, pageUrl, window.location.href))
+}
+
 export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Props) {
   const { t } = useLocale()
   const text = t.browserPanel
@@ -120,6 +161,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
   const [frameSrc, setFrameSrc] = useState<string | null>(initialUrl)
   const [frameKey, setFrameKey] = useState(0)
   const [loading, setLoading] = useState(!!initialUrl)
+  const [embedBlocked, setEmbedBlocked] = useState(false)
   const [history, setHistory] = useState<HistoryEntry[]>(initialUrl
     ? upsertHistoryEntry(saved.history, historyEntryFromResource(resourceFromUrl(initialUrl, resource.title)))
     : saved.history)
@@ -142,6 +184,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     setFrameSrc(initialUrl)
     setFrameKey((key) => key + 1)
     setLoading(!!initialUrl)
+    setEmbedBlocked(false)
     if (initialUrl) {
       const entry = historyEntryFromResource(resourceFromUrl(initialUrl, resource.title))
       setHistory((items) => {
@@ -181,6 +224,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     setFrameSrc(nextUrl)
     setFrameKey((key) => key + 1)
     setLoading(true)
+    setEmbedBlocked(false)
     setHistory(nextHistory)
     setHistoryIndex(Math.max(0, nextHistory.findIndex((item) => item.url === nextUrl)))
     onResourceChange?.(nextResource)
@@ -195,6 +239,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     setFrameSrc(entry.url)
     setFrameKey((key) => key + 1)
     setLoading(true)
+    setEmbedBlocked(false)
     setHistoryIndex(nextIndex)
     onResourceChange?.({ kind: 'browser', url: entry.url, title: entry.title, faviconUrl: entry.faviconUrl })
   }, [history, currentUrl, onResourceChange])
@@ -223,6 +268,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     setFrameSrc(hard ? withCacheBust(currentUrl) : currentUrl)
     setFrameKey((key) => key + 1)
     setLoading(true)
+    setEmbedBlocked(false)
   }, [currentUrl])
 
   const copyCurrentUrl = useCallback(() => {
@@ -262,9 +308,15 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     if (!currentUrl) return
     let cancelled = false
     getDesktopApi()?.app.fetchPageMetadata?.(currentUrl)
-      .then((metadata) => {
+      .then((metadata: PageMetadata | undefined) => {
+        if (cancelled) return
+        if (isEmbeddingBlocked(metadata, currentUrl)) {
+          setEmbedBlocked(true)
+          setFrameSrc(null)
+          setLoading(false)
+        }
         const title = metadata?.title?.trim()
-        if (cancelled || !title) return
+        if (!title) return
         setHistory((items) => items.map((item) => item.url === currentUrl ? { ...item, title } : item))
         onResourceChange?.({ ...resourceFromUrl(currentUrl, title), faviconUrl: resource.faviconUrl ?? browserFaviconUrl(currentUrl) })
       })
@@ -272,7 +324,7 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
     return () => {
       cancelled = true
     }
-  }, [currentUrl, onResourceChange, resource.faviconUrl])
+  }, [currentUrl, frameKey, onResourceChange, resource.faviconUrl])
 
   const filteredHistory = useMemo(() => {
     const query = historySearch.trim().toLowerCase()
@@ -427,7 +479,19 @@ export function BrowserResourcePanel({ resource, onClose, onResourceChange }: Pr
         </aside>
         <div className="browser-panel__viewport">
           {loading ? <div className="browser-panel__progress" /> : null}
-          {frameSrc ? (
+          {embedBlocked ? (
+            <div className="browser-panel__blocked" role="alert">
+              <ShieldAlert size={22} aria-hidden="true" />
+              <div className="browser-panel__blocked-copy">
+                <strong>{text.frameBlockedTitle}</strong>
+                <span>{text.frameBlockedDetail}</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => openExternal(currentUrl)}>
+                <ExternalLink size={13} />
+                <span>{text.openExternal}</span>
+              </Button>
+            </div>
+          ) : frameSrc ? (
             <iframe
               ref={frameRef}
               key={frameKey}

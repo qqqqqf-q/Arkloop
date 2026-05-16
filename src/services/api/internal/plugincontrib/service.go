@@ -21,6 +21,7 @@ import (
 	"arkloop/services/api/internal/data"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/pluginbinary"
 	sharedpluginmanifest "arkloop/services/shared/pluginmanifest"
 	"arkloop/services/shared/pluginregistry"
 	"github.com/google/uuid"
@@ -240,7 +241,7 @@ func (i *Installer) Install(ctx context.Context, req InstallRequest) (data.Plugi
 	if err != nil {
 		return data.PluginPackage{}, err
 	}
-	runtimeState, err := i.installerRuntimeState(ctx, pkg, profileRef, workspaceRef)
+	runtimeState, err := i.installerRuntimeState(ctx, pkg, manifest, profileRef, workspaceRef)
 	if err != nil {
 		return data.PluginPackage{}, err
 	}
@@ -306,7 +307,7 @@ func (i *Installer) Uninstall(ctx context.Context, accountID uuid.UUID, pluginID
 	return i.pluginStore.Remove(ctx, pkg.PluginID, pkg.Version)
 }
 
-func (i *Installer) installerRuntimeState(ctx context.Context, pkg data.PluginPackage, profileRef, workspaceRef string) (map[string]any, error) {
+func (i *Installer) installerRuntimeState(ctx context.Context, pkg data.PluginPackage, manifest Manifest, profileRef, workspaceRef string) (map[string]any, error) {
 	state, err := pluginDataRuntimeState(i.pluginStore, pkg.PluginID, pkg.Version)
 	if err != nil {
 		return nil, err
@@ -327,6 +328,7 @@ func (i *Installer) installerRuntimeState(ctx context.Context, pkg data.PluginPa
 			state["plugin_data"] = dataDir
 		}
 	}
+	applyManifestRuntimeDefaults(manifest, state)
 	return state, nil
 }
 
@@ -562,6 +564,7 @@ func (e *Enabler) applyRuntimeState(ctx context.Context, accountID uuid.UUID, pk
 			runtimeState[key] = value
 		}
 	}
+	applyManifestRuntimeDefaults(manifest, runtimeState)
 	if requireReady && len(manifest.Runtime) > 0 {
 		detectedState, overall, err := e.detectRuntimeState(ctx, pkg, manifest)
 		if err != nil {
@@ -956,6 +959,36 @@ func pluginDataRuntimeState(store PluginStore, pluginID, version string) (map[st
 	return map[string]any{"plugin_data": root}, nil
 }
 
+func applyManifestRuntimeDefaults(manifest Manifest, runtimeState map[string]any) {
+	if len(manifest.Runtime) == 0 || runtimeState == nil {
+		return
+	}
+	pluginData := stringFromPluginMap(runtimeState, "plugin_data")
+	for _, item := range manifest.Runtime {
+		runtimeID := strings.TrimSpace(item.ID)
+		if runtimeID == "" || stringFromPluginMap(runtimeState, runtimeID+".path") != "" {
+			continue
+		}
+		result, ok := pluginbinary.ResolveDeclaredRuntime(item, pluginbinary.DetectOptions{
+			InstallRoot: pluginData,
+			Resolver: sharedpluginmanifest.PlaceholderContext{
+				PluginData: pluginData,
+				Platform:   runtime.GOOS,
+				Arch:       normalizedArch(),
+			},
+		})
+		if !ok || result.Status == pluginbinary.StatusError || strings.TrimSpace(result.Path) == "" {
+			continue
+		}
+		runtimeState[runtimeID+".path"] = result.Path
+		runtimeState[runtimeID+".command"] = result.Path
+		if strings.TrimSpace(result.HelperAppPath) != "" {
+			runtimeState[runtimeID+".helper_app_path"] = result.HelperAppPath
+			runtimeState[runtimeID+".helperAppPath"] = result.HelperAppPath
+		}
+	}
+}
+
 func runtimeStateJSON(values map[string]any) json.RawMessage {
 	payload, err := json.Marshal(values)
 	if err != nil || len(payload) == 0 {
@@ -1074,7 +1107,11 @@ func stringFromPluginMap(values map[string]any, key string) string {
 	if len(values) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(fmt.Sprint(values[key]))
+	value, ok := values[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 func ensureDefaultWorkspace(ctx context.Context, profileRepo *data.ProfileRegistriesRepository, workspaceRepo *data.WorkspaceRegistriesRepository, accountID, userID uuid.UUID, profileRef string) (string, error) {

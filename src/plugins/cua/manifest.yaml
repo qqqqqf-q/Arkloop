@@ -9,6 +9,7 @@ platforms: [darwin]
 
 runtime:
   id: cua-driver
+  path: runtime/CuaDriver.app/Contents/MacOS/cua-driver
   detect:
     - "${PLUGIN_DATA}/runtime/CuaDriver.app/Contents/MacOS/cua-driver"
     - "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"

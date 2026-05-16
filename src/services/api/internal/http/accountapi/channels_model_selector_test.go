@@ -7,105 +7,222 @@ import (
 	"arkloop/services/shared/telegrambot"
 )
 
-func TestBuildPreferenceKeyboard_showsCanonicalSelector(t *testing.T) {
-	pref := &PreferenceResult{
-		AvailableModels: []ModelOption{
-			{Model: "cmd-cred^gpt-command", IsSelected: false},
-			{Model: "openrouter-main^anthropic/claude-sonnet-4-5", IsSelected: true},
-		},
-	}
-	kb := buildPreferenceKeyboard(pref)
-	if kb == nil {
-		t.Fatal("expected keyboard")
-	}
-	if len(kb.InlineKeyboard) < 3 {
-		t.Fatalf("expected at least 3 rows (2 models + dismiss), got %d", len(kb.InlineKeyboard))
+func TestGroupCandidatesByProvider_selection(t *testing.T) {
+	candidates := []telegramSelectorCandidate{
+		{credentialName: "OpenAI", model: "gpt-4o", accountScoped: true},
+		{credentialName: "OpenAI", model: "gpt-4o-mini", accountScoped: true},
+		{credentialName: "Anthropic", model: "claude-sonnet-4-5", accountScoped: true},
 	}
 
-	// first model button
-	btn0 := kb.InlineKeyboard[0][0]
-	if btn0.Text != "cmd-cred^gpt-command" {
-		t.Errorf("first button text: got %q, want %q", btn0.Text, "cmd-cred^gpt-command")
-	}
-	if btn0.CallbackData != "model:cmd-cred^gpt-command" {
-		t.Errorf("first button callback: got %q, want %q", btn0.CallbackData, "model:cmd-cred^gpt-command")
-	}
+	data := GroupCandidatesByProvider(candidates, "openai^gpt-4o", true)
 
-	// second model button (selected, gets ✓ suffix)
-	btn1 := kb.InlineKeyboard[1][0]
-	want := "openrouter-main^anthropic/claude-sonnet-4-5 ✓"
-	if btn1.Text != want {
-		t.Errorf("second button text: got %q, want %q", btn1.Text, want)
+	if len(data.Providers) != 2 {
+		t.Fatalf("expected 2 providers, got %d", len(data.Providers))
 	}
-	wantCB := "model:openrouter-main^anthropic/claude-sonnet-4-5"
-	if btn1.CallbackData != wantCB {
-		t.Errorf("second button callback: got %q, want %q", btn1.CallbackData, wantCB)
+	if data.Providers[0].Name != "OpenAI" {
+		t.Errorf("first provider: got %q", data.Providers[0].Name)
+	}
+	if len(data.Providers[0].Models) != 2 {
+		t.Errorf("OpenAI models: got %d", len(data.Providers[0].Models))
+	}
+	if !data.Providers[0].Models[0].IsSelected {
+		t.Error("gpt-4o should be selected")
+	}
+	if data.Providers[0].Models[1].IsSelected {
+		t.Error("gpt-4o-mini should not be selected")
 	}
 }
 
-func TestModelOptionIsSelected_matchesCanonicalAndBare(t *testing.T) {
+func TestGroupCandidatesByProvider_bareModelMatch(t *testing.T) {
 	candidates := []telegramSelectorCandidate{
 		{credentialName: "cmd-cred", model: "gpt-command", accountScoped: true},
 		{credentialName: "openrouter-main", model: "anthropic/claude-sonnet-4-5", accountScoped: true},
 	}
 
 	cases := []struct {
-		name       string
-		stored     string
-		wantIdx    int
-		wantSelected bool
+		name     string
+		stored   string
+		wantIdx  int
+		selected bool
 	}{
 		{"canonical match", "cmd-cred^gpt-command", 0, true},
 		{"bare model match", "gpt-command", 0, true},
-		{"canonical with slash model", "openrouter-main^anthropic/claude-sonnet-4-5", 1, true},
+		{"canonical with slash", "openrouter-main^anthropic/claude-sonnet-4-5", 1, true},
 		{"bare model with slash", "anthropic/claude-sonnet-4-5", 1, true},
 		{"no match", "nonexistent", -1, false},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for i, c := range candidates {
-				selector := c.credentialName + "^" + c.model
-				isSelected := strings.EqualFold(selector, strings.TrimSpace(tc.stored)) || strings.EqualFold(c.model, strings.TrimSpace(tc.stored))
-				if i == tc.wantIdx && isSelected != tc.wantSelected {
-					t.Errorf("candidate %d (%s): IsSelected = %v, want %v", i, selector, isSelected, tc.wantSelected)
+			data := GroupCandidatesByProvider(candidates, tc.stored, true)
+			var allModels []ModelChoice
+			for _, pg := range data.Providers {
+				allModels = append(allModels, pg.Models...)
+			}
+			for i, m := range allModels {
+				if i == tc.wantIdx && m.IsSelected != tc.selected {
+					t.Errorf("model %d (%s): IsSelected = %v, want %v", i, m.Selector, m.IsSelected, tc.selected)
 				}
-				if i != tc.wantIdx && isSelected {
-					t.Errorf("candidate %d (%s): unexpected IsSelected = true", i, selector)
+				if i != tc.wantIdx && m.IsSelected {
+					t.Errorf("model %d (%s): unexpected IsSelected = true", i, m.Selector)
 				}
 			}
 		})
 	}
 }
 
-func TestBuildPreferenceKeyboard_emptyResultReturnsNil(t *testing.T) {
-	kb := buildPreferenceKeyboard(&PreferenceResult{})
-	if kb != nil {
-		t.Error("expected nil keyboard for empty PreferenceResult")
+func TestRenderModelPickerText(t *testing.T) {
+	data := ModelPickerData{
+		CurrentDisplay: "openai^gpt-4o",
+		Providers: []ProviderGroup{
+			{Name: "OpenAI", Models: []ModelChoice{
+				{Selector: "openai^gpt-4o", DisplayName: "gpt-4o", IsSelected: true},
+				{Selector: "openai^gpt-4o-mini", DisplayName: "gpt-4o-mini", IsSelected: false},
+			}},
+		},
 	}
-	kb = buildPreferenceKeyboard(nil)
-	if kb != nil {
-		t.Error("expected nil keyboard for nil input")
+	text := RenderModelPickerText(data)
+	if !strings.Contains(text, "[OpenAI]") {
+		t.Error("missing provider group header")
+	}
+	if !strings.Contains(text, "gpt-4o ✓") {
+		t.Error("missing selected model marker")
+	}
+	if !strings.Contains(text, "gpt-4o-mini") {
+		t.Error("missing unselected model")
+	}
+	if !strings.Contains(text, "切换: /model") {
+		t.Error("missing usage hint")
 	}
 }
 
-func TestBuildPreferenceKeyboard_thinkMode(t *testing.T) {
-	pref := &PreferenceResult{ThinkingMode: "medium"}
-	kb := buildPreferenceKeyboard(pref)
+func TestParseCallbackData(t *testing.T) {
+	cases := []struct {
+		input  string
+		kind   string
+		valid  bool
+	}{
+		{"dismiss", "dismiss", true},
+		{"mp", "providers", true},
+		{"mp_0", "provider_models", true},
+		{"mp_1_2", "provider_models", true},
+		{"ms_5", "model_select", true},
+		{"thk_medium", "think", true},
+		{"prs_3", "persona", true},
+		{"invalid", "", false},
+		{"thk_invalid", "", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			parsed, ok := ParseCallbackData(tc.input)
+			if ok != tc.valid {
+				t.Errorf("ParseCallbackData(%q): ok = %v, want %v", tc.input, ok, tc.valid)
+			}
+			if ok && parsed.Kind != tc.kind {
+				t.Errorf("ParseCallbackData(%q): kind = %q, want %q", tc.input, parsed.Kind, tc.kind)
+			}
+		})
+	}
+}
+
+func TestCallbackDataLength(t *testing.T) {
+	// Telegram callback_data 硬限制 64 bytes
+	cases := []string{
+		"dismiss",
+		"mp",
+		"mp_0",
+		"mp_99",
+		"mp_0_0",
+		"mp_99_99",
+		"ms_0",
+		"ms_999",
+		"thk_minimal",
+		"prs_0",
+		"prs_99",
+	}
+	for _, cb := range cases {
+		if len(cb) > 64 {
+			t.Errorf("callback_data %q exceeds 64 bytes: %d", cb, len(cb))
+		}
+	}
+}
+
+func TestBuildTelegramProvidersKeyboard(t *testing.T) {
+	data := ModelPickerData{
+		Providers: []ProviderGroup{
+			{Name: "OpenAI", Models: []ModelChoice{{IsSelected: true}}},
+			{Name: "Anthropic", Models: []ModelChoice{{IsSelected: false}}},
+		},
+	}
+	kb := BuildTelegramProvidersKeyboard(data)
 	if kb == nil {
 		t.Fatal("expected keyboard")
 	}
-	// 6 modes + 1 dismiss = 7 rows
-	if len(kb.InlineKeyboard) != 7 {
-		t.Fatalf("expected 7 rows, got %d", len(kb.InlineKeyboard))
+	// 2 provider buttons (1 row of 2) + dismiss row = 2 rows
+	if len(kb.InlineKeyboard) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(kb.InlineKeyboard))
 	}
-	// medium row should have ✓
-	mediumRow := kb.InlineKeyboard[3][0] // off=0, minimal=1, low=2, medium=3
-	if mediumRow.Text != "medium ✓" {
-		t.Errorf("medium button text: got %q", mediumRow.Text)
+	// Selected provider has ●
+	if !strings.Contains(kb.InlineKeyboard[0][0].Text, "●") {
+		t.Error("selected provider should have ● marker")
 	}
-	if mediumRow.CallbackData != "think:medium" {
-		t.Errorf("medium button callback: got %q", mediumRow.CallbackData)
-	}
-	_ = telegrambot.InlineKeyboardMarkup{}
 }
+
+func TestBuildTelegramModelQuickKeyboard(t *testing.T) {
+	data := ModelPickerData{
+		CurrentSelector: "openai^gpt-4o",
+		Providers: []ProviderGroup{
+			{Name: "OpenAI", Models: []ModelChoice{
+				{Selector: "openai^gpt-4o", DisplayName: "gpt-4o", IsSelected: true},
+				{Selector: "openai^gpt-4o-mini", DisplayName: "gpt-4o-mini", IsSelected: false},
+			}},
+			{Name: "Anthropic", Models: []ModelChoice{
+				{Selector: "anthropic^claude-sonnet-4-5", DisplayName: "claude-sonnet-4-5", IsSelected: false},
+			}},
+		},
+	}
+	kb := BuildTelegramModelQuickKeyboard(data)
+	if kb == nil {
+		t.Fatal("expected keyboard")
+	}
+	// Should show current provider models + "查看全部" + dismiss
+	lastRow := kb.InlineKeyboard[len(kb.InlineKeyboard)-1]
+	if lastRow[0].CallbackData != cbModelProviders {
+		t.Errorf("second-to-last row should be 'view all' button, got callback %q", lastRow[0].CallbackData)
+	}
+}
+
+func TestFlattenModelChoices(t *testing.T) {
+	data := ModelPickerData{
+		Providers: []ProviderGroup{
+			{Name: "OpenAI", Models: []ModelChoice{
+				{Selector: "openai^gpt-4o", DisplayName: "gpt-4o"},
+				{Selector: "openai^gpt-4o-mini", DisplayName: "gpt-4o-mini"},
+			}},
+			{Name: "Anthropic", Models: []ModelChoice{
+				{Selector: "anthropic^claude-sonnet-4-5", DisplayName: "claude-sonnet-4-5"},
+			}},
+		},
+	}
+	flat := FlattenModelChoices(data)
+	if len(flat) != 3 {
+		t.Fatalf("expected 3 flat models, got %d", len(flat))
+	}
+	if flat[2].Selector != "anthropic^claude-sonnet-4-5" {
+		t.Errorf("third flat model: got %q", flat[2].Selector)
+	}
+}
+
+func TestBuildTelegramInteractive_nil(t *testing.T) {
+	kb := BuildTelegramInteractive(nil)
+	if kb != nil {
+		t.Error("expected nil for nil reply")
+	}
+	kb = BuildTelegramInteractive(&CommandReply{Text: "hello"})
+	if kb != nil {
+		t.Error("expected nil for reply without Interactive")
+	}
+}
+
+var _ = telegrambot.InlineKeyboardMarkup{}

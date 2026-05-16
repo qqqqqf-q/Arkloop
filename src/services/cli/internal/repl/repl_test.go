@@ -22,7 +22,7 @@ func newTestREPL(t *testing.T, handler http.HandlerFunc) (*REPL, *bytes.Buffer) 
 	client := apiclient.NewClient(server.URL, "test-token")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	return newREPLWithWriters(client, apiclient.RunParams{}, "", 30*time.Second, stdout, stderr), stderr
+	return newREPLWithWriters(client, apiclient.RunParams{}, "", 30*time.Second, false, stdout, stderr), stderr
 }
 
 func TestHandleHelp(t *testing.T) {

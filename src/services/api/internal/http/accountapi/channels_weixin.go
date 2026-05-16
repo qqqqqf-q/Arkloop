@@ -170,7 +170,7 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 
 	// 命令处理
 	cmdText := incoming.CommandText
-	handled, replyText, _, _, cancelRunID, err := DispatchChannelCommand(
+	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		cmdText, isPrivate, platformChatID,
 		nil,
@@ -212,11 +212,13 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 		if err := commitTx(); err != nil {
 			return err
 		}
-		if cancelRunID != uuid.Nil {
-			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-		}
-		if replyText != "" {
-			c.sendWeixinReply(ctx, msg, replyText)
+		if reply != nil {
+			if reply.CancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+			}
+			if reply.Text != "" {
+				c.sendWeixinReply(ctx, msg, reply.Text)
+			}
 		}
 		return nil
 	}

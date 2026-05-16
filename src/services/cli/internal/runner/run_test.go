@@ -45,7 +45,7 @@ func TestExecuteReconnectsAfterStreamEOF(t *testing.T) {
 
 	withReconnectBudget(t, 2, time.Millisecond, time.Millisecond)
 
-	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil)
+	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil, nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestExecuteUsesRunStatusWhenTerminalEventIsMissing(t *testing.T) {
 
 	withReconnectBudget(t, 1, time.Millisecond, time.Millisecond)
 
-	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil)
+	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil, nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestExecuteFailsAfterReconnectBudgetExhausted(t *testing.T) {
 
 	withReconnectBudget(t, 2, time.Millisecond, time.Millisecond)
 
-	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil)
+	result, err := Execute(context.Background(), client, "thread-1", "hello", apiclient.RunParams{}, nil, nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}

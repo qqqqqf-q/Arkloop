@@ -12,6 +12,7 @@ import type { PreviewResource, ResourceRef } from './types'
 
 vi.mock('@arkloop/shared/desktop', () => ({
   getDesktopApi: () => (globalThis as typeof globalThis & { __desktopApi?: unknown }).__desktopApi ?? null,
+  isDesktop: () => true,
 }))
 
 vi.mock('@arkloop/shared/api', () => ({
@@ -88,7 +89,7 @@ describe('resource preview renderer registry', () => {
   })
 
   it('Markdown preview 会把 Cursor 风格 plan front matter 渲染成计划文档', () => {
-    const resource = preview('local-file', 'text/markdown', 'plan.md')
+    const resource = preview('local-file', 'text/markdown', 'agent.plan.md')
     resource.text = `---
 name: Channel Phase 1 Implementation
 overview: 实现 Channel Integration Phase 1A。
@@ -100,16 +101,86 @@ todos:
     content: "新建 ChannelsSettingsContent.tsx"
     status: pending
 isProject: false
----`
+---
 
-    const html = renderToStaticMarkup(<PreviewResourceView resource={resource} />)
+## 实施范围
+先处理后端结构，再处理前端入口。`
 
+    const html = renderToStaticMarkup(
+      <LocaleProvider>
+        <PreviewResourceView resource={resource} />
+      </LocaleProvider>,
+    )
+
+    expect(html).toContain('data-preview-renderer="plan"')
     expect(html).toContain('Channel Phase 1 Implementation')
     expect(html).toContain('实现 Channel Integration Phase 1A')
+    expect(html.indexOf('实施范围')).toBeLessThan(html.indexOf('Todos'))
     expect(html).toContain('创建 00130_channels.sql migration')
     expect(html).toContain('新建 ChannelsSettingsContent.tsx')
     expect(html).not.toContain('isProject')
     expect(html).not.toContain('1a-migration')
+  })
+
+  it('plan resource panel 使用计划 header，并通过 Build 发送带路径的自然语言消息', async () => {
+    const plan = `---
+name: Agent Bootstrap 首次运行仪式
+overview: 初始化 agent bootstrap 流程。
+todos:
+  - id: bootstrap-ui
+    content: "实现 Bootstrap 入口"
+    status: pending
+---`
+    const onBuildPlan = vi.fn()
+    ;(globalThis as typeof globalThis & { __desktopApi?: unknown }).__desktopApi = {
+      fs: {
+        readFile: vi.fn(async () => ({
+          data: Buffer.from(plan, 'utf8').toString('base64'),
+          mime_type: 'text/markdown',
+        })),
+      },
+    }
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    try {
+      await act(async () => {
+        root.render(
+          <LocalizedResourcePreviewPanel
+            accessToken="token"
+            workFolder="/Users/alice/Arkloop"
+            resource={{
+              kind: 'local-file',
+              rootPath: '/Users/alice/Arkloop',
+              path: 'plans/agent_bootstrap_372a.plan.md',
+              filename: 'agent_bootstrap_372a.plan.md',
+              mimeType: 'text/markdown',
+            }}
+            onBuildPlan={onBuildPlan}
+          />,
+        )
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+
+      expect(container.textContent).toContain('Arkloop')
+      expect(container.textContent).toContain('Plans')
+      expect(container.textContent).toContain('Agent Bootstrap 首次运行仪式')
+      const buildButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+        .find((button) => button.textContent?.trim() === 'Build')
+      expect(buildButton).toBeTruthy()
+
+      await act(async () => {
+        buildButton?.click()
+      })
+
+      expect(onBuildPlan).toHaveBeenCalledWith('开始执行这个计划。\n\n计划文件：plans/agent_bootstrap_372a.plan.md')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
   })
 
   it('browser resource 使用独立 iframe renderer', async () => {
@@ -288,6 +359,39 @@ isProject: false
         url: 'https://example.com/',
       }))
       expect(container.querySelector('.browser-panel__history-list')?.textContent).toContain('Example Domain')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
+  })
+
+  it('browser 显示被站点嵌入策略拒绝的错误态', async () => {
+    const host = globalThis as typeof globalThis & { __desktopApi?: unknown }
+    host.__desktopApi = {
+      app: {
+        fetchPageMetadata: vi.fn().mockResolvedValue({ title: 'Google', xFrameOptions: 'SAMEORIGIN' }),
+      },
+    }
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    try {
+      await act(async () => {
+        root.render(
+          <LocalizedResourcePreviewPanel
+            accessToken="token"
+            resource={{ kind: 'browser', url: 'https://www.google.com/', title: 'Google' }}
+          />,
+        )
+      })
+      await act(async () => {
+        await Promise.resolve()
+      })
+
+      expect(container.querySelector('iframe.browser-panel__frame')).toBeNull()
+      expect(container.querySelector('.browser-panel__blocked')?.textContent).toContain('无法在面板中打开')
+      expect(container.querySelector('.browser-panel__blocked')?.textContent).toContain('在外部打开')
     } finally {
       act(() => root.unmount())
       container.remove()

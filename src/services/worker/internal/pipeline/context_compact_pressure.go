@@ -289,7 +289,7 @@ func resolveContextCompactPressureAnchor(
 			return anchor, true
 		}
 	}
-	if rc == nil || contextCompactHasSyntheticPrefix(rc.Messages) {
+	if rc == nil {
 		return ContextCompactPressureAnchor{}, false
 	}
 	anchor := latestContextCompactPressureAnchor(ctx, pool, rc.Run.AccountID, rc.Run.ThreadID)
@@ -297,17 +297,4 @@ func resolveContextCompactPressureAnchor(
 		return ContextCompactPressureAnchor{}, false
 	}
 	return *anchor, true
-}
-
-func contextCompactHasSyntheticPrefix(msgs []llm.Message) bool {
-	for _, msg := range msgs {
-		if msg.Phase != nil && strings.TrimSpace(*msg.Phase) == compactSyntheticPhase {
-			return true
-		}
-		if strings.TrimSpace(msg.Role) == "system" {
-			continue
-		}
-		break
-	}
-	return false
 }

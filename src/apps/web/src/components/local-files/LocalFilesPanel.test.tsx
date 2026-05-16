@@ -149,7 +149,15 @@ describe('LocalFilesPanel', () => {
 
     expect(container.textContent).toContain('README.md')
 
-    const closeButton = container.querySelector<HTMLButtonElement>('[aria-label="关闭"]')
+    const moreButton = container.querySelector<HTMLButtonElement>('[aria-label="More"]')
+    expect(moreButton).not.toBeNull()
+
+    await act(async () => {
+      moreButton?.click()
+    })
+
+    const closeButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Close')
     expect(closeButton).not.toBeNull()
 
     await act(async () => {
@@ -158,6 +166,53 @@ describe('LocalFilesPanel', () => {
     })
 
     expect(container.textContent).toContain('No file selected')
+
+    await act(async () => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('代码文件不显示预览/源码切换，Markdown 文件才显示文档切换', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <LocalFilesPanel
+            rootPath="/repo"
+            accessToken=""
+            previewResource={{ kind: 'local-file', rootPath: '/repo', path: 'bench_v2.py', name: 'bench_v2.py', mimeType: 'text/x-python' }}
+            onPreviewResourceChange={() => {}}
+          />
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('bench_v2.py')
+    expect(container.textContent).not.toContain('Preview')
+    expect(container.textContent).not.toContain('Markdown')
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <LocalFilesPanel
+            rootPath="/repo"
+            accessToken=""
+            previewResource={{ kind: 'local-file', rootPath: '/repo', path: 'README.md', name: 'README.md', mimeType: 'text/markdown' }}
+            onPreviewResourceChange={() => {}}
+          />
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+    })
+
+    expect(container.textContent).toContain('README.md')
+    expect(container.textContent).toContain('Preview')
+    expect(container.textContent).toContain('Markdown')
 
     await act(async () => {
       root.unmount()

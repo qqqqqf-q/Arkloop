@@ -373,7 +373,7 @@ export type ArkloopDesktopApi = {
     quit: () => Promise<void>
     getOsUsername: () => Promise<string>
     openExternal: (url: string) => Promise<void>
-    fetchPageMetadata: (url: string) => Promise<{ title?: string }>
+    fetchPageMetadata: (url: string) => Promise<{ title?: string; xFrameOptions?: string; frameAncestors?: string }>
   }
   notifications: {
     show: (input: { title: string; body?: string }) => Promise<{ ok: boolean }>

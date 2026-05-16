@@ -111,7 +111,7 @@ func startMCPOAuth(
 		return
 	}
 
-	discovery, err := mcpoauth.DiscoverServerInfo(r.Context(), newEffectiveMCPHTTPClient(), server.URL, derefReqString(req.ResourceMetadataURL))
+	discovery, err := mcpoauth.DiscoverServerInfo(r.Context(), &nethttp.Client{}, server.URL, derefReqString(req.ResourceMetadataURL))
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusBadGateway, "mcp_oauth.discovery_failed", "oauth discovery failed", traceID, nil)
 		return
@@ -279,7 +279,7 @@ func handleMCPOAuthCallback(
 		httpkit.WriteError(w, nethttp.StatusUnauthorized, "mcp_oauth.invalid_state", "invalid oauth state", traceID, nil)
 		return
 	}
-	tokens, err := mcpoauth.ExchangeAuthorization(r.Context(), newEffectiveMCPHTTPClient(), authState.Discovery, authState.Client, code, authState.CodeVerifier, flow.RedirectURI)
+	tokens, err := mcpoauth.ExchangeAuthorization(r.Context(), &nethttp.Client{}, authState.Discovery, authState.Client, code, authState.CodeVerifier, flow.RedirectURI)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusBadGateway, "mcp_oauth.exchange_failed", "oauth token exchange failed", traceID, nil)
 		return
@@ -362,7 +362,7 @@ func ensureMCPOAuthClient(ctx context.Context, discovery mcpoauth.DiscoveryState
 			ClientSecret: strings.TrimSpace(derefReqString(req.ClientSecret)),
 		}, nil
 	}
-	return mcpoauth.RegisterClient(ctx, newEffectiveMCPHTTPClient(), discovery, mcpoauth.ClientMetadata{
+	return mcpoauth.RegisterClient(ctx, &nethttp.Client{}, discovery, mcpoauth.ClientMetadata{
 		RedirectURIs:            []string{redirectURI},
 		TokenEndpointAuthMethod: mcpoauth.ClientAuthNone,
 		GrantTypes:              []string{"authorization_code", "refresh_token"},

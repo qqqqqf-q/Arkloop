@@ -12,7 +12,7 @@ import { NotificationsPanel } from '../components/NotificationsPanel'
 import { EmailVerificationGate } from '../components/EmailVerificationGate'
 import { useLocale } from '../contexts/LocaleContext'
 import { getMe } from '../api'
-import { writeActiveThreadIdToStorage, writeSelectedPersonaKeyToStorage, DEFAULT_PERSONA_KEY } from '../storage'
+import { writeActiveThreadIdToStorage, writeSelectedPersonaKeyToStorage, DEFAULT_PERSONA_KEY, readPinnedThreadIds } from '../storage'
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
 import {
@@ -208,6 +208,7 @@ export function AppLayout() {
     threads,
     isPrivateMode, pendingIncognitoMode,
     privateThreadIds, removeThread,
+    markCompletionRead,
     togglePrivateMode,
     getFilteredThreads,
   } = useThreadList()
@@ -324,6 +325,11 @@ export function AppLayout() {
   )
   const activeAppMode = currentThread?.mode === 'work' ? 'work' : currentThread?.mode === 'chat' ? 'chat' : appMode
   const filteredThreads = useMemo(() => getFilteredThreads(activeAppMode), [getFilteredThreads, activeAppMode])
+  const titleBarPinnedThreads = useMemo(() => {
+    if (activeAppMode !== 'work') return []
+    const pinnedIds = readPinnedThreadIds()
+    return filteredThreads.filter((thread) => thread.sidebar_pinned_at || pinnedIds.has(thread.id))
+  }, [activeAppMode, filteredThreads])
 
   const handleSetAppMode = useCallback((mode: import('../storage').AppMode) => {
     if (desktop && sidebarCollapsed && mode !== activeAppMode) {
@@ -374,6 +380,13 @@ export function AppLayout() {
     closeSettings()
   }, [closeSettings])
 
+  const handleSelectTitleBarPinnedThread = useCallback((threadId: string) => {
+    markCompletionRead(threadId)
+    closeSettings()
+    closeNotifications()
+    navigate(`/t/${threadId}`)
+  }, [closeNotifications, closeSettings, markCompletionRead, navigate])
+
   if (!meLoaded) return <LoadingPage label={t.loading} />
 
   if (me !== null && !me.email_verified && me.email_verification_required && me.email) {
@@ -395,10 +408,9 @@ export function AppLayout() {
     productUpdateNotifications &&
     (appUpdateState?.phase === 'available' ||
       appUpdateState?.phase === 'downloaded')
-  const hideCollapsedWorkSidebar = desktop && activeAppMode === 'work' && sidebarCollapsed
-  const mainContentAxisPaddingLeft = desktop && sidebarCollapsed && activeAppMode === 'work'
-    ? `${SIDEBAR_COLLAPSED_WIDTH / 2}px`
-    : '0px'
+  const collapseWorkSidebar = desktop && activeAppMode === 'work' && sidebarCollapsed
+  const keepWorkSidebarLayoutWidth = desktop && activeAppMode === 'work'
+  const mainContentAxisPaddingLeft = '0px'
   const mainContentAxisPaddingRight = desktop && sidebarCollapsed && activeAppMode !== 'work'
     ? `${SIDEBAR_COLLAPSED_WIDTH / 2}px`
     : '0px'
@@ -427,6 +439,9 @@ export function AppLayout() {
             onDownloadApp={handleDownloadApp}
             onInstallApp={handleInstallApp}
             onOpenSettings={handleTitleBarOpenSettings}
+            pinnedThreads={titleBarPinnedThreads}
+            activeThreadId={currentThreadId}
+            onSelectPinnedThread={handleSelectTitleBarPinnedThread}
           />
         )}
 
@@ -447,28 +462,34 @@ export function AppLayout() {
             <div
               className="relative h-full shrink-0 overflow-hidden"
               style={{
-                width: hideCollapsedWorkSidebar ? 0 : sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth,
+                width: collapseWorkSidebar ? 0 : sidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : sidebarWidth,
                 transition: sidebarResizing || modeSwitchingCollapsedSidebar ? undefined : `width ${SIDEBAR_WIDTH_TRANSITION}`,
                 visibility: collapsedSidebarEnterVisible ? 'hidden' : undefined,
               }}
             >
-              {!hideCollapsedWorkSidebar && (
+              <div style={{ width: keepWorkSidebarLayoutWidth ? sidebarWidth : '100%', height: '100%' }}>
                 <Sidebar
                   threads={filteredThreads}
                   onNewThread={handleNewThread}
                   onThreadDeleted={handleThreadDeleted}
+                  preserveExpandedLayout={collapseWorkSidebar}
                   beforeNavigateToThread={handleBeforeNavigateToThread}
                 />
-              )}
-              {!sidebarCollapsed && (
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  title="Resize history"
-                  onPointerDown={handleSidebarResizeStart}
-                  className="absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize"
-                />
-              )}
+              </div>
+              <div
+                className="pointer-events-none absolute inset-y-0 right-0 z-10 bg-[var(--c-border)]"
+                style={{ width: '0.5px' }}
+              />
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                title="Resize history"
+                onPointerDown={sidebarCollapsed ? undefined : handleSidebarResizeStart}
+                className={[
+                  'absolute inset-y-0 right-0 z-20 w-2',
+                  sidebarCollapsed ? 'pointer-events-none' : 'cursor-col-resize',
+                ].join(' ')}
+              />
             </div>
           )}
 

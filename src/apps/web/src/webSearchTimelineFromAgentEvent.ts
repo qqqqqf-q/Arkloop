@@ -13,7 +13,7 @@ export const DEFAULT_SEARCHING_LABEL = 'Searching'
 export const COMPLETED_SEARCHING_LABEL = 'Search completed'
 
 function searchStepText(kind: WebSearchPhaseStep['kind'], label: string, status: WebSearchPhaseStep['status']): TimelineText {
-  if (kind === 'reviewing') return { kind: 'reviewing_sources' }
+  if (kind === 'reviewing') return status === 'active' ? { kind: 'reviewing_sources' } : { kind: 'sources_checked' }
   const trimmed = label.trim()
   if (!trimmed || trimmed === DEFAULT_SEARCHING_LABEL || trimmed === COMPLETED_SEARCHING_LABEL) {
     return status === 'done' ? { kind: 'search_completed' } : { kind: 'search', tense: 'live' }

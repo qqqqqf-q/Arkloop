@@ -5,6 +5,7 @@ import { apiBaseUrl } from '@arkloop/shared/api'
 import type { ArtifactRef } from '../../storage'
 import { LIGHTBOX_ANIM_MS } from './utils'
 import { CopyIconButton } from '../CopyIconButton'
+import { useLocale } from '../../contexts/LocaleContext'
 
 type Props = {
   artifact: ArtifactRef
@@ -13,6 +14,7 @@ type Props = {
 }
 
 export function ImageThumbnailCard({ artifact, accessToken, pathPrefix = '/v1/artifacts' }: Props) {
+  const { t } = useLocale()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [fetchError, setFetchError] = useState(false)
@@ -237,7 +239,7 @@ export function ImageThumbnailCard({ artifact, accessToken, pathPrefix = '/v1/ar
             <CopyIconButton
               onCopy={() => handleCopyImage({} as React.MouseEvent)}
               size={16}
-              tooltip="Copy"
+              tooltip={t.copyAction}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -256,7 +258,8 @@ export function ImageThumbnailCard({ artifact, accessToken, pathPrefix = '/v1/ar
             <button
               type="button"
               onClick={handleDownload}
-              title="下载"
+              title={t.documentPanel.download}
+              aria-label={t.documentPanel.download}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

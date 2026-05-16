@@ -40,6 +40,8 @@ function isAppUpdaterBusy(state: AppUpdaterState | null) {
   return state?.phase === 'checking' || state?.phase === 'downloading'
 }
 
+const showPackagedAboutCard = import.meta.env.MODE !== 'development'
+
 const defaultDesktopPreferences: DesktopPreferencesConfig = {
   startupOpen: 'last-workspace',
   closeBehavior: 'keep-in-background',
@@ -194,6 +196,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated }: Prop
   }, [editingName])
 
   useEffect(() => {
+    if (!showPackagedAboutCard) return
     const api = getAppUpdaterApi()
     if (!api) return
     let active = true
@@ -567,7 +570,7 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated }: Prop
 
       <GeneralSection title={ds.backgroundToolsSection}>
         <GeneralCard>
-	          <GeneralRow
+          <GeneralRow
             title={ds.chatModel}
             control={(
               <ChatModelSettingControl accessToken={accessToken} />
@@ -590,23 +593,25 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated }: Prop
         </GeneralCard>
       </GeneralSection>
 
-      <GeneralSection title={ds.about}>
-        <GeneralCard>
-          <GeneralRow
-            title={ds.appUpdateVersion}
-            description={updateError || updateStateText || undefined}
-            control={(
-              <span className="flex h-[32px] max-w-[140px] items-center justify-end truncate rounded-[6.5px] bg-[var(--c-bg-input)] px-2.5 text-sm font-[450] tabular-nums text-[var(--c-text-primary)]">
-                {appVersion || '-'}
-              </span>
-            )}
-          />
-          <GeneralRow
-            title={ds.checkForUpdates}
-            control={updateControl}
-          />
-        </GeneralCard>
-      </GeneralSection>
+      {showPackagedAboutCard && (
+        <GeneralSection title={ds.about}>
+          <GeneralCard>
+            <GeneralRow
+              title={ds.appUpdateVersion}
+              description={updateError || updateStateText || undefined}
+              control={(
+                <span className="flex h-[32px] max-w-[140px] items-center justify-end truncate rounded-[6.5px] bg-[var(--c-bg-input)] px-2.5 text-sm font-[450] tabular-nums text-[var(--c-text-primary)]">
+                  {appVersion || '-'}
+                </span>
+              )}
+            />
+            <GeneralRow
+              title={ds.checkForUpdates}
+              control={updateControl}
+            />
+          </GeneralCard>
+        </GeneralSection>
+      )}
 
       <GeneralSection title={ds.supportSection}>
         <GeneralCard>

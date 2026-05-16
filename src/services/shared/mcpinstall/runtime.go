@@ -48,6 +48,7 @@ type ServerConfig struct {
 	Args             []string
 	Cwd              *string
 	Env              map[string]string
+	// Deprecated: always inherited since SDK migration. Kept for DB compat.
 	InheritParentEnv bool
 	CallTimeoutMs    int
 	AuthSecretID     string

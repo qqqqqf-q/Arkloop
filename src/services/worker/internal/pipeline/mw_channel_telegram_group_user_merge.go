@@ -203,7 +203,7 @@ func compactTelegramGroupEnvelopeBurstOrderedParts(tail []llm.Message) ([]llm.Co
 		if !ok {
 			return nil, false
 		}
-		if !strings.EqualFold(strings.TrimSpace(meta["channel"]), "telegram") {
+		if !isGroupMergeEligibleChannel(strings.TrimSpace(meta["channel"])) {
 			return nil, false
 		}
 		body = compactTelegramEnvelopeBody(meta, body)
@@ -234,7 +234,8 @@ func compactTelegramGroupEnvelopeBurstOrderedParts(tail []llm.Message) ([]llm.Co
 		return nil, false
 	}
 
-	header := fmt.Sprintf("Telegram %s", conversationType)
+	channelLabel := strings.ToUpper(channel[:1]) + channel[1:]
+	header := fmt.Sprintf("%s %s", channelLabel, conversationType)
 	if title := commonEnvelopeValue(toTelegramEnvelopeMessages(items), "conversation-title"); title != "" {
 		header += fmt.Sprintf(" %q", title)
 	}

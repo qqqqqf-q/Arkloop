@@ -470,7 +470,7 @@ func (c discordConnector) HandleInteraction(
 		return nil, err
 	}
 
-	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.pool)
+	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.personasRepo, nil, c.pool)
 	if err != nil {
 		return nil, err
 	}
@@ -986,10 +986,12 @@ func handleDiscordCommand(
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 	runEventRepo *data.RunEventRepository,
+	personasRepo *data.PersonasRepository,
+	entSvc *entitlement.Service,
 	pool data.DB,
 ) (*discordInteractionReply, error) {
-	data := evt.ApplicationCommandData()
-	commandName := strings.TrimSpace(data.Name)
+	cmdData := evt.ApplicationCommandData()
+	commandName := strings.TrimSpace(cmdData.Name)
 	if !discordLinkBootstrapAllowed(commandName) {
 		linked, err := channelIdentityLinksRepo.WithTx(tx).HasLink(ctx, channel.ID, identity.ID)
 		if err != nil {
@@ -999,76 +1001,15 @@ func handleDiscordCommand(
 			return &discordInteractionReply{Content: "当前账号未关联此接入。请使用 /bind 重新关联。", Ephemeral: true}, nil
 		}
 	}
+
+	// /bind 和 /heartbeat 有 Discord 特有逻辑，不走统一 dispatch。
 	switch commandName {
-	case "help":
-		return &discordInteractionReply{Content: "可用命令：/help /bind /new。私信可以直接聊天。", Ephemeral: true}, nil
 	case "bind":
 		code := ""
-		if len(data.Options) > 0 {
-			code = strings.TrimSpace(data.Options[0].StringValue())
+		if len(cmdData.Options) > 0 {
+			code = strings.TrimSpace(cmdData.Options[0].StringValue())
 		}
 		replyText, err := bindDiscordIdentity(ctx, tx, channel, identity, code, channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
-		if err != nil {
-			return nil, err
-		}
-		return &discordInteractionReply{Content: replyText, Ephemeral: true}, nil
-	case "new":
-		if evt.GuildID != "" {
-			return &discordInteractionReply{Content: "请在私信中使用 /new。", Ephemeral: true}, nil
-		}
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
-		}
-		if err := channelDMThreadsRepo.WithTx(tx).DeleteByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, ""); err != nil {
-			return nil, err
-		}
-		return &discordInteractionReply{Content: "已开启新会话。", Ephemeral: true}, nil
-	case "model":
-		if evt.GuildID != "" {
-			return &discordInteractionReply{Content: "请在私信中使用 /model。", Ephemeral: true}, nil
-		}
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
-		}
-		threadMap, _ := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
-		threadID := uuid.Nil
-		if threadMap != nil {
-			threadID = threadMap.ThreadID
-		}
-		nameArg := ""
-		if len(data.Options) > 0 {
-			nameArg = strings.TrimSpace(data.Options[0].StringValue())
-		}
-		rawText := "/model"
-		if nameArg != "" {
-			rawText = "/model " + nameArg
-		}
-		replyText, _, err := handlePreferenceCommand(ctx, tx, channel.AccountID, threadID, rawText, nil)
-		if err != nil {
-			return nil, err
-		}
-		return &discordInteractionReply{Content: replyText, Ephemeral: true}, nil
-	case "think":
-		if evt.GuildID != "" {
-			return &discordInteractionReply{Content: "请在私信中使用 /think。", Ephemeral: true}, nil
-		}
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return &discordInteractionReply{Content: "当前会话未配置 persona。", Ephemeral: true}, nil
-		}
-		threadMap, _ := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
-		threadID := uuid.Nil
-		if threadMap != nil {
-			threadID = threadMap.ThreadID
-		}
-		levelArg := ""
-		if len(data.Options) > 0 {
-			levelArg = strings.TrimSpace(data.Options[0].StringValue())
-		}
-		rawText := "/think"
-		if levelArg != "" {
-			rawText = "/think " + levelArg
-		}
-		replyText, _, err := handlePreferenceCommand(ctx, tx, channel.AccountID, threadID, rawText, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1085,8 +1026,8 @@ func handleDiscordCommand(
 			return &discordInteractionReply{Content: "当前没有活跃的会话。", Ephemeral: true}, nil
 		}
 		action := ""
-		if len(data.Options) > 0 {
-			action = strings.TrimSpace(data.Options[0].StringValue())
+		if len(cmdData.Options) > 0 {
+			action = strings.TrimSpace(cmdData.Options[0].StringValue())
 		}
 		enabled, intervalMin, model, _, err := getInboundThreadHeartbeatConfig(ctx, tx, threadMap.ThreadID)
 		if err != nil {
@@ -1117,37 +1058,83 @@ func handleDiscordCommand(
 			}
 			return &discordInteractionReply{Content: fmt.Sprintf("心跳：%s\n模型：%s", status, modelDisplay), Ephemeral: true}, nil
 		}
-	case "stop":
-		if evt.GuildID != "" {
-			return &discordInteractionReply{Content: "请在私信中使用 /stop。", Ephemeral: true}, nil
+	}
+
+	// 其余命令统一走 DispatchChannelCommand
+	ch := *channel
+	persona := data.Persona{}
+	if ch.PersonaID != nil && *ch.PersonaID != uuid.Nil {
+		if p, err := personasRepo.WithTx(tx).GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID); err == nil && p != nil {
+			persona = *p
 		}
-		if channel == nil || channel.PersonaID == nil || *channel.PersonaID == uuid.Nil {
-			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
-		}
-		threadMap, err := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, channel.ID, identity.ID, *channel.PersonaID, "")
-		if err != nil {
-			return nil, err
-		}
-		if threadMap == nil {
-			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
-		}
-		activeRun, err := runEventRepo.GetActiveRootRunForThread(ctx, threadMap.ThreadID)
-		if err != nil {
-			return nil, err
-		}
-		if activeRun == nil {
-			return &discordInteractionReply{Content: "当前没有运行中的任务。", Ephemeral: true}, nil
-		}
-		if _, err := runEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
-			return nil, err
-		}
-		if pool != nil {
-			_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, activeRun.ID.String())
-		}
-		return &discordInteractionReply{Content: "已请求停止当前任务。", Ephemeral: true}, nil
-	default:
+	}
+
+	// 构建 commandText：从 Discord interaction options 拼接
+	cmdText := "/" + commandName
+	if len(cmdData.Options) > 0 {
+		cmdText += " " + strings.TrimSpace(cmdData.Options[0].StringValue())
+	}
+
+	handled, reply, err := DispatchChannelCommand(
+		ctx, tx, ch, persona, identity,
+		cmdText, evt.GuildID == "", evt.ChannelID,
+		entSvc,
+		ChannelCommandResolver{
+			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
+				if isPrivate {
+					binding, err := channelDMThreadsRepo.WithTx(tx).GetByBinding(ctx, ch.ID, identity.ID, personaID, "")
+					if err != nil {
+						return uuid.Nil, err
+					}
+					if binding != nil {
+						if existing, _ := threadRepo.WithTx(tx).GetByID(ctx, binding.ThreadID); existing != nil {
+							return binding.ThreadID, nil
+						}
+						_ = channelDMThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, identity.ID, personaID, "")
+					}
+					thread, err := threadRepo.WithTx(tx).Create(ctx, ch.AccountID, nil, projectID, nil, false)
+					if err != nil {
+						return uuid.Nil, err
+					}
+					if _, err := channelDMThreadsRepo.WithTx(tx).Create(ctx, ch.ID, identity.ID, personaID, "", thread.ID); err != nil {
+						return uuid.Nil, err
+					}
+					return thread.ID, nil
+				}
+				return uuid.Nil, fmt.Errorf("Discord thread resolution not supported in guilds")
+			},
+			BindCode: func() string {
+				if len(cmdData.Options) > 0 && commandName == "bind" {
+					return strings.TrimSpace(cmdData.Options[0].StringValue())
+				}
+				return ""
+			},
+		},
+		ChannelCommandDeps{
+			ChannelIdentitiesRepo:    channelIdentitiesRepo,
+			ChannelDMThreadsRepo:     channelDMThreadsRepo,
+			ChannelGroupThreadsRepo:  nil,
+			PersonasRepo:             personasRepo,
+			RunEventRepo:             runEventRepo,
+			ChannelBindCodesRepo:     channelBindCodesRepo,
+			ChannelIdentityLinksRepo: channelIdentityLinksRepo,
+			ThreadRepo:               threadRepo,
+		},
+		"Discord",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !handled || reply == nil {
 		return &discordInteractionReply{Content: "暂不支持这个命令。", Ephemeral: true}, nil
 	}
+
+	// pg_notify for cancel
+	if reply.CancelRunID != uuid.Nil && pool != nil {
+		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+	}
+
+	return &discordInteractionReply{Content: reply.Text, Ephemeral: true}, nil
 }
 
 func discordLinkBootstrapAllowed(commandName string) bool {

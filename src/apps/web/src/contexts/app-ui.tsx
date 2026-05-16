@@ -70,6 +70,10 @@ type SidebarUIContextValue = Pick<
   AppUIContextValue,
   'sidebarCollapsed' | 'sidebarHiddenByWidth' | 'rightPanelOpen' | 'toggleSidebar' | 'setRightPanelOpen'
 >
+type SidebarCollapseContextValue = Pick<
+  AppUIContextValue,
+  'sidebarCollapsed' | 'sidebarHiddenByWidth' | 'toggleSidebar'
+>
 type RightPanelActionsContextValue = Pick<AppUIContextValue, 'setRightPanelOpen'>
 
 type SearchUIContextValue = Pick<
@@ -85,6 +89,7 @@ type TitleBarRightPanelUIContextValue = Pick<AppUIContextValue, 'setTitleBarRigh
 
 const AppUIContext = createContext<AppUIContextValue | null>(null)
 const SidebarUIContext = createContext<SidebarUIContextValue | null>(null)
+const SidebarCollapseContext = createContext<SidebarCollapseContextValue | null>(null)
 const RightPanelActionsContext = createContext<RightPanelActionsContextValue | null>(null)
 const SearchUIContext = createContext<SearchUIContextValue | null>(null)
 const SettingsUIContext = createContext<SettingsUIContextValue | null>(null)
@@ -115,6 +120,19 @@ function AppUIProviders({
       value.rightPanelOpen,
       value.toggleSidebar,
       value.setRightPanelOpen,
+    ],
+  )
+
+  const sidebarCollapseValue = useMemo<SidebarCollapseContextValue>(
+    () => ({
+      sidebarCollapsed: value.sidebarCollapsed,
+      sidebarHiddenByWidth: value.sidebarHiddenByWidth,
+      toggleSidebar: value.toggleSidebar,
+    }),
+    [
+      value.sidebarCollapsed,
+      value.sidebarHiddenByWidth,
+      value.toggleSidebar,
     ],
   )
 
@@ -220,21 +238,23 @@ function AppUIProviders({
     <AppUIContext.Provider value={value}>
       <RightPanelActionsContext.Provider value={rightPanelActionsValue}>
         <SidebarUIContext.Provider value={sidebarValue}>
-          <SearchUIContext.Provider value={searchValue}>
-            <SettingsUIContext.Provider value={settingsValue}>
-              <NotificationsUIContext.Provider value={notificationsValue}>
-                <AppModeUIContext.Provider value={appModeValue}>
-                  <SkillPromptUIContext.Provider value={skillPromptValue}>
-                    <TitleBarIncognitoUIContext.Provider value={titleBarIncognitoValue}>
-                      <TitleBarRightPanelUIContext.Provider value={titleBarRightPanelValue}>
-                        {children}
-                      </TitleBarRightPanelUIContext.Provider>
-                    </TitleBarIncognitoUIContext.Provider>
-                  </SkillPromptUIContext.Provider>
-                </AppModeUIContext.Provider>
-              </NotificationsUIContext.Provider>
-            </SettingsUIContext.Provider>
-          </SearchUIContext.Provider>
+          <SidebarCollapseContext.Provider value={sidebarCollapseValue}>
+            <SearchUIContext.Provider value={searchValue}>
+              <SettingsUIContext.Provider value={settingsValue}>
+                <NotificationsUIContext.Provider value={notificationsValue}>
+                  <AppModeUIContext.Provider value={appModeValue}>
+                    <SkillPromptUIContext.Provider value={skillPromptValue}>
+                      <TitleBarIncognitoUIContext.Provider value={titleBarIncognitoValue}>
+                        <TitleBarRightPanelUIContext.Provider value={titleBarRightPanelValue}>
+                          {children}
+                        </TitleBarRightPanelUIContext.Provider>
+                      </TitleBarIncognitoUIContext.Provider>
+                    </SkillPromptUIContext.Provider>
+                  </AppModeUIContext.Provider>
+                </NotificationsUIContext.Provider>
+              </SettingsUIContext.Provider>
+            </SearchUIContext.Provider>
+          </SidebarCollapseContext.Provider>
         </SidebarUIContext.Provider>
       </RightPanelActionsContext.Provider>
     </AppUIContext.Provider>
@@ -715,6 +735,12 @@ export function useAppUI(): AppUIContextValue {
 export function useSidebarUI(): SidebarUIContextValue {
   const ctx = useContext(SidebarUIContext)
   if (!ctx) throw new Error('useSidebarUI must be used within AppUIProvider')
+  return ctx
+}
+
+export function useSidebarCollapseUI(): SidebarCollapseContextValue {
+  const ctx = useContext(SidebarCollapseContext)
+  if (!ctx) throw new Error('useSidebarCollapseUI must be used within AppUIProvider')
   return ctx
 }
 

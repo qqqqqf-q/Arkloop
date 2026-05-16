@@ -470,12 +470,14 @@ export function registerIpcHandlers(
           'user-agent': 'Arkloop Desktop',
         },
       })
+      const xFrameOptions = response.headers.get('x-frame-options') ?? undefined
+      const frameAncestors = response.headers.get('content-security-policy')?.match(/(?:^|;)\s*frame-ancestors\s+([^;]+)/i)?.[1]?.trim()
       const contentType = response.headers.get('content-type') ?? ''
       if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
-        return {}
+        return { xFrameOptions, frameAncestors }
       }
       const html = await response.text()
-      return { title: extractHtmlTitle(html) }
+      return { title: extractHtmlTitle(html), xFrameOptions, frameAncestors }
     } finally {
       clearTimeout(timeout)
     }

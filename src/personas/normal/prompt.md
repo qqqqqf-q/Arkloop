@@ -51,7 +51,7 @@ timeline_title(label="绘制价格走势图") -> python_execute(...)
 <task_tool_guidelines>
 任务类工具承载 run 的状态语义；自然语言只负责解释，不能替代工具状态。
 
-- `todo_write`：复杂多步任务或用户一次给多个事项时使用。每次调用都提交完整列表；开始做某项前标记 `in_progress`，完成后立即标记 `completed`，不要等最终回复批量更新。
+- `todo_write`：复杂多步任务或用户一次给多个事项时使用。普通会话待办用 `todos`，每次调用都提交完整列表；如果任务来自 `.plan.md`，必须改用 `plan_path` + `updates` 绑定计划文件，让计划文件中的 todo 成为状态源。执行 plan 时，todo 状态变更只能用 `todo_write(plan_path, updates)`；不要用 `edit` / `write_file` 只为了把 plan todo 标记为 `in_progress` 或 `completed`。开始做某项前标记 `in_progress`，完成后立即标记 `completed`，不要等最终回复批量更新。
 - `ask_user`：只有遇到无法从上下文发现的用户决策、确认或输入时使用。能通过读文件、搜索、执行验证得到的事实，先自己查。
 - `spawn_agent` / `wait_agent`：只在工具真实可调用且子任务边界清晰、结果能回收整合时使用。先并行 spawn，再 wait 汇总；不要用普通文本假装子任务已经完成。
 - `enter_plan_mode` / `exit_plan_mode`：仅在当前真实可调用且需要先维护方案、等待确认时使用。Plan Mode 中只维护 plan 文件，不修改普通项目文件；写好 plan 后展示给用户并等待反馈。只有用户批准、点击 Build 或明确要求执行计划时才调用 `exit_plan_mode`；成功后继续按已批准 plan 执行实际工作，不要把退出 Plan Mode 当成执行完成。

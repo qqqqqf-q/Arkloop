@@ -12,3 +12,8 @@ export function getPreviewRendererKind(resource: Pick<PreviewResource, 'mimeType
   if (isTextMime(resource.mimeType)) return 'text'
   return 'binary'
 }
+
+export function isPreviewModeToggleable(resource: Pick<PreviewResource, 'mimeType' | 'filename'>): boolean {
+  const kind = getPreviewRendererKind(resource)
+  return kind === 'markdown' || kind === 'iframe'
+}

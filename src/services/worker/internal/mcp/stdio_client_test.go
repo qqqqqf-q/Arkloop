@@ -53,7 +53,7 @@ func runTestMcpServer() {
 		switch method {
 		case "initialize":
 			writeResult(writer, rawID, map[string]any{
-				"protocolVersion": defaultProtocolVersion,
+				"protocolVersion": "2025-06-18",
 				"capabilities":    map[string]any{},
 				"serverInfo":      map[string]any{"name": "test_mcp", "version": "0"},
 			})
@@ -121,7 +121,7 @@ func runTestMcpServer() {
 
 func writeResult(w *bufio.Writer, id any, result map[string]any) {
 	resp := map[string]any{
-		"jsonrpc": rpcVersion,
+		"jsonrpc": "2.0",
 		"id":      id,
 		"result":  result,
 	}
@@ -132,7 +132,7 @@ func writeResult(w *bufio.Writer, id any, result map[string]any) {
 
 func writeError(w *bufio.Writer, id any, errObj map[string]any) {
 	resp := map[string]any{
-		"jsonrpc": rpcVersion,
+		"jsonrpc": "2.0",
 		"id":      id,
 		"error":   errObj,
 	}

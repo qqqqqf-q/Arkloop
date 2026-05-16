@@ -129,6 +129,69 @@ func TestRenderLaunchSpecResolvesRuntimeCommandHelperAndPlatform(t *testing.T) {
 	}
 }
 
+func TestManifestRuntimeDefaultsResolveRuntimePlaceholders(t *testing.T) {
+	manifest, _, err := decodeManifest([]byte(`
+schemaVersion: 1
+id: demo.plugin
+version: 1.0.0
+runtime:
+  id: cua-driver
+  path: runtime/CuaDriver.app/Contents/MacOS/cua-driver
+  detect:
+    - "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+mcp_servers:
+  - server_id: cua-driver
+    transport: stdio
+    command: "${runtime.cua-driver.command}"
+    env:
+      APP_PATH: "${runtime.cua-driver.helper_app_path}"
+`))
+	if err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	state := map[string]any{"plugin_data": "/tmp/plugin"}
+	applyManifestRuntimeDefaults(manifest, state)
+	payload, err := renderLaunchSpec(manifest.MCPServers[0].LaunchSpec, nil, state, true)
+	if err != nil {
+		t.Fatalf("render launch spec: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode launch spec: %v", err)
+	}
+	if decoded["command"] != "/tmp/plugin/runtime/CuaDriver.app/Contents/MacOS/cua-driver" {
+		t.Fatalf("unexpected command: %#v", decoded)
+	}
+	env := decoded["env"].(map[string]any)
+	if env["APP_PATH"] != "/tmp/plugin/runtime/CuaDriver.app" {
+		t.Fatalf("unexpected app path: %#v", env)
+	}
+}
+
+func TestManifestRuntimeDefaultsIgnoreDetectPaths(t *testing.T) {
+	manifest, _, err := decodeManifest([]byte(`
+schemaVersion: 1
+id: demo.plugin
+version: 1.0.0
+runtime:
+  id: cua-driver
+  detect:
+    - "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"
+mcp_servers:
+  - server_id: cua-driver
+    transport: stdio
+    command: "${runtime.cua-driver.command}"
+`))
+	if err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	state := map[string]any{"plugin_data": "/tmp/plugin"}
+	applyManifestRuntimeDefaults(manifest, state)
+	if value := stringFromPluginMap(state, "cua-driver.path"); value != "" {
+		t.Fatalf("unexpected runtime path from detect: %q", value)
+	}
+}
+
 func TestRenderLaunchSpecRejectsMissingRuntimePathWhenStrict(t *testing.T) {
 	_, err := renderLaunchSpec(map[string]any{
 		"command": "${runtime.cua-driver.path}",

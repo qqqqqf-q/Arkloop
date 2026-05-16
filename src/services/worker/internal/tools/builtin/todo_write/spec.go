@@ -11,9 +11,9 @@ const ToolName = "todo_write"
 var AgentSpec = tools.AgentToolSpec{
 	Name:        ToolName,
 	Version:     "1",
-	Description: "manage a per-run todo list",
+	Description: "manage a per-run or plan-bound todo list",
 	RiskLevel:   tools.RiskLevelLow,
-	SideEffects: false,
+	SideEffects: true,
 }
 
 var LlmSpec = llm.ToolSpec{
@@ -23,7 +23,8 @@ var LlmSpec = llm.ToolSpec{
 		"type": "object",
 		"properties": map[string]any{
 			"todos": map[string]any{
-				"type": "array",
+				"description": "Per-run todos. Use this mode when the todo list is not bound to a plan file.",
+				"type":        "array",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -39,8 +40,30 @@ var LlmSpec = llm.ToolSpec{
 					"additionalProperties": false,
 				},
 			},
+			"plan_path": map[string]any{
+				"type":        "string",
+				"description": "Path to a .plan.md file. When executing an approved plan, use this for every plan todo status change. When provided, omit todos and update the plan file's front matter todos through updates.",
+			},
+			"updates": map[string]any{
+				"type":        "array",
+				"description": "Todo status updates for plan-bound mode.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"todo_id": map[string]any{
+							"type":        "string",
+							"description": "The id of the todo in the plan file.",
+						},
+						"status": map[string]any{
+							"type": "string",
+							"enum": []string{"pending", "in_progress", "completed", "cancelled"},
+						},
+					},
+					"required":             []string{"todo_id", "status"},
+					"additionalProperties": false,
+				},
+			},
 		},
-		"required":             []string{"todos"},
 		"additionalProperties": false,
 	},
 }

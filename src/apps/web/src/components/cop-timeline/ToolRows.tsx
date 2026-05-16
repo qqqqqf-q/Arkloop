@@ -122,10 +122,10 @@ function fileOpDiffCounts(op: FileOpRef): { added: number; removed: number } | n
   return summarizeDiff(op.output || op.errorMessage)
 }
 
-function FileOpDiffSuffix({ added, removed }: { added: number; removed: number }) {
+function FileOpDiffSuffix({ added, removed, ariaLabel }: { added: number; removed: number; ariaLabel: string }) {
   return (
     <span
-      aria-label={`${added} added${removed > 0 ? `, ${removed} removed` : ''}`}
+      aria-label={ariaLabel}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -165,7 +165,7 @@ function FileOpDiffSuffix({ added, removed }: { added: number; removed: number }
 }
 
 export function FileOpToolCard({ op }: { op: FileOpRef }) {
-  const { locale } = useLocale()
+  const { locale, t } = useLocale()
   const title = op.displayText ? renderTimelineText(op.displayText, locale) : localizeTimelineLabel(op.displayDescription || op.label || op.toolName, locale)
   const filePath = op.filePath || op.displayDetail || ''
   const lines = previewLines(op.output || op.errorMessage)
@@ -179,7 +179,7 @@ export function FileOpToolCard({ op }: { op: FileOpRef }) {
         <div style={{ padding: '8px 10px', fontFamily: MONO, fontSize: 12, color: 'var(--c-text-secondary)', background: 'var(--c-bg-menu)', borderBottom: '0.5px solid var(--c-border-subtle)', display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
           <span style={{ fontWeight: 600, color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cardTitle}</span>
           {cardSubtitle && <span style={{ color: 'var(--c-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {cardSubtitle}</span>}
-          {diffCounts && <FileOpDiffSuffix added={diffCounts.added} removed={diffCounts.removed} />}
+          {diffCounts && <FileOpDiffSuffix added={diffCounts.added} removed={diffCounts.removed} ariaLabel={t.diffAddedRemoved(diffCounts.added, diffCounts.removed)} />}
         </div>
       )}
       {lines.length > 0 ? (

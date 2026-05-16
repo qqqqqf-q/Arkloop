@@ -56,6 +56,36 @@ func TestDetectRuntimeDerivesHelperAppPath(t *testing.T) {
 	}
 }
 
+func TestResolveDeclaredRuntimeUsesRuntimePath(t *testing.T) {
+	root := t.TempDir()
+	result, ok := ResolveDeclaredRuntime(pluginmanifest.RuntimeConfig{
+		ID:   "cua-driver",
+		Path: "runtime/CuaDriver.app/Contents/MacOS/cua-driver",
+		Detect: []pluginmanifest.RuntimeDetectConfig{{
+			Path: "/Applications/CuaDriver.app/Contents/MacOS/cua-driver",
+		}},
+	}, DetectOptions{InstallRoot: root})
+	if !ok {
+		t.Fatalf("expected declared runtime")
+	}
+	if result.Path != filepath.Join(root, "runtime", "CuaDriver.app", "Contents", "MacOS", "cua-driver") {
+		t.Fatalf("unexpected declared path: %q", result.Path)
+	}
+	if result.HelperAppPath != filepath.Join(root, "runtime", "CuaDriver.app") {
+		t.Fatalf("unexpected helper app path: %q", result.HelperAppPath)
+	}
+}
+
+func TestResolveDeclaredRuntimeIgnoresDetectOnlyRuntime(t *testing.T) {
+	_, ok := ResolveDeclaredRuntime(pluginmanifest.RuntimeConfig{
+		ID:     "cua-driver",
+		Detect: []pluginmanifest.RuntimeDetectConfig{{Path: "/Applications/CuaDriver.app/Contents/MacOS/cua-driver"}},
+	}, DetectOptions{InstallRoot: t.TempDir()})
+	if ok {
+		t.Fatalf("detect path must not be treated as declared runtime")
+	}
+}
+
 func TestVersionCommandHelper(t *testing.T) {
 	args := os.Args
 	for i, arg := range args {

@@ -1,18 +1,12 @@
 package catalogapi
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -23,19 +17,17 @@ import (
 	"arkloop/services/api/internal/data"
 	sharedenvironmentref "arkloop/services/shared/environmentref"
 	sharedmcpinstall "arkloop/services/shared/mcpinstall"
-	sharedmcpoauth "arkloop/services/shared/mcpoauth"
 
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	effectiveToolCatalogMCPGroup   = "mcp"
-	effectiveMCPConfigFileEnv      = "ARKLOOP_MCP_CONFIG_FILE"
-	effectiveMCPDefaultTimeoutMs   = 10000
-	effectiveMCPProtocolVersion    = "2025-06-18"
-	effectiveToolCatalogCacheEnv   = "__env__"
-	effectiveMCPOAuthRefreshLeeway = 5 * time.Minute
+	effectiveToolCatalogMCPGroup = "mcp"
+	effectiveMCPConfigFileEnv    = "ARKLOOP_MCP_CONFIG_FILE"
+	effectiveMCPDefaultTimeoutMs = 10000
+	effectiveToolCatalogCacheEnv = "__env__"
 )
 
 type effectiveToolCatalogCache struct {
@@ -343,501 +335,65 @@ func discoverEffectiveMCPTools(ctx context.Context, servers []effectiveMCPServer
 }
 
 func listEffectiveMCPServerTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
+	return listEffectiveMCPToolsWithSDK(ctx, server)
+}
+
+func listEffectiveMCPToolsWithSDK(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
+	impl := &sdkmcp.Implementation{Name: "arkloop-api", Version: "0"}
+	client := sdkmcp.NewClient(impl, nil)
+
+	var transport sdkmcp.Transport
 	switch server.Transport {
-	case "http_sse", "streamable_http":
-		return listEffectiveMCPHTTPTools(ctx, server)
-	case "stdio":
-		return listEffectiveMCPStdioTools(ctx, server)
+	case "stdio", "":
+		transport = sharedmcpinstall.BuildCommandTransport(server)
+	case "http_sse":
+		transport = sharedmcpinstall.BuildSSETransport(server, sharedmcpinstall.NewSafeHTTPClient())
+	case "streamable_http":
+		transport = sharedmcpinstall.BuildStreamableTransport(server, sharedmcpinstall.NewSafeHTTPClient(), nil)
 	default:
-		return nil, fmt.Errorf("mcp effective catalog: transport not supported")
+		return nil, fmt.Errorf("mcp effective catalog: unsupported transport: %s", server.Transport)
 	}
-}
 
-func listEffectiveMCPHTTPTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
-	if _, err := url.Parse(server.URL); err != nil {
-		return nil, err
-	}
-	client := effectiveMCPHTTPClient{server: server, nextID: 1}
-	if err := client.initialize(ctx); err != nil {
-		return nil, err
-	}
-	result, err := client.request(ctx, "tools/list", map[string]any{}, server.CallTimeoutMs)
+	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("mcp effective catalog: connect failed: %w", err)
 	}
-	return parseEffectiveMCPTools(result), nil
-}
+	defer func() { _ = session.Close() }()
 
-type effectiveMCPHTTPClient struct {
-	server    effectiveMCPServerConfig
-	nextID    int64
-	sessionID string
-}
-
-func (c *effectiveMCPHTTPClient) initialize(ctx context.Context) error {
-	if _, err := c.request(ctx, "initialize", map[string]any{
-		"protocolVersion": effectiveMCPProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "arkloop-api", "version": "0"},
-	}, c.server.CallTimeoutMs); err != nil {
-		return err
+	timeoutMs := server.CallTimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = effectiveMCPDefaultTimeoutMs
 	}
-	return c.notify(ctx, "notifications/initialized", nil)
-}
-
-func (c *effectiveMCPHTTPClient) request(ctx context.Context, method string, params map[string]any, timeoutMs int) (map[string]any, error) {
-	id := c.nextID
-	c.nextID++
-	body := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  method,
-	}
-	if params != nil {
-		body["params"] = params
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	resp, cancel, err := c.send(ctx, encoded, timeoutMs)
-	if err != nil {
-		return nil, err
-	}
+	listCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
-	}
-	if value := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); value != "" {
-		c.sessionID = value
-	}
-	contentType := resp.Header.Get("Content-Type")
-	var payload map[string]any
-	if strings.Contains(contentType, "text/event-stream") {
-		payload, err = parseEffectiveMCPSSEResponse(resp.Body, id)
-	} else {
-		err = json.NewDecoder(resp.Body).Decode(&payload)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return parseEffectiveMCPResponse(payload)
-}
 
-func (c *effectiveMCPHTTPClient) notify(ctx context.Context, method string, params map[string]any) error {
-	body := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  method,
-	}
-	if params != nil {
-		body["params"] = params
-	}
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	resp, cancel, err := c.send(ctx, encoded, c.server.CallTimeoutMs)
-	if err != nil {
-		return err
-	}
-	defer cancel()
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("mcp effective catalog: server returned %d", resp.StatusCode)
-	}
-	if value := strings.TrimSpace(resp.Header.Get("Mcp-Session-Id")); value != "" {
-		c.sessionID = value
-	}
-	return nil
-}
-
-func (c *effectiveMCPHTTPClient) send(ctx context.Context, encoded []byte, timeoutMs int) (*http.Response, context.CancelFunc, error) {
-	timeout := time.Duration(timeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = time.Duration(effectiveMCPDefaultTimeoutMs) * time.Millisecond
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.server.URL, bytes.NewReader(encoded))
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-	if strings.TrimSpace(c.sessionID) != "" {
-		req.Header.Set("Mcp-Session-Id", strings.TrimSpace(c.sessionID))
-	}
-	for key, value := range c.server.Headers {
-		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
-			continue
-		}
-		req.Header.Set(strings.TrimSpace(key), strings.TrimSpace(value))
-	}
-	if token, err := c.oauthAccessToken(ctx); err != nil {
-		cancel()
-		return nil, nil, err
-	} else if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	resp, err := newEffectiveMCPHTTPClient().Do(req)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-	return resp, cancel, nil
-}
-
-func (c *effectiveMCPHTTPClient) oauthAccessToken(ctx context.Context) (string, error) {
-	state := c.server.OAuth
-	if state == nil {
-		return "", nil
-	}
-	tokens := state.Tokens
-	if strings.TrimSpace(tokens.AccessToken) != "" && !sharedmcpoauth.TokenExpiredSoon(tokens, effectiveMCPOAuthRefreshLeeway) {
-		return strings.TrimSpace(tokens.AccessToken), nil
-	}
-	if strings.TrimSpace(tokens.RefreshToken) == "" {
-		return "", fmt.Errorf("mcp effective catalog: oauth token expired")
-	}
-	refreshed, err := sharedmcpoauth.RefreshAuthorization(ctx, newEffectiveMCPHTTPClient(), state.Discovery, state.Client, tokens.RefreshToken)
-	if err != nil {
-		return "", err
-	}
-	state.Tokens = refreshed
-	c.server.OAuth = state
-	return strings.TrimSpace(refreshed.AccessToken), nil
-}
-
-func listEffectiveMCPStdioTools(ctx context.Context, server effectiveMCPServerConfig) ([]effectiveMCPTool, error) {
-	client := newEffectiveMCPStdioClient(server)
-	defer func() { _ = client.Close() }()
-	return client.ListTools(ctx)
-}
-
-type effectiveMCPStdioClient struct {
-	server      effectiveMCPServerConfig
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	closed      bool
-	nextID      int64
-	pending     map[int64]chan map[string]any
-	mu          sync.Mutex
-	writeMu     sync.Mutex
-	initialized bool
-}
-
-func newEffectiveMCPStdioClient(server effectiveMCPServerConfig) *effectiveMCPStdioClient {
-	return &effectiveMCPStdioClient{server: server, nextID: 1, pending: map[int64]chan map[string]any{}}
-}
-
-func (c *effectiveMCPStdioClient) Close() error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil
-	}
-	c.closed = true
-	cmd := c.cmd
-	stdin := c.stdin
-	stdout := c.stdout
-	pending := c.pending
-	c.pending = map[int64]chan map[string]any{}
-	c.mu.Unlock()
-	for _, ch := range pending {
-		close(ch)
-	}
-	if stdin != nil {
-		_ = stdin.Close()
-	}
-	if stdout != nil {
-		_ = stdout.Close()
-	}
-	if cmd != nil && cmd.Process != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}
-	return nil
-}
-
-func (c *effectiveMCPStdioClient) ListTools(ctx context.Context) ([]effectiveMCPTool, error) {
-	if err := c.initialize(ctx); err != nil {
-		return nil, err
-	}
-	result, err := c.request(ctx, "tools/list", map[string]any{}, c.server.CallTimeoutMs)
-	if err != nil {
-		return nil, err
-	}
-	return parseEffectiveMCPTools(result), nil
-}
-
-func (c *effectiveMCPStdioClient) initialize(ctx context.Context) error {
-	c.mu.Lock()
-	if c.initialized {
-		c.mu.Unlock()
-		return nil
-	}
-	c.mu.Unlock()
-	if err := c.ensureStarted(ctx); err != nil {
-		return err
-	}
-	if _, err := c.request(ctx, "initialize", map[string]any{
-		"protocolVersion": effectiveMCPProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "arkloop-api", "version": "0"},
-	}, c.server.CallTimeoutMs); err != nil {
-		return err
-	}
-	if err := c.notify(ctx, "notifications/initialized", nil); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.initialized = true
-	c.mu.Unlock()
-	return nil
-}
-
-func (c *effectiveMCPStdioClient) ensureStarted(ctx context.Context) error {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return fmt.Errorf("mcp effective catalog: client closed")
-	}
-	if c.cmd != nil {
-		c.mu.Unlock()
-		return nil
-	}
-	server := c.server
-	c.mu.Unlock()
-	cmd := exec.CommandContext(ctx, server.Command, server.Args...)
-	if server.Cwd != nil {
-		cmd.Dir = *server.Cwd
-	}
-	cmd.Env = buildEffectiveMCPEnv(server)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		_ = stderr.Close()
-		return err
-	}
-	c.mu.Lock()
-	c.cmd = cmd
-	c.stdin = stdin
-	c.stdout = stdout
-	c.mu.Unlock()
-	go c.readLoop(stdout)
-	go func() {
-		_, _ = io.Copy(io.Discard, stderr)
-	}()
-	return nil
-}
-
-func (c *effectiveMCPStdioClient) request(ctx context.Context, method string, params map[string]any, timeoutMs int) (map[string]any, error) {
-	if err := c.ensureStarted(ctx); err != nil {
-		return nil, err
-	}
-	id := c.reserveID()
-	ch := make(chan map[string]any, 1)
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil, fmt.Errorf("mcp effective catalog: client closed")
-	}
-	c.pending[id] = ch
-	stdin := c.stdin
-	c.mu.Unlock()
-	payload := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
-	if params != nil {
-		payload["params"] = params
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-	c.writeMu.Lock()
-	_, err = stdin.Write(append(encoded, '\n'))
-	c.writeMu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	timeout := time.Duration(timeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = time.Duration(effectiveMCPDefaultTimeoutMs) * time.Millisecond
-	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(timeout):
-		return nil, fmt.Errorf("mcp effective catalog: request timed out")
-	case resp, ok := <-ch:
-		if !ok {
-			return nil, fmt.Errorf("mcp effective catalog: client disconnected")
-		}
-		return parseEffectiveMCPResponse(resp)
-	}
-}
-
-func (c *effectiveMCPStdioClient) notify(ctx context.Context, method string, params map[string]any) error {
-	if err := c.ensureStarted(ctx); err != nil {
-		return err
-	}
-	c.mu.Lock()
-	stdin := c.stdin
-	c.mu.Unlock()
-	payload := map[string]any{"jsonrpc": "2.0", "method": method}
-	if params != nil {
-		payload["params"] = params
-	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	c.writeMu.Lock()
-	_, err = stdin.Write(append(encoded, '\n'))
-	c.writeMu.Unlock()
-	return err
-}
-
-func (c *effectiveMCPStdioClient) reserveID() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	id := c.nextID
-	c.nextID++
-	return id
-}
-
-func (c *effectiveMCPStdioClient) readLoop(stdout io.Reader) {
-	reader := bufio.NewReader(stdout)
-	for {
-		line, err := reader.ReadString('\n')
+	var out []effectiveMCPTool
+	for tool, err := range session.Tools(listCtx, nil) {
 		if err != nil {
-			_ = c.Close()
-			return
+			return nil, fmt.Errorf("mcp effective catalog: list tools failed: %w", err)
 		}
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+		if tool == nil {
 			continue
 		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
-			continue
-		}
-		id, ok := parseEffectiveMCPID(payload["id"])
-		if !ok {
-			continue
-		}
-		c.mu.Lock()
-		ch := c.pending[id]
-		delete(c.pending, id)
-		c.mu.Unlock()
-		if ch == nil {
-			continue
-		}
-		ch <- payload
-		close(ch)
-	}
-}
-
-func parseEffectiveMCPTools(result map[string]any) []effectiveMCPTool {
-	rawTools := result["tools"]
-	if rawTools == nil {
-		return nil
-	}
-	list, ok := rawTools.([]any)
-	if !ok {
-		return nil
-	}
-	tools := make([]effectiveMCPTool, 0, len(list))
-	for _, item := range list {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		name := strings.TrimSpace(effectiveMCPAsString(obj["name"]))
+		name := strings.TrimSpace(tool.Name)
 		if name == "" {
 			continue
 		}
-		tools = append(tools, effectiveMCPTool{Name: name, Title: effectiveMCPOptionalString(obj["title"]), Description: effectiveMCPOptionalString(obj["description"])})
+		out = append(out, effectiveMCPTool{
+			Name:        name,
+			Title:       effectiveMCPStringPtr(tool.Title),
+			Description: effectiveMCPStringPtr(tool.Description),
+		})
 	}
-	return tools
+	return out, nil
 }
 
-func parseEffectiveMCPResponse(payload map[string]any) (map[string]any, error) {
-	if rawErr, ok := payload["error"].(map[string]any); ok {
-		return nil, fmt.Errorf("mcp effective catalog: %s", strings.TrimSpace(effectiveMCPAsString(rawErr["message"])))
+func effectiveMCPStringPtr(v string) *string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
 	}
-	result, ok := payload["result"].(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("mcp effective catalog: missing result")
-	}
-	return result, nil
-}
-
-func parseEffectiveMCPSSEResponse(r io.Reader, reqID int64) (map[string]any, error) {
-	scanner := bufio.NewScanner(r)
-	var dataLine string
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data:") {
-			dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			continue
-		}
-		if line == "" && dataLine != "" {
-			var payload map[string]any
-			if err := json.Unmarshal([]byte(dataLine), &payload); err == nil {
-				id, ok := parseEffectiveMCPID(payload["id"])
-				if ok && id == reqID {
-					return payload, nil
-				}
-			}
-			dataLine = ""
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return nil, fmt.Errorf("mcp effective catalog: empty sse response")
-}
-
-func newEffectiveMCPHTTPClient() *http.Client {
-	return &http.Client{}
-}
-
-func parseEffectiveMCPID(value any) (int64, bool) {
-	switch typed := value.(type) {
-	case float64:
-		return int64(typed), typed > 0
-	case int:
-		return int64(typed), typed > 0
-	case int64:
-		return typed, typed > 0
-	default:
-		return 0, false
-	}
-}
-
-func buildEffectiveMCPEnv(server effectiveMCPServerConfig) []string {
-	env := make([]string, 0, len(server.Env))
-	for key, value := range server.Env {
-		env = append(env, fmt.Sprintf("%s=%s", key, value))
-	}
-	return env
+	return &v
 }
 
 func expandUserPath(path string) string {
@@ -912,24 +468,4 @@ func cloneToolCatalogItems(items []toolCatalogItem) []toolCatalogItem {
 	out := make([]toolCatalogItem, len(items))
 	copy(out, items)
 	return out
-}
-
-func effectiveMCPAsString(value any) string {
-	text, ok := value.(string)
-	if !ok {
-		return ""
-	}
-	return text
-}
-
-func effectiveMCPOptionalString(value any) *string {
-	text, ok := value.(string)
-	if !ok {
-		return nil
-	}
-	cleaned := strings.TrimSpace(text)
-	if cleaned == "" {
-		return nil
-	}
-	return &cleaned
 }

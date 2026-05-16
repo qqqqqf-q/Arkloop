@@ -452,13 +452,6 @@ export function DesktopSettings({
     return entries;
   }, [devMode]);
 
-  const settingsMotionStyle = {
-    willChange: "transform, opacity",
-    transform: "translateZ(0)",
-    backfaceVisibility: "hidden" as const,
-    contain: "paint" as const,
-  };
-
   const handleMotionStart = () => {
     if (!isPerfDebugEnabled() || typeof performance === "undefined") return;
     const startedAt = performance.now();
@@ -586,7 +579,6 @@ export function DesktopSettings({
     <>
       <motion.div
         className="theme-surface-page flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]"
-        style={settingsMotionStyle}
         initial={{ opacity: 0, x: 10 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
@@ -597,8 +589,6 @@ export function DesktopSettings({
           className="theme-surface-sidebar flex w-[280px] shrink-0 flex-col overflow-y-auto bg-[var(--c-bg-sidebar)] py-4"
           style={{
             borderRight: "0.5px solid var(--c-border-subtle)",
-            transform: "translateZ(0)",
-            backfaceVisibility: "hidden",
           }}
         >
           <div className="mb-4 px-4">
@@ -629,8 +619,6 @@ export function DesktopSettings({
             className="flex min-w-0 flex-1 flex-col overflow-y-auto p-6"
             style={{
               scrollbarGutter: 'stable',
-              transform: "translateZ(0)",
-              backfaceVisibility: "hidden",
             }}
             onScroll={(e) => setScrolled((e.currentTarget as HTMLDivElement).scrollTop > 8)}
           >

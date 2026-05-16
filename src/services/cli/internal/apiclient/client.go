@@ -192,10 +192,13 @@ func (c *Client) GetRun(ctx context.Context, runID string) (Run, error) {
 }
 
 // CreateThread 创建一个新 thread，返回 thread ID。
-func (c *Client) CreateThread(ctx context.Context, title string) (string, error) {
+func (c *Client) CreateThread(ctx context.Context, title string, isPrivate bool) (string, error) {
 	body := map[string]any{}
 	if title != "" {
 		body["title"] = title
+	}
+	if isPrivate {
+		body["is_private"] = true
 	}
 
 	var resp struct {

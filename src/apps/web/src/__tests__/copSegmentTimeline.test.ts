@@ -256,7 +256,7 @@ describe('copTimelinePayloadForSegment', () => {
         id: 'ws1::reviewing',
         kind: 'reviewing',
         label: 'Reviewing sources',
-        text: { kind: 'reviewing_sources' },
+        text: { kind: 'sources_checked' },
         status: 'done',
         sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
         seq: 3.5,

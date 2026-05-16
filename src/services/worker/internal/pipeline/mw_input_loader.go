@@ -356,7 +356,7 @@ func SyncPlanModePrompt(rc *RunContext) {
 			Stability: PromptStabilityVolatileTail,
 			Text: "<system-reminder>\n" +
 				"Plan Mode has ended for this thread.\n\n" +
-				"Previous Plan Mode restrictions are no longer active. If the user approved or asked to execute the plan, implement the approved plan now with normal tools, update todo state as work progresses, and validate the result. Do not treat leaving Plan Mode as task completion.\n\n" +
+				"Previous Plan Mode restrictions are no longer active. If the user approved or asked to execute the plan, implement the approved plan now with normal tools, update todo state as work progresses, and validate the result. When a plan file is available, plan todo status changes must go through todo_write with plan_path and updates so the .plan.md front matter todos remain the state source. Do not use edit or write_file merely to mark plan todos in_progress or completed. Do not treat leaving Plan Mode as task completion.\n\n" +
 				planReference +
 				"</system-reminder>",
 		})

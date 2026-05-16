@@ -87,7 +87,7 @@ func TestFormatNaturalPrefix_withReply(t *testing.T) {
 		Body:           "我同意",
 	}
 	got := formatNaturalPrefix(f)
-	want := "Alice (#42):\n[引用 #38] Bob: 昨天的方案不错 [/引用]\n我同意"
+	want := "[#42] Alice:\n[引用 #38] Bob: 昨天的方案不错 [/引用]\n我同意"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -100,7 +100,7 @@ func TestFormatNaturalPrefix_noReply(t *testing.T) {
 		Body:        "Hello",
 	}
 	got := formatNaturalPrefix(f)
-	want := "Charlie (#99):\nHello"
+	want := "[#99] Charlie:\nHello"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
@@ -138,7 +138,7 @@ func TestProjectGroupEnvelopes_mixedMessages(t *testing.T) {
 
 	// 第一条 user 消息应被投影
 	got := rc.Messages[0].Content[0].Text
-	want := "Alice (#12):\n[引用 #10] Bob: hi [/引用]\n回复内容"
+	want := "[#12] Alice:\n[引用 #10] Bob: hi [/引用]\n回复内容"
 	if got != want {
 		t.Fatalf("projected msg[0]:\n%s\nwant:\n%s", got, want)
 	}
@@ -171,7 +171,7 @@ func TestProjectGroupEnvelopes_escapedQuotes(t *testing.T) {
 	projectGroupEnvelopes(rc)
 
 	got := rc.Messages[0].Content[0].Text
-	want := "O\\\"Brien (#5):\nbody"
+	want := "[#5] O\\\"Brien:\nbody"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}

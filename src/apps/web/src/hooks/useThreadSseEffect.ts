@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, type RefObject } from 'react'
 import { canonicalToolName, pickLogicalToolName } from '@arkloop/shared'
 import { setThreadTodos } from '../todoDb'
+import { PLAN_TODOS_UPDATED_EVENT } from '../planMetadata'
 import { useAuth } from '../contexts/auth'
 import { useChatSession } from '../contexts/chat-session'
 import { useCredits } from '../contexts/credits'
@@ -394,6 +395,11 @@ export function useThreadSseEffect({
           })
           setWorkTodos(items)
           if (threadId) setThreadTodos(threadId, items).catch(() => {})
+          if (obj.plan_bound === true && typeof obj.plan_path === 'string') {
+            window.dispatchEvent(new CustomEvent(PLAN_TODOS_UPDATED_EVENT, {
+              detail: { planPath: obj.plan_path, todos: items },
+            }))
+          }
         }
         continue
       }

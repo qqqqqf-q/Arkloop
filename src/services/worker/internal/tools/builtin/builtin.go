@@ -121,7 +121,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		summarizethread.AgentSpec.Name:    &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
 		askuser.AgentSpec.Name:            askuser.ToolExecutor{},
 		showwidget.AgentSpec.Name:         showwidget.NewToolExecutor(),
-		todowrite.AgentSpec.Name:          &todowrite.Executor{},
+		todowrite.AgentSpec.Name:          &todowrite.Executor{Tracker: tracker},
 		enterplanmode.AgentSpec.Name:      enterplanmode.New(),
 		exitplanmode.AgentSpec.Name:       exitplanmode.New(),
 	}, tracker

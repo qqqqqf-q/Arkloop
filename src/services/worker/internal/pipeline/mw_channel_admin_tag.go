@@ -34,7 +34,7 @@ func NewChannelAdminTagMiddleware(db data.DB) RunMiddleware {
 
 func isTelegramOrDiscordChannel(channelType string) bool {
 	ct := strings.ToLower(strings.TrimSpace(channelType))
-	return ct == "telegram" || ct == "discord"
+	return ct == "telegram" || ct == "discord" || ct == "qq" || ct == "qqbot"
 }
 
 // resolveAdminIdentityRefs 收集消息中所有 sender-ref，批量查出哪些是 admin。

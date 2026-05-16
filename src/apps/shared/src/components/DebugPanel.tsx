@@ -171,6 +171,11 @@ const windowBtnCls =
   'flex h-7 w-7 items-center justify-center rounded-md text-[var(--c-text-muted)] transition-colors duration-150 hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-secondary)]'
 
 export function DebugPanel({ open, onClose }: Props) {
+  if (!open) return null
+  return <DebugPanelContent onClose={onClose} />
+}
+
+function DebugPanelContent({ onClose }: { onClose: () => void }) {
   const [entries, setEntries] = useState<DebugEntry[]>(() => [...debugBus.snapshot()])
   const [mode, setMode] = useState<ViewMode>('compact')
   const [paused, setPaused] = useState(false)
@@ -270,8 +275,6 @@ export function DebugPanel({ open, onClose }: Props) {
     setEntries([])
     setExpandedIdx(new Set())
   }, [])
-
-  if (!open) return null
 
   const panel = (
     <div

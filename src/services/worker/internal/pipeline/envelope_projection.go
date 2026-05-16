@@ -77,7 +77,7 @@ func formatNaturalPrefix(f *envelopeFields) string {
 	}
 	var prefix string
 	if f.MessageID != "" {
-		prefix = name + " (#" + f.MessageID + "):"
+		prefix = "[#" + f.MessageID + "] " + name + ":"
 	} else {
 		prefix = name + ":"
 	}

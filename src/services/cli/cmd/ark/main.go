@@ -415,6 +415,7 @@ func cmdRun(ctx context.Context, args []string) error {
 	threadID := fs.String("thread", "", "reuse existing thread")
 	outputFormat := fs.String("output-format", "text", "output format: text, json, stream-json")
 	promptFile := fs.String("prompt-file", "", "load prompt from file path, use - for stdin")
+	_ = fs.Bool("incognito", false, "create thread in incognito mode (is_private)")
 	if err := fs.Parse(flagArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printRunUsage()
@@ -455,24 +456,27 @@ func cmdRun(ctx context.Context, args []string) error {
 		ReasoningMode: *reasoning,
 	}
 
+	incognito := fs.Lookup("incognito").Value.String() == "true"
+	runOpts := &runner.RunOptions{Incognito: incognito}
+
 	runCtx, cancel := withOptionalTimeout(ctx, *timeout)
 	defer cancel()
 
 	switch *outputFormat {
 	case "text":
-		return runText(runCtx, client, *threadID, prompt, params)
+		return runText(runCtx, client, *threadID, prompt, params, runOpts)
 	case "json":
-		return runJSON(runCtx, os.Stdout, client, *threadID, prompt, params)
+		return runJSON(runCtx, os.Stdout, client, *threadID, prompt, params, runOpts)
 	case "stream-json":
-		return runStreamJSON(runCtx, os.Stdout, client, *threadID, prompt, params)
+		return runStreamJSON(runCtx, os.Stdout, client, *threadID, prompt, params, runOpts)
 	default:
 		return fmt.Errorf("unknown output format: %s", *outputFormat)
 	}
 }
 
-func runText(ctx context.Context, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
+func runText(ctx context.Context, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams, opts *runner.RunOptions) error {
 	r := renderer.NewRenderer(os.Stdout)
-	result, err := runner.Execute(ctx, client, threadID, prompt, params, r.OnEvent)
+	result, err := runner.Execute(ctx, client, threadID, prompt, params, r.OnEvent, opts)
 	r.Flush()
 	if err != nil {
 		return err
@@ -514,9 +518,9 @@ func runErrorLine(err error) map[string]any {
 	}
 }
 
-func runJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
+func runJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams, opts *runner.RunOptions) error {
 	enc := json.NewEncoder(output)
-	result, err := runner.Execute(ctx, client, threadID, prompt, params, nil)
+	result, err := runner.Execute(ctx, client, threadID, prompt, params, nil, opts)
 	if err != nil {
 		if encodeErr := enc.Encode(runErrorLine(err)); encodeErr != nil {
 			return fmt.Errorf("encode error result: %w", encodeErr)
@@ -533,7 +537,7 @@ func runJSON(ctx context.Context, output io.Writer, client *apiclient.Client, th
 	return nil
 }
 
-func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams) error {
+func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Client, threadID, prompt string, params apiclient.RunParams, opts *runner.RunOptions) error {
 	enc := json.NewEncoder(output)
 	var eventEncodeErr error
 
@@ -556,7 +560,7 @@ func runStreamJSON(ctx context.Context, output io.Writer, client *apiclient.Clie
 		}
 	}
 
-	result, err := runner.Execute(ctx, client, threadID, prompt, params, onEvent)
+	result, err := runner.Execute(ctx, client, threadID, prompt, params, onEvent, opts)
 	if eventEncodeErr != nil {
 		return fmt.Errorf("encode stream event: %w", eventEncodeErr)
 	}
@@ -726,7 +730,7 @@ func cmdSessionsResume(ctx context.Context, args []string) error {
 		WorkDir:   *workDir,
 	}
 
-	r := repl.NewREPL(client, params, positionals[0], *timeout)
+	r := repl.NewREPL(client, params, positionals[0], *timeout, false)
 	return r.Run(ctx)
 }
 
@@ -739,6 +743,7 @@ func cmdChat(ctx context.Context, args []string) error {
 	model := fs.String("model", "", "model key")
 	workDir := fs.String("work-dir", "", "working directory")
 	threadID := fs.String("thread", "", "continue from existing thread")
+	incognito := fs.Bool("incognito", false, "create thread in incognito mode (is_private)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -750,7 +755,7 @@ func cmdChat(ctx context.Context, args []string) error {
 		WorkDir:   *workDir,
 	}
 
-	r := repl.NewREPL(client, params, *threadID, *timeout)
+	r := repl.NewREPL(client, params, *threadID, *timeout, *incognito)
 	return r.Run(ctx)
 }
 

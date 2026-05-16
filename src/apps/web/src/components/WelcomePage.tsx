@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Glasses } from 'lucide-react'
 import type { LocaleStrings } from '../locales'
@@ -44,8 +44,15 @@ import {
 } from '../contexts/app-ui'
 import { useCredits } from '../contexts/credits'
 
-const welcomeRightPanelWidth = 520
+const welcomeRightPanelDefaultWidth = 520
+const welcomeRightPanelMinWidth = 420
+const welcomeMainMinWidth = 520
 const welcomeRightPanelTransitionCss = '220ms cubic-bezier(0.16, 1, 0.3, 1)'
+
+function clampWelcomeRightPanelWidth(width: number, containerWidth: number): number {
+  const maxWidth = Math.max(welcomeRightPanelMinWidth, containerWidth - welcomeMainMinWidth)
+  return Math.min(Math.max(width, welcomeRightPanelMinWidth), maxWidth)
+}
 
 function normalizeError(error: unknown, fallback: string): AppError {
   if (isApiError(error)) {
@@ -172,9 +179,12 @@ export function WelcomePage() {
   const { refreshCredits } = useCredits()
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
   const [rightPanelVisible, setRightPanelVisible] = useState(false)
+  const [rightPanelWidth, setRightPanelWidth] = useState(welcomeRightPanelDefaultWidth)
   const [activeRightPanelTabId, setActiveRightPanelTabId] = useState<string | null>('web')
   const [webPanelResource, setWebPanelResource] = useState<BrowserResourceRef | null>(null)
   const [workFolder, setWorkFolder] = useState(() => readWorkFolder())
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const rightPanelRatioRef = useRef(0)
   const chatInputRef = useRef<ChatInputHandle>(null)
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [initialPlanMode, setInitialPlanMode] = useState(false)
@@ -193,6 +203,28 @@ export function WelcomePage() {
   useEffect(() => {
     setRightPanelOpen(isRightPanelOpen)
   }, [isRightPanelOpen, setRightPanelOpen])
+
+  useEffect(() => {
+    if (!isRightPanelOpen) return
+    const root = rootRef.current
+    if (!root) return
+
+    const adaptToContainer = () => {
+      const containerWidth = root.clientWidth
+      setRightPanelWidth(() => {
+        const ratio = rightPanelRatioRef.current || welcomeRightPanelDefaultWidth / Math.max(containerWidth, 1)
+        const next = clampWelcomeRightPanelWidth(containerWidth * ratio, containerWidth)
+        rightPanelRatioRef.current = next / Math.max(containerWidth, 1)
+        return next
+      })
+    }
+
+    adaptToContainer()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(adaptToContainer)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [isRightPanelOpen])
 
   useEffect(() => {
     setTitleBarRightPanelClick(() => {
@@ -436,6 +468,30 @@ export function WelcomePage() {
     setInitialLearningModeEnabled((prev) => !prev)
   }, [])
 
+  const handleRightPanelResizeStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const root = rootRef.current
+    if (!root) return
+    const pointerId = event.pointerId
+    event.currentTarget.setPointerCapture(pointerId)
+    const rect = root.getBoundingClientRect()
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const next = clampWelcomeRightPanelWidth(rect.right - moveEvent.clientX, rect.width)
+      rightPanelRatioRef.current = next / Math.max(rect.width, 1)
+      setRightPanelWidth(next)
+    }
+    const stopResize = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResize)
+      window.removeEventListener('pointercancel', stopResize)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResize)
+    window.addEventListener('pointercancel', stopResize)
+  }, [])
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
     e.preventDefault()
     const text = (chatInputRef.current?.getValue() ?? '').trim()
@@ -501,8 +557,14 @@ export function WelcomePage() {
   }
 
   return (
-    <div className="flex h-full min-w-0 overflow-hidden">
-      <div className="theme-surface-page theme-chat-surface flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg-page)]">
+    <div ref={rootRef} className="flex h-full min-w-0 overflow-hidden">
+      <div
+        className="theme-surface-page theme-chat-surface flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg-page)]"
+        style={{
+          minWidth: isRightPanelOpen ? welcomeMainMinWidth : 0,
+          transition: `min-width ${welcomeRightPanelTransitionCss}`,
+        }}
+      >
         {/* 顶部 header */}
         <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
           {!isDesktop() && (
@@ -631,9 +693,9 @@ export function WelcomePage() {
         {showDebugPanel && <DebugTrigger />}
       </div>
       <div
-        className="shrink-0 overflow-hidden bg-[var(--c-bg-page)]"
+        className="relative shrink-0 overflow-hidden bg-[var(--c-bg-page)]"
         style={{
-          width: isRightPanelOpen ? welcomeRightPanelWidth : 0,
+          width: isRightPanelOpen ? rightPanelWidth : 0,
           opacity: isRightPanelOpen ? 1 : 0,
           borderLeft: isRightPanelOpen ? '0.5px solid var(--c-border-subtle)' : 'none',
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
@@ -641,6 +703,13 @@ export function WelcomePage() {
           willChange: 'width, opacity',
         }}
       >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          title="Resize"
+          onPointerDown={handleRightPanelResizeStart}
+          className="absolute inset-y-0 left-0 z-10 w-2 cursor-col-resize"
+        />
         <RightPanel tabs={rightPanelTabs} activeTabId={effectiveRightPanelTabId} onSelectTab={setActiveRightPanelTabId} />
       </div>
     </div>

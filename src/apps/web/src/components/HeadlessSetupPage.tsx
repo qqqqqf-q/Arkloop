@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { BootstrapPage, type BootstrapApi } from '@arkloop/shared'
-import { getDesktopAccessToken, isLocalMode } from '@arkloop/shared/desktop'
+import { getDesktopAccessToken, getDesktopSetupToken, isLocalMode } from '@arkloop/shared/desktop'
 import { setLocalOwnerPassword } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
@@ -12,6 +12,7 @@ export function HeadlessSetupPage({ onLoggedIn }: Props) {
   const { t, locale } = useLocale()
   const desktopToken = getDesktopAccessToken()?.trim() ?? ''
   const token = new URLSearchParams(window.location.search).get('ark_web_local_token')?.trim() || 'local'
+  const setupToken = getDesktopSetupToken()?.trim() || (token === 'local' ? '' : token)
 
   const api = useMemo<BootstrapApi>(() => ({
     verifyToken: async () => ({
@@ -22,14 +23,14 @@ export function HeadlessSetupPage({ onLoggedIn }: Props) {
       const resp = await setLocalOwnerPassword({
         username: req.username,
         password: req.password,
-      }, desktopToken)
+      }, desktopToken, setupToken)
       return {
         user_id: '',
         access_token: resp.access_token,
         token_type: resp.token_type,
       }
     },
-  }), [desktopToken])
+  }), [desktopToken, setupToken])
 
   return (
     <BootstrapPage

@@ -32,6 +32,7 @@ export type TimelineText =
   | { kind: 'updated_todos' }
   | { kind: 'read_todos' }
   | { kind: 'reviewing_sources' }
+  | { kind: 'sources_checked' }
   | { kind: 'search'; tense: 'live' | 'done'; query?: string; extraCount?: number }
   | { kind: 'search_completed'; count?: number }
   | { kind: 'fetching'; target?: string }
@@ -87,6 +88,7 @@ export function isTimelineText(value: unknown): value is TimelineText {
     case 'updated_todos':
     case 'read_todos':
     case 'reviewing_sources':
+    case 'sources_checked':
       return true
     case 'steps_completed':
     case 'read_files':
@@ -192,6 +194,7 @@ function renderEn(value: CoreTimelineText): string {
     case 'updated_todos': return 'Updated todos'
     case 'read_todos': return 'Read todos'
     case 'reviewing_sources': return 'Reviewing sources'
+    case 'sources_checked': return 'Sources checked'
     case 'search': {
       if (!value.query) return value.tense === 'live' ? 'Searching' : 'Search completed'
       const extra = value.extraCount && value.extraCount > 0 ? ` +${value.extraCount}` : ''
@@ -268,6 +271,7 @@ function renderZh(value: CoreTimelineText): string {
     case 'updated_todos': return '更新待办'
     case 'read_todos': return '读取待办'
     case 'reviewing_sources': return '正在检查来源'
+    case 'sources_checked': return '已检查来源'
     case 'search': {
       if (!value.query) return value.tense === 'live' ? '搜索中' : '搜索完成'
       const extra = value.extraCount && value.extraCount > 0 ? ` +${value.extraCount}` : ''

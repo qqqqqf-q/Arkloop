@@ -27,6 +27,7 @@ const THEME_KEY = 'arkloop:web:theme'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
 const APP_MODE_KEY = 'arkloop:web:app_mode'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
+export const SELECTED_MODEL_CHANGED_EVENT = 'arkloop:selected-model-changed'
 const SELECTED_THINKING_KEY = 'arkloop:web:selected_thinking'
 const FONT_SETTINGS_KEY = 'arkloop:web:font-settings'
 const THEME_PRESET_KEY = 'arkloop:web:theme-preset'
@@ -610,6 +611,9 @@ export function writeSelectedModelToStorage(model: string | null): void {
     }
   } catch {
     // 忽略存储失败
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(SELECTED_MODEL_CHANGED_EVENT, { detail: { model } }))
   }
 }
 

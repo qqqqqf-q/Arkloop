@@ -45,6 +45,8 @@ type Props = {
   thinkingEnabled: string
   onThinkingChange: (mode: string) => void
   onOpenChange?: (open: boolean) => void
+  showReasoningOptions?: boolean
+  controlHeight?: number
 }
 
 type MenuPosition = {
@@ -55,7 +57,17 @@ type MenuPosition = {
   placement: 'up' | 'down'
 }
 
-export function ModelPicker({ accessToken, value, onChange, onAddModel, thinkingEnabled, onThinkingChange, onOpenChange }: Props) {
+export function ModelPicker({
+  accessToken,
+  value,
+  onChange,
+  onAddModel,
+  thinkingEnabled,
+  onThinkingChange,
+  onOpenChange,
+  showReasoningOptions = true,
+  controlHeight = 33.5,
+}: Props) {
   const { t } = useLocale()
   const mp = t.modelPicker
   const desktopShell = isDesktop()
@@ -189,7 +201,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, thinking
     if (value) {
       const parts = value.split('^')
       const modelName = parts[parts.length - 1]
-      if (thinkingEnabled !== 'off') {
+      if (showReasoningOptions && thinkingEnabled !== 'off') {
         const effortName = thinkingEnabled.charAt(0).toUpperCase() + thinkingEnabled.slice(1)
         return `${modelName} · ${effortName}`
       }
@@ -245,11 +257,9 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, thinking
         onClick={() => setOpen((v) => !v)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className={[
-          'relative flex items-center gap-1 rounded-lg',
-          'h-[33.5px]',
-        ].join(' ')}
+        className="relative flex items-center gap-1 rounded-lg"
         style={{
+          height: `${controlHeight}px`,
           padding: '0 8px 0 10px',
           overflow: 'hidden',
           whiteSpace: 'nowrap',
@@ -394,7 +404,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, thinking
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                   {m.model}
                                 </span>
-                                {isSelected && thinkingEnabled !== 'off' && (
+                                {showReasoningOptions && isSelected && thinkingEnabled !== 'off' && (
                                   <span style={{ marginLeft: '6px', display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '12px', color: 'var(--c-text-muted)', fontWeight: 400, flexShrink: 0 }}>
                                     <Brain size={12} />
                                     {thinkingEnabled.charAt(0).toUpperCase() + thinkingEnabled.slice(1)}
@@ -402,7 +412,7 @@ export function ModelPicker({ accessToken, value, onChange, onAddModel, thinking
                                 )}
                               </button>
                               <div className="flex shrink-0 items-center gap-1 pr-3">
-                                {supportsReasoning && (hoveredCombo === combo || isOptionsOpen) && (
+                                {showReasoningOptions && supportsReasoning && (hoveredCombo === combo || isOptionsOpen) && (
                                   <span
                                     role="button"
                                     tabIndex={0}

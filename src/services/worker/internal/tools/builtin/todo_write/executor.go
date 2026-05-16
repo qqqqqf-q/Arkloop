@@ -9,6 +9,7 @@ import (
 
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin/fileops"
 )
 
 const (
@@ -36,12 +37,14 @@ type TodoItem struct {
 
 // Executor 持有 per-run todo 状态，生命周期与 DispatchingExecutor 相同。
 type Executor struct {
+	Tracker *fileops.FileTracker
+
 	mu    sync.RWMutex
-	state map[string][]TodoItem // runID → items
+	state map[string][]TodoItem // runID -> items
 }
 
 func (e *Executor) Execute(
-	_ context.Context,
+	ctx context.Context,
 	toolName string,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
@@ -49,9 +52,15 @@ func (e *Executor) Execute(
 ) tools.ExecutionResult {
 	started := time.Now()
 
+	planPath, _ := args["plan_path"].(string)
+	planPath = strings.TrimSpace(planPath)
+	if planPath != "" {
+		return e.executePlanBound(ctx, toolName, args, execCtx, planPath, started)
+	}
+
 	rawTodos, ok := args["todos"]
 	if !ok {
-		return errResult(errorArgsInvalid, "parameter todos is required", started)
+		return errResult(errorArgsInvalid, "parameter todos is required when plan_path is not provided", started)
 	}
 
 	items, err := parseTodos(rawTodos)
@@ -59,6 +68,53 @@ func (e *Executor) Execute(
 		return errResult(errorArgsInvalid, err.Error(), started)
 	}
 
+	return e.emitSnapshot(toolName, execCtx, items, started, nil)
+}
+
+func (e *Executor) executePlanBound(
+	ctx context.Context,
+	toolName string,
+	args map[string]any,
+	execCtx tools.ExecutionContext,
+	planPath string,
+	started time.Time,
+) tools.ExecutionResult {
+	if _, ok := args["todos"]; ok {
+		return errResult(errorArgsInvalid, "parameter todos cannot be used with plan_path; use updates instead", started)
+	}
+	rawUpdates, ok := args["updates"]
+	if !ok {
+		return errResult(errorArgsInvalid, "parameter updates is required when plan_path is provided", started)
+	}
+	updates, err := parsePlanTodoUpdates(rawUpdates)
+	if err != nil {
+		return errResult(errorArgsInvalid, err.Error(), started)
+	}
+	if blocked, isBlocked := tools.PlanModeWriteBlocked(execCtx.PipelineRC, started, planPath); isBlocked {
+		return blocked
+	}
+
+	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	items, err := updatePlanTodos(ctx, backend, planPath, updates)
+	if err != nil {
+		return errResult(errorArgsInvalid, err.Error(), started)
+	}
+	e.recordPlanWrite(execCtx, backend, planPath)
+	return e.emitSnapshot(toolName, execCtx, items, started, map[string]any{
+		"plan_path":     planPath,
+		"plan_bound":    true,
+		"update_count":  len(updates),
+		"updated_todos": planUpdateMaps(updates),
+	})
+}
+
+func (e *Executor) emitSnapshot(
+	toolName string,
+	execCtx tools.ExecutionContext,
+	items []TodoItem,
+	started time.Time,
+	extra map[string]any,
+) tools.ExecutionResult {
 	runKey := execCtx.RunID.String()
 	e.mu.Lock()
 	if e.state == nil {
@@ -73,28 +129,32 @@ func (e *Executor) Execute(
 	changes := todoChangeMaps(oldItems, items)
 	completedCount := countStatus(items, statusCompleted)
 
-	ev := execCtx.Emitter.Emit(
-		"todo.updated",
-		map[string]any{
-			"todos":           todoList,
-			"old_todos":       oldTodoList,
-			"changes":         changes,
-			"completed_count": completedCount,
-			"total_count":     len(items),
-		},
-		&toolName,
-		nil,
-	)
+	payload := map[string]any{
+		"todos":           todoList,
+		"old_todos":       oldTodoList,
+		"changes":         changes,
+		"completed_count": completedCount,
+		"total_count":     len(items),
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+
+	ev := execCtx.Emitter.Emit("todo.updated", payload, &toolName, nil)
+	result := map[string]any{
+		"todos":           todoList,
+		"old_todos":       oldTodoList,
+		"changes":         changes,
+		"count":           len(items),
+		"completed_count": completedCount,
+		"total_count":     len(items),
+	}
+	for key, value := range extra {
+		result[key] = value
+	}
 
 	return tools.ExecutionResult{
-		ResultJSON: map[string]any{
-			"todos":           todoList,
-			"old_todos":       oldTodoList,
-			"changes":         changes,
-			"count":           len(items),
-			"completed_count": completedCount,
-			"total_count":     len(items),
-		},
+		ResultJSON: result,
 		Events:     []events.RunEvent{ev},
 		DurationMs: durationMs(started),
 	}

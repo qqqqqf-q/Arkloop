@@ -47,11 +47,43 @@ func TestCompactRequestBasePrefixCountSkipsRequestPrefix(t *testing.T) {
 		{Role: "user", Content: []llm.TextPart{{Text: "first"}}},
 		{Role: "assistant", Content: []llm.TextPart{{Text: "second"}}},
 	}
-	request := append(append([]llm.Message{}, prefix...), base...)
-	request = append(request, llm.Message{Role: "tool", Content: []llm.TextPart{{Text: "tail"}}})
+	requestMessages := append(append([]llm.Message{}, prefix...), base...)
+	requestMessages = append(requestMessages, llm.Message{Role: "tool", Content: []llm.TextPart{{Text: "tail"}}})
+	request := llm.Request{Messages: requestMessages}
 
 	if got := compactRequestBasePrefixCount(request, base); got != len(prefix)+len(base) {
 		t.Fatalf("expected request prefix count %d, got %d", len(prefix)+len(base), got)
+	}
+}
+
+func TestCompactRequestBasePrefixCountUsesPromptPlan(t *testing.T) {
+	base := []llm.Message{
+		{Role: "user", Content: []llm.TextPart{{Text: "projected group message"}}},
+		{Role: "assistant", Content: []llm.TextPart{{Text: "assistant tail"}}},
+	}
+	request := llm.Request{
+		Messages: []llm.Message{
+			{Role: "system", Content: []llm.TextPart{{Text: "system prompt"}}},
+			{Role: "user", Content: []llm.TextPart{{Text: "conversation prefix"}}},
+			{Role: "user", Content: []llm.TextPart{{Text: "projected group message with provider mutation"}}},
+			{Role: "assistant", Content: []llm.TextPart{{Text: "assistant tail"}}},
+			{Role: "user", Content: []llm.TextPart{{Text: "runtime tail"}}},
+		},
+		PromptPlan: &llm.PromptPlan{
+			SystemBlocks: []llm.PromptPlanBlock{{
+				Target: llm.PromptTargetSystemPrefix,
+				Role:   "system",
+				Text:   "system prompt",
+			}},
+			MessageBlocks: []llm.PromptPlanBlock{
+				{Target: llm.PromptTargetConversationPrefix, Role: "user", Text: "conversation prefix"},
+				{Target: llm.PromptTargetRuntimeTail, Role: "user", Text: "runtime tail"},
+			},
+		},
+	}
+
+	if got := compactRequestBasePrefixCount(request, base); got != 4 {
+		t.Fatalf("expected request prefix count 4, got %d", got)
 	}
 }
 
@@ -328,12 +360,12 @@ func TestBuildCompactFrontierAtomsFromMessages_NoChunkSplitting(t *testing.T) {
 }
 
 func TestSelectCompactAtomWindow_MaxAtomsCap(t *testing.T) {
-	// token 预算是主要约束，50 个极小 atom 全部在预算内
+	// token 预算是主要约束，50 个小 atom 全部在预算内
 	nodes := make([]FrontierNode, 0, 50)
 	for i := 0; i < 50; i++ {
 		nodes = append(nodes, FrontierNode{
 			Kind:         FrontierNodeChunk,
-			ApproxTokens: 10,
+			ApproxTokens: 100,
 			AtomSeq:      i + 1,
 			AtomType:     compactAtomUserText,
 			Role:         "user",
@@ -342,7 +374,7 @@ func TestSelectCompactAtomWindow_MaxAtomsCap(t *testing.T) {
 	}
 
 	selection := selectCompactAtomWindow(nodes, 999999, contextCompactMaxLLMInputTokens)
-	// protected = atom 50, eligible = 49, 49*10=490 远低于 token 预算，全选
+	// protected = atom 50, eligible = 49，仍然远低于 token 预算，全选
 	expectedCount := 49
 	if len(selection.Nodes) != expectedCount {
 		t.Fatalf("expected %d selected (all eligible), got %d", expectedCount, len(selection.Nodes))
@@ -379,6 +411,19 @@ func TestSelectCompactAtomWindow_TokenCap(t *testing.T) {
 	}
 }
 
+func TestSelectCompactAtomWindow_RejectsTinySourceWindow(t *testing.T) {
+	nodes := []FrontierNode{
+		{Kind: FrontierNodeChunk, ApproxTokens: 100, AtomSeq: 1, AtomType: compactAtomUserText, Role: "user", SourceText: "a"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 100, AtomSeq: 2, AtomType: compactAtomAssistantText, Role: "assistant", SourceText: "b"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 100, AtomSeq: 3, AtomType: compactAtomUserText, Role: "user", SourceText: "tail"},
+	}
+
+	selection := selectCompactAtomWindow(nodes, 1, contextCompactMaxLLMInputTokens)
+	if len(selection.Nodes) != 0 {
+		t.Fatalf("expected tiny compact window rejected, got %#v", selection.Nodes)
+	}
+}
+
 func TestSelectCompactAtomWindow_SelectsLargeLeadingAtom(t *testing.T) {
 	nodes := []FrontierNode{
 		{Kind: FrontierNodeChunk, ApproxTokens: 12000, AtomSeq: 1, AtomType: compactAtomToolEpisode, Role: "tool", SourceText: "large tool"},
@@ -397,9 +442,9 @@ func TestSelectCompactAtomWindow_SelectsLargeLeadingAtom(t *testing.T) {
 
 func TestSelectCompactAtomWindow_ProtectsLastAtom(t *testing.T) {
 	nodes := []FrontierNode{
-		{Kind: FrontierNodeChunk, ApproxTokens: 10, AtomSeq: 1, AtomType: compactAtomUserText, Role: "user", SourceText: "head"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 10, AtomSeq: 2, AtomType: compactAtomAssistantText, Role: "assistant", SourceText: "middle"},
-		{Kind: FrontierNodeChunk, ApproxTokens: 10, AtomSeq: 3, AtomType: compactAtomUserText, Role: "user", SourceText: "tail"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 600, AtomSeq: 1, AtomType: compactAtomUserText, Role: "user", SourceText: "head"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 600, AtomSeq: 2, AtomType: compactAtomAssistantText, Role: "assistant", SourceText: "middle"},
+		{Kind: FrontierNodeChunk, ApproxTokens: 600, AtomSeq: 3, AtomType: compactAtomUserText, Role: "user", SourceText: "tail"},
 	}
 
 	selection := selectCompactAtomWindow(nodes, 1, contextCompactMaxLLMInputTokens)
@@ -575,11 +620,11 @@ func TestInlineCompactAtomFrontierCarriesPriorReplacementAcrossRounds(t *testing
 	for i := 1; i <= 100; i++ {
 		working = append(working, llm.Message{
 			Role:    "user",
-			Content: []llm.TextPart{{Text: fmt.Sprintf("atom-%d", i)}},
+			Content: []llm.TextPart{{Text: fmt.Sprintf("atom-%d %s", i, strings.Repeat("detail ", 40))}},
 		})
 	}
 
-	// token 预算远大于全部 atom 总 token，每轮选全部 eligible
+	// token 预算远大于全部 atom 总 token，每轮选全部有效 eligible
 	// 第 1 轮: 99 eligible → compact → [R1, atom-100]
 	// 第 2 轮: R1 是 replacement 且是唯一 eligible 以外的 protected atom-100
 	//          单 replacement 扩展不可能（没有更多 eligible），返回 empty
@@ -597,7 +642,7 @@ func TestInlineCompactAtomFrontierCarriesPriorReplacementAcrossRounds(t *testing
 	if got := messageText(working[0]); got != "R1" {
 		t.Fatalf("expected head summary R1, got %q", got)
 	}
-	if got := messageText(working[len(working)-1]); got != "atom-100" {
+	if got := messageText(working[len(working)-1]); !strings.HasPrefix(got, "atom-100 ") {
 		t.Fatalf("expected protected tail atom-100, got %q", got)
 	}
 }
@@ -624,7 +669,7 @@ func TestBuildCompactFrontierAtomsFromPersistFrontier_PreservesCanonicalSeqRange
 			StartThreadSeq:  seq,
 			EndThreadSeq:    seq,
 			SourceText:      fmt.Sprintf("atom-%d", seq),
-			ApproxTokens:    8,
+			ApproxTokens:    80,
 			AtomSeq:         int(seq),
 			AtomType:        compactAtomUserText,
 			Role:            "user",
@@ -634,7 +679,7 @@ func TestBuildCompactFrontierAtomsFromPersistFrontier_PreservesCanonicalSeqRange
 
 	atoms := buildCompactFrontierAtomsFromPersistFrontier(frontier)
 	selection := selectCompactAtomWindow(atoms, 999999, contextCompactMaxLLMInputTokens)
-	// 所有 atom token 极小，全部 eligible 都会被选中（除 protected tail）
+	// 所有 atom 都在预算内，全部 eligible 都会被选中（除 protected tail）
 	expectedCount := len(atoms) - 1 // protected tail excluded
 	if len(selection.Nodes) != expectedCount {
 		t.Fatalf("expected %d selected atoms, got %d", expectedCount, len(selection.Nodes))

@@ -5,6 +5,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -21,6 +24,7 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -38,6 +42,9 @@ const (
 	defaultWebPort    = 19080
 	defaultAPIPort    = 19001
 	defaultBridgePort = 19003
+
+	headlessSetupTokenParam  = "ark_web_local_token"
+	headlessSetupTokenHeader = "X-Arkloop-Setup-Token"
 
 	desktopUserID    = "00000000-0000-4000-8000-000000000001"
 	desktopAccountID = "00000000-0000-4000-8000-000000000002"
@@ -118,6 +125,10 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	setupAccess, err := newHeadlessSetupAccess(!ownerPasswordSet)
+	if err != nil {
+		return err
+	}
 
 	runtimeErr := make(chan error, 1)
 	go func() {
@@ -147,7 +158,7 @@ func cmdWebStart(ctx context.Context, args []string) error {
 
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d", *apiPort)
 	webAddr := net.JoinHostPort(strings.TrimSpace(*host), strconv.Itoa(*port))
-	server := newHeadlessWebServer(webAddr, root, apiURL, localTrust)
+	server := newHeadlessWebServer(webAddr, root, apiURL, localTrust, setupAccess)
 	listener, err := net.Listen("tcp", webAddr)
 	if err != nil {
 		return err
@@ -158,20 +169,23 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	}()
 
 	localURL := "http://" + net.JoinHostPort(localDisplayHost(*host), listenPort(listener.Addr(), *port))
+	remoteURL := remoteWebBaseURL(*host, *publicURL, listener.Addr(), *port)
 	webURL := localURL
 	openURL := webURL
-	if localTrust.Enabled && !ownerPasswordSet {
-		setupURL := localURL + "/setup"
+	localSetupURL := setupURLForPanel(localURL, setupAccess)
+	if localTrust.Enabled && localSetupURL != "" {
+		setupURL := localSetupURL
 		openURL = setupURL
 	}
 	printHeadlessWebPanel(os.Stdout, headlessWebPanel{
-		WebURL:      webURL,
-		SetupURL:    setupURLForPanel(localURL, localTrust.Enabled && !ownerPasswordSet),
-		APIURL:      apiURL,
-		WebRoot:     root,
-		ListenAddr:  webAddr,
-		OpenedURL:   openURL,
-		RemoteLogin: ownerPasswordSet,
+		WebURL:         webURL,
+		SetupURL:       localSetupURL,
+		RemoteSetupURL: setupURLForPanel(remoteURL, setupAccess),
+		APIURL:         apiURL,
+		WebRoot:        root,
+		ListenAddr:     webAddr,
+		OpenedURL:      openURL,
+		RemoteLogin:    ownerPasswordSet,
 	})
 	if !*noOpen {
 		if err := openExternalBrowser(openURL); err != nil {
@@ -199,20 +213,28 @@ func printWebUsage() {
 }
 
 type headlessWebPanel struct {
-	WebURL      string
-	SetupURL    string
-	APIURL      string
-	WebRoot     string
-	ListenAddr  string
-	OpenedURL   string
-	RemoteLogin bool
+	WebURL         string
+	SetupURL       string
+	RemoteSetupURL string
+	APIURL         string
+	WebRoot        string
+	ListenAddr     string
+	OpenedURL      string
+	RemoteLogin    bool
 }
 
-func setupURLForPanel(localURL string, required bool) string {
-	if !required {
+func setupURLForPanel(baseURL string, setupAccess *headlessSetupAccess) string {
+	if strings.TrimSpace(baseURL) == "" || setupAccess == nil || !setupAccess.enabled() {
 		return ""
 	}
-	return localURL + "/setup"
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/setup")
+	if err != nil {
+		return ""
+	}
+	q := u.Query()
+	q.Set(headlessSetupTokenParam, setupAccess.token)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func printHeadlessWebPanel(output *os.File, panel headlessWebPanel) {
@@ -228,6 +250,9 @@ func printHeadlessWebPanel(output *os.File, panel headlessWebPanel) {
 	fmt.Fprintln(output)
 	if panel.SetupURL != "" {
 		fmt.Fprintf(output, "  \033[1;33mSetup:\033[0m          \033[1m%s\033[0m\n", panel.SetupURL)
+	}
+	if panel.RemoteSetupURL != "" {
+		fmt.Fprintf(output, "  \033[1;33mRemote setup:\033[0m   \033[1m%s\033[0m\n", panel.RemoteSetupURL)
 	}
 	fmt.Fprintf(output, "  \033[1;36mWeb interface:\033[0m  \033[1m%s\033[0m\n", panel.WebURL)
 	fmt.Fprintf(output, "  \033[90mAPI:\033[0m            %s\n", panel.APIURL)
@@ -247,10 +272,74 @@ func printHeadlessWebKV(output io.Writer, panel headlessWebPanel) {
 	if panel.SetupURL != "" {
 		fmt.Fprintf(output, "setup_url=%s\n", panel.SetupURL)
 	}
+	if panel.RemoteSetupURL != "" {
+		fmt.Fprintf(output, "remote_setup_url=%s\n", panel.RemoteSetupURL)
+	}
 	fmt.Fprintf(output, "web_url=%s\n", panel.WebURL)
 	fmt.Fprintf(output, "api_url=%s\n", panel.APIURL)
 	fmt.Fprintf(output, "web_root=%s\n", panel.WebRoot)
 	fmt.Fprintf(output, "opened_url=%s\n", panel.OpenedURL)
+}
+
+type headlessSetupAccess struct {
+	token    string
+	consumed atomic.Bool
+}
+
+func newHeadlessSetupAccess(required bool) (*headlessSetupAccess, error) {
+	if !required {
+		return nil, nil
+	}
+	token, err := newHeadlessSetupToken()
+	if err != nil {
+		return nil, err
+	}
+	return &headlessSetupAccess{token: token}, nil
+}
+
+func newHeadlessSetupToken() (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
+func (s *headlessSetupAccess) enabled() bool {
+	return s != nil && strings.TrimSpace(s.token) != "" && !s.consumed.Load()
+}
+
+func (s *headlessSetupAccess) tokenMatches(token string) bool {
+	if !s.enabled() {
+		return false
+	}
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) != len(s.token) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
+}
+
+func (s *headlessSetupAccess) indexAllowed(r *http.Request) bool {
+	return s.tokenMatches(r.URL.Query().Get(headlessSetupTokenParam)) && path.Clean(r.URL.Path) == "/setup"
+}
+
+func (s *headlessSetupAccess) apiAllowed(r *http.Request) bool {
+	return s.tokenMatches(r.Header.Get(headlessSetupTokenHeader)) && r.URL.Path == "/v1/auth/local-owner-password"
+}
+
+func (s *headlessSetupAccess) tokenForScript(r *http.Request) string {
+	token := r.URL.Query().Get(headlessSetupTokenParam)
+	if s.tokenMatches(token) {
+		return strings.TrimSpace(token)
+	}
+	return ""
+}
+
+func (s *headlessSetupAccess) consume() {
+	if s != nil {
+		s.consumed.Store(true)
+	}
 }
 
 func configureHeadlessEnv(apiPort int, bridgePort int, dataDir string, publicURL string) error {
@@ -521,6 +610,65 @@ func listenPort(addr net.Addr, fallback int) string {
 	return strconv.Itoa(fallback)
 }
 
+func remoteWebBaseURL(host string, publicURL string, addr net.Addr, fallbackPort int) string {
+	if value := strings.TrimSpace(publicURL); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	port := listenPort(addr, fallbackPort)
+	name := requestHostName(host)
+	switch name {
+	case "", "0.0.0.0", "::":
+		name = firstNonLoopbackIP()
+	case "localhost", "127.0.0.1", "::1":
+		return ""
+	}
+	if name == "" {
+		return ""
+	}
+	return "http://" + net.JoinHostPort(name, port)
+}
+
+func firstNonLoopbackIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	var fallback string
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ip := ipFromAddr(addr)
+			if ip == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				return ip4.String()
+			}
+			if fallback == "" {
+				fallback = ip.String()
+			}
+		}
+	}
+	return fallback
+}
+
+func ipFromAddr(addr net.Addr) net.IP {
+	switch v := addr.(type) {
+	case *net.IPNet:
+		return v.IP
+	case *net.IPAddr:
+		return v.IP
+	default:
+		return nil
+	}
+}
+
 func writeDesktopPort(port int) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -542,15 +690,18 @@ func shutdownWebServer(server *http.Server) error {
 	return nil
 }
 
-func newHeadlessWebServer(addr string, webRoot string, apiURL string, localTrust localTrustConfig) *http.Server {
+func newHeadlessWebServer(addr string, webRoot string, apiURL string, localTrust localTrustConfig, setupAccess *headlessSetupAccess) *http.Server {
 	target, _ := url.Parse(apiURL)
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/") || r.URL.Path == "/v1" {
+			if proxyHeadlessSetupRequest(w, r, apiURL, setupAccess) {
+				return
+			}
 			proxy.ServeHTTP(w, r)
 			return
 		}
-		serveWebAsset(w, r, webRoot, localTrust)
+		serveWebAsset(w, r, webRoot, localTrust, setupAccess)
 	})
 	return &http.Server{
 		Addr:              addr,
@@ -560,14 +711,61 @@ func newHeadlessWebServer(addr string, webRoot string, apiURL string, localTrust
 	}
 }
 
-func serveWebAsset(w http.ResponseWriter, r *http.Request, webRoot string, localTrust localTrustConfig) {
+func proxyHeadlessSetupRequest(w http.ResponseWriter, r *http.Request, apiURL string, setupAccess *headlessSetupAccess) bool {
+	if setupAccess == nil || !setupAccess.apiAllowed(r) {
+		return false
+	}
+	targetBase, err := url.Parse(strings.TrimRight(apiURL, "/"))
+	if err != nil {
+		http.Error(w, "bad gateway", http.StatusBadGateway)
+		return true
+	}
+	targetURL := *targetBase
+	targetURL.Path = r.URL.Path
+	targetURL.RawQuery = r.URL.RawQuery
+
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL.String(), r.Body)
+	if err != nil {
+		http.Error(w, "bad gateway", http.StatusBadGateway)
+		return true
+	}
+	req.Header = r.Header.Clone()
+	req.Header.Del(headlessSetupTokenHeader)
+	req.Header.Del("Origin")
+	req.Header.Del("Referer")
+	req.Header.Del("Forwarded")
+	req.Header.Del("X-Forwarded-For")
+	req.Header.Del("X-Forwarded-Host")
+	req.Header.Del("X-Real-IP")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "bad gateway", http.StatusBadGateway)
+		return true
+	}
+	defer resp.Body.Close()
+
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		setupAccess.consume()
+	}
+	return true
+}
+
+func serveWebAsset(w http.ResponseWriter, r *http.Request, webRoot string, localTrust localTrustConfig, setupAccess *headlessSetupAccess) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	assetPath, ok := resolveAssetPath(webRoot, r.URL.Path)
 	if !ok {
-		serveIndex(w, r, webRoot, localTrust)
+		serveIndex(w, r, webRoot, localTrust, setupAccess)
 		return
 	}
 	if info, err := os.Stat(assetPath); err == nil && !info.IsDir() {
@@ -578,7 +776,7 @@ func serveWebAsset(w http.ResponseWriter, r *http.Request, webRoot string, local
 		http.ServeFile(w, r, assetPath)
 		return
 	}
-	serveIndex(w, r, webRoot, localTrust)
+	serveIndex(w, r, webRoot, localTrust, setupAccess)
 }
 
 func resolveAssetPath(webRoot string, requestPath string) (string, bool) {
@@ -633,15 +831,15 @@ func pathWithinRoot(root string, candidate string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func serveIndex(w http.ResponseWriter, r *http.Request, webRoot string, localTrust localTrustConfig) {
+func serveIndex(w http.ResponseWriter, r *http.Request, webRoot string, localTrust localTrustConfig, setupAccess *headlessSetupAccess) {
 	indexPath := filepath.Join(webRoot, "index.html")
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
 		http.Error(w, "web assets not found", http.StatusInternalServerError)
 		return
 	}
-	if localTrustAllowed(w, r, localTrust) {
-		data = injectDesktopInfo(data, strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN")))
+	if localTrustAllowed(w, r, localTrust) || setupAccess.indexAllowed(r) {
+		data = injectDesktopInfo(data, strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN")), setupAccess.tokenForScript(r))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if r.Method == http.MethodHead {
@@ -666,7 +864,7 @@ func localTrustAllowed(w http.ResponseWriter, r *http.Request, cfg localTrustCon
 	return true
 }
 
-func injectDesktopInfo(index []byte, token string) []byte {
+func injectDesktopInfo(index []byte, token string, setupToken string) []byte {
 	if strings.TrimSpace(token) == "" {
 		return index
 	}
@@ -675,8 +873,9 @@ func injectDesktopInfo(index []byte, token string) []byte {
 		"appVersion":    version,
 		"bridgeBaseUrl": "",
 		"mode":          "local",
+		"setupToken":    setupToken,
 	})
-	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getBridgeBaseUrl:function(){return ""},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"},getAppVersion:function(){return ` + strconv.Quote(version) + `}});</script>`)
+	script := []byte(`<script>window.__ARKLOOP_DESKTOP__=Object.assign(` + string(payload) + `,{getApiBaseUrl:function(){return window.location.origin},getBridgeBaseUrl:function(){return ""},getAccessToken:function(){return ` + strconv.Quote(token) + `},getMode:function(){return "local"},getAppVersion:function(){return ` + strconv.Quote(version) + `},getSetupToken:function(){return ` + strconv.Quote(setupToken) + `}});</script>`)
 	if idx := bytes.Index(index, []byte("</head>")); idx >= 0 {
 		out := make([]byte, 0, len(index)+len(script))
 		out = append(out, index[:idx]...)

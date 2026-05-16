@@ -624,7 +624,7 @@ func persistEmergencyReplacementRound(
 		rc.DB = originalDB
 	}()
 	defer releaseLock()
-	basePrefixCount := compactRequestBasePrefixCount(request.Messages, rc.Messages)
+	basePrefixCount := compactRequestBasePrefixCount(request, rc.Messages)
 	if basePrefixCount <= 0 {
 		stats.NoRewriteReason = "history_prefix_unmapped"
 		return request, stats, false, nil
@@ -913,7 +913,14 @@ func recentRawZoneStartIndex(nodes []FrontierNode, rawBudget int) int {
 	return start
 }
 
-func compactRequestBasePrefixCount(requestMessages []llm.Message, baseMessages []llm.Message) int {
+func compactRequestBasePrefixCount(request llm.Request, baseMessages []llm.Message) int {
+	if count := compactRequestBasePrefixCountByMessages(request.Messages, baseMessages); count > 0 {
+		return count
+	}
+	return compactRequestBasePrefixCountByPromptPlan(request, baseMessages)
+}
+
+func compactRequestBasePrefixCountByMessages(requestMessages []llm.Message, baseMessages []llm.Message) int {
 	if len(requestMessages) == 0 || len(baseMessages) == 0 {
 		return 0
 	}
@@ -933,6 +940,33 @@ func compactRequestBasePrefixCount(requestMessages []llm.Message, baseMessages [
 		}
 	}
 	return 0
+}
+
+func compactRequestBasePrefixCountByPromptPlan(request llm.Request, baseMessages []llm.Message) int {
+	if request.PromptPlan == nil || len(request.Messages) == 0 || len(baseMessages) == 0 {
+		return 0
+	}
+	prefixCount := 0
+	tailCount := 0
+	for _, block := range request.PromptPlan.SystemBlocks {
+		if strings.TrimSpace(block.Text) != "" {
+			prefixCount++
+		}
+	}
+	for _, block := range request.PromptPlan.MessageBlocks {
+		if strings.TrimSpace(block.Text) == "" {
+			continue
+		}
+		if strings.TrimSpace(block.Target) == llm.PromptTargetRuntimeTail {
+			tailCount++
+			continue
+		}
+		prefixCount++
+	}
+	if prefixCount+len(baseMessages)+tailCount != len(request.Messages) {
+		return 0
+	}
+	return prefixCount + len(baseMessages)
 }
 
 func compactMessagesEquivalentForPrefix(left llm.Message, right llm.Message) bool {

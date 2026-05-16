@@ -2,6 +2,9 @@ package todowrite
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"arkloop/services/worker/internal/events"
@@ -75,6 +78,71 @@ func TestExecuteEmitsSnapshotDiffAndProgress(t *testing.T) {
 	change := changes[0]
 	if change["type"] != "updated" || change["id"] != "a" || change["previous_status"] != statusPending || change["status"] != statusCompleted || change["index"] != 0 {
 		t.Fatalf("unexpected status change payload: %#v", change)
+	}
+}
+
+func TestExecuteUpdatesPlanBoundTodos(t *testing.T) {
+	runID := uuid.New()
+	dir := t.TempDir()
+	planPath := filepath.Join(dir, "demo.plan.md")
+	content := `---
+name: Demo Plan
+overview: Demo
+todos:
+  - id: read-code
+    content: "Read code"
+    status: pending
+  - id: write-code
+    content: "Write code"
+    status: pending
+isProject: false
+---
+
+# Body
+`
+	if err := os.WriteFile(planPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan fixture: %v", err)
+	}
+
+	exec := &Executor{}
+	ctx := tools.ExecutionContext{
+		RunID:   runID,
+		WorkDir: dir,
+		Emitter: events.NewEmitter("trace_1"),
+	}
+
+	result := exec.Execute(context.Background(), ToolName, map[string]any{
+		"plan_path": planPath,
+		"updates": []any{
+			map[string]any{"todo_id": "read-code", "status": statusCompleted},
+			map[string]any{"todo_id": "write-code", "status": statusInProgress},
+		},
+	}, ctx, "call_1")
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %s", result.Error.Message)
+	}
+	if got := result.ResultJSON["plan_bound"]; got != true {
+		t.Fatalf("expected plan_bound=true, got %v", got)
+	}
+	if got := result.ResultJSON["completed_count"]; got != 1 {
+		t.Fatalf("expected completed_count=1, got %v", got)
+	}
+
+	updated, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatalf("read updated plan: %v", err)
+	}
+	text := string(updated)
+	if !strings.Contains(text, "id: read-code") || !strings.Contains(text, "status: completed") {
+		t.Fatalf("expected read-code to be completed, got:\n%s", text)
+	}
+	if !strings.Contains(text, "id: write-code") || !strings.Contains(text, "status: in_progress") {
+		t.Fatalf("expected write-code to be in_progress, got:\n%s", text)
+	}
+
+	todos := result.Events[0].DataJSON["todos"].([]map[string]any)
+	if len(todos) != 2 || todos[0]["status"] != statusCompleted || todos[1]["status"] != statusInProgress {
+		t.Fatalf("expected event todos from plan file, got %#v", todos)
 	}
 }
 

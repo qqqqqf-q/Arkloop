@@ -24,6 +24,11 @@ require (
 require github.com/robfig/cron/v3 v3.0.1
 
 require (
+	github.com/modelcontextprotocol/go-sdk v1.6.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+)
+
+require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.4 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.17 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.17 // indirect

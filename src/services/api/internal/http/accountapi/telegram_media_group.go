@@ -257,7 +257,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			}
 			return nil
 		}
-		handled, replyText, prefResult, personaResult, cancelRunID, err := DispatchChannelCommand(
+		handled, reply, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			trimmedCommandText, true, incoming.PlatformChatID,
 			c.entitlementSvc,
@@ -299,23 +299,17 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
-			if cancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-			}
-			if replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+			if reply != nil && reply.Text != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				if reply.CancelRunID != uuid.Nil {
+					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+				}
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 				req := telegrambot.SendMessageRequest{
 					ChatID: incoming.PlatformChatID,
-					Text:   replyText,
+					Text:   reply.Text,
 				}
-				if prefResult != nil {
-					if kb := buildPreferenceKeyboard(prefResult); kb != nil {
-						req.ReplyMarkup = kb
-					}
-				} else if personaResult != nil {
-					if kb := buildPersonaKeyboard(personaResult); kb != nil {
-						req.ReplyMarkup = kb
-					}
+				if kb := BuildTelegramInteractive(reply); kb != nil {
+					req.ReplyMarkup = kb
 				}
 				if _, err := c.telegramClient.SendMessage(sendCtx, token, req); err != nil {
 					slog.Warn("telegram: failed to send command reply", "chat_id", incoming.PlatformChatID, "err", err)
@@ -333,7 +327,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			}
 			groupIdentity, _ := c.channelIdentitiesRepo.WithTx(tx).Upsert(ctx, ch.ChannelType, incoming.PlatformChatID, nil, nil, nil)
 			commandIdentity := identity
-			handled, replyText, prefResult, personaResult, cancelRunID, err := DispatchChannelCommand(
+			handled, reply, err := DispatchChannelCommand(
 				ctx, tx, ch, *persona, commandIdentity,
 				cmdText, false, incoming.PlatformChatID,
 				c.entitlementSvc,
@@ -377,23 +371,17 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 				if err := tx.Commit(ctx); err != nil {
 					return err
 				}
-				if cancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-				}
-				if replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+				if reply != nil && reply.Text != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
+					if reply.CancelRunID != uuid.Nil {
+						_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+					}
 					sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 					req := telegrambot.SendMessageRequest{
 						ChatID: incoming.PlatformChatID,
-						Text:   replyText,
+						Text:   reply.Text,
 					}
-					if prefResult != nil {
-						if kb := buildPreferenceKeyboard(prefResult); kb != nil {
-							req.ReplyMarkup = kb
-						}
-					} else if personaResult != nil {
-						if kb := buildPersonaKeyboard(personaResult); kb != nil {
-							req.ReplyMarkup = kb
-						}
+					if kb := BuildTelegramInteractive(reply); kb != nil {
+						req.ReplyMarkup = kb
 					}
 					if _, err := c.telegramClient.SendMessage(sendCtx, token, req); err != nil {
 						slog.Warn("telegram: failed to send command reply", "chat_id", incoming.PlatformChatID, "err", err)

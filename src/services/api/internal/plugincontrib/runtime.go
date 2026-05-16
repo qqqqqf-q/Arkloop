@@ -41,6 +41,7 @@ func (e *Enabler) InstallRuntime(ctx context.Context, req EnableRequest) (data.P
 		return data.PluginRuntimeState{}, err
 	}
 	statusMap := map[string]any{"plugin_data": pluginData}
+	applyManifestRuntimeDefaults(manifest, statusMap)
 	overall := "installed"
 	for _, runtimeConfig := range manifest.Runtime {
 		if err := e.installRuntimeBinary(ctx, pkg, runtimeConfig); err != nil {
@@ -166,6 +167,7 @@ func (e *Enabler) detectRuntimeState(ctx context.Context, pkg data.PluginPackage
 		return nil, "", err
 	}
 	statusMap := map[string]any{"plugin_data": pluginData}
+	applyManifestRuntimeDefaults(manifest, statusMap)
 	overall := "installed"
 	for _, runtimeConfig := range manifest.Runtime {
 		result := pluginbinary.DetectRuntime(ctx, runtimeConfig, pluginbinary.DetectOptions{

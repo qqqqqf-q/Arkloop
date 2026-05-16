@@ -642,12 +642,12 @@ func TestModelCommandWritesThreadChatModel(t *testing.T) {
 	}
 	defer tx.Rollback(context.Background()) //nolint:errcheck
 
-	reply, _, err := handlePreferenceCommand(context.Background(), tx, env.accountID, threadID, "/model cmd-cred^gpt-command", nil)
+	reply, err := handlePreferenceCommand(context.Background(), tx, env.accountID, threadID, "/model cmd-cred^gpt-command", nil)
 	if err != nil {
 		t.Fatalf("handle model command: %v", err)
 	}
-	if reply != "model → cmd-cred^gpt-command" {
-		t.Fatalf("reply = %q", reply)
+	if reply == nil || reply.Text != "model → cmd-cred^gpt-command" {
+		t.Fatalf("reply = %v", reply)
 	}
 	if err := tx.Commit(context.Background()); err != nil {
 		t.Fatalf("commit: %v", err)

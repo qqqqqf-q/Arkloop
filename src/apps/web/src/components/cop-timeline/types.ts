@@ -77,7 +77,7 @@ export type UEntry =
   | { kind: 'generic'; id: string; seq: number; item: NonNullable<Props['genericTools']>[number] }
 
 export function timelineStepDisplayLabel(step: Pick<WebSearchPhaseStep, 'kind' | 'label' | 'status'>): string {
-  if (step.kind === 'reviewing') return 'Reviewing sources'
+  if (step.kind === 'reviewing') return step.status === 'active' ? 'Reviewing sources' : 'Sources checked'
   if (step.kind === 'searching' && step.status === 'done' && step.label.trim() === DEFAULT_SEARCHING_LABEL) {
     return COMPLETED_SEARCHING_LABEL
   }
@@ -86,7 +86,7 @@ export function timelineStepDisplayLabel(step: Pick<WebSearchPhaseStep, 'kind' |
 
 export function timelineStepText(step: Pick<WebSearchPhaseStep, 'kind' | 'label' | 'status' | 'text'>): TimelineText {
   if (step.text) return step.text
-  if (step.kind === 'reviewing') return { kind: 'reviewing_sources' }
+  if (step.kind === 'reviewing') return step.status === 'active' ? { kind: 'reviewing_sources' } : { kind: 'sources_checked' }
   if (step.kind === 'searching' && step.status === 'done' && step.label.trim() === DEFAULT_SEARCHING_LABEL) {
     return { kind: 'search_completed' }
   }

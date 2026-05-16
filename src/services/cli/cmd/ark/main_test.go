@@ -184,7 +184,7 @@ func TestRunJSONWritesStructuredErrorOnPreRunFailure(t *testing.T) {
 
 	client := apiclient.NewClient(server.URL, "bad-token")
 	out := &bytes.Buffer{}
-	err := runJSON(context.Background(), out, client, "", "hello", apiclient.RunParams{})
+	err := runJSON(context.Background(), out, client, "", "hello", apiclient.RunParams{}, nil)
 	var ee *exitError
 	if !errors.As(err, &ee) || ee.code != 1 {
 		t.Fatalf("expected exitError code 1, got %v", err)

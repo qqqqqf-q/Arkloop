@@ -25,33 +25,6 @@ type ChannelCommandDeps struct {
 	ThreadRepo               *data.ThreadRepository
 }
 
-// PreferenceResult carries structured data from /model and /think commands.
-// Channels with rich UI (Telegram) use AvailableModels to build inline keyboards.
-// Channels with plain text (WeChat) ignore it and just use the text reply.
-type PreferenceResult struct {
-	AvailableModels []ModelOption
-	AllowUserScoped bool
-	ThinkingMode    string // current mode for /think keyboard, "off"/"minimal"/"low"/"medium"/"high"/"max"
-}
-
-// ModelOption represents a single model choice in the preference UI.
-type ModelOption struct {
-	Model      string
-	IsSelected bool
-}
-
-// PersonaResult carries structured data from /persona command.
-type PersonaResult struct {
-	Personas []PersonaOption
-}
-
-// PersonaOption represents a single persona choice in the persona UI.
-type PersonaOption struct {
-	ID          string
-	DisplayName string
-	IsSelected  bool
-}
-
 // ChannelCommandResolver provides channel-specific operations needed by DispatchChannelCommand.
 type ChannelCommandResolver struct {
 	// ResolveThreadID resolves the thread ID for this channel.
@@ -81,13 +54,6 @@ type ChannelCommandResolver struct {
 }
 
 // DispatchChannelCommand handles command dispatch for all text-based IM channels.
-// It detects the command from commandText, resolves projectID/threadID, and dispatches
-// to the appropriate handler.
-//
-// The caller is responsible for:
-//   - Starting and committing the transaction
-//   - Sending the reply via channel-specific mechanism
-//   - Any channel-specific text preprocessing (e.g., stripLeadingMention)
 func DispatchChannelCommand(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -101,16 +67,15 @@ func DispatchChannelCommand(
 	resolver ChannelCommandResolver,
 	deps ChannelCommandDeps,
 	channelLabel string,
-) (handled bool, replyText string, prefResult *PreferenceResult, personaResult *PersonaResult, cancelRunID uuid.UUID, err error) {
+) (handled bool, reply *CommandReply, err error) {
 	cmd, ok := slashCommandBase(strings.TrimSpace(commandText), "")
 	if !ok {
-		return false, "", nil, nil, uuid.Nil, nil
+		return false, nil, nil
 	}
 	if !isPrivate && channelCommandRequiresAdmin(cmd) && !resolveChannelCommandAdmin(ctx, resolver) {
-		return true, "无权限。", nil, nil, uuid.Nil, nil
+		return true, &CommandReply{Text: "无权限。"}, nil
 	}
 
-	// Resolve projectID
 	threadProjectID := derefUUID(persona.ProjectID)
 	if threadProjectID == uuid.Nil {
 		ownerUserID := uuid.Nil
@@ -127,7 +92,6 @@ func DispatchChannelCommand(
 		}
 	}
 
-	// resolveThreadID is a helper for commands that need a thread
 	resolveThreadID := func() (uuid.UUID, error) {
 		if threadProjectID == uuid.Nil {
 			return uuid.Nil, fmt.Errorf("cannot resolve project for persona %s", persona.ID)
@@ -142,30 +106,30 @@ func DispatchChannelCommand(
 	case cmd == "/model" || strings.HasPrefix(cmd, "/think"):
 		threadID, err := resolveThreadID()
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
-		replyText, prefResult, err = handlePreferenceCommand(ctx, tx, ch.AccountID, threadID, strings.TrimSpace(commandText), entSvc)
-		return true, replyText, prefResult, nil, uuid.Nil, err
+		reply, err = handlePreferenceCommand(ctx, tx, ch.AccountID, threadID, strings.TrimSpace(commandText), entSvc)
+		return true, reply, err
 
 	case strings.HasPrefix(cmd, "/heartbeat"):
 		if isPrivate {
-			return true, "请在群聊中使用 /heartbeat。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "请在群聊中使用 /heartbeat。"}, nil
 		}
 		threadID, err := resolveThreadID()
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
 		heartbeatIdentity := identity
 		if !isPrivate && resolver.ResolveHeartbeatIdentity != nil {
 			gi, err := resolver.ResolveHeartbeatIdentity(ctx, tx)
 			if err != nil {
-				return true, "", nil, nil, uuid.Nil, err
+				return true, nil, err
 			}
 			if gi != nil {
 				heartbeatIdentity = *gi
 			}
 		}
-		replyText, err = handleTelegramHeartbeatCommand(
+		replyText, err := handleTelegramHeartbeatCommand(
 			ctx, tx,
 			ch.ID, ch.AccountID, ch.PersonaID,
 			threadID,
@@ -175,48 +139,52 @@ func DispatchChannelCommand(
 			deps.PersonasRepo,
 			entSvc,
 		)
-		return true, replyText, nil, nil, uuid.Nil, err
+		if err != nil {
+			return true, nil, err
+		}
+		return true, &CommandReply{Text: replyText}, nil
 
 	case cmd == "/new":
 		if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-			return true, "当前会话未配置 persona。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前会话未配置 persona。"}, nil
 		}
 		if isPrivate {
 			if deps.ChannelDMThreadsRepo != nil {
 				if err := deps.ChannelDMThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, identity.ID, *ch.PersonaID, ""); err != nil {
 					slog.WarnContext(ctx, "channel_command_new_delete_dm_failed", "error", err, "channel_id", ch.ID, "identity_id", identity.ID)
-					return true, "操作失败。", nil, nil, uuid.Nil, nil
+					return true, &CommandReply{Text: "操作失败。"}, nil
 				}
 			}
 		} else {
 			if deps.ChannelGroupThreadsRepo != nil {
 				if err := deps.ChannelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, platformChatID, *ch.PersonaID); err != nil {
 					slog.WarnContext(ctx, "channel_command_new_delete_group_failed", "error", err, "channel_id", ch.ID, "platform_chat_id", platformChatID)
-					return true, "操作失败。", nil, nil, uuid.Nil, nil
+					return true, &CommandReply{Text: "操作失败。"}, nil
 				}
 			}
 		}
-		return true, "已开启新会话。", nil, nil, uuid.Nil, nil
+		modelName, personaName := resolveNewSessionContext(ctx, tx, ch, deps)
+		return true, &CommandReply{Text: RenderNewSessionText(modelName, personaName)}, nil
 
 	case cmd == "/stop":
 		if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-			return true, "当前没有运行中的任务。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前没有运行中的任务。"}, nil
 		}
 		threadID, err := resolveThreadID()
 		if err != nil {
-			return true, "当前没有运行中的任务。", nil, nil, uuid.Nil, err
+			return true, &CommandReply{Text: "当前没有运行中的任务。"}, nil
 		}
 		activeRun, _ := deps.RunEventRepo.WithTx(tx).GetActiveRootRunForThread(ctx, threadID)
 		if activeRun == nil {
-			return true, "当前没有运行中的任务。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前没有运行中的任务。"}, nil
 		}
 		if _, err := deps.RunEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
-		return true, "已请求停止当前任务。", nil, nil, activeRun.ID, nil
+		return true, &CommandReply{Text: "已请求停止当前任务。", CancelRunID: activeRun.ID}, nil
 
 	case cmd == "/help":
-		return true, channelCommandHelpText(isPrivate), nil, nil, uuid.Nil, nil
+		return true, &CommandReply{Text: channelCommandHelpText(isPrivate)}, nil
 
 	case cmd == "/start":
 		if resolver.ResolveStartPayload != nil {
@@ -224,10 +192,13 @@ func DispatchChannelCommand(
 			if strings.HasPrefix(payload, "bind_") {
 				code := strings.TrimPrefix(payload, "bind_")
 				replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo)
-				return true, replyText, nil, nil, uuid.Nil, err
+				if err != nil {
+					return true, nil, err
+				}
+				return true, &CommandReply{Text: replyText}, nil
 			}
 		}
-		return true, "已连接 Arkloop\n\n使用 /bind <code> 绑定账号\n私聊直接发消息开始对话，/new 开启新会话\n群内 @bot 触发对话，管理员可用 /new 重置会话", nil, nil, uuid.Nil, nil
+		return true, &CommandReply{Text: "已连接 Arkloop\n\n使用 /bind <code> 绑定账号\n私聊直接发消息开始对话，/new 开启新会话\n群内 @bot 触发对话，管理员可用 /new 重置会话"}, nil
 
 	case cmd == "/bind":
 		code := ""
@@ -235,31 +206,35 @@ func DispatchChannelCommand(
 			code = resolver.BindCode()
 		}
 		if code == "" {
-			return true, "用法：/bind <code>", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "用法：/bind <code>"}, nil
 		}
 		replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo)
-		return true, replyText, nil, nil, uuid.Nil, err
+		if err != nil {
+			return true, nil, err
+		}
+		return true, &CommandReply{Text: replyText}, nil
 
 	case cmd == "/reset":
 		if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-			return true, "当前会话未配置 persona。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前会话未配置 persona。"}, nil
 		}
 		if isPrivate {
 			if deps.ChannelDMThreadsRepo != nil {
 				if err := deps.ChannelDMThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, identity.ID, *ch.PersonaID, ""); err != nil {
 					slog.WarnContext(ctx, "channel_command_reset_delete_dm_failed", "error", err, "channel_id", ch.ID)
-					return true, "操作失败。", nil, nil, uuid.Nil, nil
+					return true, &CommandReply{Text: "操作失败。"}, nil
 				}
 			}
 		} else {
 			if deps.ChannelGroupThreadsRepo != nil {
 				if err := deps.ChannelGroupThreadsRepo.WithTx(tx).DeleteByBinding(ctx, ch.ID, platformChatID, *ch.PersonaID); err != nil {
 					slog.WarnContext(ctx, "channel_command_reset_delete_group_failed", "error", err, "channel_id", ch.ID)
-					return true, "操作失败。", nil, nil, uuid.Nil, nil
+					return true, &CommandReply{Text: "操作失败。"}, nil
 				}
 			}
 		}
-		return true, "已重置会话。", nil, nil, uuid.Nil, nil
+		modelName, personaName := resolveNewSessionContext(ctx, tx, ch, deps)
+		return true, &CommandReply{Text: RenderNewSessionText(modelName, personaName)}, nil
 
 	case cmd == "/status":
 		threadID, resolveErr := resolveThreadID()
@@ -269,109 +244,197 @@ func DispatchChannelCommand(
 			var err error
 			preferredModel, reasoningMode, _, err = getInboundThreadModelPreference(ctx, tx, threadID)
 			if err != nil {
-				return true, "", nil, nil, uuid.Nil, err
+				return true, nil, err
 			}
 		}
-		modelDisplay := "跟随频道"
+		modelDisplay := ""
 		if strings.TrimSpace(preferredModel) != "" {
 			modelDisplay = preferredModel
 		}
-		thinkDisplay := reasoningMode
-		if thinkDisplay == "" {
-			thinkDisplay = "off"
-		}
-		var sb strings.Builder
-		_, _ = fmt.Fprintf(&sb, "模型：%s\n思考：%s", modelDisplay, thinkDisplay)
+		personaName := resolveChannelPersonaName(ctx, tx, ch, deps)
+		runStatus := "空闲"
 		if resolveErr == nil && threadID != uuid.Nil {
 			activeRun, _ := deps.RunEventRepo.WithTx(tx).GetActiveRootRunForThread(ctx, threadID)
 			if activeRun != nil {
-				sb.WriteString("\n状态：运行中")
-			} else {
-				sb.WriteString("\n状态：空闲")
+				runStatus = "运行中"
 			}
 		}
-		return true, sb.String(), nil, nil, uuid.Nil, nil
+		return true, &CommandReply{Text: RenderStatusText(modelDisplay, reasoningMode, personaName, runStatus)}, nil
 
 	case cmd == "/models":
 		allowUserScoped, err := resolveByokEnabled(ctx, entSvc, ch.AccountID)
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
 		candidates, err := loadModelSelectorCandidates(ctx, tx, ch.AccountID)
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
 		threadID, err := resolveThreadID()
 		preferredModel := ""
 		if err == nil && threadID != uuid.Nil {
 			preferredModel, _, _, _ = getInboundThreadModelPreference(ctx, tx, threadID)
 		}
-		var modelOpts []ModelOption
-		for _, c := range candidates {
-			if !c.accountScoped && !allowUserScoped {
-				continue
-			}
-			selector := c.credentialName + "^" + c.model
-			modelOpts = append(modelOpts, ModelOption{
-				Model:      selector,
-				IsSelected: strings.EqualFold(selector, strings.TrimSpace(preferredModel)) || strings.EqualFold(c.model, strings.TrimSpace(preferredModel)),
-			})
+		pickerData := GroupCandidatesByProvider(candidates, preferredModel, allowUserScoped)
+		if len(pickerData.Providers) == 0 {
+			return true, &CommandReply{Text: "暂无可用模型。"}, nil
 		}
-		if len(modelOpts) == 0 {
-			return true, "暂无可用模型。", nil, nil, uuid.Nil, nil
-		}
-		header := "Choose model.\nCurrent: follow channel default"
-		if strings.TrimSpace(preferredModel) != "" {
-			header = "Choose model.\nCurrent: " + preferredModel
-		}
-		return true, header, &PreferenceResult{AvailableModels: modelOpts, AllowUserScoped: allowUserScoped}, nil, uuid.Nil, nil
+		return true, &CommandReply{
+			Text:        RenderModelPickerText(pickerData),
+			Interactive: pickerData,
+		}, nil
 
 	case cmd == "/persona":
 		if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
-			return true, "当前会话未配置 persona。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前会话未配置 persona。"}, nil
 		}
 		if !isPrivate && identity.UserID == nil {
-			return true, "无权限。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "无权限。"}, nil
 		}
 		currentPersona, err := deps.PersonasRepo.GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID)
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
 		if currentPersona == nil || currentPersona.ProjectID == nil {
-			return true, "当前会话未配置 persona。", nil, nil, uuid.Nil, nil
+			return true, &CommandReply{Text: "当前会话未配置 persona。"}, nil
 		}
 		personas, err := deps.PersonasRepo.ListActiveByProject(ctx, *currentPersona.ProjectID)
 		if err != nil {
-			return true, "", nil, nil, uuid.Nil, err
+			return true, nil, err
 		}
-		var opts []PersonaOption
-		for _, p := range personas {
-			if !p.UserSelectable {
-				continue
-			}
-			opts = append(opts, PersonaOption{
-				ID:          p.ID.String(),
-				DisplayName: p.DisplayName,
-				IsSelected:  ch.PersonaID != nil && p.ID == *ch.PersonaID,
-			})
+		currentPersonaID := uuid.Nil
+		if ch.PersonaID != nil {
+			currentPersonaID = *ch.PersonaID
 		}
-		if len(opts) == 0 {
-			return true, "没有可切换的 persona。", nil, nil, uuid.Nil, nil
+		pickerData := BuildPersonaPickerData(personas, currentPersonaID, currentPersona.DisplayName)
+		if len(pickerData.Personas) == 0 {
+			return true, &CommandReply{Text: "没有可切换的 persona。"}, nil
 		}
-		var sb strings.Builder
-		sb.WriteString("Choose persona.\nCurrent: " + currentPersona.DisplayName)
-		for _, p := range opts {
-			mark := ""
-			if p.IsSelected {
-				mark = " ✓"
-			}
-			sb.WriteString(fmt.Sprintf("\n- %s%s", p.DisplayName, mark))
-		}
-		return true, sb.String(), nil, &PersonaResult{Personas: opts}, uuid.Nil, nil
+		return true, &CommandReply{
+			Text:        RenderPersonaPickerText(pickerData),
+			Interactive: pickerData,
+		}, nil
 
 	default:
-		return false, "", nil, nil, uuid.Nil, nil
+		return false, nil, nil
 	}
+}
+
+// handlePreferenceCommand 处理 /model 和 /think 偏好命令，返回 CommandReply。
+func handlePreferenceCommand(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	rawText string,
+	entSvc *entitlement.Service,
+) (*CommandReply, error) {
+	parts := strings.Fields(rawText)
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	cmd, _ := slashCommandBase(rawText, "")
+	switch cmd {
+	case "/model":
+		allowUserScoped, err := resolveByokEnabled(ctx, entSvc, accountID)
+		if err != nil {
+			return nil, err
+		}
+		if threadID == uuid.Nil {
+			return &CommandReply{Text: "当前会话未配置 persona。"}, nil
+		}
+		preferredModel, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
+		if err != nil {
+			return nil, err
+		}
+		if len(parts) < 2 {
+			// /model 无参数：显示当前状态 + 快速切换
+			candidates, err := loadModelSelectorCandidates(ctx, tx, accountID)
+			if err != nil {
+				return nil, err
+			}
+			pickerData := GroupCandidatesByProvider(candidates, preferredModel, allowUserScoped)
+			pickerData.ShowQuickSwitch = true
+			modelDisplay := preferredModel
+			if strings.TrimSpace(preferredModel) == "" {
+				modelDisplay = "跟随频道默认"
+			}
+			return &CommandReply{
+				Text:        RenderModelStatusText(modelDisplay, reasoningMode),
+				Interactive: pickerData,
+			}, nil
+		}
+		newModel := strings.TrimSpace(parts[1])
+		if err := validateModelSelector(ctx, tx, accountID, newModel, allowUserScoped); err != nil {
+			return &CommandReply{Text: fmt.Sprintf("模型选择器无效：%s", newModel)}, nil
+		}
+		if err := updateInboundThreadModelPreference(ctx, tx, threadID, newModel, reasoningMode); err != nil {
+			return nil, err
+		}
+		return &CommandReply{Text: "model → " + newModel}, nil
+
+	case "/think":
+		if threadID == uuid.Nil {
+			return &CommandReply{Text: "当前会话未配置 persona。"}, nil
+		}
+		preferredModel, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
+		if err != nil {
+			return nil, err
+		}
+		if len(parts) < 2 {
+			display := reasoningMode
+			if display == "" {
+				display = "off"
+			}
+			modes := []ThinkModeOption{
+				{Name: "off", IsSelected: display == "off"},
+				{Name: "minimal", IsSelected: display == "minimal"},
+				{Name: "low", IsSelected: display == "low"},
+				{Name: "medium", IsSelected: display == "medium"},
+				{Name: "high", IsSelected: display == "high"},
+				{Name: "max", IsSelected: display == "max"},
+			}
+			pickerData := ThinkPickerData{CurrentMode: display, Modes: modes}
+			return &CommandReply{
+				Text:        RenderThinkPickerText(pickerData),
+				Interactive: pickerData,
+			}, nil
+		}
+		newLevel := strings.TrimSpace(parts[1])
+		validModes := map[string]bool{"off": true, "minimal": true, "low": true, "medium": true, "high": true, "max": true}
+		if !validModes[newLevel] {
+			return &CommandReply{Text: "无效思考级别。可选：off, minimal, low, medium, high, max"}, nil
+		}
+		if err := updateInboundThreadModelPreference(ctx, tx, threadID, preferredModel, newLevel); err != nil {
+			return nil, err
+		}
+		return &CommandReply{Text: "think → " + newLevel}, nil
+
+	default:
+		return nil, nil
+	}
+}
+
+// resolveNewSessionContext 获取 /new 和 /reset 回复所需的上下文信息。
+// /new 后 thread 已删除，model 退回到 channel 默认值。
+func resolveNewSessionContext(
+	ctx context.Context,
+	tx pgx.Tx,
+	ch data.Channel,
+	deps ChannelCommandDeps,
+) (modelName, personaName string) {
+	return extractChannelDefaultModel(ch), resolveChannelPersonaName(ctx, tx, ch, deps)
+}
+
+func resolveChannelPersonaName(ctx context.Context, tx pgx.Tx, ch data.Channel, deps ChannelCommandDeps) string {
+	if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
+		return ""
+	}
+	p, err := deps.PersonasRepo.WithTx(tx).GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID)
+	if err != nil || p == nil {
+		return ""
+	}
+	return p.DisplayName
 }
 
 func channelCommandRequiresAdmin(cmd string) bool {

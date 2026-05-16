@@ -32,13 +32,19 @@ type RunResult struct {
 	IsError    bool   `json:"is_error"`
 }
 
+// RunOptions 控制 runner 的额外行为。
+type RunOptions struct {
+	Incognito bool
+}
+
 // Execute 在指定 thread 中发送 prompt 并执行一次完整的 agent run。
 // threadID 为空时自动创建新 thread。onEvent 为 nil 时跳过回调。
-func Execute(ctx context.Context, c *apiclient.Client, threadID string, prompt string, params apiclient.RunParams, onEvent func(sse.Event)) (RunResult, error) {
+func Execute(ctx context.Context, c *apiclient.Client, threadID string, prompt string, params apiclient.RunParams, onEvent func(sse.Event), opts *RunOptions) (RunResult, error) {
 	var err error
 
+	incognito := opts != nil && opts.Incognito
 	if threadID == "" {
-		threadID, err = c.CreateThread(ctx, "")
+		threadID, err = c.CreateThread(ctx, "", incognito)
 		if err != nil {
 			return RunResult{}, fmt.Errorf("runner: create thread: %w", err)
 		}

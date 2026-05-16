@@ -405,7 +405,7 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 		return err
 	}
 
-	handled, replyText, _, _, cancelRunID, err := DispatchChannelCommand(
+	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		text, conversationType == "private", platformChatID,
 		nil,
@@ -450,15 +450,17 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 		if err := tx.Commit(ctx); err != nil {
 			return err
 		}
-		if cancelRunID != uuid.Nil {
-			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
+		if reply != nil {
+			if reply.CancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+			}
 		}
 		replyScope := qqbotclient.ScopeC2C
 		if conversationType == "group" {
 			replyScope = qqbotclient.ScopeGroup
 		}
-		if replyText != "" {
-			c.sendTextReply(ctx, replyScope, platformChatID, replyText, messageID)
+		if reply != nil && reply.Text != "" {
+			c.sendTextReply(ctx, replyScope, platformChatID, reply.Text, messageID)
 		}
 		return nil
 	}

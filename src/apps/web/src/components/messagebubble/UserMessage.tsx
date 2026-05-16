@@ -251,7 +251,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
                 fontFamily: 'inherit',
               }}
             >
-              Cancel
+              {t.cancelAction}
             </button>
             <button
               onClick={handleEditDone}
@@ -268,7 +268,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
                 fontWeight: 500,
               }}
             >
-              Done
+              {t.doneAction}
             </button>
           </div>
         </div>
@@ -409,7 +409,7 @@ export function UserMessage({ message, onRetry, onEdit, accessToken, animateEnte
                     padding: 0,
                   }}
                 >
-                  {userTextExpanded ? 'Show less' : 'Show more'}
+                  {userTextExpanded ? t.showLessAction : t.showMoreAction}
                 </button>
               )}
             </div>

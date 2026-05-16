@@ -1,6 +1,7 @@
-import { FileText } from 'lucide-react'
+import { ClipboardList, FileText } from 'lucide-react'
 import type { ArtifactRef } from '../storage'
 import { useLocale } from '../contexts/LocaleContext'
+import { isPlanMarkdownPath } from '../planMetadata'
 
 type Props = {
   artifact: ArtifactRef
@@ -11,16 +12,21 @@ type Props = {
 type DocumentResourceCardProps = {
   title: string
   kindLabel?: string
+  isPlan?: boolean
   onClick: (trigger: HTMLButtonElement) => void
   active?: boolean
 }
 
-export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, active }: DocumentResourceCardProps) {
+export function DocumentResourceCard({ title, kindLabel = 'Document', isPlan = false, onClick, active }: DocumentResourceCardProps) {
   const { locale } = useLocale()
-  const restingBackground = active ? 'var(--c-bg-page)' : 'var(--c-bg-sub)'
-  const iconBackground = active ? 'transparent' : 'var(--c-bg-page)'
-  const iconBorder = active ? '0.5px solid transparent' : '0.5px solid var(--c-border-subtle)'
+  const restingBackground = active ? 'var(--c-bg-menu)' : 'var(--c-bg-menu)'
+  const iconBackground = active ? 'var(--c-bg-input)' : 'var(--c-bg-input)'
+  const iconBorder = '0.5px solid var(--c-border-subtle)'
   const ring = active ? 'inset 0 0 0 1px var(--c-border-subtle)' : 'none'
+  const Icon = isPlan ? ClipboardList : FileText
+  const label = isPlan
+    ? locale === 'zh' ? '计划文档' : 'Plan document'
+    : kindLabel === 'Document' && locale === 'zh' ? '文档' : kindLabel
 
   return (
     <button
@@ -43,7 +49,7 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, a
         boxShadow: ring,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'var(--c-bg-deep)'
+        e.currentTarget.style.background = 'color-mix(in srgb, var(--c-bg-deep) 28%, var(--c-bg-menu) 72%)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.background = restingBackground
@@ -63,7 +69,7 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, a
           transition: 'background 150ms, border-color 150ms',
         }}
       >
-        <FileText size={18} style={{ color: 'var(--c-text-icon)' }} />
+        <Icon size={18} style={{ color: 'var(--c-text-icon)' }} />
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
         <span
@@ -86,7 +92,7 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, a
             lineHeight: '14px',
           }}
         >
-          {kindLabel === 'Document' && locale === 'zh' ? '文档' : kindLabel}
+          {label}
         </span>
       </div>
     </button>
@@ -94,9 +100,11 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', onClick, a
 }
 
 export function DocumentCard({ artifact, onClick, active }: Props) {
+  const isPlan = isPlanMarkdownPath(artifact.filename)
   return (
     <DocumentResourceCard
       title={artifact.title || artifact.filename}
+      isPlan={isPlan}
       onClick={onClick}
       active={active}
     />

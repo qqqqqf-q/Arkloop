@@ -72,6 +72,7 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [hovered, setHovered] = useState(false)
   const [viewportAnimating, setViewportAnimating] = useState(false)
+  const [viewportHeight, setViewportHeight] = useState(0)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const cardScrollRef = useRef<HTMLDivElement | null>(null)
   const cardContentRef = useRef<HTMLDivElement | null>(null)
@@ -85,25 +86,6 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
   }, [defaultExpanded])
 
   const isOpen = segment.status === 'open'
-  const [contentHeight, setContentHeight] = useState(0)
-
-  const measure = useCallback(() => {
-    const el = contentRef.current
-    if (!el) return
-    const nextHeight = el.scrollHeight
-    setContentHeight((prev) => prev === nextHeight ? prev : nextHeight)
-  }, [])
-
-  useLayoutEffect(() => { measure() }, [measure])
-
-  useLayoutEffect(() => {
-    const el = contentRef.current
-    if (!el) return
-    if (typeof ResizeObserver !== 'function') return
-    const ro = new ResizeObserver(measure)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [measure])
 
   const updateCardShadows = useCallback(() => {
     const el = cardScrollRef.current
@@ -145,14 +127,13 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
 
   const displayMode: 'full' | 'closed' = expanded ? 'full' : 'closed'
 
-  const viewportHeight = displayMode === 'full' ? contentHeight : 0
-
-  const viewportTargetHeight = displayMode === 'full' && !viewportAnimating ? 'auto' : viewportHeight
   const viewportTransition = reduceMotion
     ? { duration: 0 }
     : { duration: 0.24, ease: [0.4, 0, 0.2, 1] as const }
 
   const toggleExpand = () => {
+    const contentHeight = contentRef.current?.scrollHeight ?? 0
+    setViewportHeight(contentHeight)
     setViewportAnimating(true)
     setExpanded((v) => !v)
   }
@@ -244,9 +225,15 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
 
       <motion.div
         initial={false}
-        animate={{ height: viewportTargetHeight, opacity: displayMode === 'closed' ? 0 : 1 }}
+        animate={{
+          height: displayMode === 'closed'
+            ? 0
+            : viewportAnimating
+              ? viewportHeight
+              : 'auto',
+          opacity: displayMode === 'closed' ? 0 : 1,
+        }}
         transition={viewportTransition}
-        onAnimationStart={() => setViewportAnimating(true)}
         onAnimationComplete={() => setViewportAnimating(false)}
         style={{
           overflow: displayMode === 'full' && !viewportAnimating ? 'visible' : 'hidden',
@@ -277,6 +264,33 @@ function itemTypeId(item: CopSubSegment['items'][number]): string {
 type ItemResolver = {
   check: (toolCallId: string) => boolean
   render: (toolCallId: string) => React.ReactNode
+}
+
+function relatedSearchSteps(toolCallId: string, pool: ResolvedPool) {
+  return [...pool.steps.values()]
+    .filter((step) => step.id === toolCallId || step.id.startsWith(`${toolCallId}::`))
+    .sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0))
+}
+
+function renderSearchStep(
+  step: ReturnType<typeof relatedSearchSteps>[number],
+  pool: ResolvedPool,
+  live: boolean,
+  locale: Locale,
+) {
+  return (
+    <div>
+      <div style={{ fontSize: 'var(--c-cop-row-font-size)', color: 'var(--c-cop-row-fg)', lineHeight: 'var(--c-cop-row-line-height)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <TypewriterText text={renderTimelineText(timelineStepText(step), locale)} className={step.status === 'active' ? 'thinking-shimmer-dim' : undefined} live={live} />
+      </div>
+      {step.kind === 'searching' && step.queries && step.queries.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+          {step.queries.map((q, index) => <QueryPill key={`${step.id}:query:${index}`} text={q} live={live} />)}
+        </div>
+      )}
+      {step.kind === 'reviewing' && <SourceListCard sources={step.sources ?? pool.sources} />}
+    </div>
+  )
 }
 
 function renderItem(
@@ -357,20 +371,16 @@ function renderItem(
       },
     },
     {
-      check: (id) => pool.steps.has(id),
+      check: (id) => relatedSearchSteps(id, pool).length > 0,
       render: (id) => {
-        const step = pool.steps.get(id)!
+        const steps = relatedSearchSteps(id, pool)
         return (
-          <div>
-            <div style={{ fontSize: 'var(--c-cop-row-font-size)', color: 'var(--c-cop-row-fg)', lineHeight: 'var(--c-cop-row-line-height)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <TypewriterText text={renderTimelineText(timelineStepText(step), locale)} className={step.status === 'active' ? 'thinking-shimmer-dim' : undefined} live={live} />
-            </div>
-            {step.kind === 'searching' && step.queries && step.queries.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
-                {step.queries.map((q, index) => <QueryPill key={`${step.id}:query:${index}`} text={q} live={live} />)}
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {steps.map((step) => (
+              <div key={step.id}>
+                {renderSearchStep(step, pool, live, locale)}
               </div>
-            )}
-            {step.kind === 'reviewing' && <SourceListCard sources={step.sources ?? pool.sources} />}
+            ))}
           </div>
         )
       },

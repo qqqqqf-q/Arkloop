@@ -77,7 +77,7 @@ func (executor) Execute(
 			"plan_file_path": planPath,
 			"filename":       filepath.Base(planPath),
 			"plan":           planText,
-			"next_action":    "Plan Mode has ended. Continue in this same run by executing the approved plan with normal tools; do not stop after this tool call.",
+			"next_action":    "Plan Mode has ended. Continue in this same run by executing the approved plan with normal tools. Use todo_write with plan_path and updates for plan todo status changes; do not use edit or write_file merely to mark plan todos. Do not stop after this tool call.",
 		},
 		DurationMs: int(time.Since(started).Milliseconds()),
 		Events:     []events.RunEvent{event},

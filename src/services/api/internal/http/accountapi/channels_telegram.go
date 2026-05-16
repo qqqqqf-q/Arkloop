@@ -1284,10 +1284,12 @@ func (c telegramConnector) HandleUpdate(
 		if !telegramPrivateChatAllowed(cfg, incoming.PlatformUserID) {
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+				if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 					ChatID: incoming.PlatformChatID,
 					Text:   "当前账号未被授权使用这个机器人。",
-				})
+				}); err != nil {
+					slog.WarnContext(ctx, "telegram_send_failed", "chat_id", incoming.PlatformChatID, "error", err)
+				}
 				sendCancel()
 			}
 			return nil
@@ -1320,11 +1322,13 @@ func (c telegramConnector) HandleUpdate(
 		}
 		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+			if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 				ChatID:      incoming.PlatformChatID,
 				Text:        stageA.replyText,
 				ReplyMarkup: stageA.replyMarkup,
-			})
+			}); err != nil {
+				slog.WarnContext(ctx, "telegram_send_failed", "chat_id", incoming.PlatformChatID, "error", err)
+			}
 			sendCancel()
 		}
 		switch stageA.finalState {
@@ -2048,10 +2052,12 @@ func (c telegramConnector) HandleUpdateForPoll(
 		if !telegramPrivateChatAllowed(cfg, incoming.PlatformUserID) {
 			if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-				_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+				if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 					ChatID: incoming.PlatformChatID,
 					Text:   "当前账号未被授权使用这个机器人。",
-				})
+				}); err != nil {
+					slog.WarnContext(ctx, "telegram_send_failed", "chat_id", incoming.PlatformChatID, "error", err)
+				}
 				sendCancel()
 			}
 			return nil
@@ -2085,11 +2091,13 @@ func (c telegramConnector) HandleUpdateForPoll(
 		}
 		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_, _ = c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
+			if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
 				ChatID:      incoming.PlatformChatID,
 				Text:        stageA.replyText,
 				ReplyMarkup: stageA.replyMarkup,
-			})
+			}); err != nil {
+				slog.WarnContext(ctx, "telegram_send_failed", "chat_id", incoming.PlatformChatID, "error", err)
+			}
 			sendCancel()
 		}
 	}
@@ -2105,164 +2113,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 	logPhase("stage_b_begin")
 	logPhase("stage_b_complete")
 	return nil
-}
-
-// buildPreferenceKeyboard converts a PreferenceResult into a Telegram inline keyboard.
-// Used by both DM and group command handlers to render /model and /think picks.
-func buildPreferenceKeyboard(pref *PreferenceResult) *telegrambot.InlineKeyboardMarkup {
-	if pref == nil {
-		return nil
-	}
-	var rows [][]telegrambot.InlineKeyboardButton
-
-	// /model keyboard
-	if len(pref.AvailableModels) > 0 {
-		for _, m := range pref.AvailableModels {
-			label := m.Model
-			if m.IsSelected {
-				label = m.Model + " ✓"
-			}
-			rows = append(rows, []telegrambot.InlineKeyboardButton{{
-				Text:         label,
-				CallbackData: "model:" + m.Model,
-			}})
-		}
-	}
-
-	// /think keyboard
-	if pref.ThinkingMode != "" {
-		modes := []string{"off", "minimal", "low", "medium", "high", "max"}
-		for _, mode := range modes {
-			label := mode
-			if mode == pref.ThinkingMode {
-				label = mode + " ✓"
-			}
-			rows = append(rows, []telegrambot.InlineKeyboardButton{{
-				Text:         label,
-				CallbackData: "think:" + mode,
-			}})
-		}
-	}
-
-	if len(rows) == 0 {
-		return nil
-	}
-	rows = append(rows, []telegrambot.InlineKeyboardButton{{Text: "✕", CallbackData: "dismiss"}})
-	return &telegrambot.InlineKeyboardMarkup{InlineKeyboard: rows}
-}
-
-func buildPersonaKeyboard(result *PersonaResult) *telegrambot.InlineKeyboardMarkup {
-	if result == nil {
-		return nil
-	}
-	var rows [][]telegrambot.InlineKeyboardButton
-	for _, p := range result.Personas {
-		label := p.DisplayName
-		if p.IsSelected {
-			label = p.DisplayName + " ✓"
-		}
-		rows = append(rows, []telegrambot.InlineKeyboardButton{{
-			Text:         label,
-			CallbackData: "persona:" + p.ID,
-		}})
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	rows = append(rows, []telegrambot.InlineKeyboardButton{{Text: "✕", CallbackData: "dismiss"}})
-	return &telegrambot.InlineKeyboardMarkup{InlineKeyboard: rows}
-}
-
-// handlePreferenceCommand 处理 /model 和 /think 偏好命令（群聊和私聊均可用）。
-// 返回 PreferenceResult 而非通道特定类型，由调用方负责转换为通道特定 UI。
-func handlePreferenceCommand(
-	ctx context.Context,
-	tx pgx.Tx,
-	accountID uuid.UUID,
-	threadID uuid.UUID,
-	rawText string,
-	entSvc *entitlement.Service,
-) (string, *PreferenceResult, error) {
-	parts := strings.Fields(rawText)
-	if len(parts) == 0 {
-		return "", nil, nil
-	}
-	cmd, _ := slashCommandBase(rawText, "")
-	switch cmd {
-	case "/model":
-		allowUserScoped, err := resolveByokEnabled(ctx, entSvc, accountID)
-		if err != nil {
-			return "", nil, err
-		}
-		if threadID == uuid.Nil {
-			return "当前会话未配置 persona。", nil, nil
-		}
-		preferredModel, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
-		if err != nil {
-			return "", nil, err
-		}
-		if len(parts) < 2 {
-			candidates, err := loadModelSelectorCandidates(ctx, tx, accountID)
-			if err != nil {
-				return "", nil, err
-			}
-			var modelOpts []ModelOption
-			for _, c := range candidates {
-				if !c.accountScoped && !allowUserScoped {
-					continue
-				}
-				selector := c.credentialName + "^" + c.model
-				modelOpts = append(modelOpts, ModelOption{
-					Model:      selector,
-					IsSelected: strings.EqualFold(selector, strings.TrimSpace(preferredModel)) || strings.EqualFold(c.model, strings.TrimSpace(preferredModel)),
-				})
-			}
-			prefResult := &PreferenceResult{
-				AvailableModels: modelOpts,
-				AllowUserScoped: allowUserScoped,
-			}
-			header := "Choose model.\nCurrent: follow channel default"
-			if strings.TrimSpace(preferredModel) != "" {
-				header = "Choose model.\nCurrent: " + preferredModel
-			}
-			return header, prefResult, nil
-		}
-		newModel := strings.TrimSpace(parts[1])
-		if err := validateModelSelector(ctx, tx, accountID, newModel, allowUserScoped); err != nil {
-			return fmt.Sprintf("模型选择器无效：%s", newModel), nil, nil
-		}
-		if err := updateInboundThreadModelPreference(ctx, tx, threadID, newModel, reasoningMode); err != nil {
-			return "", nil, err
-		}
-		return "model → " + newModel, nil, nil
-	case "/think":
-		if threadID == uuid.Nil {
-			return "当前会话未配置 persona。", nil, nil
-		}
-		preferredModel, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
-		if err != nil {
-			return "", nil, err
-		}
-		if len(parts) < 2 {
-			display := reasoningMode
-			if display == "" {
-				display = "off"
-			}
-			prefResult := &PreferenceResult{ThinkingMode: display}
-			header := fmt.Sprintf("Choose level for /think.\nCurrent: %s\nOptions: off, minimal, low, medium, high, max.", display)
-			return header, prefResult, nil
-		}
-		newMode := strings.TrimSpace(parts[1])
-		validModes := map[string]bool{"off": true, "minimal": true, "low": true, "medium": true, "high": true, "max": true}
-		if !validModes[newMode] {
-			return "可用档位：off、minimal、low、medium、high、max", nil, nil
-		}
-		if err := updateInboundThreadModelPreference(ctx, tx, threadID, preferredModel, newMode); err != nil {
-			return "", nil, err
-		}
-		return "think → " + newMode, nil, nil
-	}
-	return "", nil, nil
 }
 
 // handleTelegramCallbackQuery 处理 InlineKeyboard 按钮回调。
@@ -2306,42 +2156,140 @@ func (c telegramConnector) handleTelegramCallbackQuery(
 	if cbData == "dismiss" {
 		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			editCtx, editCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_ = c.telegramClient.EditMessageReplyMarkup(editCtx, token, fmt.Sprintf("%d", cb.Message.Chat.ID), cb.Message.MessageID, nil)
+			if err := c.telegramClient.EditMessageReplyMarkup(editCtx, token, fmt.Sprintf("%d", cb.Message.Chat.ID), cb.Message.MessageID, nil); err != nil {
+				slog.WarnContext(ctx, "telegram_edit_reply_markup_failed", "chat_id", cb.Message.Chat.ID, "error", err)
+			}
 			editCancel()
 		}
 		return nil
 	}
 
-	// 解析 callback_data。
-	var thinkLevel string
-	var modelName string
-	var personaIDStr string
-	var confirmText string
-	switch {
-	case strings.HasPrefix(cbData, "think:"):
-		thinkLevel = strings.TrimPrefix(cbData, "think:")
-		validModes := map[string]bool{"off": true, "minimal": true, "low": true, "medium": true, "high": true, "max": true}
-		if !validModes[thinkLevel] {
-			return nil
-		}
-		confirmText = "think → " + thinkLevel
-	case strings.HasPrefix(cbData, "model:"):
-		modelName = strings.TrimPrefix(cbData, "model:")
-		if modelName == "" {
-			return nil
-		}
-		confirmText = "model → " + modelName
-	case strings.HasPrefix(cbData, "persona:"):
-		personaIDStr = strings.TrimPrefix(cbData, "persona:")
-		if personaIDStr == "" {
-			return nil
-		}
-	default:
+	// 使用紧凑 callback_data 编码解析。
+	parsed, ok := ParseCallbackData(cbData)
+	if !ok {
 		return nil
 	}
 
-	// persona 切换走单独路径（更新 channel 而非 identity 偏好）。
-	if personaIDStr != "" {
+	editMarkup := func(kb *telegrambot.InlineKeyboardMarkup) {
+		if c.telegramClient == nil || strings.TrimSpace(token) == "" {
+			return
+		}
+		editCtx, editCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+		if err := c.telegramClient.EditMessageReplyMarkup(editCtx, token, fmt.Sprintf("%d", cb.Message.Chat.ID), cb.Message.MessageID, kb); err != nil {
+			slog.WarnContext(ctx, "telegram_edit_reply_markup_failed", "chat_id", cb.Message.Chat.ID, "error", err)
+		}
+		editCancel()
+	}
+	editText := func(text string) {
+		if c.telegramClient == nil || strings.TrimSpace(token) == "" {
+			return
+		}
+		editCtx, editCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
+		if err := c.telegramClient.EditMessageText(editCtx, token, telegrambot.EditMessageTextRequest{
+			ChatID:    fmt.Sprintf("%d", cb.Message.Chat.ID),
+			MessageID: cb.Message.MessageID,
+			Text:      text,
+		}); err != nil {
+			slog.WarnContext(ctx, "telegram_callback_edit_failed", "chat_id", cb.Message.Chat.ID, "error", err)
+		}
+		editCancel()
+	}
+
+	switch parsed.Kind {
+	case "dismiss":
+		editMarkup(nil)
+		return nil
+
+	case "providers":
+		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		preferredModel := c.getCallbackPreferredModel(ctx, ch, *identity, cb)
+		pickerData := GroupCandidatesByProvider(candidates, preferredModel, allowUserScoped)
+		editMarkup(BuildTelegramProvidersKeyboard(pickerData))
+		return nil
+
+	case "provider_models":
+		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		preferredModel := c.getCallbackPreferredModel(ctx, ch, *identity, cb)
+		pickerData := GroupCandidatesByProvider(candidates, preferredModel, allowUserScoped)
+		kb := BuildTelegramProviderModelsKeyboard(pickerData, parsed.ProviderIdx, parsed.Page)
+		editMarkup(kb)
+		return nil
+
+	case "model_select":
+		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
+		if err != nil {
+			return err
+		}
+		flat := FlattenModelChoices(GroupCandidatesByProvider(candidates, "", allowUserScoped))
+		if parsed.FlatIndex < 0 || parsed.FlatIndex >= len(flat) {
+			return nil
+		}
+		selector := flat[parsed.FlatIndex].Selector
+		tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck
+		threadID := c.resolveCallbackThreadID(ctx, tx, ch, *identity, cb)
+		if threadID == uuid.Nil {
+			return nil
+		}
+		_, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
+		if err != nil {
+			return err
+		}
+		if err := updateInboundThreadModelPreference(ctx, tx, threadID, selector, reasoningMode); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		editText("model → " + flat[parsed.FlatIndex].DisplayName)
+		return nil
+
+	case "think":
+		tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx) //nolint:errcheck
+		threadID := c.resolveCallbackThreadID(ctx, tx, ch, *identity, cb)
+		if threadID == uuid.Nil {
+			return nil
+		}
+		preferredModel, _, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
+		if err != nil {
+			return err
+		}
+		if err := updateInboundThreadModelPreference(ctx, tx, threadID, preferredModel, parsed.ThinkMode); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		editText("think → " + parsed.ThinkMode)
+		return nil
+
+	case "persona":
+		personaIDStr := c.resolveCallbackPersonaID(ctx, ch, parsed.PersonaIdx)
 		personaID, err := uuid.Parse(personaIDStr)
 		if err != nil {
 			return nil
@@ -2358,92 +2306,107 @@ func (c telegramConnector) handleTelegramCallbackQuery(
 		if _, err := c.channelsRepo.Update(ctx, ch.ID, ch.AccountID, upd); err != nil {
 			return err
 		}
-		if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-			editCtx, editCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-			_ = c.telegramClient.EditMessageText(editCtx, token, telegrambot.EditMessageTextRequest{
-				ChatID:    fmt.Sprintf("%d", cb.Message.Chat.ID),
-				MessageID: cb.Message.MessageID,
-				Text:      "persona → " + persona.DisplayName,
-			})
-			editCancel()
-		}
+		editText("persona → " + persona.DisplayName)
+		return nil
+
+	default:
 		return nil
 	}
+}
 
-	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{})
+// resolveCallbackThreadID 解析 callback 场景的 thread ID。
+func (c telegramConnector) resolveCallbackThreadID(
+	ctx context.Context,
+	tx pgx.Tx,
+	ch data.Channel,
+	identity data.ChannelIdentity,
+	cb *telegramCallbackQuery,
+) uuid.UUID {
+	if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
+		return uuid.Nil
+	}
+	persona, err := c.personasRepo.WithTx(tx).GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID)
+	if err != nil || persona == nil {
+		return uuid.Nil
+	}
+	projectID := derefUUID(persona.ProjectID)
+	if projectID == uuid.Nil {
+		if ownerUserID := channelOwnerUserID(ch); ownerUserID != nil && *ownerUserID != uuid.Nil {
+			if pid, err := c.personasRepo.WithTx(tx).GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, *ownerUserID); err == nil {
+				projectID = pid
+			}
+		}
+	}
+	if projectID == uuid.Nil {
+		return uuid.Nil
+	}
+	incoming := telegramIncomingMessage{
+		ChannelID:        ch.ID,
+		ChannelType:      ch.ChannelType,
+		PlatformChatID:   fmt.Sprintf("%d", cb.Message.Chat.ID),
+		PlatformUserID:   fmt.Sprintf("%d", cb.From.ID),
+		ChatType:         strings.TrimSpace(cb.Message.Chat.Type),
+		ConversationType: strings.TrimSpace(cb.Message.Chat.Type),
+	}
+	if cb.Message.MessageThreadID != nil {
+		thread := strconv.FormatInt(*cb.Message.MessageThreadID, 10)
+		incoming.MessageThreadID = &thread
+	}
+	threadID, err := c.resolveTelegramThreadID(ctx, tx, ch, *ch.PersonaID, projectID, identity, incoming)
 	if err != nil {
-		return err
+		return uuid.Nil
+	}
+	return threadID
+}
+
+// getCallbackPreferredModel 获取 callback 场景下当前 thread 的 preferred model（只读）。
+func (c telegramConnector) getCallbackPreferredModel(
+	ctx context.Context,
+	ch data.Channel,
+	identity data.ChannelIdentity,
+	cb *telegramCallbackQuery,
+) string {
+	tx, err := c.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ""
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	threadID := uuid.Nil
-	if ch.PersonaID != nil && *ch.PersonaID != uuid.Nil {
-		persona, err := c.personasRepo.WithTx(tx).GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID)
-		if err != nil {
-			return err
-		}
-		if persona != nil {
-			projectID := derefUUID(persona.ProjectID)
-			if projectID == uuid.Nil {
-				if ownerUserID := channelOwnerUserID(ch); ownerUserID != nil && *ownerUserID != uuid.Nil {
-					if pid, err := c.personasRepo.WithTx(tx).GetOrCreateDefaultProjectIDByOwner(ctx, ch.AccountID, *ownerUserID); err == nil {
-						projectID = pid
-					}
-				}
-			}
-			if projectID != uuid.Nil {
-				incoming := telegramIncomingMessage{
-					ChannelID:        ch.ID,
-					ChannelType:      ch.ChannelType,
-					PlatformChatID:   fmt.Sprintf("%d", cb.Message.Chat.ID),
-					PlatformUserID:   fmt.Sprintf("%d", cb.From.ID),
-					ChatType:         strings.TrimSpace(cb.Message.Chat.Type),
-					ConversationType: strings.TrimSpace(cb.Message.Chat.Type),
-				}
-				if cb.Message.MessageThreadID != nil {
-					thread := strconv.FormatInt(*cb.Message.MessageThreadID, 10)
-					incoming.MessageThreadID = &thread
-				}
-				resolvedThreadID, err := c.resolveTelegramThreadID(ctx, tx, ch, *ch.PersonaID, projectID, *identity, incoming)
-				if err != nil {
-					return err
-				}
-				threadID = resolvedThreadID
-			}
-		}
-	}
+	threadID := c.resolveCallbackThreadID(ctx, tx, ch, identity, cb)
 	if threadID == uuid.Nil {
-		return nil
+		return ""
 	}
-	if thinkLevel != "" {
-		preferredModel, _, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
-		if err != nil {
-			return err
-		}
-		if err := updateInboundThreadModelPreference(ctx, tx, threadID, preferredModel, thinkLevel); err != nil {
-			return err
-		}
-	} else if modelName != "" {
-		_, reasoningMode, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
-		if err != nil {
-			return err
-		}
-		if err := updateInboundThreadModelPreference(ctx, tx, threadID, modelName, reasoningMode); err != nil {
-			return err
-		}
+	model, _, _, err := getInboundThreadModelPreference(ctx, tx, threadID)
+	if err != nil {
+		return ""
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
+	return model
+}
 
-	// 编辑原消息：替换为确认文本，移除按钮。
-	if c.telegramClient != nil && strings.TrimSpace(token) != "" {
-		editCtx, editCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
-		_ = c.telegramClient.EditMessageText(editCtx, token, telegrambot.EditMessageTextRequest{
-			ChatID:    fmt.Sprintf("%d", cb.Message.Chat.ID),
-			MessageID: cb.Message.MessageID,
-			Text:      confirmText,
-		})
-		editCancel()
+// resolveCallbackPersonaID 从 persona 列表映射索引到 ID。
+func (c telegramConnector) resolveCallbackPersonaID(
+	ctx context.Context,
+	ch data.Channel,
+	idx int,
+) string {
+	if ch.PersonaID == nil || *ch.PersonaID == uuid.Nil {
+		return ""
 	}
-	return nil
+	persona, err := c.personasRepo.GetByIDForAccount(ctx, ch.AccountID, *ch.PersonaID)
+	if err != nil || persona == nil || persona.ProjectID == nil {
+		return ""
+	}
+	personas, err := c.personasRepo.ListActiveByProject(ctx, *persona.ProjectID)
+	if err != nil {
+		return ""
+	}
+	var selectable []data.Persona
+	for _, p := range personas {
+		if p.UserSelectable {
+			selectable = append(selectable, p)
+		}
+	}
+	if idx < 0 || idx >= len(selectable) {
+		return ""
+	}
+	return selectable[idx].ID.String()
 }

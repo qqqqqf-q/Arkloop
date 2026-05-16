@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Copy } from 'lucide-react'
 import { AnimatedCheck } from './AnimatedCheck'
 import { ActionIconButton } from './ActionIconButton'
+import { useLocale } from '../contexts/LocaleContext'
 
 type Phase = 'idle' | 'exiting' | 'entering' | 'active' | 'exiting-back' | 'entering-back'
 
@@ -25,11 +26,12 @@ export function CopyIconButton({
   className,
   style,
   resetDelay = 1500,
-  tooltip = 'Copy',
+  tooltip,
   hoverBackground,
   onMouseEnter,
   onMouseLeave,
 }: Props) {
+  const { t } = useLocale()
   const [phase, setPhase] = useState<Phase>('idle')
   const [hovered, setHovered] = useState(false)
   const hoveredRef = useRef(false)
@@ -100,8 +102,10 @@ export function CopyIconButton({
   }
 
   const showCheck = phase === 'entering' || phase === 'active' || phase === 'exiting-back'
-  const showTooltip = hovered && phase === 'idle'
-  const accessibleLabel = tooltip || 'Copy'
+  const copyLabel = t.copyAction
+  const resolvedTooltip = tooltip ?? copyLabel
+  const showTooltip = hovered && phase === 'idle' && resolvedTooltip !== ''
+  const accessibleLabel = resolvedTooltip || copyLabel
 
   return (
     <ActionIconButton
@@ -109,7 +113,7 @@ export function CopyIconButton({
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      tooltip={tooltip}
+      tooltip={resolvedTooltip}
       showTooltip={showTooltip}
       hoverBackground={hoverBackground}
       className={className}

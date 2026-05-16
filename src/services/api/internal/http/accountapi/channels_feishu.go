@@ -940,7 +940,7 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 
 	// --- 命令解析 ---
 	cmdText := strings.TrimSpace(incoming.Text)
-	handled, replyText, _, _, cancelRunID, err := DispatchChannelCommand(
+	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		cmdText, incoming.ConversationType == "private", incoming.ChatID,
 		nil,
@@ -982,11 +982,13 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 		if err := commitTx(); err != nil {
 			return err
 		}
-		if cancelRunID != uuid.Nil {
-			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, cancelRunID.String())
-		}
-		if replyText != "" {
-			_ = c.sendFeishuCommandReply(ctx, cfg, ch, incoming, replyText)
+		if reply != nil {
+			if reply.CancelRunID != uuid.Nil {
+				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
+			}
+			if reply.Text != "" {
+				_ = c.sendFeishuCommandReply(ctx, cfg, ch, incoming, reply.Text)
+			}
 		}
 		return nil
 	}

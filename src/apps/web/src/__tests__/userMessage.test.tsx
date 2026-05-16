@@ -220,7 +220,7 @@ describe('UserMessage overflow toggle', () => {
       })
 
       const toggle = Array.from(container.querySelectorAll('button')).find(
-        (button) => button.textContent?.trim() === 'Show more',
+        (button) => button.textContent?.trim() === '展开',
       ) as HTMLButtonElement | undefined
       expect(toggle).toBeTruthy()
       if (!toggle) return
@@ -230,7 +230,7 @@ describe('UserMessage overflow toggle', () => {
         await flushMicrotasks()
       })
 
-      expect(container.textContent).toContain('Show less')
+      expect(container.textContent).toContain('收起')
     } finally {
       if (originalScrollHeight) {
         Object.defineProperty(HTMLDivElement.prototype, 'scrollHeight', originalScrollHeight)

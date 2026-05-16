@@ -7,6 +7,8 @@ import {
   COP_TIMELINE_DOT_TOP,
 } from './utils'
 import type { TimelineMarker } from './markers'
+import { useLocale } from '../../contexts/LocaleContext'
+import { localizeTimelineLabel } from './labels'
 
 /** 与 unified 列表项同一套点线（ChatPage 顶层工具条等复用） */
 export function CopTimelineUnifiedRow({
@@ -30,6 +32,7 @@ export function CopTimelineUnifiedRow({
   marker?: TimelineMarker
   children: ReactNode
 }) {
+  const { locale } = useLocale()
   const markerBoxSize = 16
   const markerTop = dotTop - 4
   const lineBelowTop = marker.kind === 'icon'
@@ -38,6 +41,7 @@ export function CopTimelineUnifiedRow({
   const lineAboveHeight = marker.kind === 'icon'
     ? Math.max(0, markerTop)
     : dotTop
+  const markerLabel = marker.kind === 'icon' ? localizeTimelineLabel(marker.label, locale) : ''
   return (
     <motion.div
       initial={{ opacity: 0, x: horizontalMotion ? -8 : 0 }}
@@ -74,8 +78,8 @@ export function CopTimelineUnifiedRow({
       )}
       {marker.kind === 'icon' ? (
         <div
-          title={marker.label}
-          aria-label={marker.label}
+          title={markerLabel}
+          aria-label={markerLabel}
           style={{
             position: 'absolute',
             left: `${COP_TIMELINE_LINE_LEFT_PX - markerBoxSize / 2}px`,

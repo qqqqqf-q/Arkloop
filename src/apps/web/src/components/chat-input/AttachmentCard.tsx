@@ -4,6 +4,7 @@ import { apiBaseUrl } from '@arkloop/shared/api'
 import type { Attachment } from '../ChatInput'
 import { LIGHTBOX_ANIM_MS } from '../messagebubble/utils'
 import { CopyIconButton } from '../CopyIconButton'
+import { useLocale } from '../../contexts/LocaleContext'
 
 export const BAR_COUNT = 52
 
@@ -85,6 +86,7 @@ export function AttachmentCard({
   onRemove: () => void
   accessToken?: string
 }) {
+  const { t } = useLocale()
   const [imageLoaded, setImageLoaded] = useState(false)
   const [lineCount, setLineCount] = useState<number | null>(null)
   const [cardHovered, setCardHovered] = useState(false)
@@ -289,7 +291,7 @@ export function AttachmentCard({
               </span>
               {lineCount !== null && (
                 <span style={{ color: 'var(--c-text-muted)', fontSize: '11px', marginTop: '3px' }}>
-                  {lineCount} lines
+                  {t.pastedLines(lineCount)}
                 </span>
               )}
               <div style={{ flex: 1 }} />
@@ -436,7 +438,7 @@ export function AttachmentCard({
             <CopyIconButton
               onCopy={() => handleCopyImage({} as React.MouseEvent)}
               size={16}
-              tooltip="复制图片"
+              tooltip={t.copyAction}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -455,7 +457,8 @@ export function AttachmentCard({
             <button
               type="button"
               onClick={handleDownload}
-              title="下载"
+              title={t.documentPanel.download}
+              aria-label={t.documentPanel.download}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

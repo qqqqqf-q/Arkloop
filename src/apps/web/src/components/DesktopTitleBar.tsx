@@ -1,4 +1,5 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ArrowUp,
   ChevronLeft,
@@ -28,11 +29,15 @@ import { secondaryButtonSmCls, secondaryButtonBorderStyle } from './buttonStyles
 import { ActionIconButton } from './ActionIconButton'
 import { SHORTCUTS } from '../shortcuts'
 import { formatDesktopAppVersion } from '../desktopVersion'
+import type { ThreadResponse } from '../api'
+import { useThreadLiveState } from '../contexts/thread-list'
 
 export const DESKTOP_TITLEBAR_HEIGHT = 44
 const WINDOWS_TITLEBAR_HEIGHT = 44
 const MAC_TITLEBAR_LEFT_PADDING = 76
 const DESKTOP_ICON_RAIL_LEFT_PADDING = 12
+const PINNED_MENU_OPEN_DELAY_MS = 70
+const PINNED_MENU_GAP = 4
 
 type Props = {
   sidebarCollapsed: boolean
@@ -53,6 +58,9 @@ type Props = {
   onDownloadApp?: () => void
   onInstallApp?: () => void
   onOpenSettings?: (tab?: SettingsTab | 'voice') => void
+  pinnedThreads?: ThreadResponse[]
+  activeThreadId?: string | null
+  onSelectPinnedThread?: (threadId: string) => void
 }
 
 export function DesktopTitleBar({
@@ -74,13 +82,22 @@ export function DesktopTitleBar({
   onDownloadApp,
   onInstallApp,
   onOpenSettings,
+  pinnedThreads = [],
+  activeThreadId,
+  onSelectPinnedThread,
 }: Props) {
   const { t } = useLocale()
   const sidebarToggleTrace = useRef<ReturnType<typeof beginPerfTrace>>(null)
   const updateBtnRef = useRef<HTMLButtonElement>(null)
   const popoverRef = useRef<HTMLDivElement>(null)
+  const pinnedMenuAnchorRef = useRef<HTMLDivElement>(null)
+  const pinnedMenuOpenTimerRef = useRef<number | null>(null)
+  const pinnedMenuCloseTimerRef = useRef<number | null>(null)
+  const pinnedMenuSuppressedRef = useRef(false)
   const [updatePopoverOpen, setUpdatePopoverOpen] = useState(false)
   const [updatePopoverPosition, setUpdatePopoverPosition] = useState<{ top: number; right: number }>({ top: 50, right: 12 })
+  const [pinnedMenuOpen, setPinnedMenuOpen] = useState(false)
+  const [pinnedMenuPosition, setPinnedMenuPosition] = useState<{ left: number; top: number }>({ left: 0, top: 0 })
   const [windowMaximized, setWindowMaximized] = useState(false)
   const desktopPlatform = getDesktopPlatform()
   const isMac = desktopPlatform === 'darwin'
@@ -135,6 +152,58 @@ export function DesktopTitleBar({
       ? t.desktopSettings.appUpdateReady
       : t.desktopSettings.appUpdateAvailable
   const newThreadLabel = appMode === 'work' ? t.newTask : t.newChat
+  const showPinnedSidebarPicker = sidebarCollapsed && pinnedThreads.length > 0
+
+  const clearPinnedMenuTimers = useCallback(() => {
+    if (pinnedMenuOpenTimerRef.current !== null) {
+      window.clearTimeout(pinnedMenuOpenTimerRef.current)
+      pinnedMenuOpenTimerRef.current = null
+    }
+    if (pinnedMenuCloseTimerRef.current !== null) {
+      window.clearTimeout(pinnedMenuCloseTimerRef.current)
+      pinnedMenuCloseTimerRef.current = null
+    }
+  }, [])
+
+  const openPinnedMenu = useCallback(() => {
+    if (!showPinnedSidebarPicker || pinnedMenuSuppressedRef.current) return
+    if (pinnedMenuOpenTimerRef.current !== null) window.clearTimeout(pinnedMenuOpenTimerRef.current)
+    if (pinnedMenuCloseTimerRef.current !== null) {
+      window.clearTimeout(pinnedMenuCloseTimerRef.current)
+      pinnedMenuCloseTimerRef.current = null
+    }
+    const rect = pinnedMenuAnchorRef.current?.getBoundingClientRect()
+    if (rect) setPinnedMenuPosition({ left: rect.left, top: rect.bottom + PINNED_MENU_GAP })
+    pinnedMenuOpenTimerRef.current = window.setTimeout(() => {
+      pinnedMenuOpenTimerRef.current = null
+      setPinnedMenuOpen(true)
+    }, PINNED_MENU_OPEN_DELAY_MS)
+  }, [showPinnedSidebarPicker])
+
+  const handlePinnedMenuAnchorEnter = useCallback(() => {
+    pinnedMenuSuppressedRef.current = false
+    openPinnedMenu()
+  }, [openPinnedMenu])
+
+  const schedulePinnedMenuClose = useCallback(() => {
+    clearPinnedMenuTimers()
+    pinnedMenuCloseTimerRef.current = window.setTimeout(() => {
+      pinnedMenuCloseTimerRef.current = null
+      setPinnedMenuOpen(false)
+    }, 120)
+  }, [clearPinnedMenuTimers])
+
+  const suppressPinnedMenuForHoverCycle = useCallback(() => {
+    pinnedMenuSuppressedRef.current = true
+    clearPinnedMenuTimers()
+    setPinnedMenuOpen(false)
+  }, [clearPinnedMenuTimers])
+
+  useEffect(() => {
+    return () => {
+      clearPinnedMenuTimers()
+    }
+  }, [clearPinnedMenuTimers])
 
   const togglePopover = useCallback(() => {
     setUpdatePopoverOpen((prev) => {
@@ -199,32 +268,57 @@ export function DesktopTitleBar({
           WebkitAppRegion: 'no-drag',
         } as React.CSSProperties}
       >
-        <ActionIconButton
-          onClick={() => {
-            endPerfTrace(sidebarToggleTrace.current, {
-              phase: 'click',
-              collapsed: sidebarCollapsed,
-              appMode,
-            })
-            sidebarToggleTrace.current = null
-            onToggleSidebar()
-          }}
-          onPointerDown={() => {
-            sidebarToggleTrace.current = beginPerfTrace('desktop_titlebar_sidebar_interaction', {
-              phase: 'pointerdown',
-              collapsed: sidebarCollapsed,
-              appMode,
-            })
-          }}
-          onPointerLeave={() => {
-            sidebarToggleTrace.current = null
-          }}
-          tooltip={sidebarCollapsed ? t.showSidebarAction : t.hideSidebarAction}
-          shortcut={SHORTCUTS.toggleSidebar.binding}
-          className={btnCls}
+        <div
+          ref={pinnedMenuAnchorRef}
+          className="relative inline-flex"
+          onMouseEnter={handlePinnedMenuAnchorEnter}
+          onMouseLeave={schedulePinnedMenuClose}
         >
-          {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </ActionIconButton>
+          <ActionIconButton
+            onClick={() => {
+              suppressPinnedMenuForHoverCycle()
+              endPerfTrace(sidebarToggleTrace.current, {
+                phase: 'click',
+                collapsed: sidebarCollapsed,
+                appMode,
+              })
+              sidebarToggleTrace.current = null
+              onToggleSidebar()
+            }}
+            onPointerDown={() => {
+              sidebarToggleTrace.current = beginPerfTrace('desktop_titlebar_sidebar_interaction', {
+                phase: 'pointerdown',
+                collapsed: sidebarCollapsed,
+                appMode,
+              })
+            }}
+            onPointerLeave={() => {
+              sidebarToggleTrace.current = null
+            }}
+            tooltip={showPinnedSidebarPicker ? undefined : sidebarCollapsed ? t.showSidebarAction : t.hideSidebarAction}
+            shortcut={showPinnedSidebarPicker ? undefined : SHORTCUTS.toggleSidebar.binding}
+            className={btnCls}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </ActionIconButton>
+          {showPinnedSidebarPicker && pinnedMenuOpen && createPortal(
+            <TitleBarPinnedThreadsHoverArea
+              position={pinnedMenuPosition}
+              onMouseEnter={openPinnedMenu}
+              onMouseLeave={schedulePinnedMenuClose}
+            >
+              <TitleBarPinnedThreadsMenu
+                threads={pinnedThreads}
+                activeThreadId={activeThreadId ?? null}
+                onSelect={(threadId) => {
+                  onSelectPinnedThread?.(threadId)
+                  setPinnedMenuOpen(false)
+                }}
+              />
+            </TitleBarPinnedThreadsHoverArea>,
+            document.body,
+          )}
+        </div>
         <ActionIconButton onClick={() => window.history.back()} tooltip={t.browserPanel.back} className={btnCls}>
           <ChevronLeft size={17} />
         </ActionIconButton>
@@ -334,6 +428,114 @@ export function DesktopTitleBar({
           onClose={() => setUpdatePopoverOpen(false)}
         />}
       </div>
+    </div>
+  )
+}
+
+type TitleBarPinnedThreadsMenuProps = {
+  threads: ThreadResponse[]
+  activeThreadId: string | null
+  onSelect: (threadId: string) => void
+}
+
+type TitleBarPinnedThreadsHoverAreaProps = {
+  position: { left: number; top: number }
+  children: ReactNode
+  onMouseEnter: () => void
+  onMouseLeave: () => void
+}
+
+function titleBarThreadTitle(thread: ThreadResponse, untitled: string): string {
+  const title = (thread.title ?? '').trim()
+  return title.length > 0 ? title : untitled
+}
+
+function TitleBarPinnedThreadsMenu({
+  threads,
+  activeThreadId,
+  onSelect,
+}: TitleBarPinnedThreadsMenuProps) {
+  const { t } = useLocale()
+  const { runningThreadIds, completedUnreadThreadIds } = useThreadLiveState()
+
+  return (
+    <div
+      role="menu"
+      className="dropdown-menu"
+      style={{
+        width: 260,
+        maxHeight: 'min(320px, calc(100vh - 72px))',
+        overflowY: 'auto',
+        border: '0.5px solid var(--c-border-subtle)',
+        borderRadius: '10px',
+        padding: '4px',
+        background: 'var(--c-bg-menu)',
+        boxShadow: 'var(--c-dropdown-shadow)',
+        WebkitAppRegion: 'no-drag',
+      } as React.CSSProperties}
+    >
+      <div className="flex flex-col gap-0.5">
+        {threads.map((thread) => {
+          const isActive = thread.id === activeThreadId
+          const isRunning = runningThreadIds.has(thread.id)
+          const isCompletedUnread = completedUnreadThreadIds.has(thread.id)
+
+          return (
+            <button
+              key={thread.id}
+              type="button"
+              role="menuitem"
+              onClick={() => onSelect(thread.id)}
+              className={[
+                'flex h-[34px] w-full items-center gap-2 rounded-[6px] px-2 text-left text-[13.5px] leading-[20px]',
+                isActive
+                  ? 'bg-[var(--c-bg-deep)] text-[var(--c-text-primary)]'
+                  : 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
+              ].join(' ')}
+              style={{ fontWeight: 'var(--c-sidebar-thread-weight)' }}
+            >
+              <span className="flex h-[14px] w-[16px] shrink-0 items-center justify-center" aria-hidden="true">
+                {isRunning ? (
+                  <span className="sidebar-running-dots">
+                    <span className="sidebar-running-dot" />
+                    <span className="sidebar-running-dot" />
+                    <span className="sidebar-running-dot" />
+                  </span>
+                ) : isCompletedUnread ? (
+                  <span className="sidebar-completed-unread-dot" />
+                ) : (
+                  <span className="h-[6px] w-[6px] rounded-full border border-[var(--c-text-muted)] opacity-40" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{titleBarThreadTitle(thread, t.untitled)}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function TitleBarPinnedThreadsHoverArea({
+  position,
+  children,
+  onMouseEnter,
+  onMouseLeave,
+}: TitleBarPinnedThreadsHoverAreaProps) {
+  return (
+    <div
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={{
+        position: 'fixed',
+        left: position.left,
+        top: position.top - PINNED_MENU_GAP,
+        zIndex: 9999,
+        paddingTop: PINNED_MENU_GAP,
+        WebkitAppRegion: 'no-drag',
+      } as React.CSSProperties}
+    >
+      {children}
     </div>
   )
 }

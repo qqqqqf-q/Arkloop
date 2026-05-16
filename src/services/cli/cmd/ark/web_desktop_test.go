@@ -51,7 +51,7 @@ func TestIsLocalWebRequestRequiresLoopbackHostAndRemote(t *testing.T) {
 }
 
 func TestInjectDesktopInfoAddsLocalModeScript(t *testing.T) {
-	got := string(injectDesktopInfo([]byte("<html><head></head><body></body></html>"), "arkloop-desktop-token"))
+	got := string(injectDesktopInfo([]byte("<html><head></head><body></body></html>"), "arkloop-desktop-token", "setup-secret"))
 	if !strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
 		t.Fatalf("missing desktop injection: %s", got)
 	}
@@ -60,6 +60,9 @@ func TestInjectDesktopInfoAddsLocalModeScript(t *testing.T) {
 	}
 	if !strings.Contains(got, "getAppVersion:function(){return") {
 		t.Fatalf("missing app version getter: %s", got)
+	}
+	if !strings.Contains(got, "getSetupToken:function(){return") {
+		t.Fatalf("missing setup token getter: %s", got)
 	}
 	if !strings.Contains(got, "</head>") {
 		t.Fatalf("index head was not preserved: %s", got)
@@ -287,7 +290,7 @@ func TestServeIndexInjectsDesktopInfoForPlainLoopback(t *testing.T) {
 	req.Host = "127.0.0.1:19080"
 	req.RemoteAddr = "127.0.0.1:50000"
 	rec := httptest.NewRecorder()
-	serveIndex(rec, req, root, localTrustConfig{Enabled: true})
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true}, nil)
 	got := rec.Body.String()
 	if !strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
 		t.Fatalf("expected local desktop injection: %s", got)
@@ -308,9 +311,81 @@ func TestServeIndexDoesNotInjectDesktopInfoForLANHost(t *testing.T) {
 	req.Host = "192.168.1.10:19080"
 	req.RemoteAddr = "127.0.0.1:50000"
 	rec := httptest.NewRecorder()
-	serveIndex(rec, req, root, localTrustConfig{Enabled: true})
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true}, nil)
 	if got := rec.Body.String(); strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
 		t.Fatalf("unexpected desktop injection: %s", got)
+	}
+}
+
+func TestServeIndexInjectsDesktopInfoForRemoteSetupToken(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html><head></head><body></body></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("ARKLOOP_DESKTOP_TOKEN", "arkloop-desktop-token")
+	setupAccess := &headlessSetupAccess{token: "setup-secret"}
+
+	req := httptest.NewRequest(http.MethodGet, "http://203.0.113.10:19080/setup?ark_web_local_token=setup-secret", nil)
+	req.Host = "203.0.113.10:19080"
+	req.RemoteAddr = "198.51.100.7:50000"
+	rec := httptest.NewRecorder()
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true}, setupAccess)
+
+	got := rec.Body.String()
+	if !strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
+		t.Fatalf("expected remote setup injection: %s", got)
+	}
+	if !strings.Contains(got, `"setupToken":"setup-secret"`) {
+		t.Fatalf("expected setup token payload: %s", got)
+	}
+}
+
+func TestServeIndexDoesNotInjectDesktopInfoForRemoteSetupWithoutToken(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<html><head></head><body></body></html>"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	t.Setenv("ARKLOOP_DESKTOP_TOKEN", "arkloop-desktop-token")
+	setupAccess := &headlessSetupAccess{token: "setup-secret"}
+
+	req := httptest.NewRequest(http.MethodGet, "http://203.0.113.10:19080/setup", nil)
+	req.Host = "203.0.113.10:19080"
+	req.RemoteAddr = "198.51.100.7:50000"
+	rec := httptest.NewRecorder()
+	serveIndex(rec, req, root, localTrustConfig{Enabled: true}, setupAccess)
+
+	if got := rec.Body.String(); strings.Contains(got, "window.__ARKLOOP_DESKTOP__") {
+		t.Fatalf("unexpected remote setup injection: %s", got)
+	}
+}
+
+func TestProxyHeadlessSetupRequestConsumesTokenOnSuccess(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(headlessSetupTokenHeader); got != "" {
+			t.Fatalf("setup token leaked to api: %q", got)
+		}
+		if got := r.Header.Get("Origin"); got != "" {
+			t.Fatalf("origin leaked to api: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"jwt","token_type":"bearer"}`))
+	}))
+	defer api.Close()
+
+	setupAccess := &headlessSetupAccess{token: "setup-secret"}
+	req := httptest.NewRequest(http.MethodPost, "http://203.0.113.10:19080/v1/auth/local-owner-password", strings.NewReader(`{}`))
+	req.Header.Set(headlessSetupTokenHeader, "setup-secret")
+	req.Header.Set("Origin", "http://203.0.113.10:19080")
+	rec := httptest.NewRecorder()
+
+	if !proxyHeadlessSetupRequest(rec, req, api.URL, setupAccess) {
+		t.Fatal("expected setup proxy to handle request")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if setupAccess.enabled() {
+		t.Fatal("expected setup token to be consumed")
 	}
 }
 

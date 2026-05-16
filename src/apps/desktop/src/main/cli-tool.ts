@@ -3,7 +3,6 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { execFileSync } from 'child_process'
-import { createHash } from 'crypto'
 import { loadConfig, saveConfig } from './config'
 
 export type CommandLineToolStatus = {
@@ -65,41 +64,38 @@ export function commandLineToolTargetPath(): string {
   return path.join(os.homedir(), '.local', 'bin', 'ark')
 }
 
-function linkPointsToSource(targetPath: string, sourcePath: string): boolean {
-  try {
-    const linked = fs.readlinkSync(targetPath)
-    return path.resolve(path.dirname(targetPath), linked) === sourcePath
-  } catch {
-    return false
+function commandPathCandidates(command: string): string[] {
+  const pathEnv = process.env.PATH || ''
+  const dirs = pathEnv.split(path.delimiter).filter(Boolean)
+  if (process.platform !== 'win32') {
+    return dirs.map((dir) => path.join(dir, command))
   }
+
+  const extensions = (process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+    .split(';')
+    .filter(Boolean)
+  const names = path.extname(command) ? [command] : [command, ...extensions.map((ext) => `${command}${ext}`)]
+  return dirs.flatMap((dir) => names.map((name) => path.join(dir, name)))
 }
 
-function fileDigest(pathname: string): string | null {
-  try {
-    return createHash('sha256').update(fs.readFileSync(pathname)).digest('hex')
-  } catch {
-    return null
+function resolveInstalledCommandPath(): string | null {
+  for (const candidate of commandPathCandidates(cliBinaryName())) {
+    if (executable(candidate) || fileExists(candidate)) return candidate
   }
+  return null
 }
 
-function filesHaveSameContent(left: string, right: string): boolean {
-  const leftDigest = fileDigest(left)
-  return leftDigest !== null && leftDigest === fileDigest(right)
-}
-
-function targetLooksInstalled(targetPath: string, sourcePath: string | null): boolean {
-  if (!fileExists(targetPath) && !executable(targetPath)) return false
-  if (!sourcePath) return false
-  if (linkPointsToSource(targetPath, sourcePath)) return true
-  return process.platform === 'win32' && filesHaveSameContent(targetPath, sourcePath)
+function targetLooksInstalled(targetPath: string): boolean {
+  return fileExists(targetPath) || executable(targetPath)
 }
 
 export function getCommandLineToolStatus(): CommandLineToolStatus {
   const sourcePath = resolveCommandLineToolSource()
   const targetPath = commandLineToolTargetPath()
+  const installedPath = resolveInstalledCommandPath()
   return {
     available: sourcePath !== null,
-    installed: targetLooksInstalled(targetPath, sourcePath),
+    installed: targetLooksInstalled(targetPath) || installedPath !== null,
     sourcePath,
     targetPath,
   }

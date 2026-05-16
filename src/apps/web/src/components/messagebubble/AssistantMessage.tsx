@@ -98,6 +98,7 @@ export function AssistantActionBar({
         <CopyIconButton
           onCopy={handleCopy}
           size={16}
+          tooltip={t.copyAction}
           hoverBackground="var(--c-bg-deep)"
           className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           resetDelay={1500}
@@ -133,7 +134,7 @@ export function AssistantActionBar({
         <ActionIconButton
           onClick={onFork}
           disabled={!onFork}
-          tooltip="Fork"
+          tooltip={t.forkAction}
           hoverBackground="var(--c-bg-deep)"
           className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
         >
@@ -190,7 +191,7 @@ export function AssistantActionBar({
               })}
             </div>
             <span style={{ fontSize: '13px', color: 'var(--c-text-secondary)', fontWeight: 500 }}>
-              {webSources.length} sources
+              {t.sourceCount(webSources.length)}
             </span>
           </button>
         )}

@@ -227,10 +227,17 @@ export async function createLocalSession(desktopToken: string, signal?: AbortSig
   })
 }
 
-export async function setLocalOwnerPassword(req: { username: string; password: string }, desktopToken: string): Promise<LoginResponse> {
+export async function setLocalOwnerPassword(
+  req: { username: string; password: string },
+  desktopToken: string,
+  setupToken?: string,
+): Promise<LoginResponse> {
+  const headers = new Headers()
+  if (setupToken?.trim()) headers.set('X-Arkloop-Setup-Token', setupToken.trim())
   return await apiFetch<LoginResponse>('/v1/auth/local-owner-password', {
     method: 'POST',
     accessToken: desktopToken,
+    headers,
     body: JSON.stringify(req),
   })
 }

@@ -124,7 +124,7 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 		return err
 	}
 	if current == nil {
-		if _, err := i.enablementsRepo.Upsert(ctx, data.PluginEnablement{
+		created, err := i.enablementsRepo.Upsert(ctx, data.PluginEnablement{
 			AccountID:       accountID,
 			PackageID:       pkg.ID,
 			PluginID:        pkg.PluginID,
@@ -134,16 +134,51 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 			Enabled:         false,
 			EnabledByUserID: userID,
 			SettingsJSON:    json.RawMessage("{}"),
-		}); err != nil {
+		})
+		if err != nil {
 			return err
 		}
+		current = &created
 	}
 	runtimeState, err := i.runtimeRepo.Get(ctx, accountID, pkg.ID, profileRef, workspaceRef)
-	if err != nil || runtimeState != nil {
+	if err != nil {
 		return err
 	}
 	statusMap, err := pluginDataRuntimeState(i.pluginStore, pkg.PluginID, pkg.Version)
 	if err != nil {
+		return err
+	}
+	if runtimeState != nil {
+		for key, value := range decodePluginJSONMap(runtimeState.StatusJSON) {
+			if strings.TrimSpace(key) == "plugin_data" {
+				continue
+			}
+			statusMap[key] = value
+		}
+	}
+	applyManifestRuntimeDefaults(manifest, statusMap)
+	settings := map[string]any{}
+	if current != nil {
+		settings = decodePluginJSONMap(current.SettingsJSON)
+	}
+	_, defaultSettings, err := normalizeSettings(settings, manifest)
+	if err != nil {
+		return err
+	}
+	if _, err := syncProfileMCPInstalls(ctx, i.mcpInstallsRepo, accountID, profileRef, manifest, defaultSettings, statusMap, false); err != nil {
+		return err
+	}
+	if runtimeState != nil {
+		_, err = i.runtimeRepo.Upsert(ctx, data.PluginRuntimeState{
+			AccountID:     accountID,
+			PackageID:     pkg.ID,
+			PluginID:      pkg.PluginID,
+			PluginVersion: pkg.Version,
+			ProfileRef:    profileRef,
+			WorkspaceRef:  workspaceRef,
+			Status:        runtimeState.Status,
+			StatusJSON:    runtimeStateJSON(statusMap),
+		})
 		return err
 	}
 	_, err = i.runtimeRepo.Upsert(ctx, data.PluginRuntimeState{

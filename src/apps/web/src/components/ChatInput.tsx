@@ -14,6 +14,7 @@ import {
   writeSelectedPersonaKeyToStorage,
   readSelectedModelFromStorage,
   writeSelectedModelToStorage,
+  SELECTED_MODEL_CHANGED_EVENT,
   readSelectedReasoningMode,
   writeSelectedReasoningMode,
   readThreadReasoningMode,
@@ -390,6 +391,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     writeSelectedReasoningMode('off')
   }, [workThreadId])
+
+  useEffect(() => {
+    const syncSelectedModel = () => {
+      setSelectedModel(readSelectedModelFromStorage())
+    }
+    window.addEventListener(SELECTED_MODEL_CHANGED_EVENT, syncSelectedModel)
+    return () => window.removeEventListener(SELECTED_MODEL_CHANGED_EVENT, syncSelectedModel)
+  }, [])
 
   const handleReasoningModeChange = useCallback((mode: string) => {
     setReasoningMode(mode)

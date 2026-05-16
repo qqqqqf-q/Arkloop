@@ -80,9 +80,13 @@ export const RightPanel = memo(function RightPanel({
     const track = trackRef.current
     if (!track) return
     const maxScrollLeft = track.scrollWidth - track.clientWidth
-    setScrollFade({
+    const next = {
       left: track.scrollLeft > 1,
       right: track.scrollLeft < maxScrollLeft - 1,
+    }
+    setScrollFade((current) => {
+      if (current.left === next.left && current.right === next.right) return current
+      return next
     })
   }, [])
 

@@ -232,6 +232,42 @@
   animation: browser-panel-progress 900ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
+.browser-panel__blocked {
+  display: flex;
+  height: 100%;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 28px;
+  color: var(--c-text-secondary);
+  text-align: center;
+}
+
+.browser-panel__blocked svg {
+  color: var(--c-status-warning-text);
+}
+
+.browser-panel__blocked-copy {
+  display: flex;
+  max-width: 360px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.browser-panel__blocked-copy strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.browser-panel__blocked-copy span {
+  color: var(--c-text-tertiary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .browser-panel__spin {
   animation: browser-panel-spin 800ms linear infinite;
 }

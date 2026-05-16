@@ -145,6 +145,37 @@ describe('CopSegmentBlocks', () => {
     }
   })
 
+  it('renders single web_search through the existing search timeline path', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'search-1',
+            toolName: 'web_search',
+            arguments: { query: 'Arkloop MCP' },
+            result: {
+              results: [
+                { title: 'Arkloop docs', url: 'https://example.test/arkloop', snippet: 'Docs' },
+              ],
+            },
+          },
+          seq: 1,
+        },
+      ],
+    })
+    try {
+      expect(container.textContent).toContain('搜索 Arkloop MCP')
+      expect(container.textContent).toContain('Arkloop docs')
+      expect(container.textContent).not.toContain('web_search')
+      expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
   it('timeline_title with single document_write renders in card mode without COP shell', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
