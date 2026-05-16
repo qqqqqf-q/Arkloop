@@ -150,6 +150,7 @@ type qqbotIngressManager struct {
 }
 
 type qqbotConnector struct {
+	channelsRepo             *data.ChannelsRepository
 	channelIdentitiesRepo    *data.ChannelIdentitiesRepository
 	channelBindCodesRepo     *data.ChannelBindCodesRepository
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository
@@ -265,6 +266,7 @@ func (m *qqbotIngressManager) ensureSession(parent context.Context, ch data.Chan
 		defer close(done)
 		client := qqbotclient.NewClient(creds, nil)
 		connector := qqbotConnector{
+			channelsRepo:             m.deps.ChannelsRepo,
 			channelIdentitiesRepo:    m.deps.ChannelIdentitiesRepo,
 			channelBindCodesRepo:     m.deps.ChannelBindCodesRepo,
 			channelIdentityLinksRepo: m.deps.ChannelIdentityLinksRepo,
@@ -432,6 +434,7 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 			},
 		},
 		ChannelCommandDeps{
+			ChannelsRepo:             c.channelsRepo,
 			ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 			ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 			ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

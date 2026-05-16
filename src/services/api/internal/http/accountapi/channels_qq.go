@@ -372,6 +372,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				},
 			},
 			ChannelCommandDeps{
+				ChannelsRepo:             c.channelsRepo,
 				ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 				ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 				ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,
@@ -430,6 +431,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				},
 			},
 			ChannelCommandDeps{
+				ChannelsRepo:             c.channelsRepo,
 				ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 				ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 				ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

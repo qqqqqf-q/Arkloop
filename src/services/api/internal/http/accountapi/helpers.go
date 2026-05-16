@@ -2,6 +2,7 @@ package accountapi
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type environmentStore interface {
@@ -102,6 +104,43 @@ func channelOwnerUserID(ch data.Channel) *uuid.UUID {
 		return ch.OwnerUserID
 	}
 	return nil
+}
+
+func setChannelOwnerIfMissing(ctx context.Context, tx pgx.Tx, ch *data.Channel, ownerUserID uuid.UUID, repo *data.ChannelsRepository) error {
+	if ch == nil || ownerUserID == uuid.Nil {
+		return nil
+	}
+	if ch.ID == uuid.Nil || ch.AccountID == uuid.Nil {
+		return fmt.Errorf("channel owner update requires channel id and account id")
+	}
+	if repo == nil {
+		return fmt.Errorf("channels repo not configured")
+	}
+	repoTx := repo
+	if tx != nil {
+		repoTx = repo.WithTx(tx)
+	}
+	updated, err := repoTx.SetOwnerIfMissing(ctx, ch.ID, ch.AccountID, ownerUserID)
+	if err != nil {
+		return err
+	}
+	if updated == nil {
+		return nil
+	}
+	ch.OwnerUserID = updated.OwnerUserID
+	return nil
+}
+
+func clearChannelOwner(ctx context.Context, tx pgx.Tx, repo *data.ChannelsRepository, channelID, accountID, ownerUserID uuid.UUID) error {
+	if repo == nil {
+		return fmt.Errorf("channels repo not configured")
+	}
+	repoTx := repo
+	if tx != nil {
+		repoTx = repo.WithTx(tx)
+	}
+	_, err := repoTx.ClearOwnerIfMatches(ctx, channelID, accountID, ownerUserID)
+	return err
 }
 
 func authorizeRunOrAudit(

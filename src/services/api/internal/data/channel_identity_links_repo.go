@@ -21,6 +21,7 @@ type ChannelIdentityLink struct {
 type ChannelBinding struct {
 	BindingID         uuid.UUID
 	ChannelID         uuid.UUID
+	AccountID         uuid.UUID
 	ChannelIdentityID uuid.UUID
 	UserID            *uuid.UUID
 	DisplayName       *string
@@ -93,6 +94,7 @@ func (r *ChannelIdentityLinksRepository) GetBinding(
 		ctx,
 		`SELECT cil.id,
 		        cil.channel_id,
+		        ch.account_id,
 		        ci.id,
 		        ci.user_id,
 		        ci.display_name,
@@ -131,6 +133,7 @@ func (r *ChannelIdentityLinksRepository) ListBindings(
 		ctx,
 		`SELECT cil.id,
 		        cil.channel_id,
+		        ch.account_id,
 		        ci.id,
 		        ci.user_id,
 		        ci.display_name,
@@ -174,6 +177,7 @@ func (r *ChannelIdentityLinksRepository) ListBindingsByIdentity(
 		ctx,
 		`SELECT cil.id,
 		        cil.channel_id,
+		        ch.account_id,
 		        ci.id,
 		        ci.user_id,
 		        ci.display_name,
@@ -279,6 +283,7 @@ func scanChannelBinding(row interface{ Scan(dest ...any) error }) (ChannelBindin
 	err := row.Scan(
 		&item.BindingID,
 		&item.ChannelID,
+		&item.AccountID,
 		&item.ChannelIdentityID,
 		&item.UserID,
 		&item.DisplayName,
