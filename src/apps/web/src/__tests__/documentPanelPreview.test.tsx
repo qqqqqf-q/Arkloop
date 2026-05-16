@@ -1,8 +1,9 @@
-import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { PreviewResourceView } from '../components/resource-preview/PreviewResourceView'
-import type { PreviewResource } from '../components/resource-preview/types'
+import { ResourcePreviewPanel } from '../components/resource-preview/ResourcePreviewPanel'
+import { LocaleProvider } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 
 vi.mock('../components/ArtifactHtmlPreview', async () => {
@@ -15,22 +16,71 @@ vi.mock('../components/ArtifactHtmlPreview', async () => {
   }
 })
 
-describe('ResourcePreviewPanel artifact preview', () => {
-  it('Markdown 文档中的 html artifact 应继续内联渲染', () => {
-    const markdownResource: PreviewResource = {
-      source: 'artifact',
-      ref: {
-        kind: 'artifact',
-        key: 'doc.md',
-        filename: 'doc.md',
-        mimeType: 'text/markdown',
-        size: 10,
-      },
-      filename: 'doc.md',
-      mimeType: 'text/markdown',
-      size: 10,
-      text: '[预览](artifact:preview.html)',
+type GlobalWithActEnvironment = typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean
+}
+
+function flushMicrotasks(): Promise<void> {
+  return Promise.resolve()
+    .then(() => Promise.resolve())
+    .then(() => Promise.resolve())
+}
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown
+  for (let i = 0; i < 20; i++) {
+    try {
+      assertion()
+      return
+    } catch (err) {
+      lastError = err
     }
+    await act(async () => {
+      await flushMicrotasks()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+  }
+  throw lastError
+}
+
+describe('ResourcePreviewPanel artifact preview', () => {
+  const actEnvironmentGlobal = globalThis as GlobalWithActEnvironment
+  const originalFetch = globalThis.fetch
+  const originalActEnvironment = actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT
+  let container: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = true
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (url.endsWith('/doc.md')) {
+        return new Response('[Preview](artifact:preview.html)', {
+          headers: { 'Content-Type': 'text/markdown' },
+        })
+      }
+      return new Response('not-found', { status: 404 })
+    })
+  })
+
+  afterEach(() => {
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+    globalThis.fetch = originalFetch
+    if (originalActEnvironment === undefined) {
+      delete actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT
+    } else {
+      actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
+    }
+    vi.restoreAllMocks()
+  })
+
+  it('loads markdown artifacts before rendering linked html artifacts inline', async () => {
     const htmlArtifact: ArtifactRef = {
       key: 'preview.html',
       filename: 'preview.html',
@@ -38,15 +88,32 @@ describe('ResourcePreviewPanel artifact preview', () => {
       mime_type: 'text/html',
     }
 
-    const html = renderToStaticMarkup(
-      <PreviewResourceView
-        resource={markdownResource}
-        artifacts={[htmlArtifact]}
-        accessToken="token"
-      />,
-    )
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ResourcePreviewPanel
+            resource={{
+              kind: 'artifact',
+              key: 'doc.md',
+              filename: 'doc.md',
+              mimeType: 'text/markdown',
+              size: 10,
+            }}
+            artifacts={[htmlArtifact]}
+            accessToken="token"
+            onClose={() => {}}
+          />
+        </LocaleProvider>,
+      )
+    })
 
-    expect(html).toContain('data-artifact-html-preview="preview.html"')
-    expect(html).toContain('data-title="preview.html"')
+    await waitForAssertion(() => {
+      expect(container.querySelector('[data-artifact-html-preview="preview.html"]')).not.toBeNull()
+    })
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0]!
+    expect(String(url)).toContain('/v1/artifacts/doc.md')
+    expect((init as RequestInit | undefined)?.headers).toEqual({ Authorization: 'Bearer token' })
   })
 })
