@@ -6,19 +6,12 @@ import { ResourcePreviewPanel } from '../components/resource-preview/ResourcePre
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 
-vi.mock('../components/ArtifactHtmlPreview', async () => {
-  const { createElement } = await import('react')
-  return {
-    ArtifactHtmlPreview: ({ artifact }: { artifact: ArtifactRef }) => createElement('div', {
-      'data-artifact-html-preview': artifact.key,
-      'data-title': artifact.title ?? artifact.filename,
-    }),
-  }
-})
-
 type GlobalWithActEnvironment = typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
+
+const originalRAF = globalThis.requestAnimationFrame
+const originalCAF = globalThis.cancelAnimationFrame
 
 function flushMicrotasks(): Promise<void> {
   return Promise.resolve()
@@ -52,6 +45,11 @@ describe('ResourcePreviewPanel artifact preview', () => {
 
   beforeEach(() => {
     actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = true
+    globalThis.requestAnimationFrame = (callback: FrameRequestCallback) => {
+      callback(performance.now())
+      return 0
+    }
+    globalThis.cancelAnimationFrame = () => {}
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -60,6 +58,11 @@ describe('ResourcePreviewPanel artifact preview', () => {
       if (url.endsWith('/doc.md')) {
         return new Response('[Preview](artifact:preview.html)', {
           headers: { 'Content-Type': 'text/markdown' },
+        })
+      }
+      if (url.endsWith('/preview.html')) {
+        return new Response('<html><body>preview</body></html>', {
+          headers: { 'Content-Type': 'text/html' },
         })
       }
       return new Response('not-found', { status: 404 })
@@ -77,6 +80,8 @@ describe('ResourcePreviewPanel artifact preview', () => {
     } else {
       actEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
     }
+    globalThis.requestAnimationFrame = originalRAF
+    globalThis.cancelAnimationFrame = originalCAF
     vi.restoreAllMocks()
   })
 
@@ -108,12 +113,15 @@ describe('ResourcePreviewPanel artifact preview', () => {
     })
 
     await waitForAssertion(() => {
-      expect(container.querySelector('[data-artifact-html-preview="preview.html"]')).not.toBeNull()
+      expect(container.querySelector('iframe[title="preview.html"]')).not.toBeNull()
     })
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
-    const [url, init] = vi.mocked(globalThis.fetch).mock.calls[0]!
-    expect(String(url)).toContain('/v1/artifacts/doc.md')
-    expect((init as RequestInit | undefined)?.headers).toEqual({ Authorization: 'Bearer token' })
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    const [markdownUrl, markdownInit] = vi.mocked(globalThis.fetch).mock.calls[0]!
+    expect(String(markdownUrl)).toContain('/v1/artifacts/doc.md')
+    expect((markdownInit as RequestInit | undefined)?.headers).toEqual({ Authorization: 'Bearer token' })
+    const [htmlUrl, htmlInit] = vi.mocked(globalThis.fetch).mock.calls[1]!
+    expect(String(htmlUrl)).toContain('/v1/artifacts/preview.html')
+    expect((htmlInit as RequestInit | undefined)?.headers).toEqual({ Authorization: 'Bearer token' })
   })
 })

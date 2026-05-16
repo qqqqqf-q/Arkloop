@@ -101,9 +101,13 @@ function isThemePreset(value: unknown): value is ThemePreset {
   return typeof value === 'string' && THEME_PRESETS.includes(value as ThemePreset)
 }
 
-function normalizeThemeBackgroundImage(value: unknown): ThemeBackgroundImage | null | undefined {
-  if (value === null) return null
-  if (!value || typeof value !== 'object') return undefined
+type ThemeBackgroundImageImport =
+  | { valid: true; value: ThemeBackgroundImage | null }
+  | { valid: false }
+
+function normalizeThemeBackgroundImage(value: unknown): ThemeBackgroundImageImport {
+  if (value === null) return { valid: true, value: null }
+  if (!value || typeof value !== 'object') return { valid: false }
   const image = value as Record<string, unknown>
   if (
     typeof image.dataUrl !== 'string' ||
@@ -112,14 +116,17 @@ function normalizeThemeBackgroundImage(value: unknown): ThemeBackgroundImage | n
     typeof image.size !== 'number' ||
     typeof image.updatedAt !== 'number'
   ) {
-    return undefined
+    return { valid: false }
   }
   return {
-    dataUrl: image.dataUrl,
-    name: image.name,
-    mimeType: image.mimeType,
-    size: image.size,
-    updatedAt: image.updatedAt,
+    valid: true,
+    value: {
+      dataUrl: image.dataUrl,
+      name: image.name,
+      mimeType: image.mimeType,
+      size: image.size,
+      updatedAt: image.updatedAt,
+    },
   }
 }
 
@@ -1118,14 +1125,17 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
           }
         }
       }
-      let importedBackground: ThemeBackgroundImage | null | undefined
+      let hasImportedBackground = false
+      let importedBackground: ThemeBackgroundImage | null = null
       if (importedThemes && 'backgroundImage' in importedThemes) {
-        importedBackground = normalizeThemeBackgroundImage(importedThemes.backgroundImage)
-        if (importedBackground === undefined) {
+        const backgroundResult = normalizeThemeBackgroundImage(importedThemes.backgroundImage)
+        if (!backgroundResult.valid) {
           throw new Error(t.requestFailed)
         }
+        importedBackground = backgroundResult.value
+        hasImportedBackground = true
       }
-      if (importedBackground !== undefined && !setBackgroundImage(importedBackground)) {
+      if (hasImportedBackground && !setBackgroundImage(importedBackground)) {
         throw new Error(t.requestFailed)
       }
       if (typeof importedThemes?.backgroundImageOpacity === 'number' && Number.isFinite(importedThemes.backgroundImageOpacity)) {

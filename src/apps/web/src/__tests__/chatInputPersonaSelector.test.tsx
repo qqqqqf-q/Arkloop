@@ -148,13 +148,22 @@ describe('ChatInput persona selector', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedListSelectablePersonas).not.toHaveBeenCalled()
-    expect(findButtonByText(container, 'Normal')).toBeFalsy()
-    expect(findButtonByText(container, 'Search')).toBeFalsy()
-
     const form = container.querySelector('form')
     expect(form).not.toBeNull()
     if (!form) return
+
+    const menuButton = form.querySelector<HTMLButtonElement>('button[type="button"]')
+    expect(menuButton).not.toBeNull()
+    if (!menuButton) return
+
+    await act(async () => {
+      menuButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(mockedListSelectablePersonas).not.toHaveBeenCalled()
+    expect(findButtonByText(container, 'Normal')).toBeFalsy()
+    expect(findButtonByText(container, 'Search')).toBeFalsy()
 
     await act(async () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
