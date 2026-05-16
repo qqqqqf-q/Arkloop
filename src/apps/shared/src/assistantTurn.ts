@@ -37,15 +37,22 @@ export type WorkGroup = {
   segments: AssistantTurnSegment[]
 }
 
+export type WorkGroupSplit = {
+  workGroup: WorkGroup | null
+  finalText: string | null
+  finalTextIndex: number
+  tailSegments: AssistantTurnSegment[]
+}
+
 /**
  * Split segments into work group (pre-final) and final text.
- * The last text segment is the final answer; everything before it goes into the work group.
+ * The last text segment is the final answer; trailing segments stay after it.
  * Returns null workGroup when there's nothing meaningful to collapse.
  */
 export function splitWorkGroup(
   segments: AssistantTurnSegment[],
   durationMs: number,
-): { workGroup: WorkGroup | null; finalText: string | null } {
+): WorkGroupSplit {
   // Find the index of the last text segment
   let lastTextIndex = -1
   for (let i = segments.length - 1; i >= 0; i--) {
@@ -57,33 +64,25 @@ export function splitWorkGroup(
 
   // No text segment at all
   if (lastTextIndex === -1) {
-    return { workGroup: null, finalText: null }
+    return { workGroup: null, finalText: null, finalTextIndex: -1, tailSegments: [] }
   }
 
   const finalSegment = segments[lastTextIndex]!
   const finalText = finalSegment.type === 'text' ? finalSegment.content : null
-
-  if (lastTextIndex < segments.length - 1) {
-    const workGroupSegments = [
-      ...segments.slice(0, lastTextIndex),
-      ...segments.slice(lastTextIndex + 1),
-    ]
-    return {
-      workGroup: workGroupSegments.length > 0 ? { durationMs, segments: workGroupSegments } : null,
-      finalText,
-    }
-  }
+  const preSegments = segments.slice(0, lastTextIndex)
+  const tailSegments = segments.slice(lastTextIndex + 1)
 
   // Need at least 2 segments before final to justify a work group.
   // A single pre-final segment (text or cop) stays inline.
-  if (lastTextIndex < 2) {
-    return { workGroup: null, finalText }
+  if (preSegments.length < 2) {
+    return { workGroup: null, finalText, finalTextIndex: lastTextIndex, tailSegments }
   }
 
-  const workGroupSegments = segments.slice(0, lastTextIndex)
   return {
-    workGroup: { durationMs, segments: workGroupSegments },
+    workGroup: { durationMs, segments: preSegments },
     finalText,
+    finalTextIndex: lastTextIndex,
+    tailSegments,
   }
 }
 

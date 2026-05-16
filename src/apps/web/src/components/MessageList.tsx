@@ -21,7 +21,7 @@ import { apiBaseUrl } from '@arkloop/shared/api'
 import type { AgentMessage } from '../agent-ui'
 import { copTimelinePayloadForSegment, type CopTimelinePayload, type TodoWriteRef } from '../copSegmentTimeline'
 import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
-import { assistantTurnPlainText, splitWorkGroup, type AssistantTurnSegment, type WorkGroup as WorkGroupType } from '../assistantTurnSegments'
+import { assistantTurnPlainText, splitWorkGroup, type AssistantTurnSegment, type WorkGroup as WorkGroupType, type WorkGroupSplit } from '../assistantTurnSegments'
 import { WorkGroup } from './WorkGroup'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { createThreadShare } from '../api'
@@ -402,7 +402,9 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
     const messageWebFetches = msg.role === 'assistant' ? msgMeta?.webFetches : undefined
     const msgThinking = msg.role === 'assistant' ? msgMeta?.thinking : undefined
     const durationMs = historicalTurn?.durationMs ?? 0
-    const workGroupSplit = hasAssistantTurn ? splitWorkGroup(historicalSegments, durationMs) : { workGroup: null as WorkGroupType | null, finalText: null as string | null }
+    const workGroupSplit: WorkGroupSplit = hasAssistantTurn
+      ? splitWorkGroup(historicalSegments, durationMs)
+      : { workGroup: null as WorkGroupType | null, finalText: null, finalTextIndex: -1, tailSegments: [] }
     const bubbleCallbacks = bubbleCallbacksByMessageId.get(msg.id)
     return (
       <div
@@ -439,11 +441,17 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 sources: resolvedSources ?? [],
               }
 
-              const renderSegment = (seg: AssistantTurnSegment, si: number, segments: AssistantTurnSegment[], isLive: boolean) => {
+              const renderSegment = (
+                seg: AssistantTurnSegment,
+                si: number,
+                segments: AssistantTurnSegment[],
+                isLive: boolean,
+                originalIndex = si,
+              ) => {
                 if (seg.type === 'text') {
                   return (
                     <MarkdownRenderer
-                      key={`${msg.id}-at-${si}`}
+                      key={`${msg.id}-at-${originalIndex}`}
                       content={seg.content}
                       webSources={resolvedSources}
                       artifacts={msgMeta?.artifacts}
@@ -465,8 +473,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                   .flatMap((entry) => entry.type === 'cop'
                     ? copTimelinePayloadForSegment(entry, timelinePools).todoWrites ?? []
                     : [])
-                const payload = precomputed?.payloads.get(String(si)) ?? copTimelinePayloadForSegment(seg, timelinePools)
-                const histWidgets = precomputed?.histWidgetsMap.get(String(si)) ?? historicWidgetsForCop(seg, msgWidgetsRaw)
+                const payload = precomputed?.payloads.get(String(originalIndex)) ?? copTimelinePayloadForSegment(seg, timelinePools)
+                const histWidgets = precomputed?.histWidgetsMap.get(String(originalIndex)) ?? historicWidgetsForCop(seg, msgWidgetsRaw)
 
                 const timelineTitleOverride = displayTerminalStatus != null
                   ? currentRunCopHeaderOverride({
@@ -485,9 +493,9 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 const entryComplete = !isLive
                 const promotedNodes = [(
                   <CopSegmentBlocks
-                    key={`${msg.id}-timeline-${si}`}
+                    key={`${msg.id}-timeline-${originalIndex}`}
                     segment={seg}
-                    keyPrefix={`${msg.id}-timeline-${si}`}
+                    keyPrefix={`${msg.id}-timeline-${originalIndex}`}
                     {...timelinePools}
                     isComplete={entryComplete}
                     live={isLive}
@@ -504,7 +512,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 )]
 
                 return (
-                  <Fragment key={`${msg.id}-acw-${si}`}>
+                  <Fragment key={`${msg.id}-acw-${originalIndex}`}>
                     {promotedNodes}
                     {histWidgets.map((w) => (
                       <WidgetBlock
@@ -520,29 +528,45 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 )
               }
 
-              if (workGroupSplit.workGroup != null) {
+              const renderFinalText = () => (
+                <MarkdownRenderer
+                  key={`${msg.id}-final`}
+                  content={workGroupSplit.finalText ?? ''}
+                  webSources={resolvedSources}
+                  artifacts={msgMeta?.artifacts}
+                  accessToken={accessToken}
+                  runId={msg.streamId ?? undefined}
+                  workFolder={workFolder}
+                  onOpenDocument={openDocumentPanel}
+                  onOpenResource={openResourcePanel}
+                  typography={isWorkMode ? 'work' : 'default'}
+                  trimTrailingMargin={true}
+                />
+              )
+
+              if (workGroupSplit.workGroup != null || workGroupSplit.tailSegments.length > 0) {
+                const preSegments = workGroupSplit.finalTextIndex >= 0
+                  ? historicalSegments.slice(0, workGroupSplit.finalTextIndex)
+                  : []
+                const tailStartIndex = workGroupSplit.finalTextIndex + 1
                 return (
                   <>
-                    <WorkGroup durationMs={durationMs}>
-                      {workGroupSplit.workGroup.segments.map((seg, si) =>
-                        renderSegment(seg, si, workGroupSplit.workGroup!.segments, false)
-                      )}
-                    </WorkGroup>
-                    {workGroupSplit.finalText != null && (
-                      <MarkdownRenderer
-                        key={`${msg.id}-final`}
-                        content={workGroupSplit.finalText}
-                        webSources={resolvedSources}
-                        artifacts={msgMeta?.artifacts}
-                        accessToken={accessToken}
-                        runId={msg.streamId ?? undefined}
-                        workFolder={workFolder}
-                        onOpenDocument={openDocumentPanel}
-                        onOpenResource={openResourcePanel}
-                        typography={isWorkMode ? 'work' : 'default'}
-                        trimTrailingMargin={true}
-                      />
+                    {workGroupSplit.workGroup != null ? (
+                      <WorkGroup durationMs={durationMs}>
+                        {workGroupSplit.workGroup.segments.map((seg, si) =>
+                          renderSegment(seg, si, workGroupSplit.workGroup!.segments, false, si)
+                        )}
+                      </WorkGroup>
+                    ) : (
+                      preSegments.map((seg, si) =>
+                        renderSegment(seg, si, historicalSegments, false, si)
+                      )
                     )}
+                    {workGroupSplit.finalText != null && renderFinalText()}
+                    {workGroupSplit.tailSegments.map((seg, offset) => {
+                      const originalIndex = tailStartIndex + offset
+                      return renderSegment(seg, originalIndex, historicalSegments, false, originalIndex)
+                    })}
                   </>
                 )
               }
