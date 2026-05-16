@@ -221,6 +221,66 @@ func (r *ChannelsRepository) Update(ctx context.Context, id uuid.UUID, accountID
 	return &ch, nil
 }
 
+func (r *ChannelsRepository) SetOwnerIfMissing(ctx context.Context, id uuid.UUID, accountID uuid.UUID, ownerUserID uuid.UUID) (*Channel, error) {
+	if id == uuid.Nil || accountID == uuid.Nil {
+		return nil, fmt.Errorf("channels.SetOwnerIfMissing: channel id and account id must not be empty")
+	}
+	if ownerUserID == uuid.Nil {
+		return nil, fmt.Errorf("channels.SetOwnerIfMissing: owner_user_id must not be empty")
+	}
+
+	ch, err := scanChannel(r.db.QueryRow(ctx,
+		`UPDATE channels
+		    SET owner_user_id = $3,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND account_id = $2
+		    AND owner_user_id IS NULL
+		    AND EXISTS (
+		      SELECT 1
+		        FROM account_memberships
+		       WHERE account_id = $2
+		         AND user_id = $3
+		    )
+		  RETURNING `+channelColumns,
+		id, accountID, ownerUserID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("channels.SetOwnerIfMissing: %w", err)
+	}
+	return &ch, nil
+}
+
+func (r *ChannelsRepository) ClearOwnerIfMatches(ctx context.Context, id uuid.UUID, accountID uuid.UUID, ownerUserID uuid.UUID) (*Channel, error) {
+	if id == uuid.Nil || accountID == uuid.Nil {
+		return nil, fmt.Errorf("channels.ClearOwnerIfMatches: channel id and account id must not be empty")
+	}
+	if ownerUserID == uuid.Nil {
+		return nil, fmt.Errorf("channels.ClearOwnerIfMatches: owner_user_id must not be empty")
+	}
+
+	ch, err := scanChannel(r.db.QueryRow(ctx,
+		`UPDATE channels
+		    SET owner_user_id = NULL,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND account_id = $2
+		    AND owner_user_id = $3
+		  RETURNING `+channelColumns,
+		id, accountID, ownerUserID,
+	))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("channels.ClearOwnerIfMatches: %w", err)
+	}
+	return &ch, nil
+}
+
 func (r *ChannelsRepository) Delete(ctx context.Context, id uuid.UUID, accountID uuid.UUID) error {
 	tag, err := r.db.Exec(ctx,
 		`DELETE FROM channels WHERE id = $1 AND account_id = $2`,

@@ -12,6 +12,8 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/discordbot"
+
+	"github.com/google/uuid"
 )
 
 func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) {
@@ -39,6 +41,13 @@ func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) 
 	secondUser, err := userRepo.Create(context.Background(), "discord-admin", "discord-admin@test.com", "zh")
 	if err != nil {
 		t.Fatalf("create second user: %v", err)
+	}
+	membershipRepo, err := data.NewAccountMembershipRepository(env.pool)
+	if err != nil {
+		t.Fatalf("membership repo: %v", err)
+	}
+	if _, err := membershipRepo.Create(context.Background(), env.accountID, secondUser.ID, auth.RoleAccountAdmin); err != nil {
+		t.Fatalf("create second membership: %v", err)
 	}
 	adminCode, err := env.channelBindCodesRepo.Create(context.Background(), secondUser.ID, stringPtr("discord"), time.Hour)
 	if err != nil {
@@ -116,11 +125,29 @@ func TestChannelBindingsEndpointsSupportOwnerTransferAndHeartbeat(t *testing.T) 
 	if !adminBinding.IsOwner {
 		t.Fatalf("expected admin to become owner: %#v", adminBinding)
 	}
+
+	deleteResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodDelete,
+		"/v1/channels/"+channel.ID.String()+"/bindings/"+ownerBinding.BindingID,
+		nil,
+		authHeader(env.accessToken),
+	)
+	if deleteResp.Code != nethttp.StatusOK {
+		t.Fatalf("delete non-owner binding: %d %s", deleteResp.Code, deleteResp.Body.String())
+	}
+	updatedChannel, err := env.channelsRepo.GetByID(context.Background(), channel.ID)
+	if err != nil {
+		t.Fatalf("get channel after non-owner delete: %v", err)
+	}
+	if updatedChannel == nil || updatedChannel.OwnerUserID == nil || *updatedChannel.OwnerUserID != secondUser.ID {
+		t.Fatalf("non-owner delete changed owner: %#v", updatedChannel)
+	}
 }
 
-func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
+func TestChannelBindingsOwnerDeleteAllowed(t *testing.T) {
 	env := setupDiscordChannelsTestEnv(t, discordbot.NewClient("", nil))
-	channel := createActiveDiscordChannelWithConfig(t, env, "discord-owner-block-token", map[string]any{})
+	channel := createActiveDiscordChannelWithConfig(t, env, "discord-owner-delete-token", map[string]any{})
 
 	code, err := env.channelBindCodesRepo.Create(context.Background(), env.userID, stringPtr("discord"), time.Hour)
 	if err != nil {
@@ -128,10 +155,10 @@ func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
 	}
 	if _, err := env.connector().HandleInteraction(
 		context.Background(),
-		"trace-owner-block",
+		"trace-owner-delete",
 		channel.ID,
-		"discord-owner-block-token",
-		newDiscordInteractionCommand("bind", "", "dm-owner-block", "u-owner-block", "owner-block", code.Token),
+		"discord-owner-delete-token",
+		newDiscordInteractionCommand("bind", "", "dm-owner-delete", "u-owner-delete", "owner-delete", code.Token),
 	); err != nil {
 		t.Fatalf("bind interaction: %v", err)
 	}
@@ -155,8 +182,133 @@ func TestChannelBindingsOwnerDeleteBlocked(t *testing.T) {
 		nil,
 		authHeader(env.accessToken),
 	)
-	if deleteResp.Code != nethttp.StatusConflict {
+	if deleteResp.Code != nethttp.StatusOK {
 		t.Fatalf("delete owner binding: %d %s", deleteResp.Code, deleteResp.Body.String())
+	}
+
+	listResp = doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list bindings after delete: %d %s", listResp.Code, listResp.Body.String())
+	}
+	listBody = nil
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode bindings response after delete: %v", err)
+	}
+	if len(listBody) != 0 {
+		t.Fatalf("expected 0 bindings after delete, got %d", len(listBody))
+	}
+
+	updatedChannel, err := env.channelsRepo.GetByID(context.Background(), channel.ID)
+	if err != nil {
+		t.Fatalf("get channel after owner delete: %v", err)
+	}
+	if updatedChannel == nil || updatedChannel.OwnerUserID != nil {
+		t.Fatalf("expected channel owner to be cleared, got %#v", updatedChannel)
+	}
+
+	nextCode, err := env.channelBindCodesRepo.Create(context.Background(), env.userID, stringPtr("discord"), time.Hour)
+	if err != nil {
+		t.Fatalf("create rebind code: %v", err)
+	}
+	if _, err := env.connector().HandleInteraction(
+		context.Background(),
+		"trace-owner-rebind",
+		channel.ID,
+		"discord-owner-delete-token",
+		newDiscordInteractionCommand("bind", "", "dm-owner-delete", "u-owner-delete", "owner-delete", nextCode.Token),
+	); err != nil {
+		t.Fatalf("rebind interaction: %v", err)
+	}
+	updatedChannel, err = env.channelsRepo.GetByID(context.Background(), channel.ID)
+	if err != nil {
+		t.Fatalf("get channel after rebind: %v", err)
+	}
+	if updatedChannel == nil || updatedChannel.OwnerUserID == nil || *updatedChannel.OwnerUserID != env.userID {
+		t.Fatalf("expected rebind to restore owner, got %#v", updatedChannel)
+	}
+	listResp = doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list bindings after rebind: %d %s", listResp.Code, listResp.Body.String())
+	}
+	listBody = nil
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode bindings response after rebind: %v", err)
+	}
+	if len(listBody) != 1 || !listBody[0].IsOwner {
+		t.Fatalf("expected owner binding after rebind, got %#v", listBody)
+	}
+}
+
+func TestChannelIdentityUnbindClearsOwnedChannels(t *testing.T) {
+	env := setupDiscordChannelsTestEnv(t, discordbot.NewClient("", nil))
+	channel := createActiveDiscordChannelWithConfig(t, env, "discord-owner-unbind-token", map[string]any{})
+
+	code, err := env.channelBindCodesRepo.Create(context.Background(), env.userID, stringPtr("discord"), time.Hour)
+	if err != nil {
+		t.Fatalf("create bind code: %v", err)
+	}
+	if _, err := env.connector().HandleInteraction(
+		context.Background(),
+		"trace-owner-unbind",
+		channel.ID,
+		"discord-owner-unbind-token",
+		newDiscordInteractionCommand("bind", "", "dm-owner-unbind", "u-owner-unbind", "owner-unbind", code.Token),
+	); err != nil {
+		t.Fatalf("bind interaction: %v", err)
+	}
+
+	listResp := doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list bindings: %d %s", listResp.Code, listResp.Body.String())
+	}
+	var listBody []channelBindingResponse
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode bindings response: %v", err)
+	}
+	if len(listBody) != 1 || !listBody[0].IsOwner {
+		t.Fatalf("expected owner binding, got %#v", listBody)
+	}
+
+	unbindResp := doJSONAccount(
+		env.handler,
+		nethttp.MethodDelete,
+		"/v1/me/channel-identities/"+listBody[0].ChannelIdentityID,
+		nil,
+		authHeader(env.accessToken),
+	)
+	if unbindResp.Code != nethttp.StatusOK {
+		t.Fatalf("unbind identity: %d %s", unbindResp.Code, unbindResp.Body.String())
+	}
+
+	updatedChannel, err := env.channelsRepo.GetByID(context.Background(), channel.ID)
+	if err != nil {
+		t.Fatalf("get channel after identity unbind: %v", err)
+	}
+	if updatedChannel == nil || updatedChannel.OwnerUserID != nil {
+		t.Fatalf("expected channel owner to be cleared, got %#v", updatedChannel)
+	}
+	identityID := listBody[0].ChannelIdentityID
+	parsedIdentityID, err := uuid.Parse(identityID)
+	if err != nil {
+		t.Fatalf("parse identity id: %v", err)
+	}
+	identity, err := env.channelIdentitiesRepo.GetByID(context.Background(), parsedIdentityID)
+	if err != nil {
+		t.Fatalf("get identity after unbind: %v", err)
+	}
+	if identity == nil || identity.UserID != nil {
+		t.Fatalf("expected identity user to be cleared, got %#v", identity)
+	}
+	listResp = doJSONAccount(env.handler, nethttp.MethodGet, "/v1/channels/"+channel.ID.String()+"/bindings", nil, authHeader(env.accessToken))
+	if listResp.Code != nethttp.StatusOK {
+		t.Fatalf("list bindings after identity unbind: %d %s", listResp.Code, listResp.Body.String())
+	}
+	listBody = nil
+	if err := json.Unmarshal(listResp.Body.Bytes(), &listBody); err != nil {
+		t.Fatalf("decode bindings response after identity unbind: %v", err)
+	}
+	if len(listBody) != 0 {
+		t.Fatalf("expected no bindings after identity unbind, got %#v", listBody)
 	}
 }
 

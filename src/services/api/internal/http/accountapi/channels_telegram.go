@@ -1853,6 +1853,7 @@ func bindChannelIdentity(
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
+	channelsRepo *data.ChannelsRepository,
 ) (string, error) {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" {
@@ -1881,6 +1882,9 @@ func bindChannelIdentity(
 				return "", err
 			}
 		}
+		if err := setChannelOwnerIfMissing(ctx, tx, channel, activeCode.IssuedByUserID, channelsRepo); err != nil {
+			return "", err
+		}
 		return "账号已绑定。", nil
 	}
 
@@ -1898,6 +1902,9 @@ func bindChannelIdentity(
 		if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
 			return "", err
 		}
+	}
+	if err := setChannelOwnerIfMissing(ctx, tx, channel, consumed.IssuedByUserID, channelsRepo); err != nil {
+		return "", err
 	}
 	threadMappings, err := channelDMThreadsRepo.WithTx(tx).ListByChannelIdentity(ctx, channel.ID, identity.ID)
 	if err != nil {

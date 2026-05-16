@@ -85,7 +85,7 @@ func handleChannelBindingsSubresource(
 	case nethttp.MethodPatch:
 		updateChannelBinding(w, r, traceID, actor.AccountID, channelID, *bindingID, membershipRepo, channelsRepo, personasRepo, channelIdentityLinksRepo, channelIdentitiesRepo, pool)
 	case nethttp.MethodDelete:
-		deleteChannelBinding(w, r, traceID, actor.AccountID, channelID, *bindingID, channelIdentityLinksRepo, channelIdentitiesRepo, channelDMThreadsRepo, pool)
+		deleteChannelBinding(w, r, traceID, actor.AccountID, channelID, *bindingID, channelsRepo, channelIdentityLinksRepo, channelIdentitiesRepo, channelDMThreadsRepo, pool)
 	default:
 		httpkit.WriteMethodNotAllowed(w, r)
 	}
@@ -177,6 +177,7 @@ func deleteChannelBinding(
 	accountID uuid.UUID,
 	channelID uuid.UUID,
 	bindingID uuid.UUID,
+	channelsRepo *data.ChannelsRepository,
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
@@ -201,9 +202,11 @@ func deleteChannelBinding(
 		httpkit.WriteError(w, nethttp.StatusNotFound, "channel_bindings.not_found", "binding not found", traceID, nil)
 		return
 	}
-	if binding.IsOwner {
-		httpkit.WriteError(w, nethttp.StatusConflict, "channel_bindings.owner_unbind_blocked", "owner cannot be unlinked directly", traceID, nil)
-		return
+	if binding.IsOwner && binding.UserID != nil {
+		if err := clearChannelOwner(r.Context(), tx, channelsRepo, channelID, accountID, *binding.UserID); err != nil {
+			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+			return
+		}
 	}
 	if err := dmThreadsRepo.DeleteByChannelIdentity(r.Context(), channelID, binding.ChannelIdentityID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)

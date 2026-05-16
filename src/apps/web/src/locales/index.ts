@@ -770,7 +770,6 @@ export interface LocaleStrings {
     heartbeatCardTitle: string
     heartbeatCardDesc: string
     heartbeatCardHint: string
-    ownerUnbindBlocked: string
     botTokenHint: string
     allowedUsersHint: string
     discordTokenHint: string
