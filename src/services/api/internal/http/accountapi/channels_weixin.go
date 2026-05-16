@@ -194,7 +194,6 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 			},
 		},
 		ChannelCommandDeps{
-			ChannelsRepo:             c.channelsRepo,
 			ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 			ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 			ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

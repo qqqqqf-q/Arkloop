@@ -842,6 +842,7 @@ export const en: LocaleStrings = {
     heartbeatCardTitle: 'Heartbeat',
     heartbeatCardDesc: 'After linking an account, send /heartbeat on in the conversation to enable it. The bot will then wake up at the configured interval and decide on its own whether to send a message',
     heartbeatCardHint: 'Send /heartbeat off in the conversation to disable it at any time',
+    ownerUnbindBlocked: 'Owner cannot be unlinked directly',
     botTokenHint: 'Get your token from @BotFather on Telegram',
     allowedUsersHint: 'Get your user ID from @userinfobot (send /start)',
     discordTokenHint: 'Create a bot at Discord Developer Portal',

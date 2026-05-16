@@ -74,7 +74,6 @@ func channelIdentitiesEntry(
 func channelIdentityEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
-	channelsRepo *data.ChannelsRepository,
 	identitiesRepo *data.ChannelIdentitiesRepository,
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -98,7 +97,7 @@ func channelIdentityEntry(
 
 		switch r.Method {
 		case nethttp.MethodDelete:
-			unbindChannelIdentity(w, r, traceID, identityID, authService, membershipRepo, channelsRepo, identitiesRepo, channelIdentityLinksRepo, apiKeysRepo, pool)
+			unbindChannelIdentity(w, r, traceID, identityID, authService, membershipRepo, identitiesRepo, channelIdentityLinksRepo, apiKeysRepo, pool)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -195,7 +194,6 @@ func unbindChannelIdentity(
 	identityID uuid.UUID,
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
-	channelsRepo *data.ChannelsRepository,
 	identitiesRepo *data.ChannelIdentitiesRepository,
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	apiKeysRepo *data.APIKeysRepository,
@@ -205,7 +203,7 @@ func unbindChannelIdentity(
 		httpkit.WriteAuthNotConfigured(w, traceID)
 		return
 	}
-	if channelsRepo == nil || identitiesRepo == nil || channelIdentityLinksRepo == nil || pool == nil {
+	if identitiesRepo == nil || channelIdentityLinksRepo == nil || pool == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 		return
 	}
@@ -225,6 +223,18 @@ func unbindChannelIdentity(
 		return
 	}
 
+	bindings, err := channelIdentityLinksRepo.ListBindingsByIdentity(r.Context(), identityID)
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
+	for _, binding := range bindings {
+		if binding.IsOwner {
+			httpkit.WriteError(w, nethttp.StatusConflict, "channel_bindings.owner_unbind_blocked", "owner cannot be unlinked directly", traceID, nil)
+			return
+		}
+	}
+
 	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -232,22 +242,7 @@ func unbindChannelIdentity(
 	}
 	defer tx.Rollback(r.Context()) //nolint:errcheck
 
-	linksRepo := channelIdentityLinksRepo.WithTx(tx)
-	bindings, err := linksRepo.ListBindingsByIdentity(r.Context(), identityID)
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return
-	}
-	for _, binding := range bindings {
-		if !binding.IsOwner || binding.UserID == nil {
-			continue
-		}
-		if err := clearChannelOwner(r.Context(), tx, channelsRepo, binding.ChannelID, binding.AccountID, *binding.UserID); err != nil {
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-	}
-	if err := linksRepo.DeleteByIdentity(r.Context(), identityID); err != nil {
+	if err := channelIdentityLinksRepo.WithTx(tx).DeleteByIdentity(r.Context(), identityID); err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}

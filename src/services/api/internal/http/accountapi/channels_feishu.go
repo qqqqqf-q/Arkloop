@@ -964,7 +964,6 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 			},
 		},
 		ChannelCommandDeps{
-			ChannelsRepo:             c.channelsRepo,
 			ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 			ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 			ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

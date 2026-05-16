@@ -470,7 +470,7 @@ func (c discordConnector) HandleInteraction(
 		return nil, err
 	}
 
-	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.channelsRepo, c.pool)
+	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.pool)
 	if err != nil {
 		return nil, err
 	}
@@ -986,7 +986,6 @@ func handleDiscordCommand(
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
 	runEventRepo *data.RunEventRepository,
-	channelsRepo *data.ChannelsRepository,
 	pool data.DB,
 ) (*discordInteractionReply, error) {
 	data := evt.ApplicationCommandData()
@@ -1008,7 +1007,7 @@ func handleDiscordCommand(
 		if len(data.Options) > 0 {
 			code = strings.TrimSpace(data.Options[0].StringValue())
 		}
-		replyText, err := bindDiscordIdentity(ctx, tx, channel, identity, code, channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo, channelsRepo)
+		replyText, err := bindDiscordIdentity(ctx, tx, channel, identity, code, channelBindCodesRepo, channelIdentitiesRepo, channelIdentityLinksRepo, channelDMThreadsRepo, threadRepo)
 		if err != nil {
 			return nil, err
 		}
@@ -1171,7 +1170,6 @@ func bindDiscordIdentity(
 	channelIdentityLinksRepo *data.ChannelIdentityLinksRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	threadRepo *data.ThreadRepository,
-	channelsRepo *data.ChannelsRepository,
 ) (string, error) {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" {
@@ -1196,9 +1194,6 @@ func bindDiscordIdentity(
 				return "", err
 			}
 		}
-		if err := setChannelOwnerIfMissing(ctx, tx, channel, activeCode.IssuedByUserID, channelsRepo); err != nil {
-			return "", err
-		}
 		return "账号已绑定。", nil
 	}
 
@@ -1216,9 +1211,6 @@ func bindDiscordIdentity(
 		if _, err := channelIdentityLinksRepo.WithTx(tx).Upsert(ctx, channel.ID, identity.ID); err != nil {
 			return "", err
 		}
-	}
-	if err := setChannelOwnerIfMissing(ctx, tx, channel, consumed.IssuedByUserID, channelsRepo); err != nil {
-		return "", err
 	}
 	threadMappings, err := channelDMThreadsRepo.WithTx(tx).ListByChannelIdentity(ctx, channel.ID, identity.ID)
 	if err != nil {

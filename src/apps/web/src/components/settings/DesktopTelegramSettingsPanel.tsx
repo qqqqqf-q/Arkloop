@@ -495,6 +495,7 @@ export function DesktopTelegramSettingsPanel({
         onUnbind={(binding) => handleUnbind(binding)}
         onMakeOwner={(binding) => handleMakeOwner(binding)}
         onSaveHeartbeat={(binding, next) => handleSaveHeartbeat(binding, next)}
+        onOwnerUnbindAttempt={() => setError(ct.ownerUnbindBlocked)}
       />
 
       <SaveActions

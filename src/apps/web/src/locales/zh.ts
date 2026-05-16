@@ -836,6 +836,7 @@ export const zh: LocaleStrings = {
     heartbeatCardTitle: 'Heartbeat',
     heartbeatCardDesc: '让 bot 在绑定的对话中定时自动唤醒，由 AI 自主判断是否主动发言。绑定账号后，在对话中发 /heartbeat on 开启，/heartbeat off 关闭，/heartbeat interval <分钟> 调整频率',
     heartbeatCardHint: '间隔和模型可在下方关联账号的卡片中精细配置',
+    ownerUnbindBlocked: 'Owner 不能直接解除关联',
     botTokenHint: '从 Telegram 的 @BotFather 获取 Token',
     allowedUsersHint: '向 @userinfobot 发送 /start 即可获取 user ID',
     discordTokenHint: '在 Discord Developer Portal 创建 bot 并获取 Token',
