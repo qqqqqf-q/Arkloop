@@ -502,7 +502,7 @@ export function WelcomePage() {
 
   return (
     <div className="flex h-full min-w-0 overflow-hidden">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="theme-surface-page theme-chat-surface flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg-page)]">
         {/* 顶部 header */}
         <div className="relative z-10 flex min-h-[51px] items-center justify-end gap-2 px-[15px] py-[15px]">
           {!isDesktop() && (

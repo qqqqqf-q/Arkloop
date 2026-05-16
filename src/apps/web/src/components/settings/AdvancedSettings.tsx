@@ -32,7 +32,8 @@ import type { MeDailyUsageItem, MeHourlyUsageItem, MeModelUsageItem, MeUsageSumm
 import { getMyDailyUsage, getMyHourlyUsage, getMyUsage, getMyUsageByModel } from '../../api'
 import { useAppearance } from '../../contexts/AppearanceContext'
 import { useLocale } from '../../contexts/LocaleContext'
-import type { ThemeDefinition } from '../../themes/types'
+import type { ThemeBackgroundImage, ThemeDefinition, ThemePreset } from '../../themes/types'
+import { readGtdEnabled, writeGtdEnabled } from '../../storage'
 import { SettingsSection } from './_SettingsSection'
 import { SettingsSectionHeader } from './_SettingsSectionHeader'
 import { settingsInputCls } from './_SettingsInput'
@@ -78,6 +79,7 @@ const DESKTOP_EXPORT_SECTIONS: DesktopExportSection[] = [
 
 const AGENT_IMPORT_ITEM_KEYS = ['identity', 'skills', 'mcp', 'providers'] as const
 const AGENT_IMPORT_SOURCE_ORDER: ImportSourceKind[] = ['openclaw', 'hermes']
+const THEME_PRESETS: readonly ThemePreset[] = ['default', 'terra', 'github', 'nord', 'catppuccin', 'tokyo-night', 'retina-burn', 'background-image', 'custom']
 
 function createDefaultAgentImportSelection(): Record<ImportItemKey, boolean> {
   return {
@@ -93,6 +95,37 @@ function createAgentImportSelections(sources: AgentImportDiscovery[]): AgentImpo
     acc[source.kind] = createDefaultAgentImportSelection()
     return acc
   }, {})
+}
+
+function isThemePreset(value: unknown): value is ThemePreset {
+  return typeof value === 'string' && THEME_PRESETS.includes(value as ThemePreset)
+}
+
+function normalizeThemeBackgroundImage(value: unknown): ThemeBackgroundImage | null | undefined {
+  if (value === null) return null
+  if (!value || typeof value !== 'object') return undefined
+  const image = value as Record<string, unknown>
+  if (
+    typeof image.dataUrl !== 'string' ||
+    typeof image.name !== 'string' ||
+    typeof image.mimeType !== 'string' ||
+    typeof image.size !== 'number' ||
+    typeof image.updatedAt !== 'number'
+  ) {
+    return undefined
+  }
+  return {
+    dataUrl: image.dataUrl,
+    name: image.name,
+    mimeType: image.mimeType,
+    size: image.size,
+    updatedAt: image.updatedAt,
+  }
+}
+
+function applySidebarGrouping(value: unknown): void {
+  if (value !== 'normal' && value !== 'gtd') return
+  writeGtdEnabled(value === 'gtd')
 }
 
 function formatUsd(value: number) {
@@ -962,7 +995,18 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
   const ob = t.onboarding
   const api = getDesktopApi()
   const { addToast } = useToast()
-  const { customThemeId, customThemes, saveCustomTheme, setActiveCustomTheme } = useAppearance()
+  const {
+    themePreset,
+    setThemePreset,
+    customThemeId,
+    customThemes,
+    saveCustomTheme,
+    setActiveCustomTheme,
+    backgroundImage,
+    setBackgroundImage,
+    backgroundImageOpacity,
+    setBackgroundImageOpacity,
+  } = useAppearance()
   const [actionLoading, setActionLoading] = useState<'choose' | 'export' | 'import' | null>(null)
   const [actionError, setActionError] = useState('')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -1034,8 +1078,12 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
       const result = await api.advanced.exportDataBundle({
         sections: selectedSections,
         themes: {
+          themePreset,
           customThemeId,
           customThemes: selectedSections.includes('themes') ? customThemes : {},
+          backgroundImage: selectedSections.includes('themes') ? backgroundImage : null,
+          backgroundImageOpacity: selectedSections.includes('themes') ? backgroundImageOpacity : null,
+          sidebarGrouping: selectedSections.includes('themes') ? (readGtdEnabled() ? 'gtd' : 'normal') : null,
         },
       })
       if (result.canceled) {
@@ -1050,7 +1098,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     } finally {
       setActionLoading(null)
     }
-  }, [api, addToast, customThemeId, customThemes, ds.advancedExportCanceled, ds.advancedExportDone, selectedSections, t.requestFailed])
+  }, [api, addToast, backgroundImage, backgroundImageOpacity, customThemeId, customThemes, ds.advancedExportCanceled, ds.advancedExportDone, selectedSections, t.requestFailed, themePreset])
 
   const handleImport = useCallback(async () => {
     if (!api?.advanced) return
@@ -1062,15 +1110,38 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
         addToast(ds.advancedImportCanceled, 'neutral')
         return
       }
-      if (result.themes?.customThemes && typeof result.themes.customThemes === 'object') {
-        for (const value of Object.values(result.themes.customThemes)) {
+      const importedThemes = result.themes
+      if (importedThemes?.customThemes && typeof importedThemes.customThemes === 'object') {
+        for (const value of Object.values(importedThemes.customThemes)) {
           if (value && typeof value === 'object' && 'id' in value && typeof value.id === 'string') {
             saveCustomTheme(value as ThemeDefinition)
           }
         }
-        if (result.themes.customThemeId) {
-          setActiveCustomTheme(result.themes.customThemeId)
+      }
+      let importedBackground: ThemeBackgroundImage | null | undefined
+      if (importedThemes && 'backgroundImage' in importedThemes) {
+        importedBackground = normalizeThemeBackgroundImage(importedThemes.backgroundImage)
+        if (importedBackground === undefined) {
+          throw new Error(t.requestFailed)
         }
+      }
+      if (importedBackground !== undefined && !setBackgroundImage(importedBackground)) {
+        throw new Error(t.requestFailed)
+      }
+      if (typeof importedThemes?.backgroundImageOpacity === 'number' && Number.isFinite(importedThemes.backgroundImageOpacity)) {
+        setBackgroundImageOpacity(importedThemes.backgroundImageOpacity)
+      }
+      applySidebarGrouping(importedThemes?.sidebarGrouping)
+      if (isThemePreset(importedThemes?.themePreset)) {
+        if (importedThemes.themePreset === 'custom' && importedThemes.customThemeId) {
+          setActiveCustomTheme(importedThemes.customThemeId)
+        } else if (importedThemes.themePreset === 'background-image') {
+          setThemePreset('background-image')
+        } else {
+          setThemePreset(importedThemes.themePreset)
+        }
+      } else if (importedThemes?.customThemeId) {
+        setActiveCustomTheme(importedThemes.customThemeId)
       }
       addToast(ds.advancedImportDone, 'success')
       await onReloadOverview()
@@ -1079,7 +1150,7 @@ function DataPane({ onReloadOverview }: { onReloadOverview: () => Promise<void> 
     } finally {
       setActionLoading(null)
     }
-  }, [api, addToast, ds.advancedImportCanceled, ds.advancedImportDone, onReloadOverview, saveCustomTheme, setActiveCustomTheme, t.requestFailed])
+  }, [api, addToast, ds.advancedImportCanceled, ds.advancedImportDone, onReloadOverview, saveCustomTheme, setActiveCustomTheme, setBackgroundImage, setBackgroundImageOpacity, setThemePreset, t.requestFailed])
 
   const selectedAgentImportSource = selectedAgentImport
     ? agentImportSources.find((source) => source.kind === selectedAgentImport) ?? null

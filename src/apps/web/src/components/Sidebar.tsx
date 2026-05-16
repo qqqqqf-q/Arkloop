@@ -39,7 +39,7 @@ import {
   readGtdSomedayThreadIds, writeGtdSomedayThreadIds,
   readGtdArchivedThreadIds, writeGtdArchivedThreadIds,
   readPinnedThreadIds, writePinnedThreadIds,
-  readGtdEnabled, readExpandedProjectPaths, writeExpandedProjectPaths,
+  readGtdEnabled, readExpandedProjectPaths, subscribeGtdEnabled, writeExpandedProjectPaths,
   clearThreadWorkFolder, readThreadWorkFolder, writeThreadWorkFolder, clearWorkFolder, writeWorkFolder,
 } from '../storage'
 
@@ -60,7 +60,6 @@ const PROJECT_GROUP_SECONDARY_PAGE_SIZE = 2
 const PROJECT_GROUP_LABEL_WEIGHT = 'var(--c-sidebar-thread-weight)'
 const SIDEBAR_ROW_TEXT_SIZE = '13.5px'
 const SIDEBAR_ROW_LINE_HEIGHT = '20px'
-const GTD_ENABLED_STORAGE_KEY = 'arkloop:web:gtd_enabled'
 const DRAG_START_DISTANCE_PX = 3
 const DRAG_LONG_PRESS_DELAY_MS = 180
 const GTD_BUCKETS: readonly GtdBucket[] = ['inbox', 'todo', 'waiting', 'someday', 'archived']
@@ -1129,20 +1128,7 @@ export function Sidebar({
   }, [deleteConfirmThreadId])
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const enabled = (e as CustomEvent<boolean>).detail
-      setGtdEnabled(enabled)
-    }
-    const storageHandler = (e: StorageEvent) => {
-      if (e.key !== GTD_ENABLED_STORAGE_KEY) return
-      setGtdEnabled(e.newValue === 'true')
-    }
-    window.addEventListener('arkloop:gtd-enabled-changed', handler)
-    window.addEventListener('storage', storageHandler)
-    return () => {
-      window.removeEventListener('arkloop:gtd-enabled-changed', handler)
-      window.removeEventListener('storage', storageHandler)
-    }
+    return subscribeGtdEnabled(setGtdEnabled)
   }, [])
 
   // 监听 work folder 变更，触发重新渲染

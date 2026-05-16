@@ -7,6 +7,7 @@ import {
   finalizeAssistantTurnFoldState,
   foldAssistantTurnEvent,
   requestAssistantTurnThinkingBreak,
+  splitWorkGroup,
 } from '../assistantTurnSegments'
 import {
   normalizeAgentEventData,
@@ -45,6 +46,28 @@ function th(content: string, seq: number, endedByEventSeq?: number) {
   const endedAtMs = endedByEventSeq == null ? FINALIZE_NOW_MS : evMs(endedByEventSeq)
   return { kind: 'thinking' as const, content, seq, startedAtMs, endedAtMs }
 }
+
+describe('splitWorkGroup', () => {
+  it('keeps final text visible when a tool segment follows it', () => {
+    const tailToolSegment = {
+      type: 'cop' as const,
+      title: null,
+      items: [{
+        kind: 'call' as const,
+        call: { toolCallId: 'terminal_1', toolName: 'terminal_run', arguments: {} },
+        seq: 2,
+      }],
+    }
+
+    const split = splitWorkGroup([
+      { type: 'text', content: 'done' },
+      tailToolSegment,
+    ], 1200)
+
+    expect(split.finalText).toBe('done')
+    expect(split.workGroup?.segments).toEqual([tailToolSegment])
+  })
+})
 
 describe('buildAssistantTurnFromAgentEvents', () => {
   beforeEach(() => {

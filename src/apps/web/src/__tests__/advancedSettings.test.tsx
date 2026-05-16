@@ -102,6 +102,7 @@ describe('AdvancedSettings', () => {
       return {
         ...actual,
         readLocaleFromStorage: vi.fn(() => 'zh'),
+        readGtdEnabled: vi.fn(() => false),
         writeLocaleToStorage: vi.fn(),
       }
     })
@@ -140,10 +141,16 @@ describe('AdvancedSettings', () => {
     }))
     vi.doMock('../contexts/AppearanceContext', () => ({
       useAppearance: () => ({
+        themePreset: 'default',
+        setThemePreset: vi.fn(),
         customThemeId: null,
         customThemes: {},
         saveCustomTheme: vi.fn(),
         setActiveCustomTheme: vi.fn(),
+        backgroundImage: null,
+        setBackgroundImage: vi.fn(() => true),
+        backgroundImageOpacity: 40,
+        setBackgroundImageOpacity: vi.fn(),
       }),
     }))
     vi.doMock('@arkloop/shared', async () => {
@@ -228,6 +235,7 @@ describe('AdvancedSettings', () => {
       return {
         ...actual,
         readLocaleFromStorage: vi.fn(() => 'zh'),
+        readGtdEnabled: vi.fn(() => true),
         writeLocaleToStorage: vi.fn(),
       }
     })
@@ -255,10 +263,22 @@ describe('AdvancedSettings', () => {
     }))
     vi.doMock('../contexts/AppearanceContext', () => ({
       useAppearance: () => ({
+        themePreset: 'background-image',
+        setThemePreset: vi.fn(),
         customThemeId: null,
         customThemes: {},
         saveCustomTheme: vi.fn(),
         setActiveCustomTheme: vi.fn(),
+        backgroundImage: {
+          dataUrl: 'data:image/png;base64,Ymc=',
+          name: 'bg.png',
+          mimeType: 'image/png',
+          size: 2,
+          updatedAt: 1234,
+        },
+        setBackgroundImage: vi.fn(() => true),
+        backgroundImageOpacity: 55,
+        setBackgroundImageOpacity: vi.fn(),
       }),
     }))
     vi.doMock('@arkloop/shared', async () => {
@@ -311,5 +331,29 @@ describe('AdvancedSettings', () => {
       '自定义主题',
     ])
     expect(exportDataBundle).not.toHaveBeenCalled()
+
+    const exportLabel = exportButton!.textContent?.trim()
+    const confirmExportButton = Array.from(document.body.querySelectorAll('button'))
+      .filter((button) => button.textContent?.trim() === exportLabel)
+      .at(-1)
+    expect(confirmExportButton).toBeTruthy()
+
+    await act(async () => {
+      confirmExportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(exportDataBundle).toHaveBeenCalledWith(expect.objectContaining({
+      sections: expect.arrayContaining(['themes']),
+      themes: expect.objectContaining({
+        themePreset: 'background-image',
+        backgroundImage: expect.objectContaining({
+          dataUrl: 'data:image/png;base64,Ymc=',
+          name: 'bg.png',
+        }),
+        backgroundImageOpacity: 55,
+        sidebarGrouping: 'gtd',
+      }),
+    }))
   })
 })
