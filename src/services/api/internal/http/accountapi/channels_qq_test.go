@@ -1,8 +1,14 @@
 package accountapi
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"arkloop/services/api/internal/data"
+
+	"github.com/google/uuid"
 )
 
 func TestTelegramCommandBaseWorksForQQ(t *testing.T) {
@@ -121,6 +127,115 @@ func TestChannelCommandHelpTextUsesGroupMentions(t *testing.T) {
 	}
 }
 
+func TestQQGroupCommandAuthorizationUsesArkloopOwner(t *testing.T) {
+	t.Run("qq group role is not a fallback", func(t *testing.T) {
+		handled, replyText, _, _, _, err := DispatchChannelCommand(
+			context.Background(),
+			nil,
+			data.Channel{},
+			data.Persona{},
+			data.ChannelIdentity{},
+			"/new",
+			false,
+			"20002",
+			nil,
+			ChannelCommandResolver{
+				IsBoundAdmin: func(context.Context) bool { return false },
+				IsGroupAdmin: func(context.Context) bool { return true },
+			},
+			ChannelCommandDeps{},
+			"QQ",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !handled || replyText != "无权限。" {
+			t.Fatalf("expected Arkloop binding denial, handled=%v reply=%q", handled, replyText)
+		}
+	})
+
+	t.Run("owner identity can use group command", func(t *testing.T) {
+		handled, replyText, _, _, _, err := DispatchChannelCommand(
+			context.Background(),
+			nil,
+			data.Channel{},
+			data.Persona{},
+			data.ChannelIdentity{},
+			"/new",
+			false,
+			"20002",
+			nil,
+			ChannelCommandResolver{
+				IsBoundAdmin: func(context.Context) bool { return true },
+				IsGroupAdmin: func(context.Context) bool { return false },
+			},
+			ChannelCommandDeps{},
+			"QQ",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !handled || replyText == "无权限。" {
+			t.Fatalf("expected owner identity to pass authorization, handled=%v reply=%q", handled, replyText)
+		}
+	})
+}
+
+func TestQQPrivateCommandDoesNotRequireArkloopOwner(t *testing.T) {
+	personaID := uuid.New()
+	handled, replyText, _, _, _, err := DispatchChannelCommand(
+		context.Background(),
+		nil,
+		data.Channel{PersonaID: &personaID},
+		data.Persona{},
+		data.ChannelIdentity{},
+		"/new",
+		true,
+		"10001",
+		nil,
+		ChannelCommandResolver{
+			IsBoundAdmin: func(context.Context) bool { return false },
+		},
+		ChannelCommandDeps{},
+		"QQ",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !handled || replyText == "无权限。" {
+		t.Fatalf("private QQ command should not require owner binding, handled=%v reply=%q", handled, replyText)
+	}
+}
+
+func TestQQChannelIdentityIsOwnerRejectsNonOwner(t *testing.T) {
+	ownerUserID := uuid.New()
+	otherUserID := uuid.New()
+	identityID := uuid.New()
+	channelID := uuid.New()
+
+	if qqChannelIdentityIsOwner(context.Background(), nil, data.Channel{
+		ID:          channelID,
+		OwnerUserID: &ownerUserID,
+	}, data.ChannelIdentity{
+		ID:     identityID,
+		UserID: &otherUserID,
+	}, nil) {
+		t.Fatal("non-owner identity must not be treated as QQ channel owner")
+	}
+}
+
+func TestQQChannelIdentityIsOwnerRejectsUnownedChannel(t *testing.T) {
+	identityUserID := uuid.New()
+	if qqChannelIdentityIsOwner(context.Background(), nil, data.Channel{
+		ID: uuid.New(),
+	}, data.ChannelIdentity{
+		ID:     uuid.New(),
+		UserID: &identityUserID,
+	}, nil) {
+		t.Fatal("unowned channel must not authorize QQ owner commands")
+	}
+}
+
 func TestQQUserAllowed(t *testing.T) {
 	t.Run("allow all users when no allowlist", func(t *testing.T) {
 		cfg := qqChannelConfig{AllowAllUsers: true}
@@ -158,6 +273,72 @@ func TestQQUserAllowed(t *testing.T) {
 	})
 }
 
+func TestQQAccessDeniedReply(t *testing.T) {
+	if qqAccessDeniedReplyText != "此用户不在白名单中。" {
+		t.Fatalf("unexpected reply text: %q", qqAccessDeniedReplyText)
+	}
+
+	t.Run("private", func(t *testing.T) {
+		msgType, target := qqAccessDeniedReplyDestination("10001", "")
+		if msgType != "private" || target != "10001" {
+			t.Fatalf("unexpected destination: %s %s", msgType, target)
+		}
+	})
+
+	t.Run("group", func(t *testing.T) {
+		msgType, target := qqAccessDeniedReplyDestination("10001", "20002")
+		if msgType != "group" || target != "20002" {
+			t.Fatalf("unexpected destination: %s %s", msgType, target)
+		}
+	})
+}
+
+func TestQQAccessDeniedReplyTrigger(t *testing.T) {
+	tests := []struct {
+		name     string
+		incoming qqIncomingMessage
+		want     bool
+	}{
+		{
+			name:     "private replies",
+			incoming: qqIncomingMessage{ChatType: "private", Text: "hello"},
+			want:     true,
+		},
+		{
+			name:     "group ordinary message is silent",
+			incoming: qqIncomingMessage{ChatType: "group", Text: "hello"},
+			want:     false,
+		},
+		{
+			name:     "group mention replies",
+			incoming: qqIncomingMessage{ChatType: "group", Text: "hello", MentionsBot: true},
+			want:     true,
+		},
+		{
+			name:     "group keyword replies",
+			incoming: qqIncomingMessage{ChatType: "group", Text: "草洛", MatchesKeyword: true},
+			want:     true,
+		},
+		{
+			name:     "group command replies",
+			incoming: qqIncomingMessage{ChatType: "group", Text: "/new"},
+			want:     true,
+		},
+		{
+			name:     "unknown slash is silent",
+			incoming: qqIncomingMessage{ChatType: "group", Text: "/unknown"},
+			want:     false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := qqShouldReplyAccessDenied(tt.incoming); got != tt.want {
+				t.Fatalf("qqShouldReplyAccessDenied() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveQQChannelConfig(t *testing.T) {
 	t.Run("nil config allows all", func(t *testing.T) {
 		cfg, err := resolveQQChannelConfig(nil)
@@ -186,6 +367,39 @@ func TestResolveQQChannelConfig(t *testing.T) {
 		}
 		if cfg.AllowAllUsers {
 			t.Fatal("expected AllowAllUsers=false when allowlist present")
+		}
+		if len(cfg.AllowedUserIDs) != 1 || cfg.AllowedUserIDs[0] != "123" {
+			t.Fatalf("unexpected AllowedUserIDs: %v", cfg.AllowedUserIDs)
+		}
+	})
+
+	t.Run("allow all follows normalized allowlists", func(t *testing.T) {
+		cfg, err := resolveQQChannelConfig([]byte(`{"allow_all_users":true,"allowed_user_ids":[" 123 ","123","456\n789"],"allowed_group_ids":[" 20001 "]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AllowAllUsers {
+			t.Fatal("expected AllowAllUsers=false when allowlist present")
+		}
+		if got, want := strings.Join(cfg.AllowedUserIDs, ","), "123,456,789"; got != want {
+			t.Fatalf("AllowedUserIDs = %q, want %q", got, want)
+		}
+		if got, want := strings.Join(cfg.AllowedGroupIDs, ","), "20001"; got != want {
+			t.Fatalf("AllowedGroupIDs = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("normalizes persisted config", func(t *testing.T) {
+		normalized, _, err := normalizeChannelConfigJSON("qq", []byte(`{"allow_all_users":true,"allowed_user_ids":["123"]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg qqChannelConfig
+		if err := json.Unmarshal(normalized, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if cfg.AllowAllUsers {
+			t.Fatal("expected stale allow_all_users to be cleared")
 		}
 		if len(cfg.AllowedUserIDs) != 1 || cfg.AllowedUserIDs[0] != "123" {
 			t.Fatalf("unexpected AllowedUserIDs: %v", cfg.AllowedUserIDs)

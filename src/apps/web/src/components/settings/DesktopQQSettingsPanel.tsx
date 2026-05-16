@@ -155,29 +155,10 @@ export function DesktopQQSettingsPanel({
   ])
   const canSave = dirty || channel === null
 
-  const handleAddAllowedUsers = () => {
-    const nextIDs = mergeListValues(allowedUserIDs, allowedUserInput)
-    if (nextIDs.length === allowedUserIDs.length) return
-    setAllowedUserIDs(nextIDs)
-    setAllowedUserInput('')
-    setSaved(false)
-  }
-
-  const handleAddAllowedGroups = () => {
-    const nextIDs = mergeListValues(allowedGroupIDs, allowedGroupInput)
-    if (nextIDs.length === allowedGroupIDs.length) return
-    setAllowedGroupIDs(nextIDs)
-    setAllowedGroupInput('')
-    setSaved(false)
-  }
-
-  const handleSave = async () => {
-    const nextAllowedUserIDs = mergeListValues(allowedUserIDs, allowedUserInput)
-    const nextAllowedGroupIDs = mergeListValues(allowedGroupIDs, allowedGroupInput)
-
+  const persistQQSettings = async (nextAllowedUserIDs: string[], nextAllowedGroupIDs: string[]) => {
     if (enabled && !personaID) {
       setError(ct.personaRequired)
-      return
+      return false
     }
 
     setSaving(true)
@@ -231,6 +212,7 @@ export function DesktopQQSettingsPanel({
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       await reload()
+      return true
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         setError(ds.connectorSaveTimeout)
@@ -239,6 +221,50 @@ export function DesktopQQSettingsPanel({
       }
     } finally {
       setSaving(false)
+    }
+    return false
+  }
+
+  const handleSave = async () => {
+    await persistQQSettings(
+      mergeListValues(allowedUserIDs, allowedUserInput),
+      mergeListValues(allowedGroupIDs, allowedGroupInput),
+    )
+  }
+
+  const handleAddAllowedUsers = async () => {
+    const nextIDs = mergeListValues(allowedUserIDs, allowedUserInput)
+    if (nextIDs.length === allowedUserIDs.length) return
+    setAllowedUserIDs(nextIDs)
+    setAllowedUserInput('')
+    setSaved(false)
+    await persistQQSettings(nextIDs, mergeListValues(allowedGroupIDs, allowedGroupInput))
+  }
+
+  const handleAddAllowedGroups = async () => {
+    const nextIDs = mergeListValues(allowedGroupIDs, allowedGroupInput)
+    if (nextIDs.length === allowedGroupIDs.length) return
+    setAllowedGroupIDs(nextIDs)
+    setAllowedGroupInput('')
+    setSaved(false)
+    await persistQQSettings(mergeListValues(allowedUserIDs, allowedUserInput), nextIDs)
+  }
+
+  const handleRemoveAllowedUser = async (value: string) => {
+    const nextIDs = allowedUserIDs.filter((item) => item !== value)
+    setAllowedUserIDs(nextIDs)
+    setSaved(false)
+    if (channel) {
+      await persistQQSettings(nextIDs, mergeListValues(allowedGroupIDs, allowedGroupInput))
+    }
+  }
+
+  const handleRemoveAllowedGroup = async (value: string) => {
+    const nextIDs = allowedGroupIDs.filter((item) => item !== value)
+    setAllowedGroupIDs(nextIDs)
+    setSaved(false)
+    if (channel) {
+      await persistQQSettings(mergeListValues(allowedUserIDs, allowedUserInput), nextIDs)
     }
   }
 
@@ -353,8 +379,10 @@ export function DesktopQQSettingsPanel({
                 <SettingsSwitch checked={enabled} onChange={(next) => { setEnabled(next); setSaved(false) }} />
               </div>
             </ChannelDetailRow>
-            <ChannelDetailRow label={ct.qqSetup}>
-              <QQLoginFlow accessToken={accessToken} channelId={channel?.id ?? ''} onStatusChange={handleNapCatStatus} />
+            <ChannelDetailRow label={ct.qqSetup} wide>
+              <div className="w-full max-w-[560px]">
+                <QQLoginFlow accessToken={accessToken} channelId={channel?.id ?? ''} onStatusChange={handleNapCatStatus} />
+              </div>
             </ChannelDetailRow>
             {isWindows && (
               <ChannelDetailRow label={ct.qqAutoLogin}>
@@ -397,34 +425,30 @@ export function DesktopQQSettingsPanel({
                 onChange={(v) => { setOnebotToken(v); setSaved(false) }}
               />
             </ChannelDetailRow>
-            <ChannelDetailRow label={ct.qqAllowedUsers}>
-              <ListField
-                values={allowedUserIDs}
-                inputValue={allowedUserInput}
-                placeholder={ct.qqAllowedUsersPlaceholder}
-                addLabel={t.skills.add}
-                onInputChange={setAllowedUserInput}
-                onAdd={handleAddAllowedUsers}
-                onRemove={(value) => {
-                  setAllowedUserIDs((current) => current.filter((item) => item !== value))
-                  setSaved(false)
-                }}
-              />
-            </ChannelDetailRow>
+            <ChannelDetailRow label={ct.accessControl} wide>
+              <div className="flex w-full max-w-[560px] flex-col gap-4">
+                <ListField
+                  label={ct.qqAllowedUsers}
+                  values={allowedUserIDs}
+                  inputValue={allowedUserInput}
+                  placeholder={ct.qqAllowedUsersPlaceholder}
+                  addLabel={t.skills.add}
+                  onInputChange={setAllowedUserInput}
+                  onAdd={handleAddAllowedUsers}
+                  onRemove={handleRemoveAllowedUser}
+                />
 
-            <ChannelDetailRow label={ct.qqAllowedGroups}>
-              <ListField
-                values={allowedGroupIDs}
-                inputValue={allowedGroupInput}
-                placeholder={ct.qqAllowedGroupsPlaceholder}
-                addLabel={t.skills.add}
-                onInputChange={setAllowedGroupInput}
-                onAdd={handleAddAllowedGroups}
-                onRemove={(value) => {
-                  setAllowedGroupIDs((current) => current.filter((item) => item !== value))
-                  setSaved(false)
-                }}
-              />
+                <ListField
+                  label={ct.qqAllowedGroups}
+                  values={allowedGroupIDs}
+                  inputValue={allowedGroupInput}
+                  placeholder={ct.qqAllowedGroupsPlaceholder}
+                  addLabel={t.skills.add}
+                  onInputChange={setAllowedGroupInput}
+                  onAdd={handleAddAllowedGroups}
+                  onRemove={handleRemoveAllowedGroup}
+                />
+              </div>
             </ChannelDetailRow>
 
             <ChannelDetailRow label={ct.persona}>
