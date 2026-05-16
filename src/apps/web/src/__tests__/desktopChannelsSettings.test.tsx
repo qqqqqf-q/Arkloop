@@ -117,6 +117,9 @@ async function loadChannelsSubject() {
       createChannel: vi.fn(),
       updateChannel: vi.fn(),
       verifyChannel: vi.fn(),
+      listChannelBindings: vi.fn().mockResolvedValue([]),
+      deleteChannelBinding: vi.fn(),
+      updateChannelBinding: vi.fn(),
       createChannelBindCode: vi.fn(),
       unbindChannelIdentity: vi.fn(),
       isApiError: vi.fn(() => false),
@@ -664,5 +667,108 @@ describe('DesktopChannelsSettings', () => {
     expect(api.verifyChannel).toHaveBeenCalledWith('token', 'fs-1')
     expect(document.body.textContent).toContain('Arkloop Feishu')
     expect(document.body.textContent).toContain('ou_bot')
+  })
+
+  it('persists QQ OneBot access control when adding a QQ user', async () => {
+    const { api, DesktopChannelsSettings, LocaleProvider } = await loadChannelsSubject()
+    const qqChannel = {
+      id: 'qq-1',
+      account_id: 'acc-1',
+      channel_type: 'qq',
+      persona_id: 'persona-1',
+      webhook_url: null,
+      is_active: true,
+      config_json: {
+        onebot_ws_url: 'ws://127.0.0.1:6098',
+        onebot_http_url: 'http://127.0.0.1:3000',
+        onebot_token: 'secret',
+        allowed_user_ids: ['10001'],
+        allowed_group_ids: ['20001'],
+      },
+      has_credentials: true,
+      created_at: '2026-03-26T00:00:00Z',
+      updated_at: '2026-03-26T00:00:00Z',
+    }
+    const updatedQQChannel = {
+      ...qqChannel,
+      config_json: {
+        ...qqChannel.config_json,
+        allowed_user_ids: ['10001', '30003'],
+      },
+    }
+    vi.mocked(api.listChannels)
+      .mockResolvedValueOnce([qqChannel])
+      .mockResolvedValue([updatedQQChannel])
+    vi.mocked(api.listMyChannelIdentities).mockResolvedValue([])
+    vi.mocked(api.listChannelPersonas).mockResolvedValue([
+      {
+        id: 'persona-1',
+        persona_key: 'normal',
+        version: '1',
+        display_name: 'Normal',
+        source: 'project',
+      } as never,
+    ])
+    vi.mocked(api.listLlmProviders).mockResolvedValue([])
+    vi.mocked(api.listChannelBindings).mockResolvedValue([])
+    vi.mocked(api.updateChannel).mockResolvedValue(updatedQQChannel)
+
+    await act(async () => {
+      root!.render(
+        <LocaleProvider>
+          <DesktopChannelsSettings accessToken="token" />
+        </LocaleProvider>,
+      )
+    })
+    await flushEffects()
+
+    const qqOneBotTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('OneBot'))
+    expect(qqOneBotTab).toBeTruthy()
+
+    await act(async () => {
+      qqOneBotTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    const allowedUserInput = Array.from(document.body.querySelectorAll('input')).find((input) => input.getAttribute('placeholder')?.includes('QQ 号')) as HTMLInputElement
+    expect(allowedUserInput).toBeTruthy()
+
+    await act(async () => {
+      setInputValue(allowedUserInput, '30003')
+    })
+    await flushEffects()
+
+    const addUserButton = allowedUserInput.nextElementSibling as HTMLButtonElement
+    await act(async () => {
+      addUserButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await flushEffects()
+
+    expect(api.updateChannel).toHaveBeenCalledWith('token', 'qq-1', {
+      persona_id: 'persona-1',
+      is_active: true,
+      config_json: {
+        onebot_ws_url: 'ws://127.0.0.1:6098',
+        onebot_http_url: 'http://127.0.0.1:3000',
+        onebot_token: 'secret',
+        allowed_user_ids: ['10001', '30003'],
+        allowed_group_ids: ['20001'],
+      },
+    })
+
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+    await flushEffects()
+
+    const reopenedQQOneBotTab = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('OneBot'))
+    await act(async () => {
+      reopenedQQOneBotTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await flushEffects()
+
+    expect(document.body.textContent).toContain('30003')
   })
 })

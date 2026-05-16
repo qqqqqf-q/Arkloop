@@ -198,6 +198,10 @@ func normalizeChannelConfigJSON(channelType string, raw json.RawMessage) (json.R
 		normalized, _, err := normalizeQQBotChannelConfig(raw)
 		return normalized, nil, err
 	}
+	if channelType == "qq" {
+		normalized, _, err := normalizeQQChannelConfig(raw)
+		return normalized, nil, err
+	}
 	if channelType == "feishu" {
 		normalized, _, err := normalizeFeishuChannelConfig(raw)
 		return normalized, nil, err

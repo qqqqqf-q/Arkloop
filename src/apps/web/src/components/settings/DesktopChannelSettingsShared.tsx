@@ -26,14 +26,18 @@ export const channelRowsCls =
 export function ChannelDetailRow({
   label,
   children,
+  wide = false,
 }: {
   label: string
   children: ReactNode
+  wide?: boolean
 }) {
   return (
-    <div>
+    <div className={wide ? 'sm:!grid-cols-[minmax(112px,132px)_minmax(0,1fr)]' : undefined}>
       <div className="min-w-0 text-[13px] font-medium text-[var(--c-text-primary)]">{label}</div>
-      <div className="min-w-0 sm:flex sm:w-full sm:flex-col sm:items-end">{children}</div>
+      <div className={`min-w-0 sm:flex sm:w-full sm:flex-col ${wide ? 'sm:items-start' : 'sm:items-end'}`}>
+        {children}
+      </div>
     </div>
   )
 }

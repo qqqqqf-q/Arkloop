@@ -12,7 +12,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/napcat"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/pgnotify"
 
@@ -97,7 +96,11 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 
 		// NapCat 管理的 channel：检测 QQ 掉线后拆除 listener 以触发重登
 		mgr := getNapCatManagerIfExists()
-		if mgr != nil && !mgr.IsLoggedIn() {
+		mgrLoggedIn := false
+		if mgr != nil {
+			mgrLoggedIn = mgr.IsLoggedIn()
+		}
+		if mgr != nil && !mgrLoggedIn {
 			activeListeners.Range(func(key, value any) bool {
 				id := key.(uuid.UUID)
 				if l, ok := value.(*onebotclient.WSListener); ok {
@@ -117,21 +120,22 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 			if err != nil {
 				continue
 			}
-			wsURL := strings.TrimSpace(cfg.OneBotWSURL)
-			if wsURL == "" {
-				continue
-			}
-			if _, exists := activeListeners.Load(ch.ID); exists {
-				continue
-			}
 
-			if mgr != nil && !mgr.IsLoggedIn() {
+			if mgr != nil && !mgrLoggedIn {
 				qqAutoQuickLogin(mgr, cfg, &lastAutoLoginAttempt)
 				continue
 			}
 
+			wsURL, token := resolveQQWSListenerEndpoint(cfg, mgr)
+			if wsURL == "" {
+				continue
+			}
+
+			if _, exists := activeListeners.Load(ch.ID); exists {
+				continue
+			}
+
 			chCopy := ch
-			token := cfg.OneBotToken
 			if token == "" {
 				if mgr != nil {
 					_, token = mgr.WSEndpoint()
@@ -184,9 +188,35 @@ func qqWSListenerLoop(ctx context.Context, channelsRepo *data.ChannelsRepository
 	}
 }
 
+type qqOneBotEndpointProvider interface {
+	WSEndpoint() (addr string, token string)
+}
+
+func resolveQQWSListenerEndpoint(cfg qqChannelConfig, mgr qqOneBotEndpointProvider) (string, string) {
+	wsURL := strings.TrimSpace(cfg.OneBotWSURL)
+	token := strings.TrimSpace(cfg.OneBotToken)
+	if wsURL != "" || mgr == nil {
+		return wsURL, token
+	}
+	endpoint, endpointToken := mgr.WSEndpoint()
+	wsURL = strings.TrimSpace(endpoint)
+	if token == "" {
+		token = strings.TrimSpace(endpointToken)
+	}
+	return wsURL, token
+}
+
+type qqQuickLoginManager interface {
+	QuickLoginUins() []string
+	QuickLogin(uin string) error
+}
+
 // qqAutoQuickLogin 在 NapCat 运行但未登录时，自动使用 auto_login_uin 快速登录。
 // 30 秒 cooldown 防止频繁重试。
-func qqAutoQuickLogin(mgr *napcat.Manager, cfg qqChannelConfig, lastAttempt *time.Time) {
+func qqAutoQuickLogin(mgr qqQuickLoginManager, cfg qqChannelConfig, lastAttempt *time.Time) {
+	if mgr == nil {
+		return
+	}
 	uin := strings.TrimSpace(cfg.AutoLoginUin)
 	if uin == "" {
 		return

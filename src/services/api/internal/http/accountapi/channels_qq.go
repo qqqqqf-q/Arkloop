@@ -41,18 +41,53 @@ type qqChannelConfig struct {
 	AutoLoginUin    string   `json:"auto_login_uin,omitempty"`
 }
 
+const qqAccessDeniedReplyText = "此用户不在白名单中。"
+
 func resolveQQChannelConfig(raw json.RawMessage) (qqChannelConfig, error) {
+	_, cfg, err := normalizeQQChannelConfig(raw)
+	if err != nil {
+		return qqChannelConfig{}, fmt.Errorf("invalid qq channel config: %w", err)
+	}
+	return cfg, nil
+}
+
+func normalizeQQChannelConfig(raw json.RawMessage) (json.RawMessage, qqChannelConfig, error) {
 	if len(raw) == 0 {
-		return qqChannelConfig{AllowAllUsers: true}, nil
+		raw = json.RawMessage(`{}`)
 	}
 	var cfg qqChannelConfig
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return qqChannelConfig{}, fmt.Errorf("invalid qq channel config: %w", err)
+		return nil, qqChannelConfig{}, fmt.Errorf("config_json must be a valid JSON object")
 	}
-	if len(cfg.AllowedUserIDs) == 0 && len(cfg.AllowedGroupIDs) == 0 {
-		cfg.AllowAllUsers = true
+	cfg.AllowedUserIDs = normalizeQQIDList(cfg.AllowedUserIDs)
+	cfg.AllowedGroupIDs = normalizeQQIDList(cfg.AllowedGroupIDs)
+	cfg.AllowAllUsers = len(cfg.AllowedUserIDs) == 0 && len(cfg.AllowedGroupIDs) == 0
+	normalized, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, qqChannelConfig{}, err
 	}
-	return cfg, nil
+	return normalized, cfg, nil
+}
+
+func normalizeQQIDList(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, item := range strings.FieldsFunc(value, func(r rune) bool {
+			return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+		}) {
+			cleaned := strings.TrimSpace(item)
+			if cleaned == "" {
+				continue
+			}
+			if _, ok := seen[cleaned]; ok {
+				continue
+			}
+			seen[cleaned] = struct{}{}
+			out = append(out, cleaned)
+		}
+	}
+	return out
 }
 
 func qqUserAllowed(cfg qqChannelConfig, userID, groupID string) bool {
@@ -72,6 +107,38 @@ func qqUserAllowed(cfg qqChannelConfig, userID, groupID string) bool {
 		}
 	}
 	return false
+}
+
+func qqAccessDeniedReplyDestination(userID, groupID string) (string, string) {
+	if groupID != "" {
+		return "group", groupID
+	}
+	return "private", userID
+}
+
+func qqShouldReplyAccessDenied(incoming qqIncomingMessage) bool {
+	if incoming.inboundMessage().ShouldCreateRun() {
+		return true
+	}
+	if incoming.ChatType != "group" {
+		return false
+	}
+	cmd, ok := slashCommandBase(stripLeadingMention(incoming.Text), "")
+	if !ok {
+		return false
+	}
+	return qqKnownChannelCommand(cmd)
+}
+
+func qqKnownChannelCommand(cmd string) bool {
+	switch {
+	case channelCommandRequiresAdmin(cmd):
+		return true
+	case cmd == "/help", cmd == "/start", cmd == "/bind":
+		return true
+	default:
+		return false
+	}
 }
 
 // --- incoming message ---
@@ -180,10 +247,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		groupID = ""
 	}
 
-	if !qqUserAllowed(cfg, userID, groupID) {
-		return nil
-	}
-
 	text := strings.TrimSpace(event.PlainText())
 	imageURLs := event.ImageURLs()
 	if text == "" && len(imageURLs) == 0 {
@@ -238,6 +301,14 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		if len(triggerKeywords) > 0 {
 			incoming.MatchesKeyword = qqMessageMatchesKeyword(incoming.Text, triggerKeywords)
 		}
+	}
+
+	if !qqUserAllowed(cfg, userID, groupID) {
+		if qqShouldReplyAccessDenied(incoming) {
+			msgType, target := qqAccessDeniedReplyDestination(userID, groupID)
+			c.sendQQReply(ctx, cfg, msgType, target, qqAccessDeniedReplyText)
+		}
+		return nil
 	}
 
 	persona, personaRef, err := c.resolveQQPersona(ctx, ch)
@@ -340,21 +411,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 
 	// --- 私聊路径 ---
 	if isPrivate {
-		// bind 访问控制（复用 Telegram 的 bootstrap 判断）
-		if c.channelIdentityLinksRepo != nil && !telegramLinkBootstrapAllowed(text) {
-			hasLink, err := c.channelIdentityLinksRepo.WithTx(tx).HasLink(ctx, ch.ID, identity.ID)
-			if err != nil {
-				return err
-			}
-			if !hasLink {
-				if err := commitTx(); err != nil {
-					return err
-				}
-				c.sendQQReply(ctx, cfg, "private", platformChatID, "当前账号未关联此接入。请使用 /bind <code> 关联。")
-				return nil
-			}
-		}
-
 		handled, replyText, _, _, cancelRunID, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			text, true, platformChatID,
@@ -418,8 +474,8 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 					}
 					return &gi, nil
 				},
-				IsGroupAdmin: func(ctx context.Context) bool {
-					return c.isQQGroupAdmin(ctx, cfg, platformChatID, identity.PlatformSubjectID)
+				IsBoundAdmin: func(ctx context.Context) bool {
+					return qqChannelIdentityIsOwner(ctx, tx, ch, identity, c.channelIdentityLinksRepo)
 				},
 				BindCode: func() string {
 					parts := strings.Fields(cmdText)
@@ -607,22 +663,25 @@ func (c *qqConnector) checkReplyToBot(ctx context.Context, cfg qqChannelConfig, 
 	return false
 }
 
-// --- commands ---
-
-// isQQGroupAdmin 通过 OneBot API 校验群管理员权限
-func (c *qqConnector) isQQGroupAdmin(ctx context.Context, cfg qqChannelConfig, groupID, userID string) bool {
-	client := c.buildOneBotClient(cfg)
-	if client == nil {
-		return true // 无法校验时放行
+func qqChannelIdentityIsOwner(ctx context.Context, tx pgx.Tx, ch data.Channel, identity data.ChannelIdentity, repo *data.ChannelIdentityLinksRepository) bool {
+	if repo == nil || ch.ID == uuid.Nil || identity.ID == uuid.Nil || ch.OwnerUserID == nil || identity.UserID == nil {
+		return false
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	info, err := client.GetGroupMemberInfo(reqCtx, groupID, userID)
+	if *ch.OwnerUserID == uuid.Nil || *identity.UserID != *ch.OwnerUserID {
+		return false
+	}
+	var linked bool
+	var err error
+	if tx != nil {
+		linked, err = repo.WithTx(tx).HasLink(ctx, ch.ID, identity.ID)
+	} else {
+		linked, err = repo.HasLink(ctx, ch.ID, identity.ID)
+	}
 	if err != nil {
-		slog.Warn("qq_admin_check_failed", "group_id", groupID, "user_id", userID, "error", err)
-		return true // API 失败时放行
+		slog.WarnContext(ctx, "qq_owner_check_failed", "error", err, "channel_id", ch.ID, "identity_id", identity.ID)
+		return false
 	}
-	return info.Role == "owner" || info.Role == "admin"
+	return linked
 }
 
 // --- passive persist ---
