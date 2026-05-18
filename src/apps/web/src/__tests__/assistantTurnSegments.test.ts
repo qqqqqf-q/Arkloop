@@ -7,6 +7,7 @@ import {
   finalizeAssistantTurnFoldState,
   foldAssistantTurnEvent,
   requestAssistantTurnThinkingBreak,
+  splitWorkGroup,
 } from '../assistantTurnSegments'
 import {
   normalizeAgentEventData,
@@ -45,6 +46,66 @@ function th(content: string, seq: number, endedByEventSeq?: number) {
   const endedAtMs = endedByEventSeq == null ? FINALIZE_NOW_MS : evMs(endedByEventSeq)
   return { kind: 'thinking' as const, content, seq, startedAtMs, endedAtMs }
 }
+
+describe('splitWorkGroup', () => {
+  it('keeps a trailing tool segment after final text', () => {
+    const tailToolSegment = {
+      type: 'cop' as const,
+      title: null,
+      items: [{
+        kind: 'call' as const,
+        call: { toolCallId: 'terminal_1', toolName: 'terminal_run', arguments: {} },
+        seq: 2,
+      }],
+    }
+
+    const split = splitWorkGroup([
+      { type: 'text', content: 'done' },
+      tailToolSegment,
+    ], 1200)
+
+    expect(split.finalText).toBe('done')
+    expect(split.finalTextIndex).toBe(0)
+    expect(split.workGroup).toBeNull()
+    expect(split.tailSegments).toEqual([tailToolSegment])
+  })
+
+  it('collapses pre-final work while preserving trailing segment order', () => {
+    const firstToolSegment = {
+      type: 'cop' as const,
+      title: null,
+      items: [{
+        kind: 'call' as const,
+        call: { toolCallId: 'terminal_1', toolName: 'terminal_run', arguments: {} },
+        seq: 2,
+      }],
+    }
+    const tailToolSegment = {
+      type: 'cop' as const,
+      title: null,
+      items: [{
+        kind: 'call' as const,
+        call: { toolCallId: 'terminal_2', toolName: 'terminal_run', arguments: {} },
+        seq: 4,
+      }],
+    }
+
+    const split = splitWorkGroup([
+      { type: 'text', content: 'before' },
+      firstToolSegment,
+      { type: 'text', content: 'done' },
+      tailToolSegment,
+    ], 1200)
+
+    expect(split.finalText).toBe('done')
+    expect(split.finalTextIndex).toBe(2)
+    expect(split.workGroup?.segments).toEqual([
+      { type: 'text', content: 'before' },
+      firstToolSegment,
+    ])
+    expect(split.tailSegments).toEqual([tailToolSegment])
+  })
+})
 
 describe('buildAssistantTurnFromAgentEvents', () => {
   beforeEach(() => {

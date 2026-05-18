@@ -16,6 +16,7 @@ import {
   type CopBlockItem,
   type TurnToolCallRef,
   type WorkGroup,
+  type WorkGroupSplit,
 } from '../../shared/src/assistantTurn'
 import {
   agentEventDataRecord,
@@ -40,6 +41,7 @@ export {
   type CopBlockItem,
   type TurnToolCallRef,
   type WorkGroup,
+  type WorkGroupSplit,
 }
 
 function toAssistantTurnEventType(type: string): string {
