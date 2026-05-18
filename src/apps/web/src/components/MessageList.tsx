@@ -20,7 +20,7 @@ import { apiBaseUrl } from '@arkloop/shared/api'
 import type { AgentMessage } from '../agent-ui'
 import { copTimelinePayloadForSegment, type CopTimelinePayload, type TodoWriteRef } from '../copSegmentTimeline'
 import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
-import { assistantTurnPlainText, splitWorkGroup, type AssistantTurnSegment, type WorkGroup as WorkGroupType, type WorkGroupSplit } from '../assistantTurnSegments'
+import { assistantTurnPlainText, isAssistantTurnSegmentLive, splitWorkGroup, type AssistantTurnSegment, type WorkGroup as WorkGroupType, type WorkGroupSplit } from '../assistantTurnSegments'
 import { WorkGroup } from './WorkGroup'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { createThreadShare } from '../api'
@@ -487,6 +487,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                   trimTrailingMargin={true}
                 />
               )
+              const isLiveSegment = (originalIndex: number) =>
+                isAssistantTurnSegmentLive(currentRunMessageLive, originalIndex, historicalSegments.length)
 
               if (workGroupSplit.workGroup != null || workGroupSplit.tailSegments.length > 0) {
                 const preSegments = workGroupSplit.finalTextIndex >= 0
@@ -503,13 +505,13 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                       </WorkGroup>
                     ) : (
                       preSegments.map((seg, si) =>
-                        renderSegment(seg, si, historicalSegments, false, si)
+                        renderSegment(seg, si, historicalSegments, isLiveSegment(si), si)
                       )
                     )}
                     {workGroupSplit.finalText != null && renderFinalText()}
                     {workGroupSplit.tailSegments.map((seg, offset) => {
                       const originalIndex = tailStartIndex + offset
-                      return renderSegment(seg, originalIndex, historicalSegments, false, originalIndex)
+                      return renderSegment(seg, originalIndex, historicalSegments, isLiveSegment(originalIndex), originalIndex)
                     })}
                   </>
                 )

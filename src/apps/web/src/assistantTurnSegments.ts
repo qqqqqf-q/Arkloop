@@ -44,6 +44,14 @@ export {
   type WorkGroupSplit,
 }
 
+export function isAssistantTurnSegmentLive(
+  currentRunMessageLive: boolean,
+  originalIndex: number,
+  segmentCount: number,
+): boolean {
+  return currentRunMessageLive && originalIndex === segmentCount - 1
+}
+
 function toAssistantTurnEventType(type: string): string {
   switch (type) {
     case 'assistant-delta':

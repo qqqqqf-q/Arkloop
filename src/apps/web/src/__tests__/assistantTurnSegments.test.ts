@@ -6,6 +6,7 @@ import {
   createEmptyAssistantTurnFoldState,
   finalizeAssistantTurnFoldState,
   foldAssistantTurnEvent,
+  isAssistantTurnSegmentLive,
   requestAssistantTurnThinkingBreak,
   splitWorkGroup,
 } from '../assistantTurnSegments'
@@ -104,6 +105,14 @@ describe('splitWorkGroup', () => {
       firstToolSegment,
     ])
     expect(split.tailSegments).toEqual([tailToolSegment])
+  })
+})
+
+describe('isAssistantTurnSegmentLive', () => {
+  it('marks only the original last segment live for the current run', () => {
+    expect(isAssistantTurnSegmentLive(true, 2, 3)).toBe(true)
+    expect(isAssistantTurnSegmentLive(true, 1, 3)).toBe(false)
+    expect(isAssistantTurnSegmentLive(false, 2, 3)).toBe(false)
   })
 })
 
