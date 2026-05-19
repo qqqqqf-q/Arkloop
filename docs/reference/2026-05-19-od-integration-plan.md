@@ -124,36 +124,48 @@ tool_result 含 projectId + toolName == "od_create_project"
 
 ### 2.3 上下文注入中间件
 
+遵循 MCP 标准 `annotations.priority` 语义——`priority == 1` 表示 "effectively required"，自动注入 system prompt。
+
 新文件 `mw_project_context.go`：
 
 ```go
-func ApplyProjectContext(rc *RunContext) {
+func ApplyProjectContext(rc *RunContext, mcpPool *Pool) {
     ctx := rc.ProjectMetaContext
     if ctx == nil || ctx.ProjectID == "" {
         return // 非 Project 模式
     }
 
-    // 1. 调用 OD MCP Resources 获取上下文
-    metadataRules := readODResource("od://projects/" + ctx.ProjectID + "/metadata-rules")
-    designSystem   := readODResource("od://projects/" + ctx.ProjectID + "/design-system")
-    skillContent   := readODResource("od://projects/" + ctx.ProjectID + "/skill")
+    // 1. 获取 OD MCP Server 的 resource 列表
+    resources := client.ListResources(ctx, timeoutMs)
 
-    // 2. 注入为 system_prefix PromptAssembly Segments
-    rc.UpsertPromptSegment("od.role",         system_prefix, OD_BASE_ROLE_PROMPT)
-    rc.UpsertPromptSegment("od.discovery",    system_prefix, OD_DISCOVERY_PROMPT)
-    rc.UpsertPromptSegment("od.design_system",system_prefix, designSystem)
-    rc.UpsertPromptSegment("od.skill",        system_prefix, skillContent)
-    rc.UpsertPromptSegment("od.metadata",     system_prefix, metadataRules)
+    // 2. 按 annotations.priority 过滤，自动注入 priority == 1 的资源
+    for _, res := range resources {
+        if res.annotations.priority != 1 {
+            continue
+        }
+        content := client.ReadResource(ctx, res.URI, timeoutMs)
+        rc.UpsertPromptSegment(PromptSegment{
+            Name:   "project." + resourceSegmentName(res.URI),
+            Target: "system_prefix",
+            Text:   content.Text,
+        })
+    }
 }
 ```
 
+完全不耦合 OD——任何 MCP Server 标记 `priority: 1` 的资源都会被自动注入。
+
 ### 2.4 OD MCP Resources（在 OD 侧实现）
 
-| Resource URI | 内容 | MIME |
-|---|---|---|
-| `od://projects/<id>/metadata-rules` | `renderMetadataBlock()` 输出 | `text/markdown` |
-| `od://projects/<id>/design-system` | DESIGN.md + tokens.css | `text/markdown` |
-| `od://projects/<id>/skill` | SKILL.md 内容 | `text/markdown` |
+OD MCP Server 将 context-level 资源标记 `annotations.priority: 1`：
+
+| Resource URI | annotations.priority | 内容 | MIME |
+|---|---|---|---|
+| `od://projects/<id>/metadata-rules` | 1 | `renderMetadataBlock()` 输出 | `text/markdown` |
+| `od://projects/<id>/design-system` | 1 | DESIGN.md + tokens.css | `text/markdown` |
+| `od://projects/<id>/skill` | 1 | SKILL.md 内容 | `text/markdown` |
+
+其他资源（如 `components.html`、`fixture.html`）不标记 `priority: 1`，不会被自动注入。
 
 ### 2.5 改动清单
 
