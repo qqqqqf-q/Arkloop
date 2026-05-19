@@ -53,6 +53,7 @@ const DRAFT_STORAGE_EVICTION_PREFIXES = [
   'arkloop:web:msg_browser_actions:',
   'arkloop:web:msg_sources:',
   'arkloop:web:msg_artifacts:',
+  'arkloop:web:msg_resources:',
   'arkloop:web:msg_search_steps:',
   'arkloop:web:msg_cop_blocks:',
   'arkloop:web:msg_memory_actions:',
@@ -671,6 +672,23 @@ export type ArtifactRef = {
   display?: 'inline' | 'panel'
 }
 
+export type McpAppCsp = {
+  connectDomains?: string[]
+  resourceDomains?: string[]
+  frameDomains?: string[]
+  baseUriDomains?: string[]
+}
+
+export type McpAppResource = {
+  key: string
+  uri: string
+  filename: string
+  mimeType: string
+  size: number
+  initialData?: unknown
+  csp?: McpAppCsp
+}
+
 function messageArtifactsKey(messageId: string): string {
   return `arkloop:web:msg_artifacts:${messageId}`
 }
@@ -690,6 +708,28 @@ export function writeMessageArtifacts(messageId: string, artifacts: ArtifactRef[
   if (!canUseLocalStorage() || !messageId || artifacts.length === 0) return
   try {
     writeEphemeralStorageItem(messageArtifactsKey(messageId), JSON.stringify(artifacts))
+  } catch { /* ignore */ }
+}
+
+function messageResourcesKey(messageId: string): string {
+  return `arkloop:web:msg_resources:${messageId}`
+}
+
+export function readMessageResources(messageId: string): McpAppResource[] | null {
+  if (!canUseLocalStorage() || !messageId) return null
+  try {
+    const raw = localStorage.getItem(messageResourcesKey(messageId))
+    if (!raw) return null
+    return JSON.parse(raw) as McpAppResource[]
+  } catch {
+    return null
+  }
+}
+
+export function writeMessageResources(messageId: string, resources: McpAppResource[]): void {
+  if (!canUseLocalStorage() || !messageId || resources.length === 0) return
+  try {
+    writeEphemeralStorageItem(messageResourcesKey(messageId), JSON.stringify(resources))
   } catch { /* ignore */ }
 }
 
@@ -1524,6 +1564,7 @@ export type ThreadRunHandoffRef = {
   assistantTurn?: AssistantTurnUi | null
   sources: WebSource[]
   artifacts: ArtifactRef[]
+  resources?: McpAppResource[]
   widgets: WidgetRef[]
   codeExecutions: CodeExecutionRef[]
   browserActions: BrowserActionRef[]
@@ -1555,6 +1596,17 @@ function isArtifactRef(value: unknown): value is ArtifactRef {
   if (typeof item.mime_type !== 'string') return false
   if (item.title != null && typeof item.title !== 'string') return false
   if (item.display != null && item.display !== 'inline' && item.display !== 'panel') return false
+  return true
+}
+
+function isMcpAppResource(value: unknown): value is McpAppResource {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  if (typeof item.key !== 'string' || item.key.trim() === '') return false
+  if (typeof item.uri !== 'string') return false
+  if (typeof item.filename !== 'string') return false
+  if (typeof item.mimeType !== 'string') return false
+  if (typeof item.size !== 'number') return false
   return true
 }
 
@@ -1611,6 +1663,7 @@ export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | nu
     const assistantTurn = item.assistantTurn == null ? null : parseAssistantTurnData(item.assistantTurn)
     const sources = Array.isArray(item.sources) ? item.sources.filter(isWebSource) : []
     const artifacts = Array.isArray(item.artifacts) ? item.artifacts.filter(isArtifactRef) : []
+    const resources = Array.isArray(item.resources) ? item.resources.filter(isMcpAppResource) : []
     const widgets = Array.isArray(item.widgets) ? item.widgets.filter(isWidgetRef) : []
     const codeExecutions = Array.isArray(item.codeExecutions) ? item.codeExecutions.filter(isCodeExecutionRef) : []
     const browserActions = Array.isArray(item.browserActions) ? item.browserActions.filter(isBrowserActionRef) : []
@@ -1625,6 +1678,7 @@ export function readThreadRunHandoff(threadId: string): ThreadRunHandoffRef | nu
       assistantTurn,
       sources,
       artifacts,
+      resources,
       widgets,
       codeExecutions,
       browserActions,
@@ -2306,6 +2360,8 @@ export function migrateMessageMetadata(mapping: Array<{ old_id: string; new_id: 
     if (fileOps) writeMessageFileOps(new_id, fileOps)
     const webFetches = readMessageWebFetches(old_id)
     if (webFetches) writeMessageWebFetches(new_id, webFetches)
+    const resources = readMessageResources(old_id)
+    if (resources) writeMessageResources(new_id, resources)
   }
 }
 

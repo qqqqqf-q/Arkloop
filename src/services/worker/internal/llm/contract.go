@@ -160,6 +160,9 @@ func (p ContentPart) Kind() string {
 	if trimmed != "" {
 		return trimmed
 	}
+	if p.Attachment != nil && strings.TrimSpace(p.Attachment.URI) != "" {
+		return messagecontent.PartTypeResource
+	}
 	if p.Attachment == nil {
 		return messagecontent.PartTypeText
 	}
@@ -197,6 +200,13 @@ func (p ContentPart) ToJSON() map[string]any {
 			"extracted_text": p.ExtractedText,
 		}
 		return payload
+	case messagecontent.PartTypeResource:
+		payload := map[string]any{
+			"type":           messagecontent.PartTypeResource,
+			"attachment":     p.Attachment,
+			"extracted_text": p.ExtractedText,
+		}
+		return payload
 	default:
 		payload := map[string]any{"type": messagecontent.PartTypeText, "text": p.Text}
 		if p.CacheHint != nil {
@@ -222,6 +232,8 @@ func PartPromptText(part ContentPart) string {
 			ExtractedText: part.ExtractedText,
 		}
 		return messagecontent.PromptText(ref)
+	case messagecontent.PartTypeResource:
+		return ""
 	default:
 		return ""
 	}
@@ -1139,6 +1151,16 @@ func contentPartFromJSONMap(raw map[string]any) (ContentPart, error) {
 			Attachment:    attachment,
 			ExtractedText: stringValue(raw["extracted_text"]),
 		}, nil
+	case messagecontent.PartTypeResource:
+		attachment, err := attachmentRefFromJSON(raw["attachment"])
+		if err != nil {
+			return ContentPart{}, err
+		}
+		return ContentPart{
+			Type:          messagecontent.PartTypeResource,
+			Attachment:    attachment,
+			ExtractedText: stringValue(raw["extracted_text"]),
+		}, nil
 	default:
 		return ContentPart{}, fmt.Errorf("unsupported content part type %q", typ)
 	}
@@ -1153,6 +1175,7 @@ func attachmentRefFromJSON(raw any) (*messagecontent.AttachmentRef, error) {
 		Key:      strings.TrimSpace(stringValue(obj["key"])),
 		Filename: strings.TrimSpace(stringValue(obj["filename"])),
 		MimeType: strings.TrimSpace(stringValue(obj["mime_type"])),
+		URI:      strings.TrimSpace(stringValue(obj["uri"])),
 		Size:     int64(intValue(obj["size"])),
 	}, nil
 }

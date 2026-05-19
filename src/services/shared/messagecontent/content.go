@@ -8,16 +8,18 @@ import (
 )
 
 const (
-	PartTypeText  = "text"
-	PartTypeImage = "image"
-	PartTypeFile  = "file"
+	PartTypeText     = "text"
+	PartTypeImage    = "image"
+	PartTypeFile     = "file"
+	PartTypeResource = "resource"
 )
 
 type AttachmentRef struct {
-	Key      string `json:"key"`
-	Filename string `json:"filename"`
-	MimeType string `json:"mime_type"`
-	Size     int64  `json:"size"`
+	Key      string `json:"key,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	URI      string `json:"uri,omitempty"`
 }
 
 type Part struct {
@@ -86,6 +88,15 @@ func Normalize(parts []Part) (Content, error) {
 			normalized = append(normalized, Part{
 				Type:          PartTypeFile,
 				Attachment:    cleanAttachment,
+				ExtractedText: strings.TrimSpace(part.ExtractedText),
+			})
+		case PartTypeResource:
+			if part.Attachment == nil || strings.TrimSpace(part.Attachment.URI) == "" {
+				return Content{}, fmt.Errorf("resource part requires attachment with uri")
+			}
+			normalized = append(normalized, Part{
+				Type:          PartTypeResource,
+				Attachment:    part.Attachment,
 				ExtractedText: strings.TrimSpace(part.ExtractedText),
 			})
 		default:
@@ -170,6 +181,12 @@ func Projection(content Content, limit int) string {
 				block += "\n" + part.ExtractedText
 			}
 			blocks = append(blocks, block)
+		case PartTypeResource:
+			if part.Attachment != nil && strings.TrimSpace(part.Attachment.URI) != "" {
+				blocks = append(blocks, fmt.Sprintf("[Resource: %s]", strings.TrimSpace(part.Attachment.URI)))
+			} else {
+				blocks = append(blocks, "[Resource]")
+			}
 		}
 	}
 	out := strings.Join(blocks, "\n\n")
@@ -193,6 +210,8 @@ func PromptText(part Part) string {
 			return fmt.Sprintf("附件 %s", name)
 		}
 		return fmt.Sprintf("附件 %s:\n%s", name, part.ExtractedText)
+	case PartTypeResource:
+		return ""
 	default:
 		return ""
 	}
@@ -202,6 +221,12 @@ func cleanType(raw string, part Part) string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed != "" {
 		return trimmed
+	}
+	if strings.TrimSpace(raw) == PartTypeResource {
+		return PartTypeResource
+	}
+	if part.Attachment != nil && strings.TrimSpace(part.Attachment.URI) != "" {
+		return PartTypeResource
 	}
 	if part.Attachment == nil {
 		return PartTypeText

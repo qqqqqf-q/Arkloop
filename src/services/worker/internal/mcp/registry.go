@@ -173,8 +173,12 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	for _, entry := range discoveredByServer {
 		server := entry.server
 		remoteMap := map[string]string{}
+		resourceURIs := map[string]string{}
 
 		for _, tool := range entry.tools {
+			if !isToolVisibleToModel(tool) {
+				continue
+			}
 			base := mcpToolBaseName(server.ServerID, tool.Name)
 			internal := base
 			if baseCounts[base] > 1 {
@@ -183,6 +187,10 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 			}
 			internal = ensureUniqueToolName(internal, usedNames)
 			remoteMap[internal] = tool.Name
+
+			if uri := extractToolResourceURI(tool); uri != "" {
+				resourceURIs[internal] = uri
+			}
 
 			description := ""
 			if tool.Description != nil && strings.TrimSpace(*tool.Description) != "" {
@@ -200,6 +208,7 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 				RiskLevel:   mcpRiskLevel(tool.Annotations),
 				SideEffects: mcpSideEffects(tool.Annotations),
 				Annotations: tool.Annotations,
+				ResourceURI: resourceURIs[internal],
 			})
 			llmSpecs = append(llmSpecs, llm.ToolSpec{
 				Name:        internal,
@@ -209,7 +218,7 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 			})
 		}
 
-		executor := NewToolExecutor(server, remoteMap, pool)
+		executor := NewToolExecutor(server, remoteMap, resourceURIs, pool)
 		for internalName := range remoteMap {
 			executors[internalName] = executor
 		}
@@ -304,4 +313,38 @@ func mcpSideEffects(a *llm.ToolAnnotations) bool {
 		return true
 	}
 	return !a.ReadOnlyHint
+}
+
+func isToolVisibleToModel(tool Tool) bool {
+	if tool.Meta == nil {
+		return true
+	}
+	metaUI, _ := tool.Meta["ui"].(map[string]any)
+	if metaUI == nil {
+		return true
+	}
+	rawVisibility, ok := metaUI["visibility"].([]any)
+	if !ok || len(rawVisibility) == 0 {
+		return true
+	}
+	for _, v := range rawVisibility {
+		if strings.TrimSpace(asString(v)) == "model" {
+			return true
+		}
+	}
+	return false
+}
+
+func extractToolResourceURI(tool Tool) string {
+	if tool.Meta == nil {
+		return ""
+	}
+	metaUI, _ := tool.Meta["ui"].(map[string]any)
+	if metaUI != nil {
+		uri := strings.TrimSpace(asString(metaUI["resourceUri"]))
+		if uri != "" {
+			return uri
+		}
+	}
+	return strings.TrimSpace(asString(tool.Meta["ui/resourceUri"]))
 }

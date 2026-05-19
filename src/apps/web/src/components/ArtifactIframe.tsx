@@ -29,6 +29,7 @@ type Props = {
   autoResize?: boolean
   className?: string
   style?: React.CSSProperties
+  initialData?: unknown
 }
 
 type ThemeSnapshot = {
@@ -40,6 +41,7 @@ type RuntimeContent = {
   html: string
   finalize: boolean
   contentType?: string
+  initialData?: unknown
 }
 
 function buildThemeCSS(cssVars: string): string {
@@ -288,6 +290,83 @@ ${ARTIFACT_SVG_STYLES}
 <div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/morphdom@2/dist/morphdom-umd.min.js"></script>
 <script>
+window.__MCP_APP__ = {
+  version: '0.1.0-shim',
+  App: class App {
+    constructor(config) {
+      this.config = config || {};
+      this.tools = this.config.tools || {};
+      this.state = {};
+      this._ontoolresult = null;
+    }
+    set ontoolresult(fn) {
+      this._ontoolresult = typeof fn === 'function' ? fn : null;
+    }
+    get ontoolresult() {
+      return this._ontoolresult;
+    }
+    render(target) {
+      var el = typeof target === 'string' ? document.querySelector(target) : target;
+      if (!el) return null;
+      var container = document.createElement('div');
+      container.className = 'mcp-app-container';
+      el.appendChild(container);
+      return container;
+    }
+    connect() {
+      var self = this;
+      return new Promise(function(resolve) {
+        var data = null;
+        try { data = window.__MCP_INITIAL_DATA__; } catch (e) {}
+
+        if (data && typeof data === 'object' && self._ontoolresult) {
+          var text = typeof data === 'string' ? data : JSON.stringify(data);
+          try {
+            self._ontoolresult({ content: [{ type: 'text', text: text }] });
+          } catch (err) {}
+        }
+        resolve();
+      });
+    }
+    callTool(toolName, params) {
+      var self = this;
+      return new Promise(function(resolve) {
+        var id = 'mcp_tool_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        function handler(event) {
+          if (event.data && event.data.type === 'arkloop:mcp:tool:result' && event.data.id === id) {
+            window.removeEventListener('message', handler);
+            resolve(event.data.result);
+          }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'arkloop:mcp:tool:call', id: id, tool: toolName, params: params || {} }, '*');
+        setTimeout(function() {
+          window.removeEventListener('message', handler);
+          resolve({ content: [{ type: 'text', text: 'Tool call timed out' }] });
+        }, 30000);
+      });
+    }
+    getResource(uri) {
+      return new Promise(function(resolve) {
+        var id = 'mcp_res_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        function handler(event) {
+          if (event.data && event.data.type === 'arkloop:mcp:resource:result' && event.data.id === id) {
+            window.removeEventListener('message', handler);
+            resolve(event.data.result);
+          }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'arkloop:mcp:resource:read', id: id, uri: uri }, '*');
+        setTimeout(function() {
+          window.removeEventListener('message', handler);
+          resolve(null);
+        }, 30000);
+      });
+    }
+  }
+};
+</script>
+<script>
 (function() {
   var morphReady = false;
   var pending = null;
@@ -484,7 +563,12 @@ ${ARTIFACT_SVG_STYLES}
     window._notifyHeight();
   };
 
-  window._setContent = function(html, finalize, contentType) {
+  window._setContent = function(html, finalize, contentType, initialData) {
+    if (initialData !== undefined) {
+      try {
+        window.__MCP_INITIAL_DATA__ = initialData;
+      } catch (e) {}
+    }
     if (!morphReady) {
       pending = {
         html: typeof html === 'string' ? html : '',
@@ -605,7 +689,7 @@ ${ARTIFACT_SVG_STYLES}
       return;
     }
     if (data.type !== 'arkloop:artifact:set-content') return;
-    window._setContent(data.html, data.finalize === true, data.contentType);
+    window._setContent(data.html, data.finalize === true, data.contentType, data.initialData);
   });
 
   new MutationObserver(function() { window._notifyHeight(); })
@@ -628,7 +712,7 @@ ${ARTIFACT_SVG_STYLES}
 }
 
 export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
-  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, compactSpacing = false, onAction, frameTitle, autoResize = true, className, style }, ref) {
+  function ArtifactIframe({ mode, artifact, accessToken, content, contentType, compactSpacing = false, onAction, frameTitle, autoResize = true, className, style, initialData }, ref) {
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const [shellUrl, setShellUrl] = useState<string | null>(null)
     const [error, setError] = useState(false)
@@ -687,6 +771,7 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
           html: pending.html,
           finalize: pending.finalize,
           contentType: pending.contentType,
+          initialData: pending.initialData,
         }, '*')
       } catch {
         // iframe not ready
@@ -770,8 +855,9 @@ export const ArtifactIframe = forwardRef<ArtifactIframeHandle, Props>(
         html: staticContent.html,
         finalize: true,
         contentType: staticContent.contentType,
+        initialData,
       })
-    }, [mode, queueContent, staticContent])
+    }, [mode, queueContent, staticContent, initialData])
 
     useEffect(() => {
       if (typeof document === 'undefined') return

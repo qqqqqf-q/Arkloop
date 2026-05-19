@@ -43,6 +43,7 @@ type AgentToolSpec struct {
 	SupportsProgressHeartbeat bool
 	HardTimeoutMode           HardTimeoutMode
 	Annotations               *llm.ToolAnnotations
+	ResourceURI               string
 }
 
 func (s AgentToolSpec) ToToolCallJSON() map[string]any {

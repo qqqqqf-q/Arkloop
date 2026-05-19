@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@arkloop/shared": "workspace:*",
+    "@modelcontextprotocol/ext-apps": "^1.7.2",
     "framer-motion": "^12.34.3",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.28",

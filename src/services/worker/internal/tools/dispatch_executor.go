@@ -94,6 +94,8 @@ type ContentAttachment struct {
 	MimeType      string
 	Data          []byte
 	AttachmentKey string
+	URI           string
+	Text          string
 }
 
 type ExecutionResult struct {

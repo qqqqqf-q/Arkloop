@@ -21,6 +21,22 @@ type ToolCallResult struct {
 	IsError bool
 }
 
+type Resource struct {
+	URI         string
+	Name        string
+	MimeType    string
+	Annotations map[string]any
+	Meta        map[string]any
+}
+
+type ResourceContent struct {
+	URI      string
+	MimeType string
+	Text     string
+	Blob     []byte
+	Meta     map[string]any
+}
+
 type TimeoutError struct {
 	Message string
 }

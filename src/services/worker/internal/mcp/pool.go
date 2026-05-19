@@ -3,19 +3,24 @@ package mcp
 import (
 	"context"
 	"sync"
+
+	"arkloop/services/shared/objectstore"
 )
 
 type Client interface {
 	ListTools(ctx context.Context, timeoutMs int) ([]Tool, error)
 	CallTool(ctx context.Context, name string, arguments map[string]any, timeoutMs int) (ToolCallResult, error)
+	ListResources(ctx context.Context, timeoutMs int) ([]Resource, error)
+	ReadResource(ctx context.Context, uri string, timeoutMs int) (ResourceContent, error)
 	IsHealthy(ctx context.Context) bool
 	Close() error
 }
 
 type Pool struct {
-	mu        sync.Mutex
-	clients   map[string]Client
-	authStore AuthStore
+	mu            sync.Mutex
+	clients       map[string]Client
+	authStore     AuthStore
+	artifactStore objectstore.Store
 }
 
 type BorrowMeta struct {
@@ -28,6 +33,21 @@ func WithAuthStore(store AuthStore) PoolOption {
 	return func(p *Pool) {
 		p.authStore = store
 	}
+}
+
+func WithArtifactStore(store objectstore.Store) PoolOption {
+	return func(p *Pool) {
+		p.artifactStore = store
+	}
+}
+
+func (p *Pool) ArtifactStore() objectstore.Store {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.artifactStore
 }
 
 func NewPool(options ...PoolOption) *Pool {
