@@ -257,6 +257,49 @@ ArkLoop 零改动。`od_ask_question` 只需返回 ArkLoop 原生支持的 form 
 | ArkLoop Worker | Phase 1 已覆盖（executor resource fetch + artifact upload） | 已完成 |
 | ArkLoop Web | Phase 1 已覆盖（McpAppIframe + ArtifactIframe 内嵌渲染） | 已完成 |
 
+### 3.5 MCP App 显示模式
+
+**要求**：支持 **inline**（聊天流内嵌）和 **fullscreen**（卡片 + 右侧 Panel 展开）两种模式。
+
+#### inline 模式（默认）
+
+```
+┌──────────────────────────────┐
+│  [聊天消息]                    │
+│  ┌──────────────────────────┐ │
+│  │  MCP App (inline)        │ │  ← 和聊天等宽
+│  │  [Direction Cards /      │ │
+│  │   Preview iframe]        │ │
+│  └──────────────────────────┘ │
+│  [后续消息...]                 │
+└──────────────────────────────┘
+```
+
+Phase 1 已实现——`ArtifactIframe` 在聊天流中内嵌渲染。
+
+#### fullscreen 模式（卡片 + 右侧 Panel）
+
+```
+┌─────────────────────┬───────────────────────┐
+│  [聊天消息]          │  右侧 Panel            │
+│  ┌─────────────────┐│  ┌───────────────────┐ │
+│  │  MCP App (card) ││  │  Direction Cards  │ │
+│  │  [预览快照]      ││  │                   │ │
+│  │  [↗ 展开预览] ◄─┼│──│  (full iframe)    │ │
+│  └─────────────────┘│  └───────────────────┘ │
+│  [后续消息...]       │                       │
+└─────────────────────┴───────────────────────┘
+```
+
+**实现**：
+
+| 改动 | 说明 |
+|------|------|
+| `McpAppIframe` 加 `displayMode` prop | `'inline'`（默认）/ `'card'` |
+| card 模式渲染缩略快照 + "展开预览" 按钮 | 点击按钮 → `openResourcePanel({ kind: 'mcp-app', ... })` |
+| 右侧 Panel 自动打开 | `openResourcePanel` 触发 → 右侧 Panel 自动展开，渲染完整 iframe |
+| `ResourceRef` 扩展 | 新增 `{ kind: 'mcp-app', uri, content, csp }` 类型 |
+
 ---
 
 ## Phase 4: 集成验证
