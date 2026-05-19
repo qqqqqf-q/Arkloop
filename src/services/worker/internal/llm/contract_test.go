@@ -7,6 +7,49 @@ import (
 	"arkloop/services/shared/messagecontent"
 )
 
+func TestToolSpecToJSONWithAnnotations(t *testing.T) {
+	desc := "A read-only tool"
+	destructive := false
+	spec := ToolSpec{
+		Name:        "my_tool",
+		Description: &desc,
+		JSONSchema:  map[string]any{"type": "object"},
+		Annotations: &ToolAnnotations{
+			ReadOnlyHint:    true,
+			DestructiveHint: &destructive,
+			Title:           "My Tool",
+		},
+	}
+	result := spec.ToJSON()
+
+	if result["name"] != "my_tool" {
+		t.Fatalf("name: expected 'my_tool', got %v", result["name"])
+	}
+	annotations, ok := result["annotations"].(*ToolAnnotations)
+	if !ok || annotations == nil {
+		t.Fatal("expected annotations in result")
+	}
+	if annotations.ReadOnlyHint != true {
+		t.Fatalf("ReadOnlyHint: expected true, got %v", annotations.ReadOnlyHint)
+	}
+	if annotations.Title != "My Tool" {
+		t.Fatalf("Title: expected 'My Tool', got %q", annotations.Title)
+	}
+}
+
+func TestToolSpecToJSONWithoutAnnotations(t *testing.T) {
+	desc := "plain tool"
+	spec := ToolSpec{
+		Name:        "plain",
+		Description: &desc,
+		JSONSchema:  map[string]any{},
+	}
+	result := spec.ToJSON()
+	if _, ok := result["annotations"]; ok {
+		t.Fatal("expected no annotations key when nil")
+	}
+}
+
 func TestBuildAssistantThreadContentJSON_RoundTripPreservesContinuityState(t *testing.T) {
 	phase := "commentary"
 	message := Message{

@@ -317,11 +317,20 @@ func MessageFromJSONMap(raw map[string]any) (Message, error) {
 	return message, nil
 }
 
+type ToolAnnotations struct {
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  bool   `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
+	ReadOnlyHint    bool   `json:"readOnlyHint,omitempty"`
+	Title           string `json:"title,omitempty"`
+}
+
 type ToolSpec struct {
 	Name        string
 	Description *string
 	JSONSchema  map[string]any
 	CacheHint   *CacheHint
+	Annotations *ToolAnnotations
 }
 
 func (s ToolSpec) ToJSON() map[string]any {
@@ -336,6 +345,9 @@ func (s ToolSpec) ToJSON() map[string]any {
 		if hint := s.CacheHint.ToJSON(); len(hint) > 0 {
 			payload["cache_hint"] = hint
 		}
+	}
+	if s.Annotations != nil {
+		payload["annotations"] = s.Annotations
 	}
 	return payload
 }

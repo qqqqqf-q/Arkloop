@@ -197,13 +197,15 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 				Name:        internal,
 				Version:     "1",
 				Description: description,
-				RiskLevel:   tools.RiskLevelHigh,
-				SideEffects: true,
+				RiskLevel:   mcpRiskLevel(tool.Annotations),
+				SideEffects: mcpSideEffects(tool.Annotations),
+				Annotations: tool.Annotations,
 			})
 			llmSpecs = append(llmSpecs, llm.ToolSpec{
 				Name:        internal,
 				Description: stringPtr(description),
 				JSONSchema:  tool.InputSchema,
+				Annotations: tool.Annotations,
 			})
 		}
 
@@ -282,4 +284,24 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &cleaned
+}
+
+func mcpRiskLevel(a *llm.ToolAnnotations) tools.RiskLevel {
+	if a == nil {
+		return tools.RiskLevelHigh
+	}
+	if a.ReadOnlyHint {
+		return tools.RiskLevelLow
+	}
+	if a.DestructiveHint != nil && *a.DestructiveHint {
+		return tools.RiskLevelHigh
+	}
+	return tools.RiskLevelMedium
+}
+
+func mcpSideEffects(a *llm.ToolAnnotations) bool {
+	if a == nil {
+		return true
+	}
+	return !a.ReadOnlyHint
 }

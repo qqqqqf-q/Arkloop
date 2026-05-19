@@ -11,6 +11,7 @@ import (
 
 	sharedmcpinstall "arkloop/services/shared/mcpinstall"
 	sharedmcpoauth "arkloop/services/shared/mcpoauth"
+	"arkloop/services/worker/internal/llm"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -86,6 +87,8 @@ func (c *sdkClient) ListTools(ctx context.Context, timeoutMs int) ([]Tool, error
 			Title:       stringPtr(tool.Title),
 			Description: stringPtr(tool.Description),
 			InputSchema: schema,
+			Meta:        tool.GetMeta(),
+			Annotations: convertAnnotations(tool.Annotations),
 		})
 	}
 	if out == nil {
@@ -236,6 +239,19 @@ func persistOAuthRefresh(ctx context.Context, store AuthStore, server sharedmcpi
 		Env:     cloneStringMap(server.Env),
 		OAuth:   updated,
 	})
+}
+
+func convertAnnotations(a *sdkmcp.ToolAnnotations) *llm.ToolAnnotations {
+	if a == nil {
+		return nil
+	}
+	return &llm.ToolAnnotations{
+		DestructiveHint: a.DestructiveHint,
+		IdempotentHint:  a.IdempotentHint,
+		OpenWorldHint:   a.OpenWorldHint,
+		ReadOnlyHint:    a.ReadOnlyHint,
+		Title:           a.Title,
+	}
 }
 
 func coerceToMap(v any) map[string]any {
