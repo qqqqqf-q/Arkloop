@@ -247,6 +247,8 @@ LLM 调 od_ask_question({ form_id: "discovery", questions: [...] })
 
 ArkLoop 零改动。`od_ask_question` 只需返回 ArkLoop 原生支持的 form schema 格式即可。
 
+> **增强方向**：ArkLoop 当前 `ask_user` 表单支持 `enum`/`oneOf`/`array`。OD 发现问卷可能需要更丰富的输入组件（自由文本、数字、开关、嵌套表单）。可在后续版本扩展 ArkLoop 的表单组件库以兼容更复杂的问卷场景。
+
 ### 3.4 改动范围
 
 | 侧 | 改动 | 说明 |
@@ -322,6 +324,16 @@ VALUES ('<account_id>', 'open-design', 'stdio', 'node',
 **问题**：LLM 在 OD 项目中修改文件后，MCP App preview iframe 不会自动刷新。
 
 **方案**：MCP App 内发起 SSE 订阅 `GET /api/projects/:id/events`，收到 `file-changed` 事件后 iframe 自动刷新。
+
+### 5.4 ask_user 表单组件扩展（P2）
+
+**问题**：ArkLoop 当前 `ask_user` 表单仅支持 `enum`/`oneOf`/`array` 三种 schema 类型。OD 发现问卷需要更丰富的输入组件（自由文本、数字、开关、嵌套表单等）。
+
+**改动**：扩展 ArkLoop Web 侧 `ask_user` 表单渲染器，支持 `string`/`number`/`boolean` 等更多 JSON Schema 类型。
+
+| 文件 | 改动 |
+|------|------|
+| `AskUserPanel.tsx` 或 `QuestionForm.tsx` | 扩展解析逻辑，支持 `type: "string"` → 文本输入、`type: "number"` → 数字输入、`type: "boolean"` → 开关 |
 
 
 
