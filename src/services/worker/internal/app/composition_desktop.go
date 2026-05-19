@@ -3591,6 +3591,11 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 			return err
 		}
 	}
+	if ev.Type == "thread.project_meta_context.updated" {
+		if err := w.applyThreadProjectMetaContextEvent(ctx, tx, ev); err != nil {
+			return err
+		}
+	}
 
 	cancelTypes := []string{"run.cancel_requested", "run.cancelled"}
 	cancelType, err := w.eventsRepo.GetLatestEventType(ctx, tx, runID, cancelTypes)
@@ -4103,6 +4108,31 @@ func (w *desktopEventWriter) applyThreadCollaborationModeEvent(ctx context.Conte
 	ev.DataJSON["previous_collaboration_mode"] = previous
 	ev.DataJSON["collaboration_mode"] = mode
 	ev.DataJSON["collaboration_mode_revision"] = revision
+	return nil
+}
+
+func (w *desktopEventWriter) applyThreadProjectMetaContextEvent(ctx context.Context, tx pgx.Tx, ev events.RunEvent) error {
+	raw, ok := ev.DataJSON["project_meta_context"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("thread.project_meta_context.updated missing project_meta_context")
+	}
+	sanitized := strings.TrimSpace(raw)
+	_, err := tx.Exec(
+		ctx,
+		`UPDATE threads
+		    SET project_meta_context = $3,
+		        updated_at = CURRENT_TIMESTAMP
+		  WHERE id = $1
+		    AND account_id = $2
+		    AND deleted_at IS NULL`,
+		w.run.ThreadID,
+		w.run.AccountID,
+		sanitized,
+	)
+	if err != nil {
+		return err
+	}
+	ev.DataJSON["project_meta_context"] = sanitized
 	return nil
 }
 
