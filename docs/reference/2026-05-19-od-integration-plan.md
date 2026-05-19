@@ -270,12 +270,41 @@ VALUES ('<account_id>', 'open-design', 'stdio', 'node',
 
 ## Phase 5: 可选增强（后续）
 
-| 功能 | 描述 | 优先级 |
-|------|------|--------|
-| UI-only Tools 注册路径 | ArkLoop Web UI 直接调 MCP tools | P1 |
-| Critique Theater | 多轮评审指令注入 | P2 |
-| Direction Cards 装修 | 卡片 UI 带色板预览、字体栈 | P2（MCP Apps 方案已解决） |
-| artifact 轮询同步 | OD 文件变更自动刷新 iframe | P2 |
+### 5.1 UI-only Tools 注册路径（P1）
+
+**问题**：当前 `isToolVisibleToModel()` 过滤了 `visibility: ["app"]` 的 tools，这些 tools 被丢弃了。ArkLoop Web UI 无法直接调用它们。
+
+**场景**：OD 的 `od_select_direction` 是 LLM 可见的（触发 direction 选择流程），但 `od_submit_direction` 应该是 **app-only**（仅从 MCP App iframe postMessage 调用，不对 LLM 暴露）。
+
+**改动**：
+
+| 文件 | 改动 |
+|------|------|
+| `mcp/registry.go` | 添加第二条注册路径，收集 `visibility: ["app"]` 的 tools，存入 `Registration.UIOnlyTools` |
+| `tools/spec.go` | `AgentToolSpec` 加 `Visibility []string` 字段 |
+| Web | 在 MCP App iframe 中通过 `app.callServerTool()` 调用 UI-only tools，Worker 侧透传 |
+
+### 5.2 Direction Cards 装修（P2）
+
+**问题**：MCP Apps 方案已解决功能——Direction Cards 通过 HTML resource 内嵌渲染。但当前是退化的纯文本/JSON 表单，用户体验差。
+
+**目标**：卡片 UI 带 OKLCH 色板预览、字体栈展示、方向描述。
+
+**改动**：纯 OD 侧 MCP Server 改造，ArkLoop 零代码变动。
+
+| OD 侧文件 | 改动 |
+|------|------|
+| `mcp/resources/ui-directions-picker.ts` | **新**：Direction Cards HTML 页面（色板色块 + 字体预览 + 方向描述 + 选中高亮） |
+| `mcp/resources/ui-directions-picker.css` | **新**：卡片布局样式（5 列 grid，响应式） |
+| `mcp/resources/ui-directions-picker.ts` | 点击事件 → `app.callServerTool("od_submit_direction", ...)` |
+
+### 5.3 Artifact 轮询同步（P2）
+
+**问题**：LLM 在 OD 项目中修改文件后，MCP App preview iframe 不会自动刷新。
+
+**方案**：MCP App 内发起 SSE 订阅 `GET /api/projects/:id/events`，收到 `file-changed` 事件后 iframe 自动刷新。
+
+
 
 ---
 
