@@ -187,22 +187,39 @@ OD MCP Server 将 context-level 资源标记 `annotations.priority: 1`：
 
 ### 3.1 Direction Cards（5 方向选择器）
 
-```
-od_select_direction:
-  _meta.ui.resourceUri: "ui://directions/picker.html"
+#### 设计关键
 
-执行流程:
-  LLM 调 od_select_direction
-  → Worker executor fetch resource HTML
-  → ArtifactIframe 在聊天流中内嵌渲染 5 张方向卡片
-  → 用户点选 → postMessage → tool result 返回选择
+- URI 是 **project-scoped**：`ui://projects/<id>/directions/picker.html`，ArkLoop 从 URI 即可获知 projectId
+- postMessage 携带 `projectId` 和 `direction`，ArkLoop 不需要额外查询
+- `od_submit_direction` 的 `project` 参数为 **required**，不依赖 active context fallback
+
+#### 完整流程
+
+```
+LLM 调 od_select_direction({ project: "abc-123" })
+  → tool _meta.ui.resourceUri: "ui://projects/abc-123/directions/picker.html"
+  → 返回 resource list (5 个方向简要描述)
+
+ArkLoop fetch resource "ui://projects/abc-123/directions/picker.html"
+  → 渲染 iframe: 5 张方向卡片 (OKLCH 色板 + 字体栈 + 描述)
+
+用户点 "Modern Minimal"
+  → iframe postMessage:
+      { type: 'direction-selected', direction: 'modern-minimal', projectId: 'abc-123' }
+
+ArkLoop McpAppIframe 捕获
+  → app.callServerTool("od_submit_direction", {
+      direction: "modern-minimal",
+      project: "abc-123"
+    })
+  → tool result 含完整方向数据，注入 LLM 上下文
 ```
 
 ### 3.2 /preview 预览
 
 ```
-od_create_project:
-  _meta.ui.resourceUri: "ui://projects/{projectId}/preview.html"
+od_create_project({ name, skillId, dsId })
+  → tool _meta.ui.resourceUri: "ui://projects/{projectId}/preview.html"
 
 执行流程:
   LLM 调 od_create_project
