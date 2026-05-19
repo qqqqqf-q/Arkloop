@@ -156,6 +156,7 @@ func NewInputLoaderMiddleware(
 		}
 		ApplyCollaborationMode(rc)
 		ApplyLearningMode(rc)
+		ApplyProjectMetaContext(rc)
 		emitTraceEvent(rc, "input_loader", "input_loader.loaded", map[string]any{
 			"run_kind":           strings.TrimSpace(stringValue(rc.InputJSON["run_kind"])),
 			"message_count":      len(rc.Messages),
@@ -225,6 +226,14 @@ func ApplyCollaborationMode(rc *RunContext) {
 // ApplyPlanMode is kept as a narrow compatibility shim for older tests.
 func ApplyPlanMode(rc *RunContext) {
 	ApplyCollaborationMode(rc)
+}
+
+// ApplyProjectMetaContext restores project context state from the run snapshot.
+func ApplyProjectMetaContext(rc *RunContext) {
+	if raw, ok := rc.InputJSON["project_meta_context"].(string); ok && strings.TrimSpace(raw) != "" {
+		trimmed := strings.TrimSpace(raw)
+		rc.ProjectMetaContext = &trimmed
+	}
 }
 
 func ApplyLearningMode(rc *RunContext) {
@@ -503,6 +512,9 @@ func loadRunInputsWithTrace(
 		}
 		if rawLearningMode, ok := dataJSON["learning_mode_enabled"]; ok {
 			inputJSON["learning_mode_enabled"] = rawLearningMode
+		}
+		if rawProjectMetaContext, ok := dataJSON["project_meta_context"].(string); ok && strings.TrimSpace(rawProjectMetaContext) != "" {
+			inputJSON["project_meta_context"] = strings.TrimSpace(rawProjectMetaContext)
 		}
 		if rawTimeoutSeconds, ok := dataJSON["timeout_seconds"]; ok {
 			switch value := rawTimeoutSeconds.(type) {

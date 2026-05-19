@@ -3,12 +3,14 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/tools"
 )
 
@@ -193,10 +195,21 @@ func (e *ToolExecutor) Execute(
 		}
 	}
 
+	// 检测 MCP project 创建工具返回的 projectId，发射 thread.project_meta_context.updated 事件
+	var extraEvents []events.RunEvent
+	if projectID := extractProjectIDFromResult(result.Content); projectID != "" {
+		ctxJSON, _ := json.Marshal(map[string]string{"project_id": projectID})
+		extraEvents = append(extraEvents, events.RunEvent{
+			Type:     "thread.project_meta_context.updated",
+			DataJSON: map[string]any{"project_meta_context": string(ctxJSON)},
+		})
+	}
+
 	return tools.ExecutionResult{
 		ResultJSON:   resultJSON,
 		ContentParts: attachments,
 		DurationMs:   durationMs(started),
+		Events:       extraEvents,
 	}
 }
 
@@ -386,4 +399,44 @@ func buildMcpAppArtifactKey(execCtx tools.ExecutionContext, toolName string) str
 		accountID = execCtx.AccountID.String()
 	}
 	return fmt.Sprintf("%s/%s/mcp-app-%s.html", accountID, execCtx.RunID.String(), toolName)
+}
+
+// extractProjectIDFromResult 从 MCP tool result content 中提取 projectId。
+// 匹配形如 {"projectId": "proj_xxx"} 的 JSON 对象。
+func extractProjectIDFromResult(content []map[string]any) string {
+	for _, item := range content {
+		text := strings.TrimSpace(stringFromAny(item["text"]))
+		if text == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(text), &obj); err != nil {
+			// 尝试从多行文本中提取 projectId
+			for _, line := range strings.Split(text, "\n") {
+				var lineObj map[string]json.RawMessage
+				if json.Unmarshal([]byte(line), &lineObj) == nil {
+					if raw, ok := lineObj["projectId"]; ok {
+						var id string
+						if json.Unmarshal(raw, &id) == nil && strings.TrimSpace(id) != "" {
+							return strings.TrimSpace(id)
+						}
+					}
+					if raw, ok := lineObj["project_id"]; ok {
+						var id string
+						if json.Unmarshal(raw, &id) == nil && strings.TrimSpace(id) != "" {
+							return strings.TrimSpace(id)
+						}
+					}
+				}
+			}
+			continue
+		}
+		if id, ok := obj["projectId"].(string); ok && strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id)
+		}
+		if id, ok := obj["project_id"].(string); ok && strings.TrimSpace(id) != "" {
+			return strings.TrimSpace(id)
+		}
+	}
+	return ""
 }

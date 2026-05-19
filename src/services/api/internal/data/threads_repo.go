@@ -35,6 +35,8 @@ type Thread struct {
 	BranchedFromMessageID *uuid.UUID
 	// 用户手动命名后置 true，阻止 Worker 自动标题覆盖
 	TitleLocked bool
+	// Project 模式上下文（JSONB）。非 NULL 时 Pipeline 自动注入 MCP 项目上下文。
+	ProjectMetaContext *string
 }
 
 const (
@@ -156,8 +158,7 @@ func (r *ThreadRepository) CreateWithMode(
 		ctx,
 		`INSERT INTO threads (account_id, created_by_user_id, project_id, title, is_private, mode, expires_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $5 THEN now() + INTERVAL '24 hours' ELSE NULL END, now())
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		accountID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		accountID,
 		createdByUserID,
 		projectID,
 		title,
@@ -165,7 +166,7 @@ func (r *ThreadRepository) CreateWithMode(
 		normalizedMode,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		return Thread{}, err
 	}
@@ -180,7 +181,7 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 	var thread Thread
 	err := r.db.QueryRow(
 		ctx,
-		`SELECT id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked
+		`SELECT id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context
 		 FROM threads
 		 WHERE id = $1
 		   AND deleted_at IS NULL
@@ -188,7 +189,7 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 		threadID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -333,12 +334,11 @@ func (r *ThreadRepository) UpdateTitle(ctx context.Context, threadID uuid.UUID, 
 		     updated_at = now()
 		 WHERE id = $2
 		   AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		title,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		title,
 		threadID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -363,12 +363,11 @@ func (r *ThreadRepository) UpdateOwner(ctx context.Context, threadID uuid.UUID, 
 		 SET created_by_user_id = $2
 		 WHERE id = $1
 		   AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		threadID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		threadID,
 		ownerUserID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -452,8 +451,7 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 		     updated_at      = CASE WHEN $2 OR ($8 AND collaboration_mode <> $9) OR ($10 AND learning_mode_enabled <> $11) THEN now() ELSE updated_at END
 		 WHERE id = $1
 		   AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		threadID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		threadID,
 		params.SetTitle, params.Title,
 		params.SetProjectID, params.ProjectID,
 		params.SetTitleLocked, params.TitleLocked,
@@ -465,7 +463,7 @@ func (r *ThreadRepository) UpdateFields(ctx context.Context, threadID uuid.UUID,
 		params.SetSidebarGtdBucket, params.SidebarGtdBucket,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -540,8 +538,7 @@ func (r *ThreadRepository) UpdateFieldsOwned(
 		   AND account_id = $2
 		   AND created_by_user_id = $3
 		   AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		threadID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		threadID,
 		accountID,
 		ownerUserID,
 		params.SetTitle, params.Title,
@@ -555,7 +552,7 @@ func (r *ThreadRepository) UpdateFieldsOwned(
 		params.SetSidebarGtdBucket, params.SidebarGtdBucket,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -615,13 +612,12 @@ func (r *ThreadRepository) DeleteOwnedReturning(
 		   AND account_id = $2
 		   AND created_by_user_id = $3
 		   AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		threadID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		threadID,
 		accountID,
 		ownerUserID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -789,15 +785,14 @@ func (r *ThreadRepository) Fork(
 		`INSERT INTO threads (account_id, created_by_user_id, project_id, title, is_private, mode, sidebar_work_folder, sidebar_gtd_bucket, expires_at, updated_at, parent_thread_id, branched_from_message_id, collaboration_mode, learning_mode_enabled)
 		 SELECT $1, $2, project_id, title, $3, mode, sidebar_work_folder, sidebar_gtd_bucket, CASE WHEN $3 THEN now() + INTERVAL '24 hours' ELSE NULL END, now(), $4, $5, collaboration_mode, learning_mode_enabled
 		 FROM threads WHERE id = $4 AND deleted_at IS NULL
-		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked`,
-		accountID,
+		 RETURNING id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at, project_id, is_private, mode, collaboration_mode, collaboration_mode_revision, learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket, expires_at, parent_thread_id, branched_from_message_id, title_locked, project_meta_context`,		accountID,
 		createdByUserID,
 		isPrivate,
 		parentThreadID,
 		branchFromMessageID,
 	).Scan(&thread.ID, &thread.AccountID, &thread.CreatedByUserID, &thread.Title, &thread.CreatedAt, &thread.UpdatedAt,
 		&thread.DeletedAt, &thread.ProjectID, &thread.IsPrivate, &thread.Mode, &thread.CollaborationMode, &thread.CollaborationModeRevision, &thread.LearningModeEnabled, &thread.SidebarWorkFolder, &thread.SidebarPinnedAt, &thread.SidebarGtdBucket, &thread.ExpiresAt,
-		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked)
+		&thread.ParentThreadID, &thread.BranchedFromMessageID, &thread.TitleLocked, &thread.ProjectMetaContext)
 	if err != nil {
 		return Thread{}, err
 	}

@@ -282,6 +282,7 @@ type RunContext struct {
 	// -- plan mode --
 	CollaborationMode         string
 	CollaborationModeRevision int64
+	ProjectMetaContext        *string // JSONB, NULL=普通模式, 非空=Project 模式激活
 	IsPlanMode                bool
 	LearningModeEnabled       bool
 	PlanFilePath              string
