@@ -228,7 +228,26 @@ od_create_project({ name, skillId, dsId })
   → OD daemon 提供实时预览更新
 ```
 
-### 3.3 改动范围
+### 3.3 /discovery 问卷（od_ask_question）
+
+发现阶段 LLM 需要向用户提问（平台、受众、风格等），以表单形式收集结构化答案。
+
+#### 实现方式
+
+复用 ArkLoop 已有的 `ask_user` 机制——ArkLoop 原生支持 `enum`/`oneOf`/`array` 表单：
+
+```
+LLM 调 od_ask_question({ form_id: "discovery", questions: [...] })
+  → 返回 form schema (JSON)
+  → ArkLoop 检测到 schema 中的 "__arkloop_form__" 标记
+  → 前端渲染表单 UI（下拉/多选/输入框）
+  → 用户填写 → 提交 → tool result 返回答案
+  → LLM 基于答案继续后续流程
+```
+
+ArkLoop 零改动。`od_ask_question` 只需返回 ArkLoop 原生支持的 form schema 格式即可。
+
+### 3.4 改动范围
 
 | 侧 | 改动 | 说明 |
 |----|------|------|
