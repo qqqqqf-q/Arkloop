@@ -105,7 +105,7 @@ export function extractResources(result: unknown): McpAppResource[] {
       mimeType: typeof item.mime_type === 'string' ? item.mime_type : 'text/html',
       size: typeof item.size === 'number' ? item.size : 0,
       csp: item.csp as McpAppResource['csp'] | undefined,
-      initialData: item.content as McpAppResource['initialData'] | undefined,
+      content: item.content as string | undefined,
     }))
 }
 

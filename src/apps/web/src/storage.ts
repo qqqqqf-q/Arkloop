@@ -686,6 +686,7 @@ export type McpAppResource = {
   mimeType: string
   size: number
   initialData?: unknown
+  content?: string
   csp?: McpAppCsp
 }
 
@@ -1605,7 +1606,7 @@ function isMcpAppResource(value: unknown): value is McpAppResource {
   if (typeof item.key !== 'string' || item.key.trim() === '') return false
   if (typeof item.uri !== 'string') return false
   if (typeof item.filename !== 'string') return false
-  if (typeof item.mimeType !== 'string') return false
+  if (typeof item.mimeType !== 'string' || item.mimeType === '') return false
   if (typeof item.size !== 'number') return false
   return true
 }

@@ -10,14 +10,14 @@ type Props = {
 
 export function ResourceUIPreview({ resource, accessToken }: Props) {
   const [content, setContent] = useState<string | undefined>(
-    typeof resource.initialData === 'string' ? resource.initialData : undefined
+    typeof resource.content === 'string' ? resource.content : undefined
   )
   const [error, setError] = useState(false)
   const retriesRef = useRef(0)
   const maxRetries = 10
 
   useEffect(() => {
-    if (typeof resource.initialData === 'string') return
+    if (typeof resource.content === 'string') return
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
 
@@ -49,7 +49,7 @@ export function ResourceUIPreview({ resource, accessToken }: Props) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [resource.key, resource.initialData, accessToken])
+  }, [resource.key, resource.content, accessToken])
 
   if (error) {
     return (
