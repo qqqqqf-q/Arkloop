@@ -192,6 +192,7 @@ func (e *ToolExecutor) Execute(
 							"size":      len(data),
 							"mime_type": mimeType,
 							"csp":       csp,
+							"content":   string(data),
 						},
 					}
 					slog.InfoContext(ctx, "mcp ext-apps: artifact uploaded", "tool_name", toolName, "key", key, "size", len(data))
