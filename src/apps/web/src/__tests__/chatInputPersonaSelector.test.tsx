@@ -1,5 +1,5 @@
 import { act } from 'react'
-import { type FormEvent } from 'react'
+import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -85,6 +85,7 @@ function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
 
 type TextareaReactProps = {
   onChange: (event: { currentTarget: HTMLTextAreaElement }) => void
+  onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void
   onCompositionStart: () => void
   onCompositionEnd: (event: { currentTarget: HTMLTextAreaElement }) => void
 }
@@ -128,7 +129,7 @@ describe('ChatInput persona selector', () => {
     }
   })
 
-  it('按动态列表循环切换并可从下拉选择人格', async () => {
+  it('不再从加号菜单加载动态人格，提交沿用已选人格', async () => {
     const onSubmit = vi.fn<(event: FormEvent<HTMLFormElement>, personaKey: string) => void>((event) => event.preventDefault())
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -148,49 +149,22 @@ describe('ChatInput persona selector', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedListSelectablePersonas).toHaveBeenCalledWith('token')
-
-    const selectorButton = findButtonByText(container, 'Normal')
-    expect(selectorButton).not.toBeNull()
-    if (!selectorButton) return
-
-    await act(async () => {
-      selectorButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const searchMenuButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button !== selectorButton && button.textContent?.trim() === 'Search',
-    ) as HTMLButtonElement | null
-    expect(searchMenuButton).not.toBeNull()
-    if (!searchMenuButton) return
-
-    await act(async () => {
-      searchMenuButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(findButtonByText(container, 'Search')).not.toBeNull()
-
-    const searchSelectorButton = findButtonByText(container, 'Search')
-    expect(searchSelectorButton).not.toBeNull()
-    if (!searchSelectorButton) return
-
-    await act(async () => {
-      searchSelectorButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    const menuNormalButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button !== searchSelectorButton && button.textContent?.trim() === 'Normal',
-    ) as HTMLButtonElement | null
-    expect(menuNormalButton).not.toBeNull()
-    if (!menuNormalButton) return
-
-    await act(async () => {
-      menuNormalButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
     const form = container.querySelector('form')
     expect(form).not.toBeNull()
     if (!form) return
+
+    const menuButton = form.querySelector<HTMLButtonElement>('button[type="button"]')
+    expect(menuButton).not.toBeNull()
+    if (!menuButton) return
+
+    await act(async () => {
+      menuButton.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await flushMicrotasks()
+    })
+
+    expect(mockedListSelectablePersonas).not.toHaveBeenCalled()
+    expect(findButtonByText(container, 'Normal')).toBeFalsy()
+    expect(findButtonByText(container, 'Search')).toBeFalsy()
 
     await act(async () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
@@ -271,6 +245,106 @@ describe('ChatInput persona selector', () => {
     })
 
     expect(container.textContent).not.toContain('Work in a folder')
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('Work 输入框按 Shift+Tab 切换 Plan 模式', async () => {
+    const onTogglePlanMode = vi.fn<(_: boolean) => Promise<void>>(() => Promise.resolve())
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ChatInput
+            onSubmit={(event) => event.preventDefault()}
+            accessToken="token"
+            variant="chat"
+            appMode="work"
+            hasMessages={false}
+            messagesLoading={false}
+            planMode={false}
+            onTogglePlanMode={onTogglePlanMode}
+          />
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      code: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => {
+      textarea.dispatchEvent(event)
+      await flushMicrotasks()
+    })
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(onTogglePlanMode).toHaveBeenCalledWith(false)
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('Chat 输入框按 Shift+Tab 不切换 Plan 模式', async () => {
+    const onTogglePlanMode = vi.fn<(_: boolean) => Promise<void>>(() => Promise.resolve())
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <ChatInput
+            onSubmit={(event) => event.preventDefault()}
+            accessToken="token"
+            variant="chat"
+            appMode="chat"
+            planMode={false}
+            onTogglePlanMode={onTogglePlanMode}
+          />
+        </LocaleProvider>,
+      )
+    })
+    await act(async () => {
+      await flushMicrotasks()
+    })
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      code: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => {
+      textarea.dispatchEvent(event)
+      await flushMicrotasks()
+    })
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(onTogglePlanMode).not.toHaveBeenCalled()
 
     act(() => {
       root.unmount()

@@ -2544,22 +2544,48 @@ export function writeBackgroundImageOpacityToStorage(opacity: number): void {
 
 // -- Sidebar View & GTD --
 
-const GTD_ENABLED_KEY = 'arkloop:web:gtd_enabled'
+export const GTD_ENABLED_STORAGE_KEY = 'arkloop:web:gtd_enabled'
+const GTD_ENABLED_CHANGED_EVENT = 'arkloop:gtd-enabled-changed'
 
 export function readGtdEnabled(): boolean {
   if (!canUseLocalStorage()) return false
   try {
-    return localStorage.getItem(GTD_ENABLED_KEY) === 'true'
+    return localStorage.getItem(GTD_ENABLED_STORAGE_KEY) === 'true'
   } catch {
     return false
   }
 }
 
 export function writeGtdEnabled(v: boolean): void {
-  if (!canUseLocalStorage()) return
-  try {
-    localStorage.setItem(GTD_ENABLED_KEY, String(v))
-  } catch { /* ignore */ }
+  if (canUseLocalStorage()) {
+    try {
+      localStorage.setItem(GTD_ENABLED_STORAGE_KEY, String(v))
+    } catch { /* ignore */ }
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(GTD_ENABLED_CHANGED_EVENT, { detail: v }))
+  }
+}
+
+export function subscribeGtdEnabled(listener: (enabled: boolean) => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+
+  const customHandler = (event: Event) => {
+    const enabled = (event as CustomEvent<boolean>).detail
+    listener(typeof enabled === 'boolean' ? enabled : readGtdEnabled())
+  }
+  const storageHandler = (event: StorageEvent) => {
+    if (event.key !== GTD_ENABLED_STORAGE_KEY) return
+    listener(event.newValue === 'true')
+  }
+
+  window.addEventListener(GTD_ENABLED_CHANGED_EVENT, customHandler)
+  window.addEventListener('storage', storageHandler)
+
+  return () => {
+    window.removeEventListener(GTD_ENABLED_CHANGED_EVENT, customHandler)
+    window.removeEventListener('storage', storageHandler)
+  }
 }
 
 const GTD_INBOX_THREAD_IDS_KEY = 'arkloop:web:gtd_inbox_thread_ids'

@@ -51,6 +51,10 @@ type ToolExecutor struct {
 	RDB  *redis.Client
 }
 
+func (e *ToolExecutor) IsNotConfigured() bool {
+	return e.Pool == nil
+}
+
 func (e *ToolExecutor) Execute(
 	ctx context.Context,
 	_ string,

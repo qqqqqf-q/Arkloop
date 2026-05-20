@@ -92,6 +92,7 @@ button:not(:disabled) {
   --c-background-image-scrim-alpha: calc(0.18 + ((1 - var(--c-background-image-opacity)) * 0.34));
   --c-background-image-vignette-alpha: 0.22;
   --c-bg-page-gradient-stop: var(--c-bg-page);
+  --c-chat-bg-gradient-stop: var(--c-bg-page-gradient-stop);
   --c-bg-sidebar: #242422;
   --c-bg-deep: #141413;
   --c-bg-sub: #1e1e1c;
@@ -804,9 +805,9 @@ button:not(:disabled) {
 }
 
 .cop-timeline-root {
-  --c-cop-row-fg: var(--c-text-tertiary);
+  --c-cop-row-fg: #87857e;
   --c-cop-row-hover-fg: var(--c-text-primary);
-  --c-cop-row-subtle-fg: var(--c-text-tertiary);
+  --c-cop-row-subtle-fg: #87857e;
   --c-cop-row-weight: var(--c-fw-400);
   --c-cop-row-font-size: 14px;
   --c-cop-row-line-height: 20px;
@@ -818,9 +819,9 @@ button:not(:disabled) {
 
 .top-level-todo-root,
 .work-group-root {
-  --c-cop-row-fg: var(--c-text-tertiary);
+  --c-cop-row-fg: #87857e;
   --c-cop-row-hover-fg: var(--c-text-primary);
-  --c-cop-row-subtle-fg: var(--c-text-tertiary);
+  --c-cop-row-subtle-fg: #87857e;
   --c-cop-row-weight: var(--c-fw-400);
   --c-cop-row-font-size: 14px;
   --c-cop-row-line-height: 20px;
@@ -881,7 +882,6 @@ button:not(:disabled) {
   max-height: var(--c-cop-card-max-height);
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
   padding: 6px 10px;
   scrollbar-gutter: stable;
 }
@@ -1641,7 +1641,8 @@ button:not(:disabled) {
 }
 
 :root[data-background-image="custom"] {
-  --c-bg-page-gradient-stop: color-mix(in srgb, var(--c-bg-page) 90%, transparent);
+  --c-bg-page-gradient-stop: var(--c-bg-page);
+  --c-chat-bg-gradient-stop: transparent;
 }
 
 :root[data-background-image="custom"] .theme-background-layer {
@@ -1667,6 +1668,10 @@ button:not(:disabled) {
 }
 
 @supports (color: color-mix(in srgb, black, white)) {
+  :root[data-background-image="custom"] {
+    --c-bg-page-gradient-stop: color-mix(in srgb, var(--c-bg-page) 90%, transparent);
+  }
+
   :root[data-background-image="custom"] .theme-surface-page {
     background-color: color-mix(in srgb, var(--c-bg-page) 76%, transparent);
   }
@@ -1677,6 +1682,10 @@ button:not(:disabled) {
 
   :root[data-background-image="custom"] .theme-surface-page .theme-surface-page {
     background-color: transparent;
+  }
+
+  :root[data-background-image="custom"] .theme-chat-surface {
+    background-color: color-mix(in srgb, var(--c-bg-page) 42%, transparent);
   }
 }
 

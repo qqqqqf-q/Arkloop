@@ -243,7 +243,6 @@ type llmProviderModelResponse struct {
 	ProviderID          string          `json:"provider_id"`
 	Model               string          `json:"model"`
 	Priority            int             `json:"priority"`
-	IsDefault           bool            `json:"is_default"`
 	ShowInPicker        bool            `json:"show_in_picker"`
 	Tags                []string        `json:"tags"`
 	WhenJSON            json.RawMessage `json:"when"`

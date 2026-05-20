@@ -743,13 +743,10 @@ func (l *Loop) Run(
 				}
 				return yield(emitter.Emit("run.completed", completionTotals.Apply(turn.CompletedDataJSON), nil, nil))
 			}
-			// reply=true: 解除 tool_choice 约束
+			// reply=true: 解除 tool_choice 约束，保留 tool spec 以维持 schema hash 稳定
 			if request.ToolChoice != nil {
 				request.ToolChoice = nil
 			}
-			request.Tools = filterToolSpecs(request.Tools, func(spec llm.ToolSpec) bool {
-				return pipeline.IsHeartbeatDecisionToolName(spec.Name)
-			})
 		}
 
 		// end_reply: terminate run without further output

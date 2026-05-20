@@ -70,6 +70,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/desktop/memory/content", h.getContent)
 	mux.HandleFunc("/v1/desktop/memory/impression", h.getImpression)
 	mux.HandleFunc("/v1/desktop/memory/impression/rebuild", h.rebuildImpression)
+	mux.HandleFunc("/v1/desktop/memory/suggestions", h.getSuggestions)
 }
 
 type handler struct {
@@ -1476,6 +1477,56 @@ func (h *handler) rebuildImpression(w nethttp.ResponseWriter, r *nethttp.Request
 		"run_id":     runID.String(),
 		"updated_at": after.updatedAt,
 	})
+}
+
+func (h *handler) getSuggestions(w nethttp.ResponseWriter, r *nethttp.Request) {
+	if !h.checkAccessToken(w, r) {
+		return
+	}
+	if r.Method != nethttp.MethodGet {
+		httpkit.WriteError(w, nethttp.StatusMethodNotAllowed, "method_not_allowed", "method not allowed", "", nil)
+		return
+	}
+	agentID := agentIDFromQuery(r)
+	accountID := auth.DesktopAccountID.String()
+	userID := auth.DesktopUserID.String()
+	mode := strings.TrimSpace(r.URL.Query().Get("mode"))
+	if mode == "" {
+		mode = "chat"
+	}
+	if mode != "chat" && mode != "work" {
+		httpkit.WriteError(w, nethttp.StatusBadRequest, "bad_request", "mode must be chat or work", "", nil)
+		return
+	}
+
+	var suggestionsJSON, expiresAt, updatedAt string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT suggestions_json, expires_at, updated_at FROM user_suggestion_snapshots
+		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3 AND mode = $4`,
+		accountID, userID, agentID, mode,
+	).Scan(&suggestionsJSON, &expiresAt, &updatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, map[string]any{"suggestions": []any{}})
+			return
+		}
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal_error", err.Error(), "", nil)
+		return
+	}
+
+	if strings.TrimSpace(expiresAt) != "" {
+		t, parseErr := time.Parse(time.RFC3339Nano, expiresAt)
+		if parseErr == nil && time.Now().After(t) {
+			writeJSON(w, map[string]any{"suggestions": []any{}})
+			return
+		}
+	}
+
+	var suggestions []any
+	if json.Unmarshal([]byte(suggestionsJSON), &suggestions) != nil {
+		suggestions = []any{}
+	}
+	writeJSON(w, map[string]any{"suggestions": suggestions, "expires_at": expiresAt, "updated_at": updatedAt})
 }
 
 func writeJSON(w nethttp.ResponseWriter, v any) {

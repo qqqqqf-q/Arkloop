@@ -61,6 +61,7 @@ Channel 设置用于配置 Arkloop 与各个外部消息平台的连接。每个
 
 - **WebSocket URL** —— OneBot 服务的正向或反向 WebSocket 端点。
 - **HTTP API URL** + **Token** —— 对外 API 调用地址及鉴权 token。
+- **Bot 名称** —— 群聊中可作为触发关键词使用的机器人名称。
 - **QR Login** —— 扫码登录底层 QQ 账号。
 - **Auto Re-login** —— 会话掉线时自动重连。
 - **Allowed QQ Users** —— 允许私聊的 QQ 号。

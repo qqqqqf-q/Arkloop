@@ -921,7 +921,6 @@ export function OnboardingWizard({ onComplete }: Props) {
         createdProviderId,
         {
           model,
-          is_default: configuredModels.length === 0,
         },
       );
       setConfiguredModels((current) =>
@@ -970,7 +969,6 @@ export function OnboardingWizard({ onComplete }: Props) {
           createdProviderId,
           {
             model: modelId,
-            is_default: configuredModels.length === 0 && index === 0,
             priority: Math.max(ids.length - index, 1),
             advanced_json: routeAdvancedJsonFromAvailableCatalog({
               id: modelId,

@@ -55,9 +55,10 @@ const (
 // mdb 为 nil 时跳过 run_events / usage_records 写入，仍会执行 OpenViking 写与快照 Upsert。
 // configResolver 为 nil 时跳过 memory usage 记录。
 // impStore 为 nil 时不注入 impression、不累积 score。
-func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, impStore ImpressionStore, impRefresh ImpressionRefreshFunc) RunMiddleware {
+// sugStore 为 nil 时不累积 suggestion score。
+func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, impStore ImpressionStore, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
-		if rc.ImpressionRun || isImpressionRun(rc) {
+		if rc.ImpressionRun || isImpressionRun(rc) || rc.SuggestionRun || isSuggestionRun(rc) {
 			return next(ctx, rc)
 		}
 
@@ -70,12 +71,12 @@ func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStor
 		}
 
 		err := next(ctx, rc)
-		flushPendingWritesAfterRun(ctx, activeProvider, snap, mdb, configResolver, rc, impStore, impRefresh)
+		flushPendingWritesAfterRun(ctx, activeProvider, snap, mdb, configResolver, rc, impStore, impRefresh, sugStore, sugRefresh)
 		return err
 	}
 }
 
-func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, rc *RunContext, impStore ImpressionStore, impRefresh ImpressionRefreshFunc) {
+func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, rc *RunContext, impStore ImpressionStore, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc) {
 	if rc.PendingMemoryWrites == nil {
 		return
 	}
@@ -90,10 +91,11 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		UserID:    *rc.UserID,
 		AgentID:   StableAgentID(rc),
 	}
-	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh)
+	threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
+	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
@@ -137,6 +139,9 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 
 	if impStore != nil && successCount > 0 {
 		addImpressionScore(ctx, impStore, ident, 5*successCount, configResolver, impRefresh)
+	}
+	if sugStore != nil && successCount > 0 && threadMode != "" {
+		addSuggestionScore(ctx, sugStore, ident.AccountID, ident.UserID, ident.AgentID, threadMode, successCount, configResolver, sugRefresh)
 	}
 
 	if successCount == 0 {
@@ -458,7 +463,7 @@ func lastUserMessageText(messages []llm.Message) string {
 // distillAfterRun 在 run 完成后判断是否触发 Memory 提炼。
 // 条件：开启 distill、非 heartbeat、存在 FinalAssistantOutput、且有本轮增量 user 输入。
 // 异步执行，不阻塞 run 返回。
-func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity, baseUserMsgs []memory.MemoryMessage, impStore ImpressionStore, impRefresh ImpressionRefreshFunc) {
+func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, rc *RunContext, ident memory.MemoryIdentity, baseUserMsgs []memory.MemoryMessage, impStore ImpressionStore, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
 	// heartbeat 是否写 memory 由 heartbeat_decision 决定，这里不再额外自动 distill。
 	if rc.HeartbeatRun {
 		return
@@ -542,7 +547,6 @@ func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, m
 			weight := impressionScoreForRun(rc)
 			addImpressionScore(ctx, impStore, ident, weight, configResolver, impRefresh)
 		}
-
 		scheduleSnapshotRefresh(provider, snap, mdb, runID, rc.TraceID, ident, sessionID, userMessagesToQueries(msgs), "memory.distill", "distill")
 
 		if costPerCommit > 0 && mdb != nil {
@@ -799,4 +803,18 @@ func resolveImpressionThreshold(resolver sharedconfig.Resolver) int {
 		return 50
 	}
 	return v
+}
+
+func queryThreadMode(ctx context.Context, db data.DB, threadID uuid.UUID) string {
+	if db == nil || threadID == uuid.Nil {
+		return "chat"
+	}
+	var mode string
+	if err := db.QueryRow(ctx, `SELECT COALESCE(mode, 'chat') FROM threads WHERE id = $1`, threadID).Scan(&mode); err != nil {
+		return "chat"
+	}
+	if mode == "" {
+		return "chat"
+	}
+	return mode
 }

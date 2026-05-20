@@ -626,7 +626,7 @@ func TestResolveCompactionGatewayDefaultsToCurrentThreadRoute(t *testing.T) {
 		},
 	}
 	configLoader := routing.NewConfigLoader(nil, routing.ProviderRoutingConfig{
-		DefaultRouteID: "tool-route",
+		
 		Credentials: []routing.ProviderCredential{{
 			ID:           "stub-tool",
 			Name:         "tool",
@@ -682,7 +682,7 @@ func TestResolveCompactionGatewayHonorsExplicitSelector(t *testing.T) {
 		SelectedRoute:       &routing.SelectedProviderRoute{Route: routing.ProviderRouteRule{Model: "thread-model", ID: "thread-route"}},
 	}
 	configLoader := routing.NewConfigLoader(nil, routing.ProviderRoutingConfig{
-		DefaultRouteID: "tool-route",
+		
 		Credentials: []routing.ProviderCredential{{
 			ID:           "stub-tool",
 			Name:         "tool",
@@ -744,7 +744,7 @@ func TestEstimateContextCompactRequestBytesUsesInjectedEstimator(t *testing.T) {
 
 func TestRoutingMiddlewareInjectsProviderRequestEstimator(t *testing.T) {
 	router := routing.NewProviderRouter(routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-openai",
+		
 		Credentials: []routing.ProviderCredential{{
 			ID:           "cred-openai",
 			Name:         "openai",
@@ -772,7 +772,7 @@ func TestRoutingMiddlewareInjectsProviderRequestEstimator(t *testing.T) {
 
 	rc := &RunContext{
 		Emitter:             events.NewEmitter("test"),
-		InputJSON:           map[string]any{},
+		InputJSON:           map[string]any{"model": "gpt-4o"},
 		LlmMaxResponseBytes: 8192,
 	}
 	handler := Build([]RunMiddleware{mw}, func(_ context.Context, rc *RunContext) error {

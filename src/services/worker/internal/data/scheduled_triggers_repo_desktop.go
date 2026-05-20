@@ -687,6 +687,19 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 			return nil, fmt.Errorf("query heartbeat dm binding: %w", err)
 		}
 		if strings.TrimSpace(platformChatID) != "" {
+			var creator uuid.NullUUID
+			_ = db.QueryRow(ctx,
+				`SELECT COALESCE(t.created_by_user_id, ch.owner_user_id)
+				   FROM threads t
+				   JOIN channels ch ON ch.id = $2
+				  WHERE t.id = $1`,
+				row.ThreadID.String(),
+				row.ChannelID.String(),
+			).Scan(&creator)
+			var createdBy *uuid.UUID
+			if creator.Valid {
+				createdBy = &creator.UUID
+			}
 			return &HeartbeatThreadContext{
 				ThreadID:         *row.ThreadID,
 				ChannelID:        row.ChannelID.String(),
@@ -694,6 +707,7 @@ func (ScheduledTriggersRepository) ResolveHeartbeatThread(
 				PlatformChatID:   strings.TrimSpace(platformChatID),
 				IdentityID:       row.ChannelIdentityID.String(),
 				ConversationType: conversationType,
+				CreatedByUserID:  createdBy,
 			}, nil
 		}
 	}

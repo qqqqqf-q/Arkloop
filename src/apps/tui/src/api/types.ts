@@ -20,7 +20,7 @@ export interface ProviderModel {
   id: string
   provider_id: string
   model: string
-  is_default: boolean
+  priority: number
   show_in_picker: boolean
   tags: string[]
   advanced_json?: Record<string, unknown> | null

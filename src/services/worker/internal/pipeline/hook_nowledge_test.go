@@ -374,7 +374,7 @@ func TestLegacyMemoryDistillObserverRefreshesNowledgeSnapshotWithoutCreatedCount
 		ExternalThreadID: "thread-legacy",
 		Provider:         "nowledge",
 	}
-	observer := NewLegacyMemoryDistillObserver(snapshotStore, nil, nil, nil, nil)
+	observer := NewLegacyMemoryDistillObserver(snapshotStore, nil, nil, nil, nil, nil, nil)
 
 	if _, err := observer.AfterThreadPersist(context.Background(), rc, delta, result); err != nil {
 		t.Fatalf("AfterThreadPersist: %v", err)
@@ -442,7 +442,7 @@ func TestNowledgeContextContributorInjectsBehavioralGuidanceWithoutRecall(t *tes
 	defer srv.Close()
 
 	provider := nowledge.NewClient(nowledge.Config{BaseURL: srv.URL})
-	contributor := NewNowledgeContextContributor(provider)
+	contributor := NewNowledgeContextContributor(provider, 5, 0)
 	userID := uuid.New()
 	rc := &RunContext{
 		Run: data.Run{
@@ -491,7 +491,7 @@ func TestNowledgeContextContributorInjectsWorkingMemoryWithoutAutoRecall(t *test
 	defer srv.Close()
 
 	provider := nowledge.NewClient(nowledge.Config{BaseURL: srv.URL})
-	contributor := NewNowledgeContextContributor(provider)
+	contributor := NewNowledgeContextContributor(provider, 5, 0)
 	userID := uuid.New()
 	rc := &RunContext{
 		Run: data.Run{
@@ -526,7 +526,7 @@ func TestNowledgeContextContributorInjectsWorkingMemoryWithoutAutoRecall(t *test
 			break
 		}
 	}
-	if !strings.Contains(guidance, "已注入 Working Memory") || !strings.Contains(guidance, "不会自动注入相关记忆") {
+	if !strings.Contains(guidance, "已注入") || !strings.Contains(guidance, "Working Memory") {
 		t.Fatalf("guidance should acknowledge injected context: %q", guidance)
 	}
 }
@@ -544,7 +544,7 @@ func TestNowledgeContextContributorDoesNotSearchWhenUserMessageIsRecallable(t *t
 	defer srv.Close()
 
 	provider := nowledge.NewClient(nowledge.Config{BaseURL: srv.URL})
-	contributor := NewNowledgeContextContributor(provider)
+	contributor := NewNowledgeContextContributor(provider, 5, 0)
 	userID := uuid.New()
 	rc := &RunContext{
 		Run: data.Run{
@@ -590,7 +590,7 @@ func TestNowledgeContextContributorBeforePromptSegmentsIncludesGuidanceSegment(t
 	defer srv.Close()
 
 	provider := nowledge.NewClient(nowledge.Config{BaseURL: srv.URL})
-	contributor := NewNowledgeContextContributor(provider)
+	contributor := NewNowledgeContextContributor(provider, 5, 0)
 	userID := uuid.New()
 	rc := &RunContext{
 		Run: data.Run{
@@ -628,4 +628,227 @@ func TestNowledgeContextContributorBeforePromptSegmentsIncludesGuidanceSegment(t
 	if !found {
 		t.Fatal("expected guidance segment")
 	}
+}
+
+func TestBuildNowledgeRecallQueryTieredThresholds(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []memory.MemoryMessage
+		want     string
+	}{
+		{
+			name:     "empty messages",
+			messages: nil,
+			want:     "",
+		},
+		{
+			name:     "too short (<3 chars)",
+			messages: []memory.MemoryMessage{{Role: "user", Content: "hi"}},
+			want:     "",
+		},
+		{
+			name:     "slash command skipped",
+			messages: []memory.MemoryMessage{{Role: "user", Content: "/help me"}},
+			want:     "",
+		},
+		{
+			name: "short query (3-39 chars) with context",
+			messages: []memory.MemoryMessage{
+				{Role: "user", Content: "之前讨论了数据库选型，最终选了 PostgreSQL 16"},
+				{Role: "assistant", Content: "好的，PG 16 确认"},
+				{Role: "user", Content: "附件方案呢"},
+			},
+			want: "附件方案呢",
+		},
+		{
+			name:     "long query (>=40 chars) used directly",
+			messages: []memory.MemoryMessage{{Role: "user", Content: "我想了解一下之前关于 memory system 的 recall 功能是怎么实现的，能给我讲讲吗"}},
+			want:     "我想了解一下之前关于 memory system 的 recall 功能是怎么实现的，能给我讲讲吗",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rc := &RunContext{}
+			rc.SetBaseUserMessages(tt.messages)
+			got := buildNowledgeRecallQuery(rc)
+			if tt.want == "" {
+				if got != "" {
+					t.Fatalf("expected empty query, got %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.want) {
+				t.Fatalf("expected query to contain %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestBuildNowledgeRecallQueryShortWithContext(t *testing.T) {
+	rc := &RunContext{}
+	rc.SetBaseUserMessages([]memory.MemoryMessage{
+		{Role: "user", Content: "之前讨论了数据库选型"},
+		{Role: "assistant", Content: "选了 PG 16"},
+		{Role: "user", Content: "附件方案呢"},
+	})
+	got := buildNowledgeRecallQuery(rc)
+	if !strings.Contains(got, "附件方案呢") {
+		t.Fatalf("expected latest message in query, got %q", got)
+	}
+	if !strings.Contains(got, "之前讨论了数据库选型") {
+		t.Fatalf("expected context in query, got %q", got)
+	}
+}
+
+func TestBuildRecalledKnowledgeBlock(t *testing.T) {
+	results := []nowledge.SearchResult{
+		{Title: "数据库选型", Score: 0.85, RelevanceReason: "matches db topic", Labels: []string{"architecture"}, Content: "团队最终选择了 PostgreSQL 16"},
+		{Title: "附件方案", Score: 0.6, Content: "S3 + CDN 方案"},
+		{Title: "低分记忆", Score: 0.3, Content: "不太相关"},
+	}
+
+	t.Run("no min score", func(t *testing.T) {
+		block := buildRecalledKnowledgeBlock(results, 0)
+		if !strings.Contains(block, "<recalled-knowledge>") {
+			t.Fatal("expected recalled-knowledge block")
+		}
+		if !strings.Contains(block, "Untrusted historical context") {
+			t.Fatal("expected safety prompt")
+		}
+		if !strings.Contains(block, "数据库选型") || !strings.Contains(block, "85%") {
+			t.Fatal("expected first result with score")
+		}
+		if !strings.Contains(block, "matches db topic") {
+			t.Fatal("expected relevance reason")
+		}
+		if !strings.Contains(block, "[architecture]") {
+			t.Fatal("expected labels")
+		}
+		if !strings.Contains(block, "低分记忆") {
+			t.Fatal("expected all results when minScore=0")
+		}
+	})
+
+	t.Run("with min score filter", func(t *testing.T) {
+		block := buildRecalledKnowledgeBlock(results, 0.5)
+		if strings.Contains(block, "低分记忆") {
+			t.Fatal("expected low-score result to be filtered out")
+		}
+		if !strings.Contains(block, "数据库选型") || !strings.Contains(block, "附件方案") {
+			t.Fatal("expected high-score results to remain")
+		}
+	})
+
+	t.Run("all filtered returns empty", func(t *testing.T) {
+		block := buildRecalledKnowledgeBlock(results, 0.9)
+		if block != "" {
+			t.Fatalf("expected empty block when all filtered, got %q", block)
+		}
+	})
+}
+
+func TestNowledgeContextContributorRecallInjection(t *testing.T) {
+	t.Setenv(sharedoutbound.AllowLoopbackHTTPEnv, "true")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/agent/working-memory":
+			_ = json.NewEncoder(w).Encode(map[string]any{"exists": false, "content": ""})
+		case "/memories/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"memories": []map[string]any{
+					{"id": "m1", "title": "数据库选型", "content": "选了 PG 16", "score": 0.85, "relevance_reason": "db topic"},
+				},
+			})
+		case "/threads/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{"threads": []any{}})
+		default:
+			t.Fatalf("unexpected nowledge request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	provider := nowledge.NewClient(nowledge.Config{BaseURL: srv.URL})
+	contributor := NewNowledgeContextContributor(provider, 5, 0)
+	userID := uuid.New()
+	rc := &RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+			ThreadID:  uuid.New(),
+		},
+		UserID: &userID,
+	}
+	rc.SetBaseUserMessages([]memory.MemoryMessage{
+		{Role: "user", Content: "我想了解一下之前关于数据库选型的讨论，最终方案是什么"},
+	})
+
+	segments, err := contributor.BeforePromptSegments(context.Background(), rc)
+	if err != nil {
+		t.Fatalf("BeforePromptSegments: %v", err)
+	}
+
+	var recallSeg *PromptSegment
+	var guidanceSeg *PromptSegment
+	for i := range segments {
+		switch segments[i].Name {
+		case "hook.before.nowledge.recalled_memories":
+			recallSeg = &segments[i]
+		case "hook.before.nowledge.guidance":
+			guidanceSeg = &segments[i]
+		}
+	}
+	if recallSeg == nil {
+		t.Fatal("expected recalled_memories segment")
+	}
+	if recallSeg.Target != PromptTargetSystemPrefix {
+		t.Fatalf("expected SystemPrefix target, got %v", recallSeg.Target)
+	}
+	if recallSeg.Stability != PromptStabilityVolatileTail {
+		t.Fatalf("expected VolatileTail stability, got %v", recallSeg.Stability)
+	}
+	if recallSeg.CacheEligible {
+		t.Fatal("expected CacheEligible=false")
+	}
+	if !strings.Contains(recallSeg.Text, "<recalled-knowledge>") {
+		t.Fatalf("expected recalled-knowledge block, got %q", recallSeg.Text)
+	}
+	if !strings.Contains(recallSeg.Text, "数据库选型") {
+		t.Fatalf("expected recall content, got %q", recallSeg.Text)
+	}
+	if guidanceSeg == nil {
+		t.Fatal("expected guidance segment")
+	}
+	if !strings.Contains(guidanceSeg.Text, "已注入") && !strings.Contains(guidanceSeg.Text, "相关记忆") {
+		t.Fatalf("guidance should mention injected recall: %q", guidanceSeg.Text)
+	}
+}
+
+func TestBuildNowledgeGuidanceTextVariants(t *testing.T) {
+	t.Run("both injected", func(t *testing.T) {
+		text := buildNowledgeGuidanceText(true, true)
+		if !strings.Contains(text, "Working Memory") || !strings.Contains(text, "相关记忆") {
+			t.Fatalf("expected both mentioned: %q", text)
+		}
+		if !strings.Contains(text, "已注入") {
+			t.Fatalf("expected injected notice: %q", text)
+		}
+	})
+	t.Run("only working memory", func(t *testing.T) {
+		text := buildNowledgeGuidanceText(true, false)
+		if !strings.Contains(text, "Working Memory") {
+			t.Fatalf("expected WM mentioned: %q", text)
+		}
+		if !strings.Contains(text, "已注入") {
+			t.Fatalf("expected injected notice: %q", text)
+		}
+	})
+	t.Run("neither injected", func(t *testing.T) {
+		text := buildNowledgeGuidanceText(false, false)
+		if !strings.Contains(text, "memory_search") {
+			t.Fatalf("expected proactive search guidance: %q", text)
+		}
+		if strings.Contains(text, "已注入") {
+			t.Fatalf("should not mention injection: %q", text)
+		}
+	})
 }

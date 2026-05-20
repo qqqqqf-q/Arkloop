@@ -6,7 +6,6 @@ import { PageHeader } from '../../components/PageHeader'
 import { FormField } from '../../components/FormField'
 import { Modal } from '../../components/Modal'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
-import { Badge } from '../../components/Badge'
 import { AutoResizeTextarea, useToast, PillToggle } from '@arkloop/shared'
 import { isApiError } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
@@ -71,7 +70,6 @@ const API_FORMAT_LABELS: Record<ApiFormat, string> = {
 type ModelFormState = {
   model: string
   priority: string
-  isDefault: boolean
   tags: string
   whenJSON: string
   advancedJSON: string
@@ -96,7 +94,6 @@ function emptyModelForm(): ModelFormState {
   return {
     model: '',
     priority: '0',
-    isDefault: false,
     tags: '',
     whenJSON: '{}',
     advancedJSON: '{}',
@@ -122,7 +119,6 @@ function modelToForm(model: LlmProviderModel): ModelFormState {
   return {
     model: model.model,
     priority: String(model.priority ?? 0),
-    isDefault: model.is_default,
     tags: (model.tags ?? []).join(', '),
     whenJSON: JSON.stringify(model.when ?? {}, null, 2),
     advancedJSON: JSON.stringify(model.advanced_json ?? {}, null, 2),
@@ -378,7 +374,6 @@ export function ProvidersPage() {
     const payload = {
       model: modelName,
       priority: Number(modelForm.priority.trim() || '0'),
-      is_default: modelForm.isDefault,
       tags: parseTags(modelForm.tags),
       when: whenJSON,
       advanced_json: advancedJSON,
@@ -466,7 +461,6 @@ export function ProvidersPage() {
           scope,
           model: modelID,
           priority: 1,
-          is_default: false,
           tags: isEmb ? ['embedding'] : undefined,
           advanced_json: routeAdvancedJsonFromAvailableCatalog({
             id: modelID,
@@ -685,7 +679,6 @@ export function ProvidersPage() {
                               {model.tags.includes('embedding') && (
                                 <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'var(--c-bg-sub)', color: 'var(--c-text-muted)' }}>emb</span>
                               )}
-                              {model.is_default && <Badge variant="success">{tc.routeDefault}</Badge>}
                               <span className="text-xs text-[var(--c-text-muted)]">priority {model.priority}</span>
                             </div>
                             <button
@@ -773,10 +766,6 @@ export function ProvidersPage() {
               <input className={INPUT_CLS} value={modelForm.tags} onChange={(e) => { setModelForm((prev) => ({ ...prev, tags: e.target.value })); setModelError('') }} />
             </FormField>
           </div>
-          <label className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={modelForm.isDefault} onChange={(e) => setModelForm((prev) => ({ ...prev, isDefault: e.target.checked }))} className="rounded" />
-            {tc.routeDefault}
-          </label>
           <FormField label={tc.routeWhen}>
             <AutoResizeTextarea className={TEXTAREA_CLS} rows={5} minRows={5} maxHeight={320} value={modelForm.whenJSON} onChange={(e) => { setModelForm((prev) => ({ ...prev, whenJSON: e.target.value })); setModelError('') }} />
           </FormField>

@@ -810,7 +810,7 @@ func TestDesktopOpenVikingMemoryMiddlewareUsesPromptInjectionResolver(t *testing
 	}
 
 	provider := &desktopMemoryProviderStub{appendCalled: make(chan struct{}, 1)}
-	mw := pipeline.NewMemoryMiddleware(provider, pipeline.NewDesktopMemorySnapshotStore(db), db, capability.Resolver, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(provider, pipeline.NewDesktopMemorySnapshotStore(db), db, capability.Resolver, nil, nil, nil, nil)
 	userID := uuid.New()
 	rc := &pipeline.RunContext{
 		Run: data.Run{
@@ -1023,7 +1023,6 @@ func TestDesktopRoutingResolveGatewayForAgentNameUsesSelector(t *testing.T) {
 	defer db.Close()
 
 	router := routing.NewProviderRouter(routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-openai",
 		Credentials: []routing.ProviderCredential{
 			{
 				ID:           "cred-openai",
@@ -1150,7 +1149,7 @@ func TestLoadDesktopRoutingConfigCanonicalizesGeminiModel(t *testing.T) {
 			args: []any{credentialID, accountID, secretID},
 		},
 		{
-			sql:  `INSERT INTO llm_routes (id, account_id, credential_id, model, priority, is_default, when_json, advanced_json, multiplier) VALUES ($1, $2, $3, $4, 10, 1, '{}', '{}', 1.0)`,
+			sql:  `INSERT INTO llm_routes (id, account_id, credential_id, model, priority, when_json, advanced_json, multiplier) VALUES ($1, $2, $3, $4, 10, '{}', '{}', 1.0)`,
 			args: []any{routeID, accountID, credentialID, "models/gemini-2.5-pro"},
 		},
 	} {

@@ -112,7 +112,7 @@ describe('CopSegmentBlocks', () => {
     })
     try {
       expect(container.textContent).toContain('Write focused test')
-      expect(container.textContent).toContain('1 of 2 Done')
+      expect(container.textContent).toContain('1/2 完成')
       // todo_write is promoted as top-level, read renders in card mode without COP shell
       expect(container.querySelector('.cop-timeline-root')).toBeNull()
     } finally {
@@ -219,7 +219,7 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      expect(container.textContent).toContain('document_write')
+      expect(container.textContent).toContain('写入了文档')
       expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
     } finally {
       cleanup()
@@ -272,7 +272,7 @@ describe('CopSegmentBlocks', () => {
       expect(summary?.getAttribute('style')).toContain('font-family: inherit')
       expect(expand?.style.gridTemplateRows).toBe('0fr')
       expect(expand?.getAttribute('aria-hidden')).toBe('true')
-      expect(container.textContent).toContain('Completed 1 of 2')
+      expect(container.textContent).toContain('完成 1/2')
       expect(container.textContent).toContain('Write focused test')
       expect(container.textContent).not.toContain('Todos')
       await act(async () => {
@@ -329,7 +329,7 @@ describe('CopSegmentBlocks', () => {
     try {
       const summary = container.querySelector('[data-testid="todo-change-summary"]') as HTMLButtonElement | null
       expect(summary).not.toBeNull()
-      expect(summary?.textContent).toContain('Started 2 of 3')
+      expect(summary?.textContent).toContain('开始 2/3')
       expect(summary?.textContent).toContain('Wiring the renderer')
       expect(summary?.textContent).not.toContain('Wire the renderer')
     } finally {
@@ -380,7 +380,7 @@ describe('CopSegmentBlocks', () => {
     try {
       const summary = container.querySelector('[data-testid="todo-change-summary"]') as HTMLButtonElement | null
       expect(summary).not.toBeNull()
-      expect(summary?.textContent).toContain('Completed 1 of 3')
+      expect(summary?.textContent).toContain('完成 1/3')
       expect(summary?.textContent).toContain('Write focused test')
       expect(summary?.textContent).not.toContain('Wiring the renderer')
       expect(container.textContent).not.toContain('Todos')
@@ -452,10 +452,10 @@ describe('CopSegmentBlocks', () => {
     })
     try {
       expect(container.querySelectorAll('[data-testid="todo-change-summary"]')).toHaveLength(1)
-      expect(container.textContent).toContain('Completed 1 of 2')
+      expect(container.textContent).toContain('完成 1/2')
       const fullCardHeader = Array.from(container.querySelectorAll('button'))
         .find((button) => button.textContent?.includes('Todos')) as HTMLButtonElement | undefined
-      expect(fullCardHeader?.textContent).toContain('1 of 2 Done')
+      expect(fullCardHeader?.textContent).toContain('1/2 完成')
     } finally {
       cleanup()
     }
@@ -519,7 +519,7 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      expect(container.textContent).toContain('2 of 2 Done')
+      expect(container.textContent).toContain('2/2 完成')
       expect(container.querySelectorAll('svg')).not.toHaveLength(0)
     } finally {
       cleanup()
@@ -558,7 +558,7 @@ describe('CopSegmentBlocks', () => {
     try {
       expect(container.querySelector('[data-testid="todo-change-summary"]')).toBeNull()
       expect(container.textContent).toContain('Todos')
-      expect(container.textContent).toContain('0 of 2 Done')
+      expect(container.textContent).toContain('0/2 完成')
       expect(container.textContent).toContain('Write focused test')
       expect(container.textContent).toContain('Wire the renderer')
       const firstItem = container.querySelector('.todo-list-item-rise') as HTMLElement | null

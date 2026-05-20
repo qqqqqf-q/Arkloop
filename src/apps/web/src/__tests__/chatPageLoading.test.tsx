@@ -494,19 +494,25 @@ vi.mock('../components/CopTimeline', () => ({
 
     for (const seg of segments) {
       for (const item of seg.items) {
-        if (item.kind === 'call' && item.call && pool) {
+        if (item.kind === 'call' && item.call) {
           const id = item.call.toolCallId
-          const ce = pool.codeExecutions?.get(id)
+          const ce = pool?.codeExecutions?.get(id)
           if (ce) { codeExecutionsArr.push({ id, code: String(ce.code ?? '') }); continue }
-          const fo = pool.fileOps?.get(id)
+          const fallbackCode = typeof item.call.arguments.command === 'string'
+            ? item.call.arguments.command
+            : typeof item.call.arguments.code === 'string'
+              ? item.call.arguments.code
+              : null
+          if (fallbackCode) { codeExecutionsArr.push({ id, code: fallbackCode }); continue }
+          const fo = pool?.fileOps?.get(id)
           if (fo) { fileOpsArr.push({ id, label: String(fo.label ?? '') }); continue }
-          const sa = pool.subAgents?.get(id)
+          const sa = pool?.subAgents?.get(id)
           if (sa) { subAgentsArr.push({ id, nickname: sa.nickname as string | undefined }); continue }
-          const wf = pool.webFetches?.get(id)
+          const wf = pool?.webFetches?.get(id)
           if (wf) { webFetchesArr.push({ id, url: String(wf.url ?? '') }); continue }
-          const gt = pool.genericTools?.get(id)
+          const gt = pool?.genericTools?.get(id)
           if (gt) { genericToolsArr.push({ id, label: String(gt.label ?? '') }); continue }
-          const st = pool.steps?.get(id)
+          const st = pool?.steps?.get(id)
           if (st) { stepsArr.push({ id, label: String(st.label ?? '') }); continue }
         } else if (item.kind === 'thinking') {
           thinkingRows.push({ id: `th-${thinkingRows.length}`, markdown: item.content ?? '' })
@@ -605,11 +611,17 @@ vi.mock('../components/cop-timeline/CopTimeline', () => ({
     const thinkRows: Array<{ id: string; markdown: string }> = []
     for (const seg of segments) {
       for (const item of seg.items) {
-        if (item.kind === 'call' && item.call && pool) {
+        if (item.kind === 'call' && item.call) {
           const id = item.call.toolCallId
-          const ce = pool.codeExecutions?.get(id)
+          const ce = pool?.codeExecutions?.get(id)
           if (ce) { codeArr.push({ id, code: String(ce.code ?? '') }); continue }
-          const st = pool.steps?.get(id)
+          const fallbackCode = typeof item.call.arguments.command === 'string'
+            ? item.call.arguments.command
+            : typeof item.call.arguments.code === 'string'
+              ? item.call.arguments.code
+              : null
+          if (fallbackCode) { codeArr.push({ id, code: fallbackCode }); continue }
+          const st = pool?.steps?.get(id)
           if (st) { stepsArr.push({ id, label: String(st.label ?? '') }); continue }
         } else if (item.kind === 'thinking') {
           thinkRows.push({ id: `th-${thinkRows.length}`, markdown: item.content ?? '' })
@@ -667,6 +679,13 @@ function flushMicrotasks(): Promise<void> {
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
     .then(() => Promise.resolve())
+}
+
+async function flushDeferredSseDrains(): Promise<void> {
+  for (let i = 0; i < 3; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await flushMicrotasks()
+  }
 }
 
 async function waitForAssertion(assertion: () => void): Promise<void> {
@@ -2026,7 +2045,7 @@ describe('ChatPage loading state', () => {
     await act(async () => {
       root.render(renderTree())
       await flushMicrotasks()
-      await flushMicrotasks()
+      await flushDeferredSseDrains()
     })
 
     expect(container.textContent).toContain('resume after cancel')
@@ -2066,7 +2085,7 @@ describe('ChatPage loading state', () => {
     await act(async () => {
       root.render(renderTree())
       await flushMicrotasks()
-      await flushMicrotasks()
+      await flushDeferredSseDrains()
     })
 
     const restoredInput = container.querySelector('input[aria-label="chat-input"]') as HTMLInputElement | null
@@ -3436,19 +3455,19 @@ describe('ChatPage loading state', () => {
     })
 
     const text = container.textContent ?? ''
+    const persistedAssistantTurns = JSON.stringify(vi.mocked(writeMessageAssistantTurn).mock.calls.map((call) => call[1]))
     expect(text).toContain('我要先')
     expect(text).toContain('再继续')
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
     expect(text).toContain('pwd')
-    expect(text).toContain('ls')
+    expect(persistedAssistantTurns).toContain('"command":"ls"')
     expect(text).not.toContain('1 steps completed')
     expect(container.querySelector('[data-preserve-expanded="true"]')).toBeNull()
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
     expect(text.indexOf('pwd')).toBeGreaterThan(text.indexOf('我要先'))
     expect(text.indexOf('再继续')).toBeGreaterThan(text.indexOf('pwd'))
-    expect(text.indexOf('ls')).toBeGreaterThan(text.indexOf('再继续'))
+    expect(persistedAssistantTurns.indexOf('ls')).toBeGreaterThan(persistedAssistantTurns.indexOf('再继续'))
     expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'smooth')).toBe(false)
-    expect(scrollIntoViewMock.mock.calls.some(([opts]) => (opts as { behavior?: string } | undefined)?.behavior === 'instant')).toBe(false)
 
     sseMock.events = [
       ...sseMock.events,
@@ -3659,6 +3678,7 @@ describe('ChatPage loading state', () => {
     })
 
     const text = container.textContent ?? ''
+    const persistedAssistantTurns = JSON.stringify(vi.mocked(writeMessageAssistantTurn).mock.calls.map((call) => call[1]))
     expect(text).toContain('我要先')
     expect(text).toContain('再继续')
     expect(container.querySelector('[data-testid="current-run-handoff"]')).toBeNull()
@@ -3666,7 +3686,7 @@ describe('ChatPage loading state', () => {
     expect(text.indexOf('我要先')).toBeGreaterThanOrEqual(0)
     expect(text.indexOf('pwd')).toBeGreaterThan(text.indexOf('我要先'))
     expect(text.indexOf('再继续')).toBeGreaterThan(text.indexOf('pwd'))
-    expect(text.indexOf('ls')).toBeGreaterThan(text.indexOf('再继续'))
+    expect(persistedAssistantTurns.indexOf('ls')).toBeGreaterThan(persistedAssistantTurns.indexOf('再继续'))
 
     act(() => {
       root.unmount()

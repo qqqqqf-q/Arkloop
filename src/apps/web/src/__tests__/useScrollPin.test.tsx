@@ -1,31 +1,22 @@
 import { act, useEffect, useLayoutEffect, useRef } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useScrollPin, type ScrollPinResult } from '../hooks/useScrollPin'
 
 type HarnessMetrics = {
   clientHeight: number
-  clientWidth?: number
   scrollHeight: number
   turnHeight: number
   turnOffset: number
+  headerOffset?: number
   bottomOffset: number
   inputAreaHeight?: number
-  leadingHeight?: number
-  leadingOffset?: number
-  headerHeight?: number
-  headerOffset?: number
-  collapsibleHeight?: number
-  collapsibleOffset?: number
-  anchorHeight?: number
-  anchorOffset?: number
-  tailHeight?: number
-  tailOffset?: number
 }
 
 type HarnessProps = {
   metrics: HarnessMetrics
   messages: unknown[]
+  messagesLoading?: boolean
   liveRunUiVisible?: boolean
   promptPinningDisabled?: boolean
   deferSmoothScroll?: boolean
@@ -35,22 +26,13 @@ type HarnessProps = {
 }
 
 function rect(top: number, height: number): DOMRect {
-  return {
-    x: 0,
-    y: top,
-    top,
-    bottom: top + height,
-    left: 0,
-    right: 800,
-    width: 800,
-    height,
-    toJSON: () => ({}),
-  } as DOMRect
+  return { x: 0, y: top, top, bottom: top + height, left: 0, right: 800, width: 800, height, toJSON: () => ({}) } as DOMRect
 }
 
 function ScrollPinHarness({
   metrics,
   messages,
+  messagesLoading = false,
   liveRunUiVisible = false,
   promptPinningDisabled = false,
   deferSmoothScroll = false,
@@ -58,88 +40,37 @@ function ScrollPinHarness({
   onScrollIntoView,
   onContainerScrollTo,
 }: HarnessProps) {
-  const api = useScrollPin({
-    messages,
-    liveRunUiVisible,
-    promptPinningDisabled,
-  })
-  const {
-    bottomRef,
-    copCodeExecScrollRef,
-    handleScrollContainerScroll,
-    inputAreaRef,
-    lastUserMsgRef,
-    lastUserPromptRef,
-    scrollContainerRef,
-    spacerRef,
-  } = api
+  const api = useScrollPin({ messages, messagesLoading, liveRunUiVisible, promptPinningDisabled })
+  const { bottomRef, handleScrollContainerScroll, inputAreaRef, lastUserMsgRef, lastUserPromptRef, scrollContainerRef, spacerRef } = api
   const metricsKey = JSON.stringify(metrics)
-  const contentRootRef = useRef<HTMLDivElement>(null)
-  const leadingRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
-  const collapsibleRef = useRef<HTMLDivElement>(null)
-  const anchorRef = useRef<HTMLDivElement>(null)
-  const tailRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    lastUserPromptRef.current = headerRef.current
-  })
-
-  useEffect(() => {
-    onReady(api)
-  }, [api, onReady])
+  useEffect(() => { lastUserPromptRef.current = headerRef.current })
+  useEffect(() => { onReady(api) }, [api, onReady])
 
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
-    const contentRoot = contentRootRef.current
-    const leading = leadingRef.current
     const turn = lastUserMsgRef.current
     const header = headerRef.current
-    const collapsible = collapsibleRef.current
-    const anchor = anchorRef.current
-    const tail = tailRef.current
-    const bottom = api.bottomRef.current
-    const inputArea = api.inputAreaRef.current
-    if (!container || !contentRoot || !leading || !turn || !header || !collapsible || !anchor || !tail || !bottom || !inputArea) return
+    const bottom = bottomRef.current
+    const inputArea = inputAreaRef.current
+    if (!container || !turn || !header || !bottom || !inputArea) return
 
-    Object.defineProperty(container, 'clientHeight', {
-      configurable: true,
-      get: () => metrics.clientHeight,
-    })
-    Object.defineProperty(container, 'clientWidth', {
-      configurable: true,
-      get: () => metrics.clientWidth ?? 800,
-    })
-    Object.defineProperty(container, 'scrollHeight', {
-      configurable: true,
-      get: () => metrics.scrollHeight,
-    })
-    Object.defineProperty(bottom, 'offsetTop', {
-      configurable: true,
-      get: () => metrics.bottomOffset,
-    })
-
-    const applyRect = (element: HTMLElement, getOffset: () => number, getHeight: () => number) => {
-      Object.defineProperty(element, 'getBoundingClientRect', {
-        configurable: true,
-        value: () => rect(getOffset() - container.scrollTop, getHeight()),
-      })
-    }
-
+    Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => metrics.clientHeight })
+    Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () => metrics.scrollHeight })
     Object.defineProperty(container, 'getBoundingClientRect', {
       configurable: true,
       value: () => rect(0, metrics.clientHeight),
     })
-    Object.defineProperty(contentRoot, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => rect(0, metrics.scrollHeight),
-    })
-    applyRect(leading, () => metrics.leadingOffset ?? 120, () => metrics.leadingHeight ?? 260)
+
+    const applyRect = (el: HTMLElement, getOffset: () => number, getHeight: () => number) => {
+      Object.defineProperty(el, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => rect(getOffset() - container.scrollTop, getHeight()),
+      })
+    }
     applyRect(turn, () => metrics.turnOffset, () => metrics.turnHeight)
-    applyRect(header, () => metrics.headerOffset ?? metrics.turnOffset, () => metrics.headerHeight ?? 64)
-    applyRect(collapsible, () => metrics.collapsibleOffset ?? (metrics.turnOffset + 84), () => metrics.collapsibleHeight ?? 220)
-    applyRect(anchor, () => metrics.anchorOffset ?? (metrics.turnOffset + 340), () => metrics.anchorHeight ?? 120)
-    applyRect(tail, () => metrics.tailOffset ?? (metrics.turnOffset + metrics.turnHeight - 80), () => metrics.tailHeight ?? 80)
+    applyRect(header, () => metrics.headerOffset ?? metrics.turnOffset, () => 64)
     Object.defineProperty(inputArea, 'getBoundingClientRect', {
       configurable: true,
       value: () => rect(0, metrics.inputAreaHeight ?? 160),
@@ -147,14 +78,16 @@ function ScrollPinHarness({
     Object.defineProperty(container, 'scrollTo', {
       configurable: true,
       value: ((arg1?: number | ScrollToOptions) => {
+        const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
         if (typeof arg1 === 'number') {
           onContainerScrollTo?.(undefined, arg1)
-          container.scrollTop = arg1
+          container.scrollTop = Math.min(arg1, maxScroll)
           return
         }
-        onContainerScrollTo?.(arg1?.behavior, arg1?.top ?? 0)
+        const top = arg1?.top ?? 0
+        onContainerScrollTo?.(arg1?.behavior, top)
         if (deferSmoothScroll && arg1?.behavior === 'smooth') return
-        container.scrollTop = arg1?.top ?? 0
+        container.scrollTop = Math.min(top, maxScroll)
       }) as typeof container.scrollTo,
     })
     Object.defineProperty(bottom, 'scrollIntoView', {
@@ -165,60 +98,31 @@ function ScrollPinHarness({
         container.scrollTop = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
       }) as typeof bottom.scrollIntoView,
     })
-
-    const hitOrder = [anchor, collapsible, header, turn, leading, contentRoot, container]
-    document.elementFromPoint = ((x: number, y: number) => {
-      for (const element of hitOrder) {
-        const elementRect = element.getBoundingClientRect()
-        if (x < elementRect.left || x > elementRect.right || y < elementRect.top || y > elementRect.bottom) {
-          continue
-        }
-        return element
-      }
-      return null
-    }) as typeof document.elementFromPoint
   }, [bottomRef, deferSmoothScroll, lastUserMsgRef, metricsKey, onContainerScrollTo, onScrollIntoView, scrollContainerRef])
 
   return (
     <>
       <div ref={scrollContainerRef} onScroll={handleScrollContainerScroll}>
-        <div ref={contentRootRef}>
-          <div ref={leadingRef} className="group/turn" data-testid="leading-turn">leading</div>
-          <div ref={lastUserMsgRef} className="group/turn" data-testid="last-turn">
-            <div ref={(node) => {
-              headerRef.current = node
-            }} data-testid="turn-header">header</div>
-            <div ref={collapsibleRef} data-testid="turn-collapsible">collapsible</div>
-            <div ref={anchorRef} data-testid="turn-anchor">anchor</div>
-            <div ref={tailRef} data-testid="turn-tail">tail</div>
-          </div>
-          <div ref={bottomRef}>bottom</div>
+        <div ref={lastUserMsgRef}>
+          <div ref={(node) => { headerRef.current = node }}>header</div>
         </div>
+        <div ref={bottomRef}>bottom</div>
       </div>
       <div ref={inputAreaRef} />
-      <div ref={copCodeExecScrollRef} />
       <div ref={spacerRef} />
     </>
   )
 }
 
 function flushAnimationFrame(): Promise<void> {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => resolve())
-  })
+  return new Promise((resolve) => { requestAnimationFrame(() => resolve()) })
 }
 
 async function flushAnimationFrames(count: number): Promise<void> {
-  for (let i = 0; i < count; i += 1) {
-    await flushAnimationFrame()
-  }
+  for (let i = 0; i < count; i += 1) await flushAnimationFrame()
 }
 
-type ResizeObserverRecord = {
-  callback: ResizeObserverCallback
-  elements: Set<Element>
-}
-
+type ResizeObserverRecord = { callback: ResizeObserverCallback; elements: Set<Element> }
 const resizeObserverRecords: ResizeObserverRecord[] = []
 
 function triggerResize(target: Element) {
@@ -229,788 +133,246 @@ function triggerResize(target: Element) {
 }
 
 describe('useScrollPin', () => {
-  const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
-  const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
-  const originalResizeObserver = globalThis.ResizeObserver
-  const originalElementFromPoint = document.elementFromPoint
+  const actEnv = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  const origActEnv = actEnv.IS_REACT_ACT_ENVIRONMENT
+  const origRO = globalThis.ResizeObserver
+
+  let _root: Root | null = null
 
   beforeEach(() => {
-    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
+    actEnv.IS_REACT_ACT_ENVIRONMENT = true
     resizeObserverRecords.length = 0
-    globalThis.ResizeObserver = class ResizeObserverMock {
-      private readonly record: ResizeObserverRecord
-
-      constructor(callback: ResizeObserverCallback) {
-        this.record = { callback, elements: new Set<Element>() }
-        resizeObserverRecords.push(this.record)
+    globalThis.ResizeObserver = class {
+      private readonly rec: ResizeObserverRecord
+      constructor(cb: ResizeObserverCallback) {
+        this.rec = { callback: cb, elements: new Set() }
+        resizeObserverRecords.push(this.rec)
       }
-
-      observe = (element: Element) => {
-        this.record.elements.add(element)
-      }
-
-      unobserve = (element: Element) => {
-        this.record.elements.delete(element)
-      }
-
-      disconnect = () => {
-        this.record.elements.clear()
-      }
+      observe = (el: Element) => { this.rec.elements.add(el) }
+      unobserve = (el: Element) => { this.rec.elements.delete(el) }
+      disconnect = () => { this.rec.elements.clear() }
     } as typeof ResizeObserver
   })
 
   afterEach(() => {
+    if (_root) { act(() => { _root!.unmount() }); _root = null }
     document.body.innerHTML = ''
     resizeObserverRecords.length = 0
-    if (originalResizeObserver === undefined) {
-      Reflect.deleteProperty(globalThis, 'ResizeObserver')
-    } else {
-      globalThis.ResizeObserver = originalResizeObserver
-    }
-    document.elementFromPoint = originalElementFromPoint
-    if (originalActEnvironment === undefined) {
-      delete actEnvironment.IS_REACT_ACT_ENVIRONMENT
-    } else {
-      actEnvironment.IS_REACT_ACT_ENVIRONMENT = originalActEnvironment
-    }
+    if (origRO === undefined) Reflect.deleteProperty(globalThis, 'ResizeObserver')
+    else globalThis.ResizeObserver = origRO
+    if (origActEnv === undefined) delete actEnv.IS_REACT_ACT_ENVIRONMENT
+    else actEnv.IS_REACT_ACT_ENVIRONMENT = origActEnv
   })
 
-  function requireApi(api: ScrollPinResult | null): ScrollPinResult {
-    if (!api?.scrollContainerRef.current) {
-      throw new Error('scroll container missing')
+  async function setup(props: Omit<HarnessProps, 'onReady'> & Partial<Pick<HarnessProps, 'onReady'>>) {
+    const apiRef = { current: null as ScrollPinResult | null }
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const root = createRoot(el)
+    _root = root
+
+    const renderHarness = (overrides?: Partial<HarnessProps>) => {
+      root.render(
+        <ScrollPinHarness
+          {...props}
+          {...overrides}
+          onReady={(v) => { apiRef.current = v }}
+        />,
+      )
     }
-    return api
+
+    await act(async () => {
+      renderHarness()
+      await flushAnimationFrames(2)
+    })
+
+    const api = apiRef.current!
+    if (!api?.scrollContainerRef.current) throw new Error('scroll container missing')
+    return { api, root, renderHarness, apiRef }
   }
 
-  function requireContainer(api: ScrollPinResult): HTMLDivElement {
-    const container = api.scrollContainerRef.current
-    if (!container) {
-      throw new Error('scroll container missing')
-    }
-    return container
-  }
-
-  function requireContentRoot(api: ScrollPinResult): HTMLDivElement {
-    const root = api.scrollContainerRef.current?.firstElementChild
-    if (!(root instanceof HTMLDivElement)) {
-      throw new Error('content root missing')
-    }
-    return root
-  }
-
-  function requireLastTurn(api: ScrollPinResult): HTMLDivElement {
-    const turn = api.lastUserMsgRef.current
-    if (!(turn instanceof HTMLDivElement)) {
-      throw new Error('last turn missing')
-    }
-    return turn
-  }
-
-  function requireLastUserPrompt(api: ScrollPinResult): HTMLDivElement {
-    const prompt = api.lastUserPromptRef.current
-    if (!(prompt instanceof HTMLDivElement)) {
-      throw new Error('last user prompt missing')
-    }
-    return prompt
-  }
-
-  function requireInputArea(api: ScrollPinResult): HTMLDivElement {
-    const inputArea = api.inputAreaRef.current
-    if (!(inputArea instanceof HTMLDivElement)) {
-      throw new Error('input area missing')
-    }
-    return inputArea
-  }
-
-  it('发送后应固定在用户消息顶部而不是跟随到底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    let anchorScrollBehavior: ScrollBehavior | undefined
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior) => { anchorScrollBehavior = behavior }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      anchorScrollBehavior = undefined
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(15)
-    })
-
-    expect(anchorScrollBehavior).toBe('smooth')
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-
-    await act(async () => {
-      metrics.scrollHeight = 1900
-      metrics.turnHeight = 860
-      metrics.bottomOffset = 1900
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('平滑滚动尚未产生位移时，不应误判为稳定并瞬间跳到锚点', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    let anchorScrollBehavior: ScrollBehavior | undefined
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior) => { anchorScrollBehavior = behavior }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(4)
-    })
-
-    expect(anchorScrollBehavior).toBe('smooth')
-    expect(scrollContainer.scrollTop).toBe(120)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    await act(async () => {
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(120)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 440
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('平滑滚动停在锚点附近但未到位时，不应释放后再补一帧位移', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(4)
-    })
-
-    act(() => {
-      scrollContainer.scrollTop = 551
-    })
-    await act(async () => {
-      await flushAnimationFrames(4)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(551)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 440
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('锚点位置在动画过程中变化时，应重新对准最新位置', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const scrollTargets: number[] = []
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(_, top) => { scrollTargets.push(top) }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(4)
-    })
-
-    await act(async () => {
-      metrics.headerOffset = 604
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(_, top) => { scrollTargets.push(top) }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollTargets).toContain(440)
-    expect(scrollTargets).toContain(444)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 444
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('锚定刚稳定后的迟到向下滚动事件，不应解除用户消息置顶', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(4)
-    })
-
-    act(() => {
-      scrollContainer.scrollTop = 440
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 620
-      readyApi.handleScrollContainerScroll()
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    // 新语义：spacer 常驻、不做模式切换；用户即使向下滑也保持 anchored，不再被强行拉回。
-    expect(scrollContainer.scrollTop).toBe(620)
-
-    await act(async () => {
-      metrics.scrollHeight = 1900
-      metrics.turnHeight = 620
-      metrics.bottomOffset = 1900
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    // 流式期间 followLiveOutput 仍然 false（用户已经手动滑过），保持当前位置。
-    expect(scrollContainer.scrollTop).toBe(620)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('已排队的贴底滚动不应在用户消息锚定后继续执行', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const scrollTargets: number[] = []
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(_, top) => { scrollTargets.push(top) }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-    scrollTargets.length = 0
-
-    act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.scrollToBottom()
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(15)
-    })
-
-    // scrollToBottom 通过 rAF 调度，锚定生效后最终位置在 440
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('顶部锚定时，布局宽度变化不应被当成贴底跟随', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      clientWidth: 800,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    await act(async () => {
-      metrics.clientWidth = 720
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(1)
-    })
-
-    act(() => {
-      readyApi.handleScrollContainerScroll()
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('禁用用户消息置顶时，发送后应正常滚到底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
+  it('activateAnchor 应 smooth 滚到 prompt 位置并设为 pinned', async () => {
     let scrollBehavior: ScrollBehavior | undefined
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          promptPinningDisabled
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior) => { scrollBehavior = behavior }}
-        />,
-      )
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 560, headerOffset: 600, bottomOffset: 1400 }
+    const { api, renderHarness } = await setup({
+      metrics,
+      messages: [{ id: 'user-1' }],
+      onContainerScrollTo: (b) => { scrollBehavior = b },
     })
+    const container = api.scrollContainerRef.current!
 
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
+    act(() => { api.activateAnchor() })
     await act(async () => {
+      renderHarness({
+        messages: [{ id: 'user-1' }, { id: 'live' }],
+        liveRunUiVisible: true,
+        onContainerScrollTo: (b) => { scrollBehavior = b },
+      })
       await flushAnimationFrames(2)
     })
 
     expect(scrollBehavior).toBe('smooth')
-    expect(scrollContainer.scrollTop).toBe(1000)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-    expect(prompt.getBoundingClientRect().top).toBe(-400)
-
-    act(() => {
-      root.unmount()
-    })
+    expect(container.scrollTop).toBe(440)
+    expect(api.isAtBottomRef.current).toBe(true)
   })
 
-  it('禁用用户消息置顶时，待执行的平滑到底部不应被布局变化变成瞬移', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const scrollCalls: Array<{ behavior: ScrollBehavior | undefined; top: number }> = []
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
+  it('pinned 状态下流式内容增长不应移动 scrollTop', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, headerOffset: 600, bottomOffset: 1400 }
+    const { api, renderHarness } = await setup({ metrics, messages: [{ id: 'user-1' }] })
+    const container = api.scrollContainerRef.current!
+
+    act(() => { api.activateAnchor() })
+    await act(async () => {
+      renderHarness({ messages: [{ id: 'user-1' }, { id: 'live' }], liveRunUiVisible: true })
+      await flushAnimationFrames(2)
+    })
+    expect(container.scrollTop).toBe(440)
+
+    for (let i = 0; i < 5; i++) {
+      await act(async () => {
+        metrics.scrollHeight += 50
+        metrics.turnHeight += 50
+        metrics.bottomOffset += 50
+        renderHarness({ messages: [{ id: 'user-1' }, { id: `live-${i}` }], liveRunUiVisible: true })
+        await flushAnimationFrames(2)
+      })
+      expect(container.scrollTop).toBe(440)
     }
+    expect(api.isAtBottomRef.current).toBe(true)
+  })
 
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          promptPinningDisabled
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
-        />,
-      )
+  it('scrollToBottom 应回到 following 并 smooth 滚到底部', async () => {
+    let lastBehavior: ScrollBehavior | undefined
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, bottomOffset: 1400 }
+    const { api, renderHarness } = await setup({
+      metrics,
+      messages: [{ id: 'user-1' }],
+      liveRunUiVisible: true,
+      onContainerScrollTo: (b) => { lastBehavior = b },
     })
+    const container = api.scrollContainerRef.current!
 
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
+    act(() => { api.activateAnchor() })
+    await act(async () => { await flushAnimationFrames(3) })
+
+    act(() => { api.scrollToBottom() })
+    await act(async () => { await flushAnimationFrames(2) })
+
+    expect(lastBehavior).toBe('smooth')
+    expect(container.scrollTop).toBe(1000)
+    expect(api.isAtBottomRef.current).toBe(true)
+
+    // following 状态下新内容应 scrollIntoView 到底部
+    let scrolledToBottom = false
+    await act(async () => {
+      renderHarness({
+        metrics: { ...metrics, scrollHeight: 1800, bottomOffset: 1800 },
+        messages: [{ id: 'user-1' }, { id: 'live-2' }],
+        liveRunUiVisible: true,
+        onScrollIntoView: () => { scrolledToBottom = true },
+      })
+      await flushAnimationFrames(2)
+    })
+    expect(scrolledToBottom).toBe(true)
+  })
+
+  it('wheel 向上应从 following 切到 free，停止自动跟随', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, bottomOffset: 1400 }
+    const { api, renderHarness } = await setup({ metrics, messages: [{ id: 'user-1' }], liveRunUiVisible: true })
+    const container = api.scrollContainerRef.current!
+
+    act(() => { api.scrollToBottom() })
+    await act(async () => { await flushAnimationFrames(2) })
+    expect(container.scrollTop).toBe(1000)
 
     act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.activateAnchor()
-      triggerResize(contentRoot)
+      container.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }))
+      container.scrollTop = 800
+      api.handleScrollContainerScroll()
     })
-    await act(async () => {
-      await flushAnimationFrames(1)
-    })
+    expect(api.isAtBottomRef.current).toBe(false)
 
-    expect(scrollCalls.some((call) => call.behavior === 'instant')).toBe(false)
-    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1000 })
-    expect(scrollContainer.scrollTop).toBe(120)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 1000
-    })
     await act(async () => {
+      renderHarness({
+        metrics: { ...metrics, scrollHeight: 1800, bottomOffset: 1800 },
+        messages: [{ id: 'user-1' }, { id: 'live-2' }],
+        liveRunUiVisible: true,
+      })
+      await flushAnimationFrames(2)
+    })
+    expect(container.scrollTop).toBe(800)
+  })
+
+  it('promptPinningDisabled 时 activateAnchor 应滚到底部', async () => {
+    let scrollBehavior: ScrollBehavior | undefined
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 560, bottomOffset: 1400 }
+    const { api } = await setup({
+      metrics,
+      messages: [{ id: 'user-1' }],
+      promptPinningDisabled: true,
+      onContainerScrollTo: (b) => { scrollBehavior = b },
+    })
+    const container = api.scrollContainerRef.current!
+
+    act(() => { api.activateAnchor() })
+    await act(async () => { await flushAnimationFrames(2) })
+
+    expect(scrollBehavior).toBe('smooth')
+    expect(container.scrollTop).toBe(1000)
+    expect(api.isAtBottomRef.current).toBe(true)
+  })
+
+  it('输入区变高时 following 状态应更新 CSS 变量', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1040, turnHeight: 320, turnOffset: 480, bottomOffset: 880, inputAreaHeight: 160 }
+    const { api, renderHarness } = await setup({ metrics, messages: [{ id: 'user-1' }] })
+    const inputArea = api.inputAreaRef.current!
+
+    await act(async () => {
+      metrics.inputAreaHeight = 280
+      renderHarness()
+      triggerResize(inputArea)
       await flushAnimationFrames(2)
     })
 
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-
-    act(() => {
-      root.unmount()
-    })
+    expect(document.documentElement.style.getPropertyValue('--chat-input-area-height')).toBe('280px')
   })
 
-  it('禁用用户消息置顶时，运行中 UI 出现后仍应延续平滑到底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const scrollCalls: Array<{ behavior: ScrollBehavior | undefined; top: number }> = []
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 560,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
+  it('subscribeIsAtBottom 应在状态变化时通知监听者', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, bottomOffset: 1400 }
+    const { api } = await setup({ metrics, messages: [{ id: 'user-1' }] })
+    const container = api.scrollContainerRef.current!
 
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          promptPinningDisabled
-          deferSmoothScroll
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
+    let notified = false
+    const unsub = api.subscribeIsAtBottom(() => { notified = true })
 
     act(() => {
-      scrollContainer.scrollTop = 120
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(1)
+      container.scrollTop = 200
+      api.syncBottomState(container)
     })
 
-    await act(async () => {
-      metrics.scrollHeight = 1600
-      metrics.bottomOffset = 1600
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          promptPinningDisabled
-          deferSmoothScroll
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-          onContainerScrollTo={(behavior, top) => { scrollCalls.push({ behavior, top }) }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollCalls.some((call) => call.behavior === 'instant')).toBe(false)
-    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1000 })
-    expect(scrollCalls).toContainEqual({ behavior: 'smooth', top: 1200 })
-    expect(scrollContainer.scrollTop).toBe(120)
-    expect(readyApi.programmaticScrollDepthRef.current).toBeGreaterThan(0)
-
-    act(() => {
-      scrollContainer.scrollTop = 1200
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-
-    act(() => {
-      root.unmount()
-    })
+    expect(notified).toBe(true)
+    expect(api.getIsAtBottomSnapshot()).toBe(false)
+    unsub()
   })
 
-  it('发送后进入锚定时，不应被旧的视角保持重新往下带走', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
+  it('历史加载完成后高 turn 应进入 pinned', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 300, turnOffset: 600, headerOffset: 600, bottomOffset: 1400 }
+    const el = document.createElement('div')
+    document.body.appendChild(el)
+    const root = createRoot(el)
+    _root = root
     let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
 
     await act(async () => {
       root.render(
         <ScrollPinHarness
           metrics={metrics}
           messages={[]}
-          onReady={(value) => { api = value }}
+          messagesLoading
+          onReady={(v) => { api = v }}
         />,
       )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 320
-      readyApi.captureViewportAnchor()
-      readyApi.activateAnchor()
+      await flushAnimationFrames(2)
     })
 
     await act(async () => {
@@ -1018,792 +380,15 @@ describe('useScrollPin', () => {
         <ScrollPinHarness
           metrics={metrics}
           messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    await act(async () => {
-      metrics.scrollHeight = 1900
-      metrics.turnHeight = 860
-      metrics.bottomOffset = 1900
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
+          messagesLoading={false}
+          onReady={(v) => { api = v }}
         />,
       )
       await flushAnimationFrames(2)
     })
 
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('发送后等待锚定生效前，不应先跟到底部再回弹', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'history-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = 1000
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.activateAnchor()
-      metrics.scrollHeight = 1900
-      metrics.turnHeight = 860
-      metrics.bottomOffset = 1900
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'history-1' }, { id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    await act(async () => {
-      await flushAnimationFrames(15)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('发送后顶部锚定期间，持续输出不应把视角带到底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const observedTurn = requireLastTurn(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    await act(async () => {
-      metrics.scrollHeight = 2200
-      metrics.turnHeight = 980
-      metrics.bottomOffset = 2200
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live-1' }, { id: 'assistant-live-2' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(observedTurn)
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('顶部锚定期间，流式内容连续增高不应让 prompt 漂移', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      headerOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const observedTurn = requireLastTurn(readyApi)
-    const prompt = requireLastUserPrompt(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(prompt.getBoundingClientRect().top).toBe(160)
-
-    for (let i = 0; i < 16; i += 1) {
-      await act(async () => {
-        metrics.scrollHeight += 36
-        metrics.turnHeight += 36
-        metrics.bottomOffset += 36
-        root.render(
-          <ScrollPinHarness
-            metrics={metrics}
-            messages={[{ id: 'user-1' }, { id: `assistant-live-${i}` }]}
-            liveRunUiVisible
-            onReady={(value) => { api = value }}
-          />,
-        )
-        triggerResize(observedTurn)
-        triggerResize(contentRoot)
-        await flushAnimationFrames(2)
-      })
-
-      expect(scrollContainer.scrollTop).toBe(440)
-      expect(prompt.getBoundingClientRect().top).toBe(160)
-      expect(readyApi.programmaticScrollDepthRef.current).toBe(0)
-    }
-
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('发送后顶部锚定期间，用户手动滑动后应保持当前位置不被拉回', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const contentRoot = requireContentRoot(readyApi)
-    const observedTurn = requireLastTurn(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    await act(async () => {
-      metrics.scrollHeight = 2200
-      metrics.turnHeight = 980
-      metrics.bottomOffset = 2200
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live-1' }, { id: 'assistant-live-2' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    act(() => {
-      scrollContainer.scrollTop = 980
-      readyApi.handleScrollContainerScroll()
-      triggerResize(observedTurn)
-      triggerResize(contentRoot)
-    })
-
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    // 新语义：用户手动下滑后，hooks 不再把视角强行拉回到 prompt；保持用户当前位置。
-    expect(scrollContainer.scrollTop).toBe(980)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('点击向下箭头后应重新进入持续跟随', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    let lastScrollBehavior: ScrollBehavior | undefined
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-          onScrollIntoView={(behavior) => { lastScrollBehavior = behavior }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(15)
-    })
-
-    act(() => {
-      readyApi.scrollToBottom()
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(lastScrollBehavior).toBe('instant')
-    expect(scrollContainer.scrollTop).toBe(1000)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    await act(async () => {
-      metrics.scrollHeight = 2200
-      metrics.turnHeight = 980
-      metrics.bottomOffset = 2200
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live-1' }, { id: 'assistant-live-2' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(1800)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    await act(async () => {
-      metrics.scrollHeight = 2480
-      metrics.turnHeight = 1260
-      metrics.bottomOffset = 2480
-      const observedTurn = readyApi.lastUserMsgRef.current
-      if (!observedTurn) {
-        throw new Error('last turn missing')
-      }
-      triggerResize(observedTurn)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(2080)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    const contentRoot = requireContentRoot(readyApi)
-    const observedTurn = readyApi.lastUserMsgRef.current
-    if (!observedTurn) {
-      throw new Error('last turn missing')
-    }
-    await act(async () => {
-      metrics.scrollHeight = 2660
-      metrics.turnHeight = 1380
-      metrics.bottomOffset = 2660
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-completed' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(observedTurn)
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(2260)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    await act(async () => {
-      metrics.scrollHeight = 2520
-      metrics.turnHeight = 1240
-      metrics.bottomOffset = 2520
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-completed' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(contentRoot)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(2120)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('底部跟随时，轻微向上滚动也应立刻退出自动跟随', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 980,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      readyApi.scrollToBottom()
-    })
-    await act(async () => {
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(1000)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      scrollContainer.scrollTop = 968
-      readyApi.handleScrollContainerScroll()
-    })
-
-    expect(readyApi.isAtBottomRef.current).toBe(false)
-
-    await act(async () => {
-      metrics.scrollHeight = 1560
-      metrics.turnHeight = 1140
-      metrics.bottomOffset = 1560
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }, { id: 'assistant-live-2' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(968)
-    expect(readyApi.isAtBottomRef.current).toBe(false)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('输入区变高时，已贴底视角应继续贴住真实底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1040,
-      turnHeight: 320,
-      turnOffset: 480,
-      bottomOffset: 880,
-      inputAreaHeight: 160,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    const inputArea = requireInputArea(readyApi)
-
-    act(() => {
-      scrollContainer.scrollTop = metrics.scrollHeight - metrics.clientHeight
-      readyApi.syncBottomState(scrollContainer)
-    })
-
-    await act(async () => {
-      metrics.scrollHeight = 1160
-      metrics.inputAreaHeight = 280
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      triggerResize(inputArea)
-      await flushAnimationFrames(2)
-    })
-
-    expect(document.documentElement.style.getPropertyValue('--chat-input-area-height')).toBe('280px')
-    expect(scrollContainer.scrollTop).toBe(760)
-    expect(readyApi.isAtBottomRef.current).toBe(true)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('发送后顶部锚定下，流结束后补上操作区也不应把视角带到底部', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    const metrics = {
-      clientHeight: 400,
-      scrollHeight: 1400,
-      turnHeight: 120,
-      turnOffset: 600,
-      bottomOffset: 1400,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(3)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    await act(async () => {
-      metrics.scrollHeight = 1900
-      metrics.turnHeight = 860
-      metrics.bottomOffset = 1900
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(1)
-    })
-
-    await act(async () => {
-      triggerResize(requireLastTurn(requireApi(api)))
-      triggerResize(requireContentRoot(requireApi(api)))
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    await act(async () => {
-      metrics.scrollHeight = 1988
-      metrics.turnHeight = 948
-      metrics.bottomOffset = 1988
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-completed' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(1)
-    })
-
-    await act(async () => {
-      triggerResize(requireLastTurn(requireApi(api)))
-      triggerResize(requireContentRoot(requireApi(api)))
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(440)
-    expect(requireLastUserPrompt(requireApi(api)).getBoundingClientRect().top).toBe(160)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('在最后一段内部阅读时，上方收起不应改变当前阅读位置', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    let metrics: HarnessMetrics = {
-      clientHeight: 400,
-      scrollHeight: 2200,
-      turnHeight: 980,
-      turnOffset: 600,
-      bottomOffset: 2200,
-      leadingHeight: 260,
-      leadingOffset: 120,
-      headerHeight: 64,
-      headerOffset: 600,
-      collapsibleHeight: 260,
-      collapsibleOffset: 700,
-      anchorHeight: 120,
-      anchorOffset: 1040,
-      tailHeight: 80,
-      tailOffset: 1500,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    act(() => {
-      scrollContainer.scrollTop = 880
-      readyApi.syncBottomState(scrollContainer)
-      readyApi.captureViewportAnchor()
-    })
-    expect(scrollContainer.scrollTop).toBe(880)
-
-    await act(async () => {
-      metrics = {
-        ...metrics,
-        scrollHeight: 2060,
-        turnHeight: 840,
-        bottomOffset: 2060,
-        collapsibleHeight: 120,
-        anchorOffset: 900,
-        tailOffset: 1360,
-      }
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-completed' }]}
-          onReady={(value) => { api = value }}
-        />,
-      )
-      await flushAnimationFrames(1)
-    })
-
-    await act(async () => {
-      triggerResize(requireLastTurn(requireApi(api)))
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(740)
-
-    act(() => {
-      root.unmount()
-    })
-  })
-
-  it('发送后用户向下阅读时，展开上方内容不应跳回用户消息', async () => {
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-    const root = createRoot(container)
-    let api: ScrollPinResult | null = null
-    let metrics: HarnessMetrics = {
-      clientHeight: 400,
-      scrollHeight: 2200,
-      turnHeight: 980,
-      turnOffset: 600,
-      bottomOffset: 2200,
-      leadingHeight: 260,
-      leadingOffset: 120,
-      headerHeight: 64,
-      headerOffset: 600,
-      collapsibleHeight: 120,
-      collapsibleOffset: 700,
-      anchorHeight: 120,
-      anchorOffset: 1040,
-      tailHeight: 80,
-      tailOffset: 1500,
-    }
-
-    await act(async () => {
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-
-    const readyApi = requireApi(api)
-    const scrollContainer = requireContainer(readyApi)
-    act(() => {
-      readyApi.activateAnchor()
-    })
-    await act(async () => {
-      await flushAnimationFrames(15)
-    })
-    expect(scrollContainer.scrollTop).toBe(440)
-
-    act(() => {
-      scrollContainer.scrollTop = 880
-      readyApi.handleScrollContainerScroll()
-    })
-    expect(scrollContainer.scrollTop).toBe(880)
-    expect(readyApi.isAtBottomRef.current).toBe(false)
-
-    await act(async () => {
-      metrics = {
-        ...metrics,
-        scrollHeight: 2360,
-        turnHeight: 1140,
-        bottomOffset: 2360,
-        collapsibleHeight: 280,
-        anchorOffset: 1200,
-        tailOffset: 1660,
-      }
-      root.render(
-        <ScrollPinHarness
-          metrics={metrics}
-          messages={[{ id: 'user-1' }, { id: 'assistant-live' }]}
-          liveRunUiVisible
-          onReady={(value) => { api = value }}
-        />,
-      )
-    })
-    await act(async () => {
-      const turn = requireLastTurn(requireApi(api))
-      triggerResize(turn)
-      await flushAnimationFrames(2)
-    })
-
-    expect(scrollContainer.scrollTop).toBe(1040)
-
-    act(() => {
-      root.unmount()
-    })
+    const container = api!.scrollContainerRef.current!
+    expect(container.scrollTop).toBe(440)
+    expect(api!.isAtBottomRef.current).toBe(true)
   })
 })

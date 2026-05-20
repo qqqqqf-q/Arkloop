@@ -17,9 +17,9 @@ export function Button({
   ...props
 }: ButtonProps) {
   const variantCls = {
-    primary: 'bg-[var(--c-btn-bg)] text-[var(--c-btn-text)] hover:[box-shadow:inset_0_0_0_999px_rgba(255,255,255,0.07),0_0_0_0.2px_var(--c-btn-bg)]',
-    ghost: 'text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]',
-    danger: 'bg-[var(--c-bg-input)] text-[var(--c-danger-action-text)] [background-clip:padding-box] hover:border-transparent hover:bg-[var(--c-bg-deep)]',
+    primary: 'border-[0.65px] border-transparent bg-[var(--c-btn-bg)] text-[var(--c-btn-text)] [background-clip:padding-box] hover:[box-shadow:inset_0_0_0_999px_rgba(255,255,255,0.07),0_0_0_0.2px_var(--c-btn-bg)]',
+    ghost: 'border-[0.65px] border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-bg-sub)] hover:text-[var(--c-text-primary)]',
+    danger: 'border-[0.65px] border-transparent bg-[var(--c-bg-input)] text-[var(--c-danger-action-text)] [background-clip:padding-box] hover:border-transparent hover:bg-[var(--c-bg-deep)]',
     outline: 'border-[0.65px] border-[color-mix(in_srgb,var(--c-border)_91%,var(--c-text-primary)_9%)] bg-[var(--c-bg-input)] text-[color-mix(in_srgb,var(--c-text-secondary)_72%,var(--c-text-primary)_28%)] [background-clip:padding-box] hover:border-transparent hover:bg-[var(--c-bg-deep)] hover:text-[var(--c-text-primary)]',
   }[variant]
 

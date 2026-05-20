@@ -98,62 +98,15 @@ func routeAvailableCatalog(rule ProviderRouteRule) map[string]any {
 	return catalog
 }
 
-// inferModelCapabilities 根据模型名推断已知模型的 input modalities。
-// 当 available_catalog 未配置或缺少 input_modalities 时作为 fallback。
+// inferModelCapabilities 根据 available_catalog 推断模型能力。
+// 无 catalog 数据时不做猜测，返回空 ModelCapabilities。
 func inferModelCapabilities(model string) ModelCapabilities {
-	if isKnownVisionModel(model) {
-		return ModelCapabilities{InputModalities: []string{"text", "image"}}
-	}
 	return ModelCapabilities{}
 }
 
-// isKnownVisionModel 判断模型是否为已知的支持视觉输入的模型。
-func isKnownVisionModel(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	if m == "" {
-		return false
-	}
-
-	// GPT-4 vision 系列
-	for _, prefix := range []string{
-		"gpt-4o", "gpt-4-turbo", "gpt-4-vision", "gpt-4.1", "gpt-4.5",
-		"o1", "o3", "o4",
-	} {
-		if strings.HasPrefix(m, prefix) {
-			return true
-		}
-	}
-
-	// Claude 系列（全系支持视觉）
-	if strings.Contains(m, "claude") {
-		return true
-	}
-
-	// Gemini 系列
-	if strings.Contains(m, "gemini") {
-		return true
-	}
-
-	// Qwen VL / 通义千问视觉系列
-	if strings.Contains(m, "qwen") && (strings.Contains(m, "vl") || strings.Contains(m, "omni")) {
-		return true
-	}
-
-	// GLM-4V
-	if strings.Contains(m, "glm-4v") || strings.Contains(m, "glm4v") {
-		return true
-	}
-
-	// DeepSeek VL
-	if strings.Contains(m, "deepseek") && strings.Contains(m, "vl") {
-		return true
-	}
-
-	// 通用 pattern：模型名中包含 "vision" 或 "vl"
-	if strings.Contains(m, "vision") {
-		return true
-	}
-
+// IsKnownVisionModel 已废弃：不应根据模型名猜测视觉能力，应依赖 available_catalog.input_modalities。
+// 保留空函数体避免编译错误，待所有调用方迁移后删除。
+func IsKnownVisionModel(model string) bool {
 	return false
 }
 

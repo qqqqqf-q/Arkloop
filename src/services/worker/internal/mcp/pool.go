@@ -14,6 +14,7 @@ type Client interface {
 	ReadResource(ctx context.Context, uri string, timeoutMs int) (ResourceContent, error)
 	IsHealthy(ctx context.Context) bool
 	Close() error
+	ServerInstructions() string
 }
 
 type Pool struct {

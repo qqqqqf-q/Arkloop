@@ -219,9 +219,9 @@ time: "2026-03-28T13:31:16Z"
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
 		`A ck:`,
-		`[13:31:00] xhelogo`,
-		`[13:31:05] 怎么那么像`,
-		`[13:31:16] 清凤: 哈`,
+		`[Sat 13:31:00] xhelogo`,
+		`[Sat 13:31:05] 怎么那么像`,
+		`[Sat 13:31:16 +11s] 清凤: 哈`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
@@ -269,16 +269,16 @@ time: "2026-03-28T13:31:16Z"
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
 		`A ck:`,
-		`[13:31:00] 第一条`,
-		`[13:31:05] 第二条`,
+		`[Sat 13:31:00] 第一条`,
+		`[Sat 13:31:05] 第二条`,
 		"换行",
-		`[13:31:16] 清凤: 第三条`,
+		`[Sat 13:31:16 +11s] 清凤: 第三条`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
 		}
 	}
-	if strings.Contains(text, `[13:31:05] A ck:`) {
+	if strings.Contains(text, `[Sat 13:31:05] A ck:`) {
 		t.Fatalf("expected same speaker lines to merge, got %q", text)
 	}
 }
@@ -375,9 +375,9 @@ func TestCompactTelegramGroupEnvelopeBurst_withImageParts(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Telegram supergroup \"Arkloop\"",
-		"[13:31:00] A ck:",
+		"[Sat 13:31:00] A ck:",
 		"[图片: image.jpg]",
-		"[13:31:10] 清凤: nice",
+		"[Sat 13:31:10 +10s] 清凤: nice",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
@@ -410,8 +410,8 @@ func TestCompactTelegramGroupEnvelopeBurst_keepsImageOnlyEntryTimestamp(t *testi
 	for _, want := range []string{
 		"Telegram supergroup \"Arkloop\"",
 		"A ck:",
-		"[13:31:00 #4814]",
-		"[13:31:05 #4815] 第二条",
+		"[Sat 13:31:00 #4814]",
+		"[Sat 13:31:05 #4815] 第二条",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected compacted burst to contain %q, got %q", want, text)
@@ -444,7 +444,7 @@ func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	if !strings.Contains(parts[0].Text, "Telegram supergroup") {
 		t.Fatalf("expected compact timeline in text, got %q", parts[0].Text)
 	}
-	if !strings.Contains(parts[0].Text, "[13:31:00] A ck:") {
+	if !strings.Contains(parts[0].Text, "[Sat 13:31:00] A ck:") {
 		t.Fatalf("expected first entry in first text part, got %q", parts[0].Text)
 	}
 	if parts[1].Type != "image" || parts[1].Attachment.Key != "k2" {
@@ -453,7 +453,7 @@ func TestMergeUserBurstContent_compactsWithImageParts(t *testing.T) {
 	if parts[2].Type != "text" {
 		t.Fatalf("expected trailing text part, got %q", parts[2].Type)
 	}
-	if !strings.Contains(parts[2].Text, "[13:31:05] A ck: world") {
+	if !strings.Contains(parts[2].Text, "[Sat 13:31:05 +5s] A ck: world") {
 		t.Fatalf("expected second entry after image, got %q", parts[2].Text)
 	}
 }
@@ -504,7 +504,7 @@ admin: "true"
 	}
 	for _, want := range []string{
 		`Telegram supergroup "Arkloop"`,
-		`[06:20:00] 清凤 [admin]: hello world`,
+		`[Sat 06:20:00] 清凤 [admin]: hello world`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected %q in output, got %q", want, text)
@@ -547,10 +547,10 @@ message-id: "4815"
 	if !strings.Contains(text, `清凤 [admin]:`) {
 		t.Fatalf("expected merged header, got %q", text)
 	}
-	if !strings.Contains(text, `[07:38:23 #4814] first`) {
+	if !strings.Contains(text, `[Sat 07:38:23 #4814] first`) {
 		t.Fatalf("expected first entry with id, got %q", text)
 	}
-	if !strings.Contains(text, `[07:38:29 #4815] second`) {
+	if !strings.Contains(text, `[Sat 07:38:29 #4815] second`) {
 		t.Fatalf("expected second entry with id, got %q", text)
 	}
 }
@@ -572,7 +572,7 @@ message-id: "4812"
 	if !ok {
 		t.Fatal("expected single msg to compact")
 	}
-	if !strings.Contains(text, `[07:03:04 #4812] k ilock: hello`) {
+	if !strings.Contains(text, `[Sat 07:03:04 #4812] k ilock: hello`) {
 		t.Fatalf("expected message-id in output, got %q", text)
 	}
 }
@@ -593,7 +593,7 @@ time: "2026-03-28T07:03:04Z"
 	if !ok {
 		t.Fatal("expected single msg to compact")
 	}
-	if !strings.Contains(text, `[07:03:04] old user: legacy msg`) {
+	if !strings.Contains(text, `[Sat 07:03:04] old user: legacy msg`) {
 		t.Fatalf("expected no message-id prefix, got %q", text)
 	}
 	if strings.Contains(text, "#") {
@@ -628,10 +628,10 @@ message-id: "101"
 	if !ok {
 		t.Fatal("expected burst to compact")
 	}
-	if !strings.Contains(text, `[10:00:00 #100] A: msg a`) {
+	if !strings.Contains(text, `[Sat 10:00:00 #100] A: msg a`) {
 		t.Fatalf("expected A's message-id, got %q", text)
 	}
-	if !strings.Contains(text, `[10:00:05 #101] B: msg b`) {
+	if !strings.Contains(text, `[Sat 10:00:05 +5s #101] B: msg b`) {
 		t.Fatalf("expected B's message-id, got %q", text)
 	}
 }
@@ -714,7 +714,7 @@ message-id: "4815"
 
 	// 第三条 user: 单条 compact，body 清理后为空
 	u2text := llm.PartPromptText(rc.Messages[2].Content[0])
-	if !strings.Contains(u2text, `[07:03:04 #4812] k ilock`) {
+	if !strings.Contains(u2text, `[Sat 07:03:04 #4812] k ilock`) {
 		t.Fatalf("u2 missing content, got %q", u2text)
 	}
 
@@ -733,7 +733,7 @@ message-id: "4815"
 		t.Fatalf("expected second entry text before image, got %+v", rc.Messages[4].Content[1])
 	}
 	u3tail := llm.PartPromptText(rc.Messages[4].Content[1])
-	if !strings.Contains(u3tail, `[07:38:29 #4815] 清凤 [admin]`) {
+	if !strings.Contains(u3tail, `#4815] 清凤 [admin]`) {
 		t.Fatalf("u3 tail missing second entry, got %q", u3tail)
 	}
 	if rc.Messages[4].Content[2].Type != "image" {

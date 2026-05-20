@@ -24,11 +24,13 @@ describe('shortcuts', () => {
 
     const sidebarEvent = new KeyboardEvent('keydown', { key: 'b', metaKey: true })
     const rightPanelEvent = new KeyboardEvent('keydown', { key: 'b', altKey: true, metaKey: true })
+    const planModeEvent = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true })
 
     expect(matchesShortcut(sidebarEvent, SHORTCUTS.toggleSidebar)).toBe(true)
     expect(matchesShortcut(sidebarEvent, SHORTCUTS.toggleRightPanel)).toBe(false)
     expect(matchesShortcut(rightPanelEvent, SHORTCUTS.toggleRightPanel)).toBe(true)
     expect(matchesShortcut(rightPanelEvent, SHORTCUTS.toggleSidebar)).toBe(false)
+    expect(matchesShortcut(planModeEvent, SHORTCUTS.togglePlanMode)).toBe(true)
   })
 
   it('使用物理按键匹配 Option 改写后的字符', () => {
@@ -65,7 +67,9 @@ describe('shortcuts', () => {
   it('按平台显示修饰键', () => {
     expect(formatShortcut(SHORTCUTS.toggleSidebar.binding, 'mac')).toEqual(['⌘', 'B'])
     expect(formatShortcut(SHORTCUTS.toggleRightPanel.binding, 'mac')).toEqual(['⌥', '⌘', 'B'])
+    expect(formatShortcut(SHORTCUTS.togglePlanMode.binding, 'mac')).toEqual(['⇧', 'Tab'])
     expect(formatShortcut(SHORTCUTS.toggleSidebar.binding, 'other')).toEqual(['Ctrl', 'B'])
     expect(formatShortcut(SHORTCUTS.toggleRightPanel.binding, 'other')).toEqual(['Alt', 'Ctrl', 'B'])
+    expect(formatShortcut(SHORTCUTS.togglePlanMode.binding, 'other')).toEqual(['Shift', 'Tab'])
   })
 })

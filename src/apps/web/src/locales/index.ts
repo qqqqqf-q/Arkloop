@@ -779,7 +779,6 @@ export interface LocaleStrings {
     heartbeatCardTitle: string
     heartbeatCardDesc: string
     heartbeatCardHint: string
-    ownerUnbindBlocked: string
     botTokenHint: string
     allowedUsersHint: string
     discordTokenHint: string
@@ -827,6 +826,8 @@ export interface LocaleStrings {
     qqOneBotHTTPUrlPlaceholder: string
     qqOneBotToken: string
     qqOneBotTokenPlaceholder: string
+    qqBotName: string
+    qqBotNamePlaceholder: string
     qqOneBotAutoFilled: string
     qqExternalOneBotHint: string
     weixin: string
@@ -1358,6 +1359,10 @@ export interface LocaleStrings {
     chatModel: string;
     chatModelDesc: string;
     chatModelPlatformDefault: string;
+    // vision model
+    visionModel: string;
+    visionModelDesc: string;
+    visionModelUnset: string;
     // tool model
     toolModel: string;
     toolModelDesc: string;

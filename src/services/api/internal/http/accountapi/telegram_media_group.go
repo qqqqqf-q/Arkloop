@@ -281,6 +281,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 				},
 			},
 			ChannelCommandDeps{
+				ChannelsRepo:             c.channelsRepo,
 				ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 				ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 				ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,
@@ -353,6 +354,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 					},
 				},
 				ChannelCommandDeps{
+					ChannelsRepo:             c.channelsRepo,
 					ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 					ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 					ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

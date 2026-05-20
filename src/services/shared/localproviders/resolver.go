@@ -130,7 +130,9 @@ type claudeSettings struct {
 }
 
 type localProviderPreferences struct {
-	HiddenModels map[string]map[string]bool `json:"hidden_models"`
+	HiddenModels  map[string]map[string]bool  `json:"hidden_models"`
+	DeletedModels map[string]map[string]bool  `json:"deleted_models,omitempty"`
+	CustomModels  map[string]map[string]Model `json:"custom_models,omitempty"`
 }
 
 type keychainLookup struct {
@@ -221,6 +223,22 @@ func (r *Resolver) ProviderStatuses(ctx context.Context) []ProviderStatus {
 	return statuses
 }
 
+func (r *Resolver) ProviderCatalog(ctx context.Context, providerID string) ([]Model, bool) {
+	resolver := r.ensure()
+	providerID = strings.TrimSpace(providerID)
+	if _, err := resolver.Resolve(ctx, providerID, ResolveOptions{}); err != nil {
+		return nil, false
+	}
+	switch providerID {
+	case ClaudeCodeProviderID:
+		return resolver.claudeCodeModels(), true
+	case CodexProviderID:
+		return resolver.codexModels(), true
+	default:
+		return nil, false
+	}
+}
+
 func (r *Resolver) codexModels() []Model {
 	for _, path := range r.codexModelCatalogPaths() {
 		if models := readCodexModelCatalog(path); len(models) > 0 {
@@ -268,16 +286,99 @@ func (r *Resolver) SetModelVisible(providerID string, modelID string, visible bo
 	return resolver.writeLocalProviderPreferences(prefs)
 }
 
+func (r *Resolver) SaveModel(providerID string, model Model) error {
+	resolver := r.ensure()
+	providerID = strings.TrimSpace(providerID)
+	model.ID = strings.TrimSpace(model.ID)
+	if providerID == "" || model.ID == "" {
+		return fmt.Errorf("%w: empty local provider model", ErrCredentialUnavailable)
+	}
+	prefs := resolver.readLocalProviderPreferences()
+	if prefs.CustomModels == nil {
+		prefs.CustomModels = map[string]map[string]Model{}
+	}
+	if prefs.CustomModels[providerID] == nil {
+		prefs.CustomModels[providerID] = map[string]Model{}
+	}
+	if model.Priority == 0 {
+		model.Priority = 500
+	}
+	prefs.CustomModels[providerID][model.ID] = model
+	if deleted := prefs.DeletedModels[providerID]; deleted != nil {
+		delete(deleted, model.ID)
+		if len(deleted) == 0 {
+			delete(prefs.DeletedModels, providerID)
+		}
+	}
+	return resolver.writeLocalProviderPreferences(prefs)
+}
+
+func (r *Resolver) DeleteModel(providerID string, modelID string) error {
+	resolver := r.ensure()
+	providerID = strings.TrimSpace(providerID)
+	modelID = strings.TrimSpace(modelID)
+	if providerID == "" || modelID == "" {
+		return fmt.Errorf("%w: empty local provider model", ErrCredentialUnavailable)
+	}
+	prefs := resolver.readLocalProviderPreferences()
+	if custom := prefs.CustomModels[providerID]; custom != nil {
+		delete(custom, modelID)
+		if len(custom) == 0 {
+			delete(prefs.CustomModels, providerID)
+		}
+	}
+	if prefs.DeletedModels == nil {
+		prefs.DeletedModels = map[string]map[string]bool{}
+	}
+	if prefs.DeletedModels[providerID] == nil {
+		prefs.DeletedModels[providerID] = map[string]bool{}
+	}
+	prefs.DeletedModels[providerID][modelID] = true
+	if hidden := prefs.HiddenModels[providerID]; hidden != nil {
+		delete(hidden, modelID)
+		if len(hidden) == 0 {
+			delete(prefs.HiddenModels, providerID)
+		}
+	}
+	return resolver.writeLocalProviderPreferences(prefs)
+}
+
 func (r *Resolver) applyModelPreferences(providerID string, models []Model) []Model {
 	prefs := r.readLocalProviderPreferences()
 	hidden := prefs.HiddenModels[providerID]
-	if len(hidden) == 0 {
+	deleted := prefs.DeletedModels[providerID]
+	custom := prefs.CustomModels[providerID]
+	if len(hidden) == 0 && len(deleted) == 0 && len(custom) == 0 {
 		return models
 	}
+	next := make([]Model, 0, len(models)+len(custom))
+	seen := map[string]struct{}{}
+	for _, model := range models {
+		if deleted[model.ID] {
+			continue
+		}
+		if override, ok := custom[model.ID]; ok {
+			override.Default = model.Default
+			override.Priority = model.Priority
+			model = override
+		}
+		next = append(next, model)
+		seen[model.ID] = struct{}{}
+	}
+	for _, model := range custom {
+		if deleted[model.ID] {
+			continue
+		}
+		if _, ok := seen[model.ID]; ok {
+			continue
+		}
+		next = append(next, model)
+	}
+	models = next
 	firstVisible := -1
 	hasVisibleDefault := false
 	for index := range models {
-		models[index].Hidden = hidden[models[index].ID]
+		models[index].Hidden = models[index].Hidden || hidden[models[index].ID]
 		if models[index].Hidden {
 			models[index].Default = false
 			continue
@@ -1016,6 +1117,12 @@ func (r *Resolver) readLocalProviderPreferences() localProviderPreferences {
 	}
 	if prefs.HiddenModels == nil {
 		prefs.HiddenModels = map[string]map[string]bool{}
+	}
+	if prefs.DeletedModels == nil {
+		prefs.DeletedModels = map[string]map[string]bool{}
+	}
+	if prefs.CustomModels == nil {
+		prefs.CustomModels = map[string]map[string]Model{}
 	}
 	return prefs
 }

@@ -20,18 +20,70 @@ export type AppUpdaterState = {
   error: string | null
 }
 
-const baseState = (): AppUpdaterState => ({
-  supported: app.isPackaged,
-  phase: app.isPackaged ? 'idle' : 'unsupported',
-  currentVersion: app.getVersion(),
-  latestVersion: null,
-  progressPercent: 0,
-  error: null,
-})
+const DEV_MOCK_PHASES = new Set<AppUpdaterPhase>([
+  'checking',
+  'available',
+  'not-available',
+  'downloading',
+  'downloaded',
+  'error',
+])
+
+function readDevMockPhase(): AppUpdaterPhase | null {
+  if (app.isPackaged) return null
+  const raw = process.env.ARKLOOP_DEV_MOCK_APP_UPDATE?.trim()
+  if (!raw || !DEV_MOCK_PHASES.has(raw as AppUpdaterPhase)) return null
+  return raw as AppUpdaterPhase
+}
+
+function isUpdaterSupported(): boolean {
+  return app.isPackaged || readDevMockPhase() !== null
+}
+
+function mockLatestVersion(currentVersion: string): string {
+  const segments = currentVersion.split('.')
+  const last = Number(segments[segments.length - 1])
+  if (Number.isFinite(last)) {
+    segments[segments.length - 1] = String(last + 4)
+    return segments.join('.')
+  }
+  return `${currentVersion}.mock`
+}
+
+function buildDevMockState(phase: AppUpdaterPhase): AppUpdaterState {
+  const currentVersion = app.getVersion()
+  const latestVersion = mockLatestVersion(currentVersion)
+  return {
+    supported: true,
+    phase,
+    currentVersion,
+    latestVersion: phase === 'not-available' ? currentVersion : latestVersion,
+    progressPercent: phase === 'downloading' ? 42 : phase === 'downloaded' ? 100 : 0,
+    error: phase === 'error' ? 'mock update error' : null,
+  }
+}
+
+const baseState = (): AppUpdaterState => {
+  const devMockPhase = readDevMockPhase()
+  if (devMockPhase) return buildDevMockState(devMockPhase)
+  return {
+    supported: app.isPackaged,
+    phase: app.isPackaged ? 'idle' : 'unsupported',
+    currentVersion: app.getVersion(),
+    latestVersion: null,
+    progressPercent: 0,
+    error: null,
+  }
+}
 
 let state: AppUpdaterState = baseState()
 let initialized = false
 let getWindowRef: (() => Electron.BrowserWindow | null) | null = null
+let updateInstallQuit = false
+
+export function isUpdateInstallQuit(): boolean {
+  return updateInstallQuit
+}
 
 function extractVersion(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null
@@ -40,7 +92,7 @@ function extractVersion(value: unknown): string | null {
 }
 
 function patchState(patch: Partial<AppUpdaterState>): void {
-  state = { ...state, ...patch, currentVersion: app.getVersion(), supported: app.isPackaged }
+  state = { ...state, ...patch, currentVersion: app.getVersion(), supported: isUpdaterSupported() }
   const win = getWindowRef?.()
   if (win) {
     win.webContents.send('arkloop:app-updater:state', state)
@@ -48,10 +100,17 @@ function patchState(patch: Partial<AppUpdaterState>): void {
 }
 
 export function getAppUpdaterState(): AppUpdaterState {
-  return { ...state, currentVersion: app.getVersion(), supported: app.isPackaged }
+  return { ...state, currentVersion: app.getVersion(), supported: isUpdaterSupported() }
 }
 
 export async function checkForAppUpdates(): Promise<AppUpdaterState> {
+  const devMockPhase = readDevMockPhase()
+  if (devMockPhase) {
+    const nextPhase = devMockPhase === 'downloaded' ? 'downloaded' : 'available'
+    patchState(buildDevMockState(nextPhase))
+    return getAppUpdaterState()
+  }
+
   if (!app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return getAppUpdaterState()
@@ -69,6 +128,13 @@ export async function checkForAppUpdates(): Promise<AppUpdaterState> {
 }
 
 export async function downloadAppUpdate(): Promise<AppUpdaterState> {
+  if (readDevMockPhase()) {
+    patchState(buildDevMockState('downloading'))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    patchState(buildDevMockState('downloaded'))
+    return getAppUpdaterState()
+  }
+
   if (!app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return getAppUpdaterState()
@@ -86,6 +152,13 @@ export async function downloadAppUpdate(): Promise<AppUpdaterState> {
 }
 
 export function installAppUpdate(): void {
+  if (readDevMockPhase()) {
+    if (state.phase !== 'downloaded') {
+      throw new Error('update not downloaded')
+    }
+    return
+  }
+
   if (!app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return
@@ -93,6 +166,7 @@ export function installAppUpdate(): void {
   if (state.phase !== 'downloaded') {
     throw new Error('update not downloaded')
   }
+  updateInstallQuit = true
   autoUpdater.quitAndInstall(false, true)
 }
 
@@ -111,6 +185,9 @@ export function setupAppUpdater(
   initialized = true
   if (!app.isPackaged) {
     patchState({})
+    if (readDevMockPhase() && options.autoCheck) {
+      void checkForAppUpdates().catch(() => {})
+    }
     return
   }
 

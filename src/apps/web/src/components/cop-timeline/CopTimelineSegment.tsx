@@ -165,7 +165,7 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
       >
         <div ref={cardContentRef} className="cop-timeline-items-card__content">
           {segment.items.map((item) => (
-            <div key={itemTypeId(item)} style={{ position: 'relative', padding: '3px 0' }}>
+            <div key={itemTypeId(item)} style={{ position: 'relative', padding: '4px 0' }}>
               {renderItem(item, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, accessToken, baseUrl, typography, locale)}
             </div>
           ))}

@@ -114,6 +114,24 @@ func RegisterTrackA(r *Registry) error {
 			Scope:       ScopePlatform,
 			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"},
 		},
+		{
+			Key:         "nowledge.max_context_results",
+			Type:        TypeInt,
+			Default:     "5",
+			Description: "Max recalled memories injected per turn (1-20)",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_MAX_CONTEXT_RESULTS"},
+		},
+		{
+			Key:         "nowledge.recall_min_score",
+			Type:        TypeInt,
+			Default:     "0",
+			Description: "Min recall score threshold 0-100 (0 = no filter)",
+			Sensitive:   false,
+			Scope:       ScopePlatform,
+			EnvKeys:     []string{"ARKLOOP_NOWLEDGE_RECALL_MIN_SCORE"},
+		},
 
 		{
 			Key:         "turnstile.secret_key",

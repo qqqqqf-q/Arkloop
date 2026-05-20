@@ -609,7 +609,7 @@ func resolveSearchOutputRouteIDByModelSelector(
 			   AND c.revoked_at IS NULL
 			   AND lower(c.name) = lower($2)
 			   AND lower(r.model) = lower($3)
-			 ORDER BY r.priority DESC, r.is_default DESC
+			 ORDER BY r.priority DESC
 			 LIMIT 1`,
 			accountID,
 			strings.TrimSpace(parts[0]),
@@ -630,7 +630,7 @@ func resolveSearchOutputRouteIDByModelSelector(
 			 WHERE r.account_id = $1
 			   AND c.revoked_at IS NULL
 			   AND lower(r.model) = lower($2)
-			 ORDER BY r.priority DESC, r.is_default DESC
+			 ORDER BY r.priority DESC
 			 LIMIT 1`,
 			accountID,
 			cleanedSelector,

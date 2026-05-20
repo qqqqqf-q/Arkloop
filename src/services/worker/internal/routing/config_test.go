@@ -4,7 +4,6 @@ import "testing"
 
 func TestGetHighestPriorityRouteByCredentialName_Found(t *testing.T) {
 	cfg := ProviderRoutingConfig{
-		DefaultRouteID: "default",
 		Credentials: []ProviderCredential{
 			{ID: "cred-a", Name: "my-anthropic", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 			{ID: "cred-b", Name: "my-openai", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},

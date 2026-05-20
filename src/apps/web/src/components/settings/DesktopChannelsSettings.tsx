@@ -39,12 +39,12 @@ type ChannelsCache = {
 
 
 const PLATFORM_ICONS: Record<IntegrationTab, string> = {
-  telegram: '/channel-icons/telegram.png',
-  discord: '/channel-icons/discord.png',
-  feishu: '/channel-icons/feishu.png',
-  qqbot: '/channel-icons/qqbot.png',
-  qq: '/channel-icons/qq.png',
-  weixin: '/channel-icons/weixin.png',
+  telegram: `${import.meta.env.BASE_URL}channel-icons/telegram.png`,
+  discord: `${import.meta.env.BASE_URL}channel-icons/discord.png`,
+  feishu: `${import.meta.env.BASE_URL}channel-icons/feishu.png`,
+  qqbot: `${import.meta.env.BASE_URL}channel-icons/qqbot.png`,
+  qq: `${import.meta.env.BASE_URL}channel-icons/qq.png`,
+  weixin: `${import.meta.env.BASE_URL}channel-icons/weixin.png`,
 }
 
 let cachedChannelsData: ChannelsCache | null = null

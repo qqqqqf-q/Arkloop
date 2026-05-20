@@ -83,6 +83,18 @@ func NewMCPDiscoveryMiddleware(
 		rc.ToolSpecs = runAllLlmSpecs
 		rc.AllowlistSet = runAllowlistSet
 		rc.ToolRegistry = runRegistry
+
+		if block := buildMCPServerInstructionsBlock(accountReg.Instructions); block != "" {
+			rc.UpsertPromptSegment(PromptSegment{
+				Name:          "mcp.server_instructions",
+				Target:        PromptTargetSystemPrefix,
+				Role:          "system",
+				Text:          block,
+				Stability:     PromptStabilitySessionPrefix,
+				CacheEligible: true,
+			})
+		}
+
 		emitMCPDiscoveryTrace(rc, durationMs, cacheMeta, diag, accountErr)
 
 		return next(ctx, rc)
@@ -283,4 +295,23 @@ func trimMCPDiscoveryError(message string) string {
 		return message
 	}
 	return message[:200]
+}
+
+func buildMCPServerInstructionsBlock(instructions map[string]string) string {
+	if len(instructions) == 0 {
+		return ""
+	}
+	var blocks []string
+	for serverID, instr := range instructions {
+		instr = strings.TrimSpace(instr)
+		if instr == "" {
+			continue
+		}
+		blocks = append(blocks, "## "+serverID+"\n"+instr)
+	}
+	if len(blocks) == 0 {
+		return ""
+	}
+	return "\n\n# MCP Server Instructions\n\nThe following MCP servers have provided instructions for how to use their tools and resources:\n\n" +
+		strings.Join(blocks, "\n\n")
 }

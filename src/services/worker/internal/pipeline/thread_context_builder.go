@@ -428,6 +428,7 @@ func renderCanonicalThreadMessagesFromFrontier(
 		chunkBySeq[chunk.ContextSeq] = chunk
 	}
 
+	var prevUserTime time.Time
 	appendThreadMessage := func(atom canonicalAtom, msg data.ThreadMessage) error {
 		if strings.TrimSpace(msg.Role) == "" {
 			return nil
@@ -442,6 +443,10 @@ func renderCanonicalThreadMessagesFromFrontier(
 		}
 		if msg.Role == "tool" {
 			parts = canonicalizeToolMessageParts(parts)
+		}
+		if msg.Role == "user" && !msg.CreatedAt.IsZero() {
+			parts = prependUserMessageTimestamp(parts, msg.CreatedAt, prevUserTime, opts.UserLocation)
+			prevUserTime = msg.CreatedAt
 		}
 		lm := llm.Message{
 			Role:         msg.Role,

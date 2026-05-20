@@ -26,7 +26,7 @@ const personaSelectSQL = `SELECT persona_key, version, display_name, description
 	        prompt_md, tool_allowlist, tool_denylist, COALESCE(core_tools, '[]'), budgets_json,
 	        roles_json, title_summarize_json, result_summarize_json, conditional_tools_json,
 	        executor_type, executor_config_json,
-	        preferred_credential, model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control,
+	        preferred_credential, model, image_model, reasoning_mode, COALESCE(stream_thinking, 1), prompt_cache_control,
 	        COALESCE(heartbeat_enabled, 0), COALESCE(heartbeat_interval_minutes, 30)
 	 FROM personas
 	 WHERE is_active = 1
@@ -92,6 +92,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			executorConfigStr        string
 			preferredCredential      *string
 			model                    *string
+			imageModel               *string
 			reasoningMode            string
 			streamThinking           int
 			promptCacheControl       string
@@ -104,7 +105,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			&promptMD, &toolAllowlistStr, &toolDenylistStr, &coreToolsStr, &budgetsStr,
 			&rolesStr, &titleSummarizeStr, &resultSummarizeStr, &conditionalToolsStr,
 			&executorType, &executorConfigStr,
-			&preferredCredential, &model, &reasoningMode, &streamThinking, &promptCacheControl,
+			&preferredCredential, &model, &imageModel, &reasoningMode, &streamThinking, &promptCacheControl,
 			&heartbeatEnabled, &heartbeatIntervalMinutes,
 		); err != nil {
 			return nil, err
@@ -192,6 +193,7 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 			ExecutorConfig:      executorConfig,
 			PreferredCredential: preferredCredential,
 			Model:               model,
+			ImageModel:          imageModel,
 			ReasoningMode:       normalizePersonaReasoningMode(strPtrOrNil(reasoningMode)),
 			StreamThinking:      streamThinking != 0,
 			PromptCacheControl:  normalizePersonaPromptCacheControl(strPtrOrNil(promptCacheControl)),

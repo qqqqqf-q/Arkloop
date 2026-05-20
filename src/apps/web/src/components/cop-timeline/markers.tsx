@@ -60,6 +60,13 @@ export function markerForToolName(toolName: string): TimelineMarker {
     case 'memory_write':
     case 'notebook_write':
       return { kind: 'icon', icon: toolName === 'edit' || toolName === 'edit_file' ? SquarePen : FilePenLine, label: 'Edit' }
+    case 'read':
+    case 'memory_read':
+    case 'notebook_read':
+    case 'memory_search':
+    case 'memory_forget':
+    case 'notebook_forget':
+      return { kind: 'icon', icon: FileSearch, label: 'Explore' }
     case 'exec_command':
     case 'python_execute':
     case 'continue_process':

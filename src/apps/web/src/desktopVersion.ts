@@ -1,6 +1,6 @@
 export function formatDesktopAppVersion(version: string | null | undefined): string {
   const normalized = version?.trim() ?? ''
-  if (import.meta.env.MODE === 'development') return ''
+  if (import.meta.env.MODE === 'development' && !import.meta.env.VITE_DEV_MOCK_APP_UPDATE?.trim()) return ''
 
   const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/)
   if (!match) return normalized

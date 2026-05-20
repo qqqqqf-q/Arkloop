@@ -171,8 +171,33 @@ func NewRoutingMiddleware(
 					}
 				}
 			}
+			// auxiliary runs without model selector: try entitlement fallback
 			if decision.Selected == nil && decision.Denied == nil {
-				decision = activeRouter.Decide(rc.InputJSON, byokEnabled, true)
+				if isStickerRegisterRun(rc) {
+					// sticker: vision -> tool (vision required)
+					if resolution, ok := resolveVisionRoute(ctx, rc.Pool, rc.Run.AccountID, rc.AgentConfig.ImageModel, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok && routeSupportsVision(resolution.Selected) {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					} else if resolution, ok := resolveEntitlementRoute(ctx, rc.Pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok && routeSupportsVision(resolution.Selected) {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
+				} else if isImpressionRun(rc) {
+					// impression: tool
+					if resolution, ok := resolveEntitlementRoute(ctx, rc.Pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
+				}
+			}
+			if decision.Selected == nil && decision.Denied == nil {
+				decision = routing.ProviderRouteDecision{
+					Denied: &routing.ProviderRouteDenied{
+						ErrorClass: llm.ErrorClassRoutingNotFound,
+						Code:       "routing.no_model_configured",
+						Message:    "no model configured for this run; set persona.model or spawn.profile.task entitlement override",
+					},
+				}
 			}
 		}
 

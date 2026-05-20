@@ -21,7 +21,7 @@ import {
 import { createTray, registerGlobalShortcut, destroyTray } from './tray'
 import { registerIpcHandlers } from './ipc'
 import { initVersionsFile } from './config'
-import { setupAppUpdater } from './app-updater'
+import { setupAppUpdater, isUpdateInstallQuit } from './app-updater'
 import { setupMainProcessLogging, getDesktopLogDir } from './logging'
 import { syncLocalVersions } from './updater'
 import { ensureBrowserSearchServer, closeBrowserSearchServer } from './browser-search'
@@ -388,7 +388,7 @@ function createWindow(): BrowserWindow {
   })
 
   win.on('close', (e) => {
-    if (isQuitting) return
+    if (isQuitting || isUpdateInstallQuit()) return
     e.preventDefault()
     if (loadConfig().desktop.closeBehavior === 'quit') {
       app.quit()
@@ -574,6 +574,14 @@ if (!hasSingleInstanceLock) {
   })
 
   app.on('before-quit', (e) => {
+    if (isUpdateInstallQuit()) {
+      isQuitting = true
+      destroyTray()
+      void stopSidecar().catch((err) => {
+        console.error('[desktop] update install sidecar stop error:', err)
+      })
+      return
+    }
     if (shutdownInProgress) return
     e.preventDefault()
     shutdownInProgress = true

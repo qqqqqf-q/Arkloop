@@ -61,8 +61,6 @@ export function localizeTimelineLabel(label: string, locale: Locale): string {
     'Sources checked': '已检查来源',
     'Enter Plan Mode': '进入计划模式',
     'Exit Plan Mode': '退出计划模式',
-    enter_plan_mode: '进入计划模式',
-    exit_plan_mode: '退出计划模式',
     'Generating image': '正在生成图片',
     'Generated image': '生成图片',
     'Image generation failed': '图片生成失败',

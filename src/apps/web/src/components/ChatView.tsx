@@ -405,8 +405,24 @@ const LiveRunPane = memo(function LiveRunPane({
     visibleStreamingArtifacts.length > 0
   const liveContentMaxWidth = isWorkMode ? undefined : '663px'
 
+  const liveRootRef = useRef<HTMLDivElement>(null)
+  const peakHeightRef = useRef(0)
+  useEffect(() => {
+    const el = liveRootRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      const h = el.scrollHeight
+      if (h > peakHeightRef.current) {
+        peakHeightRef.current = h
+        el.style.minHeight = h + 'px'
+      }
+    })
+    ro.observe(el)
+    return () => { ro.disconnect(); peakHeightRef.current = 0; el.style.minHeight = '' }
+  }, [liveRunUiActive])
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+    <div ref={liveRootRef} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
       {(showPendingThinkingShell || liveSegments.length > 0) && (
         <div data-testid={preserveLiveRunUi ? 'current-run-handoff' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 0, maxWidth: liveContentMaxWidth }}>
           {(showPendingThinkingShell || leadingLiveCop) && (
@@ -1064,6 +1080,8 @@ export const ChatView = memo(function ChatView() {
   const resourcePanelResource = activePanel?.type === 'resource' ? activePanel.resource : null
   // Mirror volatile activePanel-derived values into refs so callbacks passed to
   // MessageList stay referentially stable when the panel context changes.
+  const activePanelRef = useRef(activePanel)
+  useEffect(() => { activePanelRef.current = activePanel }, [activePanel])
   const documentPanelArtifactKeyRef = useRef(documentPanelArtifact?.artifact.key)
   useEffect(() => { documentPanelArtifactKeyRef.current = documentPanelArtifact?.artifact.key }, [documentPanelArtifact?.artifact.key])
   const codePanelExecutionIdRef = useRef(codePanelExecution?.id)
@@ -1075,15 +1093,10 @@ export const ChatView = memo(function ChatView() {
   const sourcePanelMessageIdRef = useRef(sourcePanelMessageId)
   useEffect(() => { sourcePanelMessageIdRef.current = sourcePanelMessageId }, [sourcePanelMessageId])
   const setSourcePanelMessageId = useCallback<React.Dispatch<React.SetStateAction<string | null>>>((value) => {
-    const next = typeof value === 'function' ? value(sourcePanelMessageId) : value
+    const next = typeof value === 'function' ? value(sourcePanelMessageIdRef.current) : value
     if (next) openSourcePanel(next)
-    else if (activePanel?.type === 'source') closePanel()
-  }, [activePanel, closePanel, openSourcePanel, sourcePanelMessageId])
-  const setCodePanelExecution = useCallback<React.Dispatch<React.SetStateAction<CodeExecution | null>>>((value) => {
-    const next = typeof value === 'function' ? value(codePanelExecution) : value
-    if (next) openCodePanelState(next)
-    else if (activePanel?.type === 'code') closePanel()
-  }, [activePanel, closePanel, codePanelExecution, openCodePanelState])
+    else if (activePanelRef.current?.type === 'source') closePanel()
+  }, [closePanel, openSourcePanel])
   // --- Work todo 进度 ---
   const { showRunDetailButton, showDebugPanel, runDetailPanelRunId, setRunDetailPanelRunId } = useDevTools()
 
@@ -1121,11 +1134,6 @@ export const ChatView = memo(function ChatView() {
     (sending || activeRunId != null)
 
   const messageListRef = useRef<MessageListHandle>(null)
-  // 提供给 useScrollPin 的桥：scrollToBottom 触发时先让 Virtuoso 跳过中间区间，
-  // 避免浏览器原生 smooth scroll 逐帧穿过数千 px 引发挂载风暴。
-  const jumpHistoryToEnd = useCallback(() => {
-    messageListRef.current?.scrollHistoryToEnd('auto')
-  }, [])
 
   const {
     bottomRef,
@@ -1133,7 +1141,6 @@ export const ChatView = memo(function ChatView() {
     lastUserMsgRef,
     lastUserPromptRef,
     inputAreaRef,
-    forceInstantBottomScrollRef,
     isAtBottomRef,
     handleScrollContainerScroll,
     stabilizeDocumentPanelScroll,
@@ -1147,18 +1154,8 @@ export const ChatView = memo(function ChatView() {
     messages,
     liveAssistantTurn,
     liveRunUiVisible,
-    topLevelCodeExecutionsLength: topLevelCodeExecutions.length,
     promptPinningDisabled: isWorkMode,
-    jumpHistoryToEnd,
   })
-
-  // 把 scrollContainer 的 DOM 元素以 state 暴露出来，供 Virtuoso 的 customScrollParent 使用。
-  // 必须保持与 scrollContainerRef.current 同步——同一个 div 同时承担 useScrollPin 的 ref 目标与 Virtuoso 的滚动父容器。
-  const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null)
-  const setScrollContainerEl = useCallback((el: HTMLDivElement | null) => {
-    (scrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el
-    setScrollParent(el)
-  }, [scrollContainerRef])
 
   const { resetAssistantTurnLive, captureTerminalRunCache, persistThreadRunHandoff } = useRunTransition()
 
@@ -1192,12 +1189,6 @@ export const ChatView = memo(function ChatView() {
     topLevelSubAgents,
     topLevelWebFetches,
   ])
-
-  useEffect(() => {
-    if (messagesLoading) {
-      forceInstantBottomScrollRef.current = false
-    }
-  }, [messagesLoading, forceInstantBottomScrollRef])
 
   const canCancel =
     activeRunId != null &&
@@ -2147,9 +2138,7 @@ export const ChatView = memo(function ChatView() {
       }
       return null
     })()
-    const shouldPinNewPrompt =
-      !isInterruptedRunStatus(terminalRunHandoffStatus) &&
-      !isInterruptedRunStatus(lastAssistantTerminalStatus)
+    const shouldPinNewPrompt = !isInterruptedRunStatus(lastAssistantTerminalStatus)
 
     if (sending && !isStreaming) {
       const text = draft.trim()
@@ -2577,12 +2566,13 @@ export const ChatView = memo(function ChatView() {
       const index = current.findIndex((item) => item.id === id)
       if (index < 0) return current
       const target = current[index]
-      if (target.kind === 'source') setSourcePanelMessageId(null)
-      else if (target.kind === 'code' && activePanel?.type === 'code' && activePanel.execution.id === target.execution.id) setCodePanelExecution(null)
-      else if (target.kind === 'agent' && activePanel?.type === 'agent' && activePanel.agent.id === target.agent.id) closePanel()
+      const currentPanel = activePanelRef.current
+      if (target.kind === 'source' && currentPanel?.type === 'source') closePanel()
+      else if (target.kind === 'code' && currentPanel?.type === 'code' && currentPanel.execution.id === target.execution.id) closePanel()
+      else if (target.kind === 'agent' && currentPanel?.type === 'agent' && currentPanel.agent.id === target.agent.id) closePanel()
       else if (target.kind === 'resource') {
-        if (activePanel?.type === 'resource' && resourceTabId(activePanel.resource) === target.id) closePanel()
-        else if (activePanel?.type === 'document' && target.resource.kind === 'artifact' && activePanel.artifact.artifact.key === target.resource.key) closePanel()
+        if (currentPanel?.type === 'resource' && resourceTabId(currentPanel.resource) === target.id) closePanel()
+        else if (currentPanel?.type === 'document' && target.resource.kind === 'artifact' && currentPanel.artifact.artifact.key === target.resource.key) closePanel()
       }
 
       const next = current.filter((item) => item.id !== id)
@@ -2592,7 +2582,7 @@ export const ChatView = memo(function ChatView() {
       })
       return next
     })
-  }, [activePanel, closePanel, setCodePanelExecution, setSourcePanelMessageId, workPanelFolder])
+  }, [closePanel, workPanelFolder])
 
   const setBrowserResourceForCurrentTab = useCallback((resource: BrowserResourceRef) => {
     const activeId = effectiveRightPanelTabIdRef.current
@@ -3431,7 +3421,7 @@ export const ChatView = memo(function ChatView() {
   // CSS custom properties set on the parent div.
   const messageListArea = useMemo(() => (
     <div
-      ref={setScrollContainerEl}
+      ref={scrollContainerRef}
       onScroll={handleScrollContainerScroll}
       className="theme-surface-page chat-scroll-hidden relative flex-1 min-h-0 overflow-y-auto bg-[var(--c-bg-page)] [scrollbar-gutter:stable]"
       style={{ contain: 'layout paint style' }}
@@ -3465,7 +3455,6 @@ export const ChatView = memo(function ChatView() {
             <CopTimelineLocalExpansionProvider stabilizeScroll={stabilizeDocumentPanelScroll}>
               <MessageList
               ref={messageListRef}
-              scrollParent={scrollParent}
               isWorkMode={isWorkMode}
               lastTurnStartIdx={lastTurnStartIdx}
               lastTurnRef={lastUserMsgRef}
@@ -3508,8 +3497,6 @@ export const ChatView = memo(function ChatView() {
     openCodePanel,
     openDocumentPanel,
     openResourcePanel,
-    scrollParent,
-    setScrollContainerEl,
     sourcePanelMessageId,
     setRunDetailPanelRunId,
     stabilizeDocumentPanelScroll,
@@ -3521,7 +3508,7 @@ export const ChatView = memo(function ChatView() {
   ])
 
   return (
-    <div ref={chatViewRootRef} className="theme-surface-page relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]">
+    <div ref={chatViewRootRef} className="theme-surface-page theme-chat-surface relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]">
       {/* Chat column + right panel: starts below the desktop Chat/Work titlebar. */}
       <div className="relative flex flex-1 min-h-0 min-w-0">
         <div
@@ -3533,7 +3520,7 @@ export const ChatView = memo(function ChatView() {
           } as React.CSSProperties}
         >
           <ChatTitleMenu />
-          <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-bg-page-gradient-stop, var(--c-bg-page)), transparent)' }} />
+          <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />
           {/* 消息列表 */}
           {messageListArea}
 
@@ -3553,7 +3540,7 @@ export const ChatView = memo(function ChatView() {
           left: 0,
           right: 0,
           zIndex: 10,
-          background: 'linear-gradient(to bottom, transparent 0%, var(--c-bg-page-gradient-stop, var(--c-bg-page)) 24px)',
+          background: 'linear-gradient(to bottom, transparent 0%, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))) 24px)',
           transition: `padding ${rightPanelLayoutTransitionCss}`,
         } as React.CSSProperties}
         className="flex w-full flex-col items-center gap-2"

@@ -31,14 +31,6 @@ function Frame({ children, kind }: { children: ReactNode; kind: PreviewRendererK
   )
 }
 
-function TextPreview({ resource, kind }: { resource: PreviewResource; kind: 'json' | 'code' | 'text' }) {
-  return (
-    <div data-preview-renderer={kind}>
-      <SourceDocumentRenderer content={resource.text ?? ''} filename={resource.filename} mimeType={resource.mimeType} />
-    </div>
-  )
-}
-
 function BinaryPreview({ resource }: { resource: PreviewResource }) {
   return (
     <Frame kind="binary">
@@ -134,7 +126,11 @@ function PreviewResourceContent({
   }
 
   if (kind === 'json' || kind === 'code' || kind === 'text') {
-    return <TextPreview resource={resource} kind={kind} />
+    return (
+      <div data-preview-renderer={kind}>
+        <SourceDocumentRenderer content={resource.text ?? ''} filename={resource.filename} mimeType={resource.mimeType} />
+      </div>
+    )
   }
 
   return <BinaryPreview resource={resource} />

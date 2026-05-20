@@ -177,6 +177,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 				},
 			},
 			ChannelCommandDeps{
+				ChannelsRepo:             c.channelsRepo,
 				ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 				ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 				ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,
@@ -245,6 +246,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 					},
 				},
 				ChannelCommandDeps{
+					ChannelsRepo:             c.channelsRepo,
 					ChannelIdentitiesRepo:    c.channelIdentitiesRepo,
 					ChannelDMThreadsRepo:     c.channelDMThreadsRepo,
 					ChannelGroupThreadsRepo:  c.channelGroupThreadsRepo,

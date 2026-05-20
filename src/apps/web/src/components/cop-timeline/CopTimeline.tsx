@@ -195,7 +195,7 @@ export const CopTimeline = memo(function CopTimeline({
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              padding: '4px 0 2px',
+              padding: '3px 0 3px',
               background: 'none',
               border: 'none',
               cursor: 'pointer',
@@ -241,7 +241,7 @@ export const CopTimeline = memo(function CopTimeline({
             transition={!reduceMotion ? { duration: 0.24, ease: [0.4, 0, 0.2, 1] } : { duration: 0 }}
             style={{ overflow: collapsed ? 'hidden' : 'visible' }}
           >
-            <div style={{ position: 'relative', paddingTop: typography === 'work' ? '5px' : '3px', paddingBottom: typography === 'work' ? '6px' : '3px', paddingLeft: (timelineSegments.length > 1 || (hasThinkingOnly && typography !== 'work')) ? '24px' : undefined }}>
+            <div style={{ position: 'relative', paddingTop: typography === 'work' ? '4px' : '6px', paddingBottom: typography === 'work' ? '4px' : '3px', paddingLeft: (timelineSegments.length > 1 || (hasThinkingOnly && typography !== 'work')) ? '24px' : undefined }}>
               {/* Thinking-only mode (no segments) */}
               {hasThinkingOnly && thinkingOnly && (() => {
                 const isWork = typography === 'work'

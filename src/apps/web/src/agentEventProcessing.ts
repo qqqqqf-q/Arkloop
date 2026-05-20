@@ -1546,10 +1546,13 @@ export function applyFileOpToolResult(
     }
     if (add > 0 || rm > 0) { resultDiffAdded = add; resultDiffRemoved = rm }
   }
+  const nextOutput = toolName === 'write_file' && ops[targetIdx].output
+    ? ops[targetIdx].output
+    : formatted.output
   const updated: FileOpRef = {
     ...ops[targetIdx],
     status: hasError ? 'failed' : 'success',
-    ...(formatted.output ? { output: formatted.output } : {}),
+    ...(nextOutput ? { output: nextOutput } : {}),
     ...(formatted.emptyLabel ? { emptyLabel: formatted.emptyLabel } : {}),
     ...(hasError ? { errorMessage: error.errorMessage ?? error.errorClass } : {}),
     ...(resultDiffAdded !== undefined ? { diffAdded: resultDiffAdded, diffRemoved: resultDiffRemoved } : {}),

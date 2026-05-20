@@ -305,7 +305,7 @@ describe('copTimelinePayloadForSegment', () => {
       expect.objectContaining({
         id: 'tool_1',
         toolName: 'fetch_url',
-        label: 'fetch_url',
+        label: 'Fetch url',
         status: 'running',
         seq: 1,
       }),
@@ -412,8 +412,8 @@ describe('copTimelinePayloadForSegment', () => {
       {
         id: 'tool_1',
         toolName: 'fetch_url',
-        label: 'fetch_url',
-        displayText: { kind: 'content', text: 'fetch_url' },
+        label: 'Fetch url',
+        displayText: { kind: 'tool_action', toolKey: 'fetch_url' },
         output: 'returned object · 2 keys',
         status: 'success',
         seq: 1,

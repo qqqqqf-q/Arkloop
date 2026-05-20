@@ -29,11 +29,11 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 			if triggerBlock := buildChannelTriggerContextBlock(rc.ChannelContext); triggerBlock != "" {
 				rc.UpsertPromptSegment(PromptSegment{
 					Name:          "runtime.channel_trigger_context",
-					Target:        PromptTargetSystemPrefix,
-					Role:          "system",
+					Target:        PromptTargetRuntimeTail,
+					Role:          "user",
 					Text:          triggerBlock,
-					Stability:     PromptStabilitySessionPrefix,
-					CacheEligible: true,
+					Stability:     PromptStabilityVolatileTail,
+					CacheEligible: false,
 				})
 			}
 			isAdmin := checkSenderIsAdmin(ctx, rc)

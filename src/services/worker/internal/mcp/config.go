@@ -85,6 +85,7 @@ func parseServerConfig(serverID string, payload map[string]any) (ServerConfig, e
 type DiscoveryQueryer = sharedmcpinstall.DiscoveryQueryer
 
 // LoadConfigFromDB 按 account/profile/workspace 从数据库加载已启用的 MCP install。
+// 同时也会加载 profile 默认 workspace 上的启用记录，确保设置页启用的 MCP 能被发现。
 // 返回 nil 表示当前 workspace 没有已启用配置。
 func LoadConfigFromDB(ctx context.Context, pool DiscoveryQueryer, accountID uuid.UUID, profileRef string, workspaceRef string) (*Config, error) {
 	if pool == nil {
@@ -103,6 +104,23 @@ func LoadConfigFromDB(ctx context.Context, pool DiscoveryQueryer, accountID uuid
 	if err != nil {
 		return nil, fmt.Errorf("mcp: load enabled installs: %w", err)
 	}
+
+	defaultRef, err := loadProfileDefaultWorkspaceRef(ctx, pool, accountID, profileRef)
+	if err == nil && defaultRef != "" && defaultRef != workspaceRef {
+		defaultInstalls, loadErr := sharedmcpinstall.LoadEnabledInstalls(ctx, pool, accountID, profileRef, defaultRef)
+		if loadErr == nil {
+			seen := make(map[uuid.UUID]bool, len(installs)+len(defaultInstalls))
+			for _, inst := range installs {
+				seen[inst.ID] = true
+			}
+			for _, inst := range defaultInstalls {
+				if !seen[inst.ID] {
+					installs = append(installs, inst)
+				}
+			}
+		}
+	}
+
 	if len(installs) == 0 {
 		return nil, nil
 	}
@@ -142,12 +160,46 @@ func LoadConfigFromDB(ctx context.Context, pool DiscoveryQueryer, accountID uuid
 	return &Config{Servers: servers}, nil
 }
 
+func loadProfileDefaultWorkspaceRef(ctx context.Context, pool DiscoveryQueryer, accountID uuid.UUID, profileRef string) (string, error) {
+	if pool == nil || accountID == uuid.Nil || profileRef == "" {
+		return "", nil
+	}
+	rows, err := pool.Query(
+		ctx,
+		`SELECT default_workspace_ref
+		   FROM profile_registries
+		  WHERE account_id = $1 AND profile_ref = $2
+		  LIMIT 1`,
+		accountID,
+		profileRef,
+	)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return "", nil
+	}
+	var workspaceRef *string
+	if err := rows.Scan(&workspaceRef); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(derefString(workspaceRef)), nil
+}
+
 func asString(value any) string {
 	text, ok := value.(string)
 	if !ok {
 		return ""
 	}
 	return text
+}
+
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func expandUser(path string) string {

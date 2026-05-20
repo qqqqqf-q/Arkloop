@@ -2,28 +2,22 @@ package routing
 
 import "testing"
 
-func TestProviderRouterDecide_DefaultRoute(t *testing.T) {
+func TestProviderRouterDecide_NoMatchReturnsEmpty(t *testing.T) {
 	cfg := DefaultRoutingConfig()
 	router := NewProviderRouter(cfg)
 
 	decision := router.Decide(map[string]any{}, false, false)
 	if decision.Denied != nil {
-		t.Fatalf("expected selected, got denied: %+v", decision.Denied)
+		t.Fatalf("expected empty, got denied: %+v", decision.Denied)
 	}
-	if decision.Selected == nil {
-		t.Fatalf("expected selected")
-	}
-	if decision.Selected.Route.ID != "default" {
-		t.Fatalf("unexpected route id: %s", decision.Selected.Route.ID)
-	}
-	if decision.Selected.Credential.ProviderKind != ProviderKindStub {
-		t.Fatalf("unexpected provider kind: %s", decision.Selected.Credential.ProviderKind)
+	if decision.Selected != nil {
+		t.Fatalf("expected no selection without default route, got %s", decision.Selected.Route.ID)
 	}
 }
 
 func TestProviderRouterDecide_RequestedRoute(t *testing.T) {
 	cfg := ProviderRoutingConfig{
-		DefaultRouteID: "default",
+		
 		Credentials: []ProviderCredential{
 			{
 				ID:           "stub_default",
@@ -75,7 +69,7 @@ func TestProviderRouterDecide_RouteNotFound(t *testing.T) {
 
 func TestProviderRouterDecide_ByokDisabled(t *testing.T) {
 	cfg := ProviderRoutingConfig{
-		DefaultRouteID: "default",
+		
 		Credentials: []ProviderCredential{
 			{
 				ID:           "org_cred",
@@ -87,12 +81,12 @@ func TestProviderRouterDecide_ByokDisabled(t *testing.T) {
 			},
 		},
 		Routes: []ProviderRouteRule{
-			{ID: "default", Model: "gpt", CredentialID: "org_cred", When: map[string]any{}},
+			{ID: "default", Model: "gpt", CredentialID: "org_cred", When: map[string]any{"persona_id": "test"}},
 		},
 	}
 	router := NewProviderRouter(cfg)
 
-	decision := router.Decide(map[string]any{}, false, false)
+	decision := router.Decide(map[string]any{"persona_id": "test"}, false, false)
 	if decision.Selected != nil {
 		t.Fatalf("expected denied")
 	}
@@ -133,7 +127,7 @@ func TestProviderRouteRuleMatches_WhenContainsArrayDoesNotPanic(t *testing.T) {
 
 func TestProviderRouterDecide_PlatformOnlySkipsAccountScoped(t *testing.T) {
 	cfg := ProviderRoutingConfig{
-		DefaultRouteID: "acct-default",
+		
 		Credentials: []ProviderCredential{
 			{ID: "cred-acct", OwnerKind: CredentialScopeUser, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 			{ID: "cred-plat", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
@@ -170,7 +164,7 @@ func TestProviderRouterDecide_PlatformOnlySkipsAccountScoped(t *testing.T) {
 
 func TestProviderRouterDecide_PlatformOnlyFallbackNoRoutes(t *testing.T) {
 	cfg := ProviderRoutingConfig{
-		DefaultRouteID: "acct-only",
+		
 		Credentials: []ProviderCredential{
 			{ID: "cred-acct", OwnerKind: CredentialScopeUser, ProviderKind: ProviderKindStub, AdvancedJSON: map[string]any{}},
 		},
@@ -193,20 +187,20 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-func TestProviderRouterDecide_FirstRouteFallbackWithoutDefaultRouteID(t *testing.T) {
+func TestProviderRouterDecide_WhenMatchSelectsHighestPriority(t *testing.T) {
 	cfg := ProviderRoutingConfig{
 		Credentials: []ProviderCredential{
 			{ID: "c1", Name: "openrouter", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
 			{ID: "c2", Name: "backup", OwnerKind: CredentialScopePlatform, ProviderKind: ProviderKindOpenAI, AdvancedJSON: map[string]any{}},
 		},
 		Routes: []ProviderRouteRule{
-			{ID: "r-high", Model: "openai/gpt-oss-120b", CredentialID: "c1", When: map[string]any{}},
-			{ID: "r-low", Model: "openai/gpt-4.1-mini", CredentialID: "c2", When: map[string]any{}},
+			{ID: "r-high", Model: "openai/gpt-oss-120b", CredentialID: "c1", When: map[string]any{"persona_id": "test"}, Priority: 100},
+			{ID: "r-low", Model: "openai/gpt-4.1-mini", CredentialID: "c2", When: map[string]any{"persona_id": "test"}, Priority: 10},
 		},
 	}
 	router := NewProviderRouter(cfg)
 
-	decision := router.Decide(map[string]any{}, false, false)
+	decision := router.Decide(map[string]any{"persona_id": "test"}, false, false)
 	if decision.Denied != nil {
 		t.Fatalf("expected selected, got denied: %+v", decision.Denied)
 	}

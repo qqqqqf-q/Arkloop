@@ -17,27 +17,20 @@ import (
 
 var allowedProfiles = map[string]struct{}{
 	"explore": {},
-	"image":   {},
+	"vision":  {},
 	"task":    {},
 	"strong":  {},
 	"tool":    {},
 }
 
 func profileConfigKey(name string) string {
-	switch strings.TrimSpace(name) {
-	case "image":
-		return "image_generative.model"
-	default:
-		return "spawn.profile." + name
-	}
+	return "spawn.profile." + strings.TrimSpace(name)
 }
 
 type spawnProfileResponse struct {
 	Profile       string `json:"profile"`
 	ResolvedModel string `json:"resolved_model"`
 	HasOverride   bool   `json:"has_override"`
-	IsAuto        bool   `json:"is_auto,omitempty"`
-	AutoModel     string `json:"auto_model,omitempty"`
 }
 
 type setSpawnProfileRequest struct {
@@ -51,12 +44,11 @@ func spawnProfilesEntry(
 	entitlementService *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	configResolver sharedconfig.Resolver,
-	routesRepo *data.LlmRoutesRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodGet:
-			listSpawnProfiles(w, r, authService, membershipRepo, entitlementsRepo, apiKeysRepo, configResolver, routesRepo)
+			listSpawnProfiles(w, r, authService, membershipRepo, entitlementsRepo, apiKeysRepo, configResolver)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -81,7 +73,7 @@ func spawnProfileEntry(
 			return
 		}
 		if _, ok := allowedProfiles[name]; !ok {
-			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, image, task, strong, tool", traceID, nil)
+			httpkit.WriteError(w, nethttp.StatusBadRequest, "validation.error", "profile must be one of: explore, vision, task, strong, tool", traceID, nil)
 			return
 		}
 
@@ -104,7 +96,6 @@ func listSpawnProfiles(
 	entitlementsRepo *data.EntitlementsRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	configResolver sharedconfig.Resolver,
-	routesRepo *data.LlmRoutesRepository,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
 	actor, ok := httpkit.ResolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
@@ -112,7 +103,7 @@ func listSpawnProfiles(
 		return
 	}
 
-	profiles := []string{"explore", "image", "task", "strong", "tool"}
+	profiles := []string{"explore", "vision", "task", "strong", "tool"}
 	result := make([]spawnProfileResponse, 0, len(profiles))
 
 	for _, name := range profiles {
@@ -138,16 +129,6 @@ func listSpawnProfiles(
 			Profile:       name,
 			ResolvedModel: resolvedModel,
 			HasOverride:   hasOverride,
-		}
-
-		if name == "tool" && routesRepo != nil {
-			if selector, err := routesRepo.GetDefaultSelector(r.Context(), actor.AccountID, data.LlmRouteScopeUser); err == nil && selector != "" {
-				entry.AutoModel = selector
-				if !hasOverride && resolvedModel == "" {
-					entry.ResolvedModel = selector
-					entry.IsAuto = true
-				}
-			}
 		}
 
 		result = append(result, entry)

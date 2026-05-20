@@ -225,8 +225,8 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	var outputRouteFromAgent uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
-		`INSERT INTO llm_routes (account_id, credential_id, model, priority, is_default, when_json, multiplier)
-		 VALUES ($1, $2, 'claude-3-5-haiku', 120, true, '{}'::jsonb, 1.0)
+		`INSERT INTO llm_routes (account_id, credential_id, model, priority, when_json, multiplier)
+		 VALUES ($1, $2, 'claude-3-5-haiku', 120, '{}'::jsonb, 1.0)
 		 RETURNING id`,
 		threadAccountID,
 		outputCredentialID,
@@ -247,8 +247,8 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	var outputRouteFromModel uuid.UUID
 	if err := pool.QueryRow(
 		ctx,
-		`INSERT INTO llm_routes (id, account_id, credential_id, model, priority, is_default, when_json, multiplier)
-		 VALUES ('11111111-1111-1111-1111-111111111111', $1, $2, 'gpt-5', 120, true, '{}'::jsonb, 1.0)
+		`INSERT INTO llm_routes (id, account_id, credential_id, model, priority, when_json, multiplier)
+		 VALUES ('11111111-1111-1111-1111-111111111111', $1, $2, 'gpt-5', 120, '{}'::jsonb, 1.0)
 		 RETURNING id`,
 		threadAccountID,
 		gptCredentialID,

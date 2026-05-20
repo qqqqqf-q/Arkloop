@@ -113,6 +113,7 @@ func NewPersonaResolutionMiddleware(
 			rc.StreamThinking = def.StreamThinking
 			rc.AgentConfig = &ResolvedAgentConfig{
 				Model:              def.Model,
+				ImageModel:         def.ImageModel,
 				PromptCacheControl: def.PromptCacheControl,
 				ReasoningMode:      def.ReasoningMode,
 			}

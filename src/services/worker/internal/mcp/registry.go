@@ -20,10 +20,11 @@ import (
 var toolNameSafeRegex = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
 type Registration struct {
-	AgentSpecs     []tools.AgentToolSpec
-	LlmSpecs       []llm.ToolSpec
-	Executors      map[string]tools.Executor
+	AgentSpecs      []tools.AgentToolSpec
+	LlmSpecs        []llm.ToolSpec
+	Executors       map[string]tools.Executor
 	UIOnlyExecutors map[string]tools.Executor
+	Instructions    map[string]string // serverID -> instructions from MCP InitializeResult
 }
 
 type DiscoverDiagnostics struct {
@@ -82,10 +83,11 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	}
 
 	type serverResult struct {
-		index  int
-		server ServerConfig
-		tools  []Tool
-		diag   ServerDiagnostics
+		index       int
+		server      ServerConfig
+		tools       []Tool
+		instructions string
+		diag        ServerDiagnostics
 	}
 
 	results := make([]serverResult, len(cfg.Servers))
@@ -127,6 +129,7 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 				return
 			}
 			result.tools = toolsList
+			result.instructions = client.ServerInstructions()
 			result.diag.Outcome = "ok"
 			result.diag.ToolCount = len(toolsList)
 			results[idx] = result
@@ -144,9 +147,13 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	}{}
 
 	baseCounts := map[string]int{}
+	instructions := map[string]string{}
 
 	for _, r := range results {
 		diag.Servers = append(diag.Servers, r.diag)
+		if r.instructions != "" {
+			instructions[strings.TrimSpace(r.server.ServerID)] = r.instructions
+		}
 		if len(r.tools) == 0 {
 			continue
 		}
@@ -249,10 +256,11 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	diag.ToolCount = len(llmSpecs)
 
 	return Registration{
-		AgentSpecs:     agentSpecs,
-		LlmSpecs:       llmSpecs,
-		Executors:      executors,
+		AgentSpecs:      agentSpecs,
+		LlmSpecs:        llmSpecs,
+		Executors:       executors,
 		UIOnlyExecutors: uiOnlyExecutors,
+		Instructions:    instructions,
 	}, diag, nil
 }
 

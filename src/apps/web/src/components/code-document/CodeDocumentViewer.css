@@ -1,0 +1,139 @@
+.code-document-viewer {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  --code-font-size: 13px;
+  --code-line-height: 1.62;
+  --code-line-pad-x: 20px;
+  --code-gutter-width: 40px;
+  --code-gutter-bg: transparent;
+  --code-gutter-border: transparent;
+  --code-active-bg: transparent;
+  --code-hover-bg: color-mix(in srgb, var(--c-bg-deep) 34%, transparent);
+}
+
+.code-document-viewer--fill {
+  height: 100%;
+}
+
+.code-document-viewer__mount {
+  width: 100%;
+  min-width: 0;
+  min-height: inherit;
+}
+
+.code-document-viewer--fill .code-document-viewer__mount {
+  height: 100%;
+}
+
+.code-document-viewer__fallback {
+  margin: 0;
+  padding: 12px 16px;
+  min-height: inherit;
+  overflow: auto;
+  color: var(--c-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cm-editor.ark-code-viewer {
+  background: transparent;
+  color: var(--c-text-primary);
+  outline: none;
+  letter-spacing: 0;
+}
+
+.cm-editor.ark-code-viewer .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--code-font-size);
+  line-height: var(--code-line-height);
+  overscroll-behavior: contain;
+}
+
+.cm-editor.ark-code-viewer .cm-content {
+  min-height: 100%;
+  padding: 13px 0 40px;
+  caret-color: var(--c-text-primary);
+}
+
+.cm-editor.ark-code-viewer .cm-content:focus {
+  outline: none;
+}
+
+.cm-editor.ark-code-viewer .cm-line {
+  padding: 0 var(--code-line-pad-x);
+  min-height: calc(var(--code-font-size) * var(--code-line-height));
+}
+
+.cm-editor.ark-code-viewer .cm-gutters {
+  background: var(--code-gutter-bg);
+  color: var(--c-text-muted);
+  border-right: 0.5px solid var(--code-gutter-border);
+}
+
+.cm-editor.ark-code-viewer .cm-lineNumbers .cm-gutterElement {
+  min-width: var(--code-gutter-width);
+  padding: 0 8px 0 0;
+  color: color-mix(in srgb, var(--c-text-muted) 72%, transparent);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cm-editor.ark-code-viewer .cm-activeLine {
+  background: transparent;
+}
+
+.cm-editor.ark-code-viewer .cm-activeLineGutter {
+  background: transparent;
+  color: color-mix(in srgb, var(--c-text-secondary) 76%, transparent);
+}
+
+.code-document-viewer--readonly .cm-editor.ark-code-viewer .cm-line:hover {
+  background: var(--code-hover-bg);
+}
+
+.cm-editor.ark-code-viewer .cm-cursor {
+  border-left: 1.5px solid var(--c-text-primary);
+}
+
+.cm-editor.ark-code-viewer .cm-selectionBackground,
+.cm-editor.ark-code-viewer.cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
+}
+
+.cm-editor.ark-code-viewer .cm-matchingBracket,
+.cm-editor.ark-code-viewer .cm-nonmatchingBracket {
+  background: transparent;
+  outline: 0;
+}
+
+.cm-editor.ark-code-viewer .cm-focused,
+.cm-editor.ark-code-viewer.cm-focused,
+.cm-editor.ark-code-viewer.cm-focused .cm-content {
+  outline: none;
+}
+
+.cm-editor.ark-code-viewer .cm-tooltip,
+.cm-editor.ark-code-viewer .cm-tooltip-autocomplete {
+  border: 0.5px solid var(--c-border-subtle);
+  border-radius: 8px;
+  background: var(--c-bg-menu);
+  box-shadow: var(--c-dropdown-shadow);
+}
+
+.cm-editor.ark-code-viewer .cm-code-line-added {
+  background: color-mix(in srgb, var(--c-status-success-text, #22c55e) 13%, transparent);
+}
+
+.cm-editor.ark-code-viewer .cm-code-line-removed {
+  background: color-mix(in srgb, var(--c-status-error-text, #ef4444) 13%, transparent);
+}
+
+.cm-editor.ark-code-viewer .cm-code-line-added .cm-line,
+.cm-editor.ark-code-viewer .cm-code-line-removed .cm-line {
+  padding-left: var(--code-line-pad-x);
+}

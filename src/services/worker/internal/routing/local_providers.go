@@ -22,9 +22,6 @@ func AppendLocalProviders(config ProviderRoutingConfig, statuses []localprovider
 			if _, exists := config.GetRoute(route.ID); !exists {
 				config.Routes = append(config.Routes, route)
 			}
-			if config.DefaultRouteID == "" && route.ID != "" {
-				config.DefaultRouteID = route.ID
-			}
 		}
 	}
 	return config

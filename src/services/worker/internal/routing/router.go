@@ -134,31 +134,12 @@ func (r *ProviderRouter) Decide(inputJSON map[string]any, byokEnabled bool, plat
 
 func (r *ProviderRouter) pickFirstMatchingRoute(inputJSON map[string]any, platformOnly bool) ProviderRouteRule {
 	for _, route := range r.config.Routes {
-		if route.ID == r.config.DefaultRouteID {
-			continue
-		}
 		if platformOnly && route.AccountScoped {
-			continue
-		}
-		// 空 when 的路由只能通过 route_id 显式选择，不参与自动匹配
-		if len(route.When) == 0 {
 			continue
 		}
 		if route.Matches(inputJSON) {
 			return route
 		}
-	}
-	if strings.TrimSpace(r.config.DefaultRouteID) != "" {
-		route, _ := r.config.GetRoute(r.config.DefaultRouteID)
-		if !platformOnly || !route.AccountScoped {
-			return route
-		}
-	}
-	for _, route := range r.config.Routes {
-		if platformOnly && route.AccountScoped {
-			continue
-		}
-		return route
 	}
 	return ProviderRouteRule{}
 }

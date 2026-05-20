@@ -68,6 +68,7 @@ type RoleOverride struct {
 	Budgets             BudgetsOverride
 	PreferredCredential OptionalStringOverride
 	Model               OptionalStringOverride
+	ImageModel          OptionalStringOverride
 	ReasoningMode       EnumStringOverride
 	StreamThinking      BoolOverride
 	PromptCacheControl  EnumStringOverride
@@ -140,6 +141,7 @@ type Definition struct {
 	ExecutorConfig          map[string]any // Executor 配置，默认 {}
 	PreferredCredential     *string        // 偏好凭证名称，nil 表示不绑定
 	Model                   *string        // model selector，优先 provider^model，其次兼容裸 model
+	ImageModel              *string        // 图像理解 model selector，nil 时回退到 spawn.profile.vision
 	ReasoningMode           string
 	StreamThinking          bool // 是否向客户端下发 channel: thinking；默认 true
 	PromptCacheControl      string

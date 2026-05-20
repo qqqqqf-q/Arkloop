@@ -10,6 +10,7 @@ export type ShortcutId =
   | 'promptHistoryNext'
   | 'chooseCommand'
   | 'closeCommand'
+  | 'togglePlanMode'
 
 export type ShortcutModifier = 'mod' | 'shift' | 'alt'
 export type ShortcutBinding = {
@@ -68,6 +69,10 @@ export const SHORTCUTS: Record<ShortcutId, ShortcutDefinition> = {
   closeCommand: {
     id: 'closeCommand',
     binding: { key: 'Escape' },
+  },
+  togglePlanMode: {
+    id: 'togglePlanMode',
+    binding: { key: 'Tab', modifiers: ['shift'] },
   },
 }
 
@@ -137,6 +142,8 @@ function formatKey(key: string): string {
       return 'Enter'
     case 'Escape':
       return 'Esc'
+    case 'Tab':
+      return 'Tab'
     case 'ArrowUp':
       return '↑'
     case 'ArrowDown':

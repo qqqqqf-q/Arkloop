@@ -79,6 +79,7 @@ function parseViteDevUrl(output) {
 }
 
 function startViteDevServer() {
+  const devMockAppUpdate = process.env.ARKLOOP_DEV_MOCK_APP_UPDATE?.trim() ?? ''
   return new Promise((resolvePromise, rejectPromise) => {
     const viteCommand = resolveCommand('pnpm')
     const vite = spawn(viteCommand, ['exec', 'vite', '--port', '5173'], {
@@ -89,6 +90,7 @@ function startViteDevServer() {
         ...process.env,
         ARKLOOP_API_PROXY_TARGET: 'http://127.0.0.1:19001',
         ARKLOOP_DESKTOP_SHELL_DEV: 'true',
+        ...(devMockAppUpdate ? { VITE_DEV_MOCK_APP_UPDATE: devMockAppUpdate } : {}),
       },
     })
 

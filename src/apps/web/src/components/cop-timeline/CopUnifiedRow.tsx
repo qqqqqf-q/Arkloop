@@ -34,7 +34,7 @@ export function CopTimelineUnifiedRow({
 }) {
   const { locale } = useLocale()
   const markerBoxSize = 16
-  const markerTop = dotTop - 4
+  const markerTop = dotTop - 3
   const lineBelowTop = marker.kind === 'icon'
     ? markerTop + markerBoxSize
     : dotTop + COP_TIMELINE_DOT_SIZE

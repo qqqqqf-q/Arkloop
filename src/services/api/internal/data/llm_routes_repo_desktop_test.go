@@ -51,7 +51,7 @@ func TestLlmRoutesDesktopCreateCaseVariantModel(t *testing.T) {
 	routesRepo, credentialsRepo, ctx := setupDesktopLlmRoutesTestRepos(t)
 	credentialID := createDesktopLlmRouteTestCredential(t, ctx, credentialsRepo, "case-variant-model")
 
-	if _, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "MiMo-V2.5-Pro", IsDefault: true}); err != nil {
+	if _, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "MiMo-V2.5-Pro"}); err != nil {
 		t.Fatalf("create first route: %v", err)
 	}
 	if _, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "mimo-v2.5-pro"}); err != nil {
@@ -63,7 +63,7 @@ func TestLlmRoutesDesktopDeleteOnlyDefaultModel(t *testing.T) {
 	routesRepo, credentialsRepo, ctx := setupDesktopLlmRoutesTestRepos(t)
 	credentialID := createDesktopLlmRouteTestCredential(t, ctx, credentialsRepo, "delete-default-model")
 
-	route, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "gpt-4o", IsDefault: true})
+	route, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "gpt-4o"})
 	if err != nil {
 		t.Fatalf("create route: %v", err)
 	}

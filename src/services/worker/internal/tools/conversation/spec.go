@@ -38,6 +38,53 @@ var SearchLlmSpec = llm.ToolSpec{
 	},
 }
 
+var ThreadListAgentSpec = tools.AgentToolSpec{
+	Name:        "thread_list",
+	Version:     "1",
+	Description: "list the current user's conversation threads",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
+var ThreadListLlmSpec = llm.ToolSpec{
+	Name:        "thread_list",
+	Description: stringPtr(sharedtoolmeta.Must("thread_list").LLMDescription),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 30},
+			"offset": map[string]any{"type": "integer", "minimum": 0},
+			"mode":   map[string]any{"type": "string", "enum": []string{"chat", "work"}},
+		},
+		"additionalProperties": false,
+	},
+}
+
+var ThreadMessagesAgentSpec = tools.AgentToolSpec{
+	Name:        "thread_messages",
+	Version:     "1",
+	Description: "read messages from a specific conversation thread",
+	RiskLevel:   tools.RiskLevelLow,
+	SideEffects: false,
+}
+
+var ThreadMessagesLlmSpec = llm.ToolSpec{
+	Name:        "thread_messages",
+	Description: stringPtr(sharedtoolmeta.Must("thread_messages").LLMDescription),
+	JSONSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"thread_id": map[string]any{"type": "string"},
+			"limit":     map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
+			"offset":    map[string]any{"type": "integer", "minimum": 0},
+			"role":      map[string]any{"type": "string", "enum": []string{"user", "assistant"}},
+			"order":     map[string]any{"type": "string", "enum": []string{"asc", "desc"}},
+		},
+		"required":             []string{"thread_id"},
+		"additionalProperties": false,
+	},
+}
+
 var ContextLlmSpec = llm.ToolSpec{
 	Name:        "conversation_context",
 	Description: stringPtr(sharedtoolmeta.Must("conversation_context").LLMDescription),
@@ -63,9 +110,9 @@ var ContextLlmSpec = llm.ToolSpec{
 }
 
 func AgentSpecs() []tools.AgentToolSpec {
-	return []tools.AgentToolSpec{SearchAgentSpec, ContextAgentSpec}
+	return []tools.AgentToolSpec{SearchAgentSpec, ContextAgentSpec, ThreadListAgentSpec, ThreadMessagesAgentSpec}
 }
 
 func LlmSpecs() []llm.ToolSpec {
-	return []llm.ToolSpec{SearchLlmSpec, ContextLlmSpec}
+	return []llm.ToolSpec{SearchLlmSpec, ContextLlmSpec, ThreadListLlmSpec, ThreadMessagesLlmSpec}
 }

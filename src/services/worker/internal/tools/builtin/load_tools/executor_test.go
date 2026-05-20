@@ -454,8 +454,8 @@ func TestBuildCatalogPrompt(t *testing.T) {
 	if !contains(catalog, "<available_tools>") {
 		t.Fatalf("catalog missing XML tags: %s", catalog)
 	}
-	if !contains(catalog, "same reasoning loop") {
-		t.Fatalf("catalog should explain same-loop activation timing: %s", catalog)
+	if !contains(catalog, "subsequent turns") {
+		t.Fatalf("catalog should explain activation timing: %s", catalog)
 	}
 }
 

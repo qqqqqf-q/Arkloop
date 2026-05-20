@@ -103,7 +103,6 @@ func TestToolExecutorExecuteWritesArtifact(t *testing.T) {
 				},
 			},
 		}},
-		DefaultRouteID: "route-openai",
 	})
 	executor := NewToolExecutor(store, nil, resolverStub{value: "img-openai^gpt-image-1"}, routingLoader)
 	executor.generate = func(_ context.Context, _ llm.ResolvedGatewayConfig, req llm.ImageGenerationRequest) (llm.GeneratedImage, error) {
@@ -179,7 +178,6 @@ func TestToolExecutorExecutePropagatesGatewayErrorClass(t *testing.T) {
 			Model:        "imagen-4.0-generate-001",
 			CredentialID: "cred-gemini",
 		}},
-		DefaultRouteID: "route-gemini",
 	})
 	executor := NewToolExecutor(store, nil, resolverStub{value: "img-gemini^imagen-4.0-generate-001"}, routingLoader)
 	executor.generate = func(context.Context, llm.ResolvedGatewayConfig, llm.ImageGenerationRequest) (llm.GeneratedImage, error) {
@@ -237,7 +235,6 @@ func TestToolExecutorExecuteRejectsCrossAccountInputImage(t *testing.T) {
 			Model:        "gpt-image-1",
 			CredentialID: "cred-openai",
 		}},
-		DefaultRouteID: "route-openai",
 	})
 	executor := NewToolExecutor(store, nil, resolverStub{value: "img-openai^gpt-image-1"}, routingLoader)
 

@@ -622,80 +622,15 @@ func resolveAccountToolGateway(
 	configLoader *routing.ConfigLoader,
 	byokEnabled bool,
 ) (llm.Gateway, string, bool) {
-	resolution, ok := resolveAccountToolRoute(ctx, pool, accountID, auxGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byokEnabled)
+	resolution, ok := resolveEntitlementRoute(ctx, pool, accountID, "spawn.profile.tool", auxGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byokEnabled)
 	if !ok {
 		return nil, "", false
 	}
 	return resolution.Gateway, resolution.Selected.Route.Model, true
 }
 
-type accountToolRouteResolution struct {
-	Selected *routing.SelectedProviderRoute
-	Gateway  llm.Gateway
-}
-
-func resolveAccountToolRoute(
-	ctx context.Context,
-	pool CompactPersistDB,
-	accountID uuid.UUID,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	llmMaxResponseBytes int,
-	configLoader *routing.ConfigLoader,
-	byokEnabled bool,
-) (*accountToolRouteResolution, bool) {
-	var selector string
-	err := pool.QueryRow(ctx,
-		`SELECT value FROM account_entitlement_overrides
-		  WHERE account_id = $1 AND key = 'spawn.profile.tool'
-		    AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-		  LIMIT 1`,
-		accountID,
-	).Scan(&selector)
-	selector = strings.TrimSpace(selector)
-	if err != nil || selector == "" {
-		return nil, false
-	}
-
-	if configLoader == nil {
-		return nil, false
-	}
-	aid := accountID
-	routingCfg, err := configLoader.Load(ctx, &aid)
-	if err != nil {
-		slog.Warn("title_summarizer: load routing config for tool profile failed", "err", err.Error())
-		return nil, false
-	}
-
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, byokEnabled)
-	if err != nil || selected == nil {
-		// 精确 route 不存在时，按 credential name 查找并构造临时 route
-		credName, modelName, exact := splitModelSelector(selector)
-		if exact {
-			if baseRoute, cred, ok := routingCfg.GetHighestPriorityRouteByCredentialName(credName, map[string]any{}); ok {
-				selected = &routing.SelectedProviderRoute{
-					Route:      baseRoute,
-					Credential: cred,
-				}
-				selected.Route.Model = modelName
-			}
-		}
-		if selected == nil {
-			return nil, false
-		}
-	}
-
-	gw, err := gatewayFromSelectedRoute(*selected, auxGateway, emitDebugEvents, llmMaxResponseBytes)
-	if err != nil {
-		slog.Warn("tool_gateway: build failed", "selector", selector, "err", err.Error())
-		return nil, false
-	}
-	return &accountToolRouteResolution{
-		Selected: selected,
-		Gateway:  gw,
-	}, true
-}
-
+// resolveAccountToolRouteStrict 解析账户级 spawn.profile.tool override（严格模式），
+// 不做 credential name fallback，精确 route 不存在即失败。
 func resolveAccountToolRouteStrict(
 	ctx context.Context,
 	pool CompactPersistDB,
@@ -705,7 +640,7 @@ func resolveAccountToolRouteStrict(
 	llmMaxResponseBytes int,
 	configLoader *routing.ConfigLoader,
 	byokEnabled bool,
-) (*accountToolRouteResolution, bool) {
+) (*entitlementRouteResolution, bool) {
 	var selector string
 	err := pool.QueryRow(ctx,
 		`SELECT value FROM account_entitlement_overrides
@@ -734,7 +669,7 @@ func resolveAccountToolRouteStrict(
 		slog.Warn("tool_gateway: build failed", "selector", selector, "err", err.Error())
 		return nil, false
 	}
-	return &accountToolRouteResolution{
+	return &entitlementRouteResolution{
 		Selected: selected,
 		Gateway:  gw,
 	}, true

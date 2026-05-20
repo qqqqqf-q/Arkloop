@@ -27,6 +27,8 @@ type Model struct {
 	Default         bool
 	Hidden          bool
 	Priority        int
+	Tags            []string
+	AdvancedJSON    map[string]any
 }
 
 type ProviderStatus struct {

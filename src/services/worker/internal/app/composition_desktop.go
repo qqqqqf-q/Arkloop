@@ -371,7 +371,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if typed, ok := memProvider.(*nowledge.Client); ok {
 		linkRepo := data.ExternalThreadLinksRepository{}
 		linkStore := desktopExternalThreadLinks{repo: linkRepo, db: db}
-		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(typed))
+		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(typed, nowledgeCfg.ResolvedMaxContextResults(), nowledgeCfg.ResolvedRecallMinScore()))
 		_ = hookRegistry.SetThreadPersistenceProvider(pipeline.NewNowledgeThreadPersistenceProvider(typed, linkStore))
 	}
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
@@ -380,6 +380,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		promptInjection.Resolver,
 		desktopImpStore,
 		newDesktopImpressionRefresh(db, jobQueue),
+		pipeline.NewDesktopSuggestionStore(db),
+		newDesktopSuggestionRefresh(db, jobQueue),
 	))
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewContextCompactMaintenanceObserver(jobQueue))
 	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
@@ -722,6 +724,8 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	var memMiddleware pipeline.RunMiddleware
 	impStore := pipeline.NewDesktopImpressionStore(e.db)
 	impRefresh := newDesktopImpressionRefresh(e.db, e.jobQueue)
+	sugStore := pipeline.NewDesktopSuggestionStore(e.db)
+	sugRefresh := newDesktopSuggestionRefresh(e.db, e.jobQueue)
 	if e.useOV {
 		memoryMW := pipeline.NewMemoryMiddleware(
 			e.memProvider,
@@ -730,6 +734,8 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			e.promptInjection.Resolver,
 			impStore,
 			impRefresh,
+			sugStore,
+			sugRefresh,
 		)
 		memMiddleware = memoryMW
 	} else {
@@ -810,7 +816,14 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		})),
 		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.auxGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewImageUnderstandingMiddleware(pipeline.ImageUnderstandingConfig{
+			AuxGateway:          e.auxGateway,
+			EmitDebugEvents:     e.emitDebugEvents,
+			RoutingConfigLoader: e.routingLoader,
+			EventsRepo:          data.DesktopRunEventsRepository{},
+		}),
 		pipeline.NewImpressionPrepareMiddleware(impStore, e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewSuggestionPrepareMiddleware(sugStore, e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewStickerPrepareMiddleware(e.db, e.messageAttachmentStore, pipeline.StickerPrepareConfig{
 			AuxGateway:          e.auxGateway,
 			EmitDebugEvents:     e.emitDebugEvents,
@@ -1010,6 +1023,25 @@ func newDesktopImpressionRefresh(db data.DesktopDB, jq queue.JobQueue) pipeline.
 		return nil
 	}
 	return pipeline.NewImpressionRefreshFunc(pipeline.ImpressionRefreshDeps{
+		ExecSQL: func(ctx context.Context, sql string, args ...any) error {
+			_, err := db.Exec(ctx, sql, args...)
+			return err
+		},
+		QueryRowScan: func(ctx context.Context, sql string, args []any, dest ...any) error {
+			return db.QueryRow(ctx, sql, args...).Scan(dest...)
+		},
+		EnqueueRun: func(ctx context.Context, accountID, runID uuid.UUID, traceID, jobType string, payload map[string]any) error {
+			_, err := jq.EnqueueRun(ctx, accountID, runID, traceID, jobType, payload, nil)
+			return err
+		},
+	})
+}
+
+func newDesktopSuggestionRefresh(db data.DesktopDB, jq queue.JobQueue) pipeline.SuggestionRefreshFunc {
+	if db == nil || jq == nil {
+		return nil
+	}
+	return pipeline.NewSuggestionRefreshFunc(pipeline.ImpressionRefreshDeps{
 		ExecSQL: func(ctx context.Context, sql string, args ...any) error {
 			_, err := db.Exec(ctx, sql, args...)
 			return err
@@ -3189,15 +3221,39 @@ func desktopRouting(
 			if decision.Selected == nil && decision.Denied == nil {
 				decision = router.Decide(rc.InputJSON, false, false)
 			}
+			// auxiliary runs without model selector: try entitlement fallback
+			if decision.Selected == nil && decision.Denied == nil {
+				if pipeline.IsStickerRegisterRun(rc) {
+					if resolution, ok := pipeline.ResolveStickerVisionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
+				} else if pipeline.IsImpressionRun(rc) {
+					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
+				} else if pipeline.IsSuggestionRun(rc) {
+					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
+				}
+			}
+			if decision.Selected == nil && decision.Denied == nil {
+				decision = routing.ProviderRouteDecision{
+					Denied: &routing.ProviderRouteDenied{
+						ErrorClass: llm.ErrorClassRoutingNotFound,
+						Code:       "routing.no_model_configured",
+						Message:    "no model configured for this run; set persona.model or spawn.profile.task entitlement override",
+					},
+				}
+			}
 		}
 
 		if decision.Denied != nil {
 			return desktopWriteFailure(ctx, db, rc.Run, rc.Emitter, runsRepo, eventsRepo,
 				decision.Denied.ErrorClass, decision.Denied.Message, nil)
-		}
-		if decision.Selected == nil {
-			return desktopWriteFailure(ctx, db, rc.Run, rc.Emitter, runsRepo, eventsRepo,
-				"internal.error", "route decision is empty", nil)
 		}
 
 		gateway, err := desktopGatewayFromRoute(*decision.Selected, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes)
@@ -5015,22 +5071,21 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	}
 
 	routeRows, err := tx.Query(ctx,
-		`SELECT id, credential_id, model, priority, is_default, when_json, advanced_json,
+		`SELECT id, credential_id, model, priority, when_json, advanced_json,
 		        multiplier, cost_per_1k_input, cost_per_1k_output, cost_per_1k_cache_write, cost_per_1k_cache_read
 		 FROM llm_routes ORDER BY priority DESC`)
 	if err != nil {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("query llm_routes: %w", err)
 	}
 	var routes []routing.ProviderRouteRule
-	defaultRouteID := ""
 	for routeRows.Next() {
 		var (
 			id, credentialID, model, whenStr, advancedStr string
-			priority, isDefault                           int
-			multiplier                                    float64
-			costIn, costOut, costCW, costCR               *float64
+			priority                                     int
+			multiplier                                   float64
+			costIn, costOut, costCW, costCR              *float64
 		)
-		if err := routeRows.Scan(&id, &credentialID, &model, &priority, &isDefault,
+		if err := routeRows.Scan(&id, &credentialID, &model, &priority,
 			&whenStr, &advancedStr, &multiplier, &costIn, &costOut, &costCW, &costCR); err != nil {
 			routeRows.Close()
 			return routing.ProviderRoutingConfig{}, fmt.Errorf("scan llm_routes: %w", err)
@@ -5061,9 +5116,6 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 			CostPer1kCacheWrite: costCW, CostPer1kCacheRead: costCR,
 			Priority: priority,
 		})
-		if isDefault != 0 && defaultRouteID == "" {
-			defaultRouteID = id
-		}
 	}
 	routeRows.Close()
 	tx.Rollback(ctx)
@@ -5072,15 +5124,11 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	if len(routes) == 0 {
 		return routing.ProviderRoutingConfig{}, fmt.Errorf("no routes found in database")
 	}
-	if defaultRouteID == "" {
-		defaultRouteID = routes[0].ID
-	}
 
-	slog.Info("desktop: loaded routing config from DB", "credentials", len(creds), "routes", len(routes), "default_route", defaultRouteID)
+	slog.Info("desktop: loaded routing config from DB", "credentials", len(creds), "routes", len(routes))
 	return routing.ProviderRoutingConfig{
-		DefaultRouteID: defaultRouteID,
-		Credentials:    creds,
-		Routes:         routes,
+		Credentials: creds,
+		Routes:      routes,
 	}, nil
 }
 

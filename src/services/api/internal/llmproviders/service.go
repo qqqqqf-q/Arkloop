@@ -67,7 +67,6 @@ type UpdateProviderInput struct {
 type CreateModelInput struct {
 	Model               string
 	Priority            int
-	IsDefault           bool
 	ShowInPicker        bool
 	Tags                []string
 	WhenJSON            json.RawMessage
@@ -84,8 +83,6 @@ type UpdateModelInput struct {
 	Model                  *string
 	PrioritySet            bool
 	Priority               *int
-	IsDefaultSet           bool
-	IsDefault              *bool
 	ShowInPickerSet        bool
 	ShowInPicker           *bool
 	TagsSet                bool
@@ -328,7 +325,6 @@ func (s *Service) CopyProvider(ctx context.Context, accountID, providerID uuid.U
 			CredentialID:        newProviderID,
 			Model:               model.Model,
 			Priority:            model.Priority,
-			IsDefault:           model.IsDefault,
 			ShowInPicker:        model.ShowInPicker,
 			Tags:                append([]string(nil), model.Tags...),
 			WhenJSON:            cloneRawJSON(model.WhenJSON),
@@ -469,14 +465,7 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 	if err := ValidateAdvancedJSONForProvider(provider.Provider, input.AdvancedJSON); err != nil {
 		return data.LlmRoute{}, err
 	}
-	existing, err := s.routes.ListByCredential(ctx, accountID, providerID, scope)
-	if err != nil {
-		return data.LlmRoute{}, err
-	}
 	model := CanonicalModelIdentifier(provider.Provider, input.Model)
-	hasDefault := hasDefaultModel(existing)
-	desiredDefault := input.IsDefault || len(existing) == 0
-	insertDefault := desiredDefault && len(existing) == 0
 	multiplier := derefFloat(input.Multiplier, 1.0)
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -499,7 +488,6 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 		CredentialID:        providerID,
 		Model:               model,
 		Priority:            input.Priority,
-		IsDefault:           insertDefault,
 		ShowInPicker:        input.ShowInPicker,
 		Tags:                input.Tags,
 		WhenJSON:            input.WhenJSON,
@@ -512,15 +500,6 @@ func (s *Service) CreateModel(ctx context.Context, accountID, providerID uuid.UU
 	})
 	if err != nil {
 		return data.LlmRoute{}, err
-	}
-	if desiredDefault && len(existing) > 0 {
-		if _, err := txRoutes.SetDefaultByCredential(ctx, accountID, providerID, created.ID, scope); err != nil {
-			return data.LlmRoute{}, err
-		}
-	} else if !desiredDefault && !hasDefault {
-		if _, err := txRoutes.PromoteHighestPriorityToDefault(ctx, accountID, providerID, scope); err != nil {
-			return data.LlmRoute{}, err
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return data.LlmRoute{}, err
@@ -563,10 +542,6 @@ func (s *Service) UpdateModel(ctx context.Context, accountID, providerID, modelI
 	priority := current.Priority
 	if input.PrioritySet {
 		priority = *input.Priority
-	}
-	isDefault := current.IsDefault
-	if input.IsDefaultSet {
-		isDefault = *input.IsDefault
 	}
 	showInPicker := current.ShowInPicker
 	if input.ShowInPickerSet {
@@ -617,18 +592,12 @@ func (s *Service) UpdateModel(ctx context.Context, accountID, providerID, modelI
 	}()
 
 	txRoutes := s.routes.WithTx(tx)
-	if input.IsDefaultSet && *input.IsDefault && !current.IsDefault {
-		if _, err := txRoutes.SetDefaultByCredential(ctx, accountID, providerID, modelID, scope); err != nil {
-			return data.LlmRoute{}, err
-		}
-	}
 	if _, err := txRoutes.Update(ctx, data.UpdateLlmRouteParams{
 		AccountID:           accountID,
 		Scope:               scope,
 		RouteID:             modelID,
 		Model:               model,
 		Priority:            priority,
-		IsDefault:           isDefault,
 		ShowInPicker:        showInPicker,
 		Tags:                tags,
 		WhenJSON:            whenJSON,
@@ -640,11 +609,6 @@ func (s *Service) UpdateModel(ctx context.Context, accountID, providerID, modelI
 		CostPer1kCacheRead:  costPer1kCacheRead,
 	}); err != nil {
 		return data.LlmRoute{}, err
-	}
-	if current.IsDefault && input.IsDefaultSet && !*input.IsDefault {
-		if _, err := txRoutes.PromoteHighestPriorityToDefault(ctx, accountID, providerID, scope); err != nil {
-			return data.LlmRoute{}, err
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return data.LlmRoute{}, err
@@ -689,11 +653,6 @@ func (s *Service) DeleteModel(ctx context.Context, accountID, providerID, modelI
 	txRoutes := s.routes.WithTx(tx)
 	if err := txRoutes.DeleteByID(ctx, accountID, modelID, scope); err != nil {
 		return err
-	}
-	if current.IsDefault {
-		if _, err := txRoutes.PromoteHighestPriorityToDefault(ctx, accountID, providerID, scope); err != nil {
-			return err
-		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
@@ -839,15 +798,6 @@ func computeKeyPrefix(apiKey string) string {
 		return string(runes)
 	}
 	return string(runes[:8])
-}
-
-func hasDefaultModel(routes []data.LlmRoute) bool {
-	for _, route := range routes {
-		if route.IsDefault {
-			return true
-		}
-	}
-	return false
 }
 
 func derefFloat(value *float64, fallback float64) float64 {

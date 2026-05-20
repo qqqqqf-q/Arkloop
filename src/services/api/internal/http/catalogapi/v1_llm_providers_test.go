@@ -72,7 +72,7 @@ func TestLocalProviderFromStatusIsReadOnlyAndSecretFree(t *testing.T) {
 	if provider.Credential.SecretID != nil || provider.Credential.KeyPrefix != nil || provider.Credential.BaseURL != nil {
 		t.Fatalf("local provider must not carry stored credential data: %#v", provider.Credential)
 	}
-	if len(provider.Models) != 1 || provider.Models[0].ShowInPicker || provider.Models[0].IsDefault {
+	if len(provider.Models) != 1 || provider.Models[0].ShowInPicker {
 		t.Fatalf("unexpected local routes: %#v", provider.Models)
 	}
 }
@@ -90,9 +90,9 @@ func TestLocalProviderMutationGuard(t *testing.T) {
 	}{
 		{name: "patch provider", parts: []string{providerID.String()}, method: nethttp.MethodPatch, want: true},
 		{name: "delete provider", parts: []string{providerID.String()}, method: nethttp.MethodDelete, want: true},
-		{name: "create model", parts: []string{providerID.String(), "models"}, method: nethttp.MethodPost, want: true},
+		{name: "create model", parts: []string{providerID.String(), "models"}, method: nethttp.MethodPost, want: false},
 		{name: "patch model picker", parts: []string{providerID.String(), "models", uuid.NewString()}, method: nethttp.MethodPatch, want: false},
-		{name: "delete model", parts: []string{providerID.String(), "models", uuid.NewString()}, method: nethttp.MethodDelete, want: true},
+		{name: "delete model", parts: []string{providerID.String(), "models", uuid.NewString()}, method: nethttp.MethodDelete, want: false},
 		{name: "available models read", parts: []string{providerID.String(), "available-models"}, method: nethttp.MethodGet, want: false},
 		{name: "model test read", parts: []string{providerID.String(), "models", uuid.NewString(), "test"}, method: nethttp.MethodPost, want: false},
 	}

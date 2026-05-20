@@ -60,6 +60,7 @@ func parseRoleOverride(value any, label string) (RoleOverride, error) {
 		"budgets":              {},
 		"preferred_credential": {},
 		"model":                {},
+		"image_model":          {},
 		"reasoning_mode":       {},
 		"stream_thinking":      {},
 		"prompt_cache_control": {},
@@ -121,6 +122,13 @@ func parseRoleOverride(value any, label string) (RoleOverride, error) {
 			return RoleOverride{}, err
 		}
 		out.Model = parsed
+	}
+	if rawValue, ok := raw["image_model"]; ok {
+		parsed, err := parseOptionalStringOverride(rawValue, label+".image_model")
+		if err != nil {
+			return RoleOverride{}, err
+		}
+		out.ImageModel = parsed
 	}
 	if rawValue, ok := raw["reasoning_mode"]; ok {
 		parsed, err := parseEnumOverride(rawValue, label+".reasoning_mode", func(value string) string {
@@ -263,6 +271,9 @@ func ApplyRoleOverride(def Definition, role string) (Definition, bool) {
 	if override.Model.Set {
 		merged.Model = cloneStringPtr(override.Model.Value)
 	}
+	if override.ImageModel.Set {
+		merged.ImageModel = cloneStringPtr(override.ImageModel.Value)
+	}
 	if override.ReasoningMode.Set {
 		merged.ReasoningMode = override.ReasoningMode.Value
 	}
@@ -317,6 +328,7 @@ func cloneDefinition(def Definition) Definition {
 	cloned.ExecutorConfig = cloneToolBudget(def.ExecutorConfig)
 	cloned.PreferredCredential = cloneStringPtr(def.PreferredCredential)
 	cloned.Model = cloneStringPtr(def.Model)
+	cloned.ImageModel = cloneStringPtr(def.ImageModel)
 	cloned.Roles = cloneRoleOverrides(def.Roles)
 	if def.TitleSummarizer != nil {
 		cloned.TitleSummarizer = &TitleSummarizerConfig{
@@ -369,6 +381,7 @@ func cloneRoleOverrides(overrides map[string]RoleOverride) map[string]RoleOverri
 			Budgets:             cloneBudgetsOverride(override.Budgets),
 			PreferredCredential: cloneOptionalStringOverride(override.PreferredCredential),
 			Model:               cloneOptionalStringOverride(override.Model),
+			ImageModel:          cloneOptionalStringOverride(override.ImageModel),
 			ReasoningMode:       override.ReasoningMode,
 			StreamThinking:      override.StreamThinking,
 			PromptCacheControl:  override.PromptCacheControl,

@@ -39,7 +39,7 @@ export function joinTitleSpans(spans: TitleSpan[], separator: string): TitleSpan
 }
 
 export const EXEC_TOOL_NAMES = new Set(['exec_command', 'python_execute', 'continue_process', 'terminate_process'])
-export const EDIT_TOOL_NAMES = new Set(['edit', 'edit_file', 'write_file'])
+export const EDIT_TOOL_NAMES = new Set(['edit', 'edit_file', 'write_file', 'memory_write', 'memory_edit', 'memory_forget', 'notebook_write', 'notebook_edit', 'notebook_forget'])
 export const AGENT_TOOL_NAMES = new Set([
   'spawn_agent',
   'send_input', 'wait_agent', 'resume_agent', 'close_agent', 'interrupt_agent',
@@ -51,8 +51,6 @@ export const TOP_LEVEL_TOOL_NAMES = new Set(['todo_write'])
 export const FILE_OP_TOOL_NAMES = new Set([
   'grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file',
   'load_tools', 'load_skill', 'lsp',
-  'memory_write', 'memory_edit', 'memory_search', 'memory_read', 'memory_forget',
-  'notebook_write', 'notebook_read', 'notebook_edit', 'notebook_forget',
 ])
 export const IMAGE_GENERATE_TOOL_NAME = 'image_generate'
 

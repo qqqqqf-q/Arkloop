@@ -5,6 +5,7 @@ package conversation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -22,34 +23,56 @@ const (
 	errorArgsInvalid     = "tool.args_invalid"
 	errorIdentityMissing = "tool.conversation_identity_missing"
 	errorSearchFailed    = "tool.conversation_search_failed"
+	errorThreadNotFound  = "tool.thread_not_found"
 
 	defaultLimit    = 10
 	maxLimit        = 20
 	contentMaxRunes = 280
+
+	threadListMaxLimit     = 30
+	threadMsgsDefaultLimit = 20
+	threadMsgsMaxLimit     = 50
+	threadMsgsMaxRunes     = 2000
 )
 
 type searchRepository interface {
 	SearchVisibleByOwner(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error)
 }
 
+type threadsRepository interface {
+	ListByOwner(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, limit int, offset int, modeFilter string) ([]data.ThreadListItem, error)
+	ListVisibleMessages(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, threadID uuid.UUID, limit int, offset int, roleFilter string, orderDesc bool) ([]data.VisibleMessage, error)
+}
+
 type ToolExecutor struct {
-	pool      *pgxpool.Pool
-	contextDB contextDB
-	repo      searchRepository
+	pool        *pgxpool.Pool
+	contextDB   contextDB
+	repo        searchRepository
+	threadsRepo threadsRepository
 }
 
 func NewToolExecutor(pool *pgxpool.Pool, repo searchRepository) *ToolExecutor {
 	if repo == nil {
 		repo = data.MessagesRepository{}
 	}
-	return &ToolExecutor{pool: pool, contextDB: pool, repo: repo}
+	return &ToolExecutor{pool: pool, contextDB: pool, repo: repo, threadsRepo: data.ThreadsRepository{}}
 }
 
 func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[string]any, execCtx tools.ExecutionContext, _ string) tools.ExecutionResult {
 	started := time.Now()
-	if toolName == ContextAgentSpec.Name {
+	switch toolName {
+	case ContextAgentSpec.Name:
 		return executeContextTool(ctx, args, execCtx, started, e.contextDB)
+	case ThreadListAgentSpec.Name:
+		return e.executeThreadList(ctx, args, execCtx, started)
+	case ThreadMessagesAgentSpec.Name:
+		return e.executeThreadMessages(ctx, args, execCtx, started)
+	default:
+		return e.executeSearch(ctx, args, execCtx, started)
 	}
+}
+
+func (e *ToolExecutor) executeSearch(ctx context.Context, args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
 	if execCtx.AccountID == nil || execCtx.UserID == nil {
 		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
 	}
@@ -64,7 +87,7 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[st
 		return executionError(errorSearchFailed, "conversation search repository not available", started)
 	}
 
-	limit := parseLimit(args, defaultLimit)
+	limit := parseIntArg(args, "limit", defaultLimit, 1, maxLimit)
 	hits, err := e.repo.SearchVisibleByOwner(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, query, limit)
 	if err != nil {
 		return executionError(errorSearchFailed, fmt.Sprintf("conversation search failed: %s", err.Error()), started)
@@ -85,38 +108,134 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[st
 	}
 }
 
-func parseLimit(args map[string]any, fallback int) int {
-	switch v := args["limit"].(type) {
-	case float64:
-		if n := int(v); n >= 1 {
-			if n > maxLimit {
-				return maxLimit
-			}
-			return n
-		}
-	case int:
-		if v >= 1 {
-			if v > maxLimit {
-				return maxLimit
-			}
-			return v
-		}
-	case int64:
-		if v >= 1 {
-			if v > maxLimit {
-				return maxLimit
-			}
-			return int(v)
-		}
-	case json.Number:
-		if n, err := v.Int64(); err == nil && n >= 1 {
-			if n > maxLimit {
-				return maxLimit
-			}
-			return int(n)
-		}
+func (e *ToolExecutor) executeThreadList(ctx context.Context, args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
+	if execCtx.AccountID == nil || execCtx.UserID == nil {
+		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
 	}
-	return fallback
+	if e.pool == nil {
+		return executionError(errorSearchFailed, "pool not available", started)
+	}
+
+	limit := parseIntArg(args, "limit", 10, 1, threadListMaxLimit)
+	offset := parseIntArg(args, "offset", 0, 0, 10000)
+
+	modeFilter := ""
+	if m, ok := args["mode"].(string); ok && (m == "chat" || m == "work") {
+		modeFilter = m
+	}
+
+	items, err := e.threadsRepo.ListByOwner(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, limit, offset, modeFilter)
+	if err != nil {
+		return executionError(errorSearchFailed, fmt.Sprintf("list threads failed: %s", err.Error()), started)
+	}
+
+	threads := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		title := ""
+		if item.Title != nil {
+			title = *item.Title
+		}
+		threads = append(threads, map[string]any{
+			"id":            item.ID.String(),
+			"title":         title,
+			"mode":          item.Mode,
+			"message_count": item.MessageCount,
+			"updated_at":    item.UpdatedAt.UTC().Format(time.RFC3339),
+			"created_at":    item.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"threads": threads},
+		DurationMs: durationMs(started),
+	}
+}
+
+func (e *ToolExecutor) executeThreadMessages(ctx context.Context, args map[string]any, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
+	if execCtx.AccountID == nil || execCtx.UserID == nil {
+		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
+	}
+	if e.pool == nil {
+		return executionError(errorSearchFailed, "pool not available", started)
+	}
+
+	threadIDStr, ok := args["thread_id"].(string)
+	if !ok || strings.TrimSpace(threadIDStr) == "" {
+		return executionError(errorArgsInvalid, "thread_id is required", started)
+	}
+	threadID, err := uuid.Parse(threadIDStr)
+	if err != nil {
+		return executionError(errorArgsInvalid, "thread_id must be a valid UUID", started)
+	}
+
+	limit := parseIntArg(args, "limit", threadMsgsDefaultLimit, 1, threadMsgsMaxLimit)
+	offset := parseIntArg(args, "offset", 0, 0, 10000)
+
+	roleFilter := ""
+	if r, ok := args["role"].(string); ok && (r == "user" || r == "assistant") {
+		roleFilter = r
+	}
+
+	orderDesc := true
+	if o, ok := args["order"].(string); ok && o == "asc" {
+		orderDesc = false
+	}
+
+	msgs, err := e.threadsRepo.ListVisibleMessages(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, threadID, limit, offset, roleFilter, orderDesc)
+	if err != nil {
+		if errors.Is(err, data.ErrThreadNotFound) {
+			return executionError(errorThreadNotFound, "thread not found or access denied", started)
+		}
+		return executionError(errorSearchFailed, fmt.Sprintf("list messages failed: %s", err.Error()), started)
+	}
+
+	messages := make([]map[string]any, 0, len(msgs))
+	for _, msg := range msgs {
+		messages = append(messages, map[string]any{
+			"role":       strings.TrimSpace(msg.Role),
+			"content":    truncateRunes(strings.TrimSpace(msg.Content), threadMsgsMaxRunes),
+			"created_at": msg.CreatedAt.UTC().Format(time.RFC3339),
+			"thread_seq": msg.ThreadSeq,
+		})
+	}
+	return tools.ExecutionResult{
+		ResultJSON: map[string]any{"messages": messages},
+		DurationMs: durationMs(started),
+	}
+}
+
+func parseLimit(args map[string]any, fallback int) int {
+	return parseIntArg(args, "limit", fallback, 1, maxLimit)
+}
+
+func parseIntArg(args map[string]any, key string, fallback, min, max int) int {
+	val, exists := args[key]
+	if !exists {
+		return fallback
+	}
+	var n int
+	switch v := val.(type) {
+	case float64:
+		n = int(v)
+	case int:
+		n = v
+	case int64:
+		n = int(v)
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			n = int(i)
+		} else {
+			return fallback
+		}
+	default:
+		return fallback
+	}
+	if n < min {
+		return min
+	}
+	if n > max {
+		return max
+	}
+	return n
 }
 
 func truncateRunes(value string, maxRunes int) string {

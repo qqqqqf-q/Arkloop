@@ -57,33 +57,79 @@ func localProviderFromStatus(status localproviders.ProviderStatus, userID uuid.U
 }
 
 func localRouteFromModel(status localproviders.ProviderStatus, providerUUID uuid.UUID, model localproviders.Model, now time.Time) data.LlmRoute {
-	advancedJSON := map[string]any{
-		llmproviders.AvailableCatalogAdvancedKey: map[string]any{
-			"id":                  model.ID,
-			"name":                model.ID,
-			"type":                "chat",
-			"context_length":      model.ContextLength,
-			"max_output_tokens":   model.MaxOutputTokens,
-			"input_modalities":    []string{"text", "image"},
-			"output_modalities":   []string{"text"},
-			"tool_calling":        model.ToolCalling,
-			"reasoning":           model.Reasoning,
-			"default_temperature": 1,
-		},
-	}
+	advancedJSON := localModelAdvancedJSON(model)
 	return data.LlmRoute{
 		ID:           localRouteUUID(status.ID, model.ID),
 		CredentialID: providerUUID,
 		Model:        model.ID,
 		Priority:     model.Priority,
-		IsDefault:    model.Default && !model.Hidden,
 		ShowInPicker: !model.Hidden,
-		Tags:         []string{},
+		Tags:         copyStringSlice(model.Tags),
 		WhenJSON:     json.RawMessage("{}"),
 		AdvancedJSON: advancedJSON,
 		Multiplier:   1,
 		CreatedAt:    now,
 	}
+}
+
+func localModelAdvancedJSON(model localproviders.Model) map[string]any {
+	advancedJSON := copyStringAnyMap(model.AdvancedJSON)
+	rawCatalog, _ := advancedJSON[llmproviders.AvailableCatalogAdvancedKey].(map[string]any)
+	catalog := copyStringAnyMap(rawCatalog)
+	if stringFromAny(catalog["id"]) == "" {
+		catalog["id"] = model.ID
+	}
+	if stringFromAny(catalog["name"]) == "" {
+		catalog["name"] = model.ID
+	}
+	if stringFromAny(catalog["type"]) == "" {
+		catalog["type"] = "chat"
+	}
+	if _, ok := catalog["context_length"]; !ok && model.ContextLength > 0 {
+		catalog["context_length"] = model.ContextLength
+	}
+	if _, ok := catalog["max_output_tokens"]; !ok && model.MaxOutputTokens > 0 {
+		catalog["max_output_tokens"] = model.MaxOutputTokens
+	}
+	if _, ok := catalog["input_modalities"]; !ok {
+		catalog["input_modalities"] = []string{"text", "image"}
+	}
+	if _, ok := catalog["output_modalities"]; !ok {
+		catalog["output_modalities"] = []string{"text"}
+	}
+	if _, ok := catalog["tool_calling"]; !ok {
+		catalog["tool_calling"] = model.ToolCalling
+	}
+	if _, ok := catalog["reasoning"]; !ok {
+		catalog["reasoning"] = model.Reasoning
+	}
+	if _, ok := catalog["default_temperature"]; !ok {
+		catalog["default_temperature"] = 1
+	}
+	advancedJSON[llmproviders.AvailableCatalogAdvancedKey] = catalog
+	return advancedJSON
+}
+
+func copyStringAnyMap(value map[string]any) map[string]any {
+	next := make(map[string]any, len(value))
+	for key, item := range value {
+		next[key] = item
+	}
+	return next
+}
+
+func stringFromAny(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
+}
+
+func copyStringSlice(value []string) []string {
+	if value == nil {
+		return []string{}
+	}
+	return append([]string(nil), value...)
 }
 
 func localProviderAdvancedJSON(status localproviders.ProviderStatus) map[string]any {

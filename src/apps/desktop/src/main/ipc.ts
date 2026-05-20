@@ -42,8 +42,18 @@ type DesktopExportSection =
   | 'themes'
 
 type DesktopThemeExportPayload = {
+  themePreset?: string | null
   customThemeId: string | null
   customThemes: Record<string, unknown>
+  backgroundImage?: {
+    dataUrl: string
+    name: string
+    mimeType: string
+    size: number
+    updatedAt: number
+  } | null
+  backgroundImageOpacity?: number | null
+  sidebarGrouping?: 'normal' | 'gtd' | null
 }
 
 type DesktopExportOptions = {

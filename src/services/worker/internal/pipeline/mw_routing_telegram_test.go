@@ -12,7 +12,7 @@ import (
 
 func TestRoutingUsesInputModelOverride(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "default",
+		
 		Credentials: []routing.ProviderCredential{
 			{ID: "c-default", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},
 			{ID: "c-model", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub, AdvancedJSON: map[string]any{}},

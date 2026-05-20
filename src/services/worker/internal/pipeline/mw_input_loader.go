@@ -28,7 +28,8 @@ type MessageAttachmentStore interface {
 }
 
 type MessagePartBuildOptions struct {
-	LazyImages bool
+	LazyImages   bool
+	UserLocation *time.Location
 }
 
 func resolveMessagePartBuildOptions(opts ...MessagePartBuildOptions) MessagePartBuildOptions {
@@ -576,6 +577,7 @@ func loadRunInputsWithTrace(
 		upperBoundMessageID = &historyUpperBoundID
 	}
 	stageStart = time.Now()
+	userLoc := resolveUserLocation(ctx, tx, run)
 	canonicalContext, err := buildCanonicalThreadContextWithTrace(
 		ctx,
 		tx,
@@ -585,7 +587,7 @@ func loadRunInputsWithTrace(
 		upperBoundMessageID,
 		messageLimit,
 		trace,
-		MessagePartBuildOptions{LazyImages: shouldLazyLoadChannelImages(inputJSON, jobPayload)},
+		MessagePartBuildOptions{LazyImages: shouldLazyLoadChannelImages(inputJSON, jobPayload), UserLocation: userLoc},
 	)
 	if err != nil {
 		return nil, err

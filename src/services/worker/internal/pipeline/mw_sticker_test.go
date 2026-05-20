@@ -306,6 +306,7 @@ func TestStickerPrepareMiddleware_FailsWithoutVisionRoute(t *testing.T) {
 	err := mw(context.Background(), &RunContext{
 		Run:       data.Run{AccountID: uuid.New()},
 		InputJSON: map[string]any{"run_kind": "sticker_register", "sticker_id": "hash"},
+		AgentConfig: &ResolvedAgentConfig{},
 		SelectedRoute: &routing.SelectedProviderRoute{
 			Route: routing.ProviderRouteRule{Model: "gpt-4o"},
 		},
@@ -365,6 +366,7 @@ func TestStickerPrepareMiddleware_FallsBackToToolVisionRoute(t *testing.T) {
 	err := mw(context.Background(), &RunContext{
 		Run:       data.Run{AccountID: accountID},
 		InputJSON: map[string]any{"run_kind": "sticker_register", "sticker_id": "hash"},
+		AgentConfig: &ResolvedAgentConfig{},
 		SelectedRoute: &routing.SelectedProviderRoute{
 			Route: routing.ProviderRouteRule{
 				ID:    "main-route",
@@ -463,6 +465,7 @@ func TestStickerPrepareMiddleware_PropagatesPersistenceErrors(t *testing.T) {
 	err := mw(context.Background(), &RunContext{
 		Run:       data.Run{AccountID: uuid.New()},
 		InputJSON: map[string]any{"run_kind": "sticker_register", "sticker_id": "hash"},
+		AgentConfig: &ResolvedAgentConfig{},
 		SelectedRoute: &routing.SelectedProviderRoute{
 			Route: routing.ProviderRouteRule{
 				Model: "gpt-4o",

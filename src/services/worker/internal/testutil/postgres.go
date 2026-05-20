@@ -236,7 +236,6 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			credential_id       UUID        NOT NULL,
 			model               TEXT        NOT NULL,
 			priority            INT         NOT NULL DEFAULT 0,
-			is_default          BOOLEAN     NOT NULL DEFAULT false,
 			tags                TEXT[]      NOT NULL DEFAULT '{}',
 			when_json           JSONB       NOT NULL DEFAULT '{}'::jsonb,
 			advanced_json       JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -248,7 +247,6 @@ func initRunsSchema(t *testing.T, dsn string) error {
 			created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 		)`,
 		`CREATE UNIQUE INDEX ux_llm_routes_credential_model ON llm_routes (credential_id, model)`,
-		`CREATE UNIQUE INDEX ux_llm_routes_credential_default ON llm_routes (credential_id) WHERE is_default = TRUE`,
 		`CREATE TABLE threads (
 			id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 			account_id             UUID        NOT NULL,

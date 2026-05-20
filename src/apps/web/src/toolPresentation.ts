@@ -32,7 +32,7 @@ export type ExploreGroupRef = {
   seq?: number
 }
 
-export const EXPLORE_TOOL_NAMES = new Set(['read_file', 'grep', 'glob', 'load_tools', 'load_skill', 'lsp'])
+export const EXPLORE_TOOL_NAMES = new Set(['read_file', 'grep', 'glob', 'load_tools', 'load_skill', 'lsp', 'memory_read', 'memory_search', 'notebook_read'])
 export const LOAD_TOOL_NAMES = new Set(['load_tools', 'load_skill'])
 export const LSP_MUTATING_OPERATIONS = new Set(['rename'])
 
@@ -119,7 +119,7 @@ export function presentationForTool(toolNameInput: string, args: Record<string, 
   const explicit = displayFromArgs(args)
   const fallback = label?.trim()
   let kind: ToolDisplayKind = 'generic'
-  let text: TimelineText = fallback ? contentText(fallback) : contentText(toolName)
+  let text: TimelineText = fallback ? contentText(fallback) : { kind: 'tool_action', toolKey: toolName }
   let subject: string | undefined
   let detail: string | undefined
 
@@ -192,16 +192,28 @@ export function presentationForTool(toolNameInput: string, args: Record<string, 
       text = { kind: 'loaded_resources', tense: 'done', tools: toolName === 'load_skill' ? 0 : 1, skills: toolName === 'load_skill' ? 1 : 0 }
       break
     }
-    case 'enter_plan_mode': {
-      text = { kind: 'plan_mode', action: 'enter' }
+    case 'document_write': {
+      kind = 'edit'
+      const docTitle = stringArg(args, 'title') || stringArg(args, 'name')
+      subject = docTitle || undefined
+      text = docTitle
+        ? { kind: 'tool_subject', action: 'wrote', subject: truncate(docTitle, 48) }
+        : { kind: 'tool_action', toolKey: 'document_write' }
       break
     }
-    case 'exit_plan_mode': {
-      text = { kind: 'plan_mode', action: 'exit' }
+    case 'group_history_search': {
+      kind = 'explore'
+      const searchQuery = stringArg(args, 'query') || stringArg(args, 'keyword')
+      subject = searchQuery || undefined
+      text = searchQuery
+        ? { kind: 'tool_subject', action: 'searched', subject: truncate(searchQuery, 48) }
+        : { kind: 'tool_action', toolKey: 'group_history_search' }
       break
     }
-    default:
+    default: {
+      text = fallback ? contentText(fallback) : { kind: 'tool_action', toolKey: toolName }
       break
+    }
   }
 
   return {

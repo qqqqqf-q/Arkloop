@@ -107,6 +107,8 @@ type legacyMemoryDistillObserver struct {
 	configResolver sharedconfig.Resolver
 	impStore       ImpressionStore
 	impRefresh     ImpressionRefreshFunc
+	sugStore       SuggestionStore
+	sugRefresh     SuggestionRefreshFunc
 }
 
 func NewLegacyMemoryDistillObserver(
@@ -115,6 +117,8 @@ func NewLegacyMemoryDistillObserver(
 	configResolver sharedconfig.Resolver,
 	impStore ImpressionStore,
 	impRefresh ImpressionRefreshFunc,
+	sugStore SuggestionStore,
+	sugRefresh SuggestionRefreshFunc,
 ) AfterThreadPersistHook {
 	return &legacyMemoryDistillObserver{
 		snap:           snap,
@@ -122,18 +126,33 @@ func NewLegacyMemoryDistillObserver(
 		configResolver: configResolver,
 		impStore:       impStore,
 		impRefresh:     impRefresh,
+		sugStore:       sugStore,
+		sugRefresh:     sugRefresh,
 	}
 }
 
 func (o *legacyMemoryDistillObserver) HookProviderName() string { return "legacy_memory_distill" }
 
 func (o *legacyMemoryDistillObserver) AfterThreadPersist(ctx context.Context, rc *RunContext, delta ThreadDelta, result ThreadPersistResult) (PersistObservers, error) {
-	if o == nil || rc == nil || rc.UserID == nil || rc.MemoryProvider == nil {
+	if o == nil || rc == nil || rc.UserID == nil {
 		return nil, nil
 	}
-	// Hand-triggered impression rebuild runs should not re-enter semantic distill/snapshot/impression-score
-	// lifecycles, otherwise a single click can cascade into multiple impression refresh runs.
-	if rc.ImpressionRun || isImpressionRun(rc) {
+	if rc.ImpressionRun || isImpressionRun(rc) || rc.SuggestionRun || isSuggestionRun(rc) {
+		return nil, nil
+	}
+
+	// suggestion score 不依赖 memory/distill，每次正常 run 完成即累积
+	if o.sugStore != nil {
+		threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
+		ident := memory.MemoryIdentity{
+			AccountID: rc.Run.AccountID,
+			UserID:    *rc.UserID,
+			AgentID:   StableAgentID(rc),
+		}
+		addSuggestionScore(ctx, o.sugStore, ident.AccountID, ident.UserID, ident.AgentID, threadMode, 1, o.configResolver, o.sugRefresh)
+	}
+
+	if rc.MemoryProvider == nil {
 		return nil, nil
 	}
 
@@ -167,7 +186,6 @@ func (o *legacyMemoryDistillObserver) AfterThreadPersist(ctx context.Context, rc
 		if _, err := typed.DistillThread(ctx, ident, threadID, buildNowledgeThreadTitle(delta), conversation); err != nil {
 			return nil, err
 		}
-		// Nowledge 的创建计数可能滞后于可列出的 memories，成功 distill 后总是刷新本地投影。
 		if o.impStore != nil {
 			addImpressionScore(ctx, o.impStore, ident, impressionScoreForRun(rc), o.configResolver, o.impRefresh)
 		}
@@ -201,7 +219,8 @@ func (o *legacyMemoryDistillObserver) AfterThreadPersist(ctx context.Context, rc
 			baseMessages = append(baseMessages, memory.MemoryMessage{Role: msg.Role, Content: msg.Content})
 		}
 	}
-	distillAfterRun(rc.MemoryProvider, o.snap, o.mdb, o.configResolver, rc, ident, baseMessages, o.impStore, o.impRefresh)
+	threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
+	distillAfterRun(rc.MemoryProvider, o.snap, o.mdb, o.configResolver, rc, ident, baseMessages, o.impStore, o.impRefresh, o.sugStore, o.sugRefresh, threadMode)
 	return nil, nil
 }
 

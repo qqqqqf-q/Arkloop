@@ -20,12 +20,12 @@ func (s auxGateway) Stream(_ context.Context, _ llm.Request, _ func(llm.StreamEv
 
 func buildStubRouterConfig() routing.ProviderRoutingConfig {
 	return routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-default",
+		
 		Credentials: []routing.ProviderCredential{
 			{ID: "cred-stub", Name: "stub-cred", OwnerKind: routing.CredentialScopePlatform, ProviderKind: routing.ProviderKindStub},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-default", Model: "stub-model", CredentialID: "cred-stub", Multiplier: 1.0},
+			{ID: "route-default", Model: "stub-model", CredentialID: "cred-stub", Multiplier: 1.0, When: map[string]any{"model": "stub-model"}},
 		},
 	}
 }
@@ -43,7 +43,7 @@ func TestRoutingMiddleware_AuxGatewaySelected(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	var reached bool
@@ -88,7 +88,7 @@ func TestRoutingMiddleware_NilDbPoolUsesStaticRouter(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	var gatewaySet bool
@@ -118,7 +118,7 @@ func TestRoutingMiddleware_EmptyRouterNoSelectedRoute(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	// 空路由配置 -> selected=nil -> 尝试 appendAndCommitSingle(nil pool) -> panic
@@ -138,12 +138,12 @@ func TestRoutingMiddleware_EmptyRouterNoSelectedRoute(t *testing.T) {
 
 func TestRoutingMiddleware_UnknownProviderKind(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-unknown",
+		
 		Credentials: []routing.ProviderCredential{
 			{ID: "cred-x", Name: "unknown-cred", OwnerKind: routing.CredentialScopePlatform, ProviderKind: "unknown_kind"},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-unknown", Model: "x-model", CredentialID: "cred-x", Multiplier: 1.0},
+			{ID: "route-unknown", Model: "x-model", CredentialID: "cred-x", Multiplier: 1.0, When: map[string]any{"model": "x-model"}},
 		},
 	}
 	router := routing.NewProviderRouter(cfg)
@@ -156,7 +156,7 @@ func TestRoutingMiddleware_UnknownProviderKind(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "x-model"},
 	}
 
 	// unknown provider_kind -> gatewayFromCredential 返回 error -> 尝试 appendAndCommitSingle(nil pool) -> panic
@@ -187,7 +187,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_EmptyFallbackCurrent(t *test
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
@@ -220,7 +220,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_ValidRoute(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
@@ -255,7 +255,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_NotFound(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
@@ -279,7 +279,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 	defer func() { _ = os.Unsetenv(envKey) }()
 
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-openai",
+		
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-openai", Name: "openai-cred",
@@ -288,7 +288,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 			},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-openai", Model: "gpt-4", CredentialID: "cred-openai", Multiplier: 1.0},
+			{ID: "route-openai", Model: "gpt-4", CredentialID: "cred-openai", Multiplier: 1.0, When: map[string]any{"model": "gpt-4"}},
 		},
 	}
 	router := routing.NewProviderRouter(cfg)
@@ -301,7 +301,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "gpt-4"},
 	}
 
 	var gatewayOK bool
@@ -320,7 +320,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 
 func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-anthropic",
+		
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-anthropic", Name: "anthropic-cred",
@@ -329,7 +329,7 @@ func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 			},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-anthropic", Model: "claude-3", CredentialID: "cred-anthropic", Multiplier: 1.0},
+			{ID: "route-anthropic", Model: "claude-3", CredentialID: "cred-anthropic", Multiplier: 1.0, When: map[string]any{"model": "claude-3"}},
 		},
 	}
 	router := routing.NewProviderRouter(cfg)
@@ -342,7 +342,7 @@ func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "claude-3"},
 	}
 
 	var gatewayOK bool
@@ -361,7 +361,7 @@ func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 
 func TestRoutingMiddleware_MissingApiKey_Panics(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-nokey",
+		
 		Credentials: []routing.ProviderCredential{
 			{
 				ID: "cred-nokey", Name: "nokey-cred",
@@ -370,7 +370,7 @@ func TestRoutingMiddleware_MissingApiKey_Panics(t *testing.T) {
 			},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-nokey", Model: "gpt-4", CredentialID: "cred-nokey", Multiplier: 1.0},
+			{ID: "route-nokey", Model: "gpt-4", CredentialID: "cred-nokey", Multiplier: 1.0, When: map[string]any{"model": "gpt-4"}},
 		},
 	}
 	router := routing.NewProviderRouter(cfg)
@@ -383,7 +383,7 @@ func TestRoutingMiddleware_MissingApiKey_Panics(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "gpt-4"},
 	}
 
 	// API key 缺失 -> gatewayFromCredential error -> appendAndCommitSingle(nil pool) -> panic
@@ -413,7 +413,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_NilDbPool(t *testing.T) {
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
@@ -441,7 +441,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_EmptyFallbackCurrent(t *te
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "stub-model"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
@@ -462,7 +462,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_EmptyFallbackCurrent(t *te
 
 func TestRoutingMiddleware_ResolveGatewayForAgentName_UsesFullSelectorConfigForByok(t *testing.T) {
 	cfg := routing.ProviderRoutingConfig{
-		DefaultRouteID: "route-default",
+		
 		Credentials: []routing.ProviderCredential{
 			{
 				ID:           "cred-platform",
@@ -478,7 +478,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_UsesFullSelectorConfigForB
 			},
 		},
 		Routes: []routing.ProviderRouteRule{
-			{ID: "route-default", Model: "gpt-4o-mini", CredentialID: "cred-platform", Priority: 100},
+			{ID: "route-default", Model: "gpt-4o-mini", CredentialID: "cred-platform", Priority: 100, When: map[string]any{"model": "gpt-4o-mini"}},
 			{ID: "route-byok", Model: "gpt-5", CredentialID: "cred-user", Priority: 90},
 		},
 	}
@@ -492,7 +492,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_UsesFullSelectorConfigForB
 
 	rc := &pipeline.RunContext{
 		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{},
+		InputJSON: map[string]any{"model": "gpt-4o-mini"},
 	}
 
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {

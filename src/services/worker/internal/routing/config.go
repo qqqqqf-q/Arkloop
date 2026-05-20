@@ -90,9 +90,11 @@ type ProviderRouteRule struct {
 	AccountScoped       bool
 }
 
+// Matches checks whether the input satisfies all When conditions.
+// Empty When returns false: routes without conditions can only be selected via route_id, not auto-matching.
 func (r ProviderRouteRule) Matches(input map[string]any) bool {
 	if len(r.When) == 0 {
-		return true
+		return false
 	}
 	for key, expected := range r.When {
 		if !reflect.DeepEqual(input[key], expected) {
@@ -103,9 +105,8 @@ func (r ProviderRouteRule) Matches(input map[string]any) bool {
 }
 
 type ProviderRoutingConfig struct {
-	DefaultRouteID string
-	Credentials    []ProviderCredential
-	Routes         []ProviderRouteRule
+	Credentials []ProviderCredential
+	Routes      []ProviderRouteRule
 }
 
 // PlatformOnly returns a copy with only platform-scoped credentials and non-AccountScoped routes.
@@ -119,12 +120,6 @@ func (c ProviderRoutingConfig) PlatformOnly() ProviderRoutingConfig {
 	for _, r := range c.Routes {
 		if !r.AccountScoped {
 			out.Routes = append(out.Routes, r)
-		}
-	}
-	for _, r := range out.Routes {
-		if r.ID == c.DefaultRouteID {
-			out.DefaultRouteID = r.ID
-			break
 		}
 	}
 	return out
@@ -145,9 +140,8 @@ func DefaultRoutingConfig() ProviderRoutingConfig {
 		AdvancedJSON: map[string]any{},
 	}
 	return ProviderRoutingConfig{
-		DefaultRouteID: route.ID,
-		Credentials:    []ProviderCredential{credential},
-		Routes:         []ProviderRouteRule{route},
+		Credentials: []ProviderCredential{credential},
+		Routes:      []ProviderRouteRule{route},
 	}
 }
 
@@ -164,11 +158,6 @@ func LoadRoutingConfigFromEnv() (ProviderRoutingConfig, error) {
 	root, ok := parsed.(map[string]any)
 	if !ok {
 		return ProviderRoutingConfig{}, fmt.Errorf("%s must be a JSON object", providerRoutingEnv)
-	}
-
-	defaultRouteID, err := validateID(requiredString(root, "default_route_id"), "default_route_id")
-	if err != nil {
-		return ProviderRoutingConfig{}, err
 	}
 
 	credentialsRaw, ok := root["credentials"].([]any)
@@ -350,14 +339,10 @@ func LoadRoutingConfigFromEnv() (ProviderRoutingConfig, error) {
 			return ProviderRoutingConfig{}, fmt.Errorf("route.credential_id not found: %s", route.CredentialID)
 		}
 	}
-	if _, exists := seenRouteIDs[defaultRouteID]; !exists {
-		return ProviderRoutingConfig{}, fmt.Errorf("default_route_id not found: %s", defaultRouteID)
-	}
 
 	return ProviderRoutingConfig{
-		DefaultRouteID: defaultRouteID,
-		Credentials:    credentials,
-		Routes:         routes,
+		Credentials: credentials,
+		Routes:      routes,
 	}, nil
 }
 
@@ -429,10 +414,10 @@ func (c ProviderRoutingConfig) findCredentialIDByName(name string) string {
 }
 
 func (c ProviderRoutingConfig) pickBestRoute(match func(ProviderRouteRule) bool, inputJSON map[string]any) (ProviderRouteRule, ProviderCredential, bool) {
-	// collect routes where When conditions are satisfied (or empty)
+	// collect routes where When conditions are satisfied, plus empty-When defaults
 	var candidates []ProviderRouteRule
 	for _, route := range c.Routes {
-		if match(route) && route.Matches(inputJSON) {
+		if match(route) && (len(route.When) == 0 || route.Matches(inputJSON)) {
 			candidates = append(candidates, route)
 		}
 	}
@@ -543,7 +528,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 	)
 	if accountID == nil {
 		rows, err = pool.Query(ctx, `
-		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
+		SELECT r.id, r.credential_id, r.model, r.when_json,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
 		       r.priority, r.account_id,
@@ -555,14 +540,13 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		WHERE c.revoked_at IS NULL
 		  AND r.project_id IS NULL
 		  AND r.account_id IS NULL
-		ORDER BY r.is_default DESC,
-		         r.priority DESC,
+		ORDER BY r.priority DESC,
 		         r.created_at ASC,
 		         r.id ASC
 	`)
 	} else {
 		rows, err = pool.Query(ctx, `
-		SELECT r.id, r.credential_id, r.model, r.when_json, r.is_default,
+		SELECT r.id, r.credential_id, r.model, r.when_json,
 		       r.advanced_json, r.multiplier, r.cost_per_1k_input, r.cost_per_1k_output,
 		       r.cost_per_1k_cache_write, r.cost_per_1k_cache_read,
 		       r.priority, r.account_id,
@@ -575,7 +559,6 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		  AND r.project_id IS NULL
 		  AND (r.account_id IS NULL OR r.account_id = $1)
 		ORDER BY CASE WHEN r.account_id IS NOT NULL THEN 0 ELSE 1 END ASC,
-		         r.is_default DESC,
 		         r.priority DESC,
 		         r.created_at ASC,
 		         r.id ASC
@@ -591,7 +574,6 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		credentialID        uuid.UUID
 		model               string
 		whenJSON            []byte
-		isDefault           bool
 		routeAdvancedJSON   []byte
 		multiplier          float64
 		costPer1kInput      *float64
@@ -615,7 +597,7 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 	for rows.Next() {
 		var rd rowData
 		if err := rows.Scan(
-			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON, &rd.isDefault,
+			&rd.routeID, &rd.credentialID, &rd.model, &rd.whenJSON,
 			&rd.routeAdvancedJSON, &rd.multiplier, &rd.costPer1kInput, &rd.costPer1kOutput,
 			&rd.costPer1kCacheWrite, &rd.costPer1kCacheRead,
 			&rd.priority, &rd.accountID,
@@ -636,20 +618,9 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 
 	credentialsByID := map[string]ProviderCredential{}
 	credentialOrder := make([]string, 0, len(allRows))
-	defaultRouteID := ""
-	platformDefaultRouteID := ""
 	for _, rd := range allRows {
 		credIDStr := rd.credID.String()
 		if _, exists := credentialsByID[credIDStr]; exists {
-			if rd.isDefault {
-				ownerKind, _ := parseOwnerKind(rd.ownerKind)
-				if ownerKind == CredentialScopePlatform && platformDefaultRouteID == "" {
-					platformDefaultRouteID = rd.routeID.String()
-				}
-				if defaultRouteID == "" {
-					defaultRouteID = rd.routeID.String()
-				}
-			}
 			continue
 		}
 
@@ -701,14 +672,6 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		}
 		credentialsByID[credIDStr] = cred
 		credentialOrder = append(credentialOrder, credIDStr)
-		if rd.isDefault {
-			if ownerKind == CredentialScopePlatform && platformDefaultRouteID == "" {
-				platformDefaultRouteID = rd.routeID.String()
-			}
-			if defaultRouteID == "" {
-				defaultRouteID = rd.routeID.String()
-			}
-		}
 	}
 
 	var routes []ProviderRouteRule
@@ -762,15 +725,6 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 		return ProviderRoutingConfig{}, nil
 	}
 
-	// platform 默认路由优先于 account-scoped BYOK 路由
-	if platformDefaultRouteID != "" {
-		defaultRouteID = platformDefaultRouteID
-	}
-
-	if defaultRouteID == "" && len(routes) > 0 {
-		defaultRouteID = routes[0].ID
-	}
-
 	credentials := make([]ProviderCredential, 0, len(credentialOrder))
 	for _, credID := range credentialOrder {
 		cred, ok := credentialsByID[credID]
@@ -781,9 +735,8 @@ func LoadRoutingConfigFromDB(ctx context.Context, pool *pgxpool.Pool, accountID 
 	}
 
 	return ProviderRoutingConfig{
-		DefaultRouteID: defaultRouteID,
-		Credentials:    credentials,
-		Routes:         routes,
+		Credentials: credentials,
+		Routes:      routes,
 	}, nil
 }
 

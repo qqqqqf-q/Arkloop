@@ -517,7 +517,7 @@ func TestDistillAfterRunEmitsEventsAndPendingSnapshot(t *testing.T) {
 
 	distillAfterRun(provider, NewPgxMemorySnapshotStore(pool), pool, nil, rc, ident, []memory.MemoryMessage{
 		{Role: "user", Content: "first prompt"},
-	}, nil, nil)
+	}, nil, nil, nil, nil, "")
 
 	waitForEventTypes(t, pool, run.ID,
 		eventTypeMemoryDistillStarted,
@@ -536,7 +536,7 @@ func TestDistillAfterRunEmitsSkippedWhenNoIncrementalMessages(t *testing.T) {
 		RunToolCallCount:     3,
 	}
 
-	distillAfterRun(provider, NewPgxMemorySnapshotStore(pool), pool, nil, rc, ident, nil, nil, nil)
+	distillAfterRun(provider, NewPgxMemorySnapshotStore(pool), pool, nil, rc, ident, nil, nil, nil, nil, nil, "")
 
 	waitForEventTypes(t, pool, run.ID, eventTypeMemoryDistillSkipped)
 	var reason string
@@ -568,7 +568,7 @@ func TestDistillAfterRunSkipsHeartbeatRuns(t *testing.T) {
 
 	distillAfterRun(provider, NewPgxMemorySnapshotStore(pool), pool, nil, rc, ident, []memory.MemoryMessage{
 		{Role: "user", Content: "heartbeat payload"},
-	}, nil, nil)
+	}, nil, nil, nil, nil, "")
 
 	time.Sleep(80 * time.Millisecond)
 

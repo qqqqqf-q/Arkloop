@@ -17,7 +17,6 @@ export type LlmProviderModel = {
   provider_id: string
   model: string
   priority: number
-  is_default: boolean
   show_in_picker: boolean
   tags: string[]
   when: Record<string, unknown>
@@ -80,7 +79,6 @@ export type CreateProviderModelRequest = {
   scope?: LlmProviderScope
   model: string
   priority: number
-  is_default: boolean
   show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>
@@ -96,7 +94,6 @@ export type UpdateProviderModelRequest = {
   scope?: LlmProviderScope
   model?: string
   priority?: number
-  is_default?: boolean
   show_in_picker?: boolean
   tags?: string[]
   when?: Record<string, unknown>

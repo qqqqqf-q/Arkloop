@@ -31,6 +31,10 @@ func StripStickerPlaceholders(text string) string {
 	return stripStickerPlaceholders(text)
 }
 
+func IsStickerRegisterRun(rc *RunContext) bool {
+	return isStickerRegisterRun(rc)
+}
+
 func isStickerRegisterRun(rc *RunContext) bool {
 	if rc == nil {
 		return false

@@ -92,7 +92,7 @@ func TestLoadRunInputsDesktopBoundsFreshChannelHistoryAtThreadTail(t *testing.T)
 	if loaded.Messages[0].Phase == nil || *loaded.Messages[0].Phase != compactSyntheticPhase {
 		t.Fatalf("unexpected replacement phase: %#v", loaded.Messages[0].Phase)
 	}
-	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "two" {
+	if loaded.Messages[1].Role != "user" || loaded.Messages[1].Content[0].Text != "[Thu 05:18] two" {
 		t.Fatalf("unexpected bounded tail message: %#v", loaded.Messages[1])
 	}
 	if len(loaded.ThreadMessageIDs) != 2 || loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != msg2ID {
@@ -248,7 +248,7 @@ func TestLoadRunInputsDesktopResolvesChannelHistoryUpperBoundFromLedger(t *testi
 		t.Fatalf("expected 2 bounded prompt messages, got %d", len(loaded.Messages))
 	}
 	if !strings.Contains(loaded.Messages[0].Content[0].Text, "future summary") ||
-		loaded.Messages[1].Content[0].Text != "two" {
+		loaded.Messages[1].Content[0].Text != "[Thu 05:18] two" {
 		t.Fatalf("unexpected bounded contents: %#v", loaded.Messages)
 	}
 	if len(loaded.ThreadMessageIDs) != 2 || loaded.ThreadMessageIDs[0] != uuid.Nil || loaded.ThreadMessageIDs[1] != msg2ID {
@@ -339,7 +339,7 @@ func TestLoadRunInputsDesktopSkipsSnapshotWhenChannelUpperBoundMissing(t *testin
 		t.Fatalf("expected replacement plus visible history tail, got %d", len(loaded.Messages))
 	}
 	if !strings.Contains(loaded.Messages[0].Content[0].Text, "future summary") ||
-		loaded.Messages[1].Content[0].Text != "two" ||
+		loaded.Messages[1].Content[0].Text != "[Thu 05:18] two" ||
 		loaded.Messages[2].Content[0].Text != "future assistant" {
 		t.Fatalf("unexpected downgrade contents: %#v", loaded.Messages)
 	}

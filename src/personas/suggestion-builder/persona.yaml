@@ -1,0 +1,22 @@
+id: suggestion-builder
+version: "1"
+title: Suggestion Builder
+description: 系统级建议生成器，分析用户对话历史生成可操作的建议列表。
+user_selectable: false
+is_system: true
+is_builtin: true
+core_tools:
+    - thread_list
+    - thread_messages
+    - conversation_search
+tool_allowlist:
+    - thread_list
+    - thread_messages
+    - conversation_search
+budgets:
+    reasoning_iterations: 50
+    max_output_tokens: 8192
+    temperature: 0.7
+reasoning_mode: auto
+prompt_cache_control: system_prompt
+executor_type: agent.simple

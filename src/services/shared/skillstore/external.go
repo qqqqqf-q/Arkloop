@@ -32,7 +32,10 @@ func DiscoverExternalSkills(dirs []string) []ExternalSkill {
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
-				continue
+				info, err := os.Stat(filepath.Join(dir, entry.Name()))
+				if err != nil || !info.IsDir() {
+					continue
+				}
 			}
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue

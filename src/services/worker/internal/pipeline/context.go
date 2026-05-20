@@ -30,6 +30,7 @@ import (
 type ResolvedAgentConfig struct {
 	SystemPrompt       *string
 	Model              *string
+	ImageModel         *string // 图像理解模型 selector，nil 时回退到 spawn.profile.vision
 	Temperature        *float64
 	MaxOutputTokens    *int
 	TopP               *float64
@@ -290,6 +291,8 @@ type RunContext struct {
 
 	// -- Impression --
 	ImpressionRun bool
+	// -- Suggestion --
+	SuggestionRun bool
 	// -- Sticker register --
 	StickerRegisterRun bool
 

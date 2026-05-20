@@ -52,6 +52,7 @@ export type TimelineText =
       action: 'read' | 'searched' | 'listed' | 'wrote' | 'edited' | 'reading' | 'searching' | 'listing' | 'writing' | 'editing'
       subject: string
     }
+  | { kind: 'tool_action'; toolKey: string; subject?: string }
 
 type CoreTimelineText = Exclude<TimelineText, { kind: 'content' } | { kind: 'with_ellipsis' } | { kind: 'join' }>
 
@@ -119,6 +120,8 @@ export function isTimelineText(value: unknown): value is TimelineText {
       return typeof item.path === 'string'
     case 'tool_subject':
       return isToolSubjectAction(item.action) && typeof item.subject === 'string'
+    case 'tool_action':
+      return typeof item.toolKey === 'string' && (item.subject == null || typeof item.subject === 'string')
     default:
       return false
   }
@@ -158,6 +161,53 @@ function isToolSubjectAction(value: unknown): value is Extract<TimelineText, { k
     || value === 'listing'
     || value === 'writing'
     || value === 'editing'
+}
+
+function humanizeToolKey(key: string): string {
+  const words = key.replace(/_/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+const TOOL_ACTION_EN: Record<string, string> = {
+  summarize_thread: 'Summarized thread',
+  show_widget: 'Showed widget',
+  document_write: 'Wrote document',
+  create_artifact: 'Created artifact',
+  group_history_search: 'Searched group history',
+  browser: 'Browsed page',
+  enter_plan_mode: 'Enter Plan Mode',
+  exit_plan_mode: 'Exit Plan Mode',
+  heartbeat_decision: 'Heartbeat decision',
+  notebook_read: 'Read notebook',
+  notebook_write: 'Wrote notebook',
+  notebook_edit: 'Edited notebook',
+  notebook_forget: 'Forgot notebook entry',
+  memory_read: 'Read memory',
+  memory_write: 'Wrote memory',
+  memory_edit: 'Edited memory',
+  memory_search: 'Searched memory',
+  memory_forget: 'Forgot memory',
+}
+
+const TOOL_ACTION_ZH: Record<string, string> = {
+  summarize_thread: '总结了对话',
+  show_widget: '展示了组件',
+  document_write: '写入了文档',
+  create_artifact: '创建了制品',
+  group_history_search: '搜索了群聊历史',
+  browser: '浏览了页面',
+  enter_plan_mode: '进入计划模式',
+  exit_plan_mode: '退出计划模式',
+  heartbeat_decision: '心跳决策',
+  notebook_read: '读取了 Notebook',
+  notebook_write: '写入了 Notebook',
+  notebook_edit: '编辑了 Notebook',
+  notebook_forget: '删除了 Notebook 条目',
+  memory_read: '读取了记忆',
+  memory_write: '写入了记忆',
+  memory_edit: '编辑了记忆',
+  memory_search: '搜索了记忆',
+  memory_forget: '删除了记忆',
 }
 
 function renderEn(value: CoreTimelineText): string {
@@ -233,6 +283,10 @@ function renderEn(value: CoreTimelineText): string {
         editing: 'Editing',
       } satisfies Record<typeof value.action, string>
       return `${verbs[value.action]} ${value.subject}`
+    }
+    case 'tool_action': {
+      const label = TOOL_ACTION_EN[value.toolKey] ?? humanizeToolKey(value.toolKey)
+      return value.subject ? `${label} ${value.subject}` : label
     }
   }
 }
@@ -310,6 +364,10 @@ function renderZh(value: CoreTimelineText): string {
         editing: '正在编辑',
       } satisfies Record<typeof value.action, string>
       return `${verbs[value.action]} ${value.subject}`
+    }
+    case 'tool_action': {
+      const label = TOOL_ACTION_ZH[value.toolKey] ?? humanizeToolKey(value.toolKey)
+      return value.subject ? `${label} ${value.subject}` : label
     }
   }
 }

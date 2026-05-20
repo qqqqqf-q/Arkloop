@@ -1,11 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Monitor, Sun, Moon } from 'lucide-react'
 import type { Locale } from '../../locales'
 import type { Theme } from '@arkloop/shared/contexts/theme'
 import { useLocale } from '../../contexts/LocaleContext'
 import { useTheme } from '../../contexts/ThemeContext'
-import { readGtdEnabled, writeGtdEnabled } from '../../storage'
+import { readGtdEnabled, subscribeGtdEnabled, writeGtdEnabled } from '../../storage'
 import { FontSettings } from './FontSettings'
 import { ThemePresetPicker } from './ThemePresetPicker'
 import { ThemeColorEditor } from './ThemeColorEditor'
@@ -267,6 +267,8 @@ export function SidebarGroupingPicker({ showLabel = true }: { showLabel?: boolea
   const [gtdEnabled, setGtdEnabled] = useState(() => readGtdEnabled())
   const [hoveredValue, setHoveredValue] = useState<boolean | null>(null)
 
+  useEffect(() => subscribeGtdEnabled(setGtdEnabled), [])
+
   const options: { value: boolean; label: string; Preview: () => React.JSX.Element }[] = [
     { value: false, label: t.sidebarGroupingNormal, Preview: NormalPreview },
     { value: true, label: t.sidebarGroupingGtd, Preview: GtdPreview },
@@ -294,11 +296,6 @@ export function SidebarGroupingPicker({ showLabel = true }: { showLabel?: boolea
                 if (gtdEnabled === value) return
                 setGtdEnabled(value)
                 writeGtdEnabled(value)
-                window.dispatchEvent(new CustomEvent('arkloop:gtd-enabled-changed', { detail: value }))
-                window.dispatchEvent(new StorageEvent('storage', {
-                  key: 'arkloop:web:gtd_enabled',
-                  newValue: String(value),
-                }))
               }}
               className="flex flex-col items-center gap-2"
             >

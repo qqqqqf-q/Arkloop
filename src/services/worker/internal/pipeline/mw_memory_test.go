@@ -268,7 +268,7 @@ func buildHookRuntime(
 // --- tests ---
 
 func TestMemoryMiddleware_NilProvider_NoOp(t *testing.T) {
-	mw := pipeline.NewMemoryMiddleware(nil, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(nil, nil, nil, nil, nil, nil, nil, nil)
 
 	called := false
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error {
@@ -287,7 +287,7 @@ func TestMemoryMiddleware_NilProvider_NoOp(t *testing.T) {
 
 func TestMemoryMiddleware_NilUserID_NoOp(t *testing.T) {
 	mp := newMemMock()
-	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil, nil, nil)
 
 	rc := buildMemRC(nil, "test query", "response")
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
@@ -367,7 +367,7 @@ func TestPromptHookMiddleware_NotebookAndImpressionBlocksCanCoexist(t *testing.T
 
 func TestMemoryMiddleware_FlushesPendingWritesAfterRun(t *testing.T) {
 	mp := newMemMock()
-	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
@@ -406,7 +406,7 @@ func TestMemoryMiddleware_FlushesPendingWritesAfterRun(t *testing.T) {
 
 func TestMemoryMiddleware_FlushesPendingWritesEvenWhenNextFails(t *testing.T) {
 	mp := newMemMock()
-	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "user message", "assistant reply")
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
@@ -431,7 +431,7 @@ func TestMemoryMiddleware_FlushesPendingWritesEvenWhenNextFails(t *testing.T) {
 
 func TestMemoryMiddleware_NoFlushWhenNoPendingWrites(t *testing.T) {
 	mp := newMemMock()
-	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(mp, nil, nil, nil, nil, nil, nil, nil)
 
 	rc := buildMemRC(userIDPtr(), "", "assistant reply")
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
@@ -450,7 +450,7 @@ func TestMemoryMiddleware_NoFlushWhenNoPendingWrites(t *testing.T) {
 
 func TestMemoryMiddleware_UsesRunContextMemoryProviderForPendingWritesWhenStaticProviderNil(t *testing.T) {
 	mp := newMemMock()
-	mw := pipeline.NewMemoryMiddleware(nil, nil, nil, nil, nil, nil)
+	mw := pipeline.NewMemoryMiddleware(nil, nil, nil, nil, nil, nil, nil, nil)
 	rc := buildMemRC(userIDPtr(), "hello", "")
 	rc.MemoryProvider = mp
 	rc.PendingMemoryWrites.Append(memory.PendingWrite{
@@ -523,7 +523,7 @@ func TestThreadPersistHookMiddleware_DistillTriggeredWithIncrementalUserInput(t 
 	rc := buildMemRC(userIDPtr(), "help me search", "found 3 results")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -573,7 +573,7 @@ func TestThreadPersistHookMiddleware_DistillTriggeredWithoutToolOrIterationThres
 	rc := buildMemRC(userIDPtr(), "complex question", "detailed answer")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -604,7 +604,7 @@ func TestThreadPersistHookMiddleware_DistillIncludesRuntimeUserMessages(t *testi
 	rc := buildMemRC(userIDPtr(), "first prompt", "final answer")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -647,7 +647,7 @@ func TestThreadPersistHookMiddleware_DistillSkippedWhenNoIncrementalInput(t *tes
 	rc := buildMemRC(userIDPtr(), "", "simple answer")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -679,7 +679,7 @@ func TestThreadPersistHookMiddleware_DistillSkippedWhenDisabled(t *testing.T) {
 	rc := buildMemRC(userIDPtr(), "query", "response")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, resolver, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, resolver, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -705,7 +705,7 @@ func TestThreadPersistHookMiddleware_DistillSkippedWhenNoAssistantOutput(t *test
 	rc := buildMemRC(userIDPtr(), "query", "")
 	rc.MemoryProvider = mp
 	rc.HookRuntime = buildHookRuntime(t, nil, []pipeline.AfterThreadPersistHook{
-		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil),
+		pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil),
 	}, nil)
 
 	h := pipeline.Build([]pipeline.RunMiddleware{
@@ -824,7 +824,7 @@ func TestThreadPersistHookMiddleware_DistillStillRunsWhenThreadProviderFails(t *
 	if err := registry.SetThreadPersistenceProvider(provider); err != nil {
 		t.Fatalf("set thread provider: %v", err)
 	}
-	registry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil))
+	registry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(nil, nil, nil, nil, nil, nil, nil))
 
 	rc := buildMemRC(userIDPtr(), "user prompt", "assistant output")
 	rc.MemoryProvider = mp

@@ -578,7 +578,7 @@ export function DesktopSettings({
   return (
     <>
       <motion.div
-        className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
+        className="theme-surface-page flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]"
         initial={{ opacity: 0, x: 10 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
@@ -586,7 +586,7 @@ export function DesktopSettings({
         onAnimationComplete={handleMotionComplete}
       >
         <div
-          className="flex w-[280px] shrink-0 flex-col overflow-y-auto py-4"
+          className="theme-surface-sidebar flex w-[280px] shrink-0 flex-col overflow-y-auto bg-[var(--c-bg-sidebar)] py-4"
           style={{
             borderRight: "0.5px solid var(--c-border-subtle)",
           }}
@@ -610,7 +610,7 @@ export function DesktopSettings({
           <div
             className="pointer-events-none absolute left-0 right-0 top-0 z-10 h-8 transition-opacity duration-200"
             style={{
-              background: 'linear-gradient(to bottom, var(--c-bg-page) 0%, transparent 100%)',
+              background: 'linear-gradient(to bottom, var(--c-bg-page-gradient-stop, var(--c-bg-page)) 0%, transparent 100%)',
               opacity: scrolled ? 1 : 0,
             }}
           />

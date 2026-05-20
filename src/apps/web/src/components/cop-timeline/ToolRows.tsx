@@ -1,7 +1,6 @@
 import { createContext, memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import hljs from 'highlight.js/lib/common'
 import type { FileOpRef } from '../../storage'
 import { CopThoughtSummaryRow } from './ThinkingBlock'
 import { basename, type ExploreGroupRef } from '../../toolPresentation'
@@ -11,6 +10,7 @@ import { CopTimelineUnifiedRow } from './CopUnifiedRow'
 import { localizeTimelineLabel } from './labels'
 import { markerForFileOp } from './markers'
 import { renderTimelineText } from '../../timelineText'
+import { CodeDocumentViewer, compactUnifiedDiffForDisplay, diffLinesFromUnifiedText } from '../code-document/CodeDocumentViewer'
 
 const MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 const EXPLORE_VIEWPORT_BOTTOM_PAD = 12
@@ -48,38 +48,25 @@ export function summarizeDiff(text: string | undefined): { added: number; remove
 }
 
 
-const EXT_TO_LANG: Record<string, string> = {
-  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
-  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-  go: 'go', py: 'python', rb: 'ruby', rs: 'rust', java: 'java', kt: 'kotlin',
-  c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', hpp: 'cpp', cs: 'csharp', swift: 'swift',
-  php: 'php', lua: 'lua', sh: 'bash', bash: 'bash', zsh: 'bash',
-  json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'ini', ini: 'ini',
-  css: 'css', scss: 'scss', html: 'xml', xml: 'xml', svg: 'xml',
-  md: 'markdown', sql: 'sql', dockerfile: 'dockerfile',
-}
-
-function languageFromPath(path: string): string | undefined {
-  const name = basename(path).toLowerCase()
-  if (name === 'dockerfile') return 'dockerfile'
-  const ext = name.includes('.') ? name.split('.').pop() : ''
-  return ext ? EXT_TO_LANG[ext] : undefined
-}
-
-function highlightCode(code: string, lang: string | undefined): string {
-  try {
-    if (lang && hljs.getLanguage(lang)) {
-      return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
-    }
-    return hljs.highlightAuto(code).value
-  } catch {
-    return ''
-  }
-}
-
 function previewLines(text: string | undefined, limit = 30): string[] {
   if (!text?.trim()) return []
   return text.replace(/\r\n/g, '\n').split('\n').slice(0, limit)
+}
+
+function compactFileOpOutput(text: string | undefined): string {
+  return previewLines(text).join('\n')
+}
+
+function fileOpCodePreview(op: FileOpRef): { content: string; diffLines?: ReturnType<typeof diffLinesFromUnifiedText> } | null {
+  const raw = op.output || op.errorMessage
+  if (!raw?.trim()) return null
+  if (op.toolName === 'edit' || op.toolName === 'edit_file') {
+    const content = compactUnifiedDiffForDisplay(raw)
+    if (!content.trim()) return null
+    return { content, diffLines: diffLinesFromUnifiedText(raw) }
+  }
+  const content = compactFileOpOutput(raw)
+  return content.trim() ? { content } : null
 }
 
 const DEFAULT_FILEOP_COLOR = 'var(--c-cop-row-fg)'
@@ -168,7 +155,7 @@ export function FileOpToolCard({ op }: { op: FileOpRef }) {
   const { locale, t } = useLocale()
   const title = op.displayText ? renderTimelineText(op.displayText, locale) : localizeTimelineLabel(op.displayDescription || op.label || op.toolName, locale)
   const filePath = op.filePath || op.displayDetail || ''
-  const lines = previewLines(op.output || op.errorMessage)
+  const preview = fileOpCodePreview(op)
   const cardTitle = op.pattern || op.displaySubject || (filePath ? basename(filePath) : title)
   const cardSubtitle = filePath && cardTitle !== filePath ? filePath : op.displayDetail || ''
   const diffCounts = fileOpDiffCounts(op)
@@ -182,28 +169,13 @@ export function FileOpToolCard({ op }: { op: FileOpRef }) {
           {diffCounts && <FileOpDiffSuffix added={diffCounts.added} removed={diffCounts.removed} ariaLabel={t.diffAddedRemoved(diffCounts.added, diffCounts.removed)} />}
         </div>
       )}
-      {lines.length > 0 ? (
-        <pre style={{ margin: 0, padding: '9px 0', maxHeight: 280, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: '18px', color: 'var(--c-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {lines
-            .filter((line) => {
-              const t = line.trim()
-              if (!t) return false
-              if (t.startsWith('--- ') || t.startsWith('+++ ') || t === '---' || t === '+++') return false
-              if (t.startsWith('@@') && t.includes('@@')) return false
-              if (t.startsWith('diff --git') || t.startsWith('index ')) return false
-              return true
-            })
-            .map((line, lineIndex) => {
-              let bg: string | undefined
-              if (line.startsWith('+')) bg = 'rgba(34,197,94,0.12)'
-              else if (line.startsWith('-')) bg = 'rgba(239,68,68,0.12)'
-              return (
-                <div key={lineIndex} style={{ padding: '0 10px', background: bg }}>
-                  {`${String(lineIndex + 1).padStart(3, ' ')}  ${line}`}
-                </div>
-              )
-            })}
-        </pre>
+      {preview ? (
+        <CodeDocumentViewer
+          content={preview.content}
+          filename={filePath}
+          maxHeight={280}
+          diffLines={preview.diffLines}
+        />
       ) : (
         <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--c-text-muted)' }}>
           {op.pattern || op.operation || basename(filePath) || op.toolName}
@@ -228,25 +200,12 @@ export const FileOpToolRow = memo(function FileOpToolRow({ op, live, expandedOff
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const title = op.displayText ? renderTimelineText(op.displayText, locale) : localizeTimelineLabel(op.displayDescription || op.label || op.toolName, locale)
   const filePath = op.filePath || op.displayDetail || ''
-  const lines = useMemo(() => previewLines(op.output || op.errorMessage), [op.output, op.errorMessage])
+  const preview = useMemo(() => fileOpCodePreview(op), [op])
   const cardTitle = op.pattern || op.displaySubject || (filePath ? basename(filePath) : title)
   const cardSubtitle = filePath && cardTitle !== filePath ? filePath : op.displayDetail || ''
-  const expandable = !!(filePath || lines.length > 0 || op.pattern || op.operation)
+  const expandable = !!(filePath || preview || op.pattern || op.operation)
   const isReadFile = op.toolName === 'read_file' || op.toolName === 'read' || op.toolName.startsWith('read.')
   const fileNameForTitle = isReadFile && filePath ? basename(filePath) : ''
-  const codeText = useMemo(() => {
-    if (!isReadFile || lines.length === 0 || op.status === 'running') return null
-    return lines.map((line, index) => `${String(index + 1).padStart(3, ' ')}  ${line}`).join('\n')
-  }, [isReadFile, lines, op.status])
-  const language = useMemo(() => languageFromPath(filePath), [filePath])
-  const codeBody = useMemo(() => {
-    if (!codeText) return null
-    const html = highlightCode(codeText, language)
-    return html || null
-  }, [codeText, language])
-  const numberedText = useMemo(() => (
-    lines.map((line, index) => `${String(index + 1).padStart(3, ' ')}  ${line}`).join('\n')
-  ), [lines])
 
   return (
     <div style={{ maxWidth: 'min(100%, 760px)', minWidth: 0 }}>
@@ -302,19 +261,13 @@ export const FileOpToolRow = memo(function FileOpToolRow({ op, live, expandedOff
                   {cardSubtitle && <span style={{ color: 'var(--c-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>· {cardSubtitle}</span>}
                 </div>
               )}
-              {lines.length > 0 ? (
-                codeBody ? (
-                  <pre
-                    className="hljs"
-                    style={{ margin: 0, padding: '9px 10px', maxHeight: 280, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: '18px', background: 'var(--c-code-preview-bg)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-                  >
-                    <code className={`language-${language ?? 'plaintext'}`} dangerouslySetInnerHTML={{ __html: codeBody }} />
-                  </pre>
-                ) : (
-                  <pre style={{ margin: 0, padding: '9px 10px', maxHeight: 280, overflow: 'auto', fontFamily: MONO, fontSize: 12, lineHeight: '18px', color: op.status === 'failed' ? 'var(--c-status-error-text, #ef4444)' : 'var(--c-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {numberedText}
-                  </pre>
-                )
+              {preview ? (
+                <CodeDocumentViewer
+                  content={preview.content}
+                  filename={filePath}
+                  maxHeight={280}
+                  diffLines={preview.diffLines}
+                />
               ) : (
                 <div style={{ padding: '8px 10px', fontSize: 12, color: 'var(--c-text-muted)' }}>
                   {op.pattern || op.operation || basename(filePath) || op.toolName}

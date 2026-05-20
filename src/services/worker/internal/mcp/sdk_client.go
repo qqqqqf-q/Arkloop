@@ -241,6 +241,16 @@ func (c *sdkClient) IsHealthy(ctx context.Context) bool {
 	return true
 }
 
+func (c *sdkClient) ServerInstructions() string {
+	if c.closed.Load() {
+		return ""
+	}
+	if ir := c.session.InitializeResult(); ir != nil {
+		return ir.Instructions
+	}
+	return ""
+}
+
 func (c *sdkClient) Close() error {
 	if !c.closed.CompareAndSwap(false, true) {
 		return nil

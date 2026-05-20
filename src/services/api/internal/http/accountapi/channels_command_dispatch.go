@@ -15,6 +15,7 @@ import (
 
 // ChannelCommandDeps groups repository dependencies for DispatchChannelCommand.
 type ChannelCommandDeps struct {
+	ChannelsRepo             *data.ChannelsRepository
 	ChannelIdentitiesRepo    *data.ChannelIdentitiesRepository
 	ChannelDMThreadsRepo     *data.ChannelDMThreadsRepository
 	ChannelGroupThreadsRepo  *data.ChannelGroupThreadsRepository
@@ -191,7 +192,7 @@ func DispatchChannelCommand(
 			payload := resolver.ResolveStartPayload()
 			if strings.HasPrefix(payload, "bind_") {
 				code := strings.TrimPrefix(payload, "bind_")
-				replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo)
+				replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo, deps.ChannelsRepo)
 				if err != nil {
 					return true, nil, err
 				}
@@ -208,7 +209,7 @@ func DispatchChannelCommand(
 		if code == "" {
 			return true, &CommandReply{Text: "用法：/bind <code>"}, nil
 		}
-		replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo)
+		replyText, err := bindChannelIdentity(ctx, tx, &ch, identity, code, channelLabel, deps.ChannelBindCodesRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.ChannelDMThreadsRepo, deps.ThreadRepo, deps.ChannelsRepo)
 		if err != nil {
 			return true, nil, err
 		}

@@ -12,6 +12,7 @@ const listAvailableModels = vi.fn()
 const createLlmProvider = vi.fn()
 const updateLlmProvider = vi.fn()
 const createProviderModel = vi.fn()
+const deleteProviderModel = vi.fn()
 const deleteLlmProvider = vi.fn()
 const copyLlmProvider = vi.fn()
 const patchProviderModel = vi.fn()
@@ -36,7 +37,7 @@ async function loadSubject() {
       deleteLlmProvider,
       copyLlmProvider,
       createProviderModel,
-      deleteProviderModel: vi.fn(),
+      deleteProviderModel,
       patchProviderModel,
       isApiError: () => false,
     }
@@ -58,6 +59,7 @@ beforeEach(() => {
   createLlmProvider.mockReset()
   updateLlmProvider.mockReset()
   createProviderModel.mockReset()
+  deleteProviderModel.mockReset()
   deleteLlmProvider.mockReset()
   copyLlmProvider.mockReset()
   patchProviderModel.mockReset()
@@ -98,12 +100,12 @@ beforeEach(() => {
     provider_id: 'provider-created',
     model: 'openai/gpt-4o-mini',
     priority: 0,
-    is_default: false,
     show_in_picker: false,
     tags: [],
     when: {},
     multiplier: 1,
   })
+  deleteProviderModel.mockResolvedValue(undefined)
   deleteLlmProvider.mockResolvedValue(undefined)
   copyLlmProvider.mockResolvedValue({})
   patchProviderModel.mockResolvedValue({})
@@ -143,7 +145,10 @@ describe('ProvidersSettings', () => {
 
     await openProviderCard('OpenRouter')
 
-    const importButton = Array.from(document.body.querySelectorAll('button')).find((button) => button.textContent?.includes('导入模型'))
+    const importButton = Array.from(document.body.querySelectorAll('button')).find((button) => {
+      const label = button.textContent ?? ''
+      return label.includes('导入模型') || label.includes('Import models')
+    })
     expect(importButton).toBeTruthy()
 
     await act(async () => {
@@ -247,7 +252,7 @@ describe('ProvidersSettings', () => {
     expect(deleteLlmProvider).toHaveBeenNthCalledWith(2, 'token', 'provider-2')
   })
 
-  it('本地只读供应商不显示写操作入口', async () => {
+  it('本地供应商只锁定凭据配置，模型 catalog 仍可操作', async () => {
     listLlmProviders.mockResolvedValueOnce([
       {
         id: 'claude-code-local',
@@ -265,7 +270,6 @@ describe('ProvidersSettings', () => {
             provider_id: 'claude-code-local',
             model: 'claude-sonnet-4-6',
             priority: 0,
-            is_default: true,
             show_in_picker: true,
             tags: [],
             when: {},
@@ -290,13 +294,13 @@ describe('ProvidersSettings', () => {
     expect(text).toContain('Claude Code (Local)')
     expect(text).toMatch(/本地|Local/)
     expect(text).toMatch(/只读|Read-only/)
-    expect(text).not.toMatch(/测试|Test/)
-    expect(text).not.toMatch(/添加模型|Add model/)
+    expect(text).toContain('local://claude-code')
 
     await openProviderCard('Claude Code (Local)')
 
     expect(document.body.querySelector('input[type="password"]')).toBeNull()
-    expect(document.body.querySelector('button.button-secondary')).toBeNull()
+    expect(document.body.textContent).toMatch(/测试|Test/)
+    expect(document.body.textContent).toMatch(/添加模型|Add model/)
     const modelToggle = document.body.querySelector('input[type="checkbox"]') as HTMLInputElement | null
     expect(modelToggle).toBeTruthy()
 

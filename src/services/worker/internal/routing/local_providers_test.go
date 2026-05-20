@@ -39,7 +39,7 @@ func TestAppendLocalProvidersAddsSyntheticCredentialAndRoutes(t *testing.T) {
 	if credential.APIKeyEnv != nil || credential.APIKeyValue != nil {
 		t.Fatalf("local provider must not store API key references: %#v", credential)
 	}
-	if len(cfg.Routes) != 1 || cfg.DefaultRouteID != cfg.Routes[0].ID {
+	if len(cfg.Routes) != 1 {
 		t.Fatalf("unexpected routes/default: %#v", cfg)
 	}
 	route := cfg.Routes[0]

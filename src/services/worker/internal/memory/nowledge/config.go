@@ -14,15 +14,19 @@ const (
 	envBaseURL          = "ARKLOOP_NOWLEDGE_BASE_URL"
 	envAPIKey           = "ARKLOOP_NOWLEDGE_API_KEY"
 	envRequestTimeoutMs = "ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"
+	envMaxCtxResults    = "ARKLOOP_NOWLEDGE_MAX_CONTEXT_RESULTS"
+	envRecallMinScore   = "ARKLOOP_NOWLEDGE_RECALL_MIN_SCORE"
 	defaultTimeoutMs    = 30_000
 	defaultLocalBaseURL = "http://127.0.0.1:14242"
 	localConfigRelPath  = ".nowledge-mem/config.json"
 )
 
 type Config struct {
-	BaseURL          string
-	APIKey           string
-	RequestTimeoutMs int
+	BaseURL            string
+	APIKey             string
+	RequestTimeoutMs   int
+	MaxContextResults  int
+	RecallMinScore     int
 }
 
 func (c Config) Enabled() bool {
@@ -36,11 +40,27 @@ func (c Config) resolvedTimeoutMs() int {
 	return defaultTimeoutMs
 }
 
+func (c Config) ResolvedMaxContextResults() int {
+	if c.MaxContextResults > 0 && c.MaxContextResults <= 20 {
+		return c.MaxContextResults
+	}
+	return 5
+}
+
+func (c Config) ResolvedRecallMinScore() float64 {
+	if c.RecallMinScore > 0 && c.RecallMinScore <= 100 {
+		return float64(c.RecallMinScore) / 100.0
+	}
+	return 0
+}
+
 func LoadConfigFromEnv() Config {
 	return Config{
-		BaseURL:          strings.TrimSpace(os.Getenv(envBaseURL)),
-		APIKey:           strings.TrimSpace(os.Getenv(envAPIKey)),
-		RequestTimeoutMs: parseTimeoutMs(os.Getenv(envRequestTimeoutMs)),
+		BaseURL:           strings.TrimSpace(os.Getenv(envBaseURL)),
+		APIKey:            strings.TrimSpace(os.Getenv(envAPIKey)),
+		RequestTimeoutMs:  parseTimeoutMs(os.Getenv(envRequestTimeoutMs)),
+		MaxContextResults: parsePositiveInt(os.Getenv(envMaxCtxResults)),
+		RecallMinScore:    parsePositiveInt(os.Getenv(envRecallMinScore)),
 	}
 }
 
@@ -92,6 +112,14 @@ func NewProvider(cfg Config) memory.MemoryProvider {
 }
 
 func parseTimeoutMs(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
+}
+
+func parsePositiveInt(raw string) int {
 	value, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || value <= 0 {
 		return 0

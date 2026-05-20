@@ -502,6 +502,52 @@ describe('resource preview loader', () => {
     })
   })
 
+  it('local-file 在 right panel 使用只读源码渲染', async () => {
+    const host = globalThis as typeof globalThis & { __desktopApi?: unknown }
+    host.__desktopApi = {
+      fs: {
+        readFile: vi.fn().mockResolvedValue({
+          data: btoa('hello local'),
+          mime_type: 'text/plain',
+        }),
+      },
+    }
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    try {
+      await act(async () => {
+        root.render(
+          <LocalizedResourcePreviewPanel
+            accessToken="token"
+            resource={{
+              kind: 'local-file',
+              rootPath: '/root',
+              path: 'notes/a.txt',
+              filename: 'a.txt',
+              mimeType: 'text/plain',
+            }}
+          />,
+        )
+      })
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+
+      const cmContent = container.querySelector<HTMLElement>('.cm-content')
+      expect(cmContent).not.toBeNull()
+      expect(cmContent?.getAttribute('contenteditable')).toBe('false')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
+  })
+
   it('artifact 使用 /v1/artifacts/:key 并输出 blobUrl', async () => {
     URL.createObjectURL = vi.fn().mockReturnValue('blob:artifact')
     const fetchMock = vi.fn().mockResolvedValue(

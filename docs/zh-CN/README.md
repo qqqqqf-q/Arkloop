@@ -10,6 +10,9 @@
   <a href="https://github.com/qqqqqf-q/Arkloop/graphs/commit-activity"><img alt="Commits" src="https://img.shields.io/github/commit-activity/m/qqqqqf-q/Arkloop?labelColor=%2332b583&color=%2312b76a"></a>
   <a href="https://github.com/qqqqqf-q/Arkloop/issues"><img alt="Issues closed" src="https://img.shields.io/github/issues-search?query=repo%3Aqqqqqf-q%2FArkloop%20is%3Aclosed&label=issues%20closed&labelColor=%237d89b0&color=%235d6b98"></a>
   <a href="https://x.com/intent/follow?screen_name=qqqqqf_"><img alt="Follow on X" src="https://img.shields.io/twitter/follow/qqqqqf_?logo=X&color=%20%23f5f5f5"></a>
+  <a href="https://t.me/Arkloop_io"><img alt="Telegram" src="https://img.shields.io/badge/Telegram-Group-blue?logo=telegram"></a>
+  <a href="https://github.com/qqqqqf-q/Arkloop/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/qqqqqf-q/Arkloop?style=social"></a>
+  <a href="https://github.com/qqqqqf-q/Arkloop/network/members"><img alt="Forks" src="https://img.shields.io/github/forks/qqqqqf-q/Arkloop?style=social"></a>
 </p>
 
 ---
@@ -73,6 +76,7 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 - [@Jinnkunn](https://github.com/Jinnkunn) - 帮我买了域名
 - @jeck - 请我喝了杯冰美式
 - @chuichui - 包了我两周的 AI 费用
+- [@薄荷奶昔](https://github.com/SkyAerope) - 包了草洛和清凤的 AI 费用
 
 
 ## 贡献者

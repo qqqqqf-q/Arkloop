@@ -19,8 +19,8 @@ type SkillLayoutResolver func(ctx context.Context, rc *RunContext) (skillstore.P
 type ExternalSkillDirsResolver func(ctx context.Context) []string
 
 const (
-	skillListingBudgetChars  = 3000
-	skillListingDescMaxChars = 96
+	skillListingBudgetChars  = 8000
+	skillListingDescMaxChars = 250
 )
 
 type SkillContextConfig struct {
@@ -117,7 +117,9 @@ func buildAvailableSkillsPromptBlock(enabled []skillstore.ResolvedSkill, externa
 	}
 	var sb strings.Builder
 	sb.WriteString("\n\n<available_skills>\n")
-	sb.WriteString("Use load_skill with the exact skill name below before relying on a skill.\n")
+	sb.WriteString("When a skill matches the user's request, this is a BLOCKING REQUIREMENT: call load_skill with the exact skill name BEFORE generating any other response about the task.\n")
+	sb.WriteString("NEVER mention a skill without actually calling load_skill.\n")
+	sb.WriteString("If none clearly apply, do not load any skill.\n")
 	for _, line := range lines {
 		sb.WriteString("- ")
 		sb.WriteString(line)

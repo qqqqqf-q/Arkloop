@@ -215,9 +215,6 @@ func TestLlmProvidersCRUDAndDefaultPromotion(t *testing.T) {
 		t.Fatalf("create model one: %d %s", createModelOneResp.Code, createModelOneResp.Body.String())
 	}
 	modelOne := decodeJSONBody[llmProviderModelResponse](t, createModelOneResp.Body.Bytes())
-	if !modelOne.IsDefault {
-		t.Fatal("expected first model to become default")
-	}
 	if len(modelOne.Tags) != 1 || modelOne.Tags[0] != "chat" {
 		t.Fatalf("unexpected model tags: %#v", modelOne.Tags)
 	}
@@ -233,13 +230,9 @@ func TestLlmProvidersCRUDAndDefaultPromotion(t *testing.T) {
 		t.Fatalf("create model two: %d %s", createModelTwoResp.Code, createModelTwoResp.Body.String())
 	}
 	modelTwo := decodeJSONBody[llmProviderModelResponse](t, createModelTwoResp.Body.Bytes())
-	if modelTwo.IsDefault {
-		t.Fatal("expected second model not to be default before patch")
-	}
 
 	patchModelResp := doJSON(env.handler, nethttp.MethodPatch, "/v1/llm-providers/"+provider.ID+"/models/"+modelTwo.ID, map[string]any{
-		"is_default": true,
-		"tags":       []string{"fast", "chat"},
+		"tags": []string{"fast", "chat"},
 		"advanced_json": map[string]any{
 			"provider": "backup",
 		},
@@ -248,9 +241,6 @@ func TestLlmProvidersCRUDAndDefaultPromotion(t *testing.T) {
 		t.Fatalf("patch model: %d %s", patchModelResp.Code, patchModelResp.Body.String())
 	}
 	modelTwo = decodeJSONBody[llmProviderModelResponse](t, patchModelResp.Body.Bytes())
-	if !modelTwo.IsDefault {
-		t.Fatal("expected second model to become default")
-	}
 	if modelTwo.AdvancedJSON["provider"] != "backup" {
 		t.Fatalf("unexpected patched model advanced_json: %#v", modelTwo.AdvancedJSON)
 	}
@@ -278,12 +268,6 @@ func TestLlmProvidersCRUDAndDefaultPromotion(t *testing.T) {
 	if listedTwo.AdvancedJSON["provider"] != "backup" {
 		t.Fatalf("unexpected listed modelTwo advanced_json: %#v", listedTwo.AdvancedJSON)
 	}
-	if listedOne.IsDefault {
-		t.Fatal("expected first model default cleared")
-	}
-	if !listedTwo.IsDefault {
-		t.Fatal("expected second model default set")
-	}
 
 	deleteModelResp := doJSON(env.handler, nethttp.MethodDelete, "/v1/llm-providers/"+provider.ID+"/models/"+modelTwo.ID, nil, authHeader(env.adminToken))
 	if deleteModelResp.Code != nethttp.StatusOK {
@@ -295,8 +279,8 @@ func TestLlmProvidersCRUDAndDefaultPromotion(t *testing.T) {
 		t.Fatalf("list after delete model: %d %s", listAfterDeleteResp.Code, listAfterDeleteResp.Body.String())
 	}
 	providers = decodeJSONBody[[]llmProviderResponse](t, listAfterDeleteResp.Body.Bytes())
-	if len(providers[0].Models) != 1 || !providers[0].Models[0].IsDefault {
-		t.Fatalf("expected remaining model promoted to default: %#v", providers[0].Models)
+	if len(providers[0].Models) != 1 {
+		t.Fatalf("expected one remaining model: %#v", providers[0].Models)
 	}
 
 	deleteProviderResp := doJSON(env.handler, nethttp.MethodDelete, "/v1/llm-providers/"+provider.ID, nil, authHeader(env.adminToken))
@@ -360,7 +344,7 @@ func TestLlmProvidersCopyProviderCopiesSecretAndModels(t *testing.T) {
 		t.Fatalf("unexpected copied models: %#v", copied.Models)
 	}
 	model := copied.Models[0]
-	if model.ProviderID != copied.ID || model.Model != "gpt-4o" || model.Priority != 7 || !model.ShowInPicker || !model.IsDefault {
+	if model.ProviderID != copied.ID || model.Model != "gpt-4o" || model.Priority != 7 || !model.ShowInPicker  {
 		t.Fatalf("unexpected copied model: %#v", model)
 	}
 	if len(model.Tags) != 1 || model.Tags[0] != "chat" || model.AdvancedJSON["copied"] != true {

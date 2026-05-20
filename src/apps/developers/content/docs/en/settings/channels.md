@@ -61,6 +61,7 @@ Connect to a self-hosted OneBot v11 backend (go-cqhttp, NapCat, Lagrange, etc.).
 
 - **WebSocket URL** — reverse or forward WebSocket endpoint of the OneBot service.
 - **HTTP API URL** + **Token** — used for outbound API calls and authentication.
+- **Bot name** — robot name used as a group-chat trigger keyword.
 - **QR Login** — scan to log in the underlying QQ account.
 - **Auto Re-login** — automatically reconnect when the session drops.
 - **Allowed QQ Users** — QQ numbers allowed in private chats.

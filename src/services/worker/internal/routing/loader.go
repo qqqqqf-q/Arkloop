@@ -84,7 +84,7 @@ func (l *ConfigLoader) storeDesktopCached(config ProviderRoutingConfig) {
 }
 
 func cloneProviderRoutingConfig(config ProviderRoutingConfig) ProviderRoutingConfig {
-	out := ProviderRoutingConfig{DefaultRouteID: config.DefaultRouteID}
+	out := ProviderRoutingConfig{}
 	out.Credentials = append([]ProviderCredential(nil), config.Credentials...)
 	out.Routes = append([]ProviderRouteRule(nil), config.Routes...)
 	return out

@@ -19,6 +19,8 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"browser":              {},
 	"conversation_context": {},
 	"conversation_search":  {},
+	"thread_list":          {},
+	"thread_messages":      {},
 	"create_artifact":      {},
 	"document_write":       {},
 	"exec_command":         {},
@@ -354,6 +356,8 @@ var identityRequiredTools = map[string]struct{}{
 	"notebook_write":       {},
 	"notebook_edit":        {},
 	"notebook_forget":      {},
+	"thread_list":          {},
+	"thread_messages":      {},
 }
 
 func filterIdentityRequiredTools(allowlistSet map[string]struct{}) map[string]struct{} {

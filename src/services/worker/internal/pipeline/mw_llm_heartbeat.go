@@ -80,12 +80,38 @@ func IsHeartbeatDecisionToolName(toolName string) bool {
 
 // NewHeartbeatPrepareMiddleware 为心跳 run 构建尾部 heartbeat check，
 // 注册 heartbeat_decision 工具并设置 tool_choice=specific。
-// 非心跳 run 直接透传。
+// tool spec/registry/executor 对所有 run 统一注册以保证 tool_schema_hash 稳定，
+// 避免 heartbeat 与 normal dispatch 之间因 schema 差异导致 prompt cache miss。
 func NewHeartbeatPrepareMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if rc == nil {
 			return next(ctx, rc)
 		}
+
+		// 所有 run 统一注册 heartbeat_decision tool，保证 tool schema 一致。
+		// executor 内部会检查 IsHeartbeatRun，非 heartbeat 调用时返回错误。
+		if rc.PersonaDefinition != nil && len(rc.PersonaDefinition.CoreTools) > 0 && !containsToolName(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName) {
+			rc.PersonaDefinition.CoreTools = append(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName)
+		}
+		if rc.ToolRegistry != nil {
+			if _, ok := rc.ToolRegistry.Get(heartbeattool.ToolName); !ok {
+				if err := rc.ToolRegistry.Register(heartbeattool.AgentSpec); err != nil {
+					return err
+				}
+			}
+		}
+		if rc.ToolExecutors == nil {
+			rc.ToolExecutors = map[string]tools.Executor{}
+		}
+		rc.ToolExecutors[heartbeattool.ToolName] = heartbeattool.New()
+		if !containsToolSpecName(rc.ToolSpecs, heartbeattool.ToolName) {
+			rc.ToolSpecs = append(rc.ToolSpecs, heartbeattool.Spec)
+		}
+		if rc.AllowlistSet == nil {
+			rc.AllowlistSet = map[string]struct{}{}
+		}
+		rc.AllowlistSet[heartbeattool.ToolName] = struct{}{}
+
 		if !isHeartbeatRun(rc.InputJSON, rc.JobPayload) {
 			return next(ctx, rc)
 		}
@@ -132,37 +158,6 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 			Stability:     PromptStabilityVolatileTail,
 			CacheEligible: false,
 		})
-
-		if rc.AllowlistSet == nil {
-			rc.AllowlistSet = map[string]struct{}{}
-		}
-		rc.AllowlistSet[heartbeattool.ToolName] = struct{}{}
-
-		// heartbeat_decision 必须在 core 层，否则被 splitToolSpecs 踢到 searchable 层 LLM 看不到
-		if rc.PersonaDefinition != nil && len(rc.PersonaDefinition.CoreTools) > 0 && !containsToolName(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName) {
-			rc.PersonaDefinition.CoreTools = append(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName)
-		}
-
-		if rc.ToolRegistry != nil {
-			if _, ok := rc.ToolRegistry.Get(heartbeattool.ToolName); !ok {
-				if err := rc.ToolRegistry.Register(heartbeattool.AgentSpec); err != nil {
-					return err
-				}
-			}
-		}
-
-		if rc.ToolExecutors == nil {
-			rc.ToolExecutors = map[string]tools.Executor{}
-		}
-		rc.ToolExecutors[heartbeattool.ToolName] = heartbeattool.New()
-		if !containsToolSpecName(rc.ToolSpecs, heartbeattool.ToolName) {
-			rc.ToolSpecs = append(rc.ToolSpecs, heartbeattool.Spec)
-		}
-
-		rc.ToolChoice = &llm.ToolChoice{
-			Mode:     "specific",
-			ToolName: heartbeattool.ToolName,
-		}
 
 		return next(ctx, rc)
 	}

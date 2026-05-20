@@ -61,6 +61,8 @@ src/services/api/api
 src/services/api/migrate
 src/services/gateway/gateway
 .data/
+/data/
+.agentmemory/
 src/services/desktop/bin/
 src/apps/desktop/dist/
 src/apps/desktop/release/

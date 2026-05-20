@@ -11,6 +11,7 @@ import {
   type AppUpdaterState,
   type CommandLineToolStatus,
 } from '@arkloop/shared/desktop'
+import { applyDevAppUpdateMock, resolveAppUpdaterApi } from '../../devAppUpdateMock'
 
 type ComponentStatus = {
   current: string | null
@@ -39,7 +40,7 @@ function getCliToolApi() {
 }
 
 function getAppUpdaterApi() {
-  const api = getDesktopApi()?.appUpdater
+  const api = resolveAppUpdaterApi()
   if (api) return api
   const state = localHeadlessAppUpdaterState()
   if (!state) return null
@@ -243,7 +244,7 @@ export function UpdateSettingsContent() {
     if (appUpdaterApi) {
       tasks.push(
         appUpdaterApi.check().then((state) => {
-          setAppUpdateState(state)
+          setAppUpdateState(applyDevAppUpdateMock(state) ?? state)
         }).catch((error) => {
           visibleError ??= getVisibleErrorMessage(error)
         }),
@@ -264,11 +265,11 @@ export function UpdateSettingsContent() {
 
     let active = true
     void api.getState().then((state) => {
-      if (active) setAppUpdateState(state)
+      if (active) setAppUpdateState(applyDevAppUpdateMock(state) ?? state)
     }).catch(() => {})
 
     const unsub = api.onState((state) => {
-      setAppUpdateState(state)
+      setAppUpdateState(applyDevAppUpdateMock(state) ?? state)
     })
 
     return () => {
@@ -346,7 +347,7 @@ export function UpdateSettingsContent() {
     try {
       setCheckError(null)
       const state = await api.download()
-      setAppUpdateState(state)
+      setAppUpdateState(applyDevAppUpdateMock(state) ?? state)
     } catch (e) {
       setCheckError(getVisibleErrorMessage(e))
     }
@@ -432,7 +433,7 @@ export function UpdateSettingsContent() {
               />
             )}
             control={(
-              <>
+              <div className="flex shrink-0 items-center gap-2">
                 {appBusy && !checking ? (
                   <div className="flex items-center gap-2 text-sm text-[var(--c-text-secondary)]">
                     <SpinnerIcon />
@@ -463,9 +464,9 @@ export function UpdateSettingsContent() {
                   loading={checking}
                 >
                   {!checking && <RefreshCw size={14} />}
-                  <span>{t.desktopSettings.checkForUpdates}</span>
+                  {t.desktopSettings.checkForUpdates}
                 </Button>
-              </>
+              </div>
             )}
           />
         </UpdateCard>

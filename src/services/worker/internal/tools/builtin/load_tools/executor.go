@@ -299,10 +299,9 @@ func BuildCatalogPrompt(searchable map[string]llm.ToolSpec) string {
 
 	var sb strings.Builder
 	sb.WriteString("\n<available_tools>\n")
-	sb.WriteString("These tools are not callable yet.\n")
-	sb.WriteString("Use load_tools to get the full schema before calling any of them.\n")
+	sb.WriteString("These tools are not callable yet. Until loaded via load_tools, only the name is known — there is no parameter schema, so the tool cannot be invoked.\n")
+	sb.WriteString("Use load_tools to fetch the full schema for matched tools. After load_tools returns, matched tools become callable in subsequent turns.\n")
 	sb.WriteString("load_tools queries must be a tool id or a word from a line below (this catalog only), not a web or research question.\n")
-	sb.WriteString("After load_tools returns, call a matched tool only if it appears in the real tool list in later phases of the same reasoning loop.\n")
 
 	names := make([]string, 0, len(searchable))
 	for name := range searchable {

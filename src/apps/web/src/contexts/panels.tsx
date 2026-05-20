@@ -47,6 +47,12 @@ type PanelContextValue = PanelActions & {
   shareModal: ShareModalState
 }
 
+const defaultShareModal: ShareModalState = {
+  open: false,
+  sharingMessageId: null,
+  sharedMessageId: null,
+}
+
 const Ctx = createContext<PanelContextValue | null>(null)
 
 // Stable actions context — never changes value, so consumers that only need
@@ -61,11 +67,11 @@ const PanelActionsCtx = createContext<PanelActions | null>(null)
 const ActiveArtifactKeyContext = createContext<string | null>(null)
 export const useActiveArtifactKey = () => useContext(ActiveArtifactKeyContext)
 
-const defaultShareModal: ShareModalState = {
-  open: false,
-  sharingMessageId: null,
-  sharedMessageId: null,
-}
+const ActiveCodeExecutionIdContext = createContext<string | null>(null)
+export const useActiveCodeExecutionId = () => useContext(ActiveCodeExecutionIdContext)
+
+const ShareModalContext = createContext<ShareModalState>(defaultShareModal)
+export const useShareModalState = () => useContext(ShareModalContext)
 
 export function PanelProvider({ children }: { children: ReactNode }) {
   const [activePanel, setActivePanel] = useState<ActivePanel>(null)
@@ -153,13 +159,18 @@ export function PanelProvider({ children }: { children: ReactNode }) {
   )
 
   const activePanelArtifactKey = activePanel?.type === 'document' ? activePanel.artifact.artifact.key : null
+  const activeCodeExecutionId = activePanel?.type === 'code' ? activePanel.execution.id : null
 
   return (
     <Ctx.Provider value={value}>
       <PanelActionsCtx.Provider value={actions}>
-        <ActiveArtifactKeyContext.Provider value={activePanelArtifactKey}>
-          {children}
-        </ActiveArtifactKeyContext.Provider>
+        <ShareModalContext.Provider value={shareModal}>
+          <ActiveCodeExecutionIdContext.Provider value={activeCodeExecutionId}>
+            <ActiveArtifactKeyContext.Provider value={activePanelArtifactKey}>
+              {children}
+            </ActiveArtifactKeyContext.Provider>
+          </ActiveCodeExecutionIdContext.Provider>
+        </ShareModalContext.Provider>
       </PanelActionsCtx.Provider>
     </Ctx.Provider>
   )

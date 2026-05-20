@@ -508,6 +508,46 @@ describe('read tool provider mapping', () => {
     ])
   })
 
+  it('write_file 完成后保留调用参数里的文件内容预览', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'r1',
+        seq: 1,
+        type: 'tool-call',
+        data: {
+          tool_name: 'write_file',
+          tool_call_id: 'w1',
+          arguments: {
+            file_path: '/tmp/plan.md',
+            content: '# Plan\n\n- [ ] wait approval',
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'r1',
+        seq: 2,
+        type: 'tool-result',
+        data: {
+          tool_name: 'write_file',
+          tool_call_id: 'w1',
+          result: { file_path: '/tmp/plan.md' },
+        },
+      }),
+    ]
+
+    expect(buildMessageFileOpsFromAgentEvents(events)).toEqual([
+      expect.objectContaining({
+        id: 'w1',
+        toolName: 'write_file',
+        status: 'success',
+        filePath: '/tmp/plan.md',
+        output: '# Plan\n\n- [ ] wait approval',
+        diffAdded: 3,
+        diffRemoved: 0,
+      }),
+    ])
+  })
+
   it('应将 read.minimax 工具调用按 read_file 样式写入 file ops', () => {
     const events = [
       makeRunEvent({

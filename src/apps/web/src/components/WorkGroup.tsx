@@ -38,7 +38,7 @@ export function WorkGroup({ durationMs, children }: WorkGroupProps) {
           display: 'flex',
           alignItems: 'center',
           gap: '6px',
-          padding: '4px 0 2px',
+          padding: '3px 0 3px',
           background: 'none',
           border: 'none',
           cursor: 'pointer',

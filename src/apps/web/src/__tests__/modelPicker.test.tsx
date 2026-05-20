@@ -76,7 +76,6 @@ describe('ModelPicker', () => {
             provider_id: 'provider-1',
             model: 'claude-sonnet-4-6',
             priority: 1,
-            is_default: true,
             show_in_picker: true,
             tags: [],
             when: {},

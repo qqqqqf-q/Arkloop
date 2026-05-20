@@ -262,7 +262,6 @@ function BindingHeartbeatEditor({
   cancelLabel,
   onMakeOwner,
   onUnbind,
-  onOwnerUnbindAttempt,
 }: {
   binding: ChannelBindingResponse
   modelOptions: ModelOption[]
@@ -280,7 +279,6 @@ function BindingHeartbeatEditor({
   onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
   onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
   onUnbind: (binding: ChannelBindingResponse) => Promise<void>
-  onOwnerUnbindAttempt: () => void
 }) {
   const [promotingOwner, setPromotingOwner] = useState(false)
   const [confirmUnbind, setConfirmUnbind] = useState(false)
@@ -337,13 +335,7 @@ function BindingHeartbeatEditor({
             <button
               type="button"
               aria-label={`${unbindLabel} ${binding.display_name || binding.platform_subject_id}`}
-              onClick={() => {
-                if (binding.is_owner) {
-                  onOwnerUnbindAttempt()
-                  return
-                }
-                setConfirmUnbind(true)
-              }}
+              onClick={() => setConfirmUnbind(true)}
               className="rounded-md px-2.5 py-1 text-xs font-medium text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-deep)]"
             >
               {unbindLabel}
@@ -387,7 +379,6 @@ export function BindingsCard({
   onUnbind,
   onMakeOwner,
   onSaveHeartbeat,
-  onOwnerUnbindAttempt,
 }: {
   title: string
   bindings: ChannelBindingResponse[]
@@ -410,7 +401,6 @@ export function BindingsCard({
   onUnbind: (binding: ChannelBindingResponse) => Promise<void>
   onMakeOwner: (binding: ChannelBindingResponse) => Promise<void>
   onSaveHeartbeat: (binding: ChannelBindingResponse, next: { enabled: boolean; interval: number; model: string }) => Promise<void>
-  onOwnerUnbindAttempt: () => void
 }) {
   const { t } = useLocale()
   return (
@@ -467,7 +457,6 @@ export function BindingsCard({
                 onSaveHeartbeat={onSaveHeartbeat}
                 onMakeOwner={onMakeOwner}
                 onUnbind={onUnbind}
-                onOwnerUnbindAttempt={onOwnerUnbindAttempt}
               />
             ))}
           </div>

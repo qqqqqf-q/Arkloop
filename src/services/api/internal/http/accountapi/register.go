@@ -67,7 +67,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /v1/workspace-files", workspaceFilesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.AuditWriter, deps.Pool, deps.EnvironmentStore))
 	mux.HandleFunc("/v1/webhook-endpoints", webhookEndpointsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool))
 	mux.HandleFunc("/v1/webhook-endpoints/", webhookEndpointEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/accounts/me/spawn-profiles", spawnProfilesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.EntitlementsRepo, deps.EntitlementService, deps.APIKeysRepo, deps.ConfigResolver, deps.LlmRoutesRepo))
+	mux.HandleFunc("/v1/accounts/me/spawn-profiles", spawnProfilesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.EntitlementsRepo, deps.EntitlementService, deps.APIKeysRepo, deps.ConfigResolver))
 	mux.HandleFunc("/v1/accounts/me/spawn-profiles/", spawnProfileEntry(deps.AuthService, deps.AccountMembershipRepo, deps.EntitlementsRepo, deps.EntitlementService, deps.APIKeysRepo, deps.ConfigResolver))
 	mux.HandleFunc("/v1/account/openviking/resolve", openVikingResolveEntry(
 		deps.AuthService,
@@ -131,5 +131,5 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/channels/", channelEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelsRepo, deps.ChannelIdentityLinksRepo, deps.ChannelIdentitiesRepo, deps.ChannelDMThreadsRepo, deps.PersonasRepo, deps.EntitlementService, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool, deps.TelegramBotClient, deps.DiscordBotClient, deps.TelegramMode))
 	mux.HandleFunc("/v1/me/channel-binds", channelBindsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelBindCodesRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/me/channel-identities", channelIdentitiesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelIdentitiesRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/me/channel-identities/", channelIdentityEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.APIKeysRepo, deps.Pool))
+	mux.HandleFunc("/v1/me/channel-identities/", channelIdentityEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ChannelsRepo, deps.ChannelIdentitiesRepo, deps.ChannelIdentityLinksRepo, deps.APIKeysRepo, deps.Pool))
 }

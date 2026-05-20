@@ -212,9 +212,9 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	hookRegistry := pipeline.NewHookRegistry()
 	hookRegistry.RegisterContextContributor(pipeline.NewNotebookContextContributor(notebookprovider.NewProvider(deps.DBPool)))
 	hookRegistry.RegisterContextContributor(pipeline.NewImpressionContextContributor(pipeline.NewPgxImpressionStore(deps.DBPool)))
-	if nowledgeProvider := resolveNowledgeProvider(context.Background(), deps.ConfigResolver); nowledgeProvider != nil {
+	if nowledgeProvider, nowledgeCfg := resolveNowledgeProvider(context.Background(), deps.ConfigResolver); nowledgeProvider != nil {
 		linkRepo := data.ExternalThreadLinksRepository{}
-		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(nowledgeProvider))
+		hookRegistry.RegisterContextContributor(pipeline.NewNowledgeContextContributor(nowledgeProvider, nowledgeCfg.ResolvedMaxContextResults(), nowledgeCfg.ResolvedRecallMinScore()))
 		_ = hookRegistry.SetThreadPersistenceProvider(pipeline.NewNowledgeThreadPersistenceProvider(
 			nowledgeProvider,
 			pgxExternalThreadLinks{repo: linkRepo, pool: deps.DBPool},
@@ -226,6 +226,8 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		deps.ConfigResolver,
 		pipeline.NewPgxImpressionStore(deps.DBPool),
 		newPgxImpressionRefresh(deps),
+		pipeline.NewPgxSuggestionStore(deps.DBPool),
+		newPgxSuggestionRefresh(deps),
 	))
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewContextCompactMaintenanceObserver(deps.JobQueue))
 
@@ -282,7 +284,7 @@ func (s pgxExternalThreadLinks) Upsert(ctx context.Context, accountID, threadID 
 	return s.repo.Upsert(ctx, s.pool, accountID, threadID, provider, externalThreadID)
 }
 
-func resolveNowledgeProvider(ctx context.Context, resolver sharedconfig.Resolver) *nowledge.Client {
+func resolveNowledgeProvider(ctx context.Context, resolver sharedconfig.Resolver) (*nowledge.Client, nowledge.Config) {
 	providerName := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_PROVIDER"))
 	if providerName == "" && resolver != nil {
 		baseURL, _ := resolver.Resolve(ctx, "nowledge.base_url", sharedconfig.Scope{})
@@ -291,7 +293,7 @@ func resolveNowledgeProvider(ctx context.Context, resolver sharedconfig.Resolver
 		}
 	}
 	if providerName != "nowledge" {
-		return nil
+		return nil, nowledge.Config{}
 	}
 	cfg := nowledge.Config{
 		BaseURL:          strings.TrimSpace(os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL")),
@@ -314,8 +316,22 @@ func resolveNowledgeProvider(ctx context.Context, resolver sharedconfig.Resolver
 				cfg.RequestTimeoutMs = parsed
 			}
 		}
+		if value, err := resolver.Resolve(ctx, "nowledge.max_context_results", sharedconfig.Scope{}); err == nil {
+			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
+				cfg.MaxContextResults = parsed
+			}
+		}
+		if value, err := resolver.Resolve(ctx, "nowledge.recall_min_score", sharedconfig.Scope{}); err == nil {
+			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
+				cfg.RecallMinScore = parsed
+			}
+		}
 	}
-	return nowledge.NewClient(cfg)
+	client := nowledge.NewClient(cfg)
+	if client == nil {
+		return nil, cfg
+	}
+	return client, cfg
 }
 
 func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run, input ExecuteInput) error {
@@ -905,6 +921,8 @@ func buildCapabilityLayer(
 		deps.ConfigResolver,
 		pipeline.NewPgxImpressionStore(deps.DBPool),
 		newPgxImpressionRefresh(deps),
+		pipeline.NewPgxSuggestionStore(deps.DBPool),
+		newPgxSuggestionRefresh(deps),
 	)
 	promptHookMW := pipeline.NewPromptHookMiddleware()
 	mws := []pipeline.RunMiddleware{
@@ -977,12 +995,19 @@ func buildRoutingLayer(
 		}),
 		pipeline.NewTitleSummarizerMiddleware(deps.DBPool, deps.RunLimiterRDB, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewContextCompactMiddleware(deps.DBPool, messagesRepo, eventsRepo, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewImageUnderstandingMiddleware(pipeline.ImageUnderstandingConfig{
+			AuxGateway:          deps.AuxGateway,
+			EmitDebugEvents:     deps.EmitDebugEvents,
+			RoutingConfigLoader: deps.RoutingConfigLoader,
+			EventsRepo:          eventsRepo,
+		}),
 	}
 }
 
 func buildToolFinalizeLayer(deps EngineV1Deps, eventsRepo data.RunEventsRepository) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewImpressionPrepareMiddleware(pipeline.NewPgxImpressionStore(deps.DBPool), deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewSuggestionPrepareMiddleware(pipeline.NewPgxSuggestionStore(deps.DBPool), deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewStickerPrepareMiddleware(deps.DBPool, deps.MessageAttachmentStore, pipeline.StickerPrepareConfig{
 			AuxGateway:          deps.AuxGateway,
 			EmitDebugEvents:     deps.EmitDebugEvents,
@@ -1038,6 +1063,25 @@ func newPgxImpressionRefresh(deps EngineV1Deps) pipeline.ImpressionRefreshFunc {
 		return nil
 	}
 	return pipeline.NewImpressionRefreshFunc(pipeline.ImpressionRefreshDeps{
+		ExecSQL: func(ctx context.Context, sql string, args ...any) error {
+			_, err := deps.DBPool.Exec(ctx, sql, args...)
+			return err
+		},
+		QueryRowScan: func(ctx context.Context, sql string, args []any, dest ...any) error {
+			return deps.DBPool.QueryRow(ctx, sql, args...).Scan(dest...)
+		},
+		EnqueueRun: func(ctx context.Context, accountID, runID uuid.UUID, traceID, jobType string, payload map[string]any) error {
+			_, err := deps.JobQueue.EnqueueRun(ctx, accountID, runID, traceID, jobType, payload, nil)
+			return err
+		},
+	})
+}
+
+func newPgxSuggestionRefresh(deps EngineV1Deps) pipeline.SuggestionRefreshFunc {
+	if deps.DBPool == nil || deps.JobQueue == nil {
+		return nil
+	}
+	return pipeline.NewSuggestionRefreshFunc(pipeline.ImpressionRefreshDeps{
 		ExecSQL: func(ctx context.Context, sql string, args ...any) error {
 			_, err := deps.DBPool.Exec(ctx, sql, args...)
 			return err
