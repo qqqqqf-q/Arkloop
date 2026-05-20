@@ -42,8 +42,6 @@ import { IncognitoDivider } from './IncognitoDivider'
 import { AssistantActionBar } from './messagebubble/AssistantMessage'
 import {
   buildMessageArtifactsFromAgentEvents,
-  buildMessageResourcesFromAgentEvents,
-  buildMessageResourcesFromAgentEvents,
   buildMessageCodeExecutionsFromAgentEvents,
   buildMessageWidgetsFromAgentEvents,
   findAssistantMessageForRun,
@@ -54,8 +52,10 @@ import {
   buildMessageFileOpsFromAgentEvents,
   buildMessageWebFetchesFromAgentEvents,
   buildMessageThinkingFromAgentEvents,
+  buildMessageResourcesFromAgentEvents,
   buildTodosFromAgentEvents,
 } from '../agentEventProcessing'
+import type { McpAppResource } from '../storage'
 import { getThreadTodos, setThreadTodos, clearThreadTodos, type TodoItem } from '../todoDb'
 import {
   buildAssistantTurnFromAgentEvents,
@@ -134,9 +134,6 @@ import {
   writeMessageSources,
   readMessageArtifacts,
   writeMessageArtifacts,
-  readMessageResources,
-  writeMessageResources,
-  readMessageResources,
   writeMessageResources,
   readMessageCodeExecutions,
   writeMessageCodeExecutions,
@@ -148,8 +145,6 @@ import {
   writeMessageAssistantTurn,
   type WebSource,
   type ArtifactRef,
-  type McpAppResource,
-  type McpAppResource,
   type CodeExecutionRef,
   type BrowserActionRef,
   type SubAgentRef,
@@ -919,7 +914,6 @@ export const ChatView = memo(function ChatView() {
   const [extraBrowserTabs, setExtraBrowserTabs] = useState<Array<{ id: string; resource: BrowserResourceRef | null }>>([])
   const [filesPreviewResource, setFilesPreviewResource] = useState<LocalFileResourceRef | null>(null)
   const browserTabSeqRef = useRef(0)
-  const resourcesMapRef = useRef<Map<string, McpAppResource[]>>(new Map())
   const localFileTabSeqRef = useRef(0)
   const restoredRightPanelThreadRef = useRef<string | null>(null)
   const skipRightPanelSaveRef = useRef(false)
@@ -1300,10 +1294,6 @@ export const ChatView = memo(function ChatView() {
           if (cached) sourcesMap.set(msg.id, cached)
           const cachedArt = readMessageArtifacts(msg.id)
           if (cachedArt) artifactsMap.set(msg.id, cachedArt)
-          const cachedRes = readMessageResources(msg.id)
-          if (cachedRes) resourcesMap.set(msg.id, cachedRes)
-          const cachedRes = readMessageResources(msg.id)
-          if (cachedRes) resourcesMap.set(msg.id, cachedRes)
           const cachedWidgets = readMessageWidgets(msg.id)
           if (cachedWidgets) widgetsMap.set(msg.id, cachedWidgets)
           const cachedExec = readMessageCodeExecutions(msg.id)
@@ -1370,7 +1360,6 @@ export const ChatView = memo(function ChatView() {
         const replaySubAgentsNeeded = !!(lastAssistant && !subAgentsMap.has(lastAssistant.id))
         const replayFileOpsNeeded = !!(lastAssistant && !fileOpsMap.has(lastAssistant.id))
         const replayWebFetchesNeeded = !!(lastAssistant && !webFetchesMap.has(lastAssistant.id))
-        const replayResourcesNeeded = !!(lastAssistant && !resourcesMap.has(lastAssistant.id))
         const replaySearchStepsNeeded = !!(lastAssistant && !searchStepsMap.has(lastAssistant.id))
         const replayAssistantTurnNeeded = !!(lastAssistant && !assistantTurnMap.has(lastAssistant.id))
         const shouldReplayLatestRun =
@@ -1388,7 +1377,6 @@ export const ChatView = memo(function ChatView() {
               replaySubAgentsNeeded ||
               replayFileOpsNeeded ||
               replayWebFetchesNeeded ||
-              replayResourcesNeeded ||
               replaySearchStepsNeeded ||
               replayAssistantTurnNeeded ||
               true // always replay to restore todos
@@ -1403,23 +1391,42 @@ export const ChatView = memo(function ChatView() {
             )
             const replayArtifacts = buildMessageArtifactsFromAgentEvents(replayEvents)
             const replayWidgets = buildMessageWidgetsFromAgentEvents(replayEvents)
-            const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
+            const replayExecs = buildMessageCodeExecutionsFromAgentEvents(replayEvents)
+            const replayBrowserActions = buildMessageBrowserActionsFromAgentEvents(replayEvents)
+            const replayAgents = buildMessageSubAgentsFromAgentEvents(replayEvents)
+            const replayFileOps = buildMessageFileOpsFromAgentEvents(replayEvents)
+            const replayWebFetches = buildMessageWebFetchesFromAgentEvents(replayEvents)
+            const replaySearchSteps = finalizeSearchSteps(
+              replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyAgentEventToWebSearchSteps(acc, event), []),
+            )
+            const replayThinking = buildMessageThinkingFromAgentEvents(replayEvents)
+            let replayTurn = buildAssistantTurnFromAgentEvents(replayEvents)
+            if (latest.status === 'interrupted') {
+              interruptedError = interruptedErrorFromAgentEvents(replayEvents, t.runInterrupted)
+            }
+            if (latest.status === 'failed') {
+              failedError = failedErrorFromAgentEvents(replayEvents, t.failedRunTitle)
+              if (failedError && lastAssistant) {
+                failedErrorMap.set(lastAssistant.id, failedError)
+              }
+            }
             if (lastAssistant && !artifactsMap.has(lastAssistant.id)) {
               if (replayArtifacts.length > 0) {
                 artifactsMap.set(lastAssistant.id, replayArtifacts)
                 writeMessageArtifacts(lastAssistant.id, replayArtifacts)
               }
             }
+            const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
+            if (lastAssistant && !resourcesMap.has(lastAssistant.id)) {
+              if (replayResources.length > 0) {
+                resourcesMap.set(lastAssistant.id, replayResources)
+                writeMessageResources(lastAssistant.id, replayResources)
+              }
+            }
             if (lastAssistant && replayWidgetsNeeded) {
               if (replayWidgets.length > 0) {
                 widgetsMap.set(lastAssistant.id, replayWidgets)
                 writeMessageWidgets(lastAssistant.id, replayWidgets)
-              }
-            }
-            if (lastAssistant && replayResourcesNeeded) {
-              if (replayResources.length > 0) {
-                resourcesMap.set(lastAssistant.id, replayResources)
-                writeMessageResources(lastAssistant.id, replayResources)
               }
             }
             if (lastAssistant && replayCodeExecNeeded) {
@@ -1495,6 +1502,7 @@ export const ChatView = memo(function ChatView() {
                 assistantTurn: replayTurn.segments.length > 0 ? replayTurn : null,
                 sources: replaySearchSteps.flatMap((step) => step.sources ?? []),
                 artifacts: replayArtifacts,
+                resources: replayResources,
                 widgets: replayWidgets,
                 codeExecutions: replayExecs,
                 browserActions: replayBrowserActions,
