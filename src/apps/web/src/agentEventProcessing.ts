@@ -6,7 +6,7 @@ import {
   agentEventToolInput,
   agentEventToolOutput,
 } from './agent-ui/event-data'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, MessageThinkingRef, SubAgentRef, WebFetchRef, WidgetRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, McpAppResource, MessageThinkingRef, SubAgentRef, WebFetchRef, WidgetRef } from './storage'
 import { basename, presentationForTool, truncate } from './toolPresentation'
 import { contentText } from './timelineText'
 import { FILE_OP_TOOL_NAMES } from './copSubSegment'
@@ -89,6 +89,38 @@ export function buildMessageArtifactsFromAgentEvents(events: AgentUIEvent[]): Ar
     }
   }
   return artifacts
+}
+
+export function extractResources(result: unknown): McpAppResource[] {
+  if (!result || typeof result !== 'object') return []
+  const resources = (result as { resources?: unknown[] }).resources
+  if (!Array.isArray(resources)) return []
+  return resources
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+    .filter((item) => typeof item.key === 'string' && typeof item.uri === 'string')
+    .map((item) => ({
+      key: item.key as string,
+      uri: item.uri as string,
+      filename: typeof item.filename === 'string' ? item.filename : 'mcp-app.html',
+      mimeType: typeof item.mime_type === 'string' ? item.mime_type : 'text/html',
+      size: typeof item.size === 'number' ? item.size : 0,
+      csp: item.csp as McpAppResource['csp'] | undefined,
+      initialData: item.content as McpAppResource['initialData'] | undefined,
+    }))
+}
+
+export function buildMessageResourcesFromAgentEvents(events: AgentUIEvent[]): McpAppResource[] {
+  const resources: McpAppResource[] = []
+  const seen = new Set<string>()
+  for (const event of events) {
+    if (event.type !== 'tool-result') continue
+    for (const resource of extractResources(agentEventToolOutput(event.data))) {
+      if (seen.has(resource.key)) continue
+      seen.add(resource.key)
+      resources.push(resource)
+    }
+  }
+  return resources
 }
 
 export function isWebFetchToolName(toolName: string): boolean {

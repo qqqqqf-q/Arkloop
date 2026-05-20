@@ -20,6 +20,7 @@ import type {
   WebFetchRef,
   WebSource,
   WidgetRef,
+  McpAppResource,
 } from '../storage'
 import {
   readMessageArtifacts,
@@ -28,6 +29,7 @@ import {
   readMessageCodeExecutions,
   readMessageCoveredRunIds,
   readMessageFileOps,
+  readMessageResources,
   readMessageSearchSteps,
   readMessageSources,
   readMessageSubAgents,
@@ -48,6 +50,7 @@ import {
   writeMessageThinking,
   writeMessageWebFetches,
   writeMessageWidgets,
+  writeMessageResources,
   writeMessageAgentEvents,
   writeThreadRunHandoff,
 } from '../storage'
@@ -57,6 +60,7 @@ import type { AppError } from '@arkloop/shared'
 export type MessageMeta = {
   sources?: WebSource[]
   artifacts?: ArtifactRef[]
+  resources?: McpAppResource[]
   codeExecutions?: CodeExecutionRef[]
   browserActions?: BrowserActionRef[]
   subAgents?: SubAgentRef[]
@@ -192,6 +196,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
   const persistToStorage = useCallback((msgId: string, meta: MessageMeta) => {
     if (meta.sources && meta.sources.length > 0) writeMessageSources(msgId, meta.sources)
     if (meta.artifacts && meta.artifacts.length > 0) writeMessageArtifacts(msgId, meta.artifacts)
+    if (meta.resources && meta.resources.length > 0) writeMessageResources(msgId, meta.resources)
     if (meta.codeExecutions) writeMessageCodeExecutions(msgId, meta.codeExecutions)
     if (meta.browserActions && meta.browserActions.length > 0) writeMessageBrowserActions(msgId, meta.browserActions)
     if (meta.subAgents && meta.subAgents.length > 0) writeMessageSubAgents(msgId, meta.subAgents)
@@ -214,6 +219,8 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       if (sources) meta.sources = sources
       const artifacts = readMessageArtifacts(id)
       if (artifacts) meta.artifacts = artifacts
+      const resources = readMessageResources(id)
+      if (resources) meta.resources = resources
       const codeExecutions = readMessageCodeExecutions(id)
       if (codeExecutions) meta.codeExecutions = codeExecutions
       const browserActions = readMessageBrowserActions(id)
