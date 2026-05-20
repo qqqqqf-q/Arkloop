@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import type { McpAppResource } from '../storage'
 import { McpAppIframe } from './McpAppIframe'
@@ -13,23 +13,42 @@ export function ResourceUIPreview({ resource, accessToken }: Props) {
     typeof resource.initialData === 'string' ? resource.initialData : undefined
   )
   const [error, setError] = useState(false)
+  const retriesRef = useRef(0)
+  const maxRetries = 10
 
   useEffect(() => {
     if (typeof resource.initialData === 'string') return
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
 
-    const url = `${apiBaseUrl()}/v1/artifacts/${resource.key}`
-    fetch(url, accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`${res.status}`)
-        const html = await res.text()
-        if (!cancelled) setContent(html)
-      })
-      .catch(() => {
-        if (!cancelled) setError(true)
-      })
+    const attemptFetch = () => {
+      if (cancelled || retriesRef.current >= maxRetries) return
 
-    return () => { cancelled = true }
+      const url = `${apiBaseUrl()}/v1/artifacts/${resource.key}`
+      fetch(url, accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined)
+        .then(async (res) => {
+          if (cancelled) return
+          if (!res.ok) throw new Error(`${res.status}`)
+          const html = await res.text()
+          if (!cancelled) {
+            setContent(html)
+            setError(false)
+          }
+        })
+        .catch(() => {
+          if (cancelled) return
+          retriesRef.current++
+          timer = setTimeout(attemptFetch, 2000)
+        })
+    }
+
+    retriesRef.current = 0
+    attemptFetch()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [resource.key, resource.initialData, accessToken])
 
   if (error) {
