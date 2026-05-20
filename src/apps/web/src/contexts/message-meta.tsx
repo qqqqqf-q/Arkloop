@@ -81,6 +81,7 @@ interface MessageMetaContextValue {
   // live run refs (SSE 热路径写入，不触发渲染)
   currentRunSourcesRef: React.RefObject<WebSource[]>
   currentRunArtifactsRef: React.RefObject<ArtifactRef[]>
+  currentRunResourcesRef: React.RefObject<McpAppResource[]>
   currentRunCodeExecutionsRef: React.RefObject<CodeExecutionRef[]>
   currentRunBrowserActionsRef: React.RefObject<BrowserActionRef[]>
   currentRunSubAgentsRef: React.RefObject<SubAgentRef[]>
@@ -100,6 +101,7 @@ interface MessageMetaContextValue {
     runData: {
       runSources: WebSource[]
       runArtifacts: ArtifactRef[]
+      runResources: McpAppResource[]
       runWidgets: WidgetRef[]
       runCodeExecs: CodeExecutionRef[]
       runBrowserActions: BrowserActionRef[]
@@ -127,6 +129,7 @@ interface MessageMetaContextValue {
       handoffAssistantTurn: AssistantTurnUi
       runSources: WebSource[]
       runArtifacts: ArtifactRef[]
+      runResources: McpAppResource[]
       runWidgets: WidgetRef[]
       runCodeExecs: CodeExecutionRef[]
       runBrowserActions: BrowserActionRef[]
@@ -151,6 +154,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
 
   const currentRunSourcesRef = useRef<WebSource[]>([])
   const currentRunArtifactsRef = useRef<ArtifactRef[]>([])
+  const currentRunResourcesRef = useRef<McpAppResource[]>([])
   const currentRunCodeExecutionsRef = useRef<CodeExecutionRef[]>([])
   const currentRunBrowserActionsRef = useRef<BrowserActionRef[]>([])
   const currentRunSubAgentsRef = useRef<SubAgentRef[]>([])
@@ -261,6 +265,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     metaMapRef.current = new Map()
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
+    currentRunResourcesRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
@@ -275,6 +280,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       runData: {
         runSources: WebSource[]
         runArtifacts: ArtifactRef[]
+        runResources: McpAppResource[]
         runWidgets: WidgetRef[]
         runCodeExecs: CodeExecutionRef[]
         runBrowserActions: BrowserActionRef[]
@@ -328,6 +334,10 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
         writeMessageArtifacts(messageId, runData.runArtifacts)
         meta.artifacts = runData.runArtifacts
       }
+      if (runData.runResources.length > 0) {
+        writeMessageResources(messageId, runData.runResources)
+        meta.resources = runData.runResources
+      }
       writeMessageCodeExecutions(messageId, runData.runCodeExecs)
       meta.codeExecutions = runData.runCodeExecs
       if (runData.runBrowserActions.length > 0) {
@@ -368,6 +378,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
         handoffAssistantTurn: AssistantTurnUi
         runSources: WebSource[]
         runArtifacts: ArtifactRef[]
+        runResources: McpAppResource[]
         runWidgets: WidgetRef[]
         runCodeExecs: CodeExecutionRef[]
         runBrowserActions: BrowserActionRef[]
@@ -385,6 +396,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
         assistantTurn: runData.handoffAssistantTurn.segments.length > 0 ? runData.handoffAssistantTurn : null,
         sources: [...runData.runSources],
         artifacts: [...runData.runArtifacts],
+        resources: [...runData.runResources],
         widgets: [...runData.runWidgets],
         codeExecutions: [...runData.runCodeExecs],
         browserActions: [...runData.runBrowserActions],
@@ -397,9 +409,10 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  const clearRunRefs = useCallback(() => {
+   const clearRunRefs = useCallback(() => {
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
+    currentRunResourcesRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
@@ -412,6 +425,7 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
     metaMap,
     currentRunSourcesRef,
     currentRunArtifactsRef,
+    currentRunResourcesRef,
     currentRunCodeExecutionsRef,
     currentRunBrowserActionsRef,
     currentRunSubAgentsRef,

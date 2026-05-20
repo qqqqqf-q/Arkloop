@@ -5,11 +5,12 @@ import { useMessageMeta } from '../contexts/message-meta'
 import { useStream } from '../contexts/stream'
 import { createEmptyAssistantTurnFoldState, snapshotAssistantTurn, type AssistantTurnUi } from '../assistantTurnSegments'
 import { collectCompletedWidgets } from '../lib/chat-helpers'
-import { clearThreadRunHandoff, type ArtifactRef, type BrowserActionRef, type CodeExecutionRef, type FileOpRef, type MessageSearchStepRef, type MessageTerminalStatusRef, type MessageAgentEvent, type SubAgentRef, type WebFetchRef, type WebSource, type WidgetRef } from '../storage'
+import { clearThreadRunHandoff, type ArtifactRef, type BrowserActionRef, type CodeExecutionRef, type FileOpRef, type McpAppResource, type MessageSearchStepRef, type MessageTerminalStatusRef, type MessageAgentEvent, type SubAgentRef, type WebFetchRef, type WebSource, type WidgetRef } from '../storage'
 
 export type TerminalRunCache = {
   runSources: WebSource[]
   runArtifacts: ArtifactRef[]
+  runResources: McpAppResource[]
   runWidgets: WidgetRef[]
   runCodeExecs: CodeExecutionRef[]
   runBrowserActions: BrowserActionRef[]
@@ -48,6 +49,7 @@ export function useRunTransition() {
     clearRunRefs,
     currentRunSourcesRef,
     currentRunArtifactsRef,
+    currentRunResourcesRef,
     currentRunCodeExecutionsRef,
     currentRunBrowserActionsRef,
     currentRunSubAgentsRef,
@@ -157,6 +159,7 @@ export function useRunTransition() {
     return {
       runSources: [...currentRunSourcesRef.current],
       runArtifacts: [...currentRunArtifactsRef.current],
+      runResources: [...currentRunResourcesRef.current],
       runWidgets: collectCompletedWidgets(streamingArtifactsRef.current),
       runCodeExecs: [...currentRunCodeExecutionsRef.current],
       runBrowserActions: [...currentRunBrowserActionsRef.current],

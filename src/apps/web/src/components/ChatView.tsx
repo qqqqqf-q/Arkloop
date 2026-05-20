@@ -983,6 +983,7 @@ export const ChatView = memo(function ChatView() {
     clearAll: clearAllMeta,
     currentRunSourcesRef,
     currentRunArtifactsRef,
+    currentRunResourcesRef,
     currentRunCodeExecutionsRef,
     currentRunBrowserActionsRef,
     currentRunSubAgentsRef,
@@ -1417,6 +1418,7 @@ export const ChatView = memo(function ChatView() {
               }
             }
             const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
+            currentRunResourcesRef.current = replayResources
             if (lastAssistant && !resourcesMap.has(lastAssistant.id)) {
               if (replayResources.length > 0) {
                 resourcesMap.set(lastAssistant.id, replayResources)
@@ -1584,6 +1586,7 @@ export const ChatView = memo(function ChatView() {
           activeSegmentIdRef.current = null
           currentRunSourcesRef.current = [...handoff.sources]
           currentRunArtifactsRef.current = [...handoff.artifacts]
+          currentRunResourcesRef.current = [...(handoff.resources ?? [])]
           currentRunCodeExecutionsRef.current = [...handoff.codeExecutions]
           currentRunBrowserActionsRef.current = [...handoff.browserActions]
           currentRunSubAgentsRef.current = [...handoff.subAgents]
@@ -1758,6 +1761,7 @@ export const ChatView = memo(function ChatView() {
     queuedEditPreviousDraftRef.current = ''
     currentRunSourcesRef.current = []
     currentRunArtifactsRef.current = []
+    currentRunResourcesRef.current = []
     currentRunCodeExecutionsRef.current = []
     currentRunBrowserActionsRef.current = []
     currentRunSubAgentsRef.current = []
@@ -1798,6 +1802,7 @@ export const ChatView = memo(function ChatView() {
       setPreserveLiveRunUi(false)
       currentRunSourcesRef.current = []
       currentRunArtifactsRef.current = []
+      currentRunResourcesRef.current = []
       currentRunCodeExecutionsRef.current = []
       currentRunBrowserActionsRef.current = []
       currentRunSubAgentsRef.current = []
