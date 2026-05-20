@@ -6,7 +6,7 @@ import {
   agentEventToolInput,
   agentEventToolOutput,
 } from './agent-ui/event-data'
-import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, McpAppResource, MessageThinkingRef, SubAgentRef, WebFetchRef, WidgetRef } from './storage'
+import type { ArtifactRef, BrowserActionRef, CodeExecutionRef, FileOpRef, McpAppCsp, McpAppResource, MessageThinkingRef, SubAgentRef, WebFetchRef, WidgetRef } from './storage'
 import { basename, presentationForTool, truncate } from './toolPresentation'
 import { contentText } from './timelineText'
 import { FILE_OP_TOOL_NAMES } from './copSubSegment'
@@ -91,22 +91,55 @@ export function buildMessageArtifactsFromAgentEvents(events: AgentUIEvent[]): Ar
   return artifacts
 }
 
-export function extractResources(result: unknown): McpAppResource[] {
-  if (!result || typeof result !== 'object') return []
-  const resources = (result as { resources?: unknown[] }).resources
-  if (!Array.isArray(resources)) return []
-  return resources
-    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
-    .filter((item) => typeof item.key === 'string' && typeof item.uri === 'string')
-    .map((item) => ({
-      key: item.key as string,
-      uri: item.uri as string,
+export function extractResources(source: unknown): McpAppResource[] {
+  if (!source || typeof source !== 'object') return []
+  const s = source as Record<string, unknown>
+
+  // 兼容两种输入路径:
+  // 1. event.data (raw SSE): data → result/output → resources
+  // 2. agentEventToolOutput (已提取): → resources
+  let result: Record<string, unknown> | undefined
+  const nested = s.result ?? s.output
+  if (nested && typeof nested === 'object') {
+    result = nested as Record<string, unknown>
+  } else {
+    result = s
+  }
+
+  const rawResources = result.resources
+  if (!Array.isArray(rawResources)) return []
+
+  const refs: McpAppResource[] = []
+  for (const r of rawResources) {
+    if (!r || typeof r !== 'object') continue
+    const item = r as Record<string, unknown>
+    const key = typeof item.key === 'string' ? item.key : ''
+    if (!key) continue
+    let csp: McpAppCsp | undefined
+    if (item.csp && typeof item.csp === 'object') {
+      const raw = item.csp as Record<string, unknown>
+      const arr = (k: string): string[] | undefined => {
+        const v = raw[k]
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+      }
+      csp = {
+        connectDomains: arr('connectDomains'),
+        resourceDomains: arr('resourceDomains'),
+        frameDomains: arr('frameDomains'),
+        baseUriDomains: arr('baseUriDomains'),
+      }
+    }
+    refs.push({
+      key,
+      uri: typeof item.uri === 'string' ? item.uri : '',
       filename: typeof item.filename === 'string' ? item.filename : 'mcp-app.html',
-      mimeType: typeof item.mime_type === 'string' ? item.mime_type : 'text/html',
+      mimeType: typeof item.mime_type === 'string' ? item.mime_type : '',
       size: typeof item.size === 'number' ? item.size : 0,
-      csp: item.csp as McpAppResource['csp'] | undefined,
-      content: item.content as string | undefined,
-    }))
+      content: typeof item.content === 'string' ? item.content : undefined,
+      csp,
+    })
+  }
+  return refs
 }
 
 export function buildMessageResourcesFromAgentEvents(events: AgentUIEvent[]): McpAppResource[] {
