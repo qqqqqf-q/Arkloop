@@ -152,13 +152,18 @@ func (e *ToolExecutor) Execute(
 
 			store := e.pool.ArtifactStore()
 			if store == nil {
-				slog.WarnContext(ctx, "mcp ext-apps: artifact store nil, falling back to attachment", "tool_name", toolName)
-				attachments = append([]tools.ContentAttachment{{
-					MimeType: mimeType,
-					Data:     data,
-					URI:      resourceContent.URI,
-					Text:     resourceContent.Text,
-				}}, attachments...)
+				slog.WarnContext(ctx, "mcp ext-apps: artifact store nil, storing resource inline", "tool_name", toolName)
+				resultJSON["resources"] = []map[string]any{
+					{
+						"key":       resourceURI,
+						"uri":       resourceURI,
+						"filename":  fmt.Sprintf("mcp-app-%s.html", toolName),
+						"size":      len(data),
+						"mime_type": mimeType,
+						"csp":       csp,
+						"content":   string(data),
+					},
+				}
 			} else {
 				key := buildMcpAppArtifactKey(execCtx, toolName)
 				filename := fmt.Sprintf("mcp-app-%s.html", toolName)
