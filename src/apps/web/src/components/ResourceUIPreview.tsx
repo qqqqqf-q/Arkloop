@@ -15,13 +15,11 @@ export function ResourceUIPreview({ resource, accessToken }: Props) {
   const [error, setError] = useState(false)
 
   useEffect(() => {
-    // 已有 inline content，无需 fetch
     if (typeof resource.initialData === 'string') return
-    if (!accessToken) return
     let cancelled = false
 
     const url = `${apiBaseUrl()}/v1/artifacts/${resource.key}`
-    fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+    fetch(url, accessToken ? { headers: { Authorization: `Bearer ${accessToken}` } } : undefined)
       .then(async (res) => {
         if (!res.ok) throw new Error(`${res.status}`)
         const html = await res.text()
