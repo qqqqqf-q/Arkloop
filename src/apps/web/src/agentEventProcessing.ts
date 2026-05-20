@@ -95,9 +95,6 @@ export function extractResources(source: unknown): McpAppResource[] {
   if (!source || typeof source !== 'object') return []
   const s = source as Record<string, unknown>
 
-  // 兼容两种输入路径:
-  // 1. event.data (raw SSE): data → result/output → resources
-  // 2. agentEventToolOutput (已提取): → resources
   let result: Record<string, unknown> | undefined
   const nested = s.result ?? s.output
   if (nested && typeof nested === 'object') {
@@ -136,6 +133,7 @@ export function extractResources(source: unknown): McpAppResource[] {
       mimeType: typeof item.mime_type === 'string' ? item.mime_type : '',
       size: typeof item.size === 'number' ? item.size : 0,
       content: typeof item.content === 'string' ? item.content : undefined,
+      initialData: item.initialData ?? result,
       csp,
     })
   }

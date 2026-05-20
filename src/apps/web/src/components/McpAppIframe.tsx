@@ -25,6 +25,72 @@ function buildCSP(csp?: McpAppCsp): string {
   ].filter(Boolean).join('; ')
 }
 
+function isFullHtmlDocument(content: string): boolean {
+  const trimmed = content.trim().toLowerCase()
+  return trimmed.startsWith('<!doctype') || trimmed.startsWith('<html')
+}
+
+function injectIntoHead(html: string, injections: string): string {
+  const headEnd = html.indexOf('</head>')
+  if (headEnd >= 0) {
+    return html.slice(0, headEnd) + injections + html.slice(headEnd)
+  }
+  // fallback: inject after <html> tag
+  const htmlMatch = html.match(/<html[^>]*>/i)
+  if (htmlMatch) {
+    const idx = html.indexOf(htmlMatch[0]) + htmlMatch[0].length
+    return html.slice(0, idx) + '\n<head>' + injections + '</head>' + html.slice(idx)
+  }
+  return injections + html
+}
+
+function buildIframeSrcDoc(content: string, csp: McpAppCsp | undefined): string {
+  const themeCSS = buildThemeCSS()
+  const cspStr = buildCSP(csp)
+
+  if (isFullHtmlDocument(content)) {
+    // Content is a full HTML doc — inject our additions into its <head>
+    const injections = `
+<style id="arkloop-theme-vars">
+${themeCSS}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "@modelcontextprotocol/ext-apps": "/mcp-ext-apps/app-with-deps.js"
+  }
+}
+</script>
+<script>
+(function() {
+  var resizeTimer;
+  var lastReported = 0;
+  function notifyHeight() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+      var h = document.body.scrollHeight || 0;
+      var reported = Math.ceil(h);
+      if (Math.abs(reported - lastReported) <= 5) return;
+      lastReported = reported;
+      window.parent.postMessage({ type: 'arkloop:mcpapp:resize', height: reported }, '*');
+    }, 200);
+  }
+  new MutationObserver(notifyHeight).observe(document.body, { childList: true, subtree: true, attributes: true });
+  window.addEventListener('load', notifyHeight);
+})();
+</script>`
+    let result = injectIntoHead(content, injections)
+    // Add CSP meta if not present
+    if (!result.includes('Content-Security-Policy')) {
+      result = injectIntoHead(result, `<meta http-equiv="Content-Security-Policy" content="${cspStr}">`)
+    }
+    return result
+  }
+
+  // Content is a fragment — wrap in template
+  return IFRAME_HTML_TEMPLATE(themeCSS, content, cspStr)
+}
+
 const IFRAME_HTML_TEMPLATE = (themeCSS: string, content: string, csp: string) => `<!DOCTYPE html>
 <html>
 <head>
@@ -53,24 +119,18 @@ ${content}
 <script>
 (function() {
   var resizeTimer;
+  var lastReported = 0;
   function notifyHeight() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
-      var h = Math.max(
-        document.body.scrollHeight,
-        document.documentElement.scrollHeight,
-        document.body.offsetHeight,
-        document.documentElement.getBoundingClientRect().height,
-        document.body.getBoundingClientRect().height
-      );
-      window.parent.postMessage({ type: 'arkloop:mcpapp:resize', height: Math.ceil(h) + 20 }, '*');
-    }, 150);
+      var h = document.body.scrollHeight || 0;
+      var reported = Math.ceil(h);
+      if (Math.abs(reported - lastReported) <= 5) return;
+      lastReported = reported;
+      window.parent.postMessage({ type: 'arkloop:mcpapp:resize', height: reported }, '*');
+    }, 200);
   }
   new MutationObserver(notifyHeight).observe(document.body, { childList: true, subtree: true, attributes: true });
-  if (typeof ResizeObserver === 'function') {
-    var ro = new ResizeObserver(notifyHeight);
-    ro.observe(document.body);
-  }
   window.addEventListener('load', notifyHeight);
 })();
 </script>
@@ -100,17 +160,6 @@ function buildThemeCSS(): string {
     }
   }
   return `:root {\n` + vars.join('\n') + `\n}`
-}
-
-function collectThemeSnapshot(): { css: string; theme: 'light' | 'dark' | null } {
-  if (typeof document === 'undefined') {
-    return { css: '', theme: null }
-  }
-  const rawTheme = document.documentElement.getAttribute('data-theme')
-  return {
-    css: buildThemeCSS(),
-    theme: rawTheme === 'light' || rawTheme === 'dark' ? rawTheme : null,
-  }
 }
 
 type Props = {
@@ -149,10 +198,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
   const [iframeHeight, setIframeHeight] = useState<number | undefined>(undefined)
 
   // Rebuild iframe HTML when content or theme changes
-  const [srcDoc, setSrcDoc] = useState(() => {
-    const snapshot = collectThemeSnapshot()
-    return IFRAME_HTML_TEMPLATE(snapshot.css, content, buildCSP(csp))
-  })
+  const [srcDoc, setSrcDoc] = useState(() => buildIframeSrcDoc(content, csp))
 
   const sendToolResult = useCallback((bridge: AppBridge, output: unknown) => {
     if (output === undefined) return
@@ -184,6 +230,10 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
       isConnectedRef.current = false
       prevBridge.close().catch(() => {})
     }
+
+    // Reset height tracking on each iframe reload
+    lastHeightRef.current = 0
+    setIframeHeight(undefined)
 
     const transport = new PostMessageTransport(
       iframe.contentWindow,
@@ -218,6 +268,21 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
     } catch (err) {
       console.error('[McpAppIframe] AppBridge connect failed:', err)
     }
+
+    // Measure height from parent side after load to avoid feedback loop
+    requestAnimationFrame(() => {
+      try {
+        const doc = iframe.contentDocument
+        if (!doc?.body) return
+        const h = doc.body.scrollHeight
+        if (h > 0) {
+          lastHeightRef.current = h
+          setIframeHeight(h)
+        }
+      } catch {
+        // cross-origin, fall back to postMessage
+      }
+    })
   }, [onOpenLink, sendToolResult])
 
   // Cleanup on unmount
@@ -229,14 +294,61 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
     }
   }, [])
 
-  // Listen for resize messages from iframe
+  // Listen for resize messages from iframe (fallback for cross-origin)
+  // Primary: parent-side ResizeObserver on iframe content body
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+
+    let ro: ResizeObserver | null = null
+    let rafId = 0
+
+    const measureAndSet = () => {
+      try {
+        const doc = iframe.contentDocument
+        if (!doc?.body) return
+        const h = doc.body.scrollHeight
+        if (h > 0 && Math.abs(h - lastHeightRef.current) > 5) {
+          lastHeightRef.current = h
+          setIframeHeight(h)
+        }
+      } catch {
+        // cross-origin, rely on postMessage fallback
+      }
+    }
+
+    // Initial measure after a frame
+    rafId = requestAnimationFrame(() => {
+      measureAndSet()
+      // Observe iframe body for content changes
+      try {
+        const doc = iframe.contentDocument
+        if (doc?.body) {
+          ro = new ResizeObserver(() => {
+            cancelAnimationFrame(rafId)
+            rafId = requestAnimationFrame(measureAndSet)
+          })
+          ro.observe(doc.body)
+        }
+      } catch {
+        // cross-origin
+      }
+    })
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      ro?.disconnect()
+    }
+  }, [srcDoc]) // re-observe when srcDoc changes
+
+  // Fallback: listen for resize messages from iframe (cross-origin support)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       const iframe = iframeRef.current
       if (!iframe || event.source !== iframe.contentWindow) return
       if (event.data?.type === 'arkloop:mcpapp:resize' && typeof event.data.height === 'number') {
         const newHeight = Math.min(event.data.height, 2000)
-        if (Math.abs(newHeight - lastHeightRef.current) > 5) {
+        if (Math.abs(newHeight - lastHeightRef.current) > 10) {
           lastHeightRef.current = newHeight
           setIframeHeight(newHeight)
         }
@@ -247,8 +359,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
   }, [])
 
   const rebuildSrcDoc = useCallback((htmlContent: string) => {
-    const snapshot = collectThemeSnapshot()
-    const next = IFRAME_HTML_TEMPLATE(snapshot.css, htmlContent, buildCSP(csp))
+    const next = buildIframeSrcDoc(htmlContent, csp)
     setSrcDoc((prev) => (prev !== next ? next : prev))
   }, [csp])
 
