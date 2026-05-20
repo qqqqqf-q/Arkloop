@@ -54,21 +54,29 @@ const MainViewport = memo(function MainViewport({
   notificationsOpen,
   closeNotifications,
   markNotificationRead,
+  contentOwnsScroll,
 }: {
   accessToken: string
   notificationsOpen: boolean
   closeNotifications: () => void
   markNotificationRead: () => void
+  contentOwnsScroll: boolean
 }) {
   useEffect(() => {
     if (!isPerfDebugEnabled()) return
     recordPerfValue('layout_main_viewport_render_count', 1, 'count', {
       notificationsOpen,
+      contentOwnsScroll,
     })
   })
 
+  const className = [
+    'relative flex min-h-0 min-w-0 flex-1 flex-col',
+    contentOwnsScroll ? 'overflow-hidden' : 'overflow-y-auto',
+  ].join(' ')
+
   return (
-    <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+    <main className={className} style={contentOwnsScroll ? undefined : { scrollbarGutter: 'stable' }}>
       <Outlet />
       {notificationsOpen && (
         <NotificationsPanel accessToken={accessToken} onClose={closeNotifications} onMarkedRead={markNotificationRead} />
@@ -158,6 +166,8 @@ const LayoutMain = memo(function LayoutMain({
     })
   })
 
+  const contentOwnsScroll = pathname === '/' || pathname === '/search' || pathname.startsWith('/t/')
+
   return (
     <>
       {settingsOpen && !desktop && (
@@ -196,6 +206,7 @@ const LayoutMain = memo(function LayoutMain({
             notificationsOpen={notificationsOpen}
             closeNotifications={closeNotifications}
             markNotificationRead={markNotificationRead}
+            contentOwnsScroll={contentOwnsScroll}
           />
         </div>
       )}
