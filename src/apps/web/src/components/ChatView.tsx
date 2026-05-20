@@ -1404,26 +1404,6 @@ export const ChatView = memo(function ChatView() {
             const replayArtifacts = buildMessageArtifactsFromAgentEvents(replayEvents)
             const replayWidgets = buildMessageWidgetsFromAgentEvents(replayEvents)
             const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
-            const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
-            const replayExecs = buildMessageCodeExecutionsFromAgentEvents(replayEvents)
-            const replayBrowserActions = buildMessageBrowserActionsFromAgentEvents(replayEvents)
-            const replayAgents = buildMessageSubAgentsFromAgentEvents(replayEvents)
-            const replayFileOps = buildMessageFileOpsFromAgentEvents(replayEvents)
-            const replayWebFetches = buildMessageWebFetchesFromAgentEvents(replayEvents)
-            const replaySearchSteps = finalizeSearchSteps(
-              replayEvents.reduce<WebSearchPhaseStep[]>((acc, event) => applyAgentEventToWebSearchSteps(acc, event), []),
-            )
-            const replayThinking = buildMessageThinkingFromAgentEvents(replayEvents)
-            let replayTurn = buildAssistantTurnFromAgentEvents(replayEvents)
-            if (latest.status === 'interrupted') {
-              interruptedError = interruptedErrorFromAgentEvents(replayEvents, t.runInterrupted)
-            }
-            if (latest.status === 'failed') {
-              failedError = failedErrorFromAgentEvents(replayEvents, t.failedRunTitle)
-              if (failedError && lastAssistant) {
-                failedErrorMap.set(lastAssistant.id, failedError)
-              }
-            }
             if (lastAssistant && !artifactsMap.has(lastAssistant.id)) {
               if (replayArtifacts.length > 0) {
                 artifactsMap.set(lastAssistant.id, replayArtifacts)
