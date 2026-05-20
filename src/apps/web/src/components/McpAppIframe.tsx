@@ -38,9 +38,90 @@ const IFRAME_HTML_TEMPLATE = (themeCSS: string, content: string, csp: string) =>
 <style id="arkloop-theme-vars">
 ${themeCSS}
 </style>
+<script type="importmap">
+{
+  "imports": {
+    "@modelcontextprotocol/ext-apps": "data:text/javascript,export class App{constructor(c){this.config=c||{};this.state={};this._ontoolresult=null}set ontoolresult(f){this._ontoolresult=typeof f==='function'?f:null}get ontoolresult(){return this._ontoolresult}render(t){var e=typeof t==='string'?document.querySelector(t):t;if(!e)return null;var d=document.createElement('div');d.className='mcp-app-container';e.appendChild(d);return d}connect(){var s=this;window.addEventListener('message',function h(e){if(e.data?.type==='arkloop:mcpapp:tool-output'&&s._ontoolresult){try{s._ontoolresult({content:[{type:'text',text:JSON.stringify(e.data.data)}]})}catch(err){}}});return Promise.resolve()}async callTool(n,p){return new Promise(function(r){var i='mcp_tool_'+Date.now()+'_'+Math.random().toString(36).slice(2);function h(e){if(e.data?.type==='arkloop:mcp:tool:result'&&e.data.id===i){window.removeEventListener('message',h);r(e.data.result)}}
+window.addEventListener('message',h);window.parent.postMessage({type:'arkloop:mcp:tool:call',id:i,tool:n,params:p||{}},'*');setTimeout(function(){window.removeEventListener('message',h);r({content:[{type:'text',text:'Tool call timed out'}]})},30000)})}async getResource(u){return new Promise(function(r){var i='mcp_res_'+Date.now()+'_'+Math.random().toString(36).slice(2);function h(e){if(e.data?.type==='arkloop:mcp:resource:result'&&e.data.id===i){window.removeEventListener('message',h);r(e.data.result)}}
+window.addEventListener('message',h);window.parent.postMessage({type:'arkloop:mcp:resource:read',id:i,uri:u},'*');setTimeout(function(){window.removeEventListener('message',h);r(null)},30000)})}}"
+  }
+}
+</script>
 </head>
 <body>
 ${content}
+<script>
+window.__MCP_APP__ = {
+  version: '0.1.0-shim',
+  App: class App {
+    constructor(config) {
+      this.config = config || {};
+      this.state = {};
+      this._ontoolresult = null;
+    }
+    set ontoolresult(fn) {
+      this._ontoolresult = typeof fn === 'function' ? fn : null;
+    }
+    get ontoolresult() {
+      return this._ontoolresult;
+    }
+    render(target) {
+      var el = typeof target === 'string' ? document.querySelector(target) : target;
+      if (!el) return null;
+      var container = document.createElement('div');
+      container.className = 'mcp-app-container';
+      el.appendChild(container);
+      return container;
+    }
+    connect() {
+      var self = this;
+      window.addEventListener('message', function handler(event) {
+        if (event.data?.type === 'arkloop:mcpapp:tool-output' && self._ontoolresult) {
+          try {
+            self._ontoolresult({ content: [{ type: 'text', text: JSON.stringify(event.data.data) }] });
+          } catch (err) {}
+        }
+      });
+      return Promise.resolve();
+    }
+    callTool(toolName, params) {
+      var self = this;
+      return new Promise(function(resolve) {
+        var id = 'mcp_tool_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        function handler(event) {
+          if (event.data?.type === 'arkloop:mcp:tool:result' && event.data.id === id) {
+            window.removeEventListener('message', handler);
+            resolve(event.data.result);
+          }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'arkloop:mcp:tool:call', id: id, tool: toolName, params: params || {} }, '*');
+        setTimeout(function() {
+          window.removeEventListener('message', handler);
+          resolve({ content: [{ type: 'text', text: 'Tool call timed out' }] });
+        }, 30000);
+      });
+    }
+    getResource(uri) {
+      return new Promise(function(resolve) {
+        var id = 'mcp_res_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        function handler(event) {
+          if (event.data?.type === 'arkloop:mcp:resource:result' && event.data.id === id) {
+            window.removeEventListener('message', handler);
+            resolve(event.data.result);
+          }
+        }
+        window.addEventListener('message', handler);
+        window.parent.postMessage({ type: 'arkloop:mcp:resource:read', id: id, uri: uri }, '*');
+        setTimeout(function() {
+          window.removeEventListener('message', handler);
+          resolve(null);
+        }, 30000);
+      });
+    }
+  }
+};
+</script>
 <script>
 (function() {
   var resizeTimer;
