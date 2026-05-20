@@ -43,6 +43,7 @@ import { AssistantActionBar } from './messagebubble/AssistantMessage'
 import {
   buildMessageArtifactsFromAgentEvents,
   buildMessageResourcesFromAgentEvents,
+  buildMessageResourcesFromAgentEvents,
   buildMessageCodeExecutionsFromAgentEvents,
   buildMessageWidgetsFromAgentEvents,
   findAssistantMessageForRun,
@@ -135,6 +136,8 @@ import {
   writeMessageArtifacts,
   readMessageResources,
   writeMessageResources,
+  readMessageResources,
+  writeMessageResources,
   readMessageCodeExecutions,
   writeMessageCodeExecutions,
   readMessageBrowserActions,
@@ -145,6 +148,7 @@ import {
   writeMessageAssistantTurn,
   type WebSource,
   type ArtifactRef,
+  type McpAppResource,
   type McpAppResource,
   type CodeExecutionRef,
   type BrowserActionRef,
@@ -1276,7 +1280,6 @@ export const ChatView = memo(function ChatView() {
         const artifactsMap = new Map<string, ArtifactRef[]>()
         const resourcesMap = new Map<string, McpAppResource[]>()
         const widgetsMap = new Map<string, WidgetRef[]>()
-        resourcesMapRef.current = resourcesMap
         const codeExecMap = new Map<string, CodeExecutionRef[]>()
         const browserActionsMap = new Map<string, BrowserActionRef[]>()
         const subAgentsMap = new Map<string, SubAgentRef[]>()
@@ -1297,6 +1300,8 @@ export const ChatView = memo(function ChatView() {
           if (cached) sourcesMap.set(msg.id, cached)
           const cachedArt = readMessageArtifacts(msg.id)
           if (cachedArt) artifactsMap.set(msg.id, cachedArt)
+          const cachedRes = readMessageResources(msg.id)
+          if (cachedRes) resourcesMap.set(msg.id, cachedRes)
           const cachedRes = readMessageResources(msg.id)
           if (cachedRes) resourcesMap.set(msg.id, cachedRes)
           const cachedWidgets = readMessageWidgets(msg.id)
@@ -1398,6 +1403,7 @@ export const ChatView = memo(function ChatView() {
             )
             const replayArtifacts = buildMessageArtifactsFromAgentEvents(replayEvents)
             const replayWidgets = buildMessageWidgetsFromAgentEvents(replayEvents)
+            const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
             const replayResources = buildMessageResourcesFromAgentEvents(replayEvents)
             const replayExecs = buildMessageCodeExecutionsFromAgentEvents(replayEvents)
             const replayBrowserActions = buildMessageBrowserActionsFromAgentEvents(replayEvents)
