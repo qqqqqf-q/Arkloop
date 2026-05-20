@@ -6,9 +6,11 @@ import { McpAppIframe } from './McpAppIframe'
 type Props = {
   resource: McpAppResource
   accessToken?: string
+  displayMode?: 'inline' | 'card'
+  onExpand?: () => void
 }
 
-export function ResourceUIPreview({ resource, accessToken }: Props) {
+export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline', onExpand }: Props) {
   const [content, setContent] = useState<string | undefined>(
     typeof resource.content === 'string' ? resource.content : undefined
   )
@@ -75,7 +77,10 @@ export function ResourceUIPreview({ resource, accessToken }: Props) {
       content={content}
       toolOutput={resource.initialData}
       csp={resource.csp}
-      style={{ minHeight: '300px' }}
+      serverId={resource.serverId}
+      displayMode={displayMode}
+      onExpand={onExpand}
+      style={{ minHeight: displayMode === 'card' ? undefined : '300px' }}
     />
   )
 }

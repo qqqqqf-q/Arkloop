@@ -210,6 +210,7 @@ function resourceTabId(resource: ResourceRef): string {
   if (resource.kind === 'artifact') return `resource:artifact:${resource.key}`
   if (resource.kind === 'browser') return `resource:browser:${resource.url}`
   if (resource.kind === 'local-file') return `resource:local:${resource.rootPath}:${resource.path}`
+  if (resource.kind === 'mcp-app') return `resource:mcp-app:${resource.uri}`
   return `resource:workspace:${resource.projectId ?? resource.runId ?? ''}:${resource.path}`
 }
 

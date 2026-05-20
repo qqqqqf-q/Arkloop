@@ -1,4 +1,4 @@
-export type ResourceSource = 'local-file' | 'artifact' | 'workspace-file' | 'browser'
+export type ResourceSource = 'local-file' | 'artifact' | 'workspace-file' | 'browser' | 'mcp-app'
 
 export type LocalFileResourceRef = {
   kind: 'local-file'
@@ -41,7 +41,26 @@ export type BrowserResourceRef = {
   faviconUrl?: string
 }
 
-export type ResourceRef = LocalFileResourceRef | ArtifactResourceRef | WorkspaceFileResourceRef | BrowserResourceRef
+export type McpAppResourceRef = {
+  kind: 'mcp-app'
+  source?: 'mcp-app'
+  uri: string
+  content: string
+  filename?: string
+  mimeType?: string
+  size?: number
+  title?: string
+  csp?: {
+    connectDomains?: string[]
+    resourceDomains?: string[]
+    frameDomains?: string[]
+    baseUriDomains?: string[]
+  }
+  initialData?: unknown
+  serverId?: string
+}
+
+export type ResourceRef = LocalFileResourceRef | ArtifactResourceRef | WorkspaceFileResourceRef | BrowserResourceRef | McpAppResourceRef
 
 export type PreviewResource = {
   source: ResourceSource

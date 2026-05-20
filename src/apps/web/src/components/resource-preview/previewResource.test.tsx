@@ -33,10 +33,12 @@ function preview(source: PreviewResource['source'], mimeType: string, filename: 
         ? { kind: source, source, rootPath: '/root', path: filename }
         : source === 'workspace-file'
           ? { kind: source, source, path: filename, runId: 'run-1' }
-          : { kind: source, source, url: `https://example.com/${filename}` },
+          : source === 'browser'
+            ? { kind: source, source, url: `https://example.com/${filename}` }
+            : { kind: source, source, uri: `ui://${filename}`, content: '<html></html>' },
     mimeType,
     filename,
-    text: 'hello',
+    text: source === 'mcp-app' ? undefined : 'hello',
   }
 }
 

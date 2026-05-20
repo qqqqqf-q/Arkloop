@@ -178,5 +178,6 @@ export function resourceTitle(resource: ResourceRef): string {
   if (resource.kind === 'artifact') return resource.title ?? resource.filename ?? 'Artifact'
   if (resource.kind === 'browser') return resource.title ?? new URL(resource.url).hostname
   if (resource.kind === 'local-file') return resource.name ?? resource.filename ?? filenameFromPath(resource.path)
+  if (resource.kind === 'mcp-app') return resource.title ?? resource.filename ?? resource.uri
   return resource.name ?? resource.filename ?? filenameFromPath(resource.path)
 }

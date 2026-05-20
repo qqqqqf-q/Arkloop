@@ -137,5 +137,7 @@ export async function loadPreviewResource(
       return loadWorkspaceFile(ref, options)
     case 'browser':
       throw new Error('browser resources are rendered by the browser panel')
+    case 'mcp-app':
+      throw new Error('mcp-app resources are rendered by the McpAppIframe component')
   }
 }

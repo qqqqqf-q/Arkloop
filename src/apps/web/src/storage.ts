@@ -688,6 +688,7 @@ export type McpAppResource = {
   initialData?: unknown
   content?: string
   csp?: McpAppCsp
+  serverId?: string
 }
 
 function messageArtifactsKey(messageId: string): string {

@@ -162,6 +162,7 @@ func (e *ToolExecutor) Execute(
 						"mime_type": mimeType,
 						"csp":       csp,
 						"content":   string(data),
+						"server_id": e.server.ServerID,
 					},
 				}
 			} else {
@@ -193,6 +194,7 @@ func (e *ToolExecutor) Execute(
 							"mime_type": mimeType,
 							"csp":       csp,
 							"content":   string(data),
+							"server_id": e.server.ServerID,
 						},
 					}
 					slog.InfoContext(ctx, "mcp ext-apps: artifact uploaded", "tool_name", toolName, "key", key, "size", len(data))

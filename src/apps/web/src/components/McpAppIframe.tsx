@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback, useState } from 'react'
 import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { McpAppCsp } from '../storage'
+import { apiBaseUrl } from '@arkloop/shared/api'
 
 function buildCSP(csp?: McpAppCsp): string {
   const resourceDomains = csp?.resourceDomains ?? []
@@ -167,9 +168,12 @@ type Props = {
   content: string
   toolOutput?: unknown
   csp?: McpAppCsp
+  serverId?: string
   onOpenLink?: (url: string) => void
   style?: React.CSSProperties
   className?: string
+  displayMode?: 'inline' | 'card'
+  onExpand?: () => void
 }
 
 function toCallToolResult(output: unknown): CallToolResult {
@@ -189,7 +193,7 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style, className }: Props) {
+export function McpAppIframe({ uri, content, toolOutput, csp, serverId, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
@@ -250,8 +254,32 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
       return { success: true }
     }
 
-    bridge.oncalltool = async () => {
-      throw new Error('Tool calling not yet implemented')
+    bridge.oncalltool = async (request) => {
+      if (!serverId) {
+        throw new Error('MCP server ID not available for tool calling')
+      }
+      const resp = await fetch(`${apiBaseUrl()}/v1/mcp/tool-call`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_id: serverId,
+          tool_name: request.name,
+          arguments: request.arguments ?? {},
+        }),
+      })
+      if (!resp.ok) {
+        const errorText = await resp.text().catch(() => resp.statusText)
+        throw new Error(`MCP tool call failed: ${resp.status} ${errorText}`)
+      }
+      const result = await resp.json() as { content: Array<{ type: string; text?: string }>; isError?: boolean }
+      const content: CallToolResult['content'] = result.content.map((item) => {
+        if (item.type === 'text') return { type: 'text' as const, text: item.text ?? '' }
+        return item as CallToolResult['content'][number]
+      })
+      return {
+        content,
+        isError: result.isError ?? false,
+      }
     }
 
     bridge.oninitialized = () => {
@@ -283,7 +311,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
         // cross-origin, fall back to postMessage
       }
     })
-  }, [onOpenLink, sendToolResult])
+  }, [onOpenLink, sendToolResult, serverId])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -377,6 +405,70 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style,
     observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()
   }, [content, rebuildSrcDoc])
+
+  if (displayMode === 'card') {
+    return (
+      <div
+        style={{
+          position: 'relative',
+          borderRadius: '10px',
+          border: '0.5px solid var(--c-border-subtle)',
+          overflow: 'hidden',
+          background: 'var(--c-bg-sub)',
+          cursor: 'pointer',
+          transition: 'border-color 150ms ease',
+        }}
+        onClick={onExpand}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--c-border-mid)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--c-border-subtle)' }}
+      >
+        <div style={{ height: '180px', overflow: 'hidden', position: 'relative' }}>
+          <iframe
+            ref={iframeRef}
+            srcDoc={srcDoc}
+            title={`mcp-app-${uri}`}
+            sandbox="allow-scripts allow-same-origin"
+            onLoad={handleLoad}
+            style={{
+              width: '100%',
+              height: '180px',
+              border: 'none',
+              pointerEvents: 'none',
+              transform: 'scale(0.5)',
+              transformOrigin: 'top left',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+            }}
+          />
+        </div>
+        <div style={{
+          padding: '8px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderTop: '0.5px solid var(--c-border-subtle)',
+          background: 'var(--c-bg-input)',
+        }}>
+          <span style={{ fontSize: '12px', color: 'var(--c-text-muted)' }}>
+            {uri}
+          </span>
+          <span style={{
+            fontSize: '12px',
+            color: 'var(--c-text-secondary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            </svg>
+            Expand
+          </span>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <iframe

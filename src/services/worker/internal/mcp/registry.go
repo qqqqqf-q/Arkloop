@@ -20,9 +20,10 @@ import (
 var toolNameSafeRegex = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
 type Registration struct {
-	AgentSpecs []tools.AgentToolSpec
-	LlmSpecs   []llm.ToolSpec
-	Executors  map[string]tools.Executor
+	AgentSpecs     []tools.AgentToolSpec
+	LlmSpecs       []llm.ToolSpec
+	Executors      map[string]tools.Executor
+	UIOnlyExecutors map[string]tools.Executor
 }
 
 type DiscoverDiagnostics struct {
@@ -169,14 +170,26 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	agentSpecs := []tools.AgentToolSpec{}
 	llmSpecs := []llm.ToolSpec{}
 	executors := map[string]tools.Executor{}
+	uiOnlyExecutors := map[string]tools.Executor{}
 
 	for _, entry := range discoveredByServer {
 		server := entry.server
 		remoteMap := map[string]string{}
 		resourceURIs := map[string]string{}
+		uiOnlyRemoteMap := map[string]string{}
 
 		for _, tool := range entry.tools {
 			if !isToolVisibleToModel(tool) {
+				if isToolAppOnly(tool) {
+					base := mcpToolBaseName(server.ServerID, tool.Name)
+					internal := base
+					if baseCounts[base] > 1 {
+						raw := mcpToolRawName(server.ServerID, tool.Name)
+						internal = base + "__" + shortHash(raw)
+					}
+					internal = ensureUniqueToolName(internal, usedNames)
+					uiOnlyRemoteMap[internal] = tool.Name
+				}
 				continue
 			}
 			base := mcpToolBaseName(server.ServerID, tool.Name)
@@ -222,6 +235,13 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 		for internalName := range remoteMap {
 			executors[internalName] = executor
 		}
+
+		if len(uiOnlyRemoteMap) > 0 {
+			uiExecutor := NewToolExecutor(server, uiOnlyRemoteMap, nil, pool)
+			for internalName := range uiOnlyRemoteMap {
+				uiOnlyExecutors[internalName] = uiExecutor
+			}
+		}
 	}
 
 	sort.Slice(agentSpecs, func(i, j int) bool { return agentSpecs[i].Name < agentSpecs[j].Name })
@@ -229,9 +249,10 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	diag.ToolCount = len(llmSpecs)
 
 	return Registration{
-		AgentSpecs: agentSpecs,
-		LlmSpecs:   llmSpecs,
-		Executors:  executors,
+		AgentSpecs:     agentSpecs,
+		LlmSpecs:       llmSpecs,
+		Executors:      executors,
+		UIOnlyExecutors: uiOnlyExecutors,
 	}, diag, nil
 }
 
@@ -333,6 +354,27 @@ func isToolVisibleToModel(tool Tool) bool {
 		}
 	}
 	return false
+}
+
+func isToolAppOnly(tool Tool) bool {
+	if tool.Meta == nil {
+		return false
+	}
+	metaUI, _ := tool.Meta["ui"].(map[string]any)
+	if metaUI == nil {
+		return false
+	}
+	rawVisibility, ok := metaUI["visibility"].([]any)
+	if !ok || len(rawVisibility) == 0 {
+		return false
+	}
+	hasApp := false
+	for _, v := range rawVisibility {
+		if strings.TrimSpace(asString(v)) == "app" {
+			hasApp = true
+		}
+	}
+	return hasApp
 }
 
 func extractToolResourceURI(tool Tool) string {

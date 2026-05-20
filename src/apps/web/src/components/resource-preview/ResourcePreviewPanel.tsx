@@ -17,6 +17,7 @@ import { isPreviewModeToggleable } from './rendererKind'
 import { extractPlanNameFromMarkdown, isPlanMarkdownPath, parsePlanMarkdown, PLAN_TODOS_UPDATED_EVENT, resolvePlanBuildState } from '../../planMetadata'
 import { useLocale } from '../../contexts/LocaleContext'
 import { ModelPicker } from '../ModelPicker'
+import { McpAppIframe } from '../McpAppIframe'
 
 type ViewMode = 'preview' | 'source'
 
@@ -252,6 +253,33 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
   const closeLabel = locale === 'zh' ? '关闭' : 'Close'
   const buildLabel = 'Build'
   const plansLabel = 'Plans'
+
+  if (resource.kind === 'mcp-app') {
+    return (
+      <div style={{ height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--c-bg-page)' }}>
+        {chrome === 'default' ? (
+        <div style={{ minHeight: 42, flexShrink: 0, borderBottom: '0.5px solid var(--c-border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 12px', minWidth: 0 }}>
+          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ minWidth: 0, color: 'var(--c-text-primary)', fontSize: 14, fontWeight: 480, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {resource.title ?? resource.uri}
+            </span>
+          </div>
+          <PreviewActionsMenu closeLabel={closeLabel} onClose={onClose} />
+        </div>
+        ) : null}
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <McpAppIframe
+            uri={resource.uri}
+            content={resource.content}
+            csp={resource.csp}
+            toolOutput={resource.initialData}
+            serverId={resource.serverId}
+            style={{ width: '100%', height: '100%', minHeight: '400px' }}
+          />
+        </div>
+      </div>
+    )
+  }
 
   if (isPlan && loaded && plan) {
     const path = planReferencePath(resource, loaded)

@@ -135,6 +135,7 @@ export function extractResources(source: unknown): McpAppResource[] {
       content: typeof item.content === 'string' ? item.content : undefined,
       initialData: item.initialData ?? result,
       csp,
+      serverId: typeof item.server_id === 'string' ? item.server_id : undefined,
     })
   }
   return refs
