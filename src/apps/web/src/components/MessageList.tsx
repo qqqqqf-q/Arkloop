@@ -7,6 +7,7 @@ import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
 import { AssistantActionBar } from './messagebubble/AssistantMessage'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { WidgetBlock } from './WidgetBlock'
+import { ResourceUIPreview } from './ResourceUIPreview'
 import { IncognitoDivider } from './IncognitoDivider'
 import { useLocale } from '../contexts/LocaleContext'
 import { useChatSession } from '../contexts/chat-session'
@@ -551,6 +552,21 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 renderSegment(seg, si, historicalSegments, currentRunMessageLive && si === historicalSegments.length - 1)
               )
             })()}
+          {(() => {
+            const resources = meta.getMeta(msg.id)?.resources
+            if (!resources || resources.length === 0) return null
+            return (
+              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {resources.map((res, ri) => (
+                  <ResourceUIPreview
+                    key={`${msg.id}-resource-${res.key}-${ri}`}
+                    resource={res}
+                    accessToken={accessToken}
+                  />
+                ))}
+              </div>
+            )
+          })()}
           {idx === messages.length - 1 && !isStreaming && !sending && (
             <AssistantActionBar
               textToCopy={assistantTurnPlainText(historicalTurn!)}
