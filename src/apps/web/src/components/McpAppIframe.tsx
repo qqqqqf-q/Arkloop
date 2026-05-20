@@ -1,4 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
+import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/app-bridge'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { McpAppCsp } from '../storage'
 
 function buildCSP(csp?: McpAppCsp): string {
@@ -41,87 +43,13 @@ ${themeCSS}
 <script type="importmap">
 {
   "imports": {
-    "@modelcontextprotocol/ext-apps": "data:text/javascript,export class App{constructor(c){this.config=c||{};this.state={};this._ontoolresult=null}set ontoolresult(f){this._ontoolresult=typeof f==='function'?f:null}get ontoolresult(){return this._ontoolresult}render(t){var e=typeof t==='string'?document.querySelector(t):t;if(!e)return null;var d=document.createElement('div');d.className='mcp-app-container';e.appendChild(d);return d}connect(){var s=this;window.addEventListener('message',function h(e){if(e.data?.type==='arkloop:mcpapp:tool-output'&&s._ontoolresult){try{s._ontoolresult({content:[{type:'text',text:JSON.stringify(e.data.data)}]})}catch(err){}}});return Promise.resolve()}async callTool(n,p){return new Promise(function(r){var i='mcp_tool_'+Date.now()+'_'+Math.random().toString(36).slice(2);function h(e){if(e.data?.type==='arkloop:mcp:tool:result'&&e.data.id===i){window.removeEventListener('message',h);r(e.data.result)}}
-window.addEventListener('message',h);window.parent.postMessage({type:'arkloop:mcp:tool:call',id:i,tool:n,params:p||{}},'*');setTimeout(function(){window.removeEventListener('message',h);r({content:[{type:'text',text:'Tool call timed out'}]})},30000)})}async getResource(u){return new Promise(function(r){var i='mcp_res_'+Date.now()+'_'+Math.random().toString(36).slice(2);function h(e){if(e.data?.type==='arkloop:mcp:resource:result'&&e.data.id===i){window.removeEventListener('message',h);r(e.data.result)}}
-window.addEventListener('message',h);window.parent.postMessage({type:'arkloop:mcp:resource:read',id:i,uri:u},'*');setTimeout(function(){window.removeEventListener('message',h);r(null)},30000)})}}"
+    "@modelcontextprotocol/ext-apps": "/mcp-ext-apps/app-with-deps.js"
   }
 }
 </script>
 </head>
 <body>
 ${content}
-<script>
-window.__MCP_APP__ = {
-  version: '0.1.0-shim',
-  App: class App {
-    constructor(config) {
-      this.config = config || {};
-      this.state = {};
-      this._ontoolresult = null;
-    }
-    set ontoolresult(fn) {
-      this._ontoolresult = typeof fn === 'function' ? fn : null;
-    }
-    get ontoolresult() {
-      return this._ontoolresult;
-    }
-    render(target) {
-      var el = typeof target === 'string' ? document.querySelector(target) : target;
-      if (!el) return null;
-      var container = document.createElement('div');
-      container.className = 'mcp-app-container';
-      el.appendChild(container);
-      return container;
-    }
-    connect() {
-      var self = this;
-      window.addEventListener('message', function handler(event) {
-        if (event.data?.type === 'arkloop:mcpapp:tool-output' && self._ontoolresult) {
-          try {
-            self._ontoolresult({ content: [{ type: 'text', text: JSON.stringify(event.data.data) }] });
-          } catch (err) {}
-        }
-      });
-      return Promise.resolve();
-    }
-    callTool(toolName, params) {
-      var self = this;
-      return new Promise(function(resolve) {
-        var id = 'mcp_tool_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-        function handler(event) {
-          if (event.data?.type === 'arkloop:mcp:tool:result' && event.data.id === id) {
-            window.removeEventListener('message', handler);
-            resolve(event.data.result);
-          }
-        }
-        window.addEventListener('message', handler);
-        window.parent.postMessage({ type: 'arkloop:mcp:tool:call', id: id, tool: toolName, params: params || {} }, '*');
-        setTimeout(function() {
-          window.removeEventListener('message', handler);
-          resolve({ content: [{ type: 'text', text: 'Tool call timed out' }] });
-        }, 30000);
-      });
-    }
-    getResource(uri) {
-      return new Promise(function(resolve) {
-        var id = 'mcp_res_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-        function handler(event) {
-          if (event.data?.type === 'arkloop:mcp:resource:result' && event.data.id === id) {
-            window.removeEventListener('message', handler);
-            resolve(event.data.result);
-          }
-        }
-        window.addEventListener('message', handler);
-        window.parent.postMessage({ type: 'arkloop:mcp:resource:read', id: id, uri: uri }, '*');
-        setTimeout(function() {
-          window.removeEventListener('message', handler);
-          resolve(null);
-        }, 30000);
-      });
-    }
-  }
-};
-</script>
 <script>
 (function() {
   var resizeTimer;
@@ -159,6 +87,7 @@ function buildThemeCSS(): string {
       vars.push(`  ${name}: ${root.style.getPropertyValue(name)};`)
     }
   }
+  // fallback: read computed styles for known variables
   const computed = getComputedStyle(root)
   const knownVars = [
     '--c-bg-page', '--c-bg-sub', '--c-text-primary', '--c-text-secondary',
@@ -194,36 +123,111 @@ type Props = {
   className?: string
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink: _onOpenLink, style, className }: Props) {
+function toCallToolResult(output: unknown): CallToolResult {
+  if (output && typeof output === 'object') {
+    const o = output as Record<string, unknown>
+    if (Array.isArray(o.content)) {
+      return o as CallToolResult
+    }
+    if (o.result && typeof o.result === 'object') {
+      const result = o.result as Record<string, unknown>
+      if (Array.isArray(result.content)) {
+        return result as CallToolResult
+      }
+    }
+  }
+  const text = typeof output === 'string' ? output : JSON.stringify(output)
+  return { content: [{ type: 'text', text }] }
+}
+
+export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink, style, className }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const bridgeRef = useRef<AppBridge | null>(null)
+  const pendingToolResultRef = useRef<unknown>(undefined)
+  const isConnectedRef = useRef(false)
   const lastHeightRef = useRef<number>(0)
   const [iframeHeight, setIframeHeight] = useState<number | undefined>(undefined)
 
+  // Rebuild iframe HTML when content or theme changes
   const [srcDoc, setSrcDoc] = useState(() => {
     const snapshot = collectThemeSnapshot()
     return IFRAME_HTML_TEMPLATE(snapshot.css, content, buildCSP(csp))
   })
 
-  const rebuildSrcDoc = useCallback((htmlContent: string) => {
-    const snapshot = collectThemeSnapshot()
-    const next = IFRAME_HTML_TEMPLATE(snapshot.css, htmlContent, buildCSP(csp))
-    setSrcDoc((prev) => (prev !== next ? next : prev))
-  }, [csp])
+  const sendToolResult = useCallback((bridge: AppBridge, output: unknown) => {
+    if (output === undefined) return
+    try {
+      bridge.sendToolResult(toCallToolResult(output))
+    } catch (err) {
+      console.error('[McpAppIframe] sendToolResult failed:', err)
+    }
+  }, [])
 
+  // Handle toolOutput prop changes
   useEffect(() => {
-    rebuildSrcDoc(content)
-  }, [content, rebuildSrcDoc])
+    if (isConnectedRef.current && bridgeRef.current) {
+      sendToolResult(bridgeRef.current, toolOutput)
+    } else {
+      pendingToolResultRef.current = toolOutput
+    }
+  }, [toolOutput, sendToolResult])
 
-  // Theme change listener
+  // Connect AppBridge when iframe loads (guarantees all scripts are ready)
+  const handleLoad = useCallback(async () => {
+    const iframe = iframeRef.current
+    if (!iframe?.contentWindow) return
+
+    // Close previous bridge if any
+    const prevBridge = bridgeRef.current
+    if (prevBridge) {
+      bridgeRef.current = null
+      isConnectedRef.current = false
+      prevBridge.close().catch(() => {})
+    }
+
+    const transport = new PostMessageTransport(
+      iframe.contentWindow,
+      iframe.contentWindow,
+    )
+    const bridge = new AppBridge(
+      null,
+      { name: 'arkloop', version: '1.0.0' },
+      { serverTools: { listChanged: true } },
+    )
+
+    bridge.onopenlink = async (request) => {
+      onOpenLink?.(request.url)
+      return { success: true }
+    }
+
+    bridge.oncalltool = async () => {
+      throw new Error('Tool calling not yet implemented')
+    }
+
+    bridge.oninitialized = () => {
+      isConnectedRef.current = true
+      if (pendingToolResultRef.current !== undefined) {
+        sendToolResult(bridge, pendingToolResultRef.current)
+        pendingToolResultRef.current = undefined
+      }
+    }
+
+    try {
+      await bridge.connect(transport)
+      bridgeRef.current = bridge
+    } catch (err) {
+      console.error('[McpAppIframe] AppBridge connect failed:', err)
+    }
+  }, [onOpenLink, sendToolResult])
+
+  // Cleanup on unmount
   useEffect(() => {
-    if (typeof document === 'undefined') return
-    const root = document.documentElement
-    const observer = new MutationObserver(() => {
-      rebuildSrcDoc(content)
-    })
-    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
-    return () => observer.disconnect()
-  }, [content, rebuildSrcDoc])
+    return () => {
+      isConnectedRef.current = false
+      bridgeRef.current?.close().catch(() => {})
+      bridgeRef.current = null
+    }
+  }, [])
 
   // Listen for resize messages from iframe
   useEffect(() => {
@@ -242,16 +246,26 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink: _onOpe
     return () => window.removeEventListener('message', handler)
   }, [])
 
-  // Handle toolOutput prop — pass initial data via script injection on srcDoc change
+  const rebuildSrcDoc = useCallback((htmlContent: string) => {
+    const snapshot = collectThemeSnapshot()
+    const next = IFRAME_HTML_TEMPLATE(snapshot.css, htmlContent, buildCSP(csp))
+    setSrcDoc((prev) => (prev !== next ? next : prev))
+  }, [csp])
+
   useEffect(() => {
-    if (toolOutput === undefined || !iframeRef.current?.contentWindow) return
-    try {
-      iframeRef.current.contentWindow.postMessage({
-        type: 'arkloop:mcpapp:tool-output',
-        data: toolOutput,
-      }, '*')
-    } catch { /* ignore */ }
-  }, [toolOutput])
+    rebuildSrcDoc(content)
+  }, [content, rebuildSrcDoc])
+
+  // Theme change listener: only data-theme, not style (CSS vars change too frequently)
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    const observer = new MutationObserver(() => {
+      rebuildSrcDoc(content)
+    })
+    observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [content, rebuildSrcDoc])
 
   return (
     <iframe
@@ -259,16 +273,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, onOpenLink: _onOpe
       srcDoc={srcDoc}
       title={`mcp-app-${uri}`}
       sandbox="allow-scripts allow-same-origin"
-      onLoad={() => {
-        if (toolOutput !== undefined && iframeRef.current?.contentWindow) {
-          try {
-            iframeRef.current.contentWindow.postMessage({
-              type: 'arkloop:mcpapp:tool-output',
-              data: toolOutput,
-            }, '*')
-          } catch { /* ignore */ }
-        }
-      }}
+      onLoad={handleLoad}
       style={{
         width: '100%',
         minHeight: '200px',

@@ -268,6 +268,9 @@ importers:
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.7.2
         version: 1.7.2(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(zod@4.4.3)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
       framer-motion:
         specifier: ^12.34.3
         version: 12.34.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
