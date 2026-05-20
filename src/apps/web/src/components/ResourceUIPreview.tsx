@@ -9,10 +9,14 @@ type Props = {
 }
 
 export function ResourceUIPreview({ resource, accessToken }: Props) {
-  const [content, setContent] = useState<string | undefined>(undefined)
+  const [content, setContent] = useState<string | undefined>(
+    typeof resource.initialData === 'string' ? resource.initialData : undefined
+  )
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    // 已有 inline content，无需 fetch
+    if (typeof resource.initialData === 'string') return
     if (!accessToken) return
     let cancelled = false
 
@@ -28,7 +32,7 @@ export function ResourceUIPreview({ resource, accessToken }: Props) {
       })
 
     return () => { cancelled = true }
-  }, [resource.key, accessToken])
+  }, [resource.key, resource.initialData, accessToken])
 
   if (error) {
     return (
