@@ -21,82 +21,7 @@ concurrency:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1 – Cross-compile Go sidecar for every target platform/arch
-  # ---------------------------------------------------------------------------
-  build-sidecar:
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            cgo_enabled: 1
-            goos: darwin
-            goarch: arm64
-            electron_platform: darwin
-            electron_arch: arm64
-          - os: macos-15-intel
-            cgo_enabled: 1
-            goos: darwin
-            goarch: amd64
-            electron_platform: darwin
-            electron_arch: x64
-          - os: ubuntu-latest
-            cgo_enabled: 0
-            goos: linux
-            goarch: amd64
-            electron_platform: linux
-            electron_arch: x64
-          - os: ubuntu-latest
-            cgo_enabled: 0
-            goos: linux
-            goarch: arm64
-            electron_platform: linux
-            electron_arch: arm64
-          - os: windows-latest
-            cgo_enabled: 0
-            goos: windows
-            goarch: amd64
-            electron_platform: win32
-            electron_arch: x64
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.work
-          cache-dependency-path: |
-            src/services/*/go.sum
-
-      - name: Build sidecar
-        run: |
-          BIN_NAME="desktop-${{ matrix.electron_platform }}-${{ matrix.electron_arch }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BIN_NAME="${BIN_NAME}.exe"
-          fi
-          mkdir -p dist
-          CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -tags desktop -trimpath -ldflags '-s -w' \
-            -o "dist/${BIN_NAME}" \
-            ./src/services/desktop/cmd/desktop
-          echo "Built dist/${BIN_NAME}"
-          ls -lh dist/
-
-      - name: Upload sidecar artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sidecar-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/
-          retention-days: 7
-
-  # ---------------------------------------------------------------------------
-  # Job 2 – Build standalone CLI binaries
+  # Job 1 – Build standalone CLI binaries
   # ---------------------------------------------------------------------------
   build-cli:
     defaults:
@@ -187,13 +112,12 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 3 – Build Electron installers per platform
+  # Job 2 – Build Electron installers per platform
   # ---------------------------------------------------------------------------
   build-desktop:
     defaults:
       run:
         shell: bash
-    needs: build-sidecar
     strategy:
       fail-fast: false
       matrix:
@@ -201,22 +125,30 @@ jobs:
           - os: macos-latest
             platform: darwin
             electron_arch: arm64
-            sidecar_artifact: sidecar-darwin-arm64
+            goos: darwin
+            goarch: arm64
+            cgo_enabled: 1
             builder_args: --mac --arm64
           - os: macos-15-intel
             platform: darwin
             electron_arch: x64
-            sidecar_artifact: sidecar-darwin-amd64
+            goos: darwin
+            goarch: amd64
+            cgo_enabled: 1
             builder_args: --mac --x64
           - os: ubuntu-latest
             platform: linux
             electron_arch: x64
-            sidecar_artifact: sidecar-linux-amd64
+            goos: linux
+            goarch: amd64
+            cgo_enabled: 0
             builder_args: --linux --x64
           - os: windows-latest
             platform: win32
             electron_arch: x64
-            sidecar_artifact: sidecar-windows-amd64
+            goos: windows
+            goarch: amd64
+            cgo_enabled: 0
             builder_args: --win --x64
 
     runs-on: ${{ matrix.os }}
@@ -261,24 +193,25 @@ jobs:
           key: electron-${{ matrix.os }}-${{ hashFiles('src/apps/desktop/package.json') }}
           restore-keys: electron-${{ matrix.os }}-
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install deps & build sidecar
+        run: |
+          mkdir -p src/apps/desktop/sidecar-bin
+          BIN_NAME="desktop-${{ matrix.platform }}-${{ matrix.electron_arch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then BIN_NAME="${BIN_NAME}.exe"; fi
+          CGO_ENABLED=${{ matrix.cgo_enabled }} GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -tags desktop -trimpath -ldflags '-s -w' \
+            -o "src/apps/desktop/sidecar-bin/${BIN_NAME}" \
+            ./src/services/desktop/cmd/desktop &
+          GO_PID=$!
+          pnpm install --frozen-lockfile
+          wait $GO_PID
+          if [ "${{ runner.os }}" != "Windows" ]; then chmod +x src/apps/desktop/sidecar-bin/*; fi
 
       - name: Install Linux packaging dependencies
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y rpm
-
-      - name: Download sidecar binary
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.sidecar_artifact }}
-          path: src/apps/desktop/sidecar-bin/
-
-      - name: Make sidecar executable
-        if: runner.os != 'Windows'
-        run: chmod +x src/apps/desktop/sidecar-bin/*
 
       - name: Build web app
         run: pnpm --filter @arkloop/desktop build:web
@@ -329,7 +262,7 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 4 – Build Arch Linux package
+  # Job 3 – Build Arch Linux package
   # ---------------------------------------------------------------------------
   build-archlinux-package:
     name: Build Arch Linux pkg.tar.zst
@@ -393,11 +326,11 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Job 5 – Create GitHub Release with all assets
+  # Job 4 – Create GitHub Release with all assets
   # ---------------------------------------------------------------------------
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-sidecar, build-cli, build-desktop, build-archlinux-package]
+    needs: [build-cli, build-desktop, build-archlinux-package]
     runs-on: ubuntu-latest
     permissions:
       actions: write
