@@ -169,6 +169,7 @@ type Props = {
   toolOutput?: unknown
   csp?: McpAppCsp
   serverId?: string
+  name?: string
   onOpenLink?: (url: string) => void
   style?: React.CSSProperties
   className?: string
@@ -193,7 +194,7 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, serverId, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
+export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
@@ -247,7 +248,35 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, onOpenLi
       null,
       { name: 'arkloop', version: '1.0.0' },
       { serverTools: { listChanged: true } },
+      {
+        hostContext: {
+          displayMode: displayMode === 'card' ? 'fullscreen' : 'inline',
+          availableDisplayModes: ['inline', 'fullscreen'],
+        },
+      },
     )
+
+    bridge.onrequestdisplaymode = async (request) => {
+      const currentMode = displayMode === 'card' ? 'fullscreen' : 'inline'
+      if (request.mode === currentMode) {
+        return { mode: currentMode }
+      }
+      if (request.mode === 'fullscreen' && onExpand) {
+        onExpand()
+        return { mode: 'fullscreen' }
+      }
+      return { mode: currentMode }
+    }
+
+    bridge.onsizechange = ({ height }) => {
+      if (height != null && height > 0) {
+        const newHeight = Math.min(height, 2000)
+        if (Math.abs(newHeight - lastHeightRef.current) > 10) {
+          lastHeightRef.current = newHeight
+          setIframeHeight(newHeight)
+        }
+      }
+    }
 
     bridge.onopenlink = async (request) => {
       onOpenLink?.(request.url)
@@ -311,7 +340,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, onOpenLi
         // cross-origin, fall back to postMessage
       }
     })
-  }, [onOpenLink, sendToolResult, serverId])
+  }, [onOpenLink, sendToolResult, serverId, displayMode, onExpand])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -471,23 +500,72 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, onOpenLi
   }
 
   return (
-    <iframe
-      ref={iframeRef}
-      srcDoc={srcDoc}
-      title={`mcp-app-${uri}`}
-      sandbox="allow-scripts allow-same-origin"
-      onLoad={handleLoad}
-      style={{
-        width: '100%',
-        minHeight: '200px',
-        height: iframeHeight ? `${iframeHeight}px` : 'auto',
-        border: '0.5px solid var(--c-border-subtle)',
-        borderRadius: '10px',
-        background: 'transparent',
-        display: 'block',
-        ...style,
-      }}
-      className={className}
-    />
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      border: '0.5px solid var(--c-border-subtle)',
+      borderRadius: '10px',
+      overflow: 'hidden',
+      background: 'var(--c-bg-sub)',
+    }}>
+      {(name || uri) && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '8px',
+          padding: '6px 12px',
+          borderBottom: '0.5px solid var(--c-border-subtle)',
+          background: 'var(--c-bg-sub)',
+          minWidth: 0,
+        }}>
+          {name && (
+            <span style={{
+              fontSize: '12px',
+              color: 'var(--c-text-secondary)',
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              minWidth: 0,
+              flexShrink: 1,
+            }}>
+              {name}
+            </span>
+          )}
+          {uri && (
+            <span style={{
+              fontSize: '11px',
+              color: 'var(--c-text-muted)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              minWidth: 0,
+              flexShrink: 1,
+            }}>
+              {uri}
+            </span>
+          )}
+        </div>
+      )}
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        title={`mcp-app-${uri}`}
+        sandbox="allow-scripts allow-same-origin"
+        onLoad={handleLoad}
+        style={{
+          width: '100%',
+          minHeight: '200px',
+          height: iframeHeight ? `${iframeHeight}px` : 'auto',
+          border: 'none',
+          borderRadius: 0,
+          background: 'transparent',
+          display: 'block',
+          ...style,
+        }}
+        className={className}
+      />
+    </div>
   )
 }
