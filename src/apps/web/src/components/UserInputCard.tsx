@@ -374,7 +374,7 @@ function SelectField({ field, value, disabled, onChange, onQuickSubmit }: Select
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="flex flex-col">
+      <div className="flex flex-col" style={{ maxHeight: '280px', overflowY: 'auto' }}>
         {field.enum.map((opt, idx) => {
           const label = field.enumNames?.[idx] ?? opt
           const selected = value === opt
@@ -423,7 +423,7 @@ function OneOfSelectField({ field, value, disabled, onChange, onQuickSubmit }: O
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="flex flex-col">
+      <div className="flex flex-col" style={{ maxHeight: '280px', overflowY: 'auto' }}>
         {field.oneOf.map((opt, idx) => {
           const selected = value === opt.const
           const isHovered = hoveredIdx === idx
@@ -467,7 +467,7 @@ function MultiSelectEnumField({ field, value, disabled, onChange }: MultiSelectE
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5" style={{ maxHeight: '280px', overflowY: 'auto' }}>
         {field.items.enum.map(opt => (
           <CheckboxRow key={opt} label={opt} checked={value.includes(opt)} disabled={disabled} onClick={() => toggle(opt)} />
         ))}
@@ -493,7 +493,7 @@ function MultiSelectAnyOfField({ field, value, disabled, onChange }: MultiSelect
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5" style={{ maxHeight: '280px', overflowY: 'auto' }}>
         {field.items.anyOf.map(opt => (
           <CheckboxRow key={opt.const} label={opt.title} checked={value.includes(opt.const)} disabled={disabled} onClick={() => toggle(opt.const)} />
         ))}
