@@ -496,8 +496,11 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init plugin services: %w", err)
 	}
-	if seedErr := pluginServices.Installer.SeedBuiltinCUA(ctx, auth.DesktopAccountID, auth.DesktopUserID); seedErr != nil {
-		logger.Warn("builtin_plugin_seed_failed", "plugin_id", "arkloop.plugins.cua", "error", seedErr.Error())
+	if seedErr := pluginServices.Installer.SeedBuiltinPlugins(ctx, auth.DesktopAccountID, auth.DesktopUserID); seedErr != nil {
+		logger.Warn("builtin_plugin_seed_failed", "error", seedErr.Error())
+	}
+	if resumeErr := pluginServices.Enabler.ResumeEnabledRuntimes(ctx, auth.DesktopAccountID); resumeErr != nil {
+		logger.Warn("plugin_runtime_resume_failed", "error", resumeErr.Error())
 	}
 
 	// ---- platform skill seeder ----
@@ -764,14 +767,14 @@ func RunDesktop(ctx context.Context) error {
 		ChannelDMThreadsRepo:     channelDMThreadsRepo,
 		ChannelGroupThreadsRepo:  channelGroupThreadsRepo,
 		ChannelReceiptsRepo:      channelReceiptsRepo,
-		PersonasRepo:            personasRepo,
-		ThreadRepo:              threadRepo,
-		MessageRepo:             messageRepo,
-		RunEventRepo:            runEventRepo,
-		JobRepo:                 jobRepo,
-		SecretsRepo:             secretsRepo,
-		Pool:                    pgxPool,
-		Bus:                     desktopBus,
+		PersonasRepo:             personasRepo,
+		ThreadRepo:               threadRepo,
+		MessageRepo:              messageRepo,
+		RunEventRepo:             runEventRepo,
+		JobRepo:                  jobRepo,
+		SecretsRepo:              secretsRepo,
+		Pool:                     pgxPool,
+		Bus:                      desktopBus,
 	})
 
 	// ---- HTTP server ----

@@ -231,7 +231,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 }
 
-func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneMinute(t *testing.T) {
+func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesCooldownTriggerByInterval(t *testing.T) {
 	repo, pool, ctx := setupScheduledTriggersRepo(t)
 	triggerID := uuid.New()
 	channelID := uuid.New()
@@ -255,7 +255,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneM
 
 	expectedNextFire := originalNextFire.Add(time.Minute)
 	if d := rows[0].NextFireAt.Sub(expectedNextFire); d < -time.Second || d > time.Second {
-		t.Fatalf("expected level 1 heartbeat to advance by one minute, got=%s want=%s", rows[0].NextFireAt, expectedNextFire)
+		t.Fatalf("expected cooldown heartbeat to advance by interval, got=%s want=%s", rows[0].NextFireAt, expectedNextFire)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -143,6 +145,7 @@ func (i *Installer) ensureSkillPackage(ctx context.Context, repo *data.SkillPack
 	if err := skillstore.ValidateBundleAgainstManifest(packageManifest, bundle); err != nil {
 		return fmt.Errorf("validate plugin skill bundle %q: %w", skill.SkillKey, err)
 	}
+	contentHash := pluginSkillContentHash(bundleData)
 	existing, err := repo.Get(ctx, accountID, packageManifest.SkillKey, packageManifest.Version)
 	if err != nil {
 		return err
@@ -151,7 +154,6 @@ func (i *Installer) ensureSkillPackage(ctx context.Context, repo *data.SkillPack
 		if !isPluginOwnedSkillPackage(existing, manifest) {
 			return fmt.Errorf("plugin skill %q@%q conflicts with an existing skill package", packageManifest.SkillKey, packageManifest.Version)
 		}
-		return nil
 	}
 	manifestBytes, err := json.Marshal(packageManifest)
 	if err != nil {
@@ -163,13 +165,18 @@ func (i *Installer) ensureSkillPackage(ctx context.Context, repo *data.SkillPack
 	if err := i.skillStore.PutObject(ctx, packageManifest.BundleKey, bundleData, objectstore.PutOptions{ContentType: "application/zstd"}); err != nil {
 		return fmt.Errorf("write plugin skill bundle %q: %w", skill.SkillKey, err)
 	}
-	if _, err := repo.Create(ctx, accountID, packageManifest); err != nil {
+	if err := repo.UpsertAccountSkill(ctx, accountID, packageManifest, contentHash); err != nil {
 		return err
 	}
 	if err := markPluginSkillPackage(ctx, repo, accountID, packageManifest, manifest); err != nil {
 		return err
 	}
 	return nil
+}
+
+func pluginSkillContentHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func isPluginOwnedSkillPackage(existing *data.SkillPackage, manifest Manifest) bool {

@@ -64,7 +64,7 @@ func NewChannelTelegramToolsMiddleware(loader channel_telegram.TokenLoader, tele
 			rc.ToolSpecs = append(rc.ToolSpecs, channel_telegram.ReactLlmSpec)
 			extraSpecs = append(extraSpecs, channel_telegram.ReactAgentSpec)
 		}
-		if _, blocked := deny[channel_telegram.ToolReply]; !blocked {
+		if _, blocked := deny[channel_telegram.ToolReply]; !blocked && !isGroup {
 			rc.ToolExecutors[channel_telegram.ToolReply] = exec
 			rc.AllowlistSet[channel_telegram.ToolReply] = struct{}{}
 			rc.ToolSpecs = append(rc.ToolSpecs, channel_telegram.ReplyLlmSpec)

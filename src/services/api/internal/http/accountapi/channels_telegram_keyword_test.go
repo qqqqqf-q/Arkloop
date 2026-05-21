@@ -1,8 +1,13 @@
 package accountapi
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"arkloop/services/api/internal/data"
+
+	"github.com/google/uuid"
 )
 
 func TestTelegramMessageMatchesKeyword(t *testing.T) {
@@ -157,6 +162,41 @@ func TestShouldCreateRun_MatchesKeyword(t *testing.T) {
 			t.Fatal("expected ShouldCreateRun=false with no triggers")
 		}
 	})
+}
+
+func TestBuildChannelDeliveryPayloadIncludesKeywordTrigger(t *testing.T) {
+	incoming := InboundMessage{
+		ChannelID:        uuid.New(),
+		ChannelType:      "telegram",
+		PlatformChatID:   "-100",
+		PlatformMsgID:    "30295",
+		ConversationType: "supergroup",
+		MatchesKeyword:   true,
+	}
+	payload := BuildChannelDeliveryPayload(incoming, uuid.New())
+	if got, _ := payload["matches_keyword"].(bool); !got {
+		t.Fatalf("expected matches_keyword=true, got %#v", payload["matches_keyword"])
+	}
+}
+
+func TestBuildTelegramIncomingFromLedgerPreservesKeywordTrigger(t *testing.T) {
+	meta, err := json.Marshal(map[string]any{
+		inboundLedgerKeyConversationType: "supergroup",
+		inboundLedgerKeyMatchesKeyword:   true,
+	})
+	if err != nil {
+		t.Fatalf("marshal metadata: %v", err)
+	}
+	incoming := buildTelegramIncomingFromLedger(data.ChannelInboundLedgerEntry{
+		ChannelID:              uuid.New(),
+		ChannelType:            "telegram",
+		PlatformConversationID: "-100",
+		PlatformMessageID:      "30295",
+		MetadataJSON:           meta,
+	})
+	if !incoming.MatchesKeyword {
+		t.Fatal("expected MatchesKeyword from ledger metadata")
+	}
 }
 
 // 快速健全性检查：resolveTelegramMessageBody 优先 text，fallback caption

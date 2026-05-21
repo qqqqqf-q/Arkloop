@@ -30,7 +30,11 @@ const personaSelectSQL = `SELECT persona_key, version, display_name, description
 	        COALESCE(heartbeat_enabled, 0), COALESCE(heartbeat_interval_minutes, 30)
 	 FROM personas
 	 WHERE is_active = 1
-	   AND (project_id IS NOT NULL OR persona_key = '` + SystemSummarizerPersonaID + `')
+	   AND (
+	       project_id IS NOT NULL
+	       OR sync_mode = 'platform_file_mirror'
+	       OR persona_key = '` + SystemSummarizerPersonaID + `'
+	   )
 	 ORDER BY CASE WHEN project_id IS NULL THEN 0 ELSE 1 END ASC, created_at ASC`
 
 // LoadPersonasFromDesktopDB loads active persona definitions using a

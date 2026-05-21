@@ -160,6 +160,70 @@ func (r *SkillPackagesRepository) Create(ctx context.Context, accountID uuid.UUI
 	return item, nil
 }
 
+func (r *SkillPackagesRepository) UpsertAccountSkill(ctx context.Context, accountID uuid.UUID, manifest skillstore.PackageManifest, contentHash string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return fmt.Errorf("account_id must not be nil")
+	}
+	normalized, err := skillstore.ValidateManifest(manifest)
+	if err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(
+		ctx,
+		`UPDATE skill_packages
+		    SET display_name = $4,
+		        description = $5,
+		        instruction_path = $6,
+		        manifest_key = $7,
+		        bundle_key = $8,
+		        files_prefix = $9,
+		        platforms = $10,
+		        content_hash = NULLIF($11, ''),
+		        is_active = true,
+		        updated_at = now()
+		  WHERE account_id = $1 AND skill_key = $2 AND version = $3`,
+		accountID,
+		normalized.SkillKey,
+		normalized.Version,
+		normalized.DisplayName,
+		normalized.Description,
+		normalized.InstructionPath,
+		normalized.ManifestKey,
+		normalized.BundleKey,
+		normalized.FilesPrefix,
+		normalized.Platforms,
+		strings.TrimSpace(contentHash),
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	_, err = r.db.Exec(
+		ctx,
+		`INSERT INTO skill_packages
+		    (account_id, skill_key, version, display_name, description, instruction_path,
+		     manifest_key, bundle_key, files_prefix, platforms, content_hash)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULLIF($11, ''))`,
+		accountID,
+		normalized.SkillKey,
+		normalized.Version,
+		normalized.DisplayName,
+		normalized.Description,
+		normalized.InstructionPath,
+		normalized.ManifestKey,
+		normalized.BundleKey,
+		normalized.FilesPrefix,
+		normalized.Platforms,
+		strings.TrimSpace(contentHash),
+	)
+	return err
+}
+
 func (r *SkillPackagesRepository) UpdateRegistryMetadata(ctx context.Context, accountID uuid.UUID, skillKey, version string, metadata SkillPackageRegistryMetadata) error {
 	if ctx == nil {
 		ctx = context.Background()

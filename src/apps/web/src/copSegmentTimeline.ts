@@ -26,6 +26,7 @@ import {
   DEFAULT_SEARCHING_LABEL,
   COMPLETED_SEARCHING_LABEL,
   isWebSearchToolName,
+  isXSearchToolName,
   webSearchQueriesFromArguments,
   webSearchSourcesFromResult,
 } from './webSearchTimelineFromAgentEvent'
@@ -429,7 +430,7 @@ function todoWriteFromCall(item: Extract<CopSegment['items'][number], { kind: 'c
   }
 }
 
-type WebSearchStepRef = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources'> & { text?: WebSearchPhaseStep['text'] }
+type WebSearchStepRef = Pick<MessageSearchStepRef, 'id' | 'kind' | 'label' | 'status' | 'queries' | 'seq' | 'resultSeq' | 'sources' | 'sourceKind'> & { text?: WebSearchPhaseStep['text'] }
 
 function fallbackWebSearchStepsForSegment(
   segment: CopSegment,
@@ -439,6 +440,7 @@ function fallbackWebSearchStepsForSegment(
   const fallbackSteps: WebSearchPhaseStep[] = []
   let lastSearchStepId: string | null = null
   let lastSearchStepSeq: number | undefined
+  let lastSearchStepSourceKind: WebSearchPhaseStep['sourceKind'] | undefined
   let hasScopedSources = false
 
   for (const item of segment.items) {
@@ -457,18 +459,20 @@ function fallbackWebSearchStepsForSegment(
       text: searchStatus === 'done' ? { kind: 'search_completed' } : { kind: 'search', tense: 'live' },
       status: searchStatus,
       queries: webSearchQueriesFromArguments(call.arguments),
+      sourceKind: isXSearchToolName(call.toolName) ? 'x' : 'web',
       seq,
       ...(resultSources ? { sources: resultSources } : {}),
     })
     lastSearchStepId = call.toolCallId
     lastSearchStepSeq = seq
+    lastSearchStepSourceKind = isXSearchToolName(call.toolName) ? 'x' : 'web'
 
     if (resultSources && resultSources.length > 0) {
       hasScopedSources = true
     }
   }
 
-  if (!hasScopedSources && globalSources.length > 0 && lastSearchStepId) {
+  if (!hasScopedSources && globalSources.length > 0 && lastSearchStepId && lastSearchStepSourceKind !== 'x') {
     fallbackSteps.push({
       id: `${lastSearchStepId}::reviewing`,
       kind: 'reviewing',
@@ -545,6 +549,7 @@ export function copTimelinePayloadForSegment(
         text: s.text,
         status: s.status,
         queries: s.queries,
+        sourceKind: s.sourceKind,
         resultSeq: s.resultSeq,
         seq: s.seq,
       })),
@@ -566,6 +571,7 @@ export function copTimelinePayloadForSegment(
   const stepsWithScopedSources: WebSearchPhaseStep[] = steps.flatMap((step) => {
     if (step.kind === 'reviewing') return [step]
     if (step.kind !== 'searching') return [step]
+    if (step.sourceKind === 'x') return [step]
     const scopedSources = sourcesById.get(step.id)
     if (!scopedSources || scopedSources.length === 0) return [step]
     const reviewingSeq = step.resultSeq ?? (typeof step.seq === 'number' ? step.seq + 0.5 : 0)

@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useToast } from '@arkloop/shared'
-import type { ConnectorsConfig, FetchProvider, SearchProvider } from '@arkloop/shared/desktop'
+import type { ConnectorsConfig, FetchProvider, SearchProvider, XSearchProvider } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopConnectorsApi } from '../../desktopConnectorsApi'
+import { getToolProviderOAuthStatus, startToolProviderOAuth } from '../../api-admin'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsSelect } from './_SettingsSelect'
 
 type Props = {
   accessToken: string
+}
+
+function normalizeConnectorsConfig(config: ConnectorsConfig): ConnectorsConfig {
+  return {
+    ...config,
+    xSearch: config.xSearch ?? { provider: 'none' },
+  }
 }
 
 function SettingsGroup({
@@ -112,6 +120,7 @@ export function SearchFetchSettings({ accessToken }: Props) {
 
   const [config, setConfig] = useState<ConnectorsConfig | null>(null)
   const [loading, setLoading] = useState(!!connectorsApi)
+  const [oauthLoading, setOauthLoading] = useState(false)
   const initializedRef = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -120,7 +129,7 @@ export function SearchFetchSettings({ accessToken }: Props) {
     let active = true
     void connectorsApi.get().then((nextConfig) => {
       if (!active) return
-      setConfig(nextConfig)
+      setConfig(normalizeConnectorsConfig(nextConfig))
       setLoading(false)
       initializedRef.current = true
     }).catch(() => {
@@ -173,6 +182,47 @@ export function SearchFetchSettings({ accessToken }: Props) {
     })
   }, [scheduleAutoSave])
 
+  const patchXSearch = useCallback((patch: Partial<ConnectorsConfig['xSearch']>) => {
+    setConfig((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, xSearch: { ...prev.xSearch, ...patch } }
+      scheduleAutoSave(next)
+      return next
+    })
+  }, [scheduleAutoSave])
+
+  const refreshConfig = useCallback(async () => {
+    if (!connectorsApi) return
+    const nextConfig = await connectorsApi.get()
+    setConfig(normalizeConnectorsConfig(nextConfig))
+  }, [connectorsApi])
+
+  const handleXaiOAuth = useCallback(async () => {
+    if (!connectorsApi || !config) return
+    setOauthLoading(true)
+    try {
+      await connectorsApi.set(config)
+      const started = await startToolProviderOAuth(accessToken, 'x_search', 'x_search.xai')
+      window.open(started.authorization_url, '_blank', 'noopener,noreferrer,width=720,height=820')
+      const deadline = Date.now() + 10 * 60 * 1000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        const status = await getToolProviderOAuthStatus(accessToken, 'x_search', 'x_search.xai', started.state)
+        if (status.completed) {
+          await refreshConfig()
+          addToast(ds.connectorSaved, 'success')
+          return
+        }
+        if (status.expired) break
+      }
+      addToast(ds.connectorSaveFailed, 'error')
+    } catch {
+      addToast(ds.connectorSaveFailed, 'error')
+    } finally {
+      setOauthLoading(false)
+    }
+  }, [accessToken, addToast, config, connectorsApi, ds.connectorSaved, ds.connectorSaveFailed, refreshConfig])
+
   const fetchProviderOptions = [
     { value: 'none', label: ds.providerNone },
     { value: 'jina', label: ds.fetchProviderJina },
@@ -185,6 +235,11 @@ export function SearchFetchSettings({ accessToken }: Props) {
     { value: 'tavily', label: ds.searchProviderTavily },
     { value: 'exa', label: ds.searchProviderExa },
     { value: 'searxng', label: ds.searchProviderSearxng },
+  ]
+  const xSearchProviderOptions = [
+    { value: 'none', label: ds.providerNone },
+    { value: 'xai_oauth', label: ds.xSearchProviderXaiOAuth },
+    { value: 'xai_api_key', label: ds.xSearchProviderXaiApiKey },
   ]
 
   return (
@@ -310,6 +365,52 @@ export function SearchFetchSettings({ accessToken }: Props) {
                     />
                   )}
                 />
+              )}
+
+              <SettingsRow
+                title={ds.xSearchConnectorTitle}
+                description={ds.xSearchConnectorDesc}
+                control={(
+                  <SettingsSelect
+                    value={config.xSearch.provider}
+                    options={xSearchProviderOptions}
+                    onChange={(value) => patchXSearch({ provider: value as XSearchProvider })}
+                    triggerClassName="h-9"
+                  />
+                )}
+              />
+              {config.xSearch.provider === 'xai_oauth' && (
+                <SettingsRow
+                  title={ds.xSearchProviderXaiOAuth}
+                  description={config.xSearch.xaiOAuthConnected ? ds.connectorConfigured : ds.xSearchProviderXai}
+                  control={(
+                    <button
+                      type="button"
+                      onClick={handleXaiOAuth}
+                      disabled={oauthLoading}
+                      className="flex h-9 items-center justify-center rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:pointer-events-none disabled:opacity-60"
+                    >
+                      {oauthLoading ? <Loader2 size={15} className="animate-spin" /> : ds.oauthConnect}
+                    </button>
+                  )}
+                />
+              )}
+              {config.xSearch.provider === 'xai_api_key' && (
+                <>
+                  <SettingsRow
+                    title={ds.apiKeyLabel}
+                    description={ds.xSearchProviderXai}
+                    control={(
+                      <PasswordInput
+                        value={config.xSearch.xaiApiKey ?? ''}
+                        onChange={(value) => patchXSearch({ xaiApiKey: value || undefined, xaiApiKeyStored: false })}
+                        placeholder="xai-..."
+                        showLabel={ds.connectorShowSecret}
+                        hideLabel={ds.connectorHideSecret}
+                      />
+                    )}
+                  />
+                </>
               )}
             </>
           )}

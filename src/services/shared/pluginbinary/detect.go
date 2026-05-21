@@ -56,7 +56,15 @@ func detectRuntimePath(ctx context.Context, runtimeID string, detect pluginmanif
 	if err != nil {
 		return DetectResult{Status: StatusError, Error: err.Error()}
 	}
-	resolvedPath = resolveInstallPath(opts.InstallRoot, resolvedPath)
+	if isPathCommandName(resolvedPath) {
+		found, err := exec.LookPath(resolvedPath)
+		if err != nil {
+			return DetectResult{Status: StatusMissing, Path: resolvedPath}
+		}
+		resolvedPath = found
+	} else {
+		resolvedPath = resolveInstallPath(opts.InstallRoot, resolvedPath)
+	}
 	helperAppPath := detectHelperAppPath(resolvedPath)
 	helperAppName, helperAppBundleID := detectHelperAppInfo(ctx, helperAppPath)
 	if _, err := os.Stat(resolvedPath); err != nil {
@@ -86,6 +94,11 @@ func detectRuntimePath(ctx context.Context, runtimeID string, detect pluginmanif
 	}
 	_ = runtimeID
 	return DetectResult{Status: StatusInstalled, Path: resolvedPath, HelperAppPath: helperAppPath, HelperAppName: helperAppName, HelperAppBundleID: helperAppBundleID, Version: version}
+}
+
+func isPathCommandName(path string) bool {
+	path = strings.TrimSpace(path)
+	return path != "" && !strings.ContainsAny(path, `/\`) && !strings.HasPrefix(path, ".")
 }
 
 func runVersionCommand(ctx context.Context, args []string) (string, error) {

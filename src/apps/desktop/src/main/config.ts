@@ -21,6 +21,8 @@ import type {
   SearchProvider,
   StartupOpenMode,
   VoiceConfig,
+  XSearchConnectorConfig,
+  XSearchProvider,
 } from './types'
 
 const CONFIG_DIR = path.join(os.homedir(), '.arkloop')
@@ -85,6 +87,11 @@ function normalizeSearchProvider(p: unknown): SearchProvider {
   return DEFAULT_CONFIG.connectors.search.provider
 }
 
+function normalizeXSearchProvider(p: unknown): XSearchProvider {
+  if (p === 'xai') return 'xai_oauth'
+  return p === 'xai_oauth' || p === 'xai_api_key' ? p : 'none'
+}
+
 function normalizeFetchConnector(raw: unknown): FetchConnectorConfig {
   const r = (raw && typeof raw === 'object') ? raw as Partial<FetchConnectorConfig> : {}
   return {
@@ -104,11 +111,20 @@ function normalizeSearchConnector(raw: unknown): SearchConnectorConfig {
   }
 }
 
+function normalizeXSearchConnector(raw: unknown): XSearchConnectorConfig {
+  const r = (raw && typeof raw === 'object') ? raw as Partial<XSearchConnectorConfig> : {}
+  return {
+    provider: normalizeXSearchProvider(r.provider),
+    ...(typeof r.xaiApiKey === 'string' && r.xaiApiKey ? { xaiApiKey: r.xaiApiKey } : {}),
+  }
+}
+
 function normalizeConnectors(raw: unknown): ConnectorsConfig {
   const r = (raw && typeof raw === 'object') ? raw as Partial<ConnectorsConfig> : {}
   return {
     fetch: normalizeFetchConnector(r.fetch),
     search: normalizeSearchConnector(r.search),
+    xSearch: normalizeXSearchConnector(r.xSearch),
   }
 }
 

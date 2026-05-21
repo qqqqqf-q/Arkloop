@@ -53,6 +53,7 @@ import (
 	"arkloop/services/worker/internal/toolprovider"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	activityrecorderfinish "arkloop/services/worker/internal/tools/builtin/activity_recorder_finish"
 	"arkloop/services/worker/internal/tools/builtin/read"
 	sandboxbuiltin "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
@@ -258,6 +259,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		return nil, err
 	}
 	executors[conversationtool.GroupSearchAgentSpec.Name] = groupSearchExec
+	executors[activityrecorderfinish.AgentSpec.Name] = activityrecorderfinish.NewToolExecutor(db)
 
 	memEnabled := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_ENABLED")) != "false"
 	memoryProviderName := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_PROVIDER"))
@@ -769,6 +771,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopObservedStage("spawn_agent", eventsRepo, pipeline.NewSpawnAgentMiddleware()),
 		desktopObservedStage("persona_resolution", eventsRepo, desktopPersonaResolution(e.db, e.personaRegistry, runsRepo, eventsRepo)),
 		desktopObservedStage("channel_context", eventsRepo, desktopChannelContext(e.db)),
+		desktopObservedStage("discuss_mode", eventsRepo, pipeline.NewDiscussModeMiddleware()),
 		desktopObservedStage("channel_admin_tag", eventsRepo, pipeline.NewChannelAdminTagMiddleware(e.db)),
 		desktopObservedStage("channel_group_user_merge", eventsRepo, pipeline.NewChannelTelegramGroupUserMergeMiddleware()),
 		desktopObservedStage("channel_telegram_tools", eventsRepo, pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
@@ -824,6 +827,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		}),
 		pipeline.NewImpressionPrepareMiddleware(impStore, e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewSuggestionPrepareMiddleware(sugStore, e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewActivityRecorderPrepareMiddleware(e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewStickerPrepareMiddleware(e.db, e.messageAttachmentStore, pipeline.StickerPrepareConfig{
 			AuxGateway:          e.auxGateway,
 			EmitDebugEvents:     e.emitDebugEvents,
@@ -1460,6 +1464,9 @@ func desktopChannelDelivery(db data.DesktopDB, stickerStore interface {
 			strings.TrimSpace(preloaded.Token) != "" {
 			sender := pipeline.NewTelegramChannelSenderWithClient(client, preloaded.Token, 50*time.Millisecond)
 			streamFlush = func(ctx2 context.Context, text string) error {
+				if rc.DiscussRun && !rc.DiscussTextVisible {
+					return nil
+				}
 				replyTo := desktopTelegramReplyReference(rc)
 				ids, sendErr := sender.SendText(ctx2, pipeline.ChannelDeliveryTarget{
 					ChannelType:  rc.ChannelContext.ChannelType,
@@ -1501,7 +1508,7 @@ func desktopChannelDelivery(db data.DesktopDB, stickerStore interface {
 		}
 
 		var stopTyping context.CancelFunc
-		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && !pipeline.IsHeartbeatRunContext(rc) {
+		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && pipeline.ShouldSendTelegramTypingRefresh(rc) {
 			stopTyping = pipeline.StartTelegramTypingRefresh(ctx, client, preloaded.Token, rc.ChannelContext.Conversation.Target)
 		}
 
@@ -1528,7 +1535,7 @@ func desktopChannelDelivery(db data.DesktopDB, stickerStore interface {
 		}
 		finalOutput := strings.TrimSpace(rc.FinalAssistantOutput)
 		finalOutputs := pipelineNormalizedAssistantOutputs(rc.FinalAssistantOutputs, finalOutput)
-		if pipeline.ShouldSuppressHeartbeatOutput(rc, finalOutput) {
+		if pipeline.ShouldSuppressAssistantOutput(rc, finalOutput) {
 			return err
 		}
 
@@ -3238,6 +3245,11 @@ func desktopRouting(
 						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
 						rc.Gateway = resolution.Gateway
 					}
+				} else if pipeline.IsActivityRecorderRun(rc) {
+					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
+						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+						rc.Gateway = resolution.Gateway
+					}
 				}
 			}
 			if decision.Selected == nil && decision.Denied == nil {
@@ -3726,6 +3738,9 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		flushChunk = w.pendingTelegramFlushChunk()
 		w.toolCallCount++
 		w.collectToolCall(ev.DataJSON)
+		if toolName, _ := ev.DataJSON["tool_name"].(string); pipeline.IsSpeakToolName(llm.CanonicalToolName(toolName)) {
+			w.clearPrivateDiscussText()
+		}
 		if w.telegramProgressTracker != nil {
 			callID, _ := ev.DataJSON["tool_call_id"].(string)
 			toolName, _ := ev.DataJSON["tool_name"].(string)
@@ -3853,6 +3868,16 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	return nil
 }
 
+func (w *desktopEventWriter) clearPrivateDiscussText() {
+	w.assistantDeltas = nil
+	w.assistantMessage = nil
+	w.assistantMessageFresh = false
+	w.visibleAssistantText = ""
+	w.visibleAssistantTexts = nil
+	w.lastTurnDeltaCount = 0
+	w.telegramSentOutputCount = 0
+}
+
 func (w *desktopEventWriter) collectToolCall(dataJSON map[string]any) {
 	callID, _ := dataJSON["tool_call_id"].(string)
 	toolName, _ := dataJSON["tool_name"].(string)
@@ -3882,9 +3907,14 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 	}
 	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
 	keptCallIDs := make(map[string]struct{}, len(w.pendingToolCalls))
+	suppressAssistantContent := false
 	for _, call := range w.pendingToolCalls {
 		if _, ok := resolved[call.ToolCallID]; ok {
 			if w.heartbeatRun && pipeline.IsHeartbeatDecisionToolName(call.ToolName) {
+				continue
+			}
+			if pipeline.IsSpeakToolName(call.ToolName) {
+				suppressAssistantContent = true
 				continue
 			}
 			filteredCalls = append(filteredCalls, call)
@@ -3902,6 +3932,9 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 		}
 	}
 	msg := w.assistantMessage
+	if suppressAssistantContent {
+		msg = &llm.Message{Role: "assistant"}
+	}
 	hasVisibleParts := msg != nil && len(llm.VisibleContentParts(msg.Content)) > 0
 	if len(filteredCalls) == 0 && !hasVisibleParts {
 		return
@@ -3931,6 +3964,9 @@ func (w *desktopEventWriter) flushPendingToolCalls() {
 func (w *desktopEventWriter) collectToolResult(dataJSON map[string]any) {
 	toolName, _ := dataJSON["tool_name"].(string)
 	toolName = llm.CanonicalToolName(toolName)
+	if pipeline.IsSpeakToolName(toolName) {
+		return
+	}
 	envelope := map[string]any{
 		"tool_call_id": dataJSON["tool_call_id"],
 		"tool_name":    toolName,
@@ -5081,9 +5117,9 @@ func loadDesktopRoutingConfig(ctx context.Context, db data.DesktopDB) (routing.P
 	for routeRows.Next() {
 		var (
 			id, credentialID, model, whenStr, advancedStr string
-			priority                                     int
-			multiplier                                   float64
-			costIn, costOut, costCW, costCR              *float64
+			priority                                      int
+			multiplier                                    float64
+			costIn, costOut, costCW, costCR               *float64
 		)
 		if err := routeRows.Scan(&id, &credentialID, &model, &priority,
 			&whenStr, &advancedStr, &multiplier, &costIn, &costOut, &costCW, &costCR); err != nil {

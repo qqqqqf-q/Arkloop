@@ -26,9 +26,9 @@ Identity 三元组：**`(account_id, user_id, agent_id)`**，其中 **`agent_id 
 
 回答「为什么我和群主看到不同的 notebook/memory」类问题时，要结合 **是否已 bind** 与 **UserID 回落规则** 解释。
 
-## Heartbeat（群活跃时）
+## Discuss（群活跃时）
 
-部分 Persona（如仓库 `normal` 模板）启用 **`heartbeat`**：Telegram **群聊活跃**期间，API 侧调度器按 **`heartbeat_interval_minutes`** 等配置入队 **heartbeat Run**；Worker 中 `run_kind=heartbeat`，带 **合成用户消息**；工具 **`heartbeat_decision`** 决定静默或回复、是否附带记忆片段；状态写入 **`scheduled_triggers`**。  
+部分 Persona（如仓库 `normal` 模板）启用群聊 **Discuss**：Telegram **群聊活跃**期间，API 侧调度器按 discuss 间隔配置入队 **discuss Run**；群聊 run 默认 assistant 文本不可见，模型必须先调用 **`speak`**，后续 assistant 正文才会发送到群聊；`speak` 可携带 `reply_to_message_id`。状态写入 **`scheduled_triggers`**。
 具体间隔是否配置以**实际使用的 persona.yaml / DB 定义**为准。
 
 ## 工具与消息面

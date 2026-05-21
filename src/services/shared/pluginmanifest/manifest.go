@@ -48,6 +48,8 @@ type RuntimeConfig struct {
 	VersionMin     string                 `json:"version_min,omitempty" yaml:"version_min,omitempty"`
 	Binary         []RuntimeBinaryConfig  `json:"binary,omitempty" yaml:"binary,omitempty"`
 	Download       *RuntimeDownloadConfig `json:"download,omitempty" yaml:"download,omitempty"`
+	Daemon         *RuntimeDaemonConfig   `json:"daemon,omitempty" yaml:"daemon,omitempty"`
+	Daemons        []RuntimeDaemonConfig  `json:"daemons,omitempty" yaml:"daemons,omitempty"`
 	Platforms      []string               `json:"platforms,omitempty" yaml:"platforms,omitempty"`
 	Arch           []string               `json:"arch,omitempty" yaml:"arch,omitempty"`
 }
@@ -70,20 +72,44 @@ type RuntimeBinaryConfig struct {
 	SHA256   string `json:"sha256,omitempty" yaml:"sha256,omitempty"`
 }
 
+type RuntimeDaemonConfig struct {
+	ID           string             `json:"id,omitempty" yaml:"id,omitempty"`
+	Command      string             `json:"command,omitempty" yaml:"command,omitempty"`
+	Args         []string           `json:"args,omitempty" yaml:"args,omitempty"`
+	ArgsWhen     []RuntimeArgsWhen  `json:"args_when,omitempty" yaml:"args_when,omitempty"`
+	EnabledWhen  []RuntimeCondition `json:"enabled_when,omitempty" yaml:"enabled_when,omitempty"`
+	Env          map[string]string  `json:"env,omitempty" yaml:"env,omitempty"`
+	WorkingDir   string             `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	HealthURL    string             `json:"health_url,omitempty" yaml:"health_url,omitempty"`
+	HealthStatus int                `json:"health_status,omitempty" yaml:"health_status,omitempty"`
+}
+
+type RuntimeCondition struct {
+	Setting string `json:"setting" yaml:"setting"`
+	Equals  any    `json:"equals" yaml:"equals"`
+}
+
+type RuntimeArgsWhen struct {
+	Setting string   `json:"setting" yaml:"setting"`
+	Equals  any      `json:"equals" yaml:"equals"`
+	Args    []string `json:"args" yaml:"args"`
+}
+
 type MCPServerConfig struct {
-	ServerID        string            `json:"server_id" yaml:"server_id"`
-	InstallKey      string            `json:"install_key,omitempty" yaml:"install_key,omitempty"`
-	DisplayName     string            `json:"display_name,omitempty" yaml:"display_name,omitempty"`
-	Transport       string            `json:"transport" yaml:"transport"`
-	LaunchSpec      map[string]any    `json:"launch_spec,omitempty" yaml:"launch_spec,omitempty"`
-	Command         string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Args            []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env             map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	URL             string            `json:"url,omitempty" yaml:"url,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
-	WorkingDir      string            `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
-	HostRequirement string            `json:"host_requirement,omitempty" yaml:"host_requirement,omitempty"`
-	SourceURI       string            `json:"source_uri,omitempty" yaml:"source_uri,omitempty"`
+	ServerID        string             `json:"server_id" yaml:"server_id"`
+	InstallKey      string             `json:"install_key,omitempty" yaml:"install_key,omitempty"`
+	DisplayName     string             `json:"display_name,omitempty" yaml:"display_name,omitempty"`
+	Transport       string             `json:"transport" yaml:"transport"`
+	LaunchSpec      map[string]any     `json:"launch_spec,omitempty" yaml:"launch_spec,omitempty"`
+	Command         string             `json:"command,omitempty" yaml:"command,omitempty"`
+	Args            []string           `json:"args,omitempty" yaml:"args,omitempty"`
+	EnabledWhen     []RuntimeCondition `json:"enabled_when,omitempty" yaml:"enabled_when,omitempty"`
+	Env             map[string]string  `json:"env,omitempty" yaml:"env,omitempty"`
+	URL             string             `json:"url,omitempty" yaml:"url,omitempty"`
+	Headers         map[string]string  `json:"headers,omitempty" yaml:"headers,omitempty"`
+	WorkingDir      string             `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	HostRequirement string             `json:"host_requirement,omitempty" yaml:"host_requirement,omitempty"`
+	SourceURI       string             `json:"source_uri,omitempty" yaml:"source_uri,omitempty"`
 }
 
 type SkillConfig struct {
@@ -337,6 +363,53 @@ func (r RuntimeConfig) validate() error {
 			return fmt.Errorf("plugin runtime %q download sha256 must not be empty", r.ID)
 		}
 	}
+	if r.Daemon != nil {
+		if err := r.Daemon.validate(r.ID); err != nil {
+			return err
+		}
+	}
+	for _, daemon := range r.Daemons {
+		if err := daemon.validate(r.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (d RuntimeDaemonConfig) validate(runtimeID string) error {
+	if strings.TrimSpace(d.Command) == "" {
+		return fmt.Errorf("plugin runtime %q daemon command must not be empty", runtimeID)
+	}
+	if err := validatePathLikeCommand(d.Command); err != nil {
+		return fmt.Errorf("plugin runtime %q daemon command: %w", runtimeID, err)
+	}
+	if strings.TrimSpace(d.WorkingDir) != "" {
+		if err := validateRelativePath(d.WorkingDir); err != nil {
+			return fmt.Errorf("plugin runtime %q daemon working_dir: %w", runtimeID, err)
+		}
+	}
+	if strings.TrimSpace(d.HealthURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(d.HealthURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("plugin runtime %q daemon health_url is invalid", runtimeID)
+		}
+	}
+	if d.HealthStatus < 0 || d.HealthStatus > 599 {
+		return fmt.Errorf("plugin runtime %q daemon health_status is invalid", runtimeID)
+	}
+	for _, condition := range d.ArgsWhen {
+		if strings.TrimSpace(condition.Setting) == "" {
+			return fmt.Errorf("plugin runtime %q daemon args_when setting must not be empty", runtimeID)
+		}
+		if len(condition.Args) == 0 {
+			return fmt.Errorf("plugin runtime %q daemon args_when args must not be empty", runtimeID)
+		}
+	}
+	for _, condition := range d.EnabledWhen {
+		if strings.TrimSpace(condition.Setting) == "" {
+			return fmt.Errorf("plugin runtime %q daemon enabled_when setting must not be empty", runtimeID)
+		}
+	}
 	return nil
 }
 
@@ -392,6 +465,11 @@ func (s MCPServerConfig) validate() error {
 		}
 	default:
 		return fmt.Errorf("plugin mcp server %q transport is invalid", s.ServerID)
+	}
+	for _, condition := range s.EnabledWhen {
+		if strings.TrimSpace(condition.Setting) == "" {
+			return fmt.Errorf("plugin mcp server %q enabled_when setting must not be empty", s.ServerID)
+		}
 	}
 	return nil
 }
@@ -527,7 +605,87 @@ func runtimeConfig(value any) (RuntimeConfig, bool) {
 			SHA256: firstString(download, "sha256"),
 		}
 	}
+	if daemon, ok := runtimeDaemonConfig(raw["daemon"]); ok {
+		runtime.Daemon = &daemon
+	}
+	runtime.Daemons = runtimeDaemonConfigs(raw["daemons"])
 	return runtime, true
+}
+
+func runtimeDaemonConfigs(value any) []RuntimeDaemonConfig {
+	switch typed := value.(type) {
+	case []any:
+		out := make([]RuntimeDaemonConfig, 0, len(typed))
+		for _, item := range typed {
+			if daemon, ok := runtimeDaemonConfig(item); ok {
+				out = append(out, daemon)
+			}
+		}
+		return out
+	case map[string]any:
+		if daemon, ok := runtimeDaemonConfig(typed); ok {
+			return []RuntimeDaemonConfig{daemon}
+		}
+	}
+	return nil
+}
+
+func runtimeDaemonConfig(value any) (RuntimeDaemonConfig, bool) {
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return RuntimeDaemonConfig{}, false
+	}
+	daemon := RuntimeDaemonConfig{
+		ID:           firstString(raw, "id", "name"),
+		Command:      firstString(raw, "command"),
+		Args:         stringSlice(raw["args"]),
+		ArgsWhen:     runtimeArgsWhenConfigs(raw["args_when"]),
+		EnabledWhen:  runtimeConditionConfigs(raw["enabled_when"]),
+		Env:          stringMap(raw["env"]),
+		WorkingDir:   firstString(raw, "working_dir"),
+		HealthURL:    firstString(raw, "health_url"),
+		HealthStatus: intValue(raw["health_status"]),
+	}
+	return daemon, daemon.Command != ""
+}
+
+func runtimeConditionConfigs(value any) []RuntimeCondition {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]RuntimeCondition, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, RuntimeCondition{
+			Setting: firstString(raw, "setting"),
+			Equals:  raw["equals"],
+		})
+	}
+	return out
+}
+
+func runtimeArgsWhenConfigs(value any) []RuntimeArgsWhen {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]RuntimeArgsWhen, 0, len(items))
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, RuntimeArgsWhen{
+			Setting: firstString(raw, "setting"),
+			Equals:  raw["equals"],
+			Args:    stringSlice(raw["args"]),
+		})
+	}
+	return out
 }
 
 func runtimeDetectConfigs(value any, inheritedCommand []string, inheritedMin string) []RuntimeDetectConfig {
@@ -651,6 +809,7 @@ func mcpServerConfig(fallbackID string, value any) (MCPServerConfig, bool) {
 		LaunchSpec:      mapAny(firstNonNil(raw["launch_spec"], raw["launchSpec"])),
 		Command:         firstString(raw, "command"),
 		Args:            stringSlice(raw["args"]),
+		EnabledWhen:     runtimeConditionConfigs(raw["enabled_when"]),
 		Env:             stringMap(raw["env"]),
 		URL:             firstString(raw, "url"),
 		Headers:         stringMap(raw["headers"]),

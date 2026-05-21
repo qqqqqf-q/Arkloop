@@ -2118,14 +2118,6 @@ func (l *Loop) runSingleTurn(
 				"tool_calls":     traceTurnToolCalls(toolCalls),
 			})
 		}
-		if completedTurnIsEmpty(strings.Join(assistantChunks, ""), assistantMessage, toolCalls, toolResults) &&
-			!requestEndsWithDeliveredChannelToolResult(request) {
-			if runCtx.RolloutRecorder != nil {
-				appendRollout(ctx, runCtx.RolloutRecorder, MakeTurnEnd(turnIndex))
-			}
-			eventsOut = append(eventsOut, emptyCompletionFailureEvent(emitter, completedJSON))
-			return turnResult{Events: eventsOut, Terminal: true}, nil
-		}
 	}
 	// Rollout: 写入 TurnEnd
 	if runCtx.RolloutRecorder != nil {
@@ -2896,109 +2888,6 @@ func turnHasRecoverableProgressData(
 		(assistantMessage != nil && len(assistantMessage.Content) > 0) ||
 		len(toolCalls) > 0 ||
 		len(toolResults) > 0
-}
-
-func completedTurnIsEmpty(
-	assistantText string,
-	assistantMessage *llm.Message,
-	toolCalls []llm.ToolCall,
-	toolResults []llm.StreamToolResult,
-) bool {
-	if strings.TrimSpace(assistantText) != "" || len(toolCalls) > 0 || len(toolResults) > 0 {
-		return false
-	}
-	if assistantMessage == nil {
-		return true
-	}
-	if len(assistantMessage.ToolCalls) > 0 {
-		return false
-	}
-	if assistantMessageHasState(assistantMessage.Content) {
-		return false
-	}
-	for _, part := range llm.VisibleContentParts(assistantMessage.Content) {
-		switch part.Kind() {
-		case messagecontent.PartTypeImage:
-			return false
-		case messagecontent.PartTypeText, messagecontent.PartTypeFile:
-			if strings.TrimSpace(llm.PartPromptText(part)) != "" {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func requestEndsWithDeliveredChannelToolResult(request llm.Request) bool {
-	if len(request.Messages) == 0 {
-		return false
-	}
-	last := request.Messages[len(request.Messages)-1]
-	if strings.TrimSpace(last.Role) != "tool" {
-		return false
-	}
-	var payload struct {
-		ToolName string         `json:"tool_name"`
-		Result   map[string]any `json:"result"`
-		Error    any            `json:"error"`
-	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(messagePromptText(last))), &payload); err != nil {
-		return false
-	}
-	if payload.Error != nil || payload.Result == nil {
-		return false
-	}
-	if ok, _ := payload.Result["ok"].(bool); !ok {
-		return false
-	}
-	switch llm.CanonicalToolName(payload.ToolName) {
-	case "telegram_react", "telegram_send_file":
-		return true
-	default:
-		return false
-	}
-}
-
-func messagePromptText(msg llm.Message) string {
-	var b strings.Builder
-	for _, part := range msg.Content {
-		b.WriteString(llm.PartPromptText(part))
-	}
-	return b.String()
-}
-
-func assistantMessageHasState(parts []llm.ContentPart) bool {
-	for _, part := range parts {
-		switch part.Kind() {
-		case "thinking":
-			if strings.TrimSpace(part.Text) != "" || strings.TrimSpace(part.Signature) != "" {
-				return true
-			}
-		case "redacted_thinking":
-			if strings.TrimSpace(part.Text) != "" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func emptyCompletionFailureEvent(emitter events.Emitter, completedJSON map[string]any) events.RunEvent {
-	payload := llm.GatewayError{
-		ErrorClass: llm.ErrorClassProviderRetryable,
-		Message:    "upstream stream completed without assistant content",
-		Details:    map[string]any{"reason": "empty_assistant_completion"},
-	}.ToJSON()
-	if llmCallID, ok := completedJSON["llm_call_id"]; ok && llmCallID != nil {
-		payload["llm_call_id"] = llmCallID
-	}
-	if usage, ok := completedJSON["usage"]; ok && usage != nil {
-		payload["usage"] = usage
-	}
-	if cost, ok := completedJSON["cost"]; ok && cost != nil {
-		payload["cost"] = cost
-	}
-	return emitter.Emit("run.failed", payload, nil, stringPtr(llm.ErrorClassProviderRetryable))
 }
 
 func pressureAnchorFromCompleted(data map[string]any) *pipeline.ContextCompactPressureAnchor {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore, memo, Fragment, type ComponentProps } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowDown, ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardList, CornerDownLeft, Globe2, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardList, CornerDownLeft, GitBranch, Globe2, Pencil, Trash2 } from 'lucide-react'
 import { AutoResizeTextarea, DebugTrigger } from '@arkloop/shared'
 import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { RunDetailPanel } from './RunDetailPanel'
@@ -29,6 +29,7 @@ import { rightPanelIconSize } from './rightPanelControls'
 import { LocalFilesPanel } from './local-files/LocalFilesPanel'
 import { resolveLocalFileIconUrl } from './local-files/fileIconResolver'
 import { ResourcePreviewPanel } from './resource-preview/ResourcePreviewPanel'
+import { ConversationGraphPanel } from './conversation-graph/ConversationGraphPanel'
 import { BrowserSiteIcon } from './resource-preview/BrowserSiteIcon'
 import type { BrowserResourceRef, LocalFileResourceRef, ResourceRef } from './resource-preview/types'
 import { resourceTitle } from './resource-preview/resourceUri'
@@ -182,10 +183,29 @@ import {
 const chatContentPadding = { panelClosed: 'clamp(24px, 5vw, 60px)', panelOpen: 'clamp(16px, 3vw, 40px)' } as const
 const chatInputPadding = { panelClosed: 'clamp(24px, 5vw, 60px)', panelOpen: 'clamp(16px, 3vw, 40px)', work: '14px' } as const
 const rightPanelDefaultRatio = 0.4
+const rightPanelGraphRatio = 0.52
 const rightPanelMinWidth = 420
+const rightPanelWidthStorageKey = 'arkloop:web:right_panel_width'
 const chatViewMinWidth = 520
 const rightPanelLayoutTransition = { duration: 0.22, ease: [0.16, 1, 0.3, 1] } as const
 const rightPanelLayoutTransitionCss = '220ms cubic-bezier(0.16, 1, 0.3, 1)'
+
+function readSavedRightPanelWidth(): number | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const value = Number(window.localStorage.getItem(rightPanelWidthStorageKey))
+    return Number.isFinite(value) && value >= rightPanelMinWidth ? value : null
+  } catch {
+    return null
+  }
+}
+
+function writeSavedRightPanelWidth(width: number): void {
+  if (typeof window === 'undefined' || !Number.isFinite(width) || width < rightPanelMinWidth) return
+  try {
+    window.localStorage.setItem(rightPanelWidthStorageKey, String(Math.round(width)))
+  } catch { /* ignore */ }
+}
 
 function errorNoticeKey(error: AppError): string {
   let details = ''
@@ -265,6 +285,7 @@ type LocationState = {
   forkBaseCount?: number
   userEnterMessageId?: string
   welcomeUserMessage?: AgentMessage
+  graphFocusMessageId?: string
 } | null
 
 type RightPanelStoredTab =
@@ -922,14 +943,20 @@ export const ChatView = memo(function ChatView() {
   const rightPanelShellRef = useRef<HTMLDivElement>(null)
   const rightPanelContentRef = useRef<HTMLDivElement>(null)
   const rightPanelRatioRef = useRef(0)
+  const initialRightPanelWidthRef = useRef<number | null>(null)
   const [rightPanelResizing, setRightPanelResizing] = useState(false)
-  const [rightPanelWidth, setRightPanelWidth] = useState(rightPanelMinWidth)
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = readSavedRightPanelWidth()
+    initialRightPanelWidthRef.current = saved
+    return saved ?? rightPanelMinWidth
+  })
   const [rightPanelTabs, setRightPanelTabs] = useState<RightPanelStoredTab[]>([])
   const [activeRightPanelTabId, setActiveRightPanelTabId] = useState<string | null>(null)
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<string[]>([])
   const [webPanelResource, setWebPanelResource] = useState<BrowserResourceRef | null>(null)
   const [extraBrowserTabs, setExtraBrowserTabs] = useState<Array<{ id: string; resource: BrowserResourceRef | null }>>([])
   const [filesPreviewResource, setFilesPreviewResource] = useState<LocalFileResourceRef | null>(null)
+  const [selectedGraphMessageId, setSelectedGraphMessageId] = useState<string | null>(null)
   const browserTabSeqRef = useRef(0)
   const localFileTabSeqRef = useRef(0)
   const restoredRightPanelThreadRef = useRef<string | null>(null)
@@ -1134,6 +1161,22 @@ export const ChatView = memo(function ChatView() {
     (sending || activeRunId != null)
 
   const messageListRef = useRef<MessageListHandle>(null)
+  const graphNavigationHandoffRef = useRef<{ threadId: string; messageId: string; messages: AgentMessage[] } | null>(null)
+  const selectForkAnchor = useCallback((messageId: string) => {
+    setSelectedGraphMessageId(messageId)
+    setRightPanelVisible(true)
+    setActiveRightPanelTabId('conversation-graph')
+    setRightPanelWidth((current) => {
+      const root = chatViewRootRef.current
+      if (!root) return Math.max(current, 560)
+      const next = clampRightPanelWidth(Math.max(current, root.clientWidth * rightPanelGraphRatio), root.clientWidth)
+      rightPanelRatioRef.current = next / Math.max(root.clientWidth, 1)
+      return next
+    })
+    window.requestAnimationFrame(() => {
+      messageListRef.current?.scrollToMessage(messageId, { align: 'center', behavior: 'smooth' })
+    })
+  }, [])
 
   const {
     bottomRef,
@@ -1204,7 +1247,7 @@ export const ChatView = memo(function ChatView() {
     handleUserInputDismiss,
     handleAsrError,
     handleArtifactAction,
-  } = useChatActions({ scrollToBottom: activateAnchor })
+  } = useChatActions({ scrollToBottom: activateAnchor, onSelectForkAnchor: selectForkAnchor })
   const handleBuildPlan = useCallback((message: string) => {
     void sendMessage(message)
   }, [sendMessage])
@@ -1214,20 +1257,30 @@ export const ChatView = memo(function ChatView() {
     if (!threadId) return
     const syncVersion = beginMessageSync()
     let disposed = false
+    const navUserEnterMessageId = locationState?.userEnterMessageId
+    const navGraphFocusMessageId = locationState?.graphFocusMessageId
+    const graphHandoff = graphNavigationHandoffRef.current
+    const hasGraphHandoff = !!(
+      graphHandoff &&
+      graphHandoff.threadId === threadId &&
+      graphHandoff.messageId === navGraphFocusMessageId
+    )
 
     if (!shouldSkipInitialSkeleton) {
-      setMessagesLoading(true)
+      setMessagesLoading(!hasGraphHandoff)
       setUserEnterMessageId(null)
     } else if (welcomeUserMessage) {
       setMessages([welcomeUserMessage])
       setUserEnterMessageId(welcomeUserMessage.id)
       setMessagesLoading(false)
     }
+    if (hasGraphHandoff) {
+      setMessages(graphHandoff.messages)
+      setSelectedGraphMessageId(navGraphFocusMessageId ?? null)
+    }
     setError(null)
     setInjectionBlocked(null)
     injectionBlockedRunIdRef.current = null
-
-    const navUserEnterMessageId = locationState?.userEnterMessageId
 
     void (async () => {
       getThreadTodos(threadId).then((cached) => {
@@ -1237,11 +1290,12 @@ export const ChatView = memo(function ChatView() {
       try {
         const [thread, initialItems, runs] = await Promise.all([
           getThread(accessToken, threadId),
-          agentClient.listMessages(threadId),
+          hasGraphHandoff ? Promise.resolve(graphHandoff.messages) : agentClient.listMessages(threadId),
           listThreadRuns(accessToken, threadId, 1),
         ])
         if (disposed || !isMessageSyncCurrent(syncVersion)) return
         onThreadUpserted(thread)
+        if (hasGraphHandoff) graphNavigationHandoffRef.current = null
 
         const latest = runs[0]
         let items = initialItems
@@ -1255,6 +1309,11 @@ export const ChatView = memo(function ChatView() {
 
         loadedItems = items
         setMessages(items)
+        setSelectedGraphMessageId(
+          navGraphFocusMessageId && items.some((item) => item.id === navGraphFocusMessageId)
+            ? navGraphFocusMessageId
+            : null,
+        )
         let interruptedError = latest?.status === 'interrupted'
           ? { message: t.runInterrupted }
           : null
@@ -1712,10 +1771,11 @@ export const ChatView = memo(function ChatView() {
             setUserEnterMessageId(navUserEnterMessageId)
           }
           setMessagesLoading(false)
-          if (locationState?.userEnterMessageId || locationState?.welcomeUserMessage) {
+          if (locationState?.userEnterMessageId || locationState?.welcomeUserMessage || locationState?.graphFocusMessageId) {
             const rest: LocationState = { ...locationState }
             delete rest.userEnterMessageId
             delete rest.welcomeUserMessage
+            delete rest.graphFocusMessageId
             queueMicrotask(() => {
               navigate('.', { replace: true, state: Object.keys(rest as object).length > 0 ? rest : undefined })
             })
@@ -1860,6 +1920,34 @@ export const ChatView = memo(function ChatView() {
   pendingIncognitoRef.current = pendingIncognito
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const displayedMessages = useMemo(() => {
+    if (!selectedGraphMessageId) return messages
+    const index = messages.findIndex((message) => message.id === selectedGraphMessageId)
+    return index < 0 ? messages : messages.slice(0, index + 1)
+  }, [messages, selectedGraphMessageId])
+  const selectedGraphMessageIdRef = useRef<string | null>(selectedGraphMessageId)
+  selectedGraphMessageIdRef.current = selectedGraphMessageId
+  useEffect(() => {
+    if (!selectedGraphMessageId) return
+    if (!messages.some((message) => message.id === selectedGraphMessageId)) setSelectedGraphMessageId(null)
+  }, [messages, selectedGraphMessageId])
+  const handleSelectGraphMessage = useCallback((targetThreadId: string, messageId: string) => {
+    if (targetThreadId !== threadId) {
+      void agentClient.listMessages(targetThreadId)
+        .then((items) => {
+          graphNavigationHandoffRef.current = { threadId: targetThreadId, messageId, messages: items }
+          navigate(`/t/${targetThreadId}`, { state: { graphFocusMessageId: messageId } })
+        })
+        .catch((err) => {
+          setError(normalizeError(err))
+        })
+      return
+    }
+    setSelectedGraphMessageId(messageId)
+    window.requestAnimationFrame(() => {
+      messageListRef.current?.scrollToMessage(messageId, { align: 'center', behavior: 'smooth' })
+    })
+  }, [agentClient, navigate, threadId])
   const draftScope = useMemo<InputDraftScope>(() => ({
     ownerKey: me?.id,
     page: 'thread',
@@ -2250,10 +2338,58 @@ export const ChatView = memo(function ChatView() {
         setError({ message: 'Attachments are still uploading.' })
         return
       }
+      const graphForkAnchorMessageId = selectedGraphMessageIdRef.current
+      const graphForkAnchorIndex = graphForkAnchorMessageId
+        ? messages.findIndex((message) => message.id === graphForkAnchorMessageId)
+        : -1
+      const shouldForkFromGraphSelection =
+        graphForkAnchorMessageId != null &&
+        graphForkAnchorIndex >= 0 &&
+        messages[messages.length - 1]?.id !== graphForkAnchorMessageId
+      if (shouldForkFromGraphSelection) {
+        setSelectedGraphMessageId(null)
+        setSending(true)
+        setPendingThinking(true)
+        setThinkingHint(hint)
+        setError(null)
+        setInjectionBlocked(null)
+        injectionBlockedRunIdRef.current = null
+        await waitForThreadModeUpdates()
+        const forked = await forkThread(accessToken, threadId, graphForkAnchorMessageId)
+        if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
+        onThreadCreated(forked)
+        const forkUserMessage = await agentClient.createMessage({
+          threadId: forked.id,
+          request: buildMessageRequest(text, uploaded),
+        })
+        const run = await agentClient.createRun({
+          threadId: forked.id,
+          personaId: personaKey,
+          modelOverride,
+          workDir: resolveThreadWorkFolder(threadId),
+          reasoningMode: readThreadReasoningMode(threadId) !== 'off' ? readThreadReasoningMode(threadId) as RunReasoningMode : undefined,
+        })
+        writeRunThinkingHint(run.id, hint)
+        if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
+        resetSearchSteps()
+        attachments.forEach((attachment) => revokeDraftAttachment(attachment))
+        chatInputRef.current?.clear()
+        setAttachments([])
+        navigate(`/t/${forked.id}`, {
+          state: {
+            initialRunId: run.id,
+            userEnterMessageId: forkUserMessage.id,
+          },
+          replace: false,
+        })
+        onRunStarted(forked.id)
+        return
+      }
       const clientMessageId = createClientMessageId()
       const request = buildMessageRequest(text, uploaded)
       const localMessage = buildOptimisticUserMessage(request, clientMessageId)
 
+      setSelectedGraphMessageId(null)
       setSending(true)
       setPendingThinking(true)
       setThinkingHint(hint)
@@ -2381,13 +2517,13 @@ export const ChatView = memo(function ChatView() {
   }, [inputError])
 
   const lastUserMsgIdx = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') return i
+    for (let i = displayedMessages.length - 1; i >= 0; i--) {
+      if (displayedMessages[i].role === 'user') return i
     }
     return -1
-  }, [messages])
+  }, [displayedMessages])
 
-  const lastTurnStartIdx = lastUserMsgIdx >= 0 ? lastUserMsgIdx : messages.length
+  const lastTurnStartIdx = lastUserMsgIdx >= 0 ? lastUserMsgIdx : displayedMessages.length
 
   const clearUserEnterAnimation = useCallback(() => {
     setUserEnterMessageId(null)
@@ -2405,6 +2541,7 @@ export const ChatView = memo(function ChatView() {
   useEffect(() => {
     skipRightPanelSaveRef.current = true
     const previousThreadId = restoredRightPanelThreadRef.current
+    const isGraphFocusNavigation = !!locationState?.graphFocusMessageId
     if (!threadId) {
       restoredRightPanelThreadRef.current = null
       setRightPanelVisible(false)
@@ -2418,14 +2555,14 @@ export const ChatView = memo(function ChatView() {
       browserTabSeqRef.current = 0
       return
     }
-    if (previousThreadId !== threadId) {
+    if (previousThreadId !== threadId && !isGraphFocusNavigation) {
       setRightPanelTabs([])
       closePanelRef.current()
     }
     const saved = readThreadRightPanelState(threadId, { workFolder: workPanelFolder })
     restoredRightPanelThreadRef.current = threadId
-    setRightPanelVisible(saved?.visible ?? false)
-    setActiveRightPanelTabId(saved?.activeTabId ?? null)
+    setRightPanelVisible(isGraphFocusNavigation ? true : saved?.visible ?? false)
+    setActiveRightPanelTabId(isGraphFocusNavigation ? 'conversation-graph' : saved?.activeTabId ?? null)
     setRightPanelTabOrder(saved?.tabOrder ?? [])
     setWebPanelResource(saved?.web ?? null)
     setExtraBrowserTabs(saved?.browserTabs ?? [])
@@ -2452,6 +2589,10 @@ export const ChatView = memo(function ChatView() {
   }, [isPanelOpen, setRightPanelOpen])
 
   useEffect(() => {
+    if (isPanelOpen) writeSavedRightPanelWidth(rightPanelWidth)
+  }, [isPanelOpen, rightPanelWidth])
+
+  useEffect(() => {
     setTitleBarRightPanelClick(() => {
       setRightPanelVisible((visible) => !visible)
     })
@@ -2467,7 +2608,7 @@ export const ChatView = memo(function ChatView() {
       const containerWidth = root.clientWidth
       setRightPanelWidth((current) => {
         const target = rightPanelRatioRef.current === 0
-          ? containerWidth * rightPanelDefaultRatio
+          ? initialRightPanelWidthRef.current ?? containerWidth * rightPanelDefaultRatio
           : current
         const next = clampRightPanelWidth(target, containerWidth)
         rightPanelRatioRef.current = next / Math.max(containerWidth, 1)
@@ -2552,6 +2693,11 @@ export const ChatView = memo(function ChatView() {
   }, [upsertRightPanelTab])
 
   const closeRightPanelTab = useCallback((id: string) => {
+    if (id === 'conversation-graph') {
+      setSelectedGraphMessageId(null)
+      setActiveRightPanelTabId((activeId) => activeId === id ? 'web' : activeId)
+      return
+    }
     if (id === 'web') {
       setWebPanelResource(null)
       setActiveRightPanelTabId('web')
@@ -2810,6 +2956,28 @@ export const ChatView = memo(function ChatView() {
     }
   }, [workPanelFolder, accessToken, filesPreviewResource, pinLocalFileResource, setFilesPreviewResource, t.rightPanel.files])
 
+  const conversationGraphRefreshKey = useMemo(() => {
+    const lastMessage = messages[messages.length - 1]
+    return `${messages.length}:${lastMessage?.id ?? ''}:${activeRunId ?? ''}`
+  }, [activeRunId, messages])
+
+  const conversationGraphPanelTab = useMemo<RightPanelTab>(() => ({
+    id: 'conversation-graph',
+    kind: 'conversation-graph',
+    title: t.rightPanel.conversationGraph,
+    closable: true,
+    icon: <GitBranch size={rightPanelIconSize} />,
+    content: (
+      <ConversationGraphPanel
+        accessToken={accessToken}
+        threadId={threadId}
+        selectedMessageId={selectedGraphMessageId}
+        refreshKey={conversationGraphRefreshKey}
+        onSelectMessage={handleSelectGraphMessage}
+      />
+    ),
+  }), [accessToken, conversationGraphRefreshKey, handleSelectGraphMessage, selectedGraphMessageId, t.rightPanel.conversationGraph, threadId])
+
   const resourcePanelTabs = useMemo<RightPanelTab[]>(() => {
     const result: RightPanelTab[] = []
     for (const tab of rightPanelTabs) {
@@ -2820,11 +2988,11 @@ export const ChatView = memo(function ChatView() {
   }, [rightPanelTabs, buildStoredPanelTab])
 
   const rightPanelRenderedTabs = useMemo<RightPanelTab[]>(() => {
-    const tabs: RightPanelTab[] = [webPanelTab, ...extraBrowserPanelTabs]
+    const tabs: RightPanelTab[] = [conversationGraphPanelTab, webPanelTab, ...extraBrowserPanelTabs]
     if (filesPanelTab) tabs.push(filesPanelTab)
     tabs.push(...resourcePanelTabs)
     return tabs
-  }, [webPanelTab, extraBrowserPanelTabs, filesPanelTab, resourcePanelTabs])
+  }, [conversationGraphPanelTab, webPanelTab, extraBrowserPanelTabs, filesPanelTab, resourcePanelTabs])
 
   const effectiveRightPanelTabId = rightPanelRenderedTabs.some((tab) => tab.id === activeRightPanelTabId)
     ? activeRightPanelTabId
@@ -3454,26 +3622,27 @@ export const ChatView = memo(function ChatView() {
             )}
             <CopTimelineLocalExpansionProvider stabilizeScroll={stabilizeDocumentPanelScroll}>
               <MessageList
-              ref={messageListRef}
-              isWorkMode={isWorkMode}
-              lastTurnStartIdx={lastTurnStartIdx}
-              lastTurnRef={lastUserMsgRef}
-              lastUserPromptRef={lastUserPromptRef}
-              lastTurnChildren={lastTurnChildren}
-              showRunDetailButton={showRunDetailButton}
-              currentRunCopHeaderOverride={currentRunCopHeaderOverride}
-              handleRetryUserMessage={handleRetryUserMessage}
-              handleEditMessage={handleEditMessage}
-              handleFork={handleFork}
-              handleArtifactAction={handleArtifactAction}
-              openDocumentPanel={openDocumentPanel}
-              openResourcePanel={openResourcePanel}
-              openCodePanel={openCodePanel}
-              openAgentPanel={openAgentPanelState}
-              sourcePanelMessageId={sourcePanelMessageId}
-              setRunDetailPanelRunId={setRunDetailPanelRunId}
-              clearUserEnterAnimation={clearUserEnterAnimation}
-              workFolder={workPanelFolder}
+                ref={messageListRef}
+                isWorkMode={isWorkMode}
+                lastTurnStartIdx={lastTurnStartIdx}
+                lastTurnRef={lastUserMsgRef}
+                lastUserPromptRef={lastUserPromptRef}
+                lastTurnChildren={!selectedGraphMessageId || messages[messages.length - 1]?.id === selectedGraphMessageId ? lastTurnChildren : undefined}
+                showRunDetailButton={showRunDetailButton}
+                currentRunCopHeaderOverride={currentRunCopHeaderOverride}
+                handleRetryUserMessage={handleRetryUserMessage}
+                handleEditMessage={handleEditMessage}
+                handleFork={handleFork}
+                handleArtifactAction={handleArtifactAction}
+                openDocumentPanel={openDocumentPanel}
+                openResourcePanel={openResourcePanel}
+                openCodePanel={openCodePanel}
+                openAgentPanel={openAgentPanelState}
+                sourcePanelMessageId={sourcePanelMessageId}
+                setRunDetailPanelRunId={setRunDetailPanelRunId}
+                clearUserEnterAnimation={clearUserEnterAnimation}
+                workFolder={workPanelFolder}
+                messagesOverride={displayedMessages}
               />
             </CopTimelineLocalExpansionProvider>
           </>
@@ -3484,6 +3653,7 @@ export const ChatView = memo(function ChatView() {
   ), [
     contextCompactBar,
     currentRunCopHeaderOverride,
+    displayedMessages,
     handleArtifactAction,
     handleEditMessage,
     handleFork,
@@ -3492,12 +3662,14 @@ export const ChatView = memo(function ChatView() {
     isWorkMode,
     lastTurnChildren,
     lastTurnStartIdx,
+    messages,
     messagesLoading,
     openAgentPanelState,
     openCodePanel,
     openDocumentPanel,
     openResourcePanel,
     sourcePanelMessageId,
+    selectedGraphMessageId,
     setRunDetailPanelRunId,
     stabilizeDocumentPanelScroll,
     t.desktopSettings.chatCompactBannerDone,

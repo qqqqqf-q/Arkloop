@@ -61,6 +61,7 @@ type threadResponse struct {
 	CollaborationModeRevision int64   `json:"collaboration_mode_revision"`
 	LearningModeEnabled       bool    `json:"learning_mode_enabled"`
 	ParentThreadID            *string `json:"parent_thread_id,omitempty"`
+	BranchedFromMessageID     *string `json:"branched_from_message_id,omitempty"`
 }
 
 type optionalString struct {
@@ -887,6 +888,7 @@ func threadEntry(
 	share := shareEntry(authService, membershipRepo, threadRepo, threadShareRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
 	report := reportEntry(authService, membershipRepo, threadRepo, threadReportRepo, auditWriter, apiKeysRepo, flagService)
 	fork := forkThread(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
+	graph := getThreadGraph(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo)
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if r.URL.Path == "/v1/threads/" {
 			threadsEntry(authService, membershipRepo, threadRepo, projectRepo, pool, apiKeysRepo, auditWriter)(w, r)
@@ -945,6 +947,12 @@ func threadEntry(
 		// sub-resource dispatch
 		subResource, subID, hasSub := strings.Cut(parts[1], "/")
 		switch subResource {
+		case "graph":
+			if hasSub {
+				httpkit.WriteNotFound(w, r)
+				return
+			}
+			graph(w, r, threadID)
 		case "messages":
 			if hasSub {
 				messageIDPart, messageAction, hasMessageAction := strings.Cut(subID, ":")
@@ -1127,6 +1135,11 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		value := thread.ParentThreadID.String()
 		parentThreadID = &value
 	}
+	var branchedFromMessageID *string
+	if thread.BranchedFromMessageID != nil {
+		value := thread.BranchedFromMessageID.String()
+		branchedFromMessageID = &value
+	}
 	mode, ok := data.NormalizeThreadMode(thread.Mode)
 	if !ok {
 		mode = data.ThreadModeChat
@@ -1161,6 +1174,7 @@ func toThreadResponse(thread data.Thread) threadResponse {
 		CollaborationModeRevision: thread.CollaborationModeRevision,
 		LearningModeEnabled:       thread.LearningModeEnabled,
 		ParentThreadID:            parentThreadID,
+		BranchedFromMessageID:     branchedFromMessageID,
 	}
 }
 

@@ -7,6 +7,7 @@ const canonicalToolNameAliases: Record<string, string> = {
   'web_search.exa': 'web_search',
   'web_search.searxng': 'web_search',
   'web_search.tavily': 'web_search',
+  'x_search.xai': 'x_search',
 }
 
 export function canonicalToolName(raw: string): string {

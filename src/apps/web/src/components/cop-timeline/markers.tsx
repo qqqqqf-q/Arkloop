@@ -21,13 +21,9 @@ import type { WebSearchPhaseStep } from './types'
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>
 
-export type TimelineMarker =
-  | { kind: 'dot' }
-  | { kind: 'icon'; icon: Icon; label: string }
+export type TimelineMarker = { kind: 'icon'; icon: Icon; label: string }
 
-export const DOT_MARKER: TimelineMarker = { kind: 'dot' }
-
-export function markerForCategory(category: CopSegmentCategory): TimelineMarker {
+export function markerForCategory(category: CopSegmentCategory): TimelineMarker | undefined {
   switch (category) {
     case 'explore': return { kind: 'icon', icon: FileSearch, label: 'Explore' }
     case 'exec': return { kind: 'icon', icon: Terminal, label: 'Command' }
@@ -37,11 +33,11 @@ export function markerForCategory(category: CopSegmentCategory): TimelineMarker 
     case 'search': return { kind: 'icon', icon: Globe, label: 'Search' }
     case 'image': return { kind: 'icon', icon: FileImage, label: 'Image' }
     case 'plan': return { kind: 'icon', icon: ClipboardList, label: 'Plan' }
-    case 'generic': return DOT_MARKER
+    case 'generic': return undefined
   }
 }
 
-export function markerForToolName(toolName: string): TimelineMarker {
+export function markerForToolName(toolName: string): TimelineMarker | undefined {
   const name = normalizeToolName(toolName)
   if (isWebSearchToolName(toolName)) return { kind: 'icon', icon: Globe, label: 'Search' }
   switch (name) {
@@ -95,17 +91,17 @@ export function markerForToolName(toolName: string): TimelineMarker {
     case 'web_fetch':
       return { kind: 'icon', icon: Globe, label: 'Browser' }
     default:
-      return DOT_MARKER
+      return undefined
   }
 }
 
-export function markerForFileOp(op: FileOpRef): TimelineMarker {
+export function markerForFileOp(op: FileOpRef): TimelineMarker | undefined {
   return markerForToolName(op.toolName)
 }
 
-export function markerForStep(step: WebSearchPhaseStep): TimelineMarker {
+export function markerForStep(step: WebSearchPhaseStep): TimelineMarker | undefined {
   if (step.kind === 'finished') return { kind: 'icon', icon: CheckCircle2, label: 'Done' }
-  if (step.kind === 'planning') return DOT_MARKER
+  if (step.kind === 'planning') return undefined
   if (step.kind === 'reviewing') return { kind: 'icon', icon: Globe, label: 'Review' }
   return { kind: 'icon', icon: Search, label: 'Search' }
 }

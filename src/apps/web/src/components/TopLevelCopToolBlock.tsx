@@ -8,6 +8,8 @@ import { ExecutionCard } from './ExecutionCard'
 import { TodoListCard } from './TodoListCard'
 import { FileOpToolRow } from './cop-timeline/ToolRows'
 import { markerForToolName, type TimelineMarker } from './cop-timeline/markers'
+import { DocumentResourceCard } from './DocumentCard'
+import { isPlanMarkdownPath } from '../planMetadata'
 
 export type TopLevelCopToolEntry =
   | { kind: 'code'; id: string; seq: number; item: CodeExecutionRef }
@@ -62,30 +64,9 @@ function TopLevelLivePreview({ text }: { text?: string }) {
   )
 }
 
-function TopLevelToolMarker({ marker }: { marker: TimelineMarker }) {
-  if (marker.kind === 'icon') {
-    return (
-      <span
-        title={marker.label}
-        aria-label={marker.label}
-        style={{
-          width: TOP_LEVEL_TOOL_ICON_WIDTH,
-          height: TOP_LEVEL_TOOL_LINE_HEIGHT,
-          flex: `0 0 ${TOP_LEVEL_TOOL_ICON_WIDTH}px`,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingTop: 1,
-          color: 'var(--c-cop-row-fg, var(--c-text-tertiary))',
-        }}
-      >
-        <marker.icon width={13} height={13} strokeWidth={2.1} />
-      </span>
-    )
-  }
+function TopLevelToolMarker({ marker }: { marker?: TimelineMarker }) {
   return (
     <span
-      aria-hidden="true"
       style={{
         width: TOP_LEVEL_TOOL_ICON_WIDTH,
         height: TOP_LEVEL_TOOL_LINE_HEIGHT,
@@ -93,16 +74,15 @@ function TopLevelToolMarker({ marker }: { marker: TimelineMarker }) {
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
+        paddingTop: 1,
+        color: 'var(--c-cop-row-fg, var(--c-text-tertiary))',
       }}
     >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: 'var(--c-cop-row-fg, var(--c-text-tertiary))',
-        }}
-      />
+      {marker ? (
+        <marker.icon width={13} height={13} strokeWidth={2.1} />
+      ) : (
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+      )}
     </span>
   )
 }
@@ -144,6 +124,18 @@ export const TopLevelCopToolBlock = memo(function TopLevelCopToolBlock({
 
   if (entry.kind === 'generic') {
     const item = entry.item
+    if (item.toolName === 'document_write') {
+      const title = typeof item.label === 'string' && item.label.trim() ? item.label : item.toolName
+      return (
+        <TopLevelToolFrame toolName={item.toolName}>
+          <DocumentResourceCard
+            title={title}
+            isPlan={isPlanMarkdownPath(title)}
+            onClick={() => {}}
+          />
+        </TopLevelToolFrame>
+      )
+    }
     return (
       <TopLevelToolFrame toolName={item.toolName}>
         <ExecutionCard

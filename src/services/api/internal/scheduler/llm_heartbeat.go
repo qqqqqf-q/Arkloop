@@ -236,7 +236,7 @@ func (s *TriggerScheduler) fireHeartbeat(ctx context.Context, row data.Scheduled
 		map[string]any{
 			"persona_id": row.PersonaKey,
 			"model":      model,
-			"run_kind":   runkind.Heartbeat,
+			"run_kind":   runkind.Discuss,
 			"channel_delivery": map[string]any{
 				"channel_id":                 ctxData.ChannelID.String(),
 				"channel_type":               ctxData.ChannelType,
@@ -269,7 +269,7 @@ func (s *TriggerScheduler) fireHeartbeat(ctx context.Context, row data.Scheduled
 	traceID := observability.NewTraceID()
 	payload := map[string]any{
 		"source":                     "trigger_scheduler",
-		"run_kind":                   runkind.Heartbeat,
+		"run_kind":                   runkind.Discuss,
 		"heartbeat_interval_minutes": row.IntervalMin,
 		"heartbeat_reason":           "interval",
 		"persona_key":                row.PersonaKey,
@@ -318,10 +318,14 @@ func (s *TriggerScheduler) resolveHeartbeatModel(ctx context.Context, row data.S
 	}
 	var cfg struct {
 		HeartbeatModel string `json:"heartbeat_model"`
+		DiscussModel   string `json:"discuss_model"`
 		ChatModel      string `json:"chat_model"`
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return "", err
+	}
+	if model := strings.TrimSpace(cfg.DiscussModel); model != "" {
+		return model, nil
 	}
 	if model := strings.TrimSpace(cfg.HeartbeatModel); model != "" {
 		return model, nil

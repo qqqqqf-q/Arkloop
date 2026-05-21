@@ -444,6 +444,9 @@ func (e *Enabler) RuntimeStatus(ctx context.Context, accountID, userID uuid.UUID
 			return nil, detectErr
 		}
 		preserveRuntimeCheckStatus(statusMap, current)
+		settings := runtimeSettingsFromEnablement(ctx, e, accountID, pkg.ID, resolvedProfileRef, resolvedWorkspaceRef, manifest)
+		prepareActivityRecorderSources(ctx, pkg.PluginID, settings, statusMap)
+		checkRuntimeDaemons(ctx, manifest, settings, statusMap)
 		state, err := e.runtimeRepo.Upsert(ctx, data.PluginRuntimeState{
 			AccountID:     accountID,
 			PackageID:     pkg.ID,
@@ -507,6 +510,15 @@ func (e *Enabler) apply(ctx context.Context, req EnableRequest, toggle bool) (da
 	runtimeState, currentRuntime, err := e.applyRuntimeState(ctx, req.AccountID, pkg, manifest, profileRef, workspaceRef, req.Enabled)
 	if err != nil {
 		return data.PluginEnablement{}, err
+	}
+	if req.Enabled {
+		if !toggle {
+			stopRuntimeDaemons(ctx, manifest, runtimeState)
+		}
+		prepareActivityRecorderSources(ctx, pkg.PluginID, settings, runtimeState)
+		startRuntimeDaemons(ctx, manifest, settings, runtimeState)
+	} else if toggle {
+		stopRuntimeDaemons(ctx, manifest, runtimeState)
 	}
 	tx, err := e.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -639,7 +651,7 @@ func (e *Enabler) syncDerivedResources(ctx context.Context, tx pgx.Tx, req Enabl
 	if err := installProfileSkills(ctx, e.skillInstallsRepo.WithTx(tx), req.AccountID, req.UserID, profileRef, manifest); err != nil {
 		return err
 	}
-	for _, server := range manifest.MCPServers {
+	for _, server := range enabledMCPServers(manifest, settings) {
 		install := installsByKey[pluginInstallKey(manifest.ID, server.ServerID)]
 		if toggle {
 			if err := e.workspaceMCPRepo.WithTx(tx).Set(ctx, req.AccountID, profileRef, workspaceRef, install.ID, &req.UserID, req.Enabled); err != nil {
@@ -712,8 +724,9 @@ func syncProfileMCPInstalls(ctx context.Context, repo *data.ProfileMCPInstallsRe
 		}
 		installsByKey[install.InstallKey] = install
 	}
-	expected := make(map[string]struct{}, len(manifest.MCPServers))
-	for _, server := range manifest.MCPServers {
+	servers := enabledMCPServers(manifest, settings)
+	expected := make(map[string]struct{}, len(servers))
+	for _, server := range servers {
 		installKey := pluginInstallKey(manifest.ID, server.ServerID)
 		expected[installKey] = struct{}{}
 		install, ok := installsByKey[installKey]
@@ -763,6 +776,16 @@ func syncProfileMCPInstalls(ctx context.Context, repo *data.ProfileMCPInstallsRe
 		delete(installsByKey, install.InstallKey)
 	}
 	return installsByKey, nil
+}
+
+func enabledMCPServers(manifest Manifest, settings map[string]any) []ManifestMCPServer {
+	out := make([]ManifestMCPServer, 0, len(manifest.MCPServers))
+	for _, server := range manifest.MCPServers {
+		if runtimeConditionsMatch(settings, server.EnabledWhen) {
+			out = append(out, server)
+		}
+	}
+	return out
 }
 
 func installProfileSkills(ctx context.Context, repo *data.ProfileSkillInstallsRepository, accountID, userID uuid.UUID, profileRef string, manifest Manifest) error {

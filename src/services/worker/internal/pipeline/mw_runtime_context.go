@@ -57,14 +57,15 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 
 func buildChannelOutputBehaviorBlock() string {
 	return `<channel_output_behavior>
-Your text outputs are delivered to the chat platform in real-time as separate messages.
+In private channel conversations, your text outputs are delivered to the chat platform in real-time as separate messages.
+In group discuss conversations, text is private by default and is delivered only after you call speak.
 When you call tools mid-reply, text before and after the tool call becomes distinct messages visible to the user.
 Avoid repeating content that was already sent. If you have nothing new to add after a tool call, use end_reply.
 </channel_output_behavior>`
 }
 
 func buildChannelTriggerContextBlock(cc *ChannelContext) string {
-	if cc == nil || (!cc.MentionsBot && !cc.IsReplyToBot) {
+	if cc == nil || (!cc.MentionsBot && !cc.IsReplyToBot && !cc.MatchesKeyword) {
 		return ""
 	}
 	var lines []string
@@ -73,6 +74,9 @@ func buildChannelTriggerContextBlock(cc *ChannelContext) string {
 	}
 	if cc.IsReplyToBot {
 		lines = append(lines, "This message is a reply to one of your previous messages.")
+	}
+	if cc.MatchesKeyword {
+		lines = append(lines, "This message matched a configured group trigger keyword.")
 	}
 	return "<channel_trigger_context>\n" + strings.Join(lines, "\n") + "\n</channel_trigger_context>"
 }

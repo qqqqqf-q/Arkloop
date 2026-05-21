@@ -187,7 +187,7 @@ func NewAgentLoopHandler(
 			rc.ChannelTerminalNotice = writer.TerminalUserMessage()
 		}
 		if writer.Completed() {
-			if !ShouldSuppressHeartbeatOutput(rc, writer.AssistantOutput()) {
+			if !ShouldSuppressAssistantOutput(rc, writer.AssistantOutput()) {
 				fullCleanOutput := stripStickerPlaceholders(writer.AssistantOutput())
 				stickerSourceOutputs := writer.AssistantOutputs()
 				remainderCleanOutput := fullCleanOutput
@@ -661,6 +661,9 @@ func (w *eventWriter) Append(
 		w.captureReplyOverride(ev.DataJSON)
 		w.toolCallCount++
 		w.collectToolCall(ev.DataJSON)
+		if toolName, _ := ev.DataJSON["tool_name"].(string); IsSpeakToolName(llm.CanonicalToolName(toolName)) {
+			w.clearPrivateDiscussText()
+		}
 		if w.telegramProgressTracker != nil {
 			callID, _ := ev.DataJSON["tool_call_id"].(string)
 			toolName, _ := ev.DataJSON["tool_name"].(string)
@@ -778,6 +781,15 @@ func (w *eventWriter) Append(
 		return w.commit(ctx)
 	}
 	return nil
+}
+
+func (w *eventWriter) clearPrivateDiscussText() {
+	w.assistantDeltas = nil
+	w.assistantMessage = nil
+	w.assistantMessageFresh = false
+	w.assistantOutputs = nil
+	w.lastTurnDeltaCount = 0
+	w.telegramSentOutputCount = 0
 }
 
 func (w *eventWriter) applyThreadCollaborationModeEvent(ctx context.Context, ev events.RunEvent) error {
@@ -1203,9 +1215,14 @@ func (w *eventWriter) flushPendingToolCalls() {
 	}
 	filteredCalls := make([]llm.ToolCall, 0, len(w.pendingToolCalls))
 	keptCallIDs := make(map[string]struct{}, len(w.pendingToolCalls))
+	suppressAssistantContent := false
 	for _, call := range w.pendingToolCalls {
 		if _, ok := resolved[call.ToolCallID]; ok {
 			if w.heartbeatRun && IsHeartbeatDecisionToolName(call.ToolName) {
+				continue
+			}
+			if IsSpeakToolName(call.ToolName) {
+				suppressAssistantContent = true
 				continue
 			}
 			filteredCalls = append(filteredCalls, call)
@@ -1224,6 +1241,9 @@ func (w *eventWriter) flushPendingToolCalls() {
 	}
 
 	msg := w.assistantMessage
+	if suppressAssistantContent {
+		msg = &llm.Message{Role: "assistant"}
+	}
 	hasVisibleParts := msg != nil && len(llm.VisibleContentParts(msg.Content)) > 0
 	if len(filteredCalls) == 0 && !hasVisibleParts {
 		// 所有 call 均无结果（suppressed 或被黑名单移除），且无可见内容可保留
@@ -1254,6 +1274,9 @@ func (w *eventWriter) flushPendingToolCalls() {
 func (w *eventWriter) collectToolResult(dataJSON map[string]any) {
 	toolName, _ := dataJSON["tool_name"].(string)
 	toolName = llm.CanonicalToolName(toolName)
+	if IsSpeakToolName(toolName) {
+		return
+	}
 	envelope := map[string]any{
 		"tool_call_id": dataJSON["tool_call_id"],
 		"tool_name":    toolName,
@@ -1376,9 +1399,15 @@ func assistantMessageFromEventData(dataJSON map[string]any) (llm.Message, bool) 
 	return message, true
 }
 
-// ShouldSuppressHeartbeatOutput 判断 heartbeat 终态是否应跳过写 thread / 外发渠道。
-// 原则：工具未调用 → 抑制；reply=false → 抑制；reply=true → 不抑制。
+// ShouldSuppressAssistantOutput 判断控制面 run 的终态是否应跳过写 thread / 外发渠道。
 func ShouldSuppressHeartbeatOutput(rc *RunContext, output string) bool {
+	return ShouldSuppressAssistantOutput(rc, output)
+}
+
+func ShouldSuppressAssistantOutput(rc *RunContext, output string) bool {
+	if shouldSuppressDiscussOutput(rc, output) {
+		return true
+	}
 	if rc == nil || !rc.HeartbeatRun {
 		return false
 	}
@@ -1390,6 +1419,16 @@ func ShouldSuppressHeartbeatOutput(rc *RunContext, output string) bool {
 		return !rc.HeartbeatToolOutcome.Reply
 	}
 	return true
+}
+
+func shouldSuppressDiscussOutput(rc *RunContext, output string) bool {
+	if rc == nil || !rc.DiscussRun {
+		return false
+	}
+	if strings.TrimSpace(output) == "" {
+		return true
+	}
+	return !rc.DiscussTextVisible
 }
 
 func (w *eventWriter) accumUsage(dataJSON map[string]any) {

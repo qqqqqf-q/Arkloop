@@ -121,6 +121,72 @@ func TestShouldShowTelegramProgress_PrivateOnly(t *testing.T) {
 	}
 }
 
+func TestShouldSendTelegramTypingRefresh_HardTriggersOnly(t *testing.T) {
+	if ShouldSendTelegramTypingRefresh(nil) {
+		t.Fatal("nil run context should not send typing")
+	}
+
+	privateRC := &RunContext{
+		ChannelContext: &ChannelContext{ConversationType: "private"},
+	}
+	if !ShouldSendTelegramTypingRefresh(privateRC) {
+		t.Fatal("private conversation should send typing")
+	}
+
+	scheduledDiscussRC := &RunContext{
+		DiscussRun: true,
+		ChannelContext: &ChannelContext{
+			ConversationType: "supergroup",
+		},
+	}
+	if ShouldSendTelegramTypingRefresh(scheduledDiscussRC) {
+		t.Fatal("scheduled discuss should not send typing")
+	}
+
+	mentionRC := &RunContext{
+		DiscussRun: true,
+		ChannelContext: &ChannelContext{
+			ConversationType: "group",
+			MentionsBot:      true,
+		},
+	}
+	if !ShouldSendTelegramTypingRefresh(mentionRC) {
+		t.Fatal("group mention should send typing")
+	}
+
+	replyRC := &RunContext{
+		DiscussRun: true,
+		ChannelContext: &ChannelContext{
+			ConversationType: "group",
+			IsReplyToBot:     true,
+		},
+	}
+	if !ShouldSendTelegramTypingRefresh(replyRC) {
+		t.Fatal("group reply should send typing")
+	}
+
+	keywordRC := &RunContext{
+		DiscussRun: true,
+		ChannelContext: &ChannelContext{
+			ConversationType: "group",
+			MatchesKeyword:   true,
+		},
+	}
+	if !ShouldSendTelegramTypingRefresh(keywordRC) {
+		t.Fatal("group keyword should send typing")
+	}
+
+	heartbeatRC := &RunContext{
+		HeartbeatRun: true,
+		ChannelContext: &ChannelContext{
+			ConversationType: "private",
+		},
+	}
+	if ShouldSendTelegramTypingRefresh(heartbeatRC) {
+		t.Fatal("heartbeat should not send typing")
+	}
+}
+
 func TestRecordChannelDeliveryFailureAppendsRunEvent(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "pipeline_channel_delivery")
 	pool, err := pgxpool.New(context.Background(), db.DSN)

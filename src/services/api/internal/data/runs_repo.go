@@ -181,14 +181,14 @@ func (r *RunEventRepository) CreateRootRunWithClaimAndResumeFrom(
 	if active, err := r.GetActiveRootRunForThread(ctx, threadID); err != nil {
 		return Run{}, RunEvent{}, err
 	} else if active != nil {
-		// heartbeat run 不阻塞 normal run，只有 heartbeat vs heartbeat 才互斥
+		// discuss/heartbeat run 不阻塞 normal run，只有控制面 run 之间互斥
 		incomingKind := runKindFromData(startedData)
-		if !strings.EqualFold(incomingKind, runkind.Heartbeat) {
+		if !isDiscussControlRunKind(incomingKind) {
 			activeData, err := r.firstEventData(ctx, active)
 			if err != nil {
 				return Run{}, RunEvent{}, err
 			}
-			if strings.EqualFold(runKindFromData(activeData), runkind.Heartbeat) {
+			if isDiscussControlRunKind(runKindFromData(activeData)) {
 				if err := r.resolveHeartbeatConflict(ctx, active, activeData, threadID); err != nil {
 					return Run{}, RunEvent{}, err
 				}
@@ -226,6 +226,11 @@ func runKindFromData(data map[string]any) string {
 	}
 	raw, _ := data[runStartedRunKindKey].(string)
 	return strings.TrimSpace(raw)
+}
+
+func isDiscussControlRunKind(kind string) bool {
+	kind = strings.TrimSpace(kind)
+	return strings.EqualFold(kind, runkind.Discuss) || strings.EqualFold(kind, runkind.Heartbeat)
 }
 
 // resolveHeartbeatConflict 在 normal run 放行 heartbeat 时决定是否 cancel heartbeat。

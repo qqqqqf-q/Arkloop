@@ -87,3 +87,10 @@ func TestFormatBotIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildChannelTriggerContextBlockIncludesKeyword(t *testing.T) {
+	got := buildChannelTriggerContextBlock(&ChannelContext{MatchesKeyword: true})
+	if !strings.Contains(got, "configured group trigger keyword") {
+		t.Fatalf("expected keyword trigger context, got %q", got)
+	}
+}

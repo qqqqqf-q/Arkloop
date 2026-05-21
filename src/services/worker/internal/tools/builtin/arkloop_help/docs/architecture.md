@@ -82,9 +82,9 @@ cancel guard → input loading → entitlement → MCP/tool discovery → person
 | 仅 Notebook | 启用且未配 OpenViking Base URL | `<notebook>` | notebook_* |
 | Memory + Notebook | 启用且配置了 OpenViking | `<notebook>` + `<memory>` 叠加 | 两套兼备 |
 
-## LLM Heartbeat（群聊场景）
+## Discuss（群聊场景）
 
-Persona 可配置 `heartbeat_enabled`、`heartbeat_interval_minutes` 等。Telegram **群聊活跃**时，由 **API 侧调度**（`internal/scheduler/`）按间隔入队；Worker 以 `run_kind=heartbeat` 执行并注入**合成用户消息**；工具 **`heartbeat_decision`** 用于模型选择是否回复或附带记忆片段；状态落 **`scheduled_triggers`** 表。
+群聊统一进入 Discuss mode。Telegram **群聊活跃**时，由 **API 侧调度**（`internal/scheduler/`）按间隔入队；Worker 以 `run_kind=discuss` 执行。群聊 assistant 文本默认不可见，模型必须调用 **`speak`** 后，后续 assistant 正文才会发送到群聊；`speak` 可携带 `reply_to_message_id`。状态落 **`scheduled_triggers`** 表。旧 heartbeat 配置由 migration 升级为 discuss 语义。
 
 ## 数据模型要点（租户）
 

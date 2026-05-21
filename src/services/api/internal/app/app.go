@@ -578,8 +578,8 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if seedErr := pluginServices.Installer.SeedBuiltinCUAForAccounts(ctx); seedErr != nil {
-			a.logger.Warn("builtin_plugin_seed_failed", "plugin_id", "arkloop.plugins.cua", "error", seedErr.Error())
+		if seedErr := pluginServices.Installer.SeedBuiltinPluginsForAccounts(ctx); seedErr != nil {
+			a.logger.Warn("builtin_plugin_seed_failed", "error", seedErr.Error())
 		}
 		// when encryption key is not configured, secrets/llm-credentials endpoints are unavailable but other features still start
 		keyRing, keyRingErr := crypto.NewKeyRingFromEnv()

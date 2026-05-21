@@ -202,7 +202,6 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
         // Single-call entry without process context → render directly
         if (entry.items.length === 1 && entry.items[0]?.kind === 'call') {
           const singleCall = entry.items[0]!
-          // Construct a tool entry for topLevelEntryForTool
           const toolEntry: Extract<ReturnType<typeof splitCopItemsByTopLevelTools>[number], { kind: 'tool' }> = {
             kind: 'tool',
             id: singleCall.call.toolCallId,

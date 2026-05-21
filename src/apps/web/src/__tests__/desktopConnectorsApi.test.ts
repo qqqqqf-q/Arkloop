@@ -76,6 +76,9 @@ describe('desktop connectors API', () => {
         tavilyApiKey: 'tvly-1234567',
         tavilyApiKeyStored: true,
       },
+      xSearch: {
+        provider: 'none',
+      },
     })
 
     const [url, init] = fetchMock.mock.calls[0]
@@ -108,6 +111,34 @@ describe('desktop connectors API', () => {
     })
   })
 
+  it('maps xAI auth modes', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({
+        groups: [
+          {
+            group_name: 'x_search',
+            providers: [
+              {
+                provider_name: 'x_search.xai',
+                is_active: true,
+                oauth_connected: true,
+                config_json: { auth_mode: 'oauth' },
+              },
+            ],
+          },
+        ],
+      }))
+
+    const api = getDesktopConnectorsApi('local-jwt')
+    expect(api).toBeTruthy()
+
+    const config = await api!.get()
+    expect(config.xSearch).toMatchObject({
+      provider: 'xai_oauth',
+      xaiOAuthConnected: true,
+    })
+  })
+
   it('keeps stored key previews out of credential writes', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockImplementation(() => Promise.resolve(jsonResponse({ groups: [] })))
@@ -124,6 +155,9 @@ describe('desktop connectors API', () => {
       },
       search: {
         provider: 'exa',
+      },
+      xSearch: {
+        provider: 'none',
       },
     })
 
@@ -146,6 +180,7 @@ describe('desktop connectors API', () => {
     await api!.set({
       fetch: { provider: 'basic' },
       search: { provider: 'exa' },
+      xSearch: { provider: 'none' },
     })
 
     const credentialCalls = fetchMock.mock.calls
@@ -155,6 +190,33 @@ describe('desktop connectors API', () => {
 
     expect(credentialCalls).toHaveLength(0)
     expect(activateCalls).toHaveLength(1)
+  })
+
+  it('writes xAI API key auth mode separately from OAuth', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockImplementation(() => Promise.resolve(jsonResponse({ groups: [] })))
+
+    const api = getDesktopConnectorsApi('local-jwt')
+    expect(api).toBeTruthy()
+
+    await api!.set({
+      fetch: { provider: 'basic' },
+      search: { provider: 'exa' },
+      xSearch: {
+        provider: 'xai_api_key',
+        xaiApiKey: 'xai-key',
+      },
+    })
+
+    const configCalls = fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith('/v1/tool-providers/x_search/x_search.xai/config?scope=platform'))
+      .map(([, init]) => JSON.parse(String(init?.body ?? '{}')) as Record<string, string>)
+    const credentialCalls = fetchMock.mock.calls
+      .filter(([url]) => String(url).endsWith('/v1/tool-providers/x_search/x_search.xai/credential?scope=platform'))
+      .map(([, init]) => JSON.parse(String(init?.body ?? '{}')) as Record<string, string>)
+
+    expect(configCalls).toEqual([{ auth_mode: 'api_key' }])
+    expect(credentialCalls).toEqual([{ api_key: 'xai-key' }])
   })
 
   it('prefers Electron preload connectors API when present', () => {

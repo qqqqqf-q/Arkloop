@@ -582,6 +582,7 @@ export type ThreadResponse = {
   hidden?: boolean
   updated_at?: string
   parent_thread_id?: string | null
+  branched_from_message_id?: string | null
 }
 
 export type ThreadRunStateEvent = {
@@ -950,6 +951,7 @@ export type MessageResponse = {
   id: string
   account_id: string
   thread_id: string
+  thread_seq?: number
   created_by_user_id: string
   role: string
   content: string
@@ -957,6 +959,36 @@ export type MessageResponse = {
   created_at: string
   run_id?: string
   client_message_id?: string
+}
+
+export type ConversationGraphMessageInstance = {
+  thread_id: string
+  message_id: string
+  thread_seq: number
+}
+
+export type ConversationGraphMessage = {
+  graph_node_id: string
+  parent_graph_node_id?: string | null
+  message: MessageResponse
+  instances: ConversationGraphMessageInstance[]
+}
+
+export type ConversationGraphEdge = {
+  id: string
+  kind: 'message'
+  source: string
+  target: string
+  source_thread_id?: string
+  target_thread_id?: string
+}
+
+export type ConversationGraphResponse = {
+  root_thread_id: string
+  active_thread_id: string
+  threads: ThreadResponse[]
+  messages: ConversationGraphMessage[]
+  edges: ConversationGraphEdge[]
 }
 
 export type UploadedThreadAttachment = {
@@ -1006,6 +1038,16 @@ export async function listMessages(
       accessToken,
     },
   )
+}
+
+export async function getConversationGraph(
+  accessToken: string,
+  threadId: string,
+): Promise<ConversationGraphResponse> {
+  return await apiFetch<ConversationGraphResponse>(`/v1/threads/${threadId}/graph`, {
+    method: 'GET',
+    accessToken,
+  })
 }
 
 export async function editMessage(
@@ -2411,6 +2453,13 @@ export type PluginRuntimeState = {
   updated_at?: string
 }
 
+export type ActivityRecorderBuilderRun = {
+  triggered: boolean
+  next_run_at: string
+  running?: boolean
+  run_id?: string
+}
+
 export async function listPlugins(accessToken: string): Promise<PluginPackage[]> {
   const response = await apiFetch<{ items: PluginPackage[] }>('/v1/plugins', { accessToken })
   return response.items ?? []
@@ -2468,6 +2517,15 @@ export async function installPluginRuntime(accessToken: string, pluginID: string
 
 export async function checkPluginRuntime(accessToken: string, pluginID: string): Promise<PluginRuntimeState> {
   return apiFetch<PluginRuntimeState>(`/v1/plugins/${encodeURIComponent(pluginID)}/runtime/check`, {
+    method: 'POST',
+    accessToken,
+    body: JSON.stringify({}),
+    signal: AbortSignal.timeout(30_000),
+  })
+}
+
+export async function triggerActivityRecorderBuilder(accessToken: string): Promise<ActivityRecorderBuilderRun> {
+  return apiFetch<ActivityRecorderBuilderRun>(`/v1/plugins/${encodeURIComponent('arkloop.plugins.activity-recorder')}/activity-recorder/run`, {
     method: 'POST',
     accessToken,
     body: JSON.stringify({}),

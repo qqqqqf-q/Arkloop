@@ -1,0 +1,217 @@
+.conversation-graph-panel {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-page);
+}
+
+.conversation-graph-panel__reload {
+  position: absolute;
+  z-index: 8;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--c-border-subtle);
+  border-radius: 6px;
+  color: var(--c-text-secondary);
+  background: color-mix(in srgb, var(--c-bg-sub) 92%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-bg-deep) 35%, transparent);
+  cursor: pointer;
+}
+
+.conversation-graph-panel__reload:hover {
+  color: var(--c-text-primary);
+  background: var(--c-bg-deep);
+}
+
+.conversation-graph-panel__reload[data-loading="true"] svg {
+  animation: conversation-graph-spin 700ms linear infinite;
+}
+
+.conversation-graph-panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.conversation-graph-panel__state {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.conversation-graph-flow {
+  background: transparent;
+}
+
+.conversation-graph-flow .react-flow__pane {
+  cursor: grab;
+}
+
+.conversation-graph-flow .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.conversation-graph-node {
+  width: 230px;
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  background: var(--c-bg-sub);
+  color: var(--c-text-primary);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--c-bg-deep) 55%, transparent);
+}
+
+.conversation-graph-node[data-role="user"] {
+  border-color: color-mix(in srgb, var(--c-status-success) 34%, var(--c-border));
+}
+
+.conversation-graph-node[data-role="assistant"] {
+  border-color: color-mix(in srgb, var(--c-status-error) 28%, var(--c-border));
+}
+
+.conversation-graph-node[data-active="false"] {
+  opacity: 0.56;
+}
+
+.conversation-graph-node[data-selected="true"] {
+  outline: 2px solid color-mix(in srgb, var(--c-text-primary) 34%, transparent);
+  outline-offset: 2px;
+}
+
+.conversation-graph-node__head {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--c-border-subtle);
+  color: var(--c-text-secondary);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.conversation-graph-node__body {
+  height: 80px;
+  padding: 9px 10px 10px;
+  font-size: 12px;
+  line-height: 1.38;
+  color: var(--c-text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.conversation-graph-node__badge {
+  flex: 0 0 auto;
+  color: var(--c-text-tertiary);
+  font-weight: 500;
+}
+
+.conversation-graph-edge path {
+  stroke: var(--c-border-mid);
+  stroke-width: 1.35;
+}
+
+.conversation-graph-edge--active path {
+  stroke: var(--c-text-primary);
+  stroke-width: 2;
+}
+
+.conversation-graph-panel .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--c-bg-page);
+  background: var(--c-text-tertiary);
+}
+
+.conversation-graph-panel .react-flow__controls {
+  overflow: hidden;
+  box-shadow: none;
+  border: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-sub);
+  border-radius: 7px;
+}
+
+.conversation-graph-panel .react-flow__controls-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-sub);
+  color: var(--c-text-secondary);
+}
+
+.conversation-graph-panel .react-flow__controls-button:last-child {
+  border-bottom: 0;
+}
+
+.conversation-graph-panel .react-flow__controls-button:hover {
+  background: var(--c-bg-deep);
+  color: var(--c-text-primary);
+}
+
+.conversation-graph-panel .react-flow__controls-button svg {
+  max-width: 15px;
+  max-height: 15px;
+  fill: currentColor;
+}
+
+.conversation-graph-overview {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  width: 190px;
+  height: 128px;
+  border: 1px solid var(--c-border-subtle);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--c-bg-sub) 96%, transparent);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--c-bg-deep) 42%, transparent);
+  pointer-events: none;
+}
+
+.conversation-graph-overview__edge {
+  stroke: var(--c-border-mid);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.conversation-graph-overview__edge--active {
+  stroke: var(--c-text-primary);
+  stroke-width: 1.6;
+}
+
+.conversation-graph-overview__node {
+  fill: var(--c-bg-page);
+  stroke: var(--c-border-mid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.conversation-graph-overview__node[data-active="true"] {
+  fill: color-mix(in srgb, var(--c-text-primary) 14%, var(--c-bg-sub));
+  stroke: var(--c-text-primary);
+}
+
+.conversation-graph-overview__node[data-selected="true"] {
+  stroke: var(--c-text-primary);
+  stroke-width: 2;
+}
+
+@keyframes conversation-graph-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

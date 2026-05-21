@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -3525,8 +3526,10 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 		}
 	}
 
+	var chatActions int32
 	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			atomic.AddInt32(&chatActions, 1)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
 			return
@@ -3643,6 +3646,9 @@ func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
 	}
 	if parentID != nil {
 		t.Fatalf("expected no platform_parent_message_id without explicit telegram_reply, got %v", *parentID)
+	}
+	if got := atomic.LoadInt32(&chatActions); got != 0 {
+		t.Fatalf("expected non-hard-trigger group delivery not to send typing, got %d", got)
 	}
 	if platformThread != threadRef {
 		t.Fatalf("unexpected platform_thread_id: %q", platformThread)

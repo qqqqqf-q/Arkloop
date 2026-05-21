@@ -176,6 +176,37 @@ describe('CopSegmentBlocks', () => {
     }
   })
 
+  it('renders single x_search through the search timeline path', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'x-search-1',
+            toolName: 'x_search',
+            arguments: { query: 'from:@qqqqqf_' },
+            result: {
+              answer: 'Recent posts',
+              citations: ['https://x.com/qqqqqf_/status/2056736604845404380'],
+            },
+          },
+          seq: 1,
+        },
+      ],
+    })
+    try {
+      expect(container.textContent).toContain('搜索 from:@qqqqqf_')
+      expect(container.textContent).toContain('@qqqqqf_')
+      expect(container.textContent).not.toContain('已检查来源')
+      expect(container.textContent).not.toContain('x_search')
+      expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
   it('timeline_title with single document_write renders in card mode without COP shell', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',

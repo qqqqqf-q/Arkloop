@@ -45,6 +45,7 @@ var runtimeManagedToolNames = map[string]struct{}{
 	"terminate_process":    {},
 	"web_fetch":            {},
 	"web_search":           {},
+	"x_search":             {},
 }
 
 // NewToolBuildMiddleware 根据最终的 allowlist 构建 DispatchingExecutor 和过滤后的 ToolSpecs。

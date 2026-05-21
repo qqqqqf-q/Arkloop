@@ -143,6 +143,7 @@ export type ToolProviderItem = {
   requires_api_key: boolean
   requires_base_url: boolean
   configured: boolean
+  oauth_connected?: boolean
   runtime_state?: string
   runtime_reason?: string
   runtime_status?: string
@@ -152,6 +153,20 @@ export type ToolProviderItem = {
   config_json?: Record<string, unknown>
   config_fields?: ToolProviderConfigField[]
   default_base_url?: string
+}
+
+export type ToolProviderOAuthStartResponse = {
+  authorization_url: string
+  state: string
+  expires_at: string
+}
+
+export type ToolProviderOAuthStatusResponse = {
+  state: string
+  completed: boolean
+  expired: boolean
+  expires_at: string
+  completed_at?: string
 }
 
 export type ToolProviderConfigField = {
@@ -254,6 +269,29 @@ export async function updateToolProviderConfig(
   await apiFetch<void>(
     scopedPath(`/v1/tool-providers/${group}/${provider}/config`),
     { method: 'PUT', body: JSON.stringify(configJSON), accessToken },
+  )
+}
+
+export async function startToolProviderOAuth(
+  accessToken: string,
+  group: string,
+  provider: string,
+): Promise<ToolProviderOAuthStartResponse> {
+  return await apiFetch<ToolProviderOAuthStartResponse>(
+    scopedPath(`/v1/tool-providers/${group}/${provider}/oauth/start`),
+    { method: 'POST', body: JSON.stringify({}), accessToken },
+  )
+}
+
+export async function getToolProviderOAuthStatus(
+  accessToken: string,
+  group: string,
+  provider: string,
+  state: string,
+): Promise<ToolProviderOAuthStatusResponse> {
+  return await apiFetch<ToolProviderOAuthStatusResponse>(
+    scopedPath(`/v1/tool-providers/${group}/${provider}/oauth/status?state=${encodeURIComponent(state)}`),
+    { accessToken },
   )
 }
 

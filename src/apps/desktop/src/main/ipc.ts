@@ -704,6 +704,8 @@ type ToolProviderItem = {
   is_active: boolean
   key_prefix?: string
   base_url?: string
+  oauth_connected?: boolean
+  config_json?: Record<string, unknown>
   runtime_state?: string
   runtime_reason?: string
 }
@@ -738,9 +740,11 @@ function secretPreview(keyPrefix?: string): string | undefined {
 function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsConfig {
   const fetchGroup = findProviderGroup(groups, 'web_fetch')
   const searchGroup = findProviderGroup(groups, 'web_search')
+  const xSearchGroup = findProviderGroup(groups, 'x_search')
 
   const activeFetch = fetchGroup?.providers.find((provider) => provider.is_active)
   const activeSearch = searchGroup?.providers.find((provider) => provider.is_active)
+  const activeXSearch = xSearchGroup?.providers.find((provider) => provider.is_active)
 
   return {
     fetch: {
@@ -771,6 +775,16 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         ? activeSearch.base_url ?? DEFAULT_CONFIG.connectors.search.searxngBaseUrl
         : DEFAULT_CONFIG.connectors.search.searxngBaseUrl,
     },
+    xSearch: {
+      provider: activeXSearch
+        ? xSearchAuthMode(activeXSearch)
+        : 'none',
+      xaiApiKey: activeXSearch?.provider_name === 'x_search.xai'
+        ? secretPreview(activeXSearch.key_prefix)
+        : undefined,
+      xaiApiKeyStored: activeXSearch?.provider_name === 'x_search.xai' && Boolean(activeXSearch.key_prefix),
+      xaiOAuthConnected: activeXSearch?.provider_name === 'x_search.xai' && Boolean(activeXSearch.oauth_connected),
+    },
   }
 }
 
@@ -800,6 +814,25 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
     default:
       return 'none'
   }
+}
+
+function providerNameToXSearch(providerName: string): ConnectorsConfig['xSearch']['provider'] {
+  switch (providerName) {
+    case 'x_search.xai':
+      return 'xai_oauth'
+    default:
+      return 'none'
+  }
+}
+
+function xSearchAuthMode(provider: ToolProviderItem): ConnectorsConfig['xSearch']['provider'] {
+  if (provider.provider_name !== 'x_search.xai') return 'none'
+  const mode = typeof provider.config_json?.auth_mode === 'string' ? provider.config_json.auth_mode : ''
+  if (mode === 'api_key') return 'xai_api_key'
+  if (mode === 'oauth') return 'xai_oauth'
+  if (provider.oauth_connected) return 'xai_oauth'
+  if (provider.key_prefix) return 'xai_api_key'
+  return providerNameToXSearch(provider.provider_name)
 }
 
 async function migrateLegacyConnectorsIfNeeded(config: AppConfig): Promise<void> {
@@ -834,6 +867,7 @@ function hasLegacyFetchConfig(connectors: ConnectorsConfig): boolean {
 
 async function applyConnectorConfig(connectors: ConnectorsConfig): Promise<void> {
   await applySearchConnector(connectors.search)
+  await applyXSearchConnector(connectors.xSearch ?? { provider: 'none' })
   await applyFetchConnector(connectors.fetch)
 }
 
@@ -892,6 +926,19 @@ async function applyFetchConnector(fetch: ConnectorsConfig['fetch']): Promise<vo
   }
 }
 
+async function applyXSearchConnector(xSearch: ConnectorsConfig['xSearch']): Promise<void> {
+  await deactivateToolProviderGroup('x_search')
+  if (xSearch.provider === 'none') return
+  await activateToolProvider('x_search', 'x_search.xai')
+  const authMode = xSearch.provider === 'xai_api_key' ? 'api_key' : 'oauth'
+  await updateToolProviderConfig('x_search', 'x_search.xai', { auth_mode: authMode })
+  if (xSearch.provider === 'xai_api_key' && !xSearch.xaiApiKeyStored && xSearch.xaiApiKey) {
+    await upsertToolProviderCredential('x_search', 'x_search.xai', {
+      api_key: xSearch.xaiApiKey,
+    })
+  }
+}
+
 async function deactivateToolProviderGroup(groupName: string): Promise<void> {
   const groups = await fetchToolProviders()
   const group = findProviderGroup(groups, groupName)
@@ -913,6 +960,15 @@ async function upsertToolProviderCredential(
 ): Promise<void> {
   const body = JSON.stringify(payload)
   await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/credential`, 'PUT', body)
+}
+
+async function updateToolProviderConfig(
+  groupName: string,
+  providerName: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const body = JSON.stringify(payload)
+  await requestToolProvider(`/v1/tool-providers/${groupName}/${providerName}/config`, 'PUT', body)
 }
 
 async function requestToolProvider(pathname: string, method: string, body?: string): Promise<void> {

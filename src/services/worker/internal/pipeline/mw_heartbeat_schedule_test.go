@@ -239,3 +239,68 @@ func TestHeartbeatScheduleMiddlewarePreservesThreadCooldown(t *testing.T) {
 		t.Fatalf("next_fire_at = %s, want %s", row.NextFireAt, suspendedUntil)
 	}
 }
+
+func TestHeartbeatScheduleMiddlewareSuspendsAfterFirstDiscussRun(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.SetupPostgresDatabase(t, "worker_heartbeat_schedule_first_discuss_cooldown")
+	pool, err := pgxpool.New(ctx, db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	groupIdentityID := uuid.New()
+
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata)
+		 VALUES ($1, 'telegram', 'chat-3001', '{}'::jsonb)`,
+		groupIdentityID,
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+
+	repo := data.ScheduledTriggersRepository{}
+	if err := repo.UpsertHeartbeatForThread(ctx, pool, accountID, channelID, groupIdentityID, threadID, "telegram-persona", "group-model", false, 9); err != nil {
+		t.Fatalf("upsert thread heartbeat: %v", err)
+	}
+	beforeRun := time.Now().UTC()
+
+	rc := &RunContext{
+		Run:               data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		PersonaDefinition: &personas.Definition{ID: "telegram-persona", HeartbeatEnabled: true},
+		ChannelContext: &ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     ChannelConversationRef{Target: "chat-3001"},
+		},
+		InputJSON: map[string]any{"run_kind": "discuss"},
+	}
+
+	mw := NewHeartbeatScheduleMiddleware(pool)
+	if err := mw(ctx, rc, func(_ context.Context, _ *RunContext) error { return nil }); err != nil {
+		t.Fatalf("middleware returned error: %v", err)
+	}
+
+	row, err := repo.GetHeartbeatForThread(ctx, pool, threadID)
+	if err != nil {
+		t.Fatalf("get thread heartbeat: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected thread heartbeat")
+	}
+	if row.CooldownLevel != 1 {
+		t.Fatalf("cooldown_level = %d, want 1", row.CooldownLevel)
+	}
+	if row.NextFireAt.Before(beforeRun.AddDate(1, 0, 0).Add(-time.Second)) {
+		t.Fatalf("next_fire_at = %s, expected suspended cooldown instead of one-minute followup", row.NextFireAt)
+	}
+}

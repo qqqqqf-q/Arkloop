@@ -31,13 +31,22 @@ function completeSearchStep(step: WebSearchPhaseStep): WebSearchPhaseStep {
   return { ...step, label, text: searchStepText(step.kind, label, 'done'), status: 'done' }
 }
 
-/** 不同模型/供应商可能用 web_search、web_search.tavily、大小写或连字符变体 */
+/** 不同搜索供应商可能用 web_search、x_search、大小写或连字符变体 */
 export function isWebSearchToolName(toolName: string): boolean {
   const t = canonicalToolName(toolName)
   if (!t) return false
   const n = t.toLowerCase().replace(/-/g, '_')
   if (n === 'web_search' || n === 'websearch') return true
+  if (isXSearchToolName(n)) return true
   return n.startsWith('web_search.')
+    || isXSearchToolName(n)
+}
+
+export function isXSearchToolName(toolName: string): boolean {
+  const t = canonicalToolName(toolName)
+  if (!t) return false
+  const n = t.toLowerCase().replace(/-/g, '_')
+  return n === 'x_search' || n === 'xsearch' || n.startsWith('x_search.')
 }
 
 export function webSearchQueriesFromArguments(
@@ -56,7 +65,14 @@ export function webSearchQueriesFromArguments(
 
 export function webSearchSourcesFromResult(result: unknown): WebSource[] | undefined {
   if (!result || typeof result !== 'object') return undefined
-  const raw = (result as { results?: unknown }).results
+  const r = result as Record<string, unknown>
+  const resultSources = webSearchResultSources(r.results)
+  if (resultSources) return resultSources
+  const citationSources = xSearchCitationSources(r.citations, r.inline_citations)
+  return citationSources.length > 0 ? citationSources : undefined
+}
+
+function webSearchResultSources(raw: unknown): WebSource[] | undefined {
   if (!Array.isArray(raw)) return undefined
   const sources = raw
     .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
@@ -71,6 +87,58 @@ export function webSearchSourcesFromResult(result: unknown): WebSource[] | undef
     })
     .filter((item): item is WebSource => item != null)
   return sources.length > 0 ? sources : undefined
+}
+
+function xSearchCitationSources(citations: unknown, inlineCitations: unknown): WebSource[] {
+  const seen = new Set<string>()
+  const out: WebSource[] = []
+  const push = (url: string, title?: string, snippet?: string) => {
+    const cleanURL = url.trim()
+    if (!cleanURL || seen.has(cleanURL)) return
+    seen.add(cleanURL)
+    out.push({
+      title: title?.trim() || xPostTitle(cleanURL),
+      url: cleanURL,
+      ...(snippet?.trim() ? { snippet: snippet.trim() } : {}),
+    })
+  }
+
+  if (Array.isArray(inlineCitations)) {
+    for (const item of inlineCitations) {
+      if (!item || typeof item !== 'object') continue
+      const rec = item as Record<string, unknown>
+      if (typeof rec.url !== 'string') continue
+      push(rec.url, typeof rec.title === 'string' ? rec.title : undefined)
+    }
+  }
+
+  if (Array.isArray(citations)) {
+    for (const item of citations) {
+      if (typeof item === 'string') {
+        push(item)
+        continue
+      }
+      if (!item || typeof item !== 'object') continue
+      const rec = item as Record<string, unknown>
+      if (typeof rec.url !== 'string') continue
+      push(rec.url, typeof rec.title === 'string' ? rec.title : undefined)
+    }
+  }
+  return out
+}
+
+function xPostTitle(url: string): string {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const parts = parsed.pathname.split('/').filter(Boolean)
+    if ((host === 'x.com' || host === 'twitter.com') && parts.length >= 3 && parts[1] === 'status') {
+      return `@${parts[0]}`
+    }
+    return host
+  } catch {
+    return 'X post'
+  }
 }
 
 /**
@@ -130,6 +198,7 @@ export function applyAgentEventToWebSearchSteps(
       text: { kind: 'search', tense: 'live' },
       status: 'active',
       queries,
+      sourceKind: isXSearchToolName(toolName) ? 'x' : 'web',
       seq: event.order,
     }
     return [...steps, step]
@@ -145,6 +214,7 @@ export function applyAgentEventToWebSearchSteps(
       s.id === callId
         ? {
             ...completeSearchStep(s),
+            sourceKind: s.sourceKind ?? (isXSearchToolName(toolName) ? 'x' : 'web'),
             ...(typeof event.order === 'number' ? { resultSeq: event.order } : {}),
             ...(sources ? { sources } : {}),
           }

@@ -54,7 +54,7 @@ func NewChannelQQToolsMiddleware(deps ChannelQQToolsDeps) RunMiddleware {
 				rc.ToolSpecs = append(rc.ToolSpecs, channel_qq.ReactLlmSpec)
 				extraSpecs = append(extraSpecs, channel_qq.ReactAgentSpec)
 			}
-			if _, blocked := deny[channel_qq.ToolReply]; !blocked {
+			if _, blocked := deny[channel_qq.ToolReply]; !blocked && !isGroup {
 				rc.ToolExecutors[channel_qq.ToolReply] = exec
 				rc.AllowlistSet[channel_qq.ToolReply] = struct{}{}
 				rc.ToolSpecs = append(rc.ToolSpecs, channel_qq.ReplyLlmSpec)

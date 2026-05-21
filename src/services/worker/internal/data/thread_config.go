@@ -7,4 +7,7 @@ type ThreadConfig struct {
 	HeartbeatEnabled        *bool  `json:"heartbeat_enabled,omitempty"`
 	HeartbeatIntervalMinute int    `json:"heartbeat_interval_minutes,omitempty"`
 	HeartbeatModel          string `json:"heartbeat_model,omitempty"`
+	DiscussEnabled          *bool  `json:"discuss_enabled,omitempty"`
+	DiscussIntervalMinute   int    `json:"discuss_interval_minutes,omitempty"`
+	DiscussModel            string `json:"discuss_model,omitempty"`
 }

@@ -348,6 +348,87 @@ func (r *MessageRepository) ListByThread(
 	return messages, nil
 }
 
+func (r *MessageRepository) ListVisibleByThreads(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadIDs []uuid.UUID,
+) ([]Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil {
+		return nil, fmt.Errorf("account_id must not be empty")
+	}
+	if len(threadIDs) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(threadIDs))
+	ids := make([]uuid.UUID, 0, len(threadIDs))
+	for _, id := range threadIDs {
+		if id == uuid.Nil {
+			return nil, fmt.Errorf("thread_id must not be empty")
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+
+	placeholders := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	args = append(args, accountID)
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id IN (`+strings.Join(placeholders, ",")+`)
+		    AND hidden = FALSE
+		    AND deleted_at IS NULL
+		  ORDER BY thread_id ASC, thread_seq ASC`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []Message
+	for rows.Next() {
+		var message Message
+		if err := rows.Scan(
+			&message.ID,
+			&message.AccountID,
+			&message.ThreadID,
+			&message.CreatedByUserID,
+			&message.Role,
+			&message.Content,
+			&message.ContentJSON,
+			&message.MetadataJSON,
+			&message.TokenCount,
+			&message.DeletedAt,
+			&message.CreatedAt,
+			&message.Hidden,
+			&message.ThreadSeq,
+		); err != nil {
+			return nil, err
+		}
+		messages = append(messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
 func (r *MessageRepository) FindByClientMessageID(
 	ctx context.Context,
 	accountID uuid.UUID,

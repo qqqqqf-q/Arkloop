@@ -14,7 +14,9 @@ import {
   COMPLETED_SEARCHING_LABEL,
   DEFAULT_SEARCHING_LABEL,
   isWebSearchToolName,
+  isXSearchToolName,
   webSearchQueriesFromArguments,
+  webSearchSourcesFromResult,
 } from '../webSearchTimelineFromAgentEvent'
 
 type CopState = {
@@ -26,8 +28,8 @@ type CopState = {
 type CopAction =
   | { type: 'segment_start'; segmentId: string; kind: string; label: string; queries?: string[] }
   | { type: 'segment_end'; segmentId: string }
-  | { type: 'web_search_call'; callId: string; queries?: string[] }
-  | { type: 'web_search_result'; callId: string; sources: WebSource[] }
+  | { type: 'web_search_call'; callId: string; queries?: string[]; sourceKind: 'web' | 'x' }
+  | { type: 'web_search_result'; callId: string; sources: WebSource[]; sourceKind: 'web' | 'x' }
   | { type: 'complete' }
   | { type: 'reset' }
 
@@ -68,6 +70,7 @@ function reducer(state: CopState, action: CopAction): CopState {
         label: DEFAULT_SEARCHING_LABEL,
         status: 'active',
         queries: action.queries,
+        sourceKind: action.sourceKind,
       }
       return { ...state, steps: [...state.steps, step] }
     }
@@ -82,10 +85,10 @@ function reducer(state: CopState, action: CopAction): CopState {
             }
           : s,
       )
-      const allSearchDone = steps
-        .filter((s) => s.kind === 'searching')
-        .every((s) => s.status === 'done')
-      if (allSearchDone && !steps.some((s) => s.kind === 'reviewing')) {
+      const searchSteps = steps.filter((s) => s.kind === 'searching')
+      const allSearchDone = searchSteps.every((s) => s.status === 'done')
+      const onlyXSearch = searchSteps.length > 0 && searchSteps.every((s) => s.sourceKind === 'x')
+      if (allSearchDone && !onlyXSearch && !steps.some((s) => s.kind === 'reviewing')) {
         steps = [
           ...steps,
           {
@@ -145,7 +148,7 @@ function processEvent(event: AgentUIEvent, dispatch: React.Dispatch<CopAction>):
       const callId = typeof obj?.toolCallId === 'string' ? obj.toolCallId : event.id
       const args = agentEventToolInput(event.data)
       const queries = webSearchQueriesFromArguments(args)
-      dispatch({ type: 'web_search_call', callId, queries })
+      dispatch({ type: 'web_search_call', callId, queries, sourceKind: isXSearchToolName(toolName) ? 'x' : 'web' })
     }
     return
   }
@@ -155,18 +158,8 @@ function processEvent(event: AgentUIEvent, dispatch: React.Dispatch<CopAction>):
     const toolName = pickLogicalToolName(event.data, event.toolName)
     if (isWebSearchToolName(toolName)) {
       const callId = typeof obj?.toolCallId === 'string' ? obj.toolCallId : event.id
-      const result = agentEventToolOutput(event.data) as { results?: unknown[] } | undefined
-      const sources: WebSource[] = Array.isArray(result?.results)
-        ? (result.results as unknown[])
-            .filter((r): r is Record<string, unknown> => r != null && typeof r === 'object')
-            .map((r) => ({
-              title: typeof r.title === 'string' ? r.title : '',
-              url: typeof r.url === 'string' ? r.url : '',
-              snippet: typeof r.snippet === 'string' ? r.snippet : undefined,
-            }))
-            .filter((s) => !!s.url)
-        : []
-      dispatch({ type: 'web_search_result', callId, sources })
+      const sources = webSearchSourcesFromResult(agentEventToolOutput(event.data)) ?? []
+      dispatch({ type: 'web_search_result', callId, sources, sourceKind: isXSearchToolName(toolName) ? 'x' : 'web' })
     }
     return
   }

@@ -4,11 +4,15 @@ package toolprovider
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
@@ -198,4 +202,93 @@ func TestLoadDesktopActiveToolProvidersDecryptsWithEncryptionFile(t *testing.T) 
 	if err != nil {
 		t.Fatalf("desktop key ring should load: %v", err)
 	}
+}
+
+func TestLoadDesktopActiveToolProvidersLoadsXSearchOAuth(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 21)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(key)), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+	ring, err := sharedencryption.NewKeyRing(map[int][]byte{1: key})
+	if err != nil {
+		t.Fatalf("new key ring: %v", err)
+	}
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "loadtp-xoauth.db"))
+	if err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlitePool.Close()
+	})
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.MustParse("00000000-0000-4000-8000-000000000022")
+	if _, err := db.Exec(ctx, `
+		INSERT INTO accounts (id, slug, name, type)
+		VALUES ($1, 'platform-xoauth', 'Platform X OAuth', 'personal')
+		ON CONFLICT (id) DO NOTHING`, accountID,
+	); err != nil {
+		t.Fatalf("seed account: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE tool_provider_configs SET is_active = 0 WHERE group_name = 'web_search'`); err != nil {
+		t.Fatalf("deactivate default search provider: %v", err)
+	}
+
+	tokenJSON := `{"access_token":"` + testJWT(time.Now().Add(time.Hour)) + `","refresh_token":"refresh-token","token_type":"Bearer"}`
+	encrypted, ver, err := ring.Encrypt([]byte(tokenJSON))
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	secretID := uuid.New()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO secrets (id, account_id, owner_kind, name, encrypted_value, key_version)
+		VALUES ($1, $2, 'platform', 'tool_provider_oauth:x_search.xai', $3, $4)`,
+		secretID, accountID, encrypted, ver,
+	); err != nil {
+		t.Fatalf("seed secret: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO tool_provider_configs (
+			account_id, owner_kind, group_name, provider_name, is_active, config_json
+		) VALUES ($1, 'platform', 'x_search', 'x_search.xai', 1, '{"auth_mode":"oauth"}')`,
+		accountID,
+	); err != nil {
+		t.Fatalf("seed provider: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO tool_provider_oauth_connections (
+			owner_kind, group_name, provider_name, token_secret_id, client_id, scope, expires_at
+		) VALUES ('platform', 'x_search', 'x_search.xai', $1, $2, 'scope', $3)`,
+		secretID, xaiOAuthClientID, time.Now().Add(time.Hour),
+	); err != nil {
+		t.Fatalf("seed oauth connection: %v", err)
+	}
+
+	platform, err := LoadDesktopActiveToolProviders(ctx, db)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(platform) != 1 {
+		t.Fatalf("expected 1 provider, got %d", len(platform))
+	}
+	if platform[0].ProviderName != "x_search.xai" {
+		t.Fatalf("unexpected provider: %+v", platform[0])
+	}
+	if platform[0].OAuthValue == nil || !strings.Contains(*platform[0].OAuthValue, "refresh-token") {
+		t.Fatalf("missing oauth value: %#v", platform[0].OAuthValue)
+	}
+}
+
+func testJWT(exp time.Time) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"exp":` + fmt.Sprintf("%d", exp.Unix()) + `}`))
+	return header + "." + payload + "."
 }

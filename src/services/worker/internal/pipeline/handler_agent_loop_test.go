@@ -278,6 +278,23 @@ func TestShouldSuppressHeartbeatOutput(t *testing.T) {
 			want:   false,
 		},
 		{
+			name: "discuss without speak suppresses",
+			rc: &RunContext{
+				DiscussRun: true,
+			},
+			output: "hello",
+			want:   true,
+		},
+		{
+			name: "discuss with speak keeps output",
+			rc: &RunContext{
+				DiscussRun:         true,
+				DiscussTextVisible: true,
+			},
+			output: "hello",
+			want:   false,
+		},
+		{
 			name: "tool explicit silent suppresses",
 			rc: &RunContext{
 				HeartbeatRun: true,

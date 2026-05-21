@@ -42,9 +42,10 @@ import type { UserInputResponse } from '../userInputTypes'
 
 type UseChatActionsDeps = {
   scrollToBottom: () => void
+  onSelectForkAnchor: (messageId: string) => void
 }
 
-export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
+export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatActionsDeps) {
   const navigate = useNavigate()
   const { t } = useLocale()
   const { accessToken, logout: onLoggedOut } = useAuth()
@@ -371,24 +372,28 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     setTerminalRunCoveredRunIds([])
     try {
       const reasoningMode = readThreadReasoningMode(threadId)
-      const run = await agentClient.retryMessage({
-        threadId,
-        messageId: message.id,
+      const forked = await forkThread(accessToken, threadId, message.id)
+      if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
+      onThreadCreated(forked)
+      const forkedMessageId = forked.id_mapping?.find((pair) => pair.old_id === message.id)?.new_id
+      noResponseMsgIdRef.current = forkedMessageId ?? null
+      const run = await agentClient.createRun({
+        threadId: forked.id,
         personaId: personaKey,
         modelOverride,
         workDir: threads.find((thread) => thread.id === threadId)?.sidebar_work_folder ?? readThreadWorkFolder(threadId) ?? undefined,
         reasoningMode: reasoningMode !== 'off' ? reasoningMode as RunReasoningMode : undefined,
       })
-      invalidateMessageSync()
-      setMessages((prev) => {
-        const index = prev.findIndex((item) => item.id === message.id)
-        return index < 0 ? prev : prev.slice(0, index + 1)
-      })
-      if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(threadId)
+      if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
       resetSearchSteps()
       setActiveRunId(run.id)
-      onRunStarted(threadId)
-      scrollToBottom()
+      navigate(`/t/${forked.id}`, {
+        state: {
+          initialRunId: run.id,
+          graphFocusMessageId: forkedMessageId,
+        },
+      })
+      onRunStarted(forked.id)
     } catch (err) {
       setPendingThinking(false)
       if (isApiError(err) && err.status === 401) {
@@ -425,25 +430,17 @@ export function useChatActions({ scrollToBottom }: UseChatActionsDeps) {
     t.copThinkingHints,
     threadId,
     threads,
+    accessToken,
+    navigate,
+    onThreadCreated,
   ])
 
   const handleFork = useCallback(async (messageId: string) => {
     if (!threadId || isStreaming || sending) return
     setError(null)
     setInjectionBlocked(null)
-    try {
-      const forked = await forkThread(accessToken, threadId, messageId)
-      if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
-      onThreadCreated(forked)
-      navigate(`/t/${forked.id}`)
-    } catch (err) {
-      if (isApiError(err) && err.status === 401) {
-        onLoggedOut()
-        return
-      }
-      setError(normalizeError(err))
-    }
-  }, [accessToken, isStreaming, navigate, onLoggedOut, onThreadCreated, sending, setError, setInjectionBlocked, threadId])
+    onSelectForkAnchor(messageId)
+  }, [isStreaming, onSelectForkAnchor, sending, setError, setInjectionBlocked, threadId])
 
   const handleCheckInSubmit = useCallback(async () => {
     if (!activeRunId || checkInSubmitting) return

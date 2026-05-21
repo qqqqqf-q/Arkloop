@@ -103,6 +103,9 @@ type RunContext struct {
 	ChannelOutputDelivered bool
 	// -- telegram_reply 工具写入：为 delivery 层设置显式 reply 引用 --
 	ChannelReplyOverride *ChannelMessageRef
+	// -- speak 工具写入：Discuss 群聊 run 中允许本轮后续 assistant text 外发 --
+	DiscussRun         bool
+	DiscussTextVisible bool
 
 	// -- AgentLoopHandler 写入：本次 run 的 tool call 总数和 LLM 迭代轮数，供 MemoryMiddleware 判断提炼条件 --
 	RunToolCallCount  int
@@ -331,6 +334,23 @@ func (rc *RunContext) SetHeartbeatDecisionOutcome(reply bool, _ []string) {
 		Reply: reply,
 	}
 	rc.HeartbeatSilent = !reply
+}
+
+// SetDiscussSpeak implements tools/builtin/speak.PipelineBinding.
+func (rc *RunContext) SetDiscussSpeak(replyToMessageID string) {
+	if rc == nil {
+		return
+	}
+	rc.DiscussTextVisible = true
+	replyToMessageID = strings.TrimSpace(replyToMessageID)
+	if replyToMessageID != "" {
+		rc.ChannelReplyOverride = &ChannelMessageRef{MessageID: replyToMessageID}
+	}
+}
+
+// IsDiscussRun implements tools/builtin/speak.PipelineBinding.
+func (rc *RunContext) IsDiscussRun() bool {
+	return rc != nil && rc.DiscussRun
 }
 
 // SetEndReplyRequested implements tools/builtin/end_reply.PipelineBinding.

@@ -13,6 +13,7 @@ func copyProviderConfigMap(src map[string]sharedtoolruntime.ProviderConfig) map[
 			ProviderName: cfg.ProviderName,
 			BaseURL:      cfg.BaseURL,
 			APIKeyValue:  cfg.APIKeyValue,
+			OAuthValue:   cfg.OAuthValue,
 			ConfigJSON:   copyProviderConfigJSON(cfg.ConfigJSON),
 		}
 	}

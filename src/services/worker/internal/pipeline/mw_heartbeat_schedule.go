@@ -25,7 +25,7 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 		if err != nil || rc == nil || db == nil {
 			return err
 		}
-		if rc.HeartbeatRun {
+		if rc.HeartbeatRun || isDiscussScheduledRun(rc) {
 			return updateHeartbeatCooldown(ctx, db, rc, repo)
 		}
 		if rc.ChannelContext == nil {
@@ -135,6 +135,19 @@ func NewHeartbeatScheduleMiddleware(db data.DB) RunMiddleware {
 	}
 }
 
+func isDiscussScheduledRun(rc *RunContext) bool {
+	if rc == nil {
+		return false
+	}
+	if s, ok := stringField(rc.InputJSON, "run_kind"); ok && strings.EqualFold(s, "discuss") {
+		return true
+	}
+	if s, ok := stringField(rc.JobPayload, "run_kind"); ok && strings.EqualFold(s, "discuss") {
+		return true
+	}
+	return false
+}
+
 func getExistingHeartbeatSchedule(ctx context.Context, db data.DB, repo data.ScheduledTriggersRepository, rc *RunContext, channelID, identityID uuid.UUID) (*data.ScheduledTriggerRow, error) {
 	if rc != nil && rc.Run.ThreadID != uuid.Nil {
 		return repo.GetHeartbeatForThread(ctx, db, rc.Run.ThreadID)
@@ -221,6 +234,13 @@ func getThreadHeartbeatConfig(ctx context.Context, db data.DB, threadID uuid.UUI
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
+	if cfg.DiscussEnabled != nil {
+		return &data.HeartbeatIdentityConfig{
+			Enabled:         *cfg.DiscussEnabled,
+			IntervalMinutes: cfg.DiscussIntervalMinute,
+			Model:           strings.TrimSpace(cfg.DiscussModel),
+		}, nil
+	}
 	if cfg.HeartbeatEnabled == nil {
 		return nil, nil
 	}
@@ -258,16 +278,8 @@ func updateHeartbeatCooldown(ctx context.Context, db data.DB, rc *RunContext, re
 	snapshotLastUserMsg := existing.LastUserMsgAt
 
 	now := time.Now().UTC()
-	var newLevel int
-	var nextFire time.Time
-
-	if existing.CooldownLevel == 0 {
-		newLevel = existing.CooldownLevel + 1
-		nextFire = now.Add(time.Minute)
-	} else {
-		newLevel = existing.CooldownLevel + 1
-		nextFire = suspendHeartbeatUntilNextMessage(now)
-	}
+	newLevel := existing.CooldownLevel + 1
+	nextFire := suspendHeartbeatUntilNextMessage(now)
 
 	var updateErr error
 	if rc != nil && rc.Run.ThreadID != uuid.Nil {

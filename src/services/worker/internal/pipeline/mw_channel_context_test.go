@@ -107,6 +107,7 @@ func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T)
 				"inbound_reply_to_message_id": "13",
 				"conversation_type":           "private",
 				"mentions_bot":                true,
+				"matches_keyword":             true,
 				"sender_channel_identity_id":  identityID.String(),
 			},
 		},
@@ -134,7 +135,7 @@ func TestChannelContextMiddlewareOverridesUserIDFromSenderIdentity(t *testing.T)
 		if rc.ChannelContext.Conversation.ThreadID == nil || *rc.ChannelContext.Conversation.ThreadID != "thread-7" {
 			t.Fatalf("unexpected conversation thread: %#v", rc.ChannelContext.Conversation.ThreadID)
 		}
-		if rc.ChannelContext.ConversationType != "private" || !rc.ChannelContext.MentionsBot {
+		if rc.ChannelContext.ConversationType != "private" || !rc.ChannelContext.MentionsBot || !rc.ChannelContext.MatchesKeyword {
 			t.Fatalf("unexpected conversation flags: %#v", rc.ChannelContext)
 		}
 		if rc.UserID == nil || *rc.UserID != senderUserID {

@@ -17,6 +17,7 @@ import (
 	"arkloop/services/worker/internal/tools/builtin"
 	loadskill "arkloop/services/worker/internal/tools/builtin/load_skill"
 	readtool "arkloop/services/worker/internal/tools/builtin/read"
+	"arkloop/services/worker/internal/tools/builtin/speak"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
 
 	"github.com/google/uuid"
@@ -674,6 +675,44 @@ func TestToolBuildMiddleware_ReadSearchableWithoutProviderConfig(t *testing.T) {
 		searchable := rc.ToolExecutor.SearchableSpecs()
 		if _, ok := searchable["read"]; !ok {
 			t.Fatal("expected read to remain searchable for file reads")
+		}
+		return nil
+	})
+
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestToolBuildMiddleware_DiscussSpeakStaysCore(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(speak.AgentSpec); err != nil {
+		t.Fatalf("register speak: %v", err)
+	}
+	if err := registry.Register(loadskill.AgentSpec); err != nil {
+		t.Fatalf("register load_skill: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:           data.Run{ID: uuid.New()},
+		Emitter:       events.NewEmitter("test"),
+		ToolRegistry:  registry,
+		ToolExecutors: map[string]tools.Executor{speak.ToolName: speak.New(), loadskill.AgentSpec.Name: loadskill.NewToolExecutor(nil)},
+		AllowlistSet:  map[string]struct{}{speak.ToolName: {}, loadskill.AgentSpec.Name: {}},
+		ToolSpecs:     []llm.ToolSpec{speak.Spec, loadskill.LlmSpec},
+		DiscussRun:    true,
+		PersonaDefinition: &personas.Definition{
+			CoreTools: []string{"timeline_title", speak.ToolName},
+		},
+	}
+
+	mw := pipeline.NewToolBuildMiddleware()
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if !hasToolSpecName(rc.FinalSpecs, speak.ToolName) {
+			t.Fatal("expected speak in final core specs")
+		}
+		if _, ok := rc.ToolExecutor.SearchableSpecs()[speak.ToolName]; ok {
+			t.Fatal("speak must not be searchable in discuss runs")
 		}
 		return nil
 	})

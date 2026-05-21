@@ -90,6 +90,10 @@ function sortThreadsByActivity(threads: ThreadResponse[]): ThreadResponse[] {
   })
 }
 
+function isBranchThread(thread: ThreadResponse): boolean {
+  return !!thread.parent_thread_id
+}
+
 function normalizeSidebarWorkFolder(value: string | null | undefined): string | null {
   const trimmed = (value ?? '').trim()
   return trimmed.length > 0 ? trimmed : null
@@ -471,6 +475,13 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addThread = useCallback((thread: ThreadResponse) => {
+    if (isBranchThread(thread)) {
+      setThreads((prev) => {
+        if (prev.some((t) => t.id === thread.id)) return prev
+        return [thread, ...prev]
+      })
+      return
+    }
     let nextThread = thread
     const sidebarPatch: UpdateThreadSidebarRequest = {}
     if (thread.is_private) {
@@ -516,7 +527,7 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
       if (idx < 0) return [thread, ...prev]
       return prev.map((item, currentIndex) => (currentIndex === idx ? { ...item, ...thread } : item))
     })
-    if (!accessToken || thread.is_private) return
+    if (!accessToken || thread.is_private || isBranchThread(thread)) return
     const patch = buildLegacySidebarPatch(thread)
     if (Object.keys(patch).length === 0) return
     void updateThreadSidebarState(accessToken, thread.id, patch).then((updated) => {
@@ -592,6 +603,7 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     }
     for (const thread of threads) {
       if (thread.is_private) continue
+      if (isBranchThread(thread)) continue
       const mode = thread.mode === 'work' ? 'work' : 'chat'
       grouped[mode].push(thread)
     }

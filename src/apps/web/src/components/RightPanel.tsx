@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type WheelEvent } from 'react'
-import { FileText, FolderOpen, Globe2, Plus, X } from 'lucide-react'
+import { FileText, FolderOpen, GitBranch, Globe2, Plus, X } from 'lucide-react'
 import { iconButtonSmCls } from './buttonStyles'
 import { DropdownAction } from './DropdownAction'
 import { rightPanelIconButtonCls, rightPanelIconButtonSize, rightPanelIconSize } from './rightPanelControls'
@@ -9,7 +9,7 @@ import './RightPanel.css'
 export type RightPanelTab = {
   id: string
   title: string
-  kind: 'web' | 'files' | 'source' | 'code' | 'agent' | 'resource'
+  kind: 'web' | 'files' | 'source' | 'code' | 'agent' | 'resource' | 'conversation-graph'
   content: ReactNode
   closable?: boolean
   icon?: ReactNode
@@ -39,6 +39,7 @@ type Props = {
 function TabIcon({ kind }: { kind: RightPanelTab['kind'] }) {
   if (kind === 'web') return <Globe2 size={rightPanelIconSize} />
   if (kind === 'files') return <FolderOpen size={rightPanelIconSize} />
+  if (kind === 'conversation-graph') return <GitBranch size={rightPanelIconSize} />
   return <FileText size={rightPanelIconSize} />
 }
 
@@ -214,7 +215,9 @@ export const RightPanel = memo(function RightPanel({
           {orderedTabs.map((tab) => {
             const active = tab.id === activeTab?.id
             const closable = tab.closable !== false && !!onCloseTab
-            const iconOnlyClosable = closable && tab.hideTitle
+            const hideTitle = !!tab.hideTitle || (tab.kind === 'conversation-graph' && !active)
+            const iconOnlyClosable = closable && hideTitle && tab.kind !== 'conversation-graph'
+            const showCloseButton = closable && !iconOnlyClosable && !hideTitle
             const icon = tab.icon ?? <TabIcon kind={tab.kind} />
             return (
               <button
@@ -245,13 +248,13 @@ export const RightPanel = memo(function RightPanel({
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: tab.hideTitle ? 'center' : undefined,
-                  gap: tab.hideTitle ? 0 : 5,
+                  justifyContent: hideTitle ? 'center' : undefined,
+                  gap: hideTitle ? 0 : 5,
                   minWidth: 0,
                   maxWidth: 220,
-                  width: tab.hideTitle ? rightPanelIconButtonSize : undefined,
+                  width: hideTitle ? rightPanelIconButtonSize : undefined,
                   height: 28,
-                  padding: tab.hideTitle ? 0 : '0 8px',
+                  padding: hideTitle ? 0 : '0 8px',
                   borderRadius: 6.5,
                   border: 0,
                   background: active ? 'var(--c-bg-deep)' : undefined,
@@ -273,8 +276,8 @@ export const RightPanel = memo(function RightPanel({
                     </span>
                   </span>
                 ) : icon}
-                {!tab.hideTitle ? <span className="right-panel-tab__title">{tab.title}</span> : null}
-                {closable && !iconOnlyClosable ? (
+                {!hideTitle ? <span className="right-panel-tab__title">{tab.title}</span> : null}
+                {showCloseButton ? (
                   <span
                     role="button"
                     tabIndex={-1}

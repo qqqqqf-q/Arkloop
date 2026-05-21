@@ -592,7 +592,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesFromOriginalSchedule
 	}
 }
 
-func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneMinute(t *testing.T) {
+func TestScheduledTriggersRepositoryClaimDueTriggersAdvancesCooldownTriggerByInterval(t *testing.T) {
 	ctx := context.Background()
 
 	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
@@ -638,7 +638,7 @@ func TestScheduledTriggersRepositoryClaimDueTriggersKeepsHeartbeatFollowupAtOneM
 	updatedNextFire := mustReadDesktopNextFireAt(t, ctx, db, channelID, identityID)
 	expected := originalNextFire.Add(time.Minute)
 	if !updatedNextFire.Equal(expected) {
-		t.Fatalf("expected level 1 heartbeat to advance by one minute, got=%s want=%s", updatedNextFire, expected)
+		t.Fatalf("expected cooldown heartbeat to advance by interval, got=%s want=%s", updatedNextFire, expected)
 	}
 }
 

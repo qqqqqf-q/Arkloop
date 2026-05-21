@@ -41,6 +41,7 @@ type Deps struct {
 	PluginRuntimeStateRepo       *data.PluginRuntimeStateRepository
 	PluginInstaller              *plugincontrib.Installer
 	PluginEnabler                *plugincontrib.Enabler
+	JobRepo                      *data.JobRepository
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 	PlatformSettingsRepo         *data.PlatformSettingsRepository
@@ -84,10 +85,11 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/tool-catalog/", toolCatalogItemEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-providers", toolProvidersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.DirectPool, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-providers/", toolProviderEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.DirectPool, deps.ProjectRepo))
+	mux.HandleFunc("/v1/tool-provider-oauth/callback", toolProviderOAuthCallbackEntry(deps.SecretsRepo, deps.Pool, deps.DirectPool))
 	mux.HandleFunc("/v1/skill-packages", skillPackagesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/skill-packages/", skillPackageEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo))
 	mux.HandleFunc("/v1/plugins", pluginsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PluginPackagesRepo, deps.PluginInstaller, deps.Pool))
-	mux.HandleFunc("/v1/plugins/", pluginEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PluginPackagesRepo, deps.PluginRuntimeStateRepo, deps.PluginInstaller, deps.PluginEnabler, deps.Pool))
+	mux.HandleFunc("/v1/plugins/", pluginEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PluginPackagesRepo, deps.PluginRuntimeStateRepo, deps.PluginInstaller, deps.PluginEnabler, deps.JobRepo, deps.Pool))
 	mux.HandleFunc("/v1/skill-packages/import/github", githubSkillImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/skill-packages/import/upload", uploadSkillImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/market/skills", marketSkillsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PlatformSettingsRepo, deps.ProfileSkillInstallsRepo, deps.ProfileRegistriesRepo, deps.WorkspaceSkillEnableRepo))

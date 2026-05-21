@@ -248,6 +248,9 @@ type inboundThreadConfig struct {
 	HeartbeatEnabled        *bool  `json:"heartbeat_enabled,omitempty"`
 	HeartbeatIntervalMinute int    `json:"heartbeat_interval_minutes,omitempty"`
 	HeartbeatModel          string `json:"heartbeat_model,omitempty"`
+	DiscussEnabled          *bool  `json:"discuss_enabled,omitempty"`
+	DiscussIntervalMinute   int    `json:"discuss_interval_minutes,omitempty"`
+	DiscussModel            string `json:"discuss_model,omitempty"`
 }
 
 func ensureInboundThreadChatModel(ctx context.Context, db data.Querier, accountID uuid.UUID, threadID uuid.UUID, channelDefaultModel string) error {
@@ -404,6 +407,9 @@ func getInboundThreadHeartbeatConfig(ctx context.Context, db data.Querier, threa
 	if err != nil || !ok {
 		return false, 0, "", ok, err
 	}
+	if cfg.DiscussEnabled != nil {
+		return *cfg.DiscussEnabled, cfg.DiscussIntervalMinute, strings.TrimSpace(cfg.DiscussModel), true, nil
+	}
 	if cfg.HeartbeatEnabled == nil {
 		return false, cfg.HeartbeatIntervalMinute, strings.TrimSpace(cfg.HeartbeatModel), false, nil
 	}
@@ -415,16 +421,21 @@ func updateInboundThreadHeartbeatConfig(ctx context.Context, db data.Querier, th
 	if err != nil || config == nil {
 		return err
 	}
-	config["heartbeat_enabled"] = enabled
+	config["discuss_enabled"] = enabled
+	delete(config, "heartbeat_enabled")
 	if intervalMin > 0 {
-		config["heartbeat_interval_minutes"] = intervalMin
+		config["discuss_interval_minutes"] = intervalMin
+		delete(config, "heartbeat_interval_minutes")
 	} else {
+		delete(config, "discuss_interval_minutes")
 		delete(config, "heartbeat_interval_minutes")
 	}
 	if strings.TrimSpace(model) == "" {
+		delete(config, "discuss_model")
 		delete(config, "heartbeat_model")
 	} else {
-		config["heartbeat_model"] = strings.TrimSpace(model)
+		config["discuss_model"] = strings.TrimSpace(model)
+		delete(config, "heartbeat_model")
 	}
 	return writeInboundThreadConfigMap(ctx, db, threadID, config)
 }

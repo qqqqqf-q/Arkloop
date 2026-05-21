@@ -90,6 +90,7 @@ func BuildChannelDeliveryPayload(incoming InboundMessage, identityID uuid.UUID) 
 		"conversation_type":          conversationType,
 		"mentions_bot":               incoming.MentionsBot,
 		"is_reply_to_bot":            incoming.IsReplyToBot,
+		"matches_keyword":            incoming.MatchesKeyword,
 		"conversation_ref":           map[string]any{"target": strings.TrimSpace(incoming.PlatformChatID)},
 		"inbound_message_ref":        map[string]any{"message_id": strings.TrimSpace(incoming.PlatformMsgID)},
 		"trigger_message_ref":        map[string]any{"message_id": strings.TrimSpace(incoming.PlatformMsgID)},

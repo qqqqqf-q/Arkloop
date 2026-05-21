@@ -1,8 +1,10 @@
 package runkind
 
 const Heartbeat = "heartbeat"
+const Discuss = "discuss"
 const Impression = "impression"
 const Suggestion = "suggestion"
+const ActivityRecorder = "activity_recorder"
 const StickerRegister = "sticker_register"
 const SubagentCallback = "subagent_callback"
 const ScheduledJob = "scheduled_job"

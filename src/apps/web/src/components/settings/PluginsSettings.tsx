@@ -53,6 +53,11 @@ type PluginSettingDefinition = {
   options: string[]
 }
 
+type PluginDaemonDefinition = {
+  key: string
+  label: string
+}
+
 type PluginAction = 'install-runtime' | 'toggle-enabled' | 'update-setting' | 'check-runtime'
 
 type BusyAction = {
@@ -67,6 +72,8 @@ type Props = {
   accessToken: string
 }
 
+const HIDDEN_PLUGIN_IDS = new Set(['arkloop.plugins.activity-recorder'])
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -74,6 +81,31 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasRuntime(manifest: Record<string, unknown>): boolean {
   if (Array.isArray(manifest.runtime)) return manifest.runtime.length > 0
   return isRecord(manifest.runtime) && Object.keys(manifest.runtime).length > 0
+}
+
+function runtimeDefinitions(manifest: Record<string, unknown>): Record<string, unknown>[] {
+  if (Array.isArray(manifest.runtime)) return manifest.runtime.filter(isRecord)
+  return isRecord(manifest.runtime) ? [manifest.runtime] : []
+}
+
+function runtimeDaemonDefinitions(manifest: Record<string, unknown>): PluginDaemonDefinition[] {
+  return runtimeDefinitions(manifest).flatMap((runtime) => {
+    const runtimeID = textValue(runtime.id)
+    if (!runtimeID) return []
+    const out: PluginDaemonDefinition[] = []
+    if (isRecord(runtime.daemon)) {
+      const daemonID = textValue(runtime.daemon.id)
+      out.push({ key: daemonID ? `${runtimeID}.${daemonID}` : runtimeID, label: daemonID ? `${runtimeID}.${daemonID}` : runtimeID })
+    }
+    if (Array.isArray(runtime.daemons)) {
+      runtime.daemons.forEach((daemon) => {
+        if (!isRecord(daemon)) return
+        const daemonID = textValue(daemon.id)
+        out.push({ key: daemonID ? `${runtimeID}.${daemonID}` : runtimeID, label: daemonID ? `${runtimeID}.${daemonID}` : runtimeID })
+      })
+    }
+    return out
+  })
 }
 
 function sourceLabel(sourceKind: string, builtIn: string, custom: string) {
@@ -255,7 +287,9 @@ export function PluginsSettings({ accessToken }: Props) {
     previousBusyActionRef.current = busyAction
   }, [busyAction, load])
 
-  const items = useMemo(() => state.plugins.filter((plugin) => plugin.is_active), [state.plugins])
+  const items = useMemo(() => state.plugins.filter((plugin) => (
+    plugin.is_active && !HIDDEN_PLUGIN_IDS.has(plugin.id)
+  )), [state.plugins])
   const selectedPlugin = useMemo(
     () => items.find((plugin) => plugin.id === selectedPluginID) ?? null,
     [items, selectedPluginID],
@@ -542,7 +576,7 @@ function PluginDetailPage({
   busyAction: PluginAction | null
   labels: ReturnType<typeof useLocale>['t']['desktopSettings']['pluginsPage']
   pageTitle: string
-  onBack: () => void
+  onBack?: () => void
   onInstallRuntime: () => void
   onCheckRuntime: () => void
   onToggleEnabled: (enabled: boolean) => void
@@ -564,17 +598,20 @@ function PluginDetailPage({
   const screenRecordingPermission = runtimeStatusBoolValue(status, ['permissions.screen_recording'])
   const permissionCheckedAt = runtimeStatusValue(status, ['permissions.checked_at'])
   const permissionError = runtimeStatusValue(status, ['permissions.error'])
+  const daemons = useMemo(() => runtimeDaemonDefinitions(plugin.manifest), [plugin.manifest])
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <button
-        type="button"
-        onClick={onBack}
-        className="inline-flex h-[32px] w-fit items-center gap-1.5 rounded-[6.5px] px-2 text-[13px] font-medium text-[var(--c-text-secondary)] transition-[background-color,transform] duration-[140ms] hover:bg-[var(--c-bg-deep)] active:scale-[0.97]"
-      >
-        <ChevronLeft size={15} />
-        {pageTitle}
-      </button>
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex h-[32px] w-fit items-center gap-1.5 rounded-[6.5px] px-2 text-[13px] font-medium text-[var(--c-text-secondary)] transition-[background-color,transform] duration-[140ms] hover:bg-[var(--c-bg-deep)] active:scale-[0.97]"
+        >
+          <ChevronLeft size={15} />
+          {pageTitle}
+        </button>
+      )}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
@@ -607,7 +644,14 @@ function PluginDetailPage({
         </div>
       </div>
 
-      <PluginDetailSection title={labels.overview}>
+      <PluginDetailSection
+        title={labels.overview}
+        action={runtimeNeeded ? (
+          <SettingsIconButton label={labels.checkRuntime} onClick={onCheckRuntime} disabled={busy}>
+            {checkBusy ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          </SettingsIconButton>
+        ) : undefined}
+      >
         <PluginDetailCard>
           <PluginDetailRow label={labels.version}>
             <PluginValue value={plugin.version} />
@@ -626,6 +670,18 @@ function PluginDetailPage({
           </PluginDetailRow>
         </PluginDetailCard>
       </PluginDetailSection>
+
+      {runtimeNeeded && daemons.length > 0 && (
+        <PluginDetailSection title={labels.runtimeSourcesSection}>
+          <PluginDetailCard>
+            {daemons.map((daemon) => (
+              <PluginDetailRow key={daemon.key} label={daemon.label}>
+                <PluginDaemonValue daemon={daemon} status={status} />
+              </PluginDetailRow>
+            ))}
+          </PluginDetailCard>
+        </PluginDetailSection>
+      )}
 
       {showCUAPermissions && (
         <PluginDetailSection
@@ -811,9 +867,44 @@ function PluginValue({
   )
 }
 
-function PluginPill({ children }: { children: ReactNode }) {
+function PluginDaemonValue({ daemon, status }: { daemon: PluginDaemonDefinition; status: PluginStatus }) {
+  const daemonStatus = runtimeStatusValue(status, [`${daemon.key}.daemon.status`]) || 'unknown'
+  const pid = String(runtimeStatusRawValue(status, [`${daemon.key}.daemon.pid`]) ?? '').trim()
+  const logPath = runtimeStatusValue(status, [`${daemon.key}.daemon.log_path`])
+  const checkedAt = runtimeStatusValue(status, [`${daemon.key}.daemon.checked_at`])
+  const statusTone = daemonStatus === 'running'
+    ? 'success'
+    : daemonStatus === 'stopped' || daemonStatus === 'error'
+      ? 'error'
+      : 'neutral'
   return (
-    <span className="rounded-md bg-[var(--c-bg-sub)] px-2 py-1 text-xs font-medium text-[var(--c-text-muted)]">
+    <div className="flex min-w-0 flex-col items-end gap-1">
+      <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
+        <PluginPill tone={statusTone}>{daemonStatus}</PluginPill>
+        {pid && <PluginPill>pid {pid}</PluginPill>}
+      </div>
+      {logPath && (
+        <div className="max-w-full truncate text-right font-mono text-[11px] leading-4 text-[var(--c-text-muted)]" title={logPath}>
+          {logPath}
+        </div>
+      )}
+      {checkedAt && (
+        <div className="text-right text-[11px] leading-4 text-[var(--c-text-muted)]">
+          {formatRuntimeTimestamp(checkedAt)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PluginPill({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'success' | 'error' }) {
+  const toneClass = tone === 'success'
+    ? 'bg-[var(--c-bg-sub)] text-[var(--c-status-success)]'
+    : tone === 'error'
+      ? 'bg-[var(--c-bg-sub)] text-[var(--c-status-error)]'
+      : 'bg-[var(--c-bg-sub)] text-[var(--c-text-muted)]'
+  return (
+    <span className={['rounded-md px-2 py-1 text-xs font-medium', toneClass].join(' ')}>
       {children}
     </span>
   )

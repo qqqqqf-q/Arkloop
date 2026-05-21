@@ -51,6 +51,7 @@ type messageResponse struct {
 	ID              string          `json:"id"`
 	AccountID       string          `json:"account_id"`
 	ThreadID        string          `json:"thread_id"`
+	ThreadSeq       int64           `json:"thread_seq"`
 	CreatedByUserID *string         `json:"created_by_user_id"`
 	RunID           *string         `json:"run_id,omitempty"`
 	Role            string          `json:"role"`

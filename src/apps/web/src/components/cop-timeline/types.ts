@@ -14,6 +14,7 @@ export type WebSearchPhaseStep = {
   status: 'active' | 'done'
   queries?: string[]
   sources?: WebSource[]
+  sourceKind?: 'web' | 'x'
   seq?: number
   resultSeq?: number
 }

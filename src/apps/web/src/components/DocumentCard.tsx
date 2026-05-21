@@ -31,7 +31,9 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', isPlan = f
   return (
     <button
       type="button"
+      className="document-resource-card"
       onClick={(event) => onClick(event.currentTarget)}
+      aria-label={kindLabel}
       aria-pressed={active}
       style={{
         display: 'inline-flex',
@@ -47,12 +49,6 @@ export function DocumentResourceCard({ title, kindLabel = 'Document', isPlan = f
         maxWidth: '320px',
         textAlign: 'left',
         boxShadow: ring,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = 'color-mix(in srgb, var(--c-bg-deep) 28%, var(--c-bg-menu) 72%)'
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = restingBackground
       }}
     >
       <div

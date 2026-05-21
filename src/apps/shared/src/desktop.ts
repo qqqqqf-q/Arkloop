@@ -4,6 +4,7 @@ export type DesktopPlatform = 'win32' | 'darwin' | 'linux' | string
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
 export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
+export type XSearchProvider = 'none' | 'xai_oauth' | 'xai_api_key'
 
 export type FetchConnectorConfig = {
   provider: FetchProvider
@@ -21,9 +22,17 @@ export type SearchConnectorConfig = {
   searxngBaseUrl?: string
 }
 
+export type XSearchConnectorConfig = {
+  provider: XSearchProvider
+  xaiApiKey?: string
+  xaiApiKeyStored?: boolean
+  xaiOAuthConnected?: boolean
+}
+
 export type ConnectorsConfig = {
   fetch: FetchConnectorConfig
   search: SearchConnectorConfig
+  xSearch: XSearchConnectorConfig
 }
 
 export type MemoryProvider = 'notebook' | 'openviking' | 'nowledge'
@@ -143,7 +152,7 @@ export type DesktopConfig = {
   saas: { baseUrl: string }
   selfHosted: { baseUrl: string }
   local: { port: number; portMode: LocalPortMode }
-  window: { width: number; height: number }
+  window: { width: number; height: number; maximized: boolean }
   onboarding_completed: boolean
   connectors: ConnectorsConfig
   memory: MemoryConfig

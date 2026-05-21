@@ -100,6 +100,9 @@ func runtimeGroupAvailable(groupName string, available map[string]struct{}) bool
 	case "web_search":
 		_, ok := available["web_search"]
 		return ok
+	case "x_search":
+		_, ok := available["x_search"]
+		return ok
 	case "web_fetch":
 		_, ok := available["web_fetch"]
 		return ok

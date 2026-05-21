@@ -38,6 +38,8 @@ describe('isWebSearchToolName', () => {
     expect(isWebSearchToolName('WebSearch')).toBe(true)
     expect(isWebSearchToolName('web-search')).toBe(true)
     expect(isWebSearchToolName('web_search.tavily')).toBe(true)
+    expect(isWebSearchToolName('x_search')).toBe(true)
+    expect(isWebSearchToolName('x_search.xai')).toBe(true)
     expect(isWebSearchToolName('other')).toBe(false)
   })
 })
@@ -60,6 +62,22 @@ describe('webSearchSourcesFromResult', () => {
         ],
       }),
     ).toEqual([{ title: 'A', url: 'https://a.test', snippet: 'aa' }])
+  })
+
+  it('提取 x_search citations 中的 X 帖子来源', () => {
+    expect(
+      webSearchSourcesFromResult({
+        answer: 'recent posts',
+        citations: [
+          'https://x.com/qqqqqf_/status/2056736604845404380',
+          { url: 'https://x.com/xai/status/2056000000000000000', title: 'xAI update' },
+          'https://x.com/qqqqqf_/status/2056736604845404380',
+        ],
+      }),
+    ).toEqual([
+      { title: '@qqqqqf_', url: 'https://x.com/qqqqqf_/status/2056736604845404380', snippet: undefined },
+      { title: 'xAI update', url: 'https://x.com/xai/status/2056000000000000000', snippet: undefined },
+    ])
   })
 })
 
@@ -98,9 +116,49 @@ describe('applyAgentEventToWebSearchSteps', () => {
     expect(steps).toHaveLength(1)
     expect(steps[0]?.label).toBe(COMPLETED_SEARCHING_LABEL)
     expect(steps[0]?.text).toEqual({ kind: 'search_completed' })
+    expect(steps[0]?.sourceKind).toBe('web')
     expect(steps[0]?.sources).toEqual([{ title: 't', url: 'https://x.test', snippet: undefined }])
     expect(steps[0]?.seq).toBe(1)
     expect(steps[0]?.resultSeq).toBe(2)
+  })
+
+  it('x_search tool.result 复用搜索时间线并绑定 citations', () => {
+    const call: AgentUIEvent = agentEvent({
+      type: 'tool-call',
+      order: 1,
+      timestamp: '',
+      id: 'e1',
+      streamId: 'r',
+      data: {
+        tool_name: 'x_search',
+        tool_call_id: 'x1',
+        arguments: { query: 'from:@qqqqqf_' },
+      },
+    })
+    const result: AgentUIEvent = agentEvent({
+      type: 'tool-result',
+      order: 2,
+      timestamp: '',
+      id: 'e2',
+      streamId: 'r',
+      data: {
+        tool_name: 'x_search',
+        tool_call_id: 'x1',
+        result: {
+          answer: 'Recent posts',
+          citations: ['https://x.com/qqqqqf_/status/2056736604845404380'],
+        },
+      },
+    })
+    let steps = applyAgentEventToWebSearchSteps([], call)
+    steps = applyAgentEventToWebSearchSteps(steps, result)
+
+    expect(steps).toHaveLength(1)
+    expect(steps[0]?.queries).toEqual(['from:@qqqqqf_'])
+    expect(steps[0]?.sourceKind).toBe('x')
+    expect(steps[0]?.sources).toEqual([
+      { title: '@qqqqqf_', url: 'https://x.com/qqqqqf_/status/2056736604845404380', snippet: undefined },
+    ])
   })
 
   it('多次 search 时只给对应 call 绑定自己的 sources', () => {

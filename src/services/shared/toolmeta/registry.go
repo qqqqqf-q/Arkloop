@@ -4,6 +4,7 @@ import "fmt"
 
 const (
 	GroupWebSearch     = "web_search"
+	GroupXSearch       = "x_search"
 	GroupWebFetch      = "web_fetch"
 	GroupSandbox       = "sandbox"
 	GroupMemory        = "memory"
@@ -34,6 +35,7 @@ type ToolGroup struct {
 var groupOrder = []string{
 	GroupDiscovery,
 	GroupWebSearch,
+	GroupXSearch,
 	GroupWebFetch,
 	GroupSandbox,
 	GroupFilesystem,
@@ -107,6 +109,15 @@ var registry = []ToolMeta{
 			"The URL must be a fully-formed valid URL. HTTP URLs are automatically upgraded to HTTPS. " +
 			"This tool is read-only and does not modify any files. " +
 			"Do not use web_fetch for file operations, code execution, or tasks that other dedicated tools handle.",
+	},
+	{
+		Name:      "x_search",
+		Group:     GroupXSearch,
+		Label:     "X search",
+		ShortDesc: "search X posts and return a synthesized answer with citations",
+		LLMDescription: "search public X posts and return a synthesized answer with citations. " +
+			"Use x_search for questions that specifically need X/Twitter posts, accounts, discourse, or recent social media reactions. " +
+			"Do not use x_search as a general web search replacement; use web_search for normal web pages, docs, news, and broad internet facts.",
 	},
 	// ── sandbox ──
 	{

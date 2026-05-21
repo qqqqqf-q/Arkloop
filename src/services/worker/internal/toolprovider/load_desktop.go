@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"arkloop/services/shared/desktop"
 	sharedencryption "arkloop/services/shared/encryption"
@@ -18,13 +19,19 @@ import (
 
 // ActiveProviderConfig matches SaaS toolprovider for RunContext injection.
 type ActiveProviderConfig struct {
-	OwnerKind    string
-	GroupName    string
-	ProviderName string
-	APIKeyValue  *string
-	KeyPrefix    *string
-	BaseURL      *string
-	ConfigJSON   map[string]any
+	OwnerKind          string
+	OwnerUserID        *uuid.UUID
+	GroupName          string
+	ProviderName       string
+	APIKeyValue        *string
+	OAuthValue         *string
+	OAuthTokenSecretID *uuid.UUID
+	OAuthClientID      *string
+	OAuthScope         *string
+	OAuthExpiresAt     *time.Time
+	KeyPrefix          *string
+	BaseURL            *string
+	ConfigJSON         map[string]any
 }
 
 func ToRuntimeProviderConfig(cfg ActiveProviderConfig) sharedtoolruntime.ProviderConfig {
@@ -33,6 +40,7 @@ func ToRuntimeProviderConfig(cfg ActiveProviderConfig) sharedtoolruntime.Provide
 		ProviderName: strings.TrimSpace(cfg.ProviderName),
 		BaseURL:      cfg.BaseURL,
 		APIKeyValue:  cfg.APIKeyValue,
+		OAuthValue:   cfg.OAuthValue,
 		ConfigJSON:   copyJSONMapDesktop(cfg.ConfigJSON),
 	}
 }
@@ -65,13 +73,19 @@ func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatu
 			continue
 		}
 		out = append(out, ActiveProviderConfig{
-			OwnerKind:    status.OwnerKind,
-			GroupName:    status.GroupName,
-			ProviderName: status.ProviderName,
-			APIKeyValue:  status.APIKeyValue,
-			KeyPrefix:    status.KeyPrefix,
-			BaseURL:      status.BaseURL,
-			ConfigJSON:   status.ConfigJSON,
+			OwnerKind:          status.OwnerKind,
+			OwnerUserID:        status.OwnerUserID,
+			GroupName:          status.GroupName,
+			ProviderName:       status.ProviderName,
+			APIKeyValue:        status.APIKeyValue,
+			OAuthValue:         status.OAuthValue,
+			OAuthTokenSecretID: status.OAuthTokenSecretID,
+			OAuthClientID:      status.OAuthClientID,
+			OAuthScope:         status.OAuthScope,
+			OAuthExpiresAt:     status.OAuthExpiresAt,
+			KeyPrefix:          status.KeyPrefix,
+			BaseURL:            status.BaseURL,
+			ConfigJSON:         status.ConfigJSON,
 		})
 	}
 	return out
@@ -107,5 +121,46 @@ func LoadDesktopActiveToolProviders(ctx context.Context, db data.DesktopDB) ([]A
 	if err != nil {
 		return nil, err
 	}
+	refreshXAIProviderOAuthStatuses(ctx, db, platformStatuses, func(plaintext string) (string, int, error) {
+		if keyRing == nil {
+			ring, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
+			if err != nil {
+				return "", 0, err
+			}
+			keyRing = ring
+		}
+		return keyRing.Encrypt([]byte(plaintext))
+	})
 	return activeConfigsFromStatuses(platformStatuses), nil
+}
+
+func refreshXAIProviderOAuthStatuses(
+	ctx context.Context,
+	db data.DesktopDB,
+	statuses []sharedtoolruntime.ProviderRuntimeStatus,
+	encrypt encryptProviderToken,
+) {
+	if db == nil {
+		return
+	}
+	refreshXAIProviderOAuthStatusesCore(ctx, statuses, encrypt, func(ctx context.Context, status sharedtoolruntime.ProviderRuntimeStatus, encrypted string, keyVersion int, expiresAt *time.Time) error {
+		if status.OAuthTokenSecretID == nil {
+			return fmt.Errorf("oauth token secret id is missing")
+		}
+		if _, err := db.Exec(ctx, `
+UPDATE secrets
+   SET encrypted_value = $2, key_version = $3, updated_at = CURRENT_TIMESTAMP
+ WHERE id = $1`,
+			status.OAuthTokenSecretID.String(), encrypted, keyVersion,
+		); err != nil {
+			return err
+		}
+		_, err := db.Exec(ctx, `
+UPDATE tool_provider_oauth_connections
+   SET expires_at = $2, updated_at = CURRENT_TIMESTAMP
+ WHERE token_secret_id = $1`,
+			status.OAuthTokenSecretID.String(), expiresAt,
+		)
+		return err
+	})
 }

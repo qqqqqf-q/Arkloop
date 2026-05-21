@@ -249,8 +249,17 @@ const artifactUrlTransform: UrlTransform = (url) => {
   return defaultUrlTransform(url)
 }
 
+function decodeArtifactKey(key: string): string {
+  try {
+    return decodeURIComponent(key)
+  } catch {
+    return key
+  }
+}
+
 function findArtifactByKey(artifacts: ArtifactRef[], key: string): ArtifactRef | undefined {
-  return artifacts.find((a) => a.key === key)
+  const decodedKey = decodeArtifactKey(key)
+  return artifacts.find((a) => a.key === key || a.key === decodedKey)
 }
 
 const EXT_MIME: Record<string, string> = {

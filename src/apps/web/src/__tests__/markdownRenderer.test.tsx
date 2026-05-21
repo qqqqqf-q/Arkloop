@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MarkdownRenderer } from '../components/MarkdownRenderer'
 import { LocaleProvider } from '../contexts/LocaleContext'
-import type { WebSource } from '../storage'
+import type { ArtifactRef, WebSource } from '../storage'
 import type { ResourceRef } from '../components/resource-preview/types'
 
 function renderMarkdown(content: string, options?: {
@@ -13,8 +13,10 @@ function renderMarkdown(content: string, options?: {
   streaming?: boolean
   accessToken?: string
   runId?: string
+  artifacts?: ArtifactRef[]
   compact?: boolean
   typography?: 'default' | 'work'
+  onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
 }): string {
   return renderToStaticMarkup(
     <LocaleProvider>
@@ -25,8 +27,10 @@ function renderMarkdown(content: string, options?: {
         streaming={options?.streaming}
         accessToken={options?.accessToken}
         runId={options?.runId}
+        artifacts={options?.artifacts}
         compact={options?.compact}
         typography={options?.typography}
+        onOpenResource={options?.onOpenResource}
       />
     </LocaleProvider>,
   )
@@ -206,6 +210,27 @@ describe('MarkdownRenderer', () => {
 
     expect(html).not.toContain('missing.png')
     expect(html).not.toContain('artifact:missing.png')
+  })
+
+  it('应使用解码后的 artifact key 匹配中文文件名文档卡片', () => {
+    const key = '00000000-0000-4000-8000-000000000002/72071b33-8c68-4394-810f-3a3388c3f2ba/路上看见-采访线索.md'
+    const encodedKey = encodeURIComponent(key)
+    const html = renderMarkdown(`[路上看见-采访线索](artifact:${encodedKey})`, {
+      accessToken: 'token',
+      artifacts: [{
+        key,
+        filename: '路上看见-采访线索.md',
+        size: 7206,
+        mime_type: 'text/markdown',
+        title: '路上看见-采访线索',
+        display: 'inline',
+      }],
+      onOpenResource: () => {},
+    })
+
+    expect(html).toContain('路上看见-采访线索')
+    expect(html).toContain('文档')
+    expect(html).not.toContain('<a ')
   })
 
   it('应识别 workspace 图片引用并渲染按需预览占位', () => {

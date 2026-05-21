@@ -61,10 +61,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   const wasLoadingRef = useRef(false)
   const stabilizeFrameRef = useRef<number | null>(null)
 
-  // live run 状态同步到 ref，供 recalcSpacer 等 useCallback 读取
-  const isLiveRef = useRef(false)
-  isLiveRef.current = liveAssistantTurn != null || liveRunUiVisible
-
   const inputAreaHeight = useCallback(() => {
     const el = inputAreaRef.current
     if (!el) return SCROLL_BOTTOM_PAD
@@ -105,24 +101,28 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   const recalcSpacer = useCallback(() => {
     const spacer = spacerRef.current
     const container = scrollContainerRef.current
-    const turn = lastUserMsgRef.current
+    const prompt = lastUserPromptRef.current ?? lastUserMsgRef.current
     if (!spacer || !container) return
-    if (stateRef.current !== 'pinned' || !turn || !isLiveRef.current) {
+    if (stateRef.current !== 'pinned' || !prompt) {
       spacer.style.height = '0px'
       return
     }
-    const viewportH = container.clientHeight
-    const turnH = turn.getBoundingClientRect().height
-    const needed = Math.max(0, viewportH - turnH - inputAreaHeight() - PROMPT_PIN_TOP_OFFSET)
+    const spacerH = Number.parseFloat(spacer.style.height) || 0
+    const naturalScrollHeight = container.scrollHeight - spacerH
+    const promptTop = prompt.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
+    const desiredScrollTop = Math.max(0, promptTop - PROMPT_PIN_TOP_OFFSET)
+    const needed = Math.max(0, desiredScrollTop + container.clientHeight - naturalScrollHeight)
     spacer.style.height = needed + 'px'
-  }, [inputAreaHeight])
+  }, [])
 
   const scrollToAnchorInstant = useCallback(() => {
     const container = scrollContainerRef.current
     const prompt = lastUserPromptRef.current ?? lastUserMsgRef.current
     if (!container || !prompt) return
     const promptTop = prompt.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
-    container.scrollTop = Math.max(0, promptTop - PROMPT_PIN_TOP_OFFSET)
+    const target = Math.max(0, promptTop - PROMPT_PIN_TOP_OFFSET)
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+    container.scrollTop = Math.min(target, maxScrollTop)
   }, [])
 
   // --- scroll handler: only updates isAtBottom for button UI ---
@@ -238,8 +238,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
 
     dbg('streamEffect', `state=${stateRef.current} needsInit=${pinnedNeedsInitialScrollRef.current} prompt=${!!(lastUserPromptRef.current ?? lastUserMsgRef.current)} msgs=${messages.length} live=${liveAssistantTurn != null} runUi=${liveRunUiVisible}`)
 
-    // no live run → spacer 不应存在
-    if (!isLive) {
+    if (!isLive && stateRef.current !== 'pinned') {
       collapseSpacer()
     }
 
@@ -274,23 +273,13 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     dbg('historyLoad:complete', `turn=${!!lastUserMsgRef.current} container=${!!scrollContainerRef.current}`)
 
     const container = scrollContainerRef.current
-    const turn = lastUserMsgRef.current
     if (!container) return
 
-    if (!promptPinningDisabled && turn) {
-      const viewportH = container.clientHeight
-      const turnH = turn.getBoundingClientRect().height
-      if (turnH > viewportH * 0.5) {
-        stateRef.current = 'pinned'
-        recalcSpacer()
-        scrollToAnchorInstant()
-        syncBottomState(container)
-        return
-      }
-    }
+    stateRef.current = 'following'
+    collapseSpacer()
     container.scrollTop = container.scrollHeight - container.clientHeight
     syncBottomState(container)
-  }, [messagesLoading, promptPinningDisabled, recalcSpacer, scrollToAnchorInstant, syncBottomState, collapseSpacer])
+  }, [messagesLoading, syncBottomState, collapseSpacer])
 
   // promptPinningDisabled changed
   useEffect(() => {
@@ -318,6 +307,23 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     ro.observe(el)
     return () => ro.disconnect()
   }, [inputAreaHeight, recalcSpacer])
+
+  // Message hydration can change rendered height after history loading finishes.
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      if (stateRef.current === 'following') {
+        bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+      } else if (stateRef.current === 'pinned') {
+        recalcSpacer()
+      }
+    })
+    for (const child of Array.from(container.children)) {
+      ro.observe(child)
+    }
+    return () => ro.disconnect()
+  }, [messages, messagesLoading, recalcSpacer])
 
   // window resize
   useEffect(() => {

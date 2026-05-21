@@ -1,0 +1,248 @@
+schemaVersion: 1
+id: arkloop.plugins.activity-recorder
+name: Activity Recorder
+version: 0.1.0
+publisher: arkloop
+description: Record local desktop activity through lightweight local sources and optional Screenpipe capture.
+host_requirement: desktop_local
+platforms: [darwin, linux, windows]
+
+settings:
+  - key: mode
+    type: select
+    default: lightweight
+    options: [lightweight, full, custom]
+  - key: enable_activitywatch
+    type: boolean
+    default: true
+  - key: enable_aicontext
+    type: boolean
+    default: true
+  - key: enable_catchme
+    type: boolean
+    default: true
+  - key: enable_chrome_history
+    type: boolean
+    default: true
+  - key: enable_clipboard
+    type: boolean
+    default: true
+  - key: enable_screentime
+    type: boolean
+    default: true
+  - key: enable_screenpipe
+    type: boolean
+    default: false
+  - key: enable_audio
+    type: boolean
+    default: false
+  - key: transcription_engine
+    type: select
+    default: disabled
+    options: [disabled, whisper-tiny, parakeet, deepgram, openai-compatible]
+  - key: video_quality
+    type: select
+    default: low
+    options: [low, balanced, high]
+  - key: capture_interval_ms
+    type: integer
+    default: 120000
+  - key: retention_days
+    type: integer
+    default: 3
+  - key: meeting_detector
+    type: boolean
+    default: false
+  - key: snapshot_compaction
+    type: boolean
+    default: false
+  - key: builder_interval_min
+    type: integer
+    default: 300
+
+runtime:
+  - id: screenpipe
+    detect:
+      - path: npx
+    daemon:
+      command: npx
+      enabled_when:
+        - setting: enable_screenpipe
+          equals: true
+      args:
+        - "-y"
+        - "screenpipe@latest"
+        - "record"
+        - "--audio-transcription-engine"
+        - "${settings.transcription_engine}"
+        - "--video-quality"
+        - "${settings.video_quality}"
+        - "--idle-capture-interval-ms"
+        - "${settings.capture_interval_ms}"
+        - "--visual-check-interval-ms"
+        - "5000"
+        - "--min-capture-interval-ms"
+        - "10000"
+        - "--disable-telemetry"
+        - "--retention-days"
+        - "${settings.retention_days}"
+      args_when:
+        - setting: enable_audio
+          equals: false
+          args: ["--disable-audio"]
+        - setting: meeting_detector
+          equals: false
+          args: ["--disable-meeting-detector"]
+        - setting: snapshot_compaction
+          equals: false
+          args: ["--disable-snapshot-compaction"]
+      health_url: "http://127.0.0.1:3030/health"
+
+  - id: catchme
+    detect:
+      - path: uv
+    daemon:
+      command: uv
+      enabled_when:
+        - setting: enable_catchme
+          equals: true
+      args:
+        - "tool"
+        - "run"
+        - "--from"
+        - "git+https://github.com/HKUDS/CatchMe.git"
+        - "catchme"
+        - "awake"
+
+  - id: aicontext
+    detect:
+      - path: uv
+
+  - id: activitywatch
+    path: runtime/activitywatch/aw-server/aw-server
+    detect:
+      - "${PLUGIN_DATA}/runtime/activitywatch/aw-server/aw-server"
+      - "${PLUGIN_DATA}/runtime/activitywatch/aw-server/aw-server.exe"
+    binary:
+      - platform: darwin-amd64
+        url: https://github.com/ActivityWatch/activitywatch/releases/download/v0.13.2/activitywatch-v0.13.2-macos-x86_64.zip
+        sha256: e62a76c0ec3c0e69d58ba207bb8da6d8d47d0c7ad1bc871ddf702168f291cf5b
+      - platform: darwin-arm64
+        url: https://github.com/ActivityWatch/activitywatch/releases/download/v0.13.2/activitywatch-v0.13.2-macos-x86_64.zip
+        sha256: e62a76c0ec3c0e69d58ba207bb8da6d8d47d0c7ad1bc871ddf702168f291cf5b
+      - platform: linux-amd64
+        url: https://github.com/ActivityWatch/activitywatch/releases/download/v0.13.2/activitywatch-v0.13.2-linux-x86_64.zip
+        sha256: 8f62b10babf8a8f108cbdf7267c02fbc1ce2a970fa9535f230b3416b803e3360
+      - platform: windows-amd64
+        url: https://github.com/ActivityWatch/activitywatch/releases/download/v0.13.2/activitywatch-v0.13.2-windows-x86_64.zip
+        sha256: a067fa765678a411991826c4da811fd2d8ca260c2db9d6d897957565b61c369f
+    daemons:
+      - id: server
+        command: "${runtime.activitywatch.command}"
+        enabled_when:
+          - setting: enable_activitywatch
+            equals: true
+        health_url: "http://127.0.0.1:5600/api/0/info"
+      - id: window
+        command: "${PLUGIN_DATA}/runtime/activitywatch/aw-watcher-window/aw-watcher-window"
+        enabled_when:
+          - setting: enable_activitywatch
+            equals: true
+      - id: afk
+        command: "${PLUGIN_DATA}/runtime/activitywatch/aw-watcher-afk/aw-watcher-afk"
+        enabled_when:
+          - setting: enable_activitywatch
+            equals: true
+
+mcp_servers:
+  - server_id: screenpipe
+    display_name: Screenpipe
+    transport: stdio
+    command: npx
+    args: ["-y", "screenpipe-mcp"]
+    enabled_when:
+      - setting: enable_screenpipe
+        equals: true
+
+  - server_id: activitywatch
+    display_name: ActivityWatch
+    transport: stdio
+    command: npx
+    args:
+      - "-y"
+      - "--package"
+      - "github:8bitgentleman/activitywatch-mcp-server"
+      - "-c"
+      - "node \"$(which activitywatch-mcp-server)\""
+    env:
+      AW_API_BASE: "http://127.0.0.1:5600/api/0"
+    enabled_when:
+      - setting: enable_activitywatch
+        equals: true
+
+  - server_id: catchme
+    display_name: CatchMe
+    transport: stdio
+    command: uv
+    args: ["tool", "run", "--with", "mcp", "--from", "git+https://github.com/HKUDS/CatchMe.git", "catchme", "mcp"]
+    enabled_when:
+      - setting: enable_catchme
+        equals: true
+
+  - server_id: chrome-history
+    display_name: Chrome History
+    transport: stdio
+    command: uv
+    args: ["tool", "run", "--from", "git+https://github.com/vincent-pli/chrome-history-mcp.git", "chrome-history-mcp"]
+    enabled_when:
+      - setting: enable_chrome_history
+        equals: true
+
+  - server_id: clipboard
+    display_name: Clipboard
+    transport: stdio
+    command: uv
+    args: ["tool", "run", "mcp-clipboard"]
+    enabled_when:
+      - setting: enable_clipboard
+        equals: true
+
+  - server_id: screentime
+    display_name: Screen Time
+    transport: stdio
+    command: go
+    args: ["run", "github.com/AgentDank/screentime-mcp@latest"]
+    enabled_when:
+      - setting: enable_screentime
+        equals: true
+
+skills:
+  - skill_key: aicontext
+    bundle: skills/aicontext
+    version: "0.1.0"
+  - skill_key: catchme
+    bundle: skills/catchme
+    version: "0.1.0"
+  - skill_key: chrome-history
+    bundle: skills/chrome-history
+    version: "0.1.0"
+  - skill_key: clipboard
+    bundle: skills/clipboard
+    version: "0.1.0"
+  - skill_key: screentime
+    bundle: skills/screentime
+    version: "0.1.0"
+  - skill_key: screenpipe-api
+    bundle: skills/screenpipe-api
+    version: "0.1.0"
+  - skill_key: screenpipe-health
+    bundle: skills/screenpipe-health
+    version: "0.1.0"
+  - skill_key: screenpipe-logs
+    bundle: skills/screenpipe-logs
+    version: "0.1.0"
+  - skill_key: activity-recorder
+    bundle: skills/activity-recorder
+    version: "0.1.0"
+
+context: context.md

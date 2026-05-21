@@ -54,6 +54,11 @@ button:not(:disabled) {
   display: block;
 }
 
+.document-resource-card:hover {
+  background: var(--c-bg-menu) !important;
+  border-color: var(--c-border-mid) !important;
+}
+
 :root {
   color-scheme: dark;
   /* Font variables — overridden by AppearanceContext */

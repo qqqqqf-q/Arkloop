@@ -5,10 +5,39 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"arkloop/services/shared/pluginmanifest"
 )
+
+func TestDetectRuntimeFindsBareCommandOnPath(t *testing.T) {
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	command := "arkloop-detect-command"
+	if runtime.GOOS == "windows" {
+		command += ".exe"
+	}
+	commandPath := filepath.Join(binDir, command)
+	if err := os.WriteFile(commandPath, []byte("x"), 0o755); err != nil {
+		t.Fatalf("write command: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result := DetectRuntime(context.Background(), pluginmanifest.RuntimeConfig{
+		ID:     "tool",
+		Detect: []pluginmanifest.RuntimeDetectConfig{{Path: command}},
+	}, DetectOptions{InstallRoot: filepath.Join(root, "plugin-data")})
+	if result.Status != StatusInstalled {
+		t.Fatalf("expected installed, got %#v", result)
+	}
+	if result.Path != commandPath {
+		t.Fatalf("unexpected command path: %q", result.Path)
+	}
+}
 
 func TestDetectRuntimeVersionInsufficient(t *testing.T) {
 	root := t.TempDir()

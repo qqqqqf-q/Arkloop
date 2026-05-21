@@ -88,8 +88,10 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 			return next(ctx, rc)
 		}
 
-		// 所有 run 统一注册 heartbeat_decision tool，保证 tool schema 一致。
-		// executor 内部会检查 IsHeartbeatRun，非 heartbeat 调用时返回错误。
+		if rc.DiscussRun || !isHeartbeatRun(rc.InputJSON, rc.JobPayload) {
+			return next(ctx, rc)
+		}
+
 		if rc.PersonaDefinition != nil && len(rc.PersonaDefinition.CoreTools) > 0 && !containsToolName(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName) {
 			rc.PersonaDefinition.CoreTools = append(rc.PersonaDefinition.CoreTools, heartbeattool.ToolName)
 		}
@@ -111,10 +113,6 @@ func NewHeartbeatPrepareMiddleware() RunMiddleware {
 			rc.AllowlistSet = map[string]struct{}{}
 		}
 		rc.AllowlistSet[heartbeattool.ToolName] = struct{}{}
-
-		if !isHeartbeatRun(rc.InputJSON, rc.JobPayload) {
-			return next(ctx, rc)
-		}
 
 		rc.HeartbeatRun = true
 		interval := heartbeatIntervalMinutes(rc.InputJSON, rc.JobPayload)

@@ -54,10 +54,16 @@ function ScrollPinHarness({
     const header = headerRef.current
     const bottom = bottomRef.current
     const inputArea = inputAreaRef.current
-    if (!container || !turn || !header || !bottom || !inputArea) return
+    const spacer = spacerRef.current
+    if (!container || !turn || !header || !bottom || !inputArea || !spacer) return
+
+    const currentScrollHeight = () => metrics.scrollHeight + (Number.parseFloat(spacer.style.height) || 0)
 
     Object.defineProperty(container, 'clientHeight', { configurable: true, get: () => metrics.clientHeight })
-    Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () => metrics.scrollHeight })
+    Object.defineProperty(container, 'scrollHeight', {
+      configurable: true,
+      get: currentScrollHeight,
+    })
     Object.defineProperty(container, 'getBoundingClientRect', {
       configurable: true,
       value: () => rect(0, metrics.clientHeight),
@@ -78,7 +84,7 @@ function ScrollPinHarness({
     Object.defineProperty(container, 'scrollTo', {
       configurable: true,
       value: ((arg1?: number | ScrollToOptions) => {
-        const maxScroll = Math.max(0, metrics.scrollHeight - metrics.clientHeight)
+        const maxScroll = Math.max(0, currentScrollHeight() - metrics.clientHeight)
         if (typeof arg1 === 'number') {
           onContainerScrollTo?.(undefined, arg1)
           container.scrollTop = Math.min(arg1, maxScroll)
@@ -241,6 +247,25 @@ describe('useScrollPin', () => {
     expect(api.isAtBottomRef.current).toBe(true)
   })
 
+  it('新 prompt 下方内容不足时 pinned 仍应补 spacer 支撑锚点位置', async () => {
+    const metrics = { clientHeight: 769, scrollHeight: 1009, turnHeight: 86, turnOffset: 702, headerOffset: 702, bottomOffset: 1009 }
+    const { api, renderHarness } = await setup({
+      metrics,
+      messages: [{ id: 'user-1' }],
+    })
+    const container = api.scrollContainerRef.current!
+    const spacer = api.spacerRef.current!
+
+    act(() => { api.activateAnchor() })
+    await act(async () => {
+      renderHarness({ messages: [{ id: 'user-1' }, { id: 'pending' }] })
+      await flushAnimationFrames(2)
+    })
+
+    expect(spacer.style.height).toBe('302px')
+    expect(container.scrollTop).toBe(542)
+  })
+
   it('scrollToBottom 应回到 following 并 smooth 滚到底部', async () => {
     let lastBehavior: ScrollBehavior | undefined
     const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, bottomOffset: 1400 }
@@ -337,6 +362,27 @@ describe('useScrollPin', () => {
     expect(document.documentElement.style.getPropertyValue('--chat-input-area-height')).toBe('280px')
   })
 
+  it('following 状态下消息内容变高应保持在自然底部', async () => {
+    const metrics = { clientHeight: 400, scrollHeight: 1000, turnHeight: 120, turnOffset: 600, bottomOffset: 1000 }
+    const { api } = await setup({ metrics, messages: [{ id: 'user-1' }] })
+    const container = api.scrollContainerRef.current!
+    const turn = api.lastUserMsgRef.current!
+
+    act(() => { api.scrollToBottom() })
+    await act(async () => { await flushAnimationFrames(2) })
+    expect(container.scrollTop).toBe(600)
+
+    await act(async () => {
+      metrics.scrollHeight += 160
+      metrics.bottomOffset += 160
+      triggerResize(turn)
+      await flushAnimationFrames(2)
+    })
+
+    expect(container.scrollTop).toBe(760)
+    expect(api.isAtBottomRef.current).toBe(true)
+  })
+
   it('subscribeIsAtBottom 应在状态变化时通知监听者', async () => {
     const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, bottomOffset: 1400 }
     const { api } = await setup({ metrics, messages: [{ id: 'user-1' }] })
@@ -355,7 +401,7 @@ describe('useScrollPin', () => {
     unsub()
   })
 
-  it('历史加载完成后高 turn 应进入 pinned', async () => {
+  it('历史加载完成后应滚到自然底部，不进入 pinned', async () => {
     const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 300, turnOffset: 600, headerOffset: 600, bottomOffset: 1400 }
     const el = document.createElement('div')
     document.body.appendChild(el)
@@ -388,7 +434,33 @@ describe('useScrollPin', () => {
     })
 
     const container = api!.scrollContainerRef.current!
-    expect(container.scrollTop).toBe(440)
+    const spacer = api!.spacerRef.current!
+    expect(spacer.style.height).toBe('0px')
+    expect(container.scrollTop).toBe(1000)
     expect(api!.isAtBottomRef.current).toBe(true)
+  })
+
+  it('历史加载完成后自然高度不足以锚定时不补 spacer，滚到自然底部', async () => {
+    const metrics = { clientHeight: 769, scrollHeight: 1009, turnHeight: 86, turnOffset: 702, headerOffset: 702, bottomOffset: 1009 }
+    const { api, renderHarness } = await setup({
+      metrics,
+      messages: [],
+      messagesLoading: true,
+    })
+
+    await act(async () => {
+      renderHarness({
+        metrics,
+        messages: [{ id: 'user-1' }],
+        messagesLoading: false,
+      })
+      await flushAnimationFrames(2)
+    })
+
+    const container = api.scrollContainerRef.current!
+    const spacer = api.spacerRef.current!
+    expect(spacer.style.height).toBe('0px')
+    expect(container.scrollTop).toBe(240)
+    expect(api.isAtBottomRef.current).toBe(true)
   })
 })

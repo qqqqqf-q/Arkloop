@@ -154,7 +154,7 @@ func desktopTriggerTick(
 	}
 	for _, row := range rows {
 		switch row.TriggerKind {
-		case "heartbeat", "":
+		case "discuss", "heartbeat", "":
 			desktopFireTrigger(ctx, db, q, row)
 		case "job":
 			desktopFireJob(ctx, db, q, row)
@@ -243,7 +243,7 @@ func desktopFireTrigger(
 
 	payload := map[string]any{
 		"source":                     "desktop_trigger_scheduler",
-		"run_kind":                   runkind.Heartbeat,
+		"run_kind":                   runkind.Discuss,
 		"heartbeat_interval_minutes": row.IntervalMin,
 		"heartbeat_reason":           "interval",
 		"persona_key":                row.PersonaKey,
@@ -284,10 +284,14 @@ func resolveDesktopHeartbeatModel(ctx context.Context, db data.DesktopDB, row da
 	}
 	var cfg struct {
 		HeartbeatModel string `json:"heartbeat_model"`
+		DiscussModel   string `json:"discuss_model"`
 		ChatModel      string `json:"chat_model"`
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return "", err
+	}
+	if model := strings.TrimSpace(cfg.DiscussModel); model != "" {
+		return model, nil
 	}
 	if model := strings.TrimSpace(cfg.HeartbeatModel); model != "" {
 		return model, nil

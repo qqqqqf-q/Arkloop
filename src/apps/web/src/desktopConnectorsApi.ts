@@ -4,6 +4,7 @@ import {
   activateToolProvider,
   deactivateToolProvider,
   listToolProviders,
+  updateToolProviderConfig,
   updateToolProviderCredential,
   type ToolProviderGroup,
 } from './api-admin'
@@ -52,11 +53,32 @@ function providerNameToSearch(providerName: string): ConnectorsConfig['search'][
   }
 }
 
+function providerNameToXSearch(providerName: string): ConnectorsConfig['xSearch']['provider'] {
+  switch (providerName) {
+  case 'x_search.xai':
+    return 'xai_oauth'
+  default:
+    return 'none'
+  }
+}
+
+function xSearchAuthMode(provider: NonNullable<ToolProviderGroup['providers'][number]>): ConnectorsConfig['xSearch']['provider'] {
+  if (provider.provider_name !== 'x_search.xai') return 'none'
+  const mode = typeof provider.config_json?.auth_mode === 'string' ? provider.config_json.auth_mode : ''
+  if (mode === 'api_key') return 'xai_api_key'
+  if (mode === 'oauth') return 'xai_oauth'
+  if (provider.oauth_connected) return 'xai_oauth'
+  if (provider.key_prefix) return 'xai_api_key'
+  return providerNameToXSearch(provider.provider_name)
+}
+
 function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsConfig {
   const fetchGroup = findProviderGroup(groups, 'web_fetch')
   const searchGroup = findProviderGroup(groups, 'web_search')
+  const xSearchGroup = findProviderGroup(groups, 'x_search')
   const activeFetch = fetchGroup?.providers.find((provider) => provider.is_active)
   const activeSearch = searchGroup?.providers.find((provider) => provider.is_active)
+  const activeXSearch = xSearchGroup?.providers.find((provider) => provider.is_active)
 
   return {
     fetch: {
@@ -78,6 +100,14 @@ function connectorsFromProviderGroups(groups: ToolProviderGroup[]): ConnectorsCo
         : undefined,
       tavilyApiKeyStored: activeSearch?.provider_name === 'web_search.tavily' && Boolean(activeSearch.key_prefix),
       searxngBaseUrl: activeSearch?.provider_name === 'web_search.searxng' ? activeSearch.base_url : undefined,
+    },
+    xSearch: {
+      provider: activeXSearch ? xSearchAuthMode(activeXSearch) : 'none',
+      xaiApiKey: activeXSearch?.provider_name === 'x_search.xai'
+        ? secretPreview(activeXSearch.key_prefix)
+        : undefined,
+      xaiApiKeyStored: activeXSearch?.provider_name === 'x_search.xai' && Boolean(activeXSearch.key_prefix),
+      xaiOAuthConnected: activeXSearch?.provider_name === 'x_search.xai' && Boolean(activeXSearch.oauth_connected),
     },
   }
 }
@@ -146,11 +176,25 @@ async function applyFetchConnector(accessToken: string, fetch: ConnectorsConfig[
   }
 }
 
+async function applyXSearchConnector(accessToken: string, xSearch: ConnectorsConfig['xSearch']): Promise<void> {
+  await deactivateToolProviderGroup(accessToken, 'x_search')
+  if (xSearch.provider === 'none') return
+  await activateToolProvider(accessToken, 'x_search', 'x_search.xai')
+  const authMode = xSearch.provider === 'xai_api_key' ? 'api_key' : 'oauth'
+  await updateToolProviderConfig(accessToken, 'x_search', 'x_search.xai', { auth_mode: authMode })
+  if (xSearch.provider === 'xai_api_key' && !xSearch.xaiApiKeyStored && xSearch.xaiApiKey) {
+    await updateToolProviderCredential(accessToken, 'x_search', 'x_search.xai', {
+      api_key: xSearch.xaiApiKey,
+    })
+  }
+}
+
 function localConnectorsApi(accessToken: string): DesktopConnectorsApi {
   return {
     get: async () => connectorsFromProviderGroups(await listToolProviders(accessToken)),
     set: async (config: ConnectorsConfig) => {
       await applySearchConnector(accessToken, config.search)
+      await applyXSearchConnector(accessToken, config.xSearch ?? { provider: 'none' })
       await applyFetchConnector(accessToken, config.fetch)
       return { ok: true }
     },

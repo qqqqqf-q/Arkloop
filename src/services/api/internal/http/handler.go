@@ -309,6 +309,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		PluginRuntimeStateRepo:       cfg.PluginRuntimeStateRepo,
 		PluginInstaller:              cfg.PluginInstaller,
 		PluginEnabler:                cfg.PluginEnabler,
+		JobRepo:                      cfg.JobRepo,
 		ProfileRegistriesRepo:        cfg.ProfileRegistriesRepo,
 		WorkspaceRegistriesRepo:      cfg.WorkspaceRegistriesRepo,
 		PlatformSettingsRepo:         cfg.PlatformSettingsRepo,

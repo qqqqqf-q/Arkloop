@@ -14,6 +14,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var builtinPluginDirs = []string{"cua", "activity-recorder"}
+
 func BuiltinPluginsRoot() (string, error) {
 	if root := strings.TrimSpace(os.Getenv("ARKLOOP_BUILTIN_PLUGINS_ROOT")); root != "" {
 		return root, nil
@@ -35,19 +37,45 @@ func BuiltinPluginsRoot() (string, error) {
 }
 
 func (i *Installer) SeedBuiltinCUA(ctx context.Context, accountID, userID uuid.UUID) error {
-	root, err := BuiltinPluginsRoot()
-	if err != nil {
-		return err
-	}
-	return i.SeedBuiltin(ctx, accountID, userID, filepath.Join(root, "cua", "manifest.yaml"))
+	return i.SeedBuiltinNamed(ctx, accountID, userID, "cua")
 }
 
 func (i *Installer) SeedBuiltinCUAForAccounts(ctx context.Context) error {
+	return i.SeedBuiltinNamedForAccounts(ctx, "cua")
+}
+
+func (i *Installer) SeedBuiltinPlugins(ctx context.Context, accountID, userID uuid.UUID) error {
+	for _, name := range builtinPluginDirs {
+		if err := i.SeedBuiltinNamed(ctx, accountID, userID, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (i *Installer) SeedBuiltinPluginsForAccounts(ctx context.Context) error {
+	for _, name := range builtinPluginDirs {
+		if err := i.SeedBuiltinNamedForAccounts(ctx, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (i *Installer) SeedBuiltinNamed(ctx context.Context, accountID, userID uuid.UUID, name string) error {
 	root, err := BuiltinPluginsRoot()
 	if err != nil {
 		return err
 	}
-	manifestPath := filepath.Join(root, "cua", "manifest.yaml")
+	return i.SeedBuiltin(ctx, accountID, userID, filepath.Join(root, strings.TrimSpace(name), "manifest.yaml"))
+}
+
+func (i *Installer) SeedBuiltinNamedForAccounts(ctx context.Context, name string) error {
+	root, err := BuiltinPluginsRoot()
+	if err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(root, strings.TrimSpace(name), "manifest.yaml")
 	rows, err := i.pool.Query(ctx, `
 		SELECT DISTINCT ON (a.id) a.id, m.user_id
 		  FROM accounts a
@@ -113,6 +141,14 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 		}
 	} else {
 		pkg = *existing
+		if err := persistPluginAssets(ctx, i.pluginStore, manifest, pluginRoot); err != nil {
+			return err
+		}
+		for _, skill := range manifest.Skills {
+			if err := i.ensureSkillPackage(ctx, i.skillPackagesRepo, accountID, manifest, skill, pluginRoot); err != nil {
+				return err
+			}
+		}
 	}
 	profileRef := sharedenvironmentref.BuildProfileRef(accountID, &userID)
 	workspaceRef, err := ensureDefaultWorkspace(ctx, i.profileRepo, i.workspaceRepo, accountID, userID, profileRef)

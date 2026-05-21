@@ -15,6 +15,12 @@ var toolProviderCatalog = []toolProviderDefinition{
 	{GroupName: "web_search", ProviderName: "web_search.tavily", RequiresAPIKey: true},
 	{GroupName: "web_search", ProviderName: "web_search.exa"},
 	{GroupName: "web_search", ProviderName: "web_search.searxng", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://searxng:8080"},
+	{
+		GroupName: "x_search", ProviderName: "x_search.xai",
+		ConfigFields: []ConfigFieldDef{
+			{Key: "model", Label: "Model", Type: "string", Required: false, Default: "grok-4.20-reasoning", Placeholder: "grok-4.20-reasoning"},
+		},
+	},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.jina"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.firecrawl", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://firecrawl:19012"},
 	{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},

@@ -543,6 +543,9 @@ func buildTelegramIncomingFromLedger(entry data.ChannelInboundLedgerEntry) teleg
 	if replyToBot, ok := inboundLedgerBool(entry.MetadataJSON, inboundLedgerKeyIsReplyToBot); ok {
 		incoming.IsReplyToBot = replyToBot
 	}
+	if matchesKeyword, ok := inboundLedgerBool(entry.MetadataJSON, inboundLedgerKeyMatchesKeyword); ok {
+		incoming.MatchesKeyword = matchesKeyword
+	}
 	return incoming
 }
 

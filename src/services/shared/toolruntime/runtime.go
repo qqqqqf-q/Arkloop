@@ -15,6 +15,7 @@ type ProviderConfig struct {
 	ProviderName string
 	BaseURL      *string
 	APIKeyValue  *string
+	OAuthValue   *string
 	ConfigJSON   map[string]any
 }
 
@@ -186,6 +187,9 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 
 	if findProvider(input.PlatformProviders, "web_search") != nil {
 		available["web_search"] = struct{}{}
+	}
+	if findProvider(input.PlatformProviders, "x_search") != nil {
+		available["x_search"] = struct{}{}
 	}
 	if findProvider(input.PlatformProviders, "web_fetch") != nil {
 		available["web_fetch"] = struct{}{}

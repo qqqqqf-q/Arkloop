@@ -68,8 +68,8 @@ func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
+		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, trigger_kind)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (thread_id) WHERE thread_id IS NOT NULL DO UPDATE
 		    SET thread_id      = excluded.thread_id,
 		        channel_id     = excluded.channel_id,
@@ -79,9 +79,10 @@ func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 		        model          = excluded.model,
 		        resolve_model_at_runtime = excluded.resolve_model_at_runtime,
 		        interval_min   = excluded.interval_min,
+		        trigger_kind   = excluded.trigger_kind,
 		        cooldown_level = 0,
 		        updated_at     = now()`,
-		channelID, channelIdentityID, threadID, personaKey, accountID, model, resolveModelAtRuntime, intervalMin, nextFire,
+		channelID, channelIdentityID, threadID, personaKey, accountID, model, resolveModelAtRuntime, intervalMin, nextFire, runkind.Discuss,
 	)
 	return err
 }
@@ -117,15 +118,16 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)
+		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, trigger_kind)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (channel_id, channel_identity_id) WHERE thread_id IS NULL DO UPDATE
 		    SET persona_key   = excluded.persona_key,
 		        account_id    = excluded.account_id,
 		        model         = excluded.model,
 		        interval_min  = excluded.interval_min,
+		        trigger_kind  = excluded.trigger_kind,
 		        updated_at    = now()`,
-		channelID, channelIdentityID, personaKey, accountID, model, intervalMin, nextFire,
+		channelID, channelIdentityID, personaKey, accountID, model, intervalMin, nextFire, runkind.Discuss,
 	)
 	return err
 }

@@ -22,6 +22,7 @@ type ChannelContext struct {
 	ConversationType        string
 	MentionsBot             bool
 	IsReplyToBot            bool
+	MatchesKeyword          bool
 	SenderChannelIdentityID uuid.UUID
 	SenderUserID            *uuid.UUID
 	BotDisplayName          string
@@ -144,6 +145,7 @@ func parseChannelContext(payload map[string]any) (*ChannelContext, error) {
 	conversationType, _ := optionalStringValue(payload, "conversation_type")
 	mentionsBot, _ := optionalBoolValue(payload, "mentions_bot")
 	isReplyToBot, _ := optionalBoolValue(payload, "is_reply_to_bot")
+	matchesKeyword, _ := optionalBoolValue(payload, "matches_keyword")
 
 	return &ChannelContext{
 		ChannelID:               channelID,
@@ -154,6 +156,7 @@ func parseChannelContext(payload map[string]any) (*ChannelContext, error) {
 		ConversationType:        conversationType,
 		MentionsBot:             mentionsBot,
 		IsReplyToBot:            isReplyToBot,
+		MatchesKeyword:          matchesKeyword,
 		SenderChannelIdentityID: senderIdentityID,
 	}, nil
 }

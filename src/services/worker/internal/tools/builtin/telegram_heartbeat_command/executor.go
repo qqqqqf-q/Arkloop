@@ -322,6 +322,15 @@ func (e *Executor) getThreadHeartbeatConfig(ctx context.Context, threadID uuid.U
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return data.ThreadConfig{}, err
 	}
+	if cfg.DiscussEnabled != nil {
+		cfg.HeartbeatEnabled = cfg.DiscussEnabled
+	}
+	if cfg.DiscussIntervalMinute > 0 {
+		cfg.HeartbeatIntervalMinute = cfg.DiscussIntervalMinute
+	}
+	if strings.TrimSpace(cfg.DiscussModel) != "" {
+		cfg.HeartbeatModel = strings.TrimSpace(cfg.DiscussModel)
+	}
 	cfg.HeartbeatModel = strings.TrimSpace(cfg.HeartbeatModel)
 	return cfg, nil
 }
@@ -341,33 +350,42 @@ func (e *Executor) updateThreadHeartbeatConfig(ctx context.Context, threadID uui
 		}
 	}
 	cfg := data.ThreadConfig{}
-	if enabled, ok := config["heartbeat_enabled"].(bool); ok {
+	if enabled, ok := config["discuss_enabled"].(bool); ok {
+		cfg.HeartbeatEnabled = &enabled
+	} else if enabled, ok := config["heartbeat_enabled"].(bool); ok {
 		cfg.HeartbeatEnabled = &enabled
 	}
-	if interval, ok := config["heartbeat_interval_minutes"].(float64); ok {
+	if interval, ok := config["discuss_interval_minutes"].(float64); ok {
+		cfg.HeartbeatIntervalMinute = int(interval)
+	} else if interval, ok := config["heartbeat_interval_minutes"].(float64); ok {
 		cfg.HeartbeatIntervalMinute = int(interval)
 	}
-	if model, ok := config["heartbeat_model"].(string); ok {
+	if model, ok := config["discuss_model"].(string); ok {
+		cfg.HeartbeatModel = strings.TrimSpace(model)
+	} else if model, ok := config["heartbeat_model"].(string); ok {
 		cfg.HeartbeatModel = strings.TrimSpace(model)
 	}
 	if mutate != nil {
 		mutate(&cfg)
 	}
 	if cfg.HeartbeatEnabled == nil {
-		delete(config, "heartbeat_enabled")
+		delete(config, "discuss_enabled")
 	} else {
-		config["heartbeat_enabled"] = *cfg.HeartbeatEnabled
+		config["discuss_enabled"] = *cfg.HeartbeatEnabled
 	}
+	delete(config, "heartbeat_enabled")
 	if cfg.HeartbeatIntervalMinute > 0 {
-		config["heartbeat_interval_minutes"] = cfg.HeartbeatIntervalMinute
+		config["discuss_interval_minutes"] = cfg.HeartbeatIntervalMinute
 	} else {
-		delete(config, "heartbeat_interval_minutes")
+		delete(config, "discuss_interval_minutes")
 	}
+	delete(config, "heartbeat_interval_minutes")
 	if strings.TrimSpace(cfg.HeartbeatModel) == "" {
-		delete(config, "heartbeat_model")
+		delete(config, "discuss_model")
 	} else {
-		config["heartbeat_model"] = strings.TrimSpace(cfg.HeartbeatModel)
+		config["discuss_model"] = strings.TrimSpace(cfg.HeartbeatModel)
 	}
+	delete(config, "heartbeat_model")
 	encoded, err := json.Marshal(config)
 	if err != nil {
 		return err

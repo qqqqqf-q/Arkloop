@@ -42,6 +42,7 @@ type toolProviderItemResponse struct {
 	RequiresAPIKey  bool             `json:"requires_api_key"`
 	RequiresBaseURL bool             `json:"requires_base_url"`
 	Configured      bool             `json:"configured"`
+	OAuthConnected  bool             `json:"oauth_connected,omitempty"`
 	RuntimeState    string           `json:"runtime_state"`
 	RuntimeReason   string           `json:"runtime_reason,omitempty"`
 	RuntimeStatus   string           `json:"runtime_status,omitempty"`

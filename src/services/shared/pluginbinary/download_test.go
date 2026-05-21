@@ -2,9 +2,11 @@ package pluginbinary
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -65,6 +67,24 @@ func TestDownloadAndExtractMapsBinaryTargetPath(t *testing.T) {
 	}
 }
 
+func TestExtractZipPreservesExecutableMode(t *testing.T) {
+	store, err := pluginstore.NewLocalStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	archive := makeZip(t, "activitywatch/aw-server/aw-server", "bin", 0o755)
+	if err := extractZip(context.Background(), store, "demo", "1.0.0", archive, "runtime", ""); err != nil {
+		t.Fatalf("extract zip: %v", err)
+	}
+	data, err := store.Read(context.Background(), "demo", "1.0.0", "runtime/activitywatch/aw-server/aw-server")
+	if err != nil {
+		t.Fatalf("read zip file: %v", err)
+	}
+	if string(data) != "bin" {
+		t.Fatalf("unexpected zip file content: %q", data)
+	}
+}
+
 func makeTarGzip(t *testing.T, name, content string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
@@ -81,6 +101,25 @@ func makeTarGzip(t *testing.T, name, content string) []byte {
 	}
 	if err := gzipWriter.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+func makeZip(t *testing.T, name, content string, mode uint32) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	zipWriter := zip.NewWriter(&buffer)
+	header := &zip.FileHeader{Name: name}
+	header.SetMode(os.FileMode(mode))
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		t.Fatalf("create zip header: %v", err)
+	}
+	if _, err := writer.Write([]byte(content)); err != nil {
+		t.Fatalf("write zip body: %v", err)
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
 	}
 	return buffer.Bytes()
 }

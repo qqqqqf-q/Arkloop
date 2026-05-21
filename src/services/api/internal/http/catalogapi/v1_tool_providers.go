@@ -55,7 +55,7 @@ func toolProviderEntry(
 		tail := strings.TrimPrefix(r.URL.Path, "/v1/tool-providers/")
 		tail = strings.Trim(tail, "/")
 		parts := strings.Split(tail, "/")
-		if len(parts) != 3 {
+		if len(parts) != 3 && len(parts) != 4 {
 			httpkit.WriteNotFound(w, r)
 			return
 		}
@@ -63,6 +63,10 @@ func toolProviderEntry(
 		group := strings.TrimSpace(parts[0])
 		provider := strings.TrimSpace(parts[1])
 		action := strings.TrimSpace(parts[2])
+		subaction := ""
+		if len(parts) == 4 {
+			subaction = strings.TrimSpace(parts[3])
+		}
 
 		if _, ok := findProviderDef(group, provider); !ok {
 			httpkit.WriteNotFound(w, r)
@@ -100,6 +104,24 @@ func toolProviderEntry(
 				return
 			}
 			updateToolProviderConfig(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, directPool, projectRepo)
+			return
+		case "oauth":
+			switch subaction {
+			case "start":
+				if r.Method != nethttp.MethodPost {
+					httpkit.WriteMethodNotAllowed(w, r)
+					return
+				}
+				startToolProviderOAuth(w, r, traceID, group, provider, authService, secretsRepo, pool, projectRepo)
+			case "status":
+				if r.Method != nethttp.MethodGet {
+					httpkit.WriteMethodNotAllowed(w, r)
+					return
+				}
+				getToolProviderOAuthStatus(w, r, traceID, group, provider, authService, pool, projectRepo)
+			default:
+				httpkit.WriteNotFound(w, r)
+			}
 			return
 		default:
 			httpkit.WriteNotFound(w, r)
@@ -185,8 +207,9 @@ func listToolProviders(
 	for _, cfg := range configs {
 		byProvider[cfg.ProviderName] = cfg
 	}
+	oauthConnected := loadToolProviderOAuthConnectedMap(r.Context(), pool, ownerKind, ownerUserID)
 
-	groupOrder := []string{"web_search", "web_fetch", "read", "sandbox", "memory"}
+	groupOrder := []string{"web_search", "x_search", "web_fetch", "read", "sandbox", "memory"}
 	groups := make([]toolProviderGroupResponse, 0, len(groupOrder))
 	for _, groupName := range groupOrder {
 		items := []toolProviderItemResponse{}
@@ -205,6 +228,7 @@ func listToolProviders(
 				RequiresAPIKey:  def.RequiresAPIKey,
 				RequiresBaseURL: def.RequiresBaseURL,
 				Configured:      false,
+				OAuthConnected:  oauthConnected[def.ProviderName],
 				RuntimeState:    string(sharedtoolruntime.ProviderRuntimeStateInactive),
 				ConfigFields:    def.ConfigFields,
 				DefaultBaseURL:  def.DefaultBaseURL,
@@ -226,6 +250,12 @@ func listToolProviders(
 			}
 
 			item.Configured = (!def.RequiresAPIKey || secretConfigured) && (!def.RequiresBaseURL || baseURLConfigured)
+			if def.ProviderName == "x_search.xai" {
+				item.Configured = secretConfigured || item.OAuthConnected
+			}
+			if item.OAuthConnected {
+				item.Configured = true
+			}
 			item.ConfigStatus = string(sharedtoolruntime.ProviderRuntimeStateInactive)
 			if status, ok := runtimeByProvider[def.ProviderName]; ok && item.IsActive {
 				item.RuntimeState = string(status.RuntimeState)
@@ -271,6 +301,41 @@ func visibleToolProviderKeyPrefix(
 	}
 	prefix := computeKeyPrefix(*secret)
 	return &prefix
+}
+
+func loadToolProviderOAuthConnectedMap(ctx context.Context, pool data.DB, ownerKind string, ownerUserID *uuid.UUID) map[string]bool {
+	out := map[string]bool{}
+	if pool == nil {
+		return out
+	}
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if ownerKind == "platform" {
+		rows, err = pool.Query(ctx, `
+			SELECT provider_name
+			  FROM tool_provider_oauth_connections
+			 WHERE owner_kind = 'platform'
+		`)
+	} else if ownerUserID != nil {
+		rows, err = pool.Query(ctx, `
+			SELECT provider_name
+			  FROM tool_provider_oauth_connections
+			 WHERE owner_kind = 'user' AND owner_user_id = $1
+		`, *ownerUserID)
+	}
+	if err != nil || rows == nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var providerName string
+		if err := rows.Scan(&providerName); err == nil {
+			out[strings.TrimSpace(providerName)] = true
+		}
+	}
+	return out
 }
 
 func activateToolProvider(

@@ -589,7 +589,7 @@ func syncTelegramChannelHeartbeatTriggers(
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND thread_id IS NOT NULL
-		   AND trigger_kind = 'heartbeat'`,
+		   AND trigger_kind IN ('discuss', 'heartbeat')`,
 		channelID,
 	)
 	if err != nil {
@@ -652,7 +652,7 @@ func syncTelegramThreadHeartbeatTrigger(
 }
 
 func deleteTelegramChannelHeartbeatTriggers(ctx context.Context, tx pgx.Tx, channelID uuid.UUID) error {
-	_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE channel_id = $1 AND trigger_kind = 'heartbeat'`, channelID)
+	_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE channel_id = $1 AND trigger_kind IN ('discuss', 'heartbeat')`, channelID)
 	return err
 }
 
@@ -1569,7 +1569,7 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 		}
 		if len(events) > 0 {
 			if startedData, ok := events[0].DataJSON.(map[string]any); ok {
-				if runKind, _ := startedData["run_kind"].(string); strings.EqualFold(strings.TrimSpace(runKind), runkind.Heartbeat) {
+				if runKind, _ := startedData["run_kind"].(string); strings.EqualFold(strings.TrimSpace(runKind), runkind.Heartbeat) || strings.EqualFold(strings.TrimSpace(runKind), runkind.Discuss) {
 					heartbeatTail, _ := startedData["thread_tail_message_id"].(string)
 					heartbeatTail = strings.TrimSpace(heartbeatTail)
 					if heartbeatTail == strings.TrimSpace(preTailMessageID) {

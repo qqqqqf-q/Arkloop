@@ -3,6 +3,7 @@ export type LocalPortMode = 'auto' | 'manual'
 
 export type FetchProvider = 'none' | 'jina' | 'basic' | 'firecrawl'
 export type SearchProvider = 'none' | 'basic' | 'tavily' | 'exa' | 'searxng'
+export type XSearchProvider = 'none' | 'xai_oauth' | 'xai_api_key'
 
 export type FetchConnectorConfig = {
   provider: FetchProvider
@@ -20,9 +21,17 @@ export type SearchConnectorConfig = {
   searxngBaseUrl?: string
 }
 
+export type XSearchConnectorConfig = {
+  provider: XSearchProvider
+  xaiApiKey?: string
+  xaiApiKeyStored?: boolean
+  xaiOAuthConnected?: boolean
+}
+
 export type ConnectorsConfig = {
   fetch: FetchConnectorConfig
   search: SearchConnectorConfig
+  xSearch: XSearchConnectorConfig
 }
 
 export type MemoryProvider = 'notebook' | 'openviking' | 'nowledge'
@@ -103,7 +112,7 @@ export type AppConfig = {
   saas: { baseUrl: string }
   selfHosted: { baseUrl: string }
   local: LocalConfig
-  window: { width: number; height: number }
+  window: { width: number; height: number; maximized: boolean }
   onboarding_completed: boolean
   connectors_migrated: boolean
   connectors: ConnectorsConfig
@@ -118,12 +127,13 @@ export const DEFAULT_CONFIG: AppConfig = {
   saas: { baseUrl: 'https://api.arkloop.io' },
   selfHosted: { baseUrl: '' },
   local: { port: 19001, portMode: 'auto' },
-  window: { width: 1280, height: 800 },
+  window: { width: 1280, height: 800, maximized: false },
   onboarding_completed: false,
   connectors_migrated: false,
   connectors: {
     fetch: { provider: 'none' },
     search: { provider: 'basic' },
+    xSearch: { provider: 'none' },
   },
   memory: { enabled: true, provider: 'notebook', memoryCommitEachTurn: true },
   network: {

@@ -890,6 +890,7 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 	return []pipeline.RunMiddleware{
 		pipeline.NewChannelContextMiddleware(deps.DBPool),
 		pipeline.NewHeartbeatScheduleMiddleware(deps.DBPool),
+		pipeline.NewDiscussModeMiddleware(),
 		pipeline.NewChannelAdminTagMiddleware(deps.DBPool),
 		pipeline.NewChannelTelegramGroupUserMergeMiddleware(),
 		pipeline.NewChannelTelegramToolsMiddleware(nil, nil, pipeline.ChannelTelegramToolsDeps{
@@ -1008,6 +1009,7 @@ func buildToolFinalizeLayer(deps EngineV1Deps, eventsRepo data.RunEventsReposito
 	return []pipeline.RunMiddleware{
 		pipeline.NewImpressionPrepareMiddleware(pipeline.NewPgxImpressionStore(deps.DBPool), deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewSuggestionPrepareMiddleware(pipeline.NewPgxSuggestionStore(deps.DBPool), deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
+		pipeline.NewActivityRecorderPrepareMiddleware(deps.DBPool, deps.AuxGateway, deps.EmitDebugEvents, deps.RoutingConfigLoader),
 		pipeline.NewStickerPrepareMiddleware(deps.DBPool, deps.MessageAttachmentStore, pipeline.StickerPrepareConfig{
 			AuxGateway:          deps.AuxGateway,
 			EmitDebugEvents:     deps.EmitDebugEvents,

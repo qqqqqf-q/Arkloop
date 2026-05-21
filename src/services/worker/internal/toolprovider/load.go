@@ -5,6 +5,7 @@ package toolprovider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	workerCrypto "arkloop/services/worker/internal/crypto"
@@ -14,13 +15,19 @@ import (
 )
 
 type ActiveProviderConfig struct {
-	OwnerKind    string
-	GroupName    string
-	ProviderName string
-	APIKeyValue  *string
-	KeyPrefix    *string
-	BaseURL      *string
-	ConfigJSON   map[string]any
+	OwnerKind          string
+	OwnerUserID        *uuid.UUID
+	GroupName          string
+	ProviderName       string
+	APIKeyValue        *string
+	OAuthValue         *string
+	OAuthTokenSecretID *uuid.UUID
+	OAuthClientID      *string
+	OAuthScope         *string
+	OAuthExpiresAt     *time.Time
+	KeyPrefix          *string
+	BaseURL            *string
+	ConfigJSON         map[string]any
 }
 
 func LoadActiveUserProviders(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) ([]ActiveProviderConfig, error) {
@@ -37,6 +44,7 @@ func LoadActiveUserProviders(ctx context.Context, pool *pgxpool.Pool, userID uui
 	if err != nil {
 		return nil, err
 	}
+	refreshXAIProviderOAuthStatuses(ctx, pool, statuses, encryptProviderSecret)
 	return activeConfigsFromStatuses(statuses), nil
 }
 
@@ -45,6 +53,7 @@ func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]Act
 	if err != nil {
 		return nil, err
 	}
+	refreshXAIProviderOAuthStatuses(ctx, pool, statuses, encryptProviderSecret)
 	return activeConfigsFromStatuses(statuses), nil
 }
 
@@ -55,13 +64,19 @@ func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatu
 			continue
 		}
 		out = append(out, ActiveProviderConfig{
-			OwnerKind:    status.OwnerKind,
-			GroupName:    status.GroupName,
-			ProviderName: status.ProviderName,
-			APIKeyValue:  status.APIKeyValue,
-			KeyPrefix:    status.KeyPrefix,
-			BaseURL:      status.BaseURL,
-			ConfigJSON:   status.ConfigJSON,
+			OwnerKind:          status.OwnerKind,
+			OwnerUserID:        status.OwnerUserID,
+			GroupName:          status.GroupName,
+			ProviderName:       status.ProviderName,
+			APIKeyValue:        status.APIKeyValue,
+			OAuthValue:         status.OAuthValue,
+			OAuthTokenSecretID: status.OAuthTokenSecretID,
+			OAuthClientID:      status.OAuthClientID,
+			OAuthScope:         status.OAuthScope,
+			OAuthExpiresAt:     status.OAuthExpiresAt,
+			KeyPrefix:          status.KeyPrefix,
+			BaseURL:            status.BaseURL,
+			ConfigJSON:         status.ConfigJSON,
 		})
 	}
 	return out
@@ -78,4 +93,40 @@ func decryptPlatformProviderSecret(ctx context.Context, encrypted string, keyVer
 	}
 	plaintext := string(plainBytes)
 	return &plaintext, nil
+}
+
+func encryptProviderSecret(plaintext string) (string, int, error) {
+	return workerCrypto.EncryptWithCurrentKey([]byte(plaintext))
+}
+
+func refreshXAIProviderOAuthStatuses(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	statuses []sharedtoolruntime.ProviderRuntimeStatus,
+	encrypt encryptProviderToken,
+) {
+	if pool == nil {
+		return
+	}
+	refreshXAIProviderOAuthStatusesCore(ctx, statuses, encrypt, func(ctx context.Context, status sharedtoolruntime.ProviderRuntimeStatus, encrypted string, keyVersion int, expiresAt *time.Time) error {
+		if status.OAuthTokenSecretID == nil {
+			return fmt.Errorf("oauth token secret id is missing")
+		}
+		_, err := pool.Exec(ctx, `
+UPDATE secrets
+   SET encrypted_value = $2, key_version = $3, updated_at = now()
+ WHERE id = $1`,
+			*status.OAuthTokenSecretID, encrypted, keyVersion,
+		)
+		if err != nil {
+			return err
+		}
+		_, err = pool.Exec(ctx, `
+UPDATE tool_provider_oauth_connections
+   SET expires_at = $2, updated_at = now()
+ WHERE token_secret_id = $1`,
+			*status.OAuthTokenSecretID, expiresAt,
+		)
+		return err
+	})
 }

@@ -931,6 +931,7 @@ export type MessageSearchStepRef = {
   text?: TimelineText
   status: 'active' | 'done'
   queries?: string[]
+  sourceKind?: 'web' | 'x'
   seq?: number
   resultSeq?: number
   sources?: WebSource[]
@@ -955,6 +956,7 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         const label = typeof item.label === 'string' ? item.label : ''
         const text = isTimelineText(item.text) ? item.text : undefined
         const status = item.status
+        const sourceKind = item.sourceKind === 'web' || item.sourceKind === 'x' ? item.sourceKind : undefined
         const seq = typeof item.seq === 'number' ? item.seq : undefined
         const resultSeq = typeof item.resultSeq === 'number' ? item.resultSeq : undefined
         const queries = Array.isArray(item.queries)
@@ -975,7 +977,7 @@ export function readMessageSearchSteps(messageId: string): MessageSearchStepRef[
         if (!id) return null
         if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
         if (status !== 'active' && status !== 'done') return null
-        return { id, kind, label, ...(text ? { text } : {}), status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}), ...(sources && sources.length > 0 ? { sources } : {}) }
+        return { id, kind, label, ...(text ? { text } : {}), status, queries, ...(sourceKind ? { sourceKind } : {}), seq, ...(resultSeq != null ? { resultSeq } : {}), ...(sources && sources.length > 0 ? { sources } : {}) }
       })
       .filter((step): step is MessageSearchStepRef => step != null)
     return steps.length > 0 ? steps : null
@@ -1089,6 +1091,7 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   const label = typeof s.label === 'string' ? s.label : ''
   const text = isTimelineText(s.text) ? s.text : undefined
   const status = s.status
+  const sourceKind = s.sourceKind === 'web' || s.sourceKind === 'x' ? s.sourceKind : undefined
   const seq = typeof s.seq === 'number' ? s.seq : undefined
   const resultSeq = typeof s.resultSeq === 'number' ? s.resultSeq : undefined
   const queries = Array.isArray(s.queries)
@@ -1097,7 +1100,7 @@ function parseStepRef(s: Record<string, unknown>): MessageSearchStepRef | null {
   if (!id) return null
   if (kind !== 'planning' && kind !== 'searching' && kind !== 'reviewing' && kind !== 'finished') return null
   if (status !== 'active' && status !== 'done') return null
-  return { id, kind, label, ...(text ? { text } : {}), status, queries, seq, ...(resultSeq != null ? { resultSeq } : {}) }
+  return { id, kind, label, ...(text ? { text } : {}), status, queries, ...(sourceKind ? { sourceKind } : {}), seq, ...(resultSeq != null ? { resultSeq } : {}) }
 }
 
 export function readMessageCopBlocks(messageId: string): MessageCopBlocksRef | null {
@@ -1642,6 +1645,7 @@ function isMessageSearchStepRef(value: unknown): value is MessageSearchStepRef {
   if (typeof item.label !== 'string') return false
   if (item.seq != null && typeof item.seq !== 'number') return false
   if (item.resultSeq != null && typeof item.resultSeq !== 'number') return false
+  if (item.sourceKind != null && item.sourceKind !== 'web' && item.sourceKind !== 'x') return false
   if (item.queries != null && (!Array.isArray(item.queries) || !item.queries.every((query) => typeof query === 'string'))) return false
   if (item.sources != null && (!Array.isArray(item.sources) || !item.sources.every(isWebSource))) return false
   return true

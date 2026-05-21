@@ -2,6 +2,7 @@ package pluginbinary
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -53,6 +54,9 @@ func DownloadAndExtract(ctx context.Context, client *http.Client, store ArchiveS
 	}
 	if err := verifySHA256(data, cfg.SHA256); err != nil {
 		return err
+	}
+	if strings.HasSuffix(strings.ToLower(strings.TrimSpace(cfg.URL)), ".zip") {
+		return extractZip(ctx, store, pluginID, version, data, cfg.TargetDir, cfg.TargetPath)
 	}
 	return extractTarGzip(ctx, store, pluginID, version, data, cfg.TargetDir, cfg.TargetPath)
 }
@@ -115,6 +119,54 @@ func extractTarGzip(ctx context.Context, store ArchiveStore, pluginID, version s
 			return fmt.Errorf("plugin binary archive contains unsupported entry %q", name)
 		}
 	}
+}
+
+func extractZip(ctx context.Context, store ArchiveStore, pluginID, version string, data []byte, targetDir, targetPath string) error {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return fmt.Errorf("open plugin binary zip: %w", err)
+	}
+	written := map[string]struct{}{}
+	for _, file := range reader.File {
+		if file.FileInfo().IsDir() {
+			continue
+		}
+		cleanName, err := archiveEntryPath(file.Name)
+		if err != nil {
+			return fmt.Errorf("plugin binary archive entry %q: %w", file.Name, err)
+		}
+		relPath := prefixedArchivePath(targetDir, archiveTargetPath(cleanName, targetPath))
+		if _, exists := written[relPath]; exists {
+			return fmt.Errorf("plugin binary archive maps multiple files to %q", relPath)
+		}
+		written[relPath] = struct{}{}
+		handle, err := file.Open()
+		if err != nil {
+			return fmt.Errorf("open plugin binary file %q: %w", file.Name, err)
+		}
+		content, readErr := io.ReadAll(handle)
+		closeErr := handle.Close()
+		if readErr != nil {
+			return fmt.Errorf("read plugin binary file %q: %w", file.Name, readErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close plugin binary file %q: %w", file.Name, closeErr)
+		}
+		if modeStore, ok := store.(archiveStoreWithMode); ok {
+			mode := file.FileInfo().Mode().Perm()
+			if mode == 0 {
+				mode = 0o600
+			}
+			if err := modeStore.WriteWithMode(ctx, pluginID, version, relPath, content, mode); err != nil {
+				return fmt.Errorf("extract plugin binary file %q: %w", file.Name, err)
+			}
+			continue
+		}
+		if err := store.Write(ctx, pluginID, version, relPath, content); err != nil {
+			return fmt.Errorf("extract plugin binary file %q: %w", file.Name, err)
+		}
+	}
+	return nil
 }
 
 func archiveTargetPath(cleanName, targetPath string) string {

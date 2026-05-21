@@ -15,6 +15,7 @@ import (
 	spawnagent "arkloop/services/worker/internal/tools/builtin/spawn_agent"
 	webfetch "arkloop/services/worker/internal/tools/builtin/web_fetch"
 	websearch "arkloop/services/worker/internal/tools/builtin/web_search"
+	xsearch "arkloop/services/worker/internal/tools/builtin/x_search"
 )
 
 type notConfiguredExecutor struct {
@@ -138,6 +139,7 @@ func toRuntimeProviderConfig(cfg toolprovider.ActiveProviderConfig) sharedtoolru
 		ProviderName: strings.TrimSpace(cfg.ProviderName),
 		BaseURL:      cfg.BaseURL,
 		APIKeyValue:  cfg.APIKeyValue,
+		OAuthValue:   cfg.OAuthValue,
 		ConfigJSON:   copyJSONMap(cfg.ConfigJSON),
 	}
 }
@@ -188,6 +190,42 @@ func BuildProviderExecutor(cfg toolprovider.ActiveProviderConfig) tools.Executor
 	case websearch.AgentSpecExa.Name:
 		provider := websearch.NewExaProvider()
 		return websearch.NewToolExecutorWithProvider(provider)
+
+	case xsearch.AgentSpecXAI.Name:
+		apiKey := ""
+		if cfg.APIKeyValue != nil {
+			apiKey = strings.TrimSpace(*cfg.APIKeyValue)
+		}
+		oauthValue := ""
+		if cfg.OAuthValue != nil {
+			oauthValue = strings.TrimSpace(*cfg.OAuthValue)
+		}
+		if apiKey == "" && oauthValue == "" {
+			return notConfiguredExecutor{groupName: groupName, providerName: providerName, missing: []string{"credentials"}}
+		}
+		model := xsearch.DefaultModel
+		if rawModel, ok := cfg.ConfigJSON["model"].(string); ok && strings.TrimSpace(rawModel) != "" {
+			model = strings.TrimSpace(rawModel)
+		}
+		authMode := ""
+		if rawAuthMode, ok := cfg.ConfigJSON["auth_mode"].(string); ok {
+			authMode = strings.TrimSpace(rawAuthMode)
+		}
+		baseURL := ""
+		if cfg.BaseURL != nil {
+			baseURL = strings.TrimSpace(*cfg.BaseURL)
+		}
+		provider, err := xsearch.NewXAIProvider(xsearch.XAIProviderConfig{
+			APIKey:     apiKey,
+			OAuthValue: oauthValue,
+			BaseURL:    baseURL,
+			Model:      model,
+			AuthMode:   authMode,
+		})
+		if err != nil {
+			return notConfiguredExecutor{groupName: groupName, providerName: providerName, reason: err.Error()}
+		}
+		return xsearch.NewToolExecutorWithProvider(provider)
 
 	case webfetch.AgentSpecJina.Name:
 		key := ""

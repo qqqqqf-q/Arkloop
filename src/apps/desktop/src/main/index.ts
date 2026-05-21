@@ -353,6 +353,7 @@ function createWindow(): BrowserWindow {
   const config = loadConfig()
   const iconPath = getAppIconPath()
   const isWindows = process.platform === 'win32'
+  let persistWindowSizeTimer: NodeJS.Timeout | null = null
 
   const win = new BrowserWindow({
     width: config.window.width,
@@ -373,18 +374,37 @@ function createWindow(): BrowserWindow {
     ...(process.platform === 'linux' || process.platform === 'win32' ? { icon: iconPath } : {}),
   })
 
+  if (config.window.maximized) {
+    win.maximize()
+  }
+
   win.on('page-title-updated', (event) => {
     event.preventDefault()
     win.setTitle('Arkloop')
   })
 
-  // 窗口大小变化时持久化
-  win.on('resize', () => {
-    if (win.isMaximized()) return
+  const persistWindowState = (maximized: boolean): void => {
+    const cfg = loadConfig()
+    cfg.window = { ...cfg.window, maximized }
+    saveConfig(cfg)
+  }
+
+  const persistWindowSize = (): void => {
+    if (win.isDestroyed() || win.isMaximized() || win.isFullScreen()) return
     const [width, height] = win.getSize()
     const cfg = loadConfig()
-    cfg.window = { width, height }
+    cfg.window = { width, height, maximized: false }
     saveConfig(cfg)
+  }
+
+  win.on('resize', () => {
+    if (persistWindowSizeTimer) {
+      clearTimeout(persistWindowSizeTimer)
+    }
+    persistWindowSizeTimer = setTimeout(() => {
+      persistWindowSizeTimer = null
+      persistWindowSize()
+    }, 200)
   })
 
   win.on('close', (e) => {
@@ -401,11 +421,12 @@ function createWindow(): BrowserWindow {
     win.show()
   })
 
-  const syncMaximizedState = () => {
+  const syncMaximizedState = (maximized: boolean) => {
+    persistWindowState(maximized)
     win.webContents.send('arkloop:window:maximized-changed', win.isMaximized())
   }
-  win.on('maximize', syncMaximizedState)
-  win.on('unmaximize', syncMaximizedState)
+  win.on('maximize', () => syncMaximizedState(true))
+  win.on('unmaximize', () => syncMaximizedState(false))
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (parseHttpUrl(url)) {

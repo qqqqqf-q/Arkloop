@@ -40,7 +40,7 @@ Arkloop 是**开源**、面向**对话式 AI Agent** 的平台：托管运行时
 
 | id | 用途摘要 |
 |----|----------|
-| `normal` | 通用对话，含多种工具；默认配置中含 `heartbeat`（群聊定时心跳相关能力，详见架构文档） |
+| `normal` | 通用对话，含多种工具；默认配置中含群聊 Discuss 调度能力，详见架构文档 |
 | `work` | 多步任务、偏自主的执行风格 |
 | `platform` | 平台管理专用，`tool_allowlist` 仅 `platform_manage` |
 | `summarizer` | 系统内置摘要（标题/结果摘要） |

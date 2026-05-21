@@ -76,8 +76,8 @@ func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, trigger_kind, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 		ON CONFLICT (thread_id) WHERE thread_id IS NOT NULL DO UPDATE
 		    SET thread_id       = excluded.thread_id,
 		        channel_id      = excluded.channel_id,
@@ -87,12 +87,14 @@ func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 		        model           = excluded.model,
 		        resolve_model_at_runtime = excluded.resolve_model_at_runtime,
 		        interval_min    = excluded.interval_min,
+		        trigger_kind    = excluded.trigger_kind,
 		        cooldown_level  = 0,
 		        last_user_msg_at = NULL,
 		        burst_start_at  = NULL,
 		        updated_at      = excluded.updated_at`,
 		id, channelID, channelIdentityID, threadID, personaKey, accountID, model, resolveModelAtRuntime, intervalMin,
 		nextFire.Format(time.RFC3339Nano),
+		runkind.Discuss,
 		now.Format(time.RFC3339Nano),
 	)
 	return err
@@ -151,19 +153,21 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 	id := uuid.New()
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, trigger_kind, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 		ON CONFLICT (channel_id, channel_identity_id) WHERE thread_id IS NULL DO UPDATE
 		    SET persona_key     = excluded.persona_key,
 		        account_id      = excluded.account_id,
 		        model           = excluded.model,
 		        interval_min    = excluded.interval_min,
+		        trigger_kind    = excluded.trigger_kind,
 		        cooldown_level  = 0,
 		        last_user_msg_at = NULL,
 		        burst_start_at  = NULL,
 		        updated_at      = excluded.updated_at`,
 		id, channelID, channelIdentityID, personaKey, accountID, model, intervalMin,
 		nextFire.Format(time.RFC3339Nano),
+		runkind.Discuss,
 		now.Format(time.RFC3339Nano),
 	)
 	return err
@@ -1013,7 +1017,7 @@ func buildDesktopHeartbeatStartedData(
 	data := map[string]any{
 		"persona_id":          personaKey,
 		"model":               model,
-		"run_kind":            runkind.Heartbeat,
+		"run_kind":            runkind.Discuss,
 		"continuation_source": "none",
 		"continuation_loop":   false,
 		"channel_delivery": map[string]any{

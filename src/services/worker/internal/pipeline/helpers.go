@@ -153,7 +153,7 @@ func resolveProviderBindingGroup(registry *tools.Registry, toolName string) stri
 	}
 	if meta, ok := sharedtoolmeta.Lookup(logicalName); ok {
 		switch meta.Group {
-		case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupWebFetch:
+		case sharedtoolmeta.GroupWebSearch, sharedtoolmeta.GroupXSearch, sharedtoolmeta.GroupWebFetch:
 			return meta.Group
 		}
 	}

@@ -142,6 +142,7 @@ function toAgentMessage(message: MessageResponse): AgentMessage {
       createdAt: message.created_at,
       streamId: message.run_id,
       clientMessageId: message.client_message_id,
+      threadSeq: message.thread_seq,
       deliveryStatus: 'sent',
     },
     parts,

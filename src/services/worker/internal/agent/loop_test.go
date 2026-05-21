@@ -1407,17 +1407,13 @@ func TestAgentLoopStreamEndedAfterToolProgressRetries(t *testing.T) {
 	}
 }
 
-func TestAgentLoopEmptyCompletionRetries(t *testing.T) {
+func TestAgentLoopEmptyCompletionCompletes(t *testing.T) {
 	gateway := &scriptedTurnsGateway{turns: [][]llm.StreamEvent{
 		{
 			llm.StreamRunCompleted{
 				LlmCallID: "empty-1",
 				Usage:     &llm.Usage{OutputTokens: intPtr(2)},
 			},
-		},
-		{
-			llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"},
-			llm.StreamRunCompleted{},
 		},
 	}}
 	loop := NewLoop(gateway, nil)
@@ -1445,29 +1441,13 @@ func TestAgentLoopEmptyCompletionRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loop.Run failed: %v", err)
 	}
-	if gateway.calls != 2 {
-		t.Fatalf("expected empty completion to be retried, got %d calls", gateway.calls)
+	if gateway.calls != 1 {
+		t.Fatalf("expected empty completion to complete without retry, got %d calls", gateway.calls)
 	}
-
-	retryCount := 0
 	for _, ev := range got {
-		if ev.Type != "run.llm.retry" {
-			continue
+		if ev.Type == "run.llm.retry" || ev.Type == "run.failed" {
+			t.Fatalf("unexpected event for empty completion: %#v", ev)
 		}
-		retryCount++
-		if msg, _ := ev.DataJSON["message"].(string); msg != "upstream stream completed without assistant content" {
-			t.Fatalf("unexpected retry message: %q", msg)
-		}
-		if llmCallID, _ := ev.DataJSON["llm_call_id"].(string); llmCallID != "empty-1" {
-			t.Fatalf("unexpected retry llm_call_id: %q", llmCallID)
-		}
-		details, _ := ev.DataJSON["details"].(map[string]any)
-		if details["reason"] != "empty_assistant_completion" {
-			t.Fatalf("unexpected retry details: %#v", details)
-		}
-	}
-	if retryCount != 1 {
-		t.Fatalf("expected 1 run.llm.retry, got %d", retryCount)
 	}
 	if got[len(got)-1].Type != "run.completed" {
 		t.Fatalf("expected final run.completed, got %s", got[len(got)-1].Type)
@@ -1521,21 +1501,6 @@ func TestAgentLoopThinkingOnlyCompletionDoesNotRetry(t *testing.T) {
 	}
 	if got[len(got)-1].Type != "run.completed" {
 		t.Fatalf("expected final run.completed, got %s", got[len(got)-1].Type)
-	}
-}
-
-func TestCompletedTurnIsEmptyRespectsAssistantState(t *testing.T) {
-	if !completedTurnIsEmpty("", nil, nil, nil) {
-		t.Fatal("nil assistant message should be empty")
-	}
-	if !completedTurnIsEmpty("", &llm.Message{Content: []llm.ContentPart{{Text: "   "}}}, nil, nil) {
-		t.Fatal("blank visible text should be empty")
-	}
-	if completedTurnIsEmpty("", &llm.Message{Content: []llm.ContentPart{{Type: "thinking", Text: "plan"}}}, nil, nil) {
-		t.Fatal("thinking text should not be empty")
-	}
-	if completedTurnIsEmpty("", &llm.Message{Content: []llm.ContentPart{{Type: "redacted_thinking", Text: "opaque"}}}, nil, nil) {
-		t.Fatal("redacted thinking should not be empty")
 	}
 }
 

@@ -101,6 +101,7 @@ func (m *lifecycleManager) Start(ctx context.Context) {
 	}
 	go m.reaperLoop(ctx)
 	go startDesktopTriggerScheduler(ctx, m.db, m.queue, m.bus)
+	go startActivityRecorderBuilderScheduler(ctx, m.db, m.queue)
 }
 
 func (m *lifecycleManager) reaperLoop(ctx context.Context) {

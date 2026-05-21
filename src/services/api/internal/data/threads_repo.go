@@ -199,6 +199,107 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 	return &thread, nil
 }
 
+// ListForkTree 返回 thread 所属 root fork tree 下的全部未删除 threads。
+func (r *ThreadRepository) ListForkTree(ctx context.Context, accountID, threadID uuid.UUID) ([]Thread, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil {
+		return nil, fmt.Errorf("account_id and thread_id must not be empty")
+	}
+
+	rows, err := r.db.Query(
+		ctx,
+		`WITH RECURSIVE ancestors AS (
+		     SELECT id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at,
+		            project_id, is_private, mode, collaboration_mode, collaboration_mode_revision,
+		            learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket,
+		            expires_at, parent_thread_id, branched_from_message_id, title_locked
+		       FROM threads
+		      WHERE id = $2 AND account_id = $1 AND deleted_at IS NULL
+		     UNION ALL
+		     SELECT p.id, p.account_id, p.created_by_user_id, p.title, p.created_at, p.updated_at, p.deleted_at,
+		            p.project_id, p.is_private, p.mode, p.collaboration_mode, p.collaboration_mode_revision,
+		            p.learning_mode_enabled, p.sidebar_work_folder, p.sidebar_pinned_at, p.sidebar_gtd_bucket,
+		            p.expires_at, p.parent_thread_id, p.branched_from_message_id, p.title_locked
+		       FROM threads p
+		       JOIN ancestors a ON a.parent_thread_id = p.id
+		      WHERE p.account_id = $1 AND p.deleted_at IS NULL
+		   ),
+		   root AS (
+		     SELECT id
+		       FROM ancestors
+		      WHERE parent_thread_id IS NULL
+		         OR parent_thread_id NOT IN (SELECT id FROM ancestors)
+		      ORDER BY created_at ASC
+		      LIMIT 1
+		   ),
+		   family AS (
+		     SELECT t.id, t.account_id, t.created_by_user_id, t.title, t.created_at, t.updated_at, t.deleted_at,
+		            t.project_id, t.is_private, t.mode, t.collaboration_mode, t.collaboration_mode_revision,
+		            t.learning_mode_enabled, t.sidebar_work_folder, t.sidebar_pinned_at, t.sidebar_gtd_bucket,
+		            t.expires_at, t.parent_thread_id, t.branched_from_message_id, t.title_locked
+		       FROM threads t
+		       JOIN root ON t.id = root.id
+		      WHERE t.account_id = $1 AND t.deleted_at IS NULL
+		     UNION ALL
+		     SELECT c.id, c.account_id, c.created_by_user_id, c.title, c.created_at, c.updated_at, c.deleted_at,
+		            c.project_id, c.is_private, c.mode, c.collaboration_mode, c.collaboration_mode_revision,
+		            c.learning_mode_enabled, c.sidebar_work_folder, c.sidebar_pinned_at, c.sidebar_gtd_bucket,
+		            c.expires_at, c.parent_thread_id, c.branched_from_message_id, c.title_locked
+		       FROM threads c
+		       JOIN family f ON c.parent_thread_id = f.id
+		      WHERE c.account_id = $1 AND c.deleted_at IS NULL
+		   )
+		 SELECT id, account_id, created_by_user_id, title, created_at, updated_at, deleted_at,
+		        project_id, is_private, mode, collaboration_mode, collaboration_mode_revision,
+		        learning_mode_enabled, sidebar_work_folder, sidebar_pinned_at, sidebar_gtd_bucket,
+		        expires_at, parent_thread_id, branched_from_message_id, title_locked
+		   FROM family
+		  ORDER BY created_at ASC, id ASC`,
+		accountID,
+		threadID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var threads []Thread
+	for rows.Next() {
+		var thread Thread
+		if err := rows.Scan(
+			&thread.ID,
+			&thread.AccountID,
+			&thread.CreatedByUserID,
+			&thread.Title,
+			&thread.CreatedAt,
+			&thread.UpdatedAt,
+			&thread.DeletedAt,
+			&thread.ProjectID,
+			&thread.IsPrivate,
+			&thread.Mode,
+			&thread.CollaborationMode,
+			&thread.CollaborationModeRevision,
+			&thread.LearningModeEnabled,
+			&thread.SidebarWorkFolder,
+			&thread.SidebarPinnedAt,
+			&thread.SidebarGtdBucket,
+			&thread.ExpiresAt,
+			&thread.ParentThreadID,
+			&thread.BranchedFromMessageID,
+			&thread.TitleLocked,
+		); err != nil {
+			return nil, err
+		}
+		threads = append(threads, thread)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return threads, nil
+}
+
 func (r *ThreadRepository) ListByOwner(
 	ctx context.Context,
 	accountID uuid.UUID,
@@ -264,6 +365,7 @@ func (r *ThreadRepository) ListByOwnerWithMode(
 		WHERE t.account_id = $1
 		  AND t.created_by_user_id = $2
 		  AND t.deleted_at IS NULL
+		  AND t.parent_thread_id IS NULL
 		  AND t.is_private = false`
 	args := []any{accountID, ownerUserID}
 
@@ -698,6 +800,7 @@ func (r *ThreadRepository) SearchByQueryWithMode(
 		 WHERE t.account_id = $1
 		   AND t.created_by_user_id = $2
 		   AND t.deleted_at IS NULL
+		   AND t.parent_thread_id IS NULL
 		   AND t.is_private = false`
 	args := []any{accountID, ownerUserID}
 	if normalizedMode != "" {

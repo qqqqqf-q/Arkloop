@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef } from 'react'
-import { Check, Share2, Split, Terminal } from 'lucide-react'
+import { Check, GitBranch, Share2, Terminal } from 'lucide-react'
 import type { AgentMessage } from '../../agent-ui'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../../storage'
 import { WidgetBlock } from '../WidgetBlock'
@@ -138,7 +138,7 @@ export function AssistantActionBar({
           hoverBackground="var(--c-bg-deep)"
           className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
         >
-          <Split size={16} />
+          <GitBranch size={16} />
         </ActionIconButton>
         {onViewRunDetail && (
           <ActionIconButton

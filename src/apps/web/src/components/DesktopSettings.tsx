@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Wrench,
   Code2,
+  Activity,
   Loader2,
   Shield,
   Info,
@@ -38,6 +39,7 @@ import { MCPSettings } from "./settings/MCPSettings";
 import { ToolsSettings } from "./settings/ToolsSettings";
 import { AdvancedSettings, type AdvancedSettingsKey } from "./settings/AdvancedSettings";
 import { MemorySettings } from "./settings/MemorySettings";
+import { ActivityRecorderSettings } from "./settings/ActivityRecorderSettings";
 import { NotebookSettings } from "./settings/NotebookSettings";
 import { ConnectionSettings } from "./settings/ConnectionSettings";
 import { ChatSettings } from "./settings/ChatSettings";
@@ -64,6 +66,7 @@ export type DesktopSettingsKey =
   | "advanced"
   | "notebook"
   | "memory"
+  | "activityRecorder"
   | "connection"
   | "chat"
   | "promptInjection"
@@ -93,6 +96,7 @@ const NAV_ENTRIES: NavEntry[] = [
   { key: "mcp",              icon: Server },
   { key: "notebook",         icon: Brain },
   { key: "memory",           icon: Database },
+  { key: "activityRecorder", icon: Activity },
   { key: "chat",             icon: MessageSquare },
   { key: "promptInjection",  icon: Shield },
   // 第三段：低频管理
@@ -207,6 +211,8 @@ function DesktopSettingsPaneImpl({
         return <NotebookSettings accessToken={accessToken} />;
       case "memory":
         return <MemorySettings accessToken={accessToken} />;
+      case "activityRecorder":
+        return <ActivityRecorderSettings accessToken={accessToken} />;
       case "connection":
         return <ConnectionSettings initialConfig={hydrationSnapshot.config} />;
       case "chat":

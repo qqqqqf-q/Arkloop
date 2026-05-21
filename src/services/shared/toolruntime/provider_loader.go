@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	sharedoutbound "arkloop/services/shared/outboundurl"
 
@@ -29,15 +30,21 @@ const (
 )
 
 type ProviderRuntimeStatus struct {
-	OwnerKind     string
-	GroupName     string
-	ProviderName  string
-	KeyPrefix     *string
-	BaseURL       *string
-	APIKeyValue   *string
-	ConfigJSON    map[string]any
-	RuntimeState  ProviderRuntimeState
-	RuntimeReason string
+	OwnerKind          string
+	OwnerUserID        *uuid.UUID
+	GroupName          string
+	ProviderName       string
+	KeyPrefix          *string
+	BaseURL            *string
+	APIKeyValue        *string
+	OAuthValue         *string
+	OAuthTokenSecretID *uuid.UUID
+	OAuthClientID      *string
+	OAuthScope         *string
+	OAuthExpiresAt     *time.Time
+	ConfigJSON         map[string]any
+	RuntimeState       ProviderRuntimeState
+	RuntimeReason      string
 }
 
 func (s ProviderRuntimeStatus) Ready() bool {
@@ -50,6 +57,7 @@ func (s ProviderRuntimeStatus) ProviderConfig() ProviderConfig {
 		ProviderName: strings.TrimSpace(s.ProviderName),
 		BaseURL:      s.BaseURL,
 		APIKeyValue:  s.APIKeyValue,
+		OAuthValue:   s.OAuthValue,
 		ConfigJSON:   copyJSONMap(s.ConfigJSON),
 	}
 }
@@ -84,9 +92,13 @@ func ReadyProvidersFromStatuses(statuses []ProviderRuntimeStatus) []ProviderConf
 func LoadPlatformProviderStatuses(ctx context.Context, pool providerQuerier, decrypt ProviderSecretDecrypter) ([]ProviderRuntimeStatus, error) {
 	return loadProviderStatuses(ctx, pool, `
 		SELECT c.owner_kind, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
-		       s.encrypted_value, s.key_version
+		       s.encrypted_value, s.key_version, os.encrypted_value, os.key_version,
+		       c.owner_user_id, oc.token_secret_id, oc.client_id, oc.scope, oc.expires_at
 		FROM tool_provider_configs c
 		LEFT JOIN secrets s ON s.id = c.secret_id AND s.owner_kind = 'platform'
+		LEFT JOIN tool_provider_oauth_connections oc ON oc.owner_kind = 'platform'
+		     AND oc.group_name = c.group_name AND oc.provider_name = c.provider_name
+		LEFT JOIN secrets os ON os.id = oc.token_secret_id AND os.owner_kind = 'platform'
 		WHERE c.owner_kind = 'platform' AND c.is_active = TRUE
 		ORDER BY c.updated_at DESC
 	`, decrypt)
@@ -98,9 +110,14 @@ func LoadUserProviderStatuses(ctx context.Context, pool providerQuerier, userID 
 	}
 	return loadProviderStatuses(ctx, pool, `
 		SELECT c.owner_kind, c.group_name, c.provider_name, c.key_prefix, c.base_url, c.config_json,
-		       s.encrypted_value, s.key_version
+		       s.encrypted_value, s.key_version, os.encrypted_value, os.key_version,
+		       c.owner_user_id, oc.token_secret_id, oc.client_id, oc.scope, oc.expires_at
 		FROM tool_provider_configs c
 		LEFT JOIN secrets s ON s.id = c.secret_id AND s.owner_kind = 'user'
+		LEFT JOIN tool_provider_oauth_connections oc ON oc.owner_kind = 'user'
+		     AND oc.owner_user_id = c.owner_user_id
+		     AND oc.group_name = c.group_name AND oc.provider_name = c.provider_name
+		LEFT JOIN secrets os ON os.id = oc.token_secret_id AND os.owner_kind = 'user'
 		WHERE c.owner_kind = 'user' AND c.owner_user_id = $1 AND c.is_active = TRUE
 		ORDER BY c.updated_at DESC
 	`, decrypt, userID)
@@ -123,27 +140,43 @@ func loadProviderStatuses(ctx context.Context, pool providerQuerier, sql string,
 	statuses := make([]ProviderRuntimeStatus, 0)
 	for rows.Next() {
 		var (
-			ownerKind    string
-			groupName    string
-			providerName string
-			keyPrefix    *string
-			baseURL      *string
-			configJSON   []byte
-			encrypted    *string
-			keyVersion   *int
+			ownerKind       string
+			groupName       string
+			providerName    string
+			keyPrefix       *string
+			baseURL         *string
+			configJSON      []byte
+			encrypted       *string
+			keyVersion      *int
+			oauthEncrypted  *string
+			oauthKeyVersion *int
+			ownerUserID     *uuid.UUID
+			oauthSecretID   *uuid.UUID
+			oauthClientID   *string
+			oauthScope      *string
+			oauthExpiresAt  *time.Time
 		)
-		if err := rows.Scan(&ownerKind, &groupName, &providerName, &keyPrefix, &baseURL, &configJSON, &encrypted, &keyVersion); err != nil {
+		if err := rows.Scan(
+			&ownerKind, &groupName, &providerName, &keyPrefix, &baseURL, &configJSON,
+			&encrypted, &keyVersion, &oauthEncrypted, &oauthKeyVersion,
+			&ownerUserID, &oauthSecretID, &oauthClientID, &oauthScope, &oauthExpiresAt,
+		); err != nil {
 			return nil, fmt.Errorf("tool_provider_configs scan: %w", err)
 		}
 
 		status := ProviderRuntimeStatus{
-			OwnerKind:    strings.TrimSpace(ownerKind),
-			GroupName:    strings.TrimSpace(groupName),
-			ProviderName: strings.TrimSpace(providerName),
-			KeyPrefix:    keyPrefix,
-			BaseURL:      baseURL,
-			ConfigJSON:   map[string]any{},
-			RuntimeState: ProviderRuntimeStateReady,
+			OwnerKind:          strings.TrimSpace(ownerKind),
+			OwnerUserID:        ownerUserID,
+			GroupName:          strings.TrimSpace(groupName),
+			ProviderName:       strings.TrimSpace(providerName),
+			KeyPrefix:          keyPrefix,
+			BaseURL:            baseURL,
+			OAuthTokenSecretID: oauthSecretID,
+			OAuthClientID:      oauthClientID,
+			OAuthScope:         oauthScope,
+			OAuthExpiresAt:     oauthExpiresAt,
+			ConfigJSON:         map[string]any{},
+			RuntimeState:       ProviderRuntimeStateReady,
 		}
 		if len(configJSON) > 0 {
 			_ = json.Unmarshal(configJSON, &status.ConfigJSON)
@@ -160,6 +193,20 @@ func loadProviderStatuses(ctx context.Context, pool providerQuerier, sql string,
 					status.RuntimeReason = "secret_decrypt_failed"
 				} else {
 					status.APIKeyValue = plain
+				}
+			}
+		}
+		if oauthEncrypted != nil && strings.TrimSpace(*oauthEncrypted) != "" {
+			if decrypt == nil {
+				status.RuntimeState = ProviderRuntimeStateDecryptFailed
+				status.RuntimeReason = "oauth_secret_decrypt_unavailable"
+			} else {
+				plain, decErr := decrypt(ctx, *oauthEncrypted, oauthKeyVersion, status.ProviderName)
+				if decErr != nil {
+					status.RuntimeState = ProviderRuntimeStateDecryptFailed
+					status.RuntimeReason = "oauth_secret_decrypt_failed"
+				} else {
+					status.OAuthValue = plain
 				}
 			}
 		}
@@ -187,6 +234,11 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 	case "web_search.searxng":
 		return validateInternalBaseURL(status.BaseURL)
 	case "web_search.basic":
+		return ProviderRuntimeStateReady, ""
+	case "x_search.xai":
+		if blankPtr(status.OAuthValue) && blankPtr(status.APIKeyValue) {
+			return ProviderRuntimeStateMissingConfig, "missing_credentials"
+		}
 		return ProviderRuntimeStateReady, ""
 	case "web_fetch.jina":
 		return ProviderRuntimeStateReady, ""

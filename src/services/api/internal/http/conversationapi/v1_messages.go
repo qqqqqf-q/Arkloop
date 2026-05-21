@@ -264,6 +264,7 @@ func toMessageResponse(message data.Message) messageResponse {
 		ID:              message.ID.String(),
 		AccountID:       message.AccountID.String(),
 		ThreadID:        message.ThreadID.String(),
+		ThreadSeq:       message.ThreadSeq,
 		CreatedByUserID: createdByUserID,
 		RunID:           runID,
 		Role:            message.Role,

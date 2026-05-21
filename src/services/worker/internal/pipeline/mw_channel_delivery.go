@@ -83,6 +83,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			tgClient != nil && strings.TrimSpace(preloaded.Token) != "" {
 			sender := NewTelegramChannelSenderWithClient(tgClient, preloaded.Token, resolveSegmentDelay())
 			streamFlush = func(ctx2 context.Context, text string) error {
+				if rc.DiscussRun && !rc.DiscussTextVisible {
+					return nil
+				}
 				// heartbeat Turn 1 阶段不 stream
 				if rc.HeartbeatRun && (rc.HeartbeatToolOutcome == nil || !rc.HeartbeatToolOutcome.Reply) {
 					return nil
@@ -131,6 +134,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			}
 
 			streamFlush = func(ctx2 context.Context, text string) error {
+				if rc.DiscussRun && !rc.DiscussTextVisible {
+					return nil
+				}
 				if rc.HeartbeatRun && (rc.HeartbeatToolOutcome == nil || !rc.HeartbeatToolOutcome.Reply) {
 					return nil
 				}
@@ -165,6 +171,9 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			wxSender := NewWeixinChannelSenderWithClient(wxClient, resolveSegmentDelay())
 
 			streamFlush = func(ctx2 context.Context, text string) error {
+				if rc.DiscussRun && !rc.DiscussTextVisible {
+					return nil
+				}
 				if rc.HeartbeatRun && (rc.HeartbeatToolOutcome == nil || !rc.HeartbeatToolOutcome.Reply) {
 					return nil
 				}
@@ -189,7 +198,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		}
 
 		var stopTyping context.CancelFunc
-		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && tgClient != nil && !IsHeartbeatRunContext(rc) {
+		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && tgClient != nil && ShouldSendTelegramTypingRefresh(rc) {
 			stopTyping = StartTelegramTypingRefresh(ctx, tgClient, preloaded.Token, rc.ChannelContext.Conversation.Target)
 		}
 
@@ -216,7 +225,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		}
 		finalOutput := strings.TrimSpace(rc.FinalAssistantOutput)
 		finalOutputs := normalizedAssistantOutputs(rc.FinalAssistantOutputs, finalOutput)
-		if ShouldSuppressHeartbeatOutput(rc, finalOutput) {
+		if ShouldSuppressAssistantOutput(rc, finalOutput) {
 			return err
 		}
 
@@ -323,6 +332,7 @@ func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []st
 	}
 	if rc.ChannelReplyOverride != nil {
 		payload.ChannelReplyOverrideID = rc.ChannelReplyOverride.MessageID
+		payload.ReplyToMessageID = rc.ChannelReplyOverride.MessageID
 	}
 
 	switch channelType {
@@ -337,7 +347,7 @@ func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []st
 			payload.ReplyToMessageID = rc.ChannelContext.InboundMessage.MessageID
 		}
 	case "qq":
-		if !rc.HeartbeatRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		if payload.ReplyToMessageID == "" && !rc.HeartbeatRun && !rc.DiscussRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
 			if rc.ChannelContext.TriggerMessage != nil && rc.ChannelContext.TriggerMessage.MessageID != "" {
 				payload.ReplyToMessageID = rc.ChannelContext.TriggerMessage.MessageID
 			} else if rc.ChannelContext.InboundMessage.MessageID != "" {
@@ -345,7 +355,7 @@ func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []st
 			}
 		}
 	case "qqbot":
-		if !rc.HeartbeatRun {
+		if payload.ReplyToMessageID == "" && !rc.HeartbeatRun && !rc.DiscussRun {
 			if rc.ChannelContext.TriggerMessage != nil && rc.ChannelContext.TriggerMessage.MessageID != "" {
 				payload.ReplyToMessageID = rc.ChannelContext.TriggerMessage.MessageID
 			} else if rc.ChannelContext.InboundMessage.MessageID != "" {
@@ -354,7 +364,7 @@ func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []st
 		}
 	case "weixin":
 		payload.Metadata = weixinDeliveryMetadata(rc)
-		if !rc.HeartbeatRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		if payload.ReplyToMessageID == "" && !rc.HeartbeatRun && !rc.DiscussRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
 			if rc.ChannelContext.TriggerMessage != nil && rc.ChannelContext.TriggerMessage.MessageID != "" {
 				payload.ReplyToMessageID = rc.ChannelContext.TriggerMessage.MessageID
 			} else if rc.ChannelContext.InboundMessage.MessageID != "" {
@@ -366,7 +376,7 @@ func buildOutboxPayload(rc *RunContext, channelType, output string, outputs []st
 		if rc.ChannelContext.TriggerMessage != nil {
 			payload.TriggerMessageID = strings.TrimSpace(rc.ChannelContext.TriggerMessage.MessageID)
 		}
-		if !rc.HeartbeatRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		if payload.ReplyToMessageID == "" && !rc.HeartbeatRun && !rc.DiscussRun && !isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
 			if payload.TriggerMessageID != "" {
 				payload.ReplyToMessageID = payload.TriggerMessageID
 			} else if payload.InboundMessageID != "" {
@@ -1458,6 +1468,16 @@ func ShouldShowTelegramProgress(rc *RunContext) bool {
 		return false
 	}
 	return isPrivateChannelConversation(rc.ChannelContext.ConversationType)
+}
+
+func ShouldSendTelegramTypingRefresh(rc *RunContext) bool {
+	if rc == nil || rc.ChannelContext == nil || IsHeartbeatRunContext(rc) {
+		return false
+	}
+	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+		return true
+	}
+	return rc.ChannelContext.MentionsBot || rc.ChannelContext.IsReplyToBot || rc.ChannelContext.MatchesKeyword
 }
 
 // StartTelegramTypingRefresh sends Telegram typing actions until cancel (about every 4s, first immediately).
