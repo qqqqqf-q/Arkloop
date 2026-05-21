@@ -2870,6 +2870,7 @@ export const ChatView = memo(function ChatView() {
           onClose={() => closeRightPanelTab(tab.id)}
           onBuildPlan={handleBuildPlan}
           onOpenModelSettings={() => onOpenSettings('models')}
+          onSendMessage={sendMessage}
           onPlanTitleChange={(title) => {
             setRightPanelTabs((current) => {
               const target = current.find((item) => item.id === tab.id && item.kind === 'resource')
@@ -2882,7 +2883,7 @@ export const ChatView = memo(function ChatView() {
         />
       ),
     }
-  }, [accessToken, closeRightPanelTab, handleBuildPlan, onOpenSettings, resolvedMessageSources, workPanelFolder])
+  }, [accessToken, closeRightPanelTab, handleBuildPlan, onOpenSettings, resolvedMessageSources, sendMessage, workPanelFolder])
 
   const handleWebPanelResourceChange = useCallback((resource: ResourceRef) => {
     if (resource.kind !== 'browser') return
@@ -3634,6 +3635,7 @@ export const ChatView = memo(function ChatView() {
                 handleEditMessage={handleEditMessage}
                 handleFork={handleFork}
                 handleArtifactAction={handleArtifactAction}
+                onSendMessage={sendMessage}
                 openDocumentPanel={openDocumentPanel}
                 openResourcePanel={openResourcePanel}
                 openCodePanel={openCodePanel}
@@ -3659,6 +3661,7 @@ export const ChatView = memo(function ChatView() {
     handleFork,
     handleRetryUserMessage,
     handleScrollContainerScroll,
+    sendMessage,
     isWorkMode,
     lastTurnChildren,
     lastTurnStartIdx,

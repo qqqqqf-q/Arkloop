@@ -172,6 +172,7 @@ type Props = {
   name?: string
   accessToken?: string
   onOpenLink?: (url: string) => void
+  onSendMessage?: (text: string) => void
   style?: React.CSSProperties
   className?: string
   displayMode?: 'inline' | 'card'
@@ -195,7 +196,7 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
+export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, onSendMessage, style, className, displayMode = 'inline', onExpand }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
@@ -316,6 +317,26 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
       }
     }
 
+    bridge.onmessage = async (params) => {
+      if (!onSendMessage) {
+        return { isError: true }
+      }
+      const parts: string[] = []
+      for (const block of params.content) {
+        if (block && typeof block === 'object' && 'type' in block) {
+          if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+            parts.push(block.text)
+          }
+        }
+      }
+      const text = parts.join('\n').trim()
+      if (!text) {
+        return { isError: true }
+      }
+      onSendMessage(text)
+      return { isError: false }
+    }
+
     bridge.oninitialized = () => {
       isConnectedRef.current = true
       if (pendingToolResultRef.current !== undefined) {
@@ -345,7 +366,7 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
         // cross-origin, fall back to postMessage
       }
     })
-  }, [onOpenLink, sendToolResult, serverId, displayMode, onExpand])
+  }, [onOpenLink, onSendMessage, sendToolResult, serverId, displayMode, onExpand])
 
   // Cleanup on unmount
   useEffect(() => {

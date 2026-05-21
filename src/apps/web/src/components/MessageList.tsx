@@ -60,6 +60,7 @@ export type MessageListProps = {
   handleEditMessage: (message: AgentMessage, newContent: string) => void
   handleFork: (messageId: string) => Promise<void>
   handleArtifactAction: ComponentProps<typeof WidgetBlock>['onAction']
+  onSendMessage?: (text: string) => void
   openDocumentPanel: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   openResourcePanel: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   openCodePanel: (ce: CodeExecution) => void
@@ -93,6 +94,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
   handleEditMessage,
   handleFork,
   handleArtifactAction,
+  onSendMessage,
   openDocumentPanel,
   openResourcePanel,
   openCodePanel,
@@ -522,6 +524,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                         serverId: res.serverId,
                       })
                     }}
+                    onSendMessage={onSendMessage}
                   />
                 ))}
               </div>

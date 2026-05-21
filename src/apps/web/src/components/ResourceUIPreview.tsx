@@ -8,9 +8,10 @@ type Props = {
   accessToken?: string
   displayMode?: 'inline' | 'card'
   onExpand?: () => void
+  onSendMessage?: (text: string) => void
 }
 
-export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline', onExpand }: Props) {
+export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline', onExpand, onSendMessage }: Props) {
   const [content, setContent] = useState<string | undefined>(
     typeof resource.content === 'string' ? resource.content : undefined
   )
@@ -82,6 +83,7 @@ export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline
       onExpand={onExpand}
       name={resource.serverId}
       accessToken={accessToken}
+      onSendMessage={onSendMessage}
       style={{ minHeight: displayMode === 'card' ? undefined : '300px' }}
     />
   )

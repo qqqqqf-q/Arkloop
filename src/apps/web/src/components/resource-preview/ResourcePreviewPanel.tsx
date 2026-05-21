@@ -35,6 +35,7 @@ type Props = {
   onBuildPlan?: (message: string) => void
   onOpenModelSettings?: () => void
   onPlanTitleChange?: (title: string) => void
+  onSendMessage?: (text: string) => void
 }
 
 function releaseResource(resource: PreviewResource | null): void {
@@ -164,6 +165,7 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
   onBuildPlan,
   onOpenModelSettings,
   onPlanTitleChange,
+  onSendMessage,
 }: Props) {
   const { locale } = useLocale()
   const [internalMode, setInternalMode] = useState<ViewMode>('preview')
@@ -275,6 +277,7 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
             toolOutput={resource.initialData}
             serverId={resource.serverId}
             accessToken={accessToken}
+            onSendMessage={onSendMessage}
             style={{ width: '100%', height: '100%', minHeight: '400px' }}
           />
         </div>
