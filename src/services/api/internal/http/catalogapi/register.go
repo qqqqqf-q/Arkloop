@@ -70,6 +70,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/asr/transcribe", asrTranscribeEntry(deps.AuthService, deps.AccountMembershipRepo, deps.AsrCredentialsRepo, deps.SecretsRepo, deps.Logger))
 	mux.HandleFunc("/v1/mcp-installs", mcpInstallsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
 	mux.HandleFunc("/v1/mcp-installs/", mcpInstallEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.Pool, deps.MCPDiscoveryService))
+	mux.HandleFunc("/v1/mcp/tool-call", mcpToolCallEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo))
 	mux.HandleFunc("/v1/mcp-oauth/callback", mcpOAuthCallbackEntry(deps.SecretsRepo, deps.ProfileMCPInstallsRepo, deps.ProfileRegistriesRepo, deps.Pool))
 	if deps.MCPDiscoveryService != nil {
 		mux.HandleFunc("/v1/mcp-installs/import", mcpInstallImportEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProfileMCPInstallsRepo, deps.SecretsRepo, deps.WorkspaceMCPEnableRepo, deps.WorkspaceRegistriesRepo, deps.ProfileRegistriesRepo, deps.Pool, deps.MCPDiscoveryService))

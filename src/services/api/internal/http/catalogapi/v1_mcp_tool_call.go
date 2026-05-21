@@ -14,6 +14,7 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/mcpinstall"
+	sharedenvironmentref "arkloop/services/shared/environmentref"
 
 	"github.com/google/uuid"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -33,7 +34,7 @@ type mcpToolCallResponse struct {
 func mcpToolCallEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
-	mcpConfigsRepo *data.MCPConfigsRepository,
+	installsRepo *data.ProfileMCPInstallsRepository,
 	secretsRepo *data.SecretsRepository,
 ) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +60,8 @@ func mcpToolCallEntry(
 			return
 		}
 
-		cfg, err := findMCPConfigByName(r.Context(), mcpConfigsRepo, actor.AccountID, req.ServerID)
+		profileRef := sharedenvironmentref.BuildProfileRef(actor.AccountID, &actor.UserID)
+		install, err := findMCPInstallByKey(r.Context(), installsRepo, actor.AccountID, profileRef, req.ServerID)
 		if err != nil {
 			slog.WarnContext(r.Context(), "mcp_tool_call_lookup_failed",
 				"account_id", actor.AccountID,
@@ -69,12 +71,12 @@ func mcpToolCallEntry(
 			httpkit.WriteError(w, http.StatusInternalServerError, "lookup_failed", err.Error(), traceID, nil)
 			return
 		}
-		if cfg == nil {
+		if install == nil {
 			httpkit.WriteNotFound(w, r)
 			return
 		}
 
-		result, err := callMCPTool(r.Context(), cfg, secretsRepo, req.ToolName, req.Arguments)
+		result, err := callMCPTool(r.Context(), install, secretsRepo, req.ToolName, req.Arguments)
 		if err != nil {
 			slog.WarnContext(r.Context(), "mcp_tool_call_failed",
 				"account_id", actor.AccountID,
@@ -90,54 +92,64 @@ func mcpToolCallEntry(
 	}
 }
 
-func findMCPConfigByName(ctx context.Context, repo *data.MCPConfigsRepository, accountID uuid.UUID, name string) (*data.MCPConfig, error) {
-	configs, err := repo.ListByAccount(ctx, accountID)
+func findMCPInstallByKey(ctx context.Context, repo *data.ProfileMCPInstallsRepository, accountID uuid.UUID, profileRef string, key string) (*data.ProfileMCPInstall, error) {
+	installs, err := repo.ListByProfile(ctx, accountID, profileRef)
 	if err != nil {
 		return nil, err
 	}
-	for i := range configs {
-		if configs[i].Name == name && configs[i].IsActive {
-			return &configs[i], nil
+	for i := range installs {
+		if installs[i].InstallKey == key {
+			return &installs[i], nil
 		}
 	}
 	return nil, nil
 }
 
-func callMCPTool(ctx context.Context, cfg *data.MCPConfig, secretsRepo *data.SecretsRepository, toolName string, arguments map[string]any) (mcpToolCallResponse, error) {
-	var args []string
-	if len(cfg.ArgsJSON) > 0 {
-		if err := json.Unmarshal(cfg.ArgsJSON, &args); err != nil {
-			args = []string{}
+func callMCPTool(ctx context.Context, install *data.ProfileMCPInstall, secretsRepo *data.SecretsRepository, toolName string, arguments map[string]any) (mcpToolCallResponse, error) {
+	spec := map[string]any{}
+	if len(install.LaunchSpecJSON) > 0 {
+		if err := json.Unmarshal(install.LaunchSpecJSON, &spec); err != nil {
+			return mcpToolCallResponse{}, fmt.Errorf("invalid launch spec: %w", err)
+		}
+	}
+	if strings.TrimSpace(install.Transport) != "" {
+		if rawTransport, ok := spec["transport"]; !ok || strings.TrimSpace(asString(rawTransport)) == "" {
+			spec["transport"] = strings.TrimSpace(install.Transport)
 		}
 	}
 
-	var env map[string]string
-	if len(cfg.EnvJSON) > 0 {
-		if err := json.Unmarshal(cfg.EnvJSON, &env); err != nil {
-			env = map[string]string{}
+	serverCfg, err := mcpinstall.ParseServerConfig(install.InstallKey, spec, 30000)
+	if err != nil {
+		return mcpToolCallResponse{}, fmt.Errorf("parse server config: %w", err)
+	}
+
+	// Decrypt auth headers if present
+	if install.AuthHeadersSecretID != nil {
+		plain, err := secretsRepo.DecryptByID(ctx, *install.AuthHeadersSecretID)
+		if err == nil && plain != nil && *plain != "" {
+			var headers map[string]string
+			if json.Unmarshal([]byte(*plain), &headers) == nil {
+				for key, value := range headers {
+					key = strings.TrimSpace(key)
+					if key == "" {
+						continue
+					}
+					if serverCfg.Headers == nil {
+						serverCfg.Headers = map[string]string{}
+					}
+					serverCfg.Headers[key] = value
+				}
+			} else {
+				// Fallback: treat as bearer token
+				if serverCfg.Headers == nil {
+					serverCfg.Headers = map[string]string{}
+				}
+				serverCfg.Headers["Authorization"] = "Bearer " + *plain
+			}
 		}
 	}
 
-	var bearerToken string
-	if cfg.AuthSecretID != nil {
-		plain, err := secretsRepo.DecryptByID(ctx, *cfg.AuthSecretID)
-		if err == nil && plain != nil {
-			bearerToken = *plain
-		}
-	}
-
-	serverCfg := mcpinstall.ServerConfig{
-		ServerID:  cfg.Name,
-		Transport: cfg.Transport,
-		URL:       ptrToString(cfg.URL),
-		Headers:   buildAuthHeaders(bearerToken),
-		Command:   ptrToString(cfg.Command),
-		Args:      args,
-		Cwd:       cfg.CwdPath,
-		Env:       env,
-	}
-
-	timeoutMs := cfg.CallTimeoutMs
+	timeoutMs := serverCfg.CallTimeoutMs
 	if timeoutMs <= 0 {
 		timeoutMs = 30000
 	}
@@ -207,16 +219,13 @@ func serializeContent(content []sdkmcp.Content) []map[string]any {
 	return result
 }
 
-func ptrToString(s *string) string {
-	if s == nil {
+func asString(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case fmt.Stringer:
+		return s.String()
+	default:
 		return ""
 	}
-	return *s
-}
-
-func buildAuthHeaders(bearerToken string) map[string]string {
-	if bearerToken == "" {
-		return nil
-	}
-	return map[string]string{"Authorization": "Bearer " + bearerToken}
 }

@@ -170,6 +170,7 @@ type Props = {
   csp?: McpAppCsp
   serverId?: string
   name?: string
+  accessToken?: string
   onOpenLink?: (url: string) => void
   style?: React.CSSProperties
   className?: string
@@ -194,7 +195,7 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
+export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, style, className, displayMode = 'inline', onExpand }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
@@ -287,9 +288,13 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, on
       if (!serverId) {
         throw new Error('MCP server ID not available for tool calling')
       }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`
+      }
       const resp = await fetch(`${apiBaseUrl()}/v1/mcp/tool-call`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           server_id: serverId,
           tool_name: request.name,

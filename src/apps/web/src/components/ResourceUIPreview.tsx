@@ -81,6 +81,7 @@ export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline
       displayMode={displayMode}
       onExpand={onExpand}
       name={resource.serverId}
+      accessToken={accessToken}
       style={{ minHeight: displayMode === 'card' ? undefined : '300px' }}
     />
   )

@@ -274,6 +274,7 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
             csp={resource.csp}
             toolOutput={resource.initialData}
             serverId={resource.serverId}
+            accessToken={accessToken}
             style={{ width: '100%', height: '100%', minHeight: '400px' }}
           />
         </div>
