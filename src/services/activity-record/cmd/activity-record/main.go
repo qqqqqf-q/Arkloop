@@ -35,6 +35,8 @@ func run() error {
 		return runDaemon(args)
 	case "check":
 		return runCheck()
+	case "walk":
+		return runWalk()
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -110,4 +112,32 @@ func runCheck() error {
 		"ax_permission": ax.CheckAXPermission(),
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
+}
+
+func runWalk() error {
+	r := ax.TestWalk(30, 5000, 500.0)
+	out := map[string]any{
+		"app":          r.AppName,
+		"window_title": r.WindowTitle,
+		"pid":          r.PID,
+		"url":          r.BrowserURL,
+		"text_len":     len(r.TextContent),
+		"elements":     r.ElementCount,
+		"walk_ms":      r.WalkDurationMs,
+		"truncated":    r.Truncated,
+		"trunc_reason": r.TruncationReason,
+	}
+	if r.Error != nil {
+		out["error"] = r.Error.Error()
+	}
+	if len(r.TextContent) > 0 {
+		text := r.TextContent
+		if len([]rune(text)) > 500 {
+			text = string([]rune(text)[:500])
+		}
+		out["text_preview"] = text
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
 }

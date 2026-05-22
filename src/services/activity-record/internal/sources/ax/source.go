@@ -140,3 +140,7 @@ func truncateRunes(text string, maxLen int) string {
 func CheckAXPermission() bool {
 	return checkPermission()
 }
+
+func TestWalk(maxDepth, maxNodes int, timeoutMs float64) WalkResult {
+	return walkOnThread(maxDepth, maxNodes, timeoutMs)
+}
