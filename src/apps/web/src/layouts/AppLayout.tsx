@@ -142,6 +142,7 @@ const LayoutMain = memo(function LayoutMain({
     desktopSettingsSection,
     desktopAdvancedSection,
     desktopSettingsRequestId,
+    setDesktopSettingsLocation,
     closeSettings,
   } = useSettingsUI()
   const { notificationsOpen, closeNotifications, markNotificationRead } = useNotificationsUI()
@@ -184,6 +185,7 @@ const LayoutMain = memo(function LayoutMain({
           initialSection={desktopSettingsSection}
           initialAdvancedKey={desktopAdvancedSection}
           sectionRequestId={desktopSettingsRequestId}
+          onSectionChange={setDesktopSettingsLocation}
           onClose={closeSettings}
           onLogout={logout}
           onMeUpdated={onMeUpdated}

@@ -14,8 +14,12 @@ import type { SettingsTab } from '../components/SettingsModal'
 import type { DesktopSettingsKey } from '../components/DesktopSettings'
 import type { AdvancedSettingsKey } from '../components/settings/AdvancedSettings'
 import {
+  readDesktopSettingsStateFromStorage,
   readAppModeFromStorage,
+  readSidebarCollapsedFromStorage,
+  writeDesktopSettingsStateToStorage,
   writeAppModeToStorage,
+  writeSidebarCollapsedToStorage,
   type AppMode,
 } from '../storage'
 import {
@@ -53,6 +57,7 @@ export interface AppUIContextValue {
   openSearchOverlay: () => void
   closeSearchOverlay: () => void
   openSettings: (tab?: SettingsTab | 'voice') => void
+  setDesktopSettingsLocation: (section: DesktopSettingsKey, advancedSection: AdvancedSettingsKey | null) => void
   closeSettings: () => void
   openNotifications: () => void
   closeNotifications: () => void
@@ -80,12 +85,55 @@ type SearchUIContextValue = Pick<
   AppUIContextValue,
   'isSearchMode' | 'searchOverlayOpen' | 'enterSearchMode' | 'exitSearchMode' | 'openSearchOverlay' | 'closeSearchOverlay'
 >
-type SettingsUIContextValue = Pick<AppUIContextValue, 'settingsOpen' | 'settingsInitialTab' | 'desktopSettingsSection' | 'desktopAdvancedSection' | 'desktopSettingsRequestId' | 'openSettings' | 'closeSettings'>
+type SettingsUIContextValue = Pick<AppUIContextValue, 'settingsOpen' | 'settingsInitialTab' | 'desktopSettingsSection' | 'desktopAdvancedSection' | 'desktopSettingsRequestId' | 'openSettings' | 'setDesktopSettingsLocation' | 'closeSettings'>
 type NotificationsUIContextValue = Pick<AppUIContextValue, 'notificationsOpen' | 'notificationVersion' | 'openNotifications' | 'closeNotifications' | 'markNotificationRead'>
 type AppModeUIContextValue = Pick<AppUIContextValue, 'appMode' | 'availableAppModes' | 'setAppMode'>
 type SkillPromptUIContextValue = Pick<AppUIContextValue, 'pendingSkillPrompt' | 'queueSkillPrompt' | 'consumeSkillPrompt'>
 type TitleBarIncognitoUIContextValue = Pick<AppUIContextValue, 'setTitleBarIncognitoClick' | 'triggerTitleBarIncognitoClick'>
 type TitleBarRightPanelUIContextValue = Pick<AppUIContextValue, 'setTitleBarRightPanelClick' | 'triggerTitleBarRightPanelClick'>
+
+const DESKTOP_SETTINGS_KEYS = new Set<DesktopSettingsKey>([
+  'general',
+  'appearance',
+  'providers',
+  'routing',
+  'channels',
+  'plugins',
+  'skills',
+  'mcp',
+  'tools',
+  'advanced',
+  'notebook',
+  'memory',
+  'activityRecorder',
+  'connection',
+  'chat',
+  'promptInjection',
+  'modules',
+  'extensions',
+  'developer',
+  'design-tokens',
+  'about',
+])
+
+const ADVANCED_SETTINGS_KEYS = new Set<AdvancedSettingsKey>(['usage', 'voice', 'network', 'data', 'logs'])
+
+function readStoredDesktopSettingsState(): {
+  open: boolean
+  section: DesktopSettingsKey
+  advancedSection: AdvancedSettingsKey | null
+} | null {
+  const stored = readDesktopSettingsStateFromStorage()
+  if (!stored || !DESKTOP_SETTINGS_KEYS.has(stored.section as DesktopSettingsKey)) return null
+  const advancedSection = ADVANCED_SETTINGS_KEYS.has(stored.advancedSection as AdvancedSettingsKey)
+    ? stored.advancedSection as AdvancedSettingsKey
+    : null
+  return {
+    open: stored.open,
+    section: stored.section as DesktopSettingsKey,
+    advancedSection,
+  }
+}
 
 const AppUIContext = createContext<AppUIContextValue | null>(null)
 const SidebarUIContext = createContext<SidebarUIContextValue | null>(null)
@@ -170,6 +218,7 @@ function AppUIProviders({
       desktopAdvancedSection: value.desktopAdvancedSection,
       desktopSettingsRequestId: value.desktopSettingsRequestId,
       openSettings: value.openSettings,
+      setDesktopSettingsLocation: value.setDesktopSettingsLocation,
       closeSettings: value.closeSettings,
     }),
     [
@@ -179,6 +228,7 @@ function AppUIProviders({
       value.desktopAdvancedSection,
       value.desktopSettingsRequestId,
       value.openSettings,
+      value.setDesktopSettingsLocation,
       value.closeSettings,
     ],
   )
@@ -267,20 +317,26 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const { me } = useAuth()
   const desktop = isDesktop()
   const usesHashRouting = window.location.protocol === 'file:'
+  const storedDesktopSettingsState = useMemo(() => desktop ? readStoredDesktopSettingsState() : null, [desktop])
+  const storedSidebarCollapsed = useMemo(() => readSidebarCollapsedFromStorage(), [])
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1200)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => storedSidebarCollapsed ?? window.innerWidth < 1200)
   const [sidebarHiddenByWidth, setSidebarHiddenByWidth] = useState(() => window.innerWidth < 560)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
   const autoCollapsedByWidthRef = useRef(window.innerWidth < 1200)
-  const manualSidebarCollapsedRef = useRef<boolean | null>(null)
+  const manualSidebarCollapsedRef = useRef<boolean | null>(storedSidebarCollapsed)
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [isSearchMode, setIsSearchMode] = useState(false)
   const [searchOverlayOpen, setSearchOverlayOpen] = useState(false)
   const isSearchModeRef = useRef(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(() => desktop ? storedDesktopSettingsState?.open ?? false : false)
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('account')
-  const [desktopSettingsSection, setDesktopSettingsSection] = useState<DesktopSettingsKey>('general')
-  const [desktopAdvancedSection, setDesktopAdvancedSection] = useState<AdvancedSettingsKey | null>(null)
+  const [desktopSettingsSection, setDesktopSettingsSection] = useState<DesktopSettingsKey>(
+    () => storedDesktopSettingsState?.section ?? 'general',
+  )
+  const [desktopAdvancedSection, setDesktopAdvancedSection] = useState<AdvancedSettingsKey | null>(
+    () => storedDesktopSettingsState?.advancedSection ?? null,
+  )
   const [desktopSettingsRequestId, setDesktopSettingsRequestId] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(
     () => new URLSearchParams(location.search).has('notices'),
@@ -293,6 +349,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   const settingsLifecycleRef = useRef<{ startedAt: number; sample: PerfSample } | null>(null)
   const sidebarToggleTraceRef = useRef<ReturnType<typeof beginPerfTrace>>(null)
   const sidebarLifecycleRef = useRef<{ startedAt: number; sample: PerfSample } | null>(null)
+  const previousPathnameRef = useRef(location.pathname)
   const titleBarIncognitoRef = useRef<(() => void) | null>(null)
   const titleBarRightPanelRef = useRef<(() => void) | null>(null)
 
@@ -340,6 +397,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     }
     manualSidebarCollapsedRef.current = nextCollapsed
     sidebarCollapsedRef.current = nextCollapsed
+    writeSidebarCollapsedToStorage(nextCollapsed)
     setSidebarCollapsed(nextCollapsed)
   }, [appMode, location.pathname])
 
@@ -395,6 +453,11 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
       setDesktopSettingsSection(section)
       setDesktopAdvancedSection(advancedSection)
       setDesktopSettingsRequestId((current) => current + 1)
+      writeDesktopSettingsStateToStorage({
+        open: true,
+        section,
+        advancedSection,
+      })
       setSettingsOpen(true)
       return
     }
@@ -402,9 +465,29 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     setSettingsOpen(true)
   }, [desktop, location.pathname])
 
-  const closeSettings = useCallback(() => {
-    setSettingsOpen(false)
+  const setDesktopSettingsLocation = useCallback((
+    section: DesktopSettingsKey,
+    advancedSection: AdvancedSettingsKey | null,
+  ) => {
+    setDesktopSettingsSection(section)
+    setDesktopAdvancedSection(advancedSection)
+    writeDesktopSettingsStateToStorage({
+      open: true,
+      section,
+      advancedSection,
+    })
   }, [])
+
+  const closeSettings = useCallback(() => {
+    if (desktop) {
+      writeDesktopSettingsStateToStorage({
+        open: false,
+        section: desktopSettingsSection,
+        advancedSection: desktopAdvancedSection,
+      })
+    }
+    setSettingsOpen(false)
+  }, [desktop, desktopAdvancedSection, desktopSettingsSection])
 
   const openNotifications = useCallback(() => {
     setNotificationsOpen(true)
@@ -537,10 +620,20 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    const previousPathname = previousPathnameRef.current
+    previousPathnameRef.current = location.pathname
+    if (previousPathname === location.pathname) return
     if (!(desktop && settingsOpen && /^\/t\//.test(location.pathname))) return
-    const id = requestAnimationFrame(() => setSettingsOpen(false))
+    const id = requestAnimationFrame(() => {
+      writeDesktopSettingsStateToStorage({
+        open: false,
+        section: desktopSettingsSection,
+        advancedSection: desktopAdvancedSection,
+      })
+      setSettingsOpen(false)
+    })
     return () => cancelAnimationFrame(id)
-  }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [desktop, desktopAdvancedSection, desktopSettingsSection, location.pathname, settingsOpen])
 
   useEffect(() => {
     if (!desktop) return
@@ -558,6 +651,12 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
         }
       }
       setDesktopSettingsSection('general')
+      setDesktopAdvancedSection(null)
+      writeDesktopSettingsStateToStorage({
+        open: true,
+        section: 'general',
+        advancedSection: null,
+      })
       setSettingsOpen(true)
     }
     window.addEventListener('arkloop:app:open-settings', handler as EventListener)
@@ -666,6 +765,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     openSearchOverlay,
     closeSearchOverlay,
     openSettings,
+    setDesktopSettingsLocation,
     closeSettings,
     openNotifications,
     closeNotifications,
@@ -700,6 +800,7 @@ export function AppUIProvider({ children }: { children: ReactNode }) {
     openSearchOverlay,
     closeSearchOverlay,
     openSettings,
+    setDesktopSettingsLocation,
     closeSettings,
     openNotifications,
     closeNotifications,

@@ -26,6 +26,8 @@ const LOCALE_KEY = 'arkloop:web:locale'
 const THEME_KEY = 'arkloop:web:theme'
 const SELECTED_PERSONA_KEY = 'arkloop:web:selected_persona_key'
 const APP_MODE_KEY = 'arkloop:web:app_mode'
+const SIDEBAR_COLLAPSED_KEY = 'arkloop:web:sidebar_collapsed'
+const DESKTOP_SETTINGS_STATE_KEY = 'arkloop:web:desktop_settings_state'
 const SELECTED_MODEL_KEY = 'arkloop:web:selected_model'
 export const SELECTED_MODEL_CHANGED_EVENT = 'arkloop:selected-model-changed'
 const SELECTED_THINKING_KEY = 'arkloop:web:selected_thinking'
@@ -70,6 +72,12 @@ export const SEARCH_PERSONA_KEY = 'extended-search'
 export const WORK_PERSONA_KEY = 'work'
 
 export type AppMode = 'chat' | 'work'
+
+export type DesktopSettingsStorageState = {
+  open: boolean
+  section: string
+  advancedSection: string | null
+}
 
 export type InputDraftScope = {
   ownerKey?: string | null
@@ -564,6 +572,56 @@ export function writeAppModeToStorage(mode: AppMode): void {
   if (!canUseLocalStorage()) return
   try {
     localStorage.setItem(APP_MODE_KEY, mode)
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readSidebarCollapsedFromStorage(): boolean | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    const raw = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (raw === 'true') return true
+    if (raw === 'false') return false
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function writeSidebarCollapsedToStorage(collapsed: boolean): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(collapsed))
+  } catch {
+    // 忽略存储失败
+  }
+}
+
+export function readDesktopSettingsStateFromStorage(): DesktopSettingsStorageState | null {
+  if (!canUseLocalStorage()) return null
+  try {
+    const raw = localStorage.getItem(DESKTOP_SETTINGS_STATE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<DesktopSettingsStorageState>
+    if (typeof parsed.open !== 'boolean') return null
+    if (typeof parsed.section !== 'string' || parsed.section.trim() === '') return null
+    return {
+      open: parsed.open,
+      section: parsed.section,
+      advancedSection: typeof parsed.advancedSection === 'string' && parsed.advancedSection.trim() !== ''
+        ? parsed.advancedSection
+        : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export function writeDesktopSettingsStateToStorage(state: DesktopSettingsStorageState): void {
+  if (!canUseLocalStorage()) return
+  try {
+    localStorage.setItem(DESKTOP_SETTINGS_STATE_KEY, JSON.stringify(state))
   } catch {
     // 忽略存储失败
   }

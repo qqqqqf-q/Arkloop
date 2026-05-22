@@ -121,6 +121,7 @@ type Props = {
   initialSection?: DesktopSettingsKey;
   initialAdvancedKey?: AdvancedSettingsKey | null;
   sectionRequestId?: number;
+  onSectionChange?: (section: DesktopSettingsKey, advancedSection: AdvancedSettingsKey | null) => void;
   onClose: () => void;
   onLogout: () => void;
   onMeUpdated?: (me: MeResponse) => void;
@@ -286,6 +287,7 @@ export function DesktopSettings({
   initialSection = "general",
   initialAdvancedKey = null,
   sectionRequestId,
+  onSectionChange,
   onClose,
   onLogout,
   onMeUpdated,
@@ -332,11 +334,13 @@ export function DesktopSettings({
     activeKey === "connection";
 
   const selectSection = useCallback((key: DesktopSettingsKey) => {
+    const advancedSection = key === "advanced" ? initialAdvancedKey : null;
+    onSectionChange?.(key, advancedSection);
     setActiveKey(key);
     setVisitedKeys((current) => current.includes(key) ? current : [...current, key]);
     setScrolled(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, []);
+  }, [initialAdvancedKey, onSectionChange]);
 
   useEffect(() => {
     selectSection(initialSection);
