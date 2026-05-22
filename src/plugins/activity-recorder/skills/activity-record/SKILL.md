@@ -1,6 +1,6 @@
 ---
 name: activity-record
-description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, Codex sessions, and optional Screenpipe integration.
+description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, screen content (accessibility tree), Codex sessions, and optional Screenpipe integration.
 ---
 
 # Activity Record
@@ -112,6 +112,20 @@ Reads `~/.zsh_history` and `~/.bash_history`. Deduplicated by command hash.
 |--------|-------|----------|
 | `clipboard_changed` | Content preview | `length`. Full text in `text` column when enabled. |
 
+### `ax` — Screen Content via Accessibility Tree (daemon, macOS)
+
+Captures visible text from the focused window by walking the macOS accessibility tree. No screen capture or OCR involved — zero WindowServer overhead.
+
+| Action | Title | Metadata |
+|--------|-------|----------|
+| `ax_snapshot` | "App - Window Title" | `element_count`, `text_length`, `walk_duration_ms`, `content_hash`, `pid`, `truncated`, `truncation_reason` |
+
+Text content: full visible text from the focused window is stored in the `text` column. Content is deduplicated by SHA-256 hash — identical screens do not produce repeated events.
+
+Browser URL: extracted via `AXDocument` attribute when the focused app is a browser. Available in the `url` column.
+
+Excluded apps: password managers (1Password, Bitwarden, KeePassXC, LastPass, Dashlane, Keychain Access) and incognito/private browsing windows are skipped entirely.
+
 ## Examples
 
 Recent activity across all sources:
@@ -188,6 +202,31 @@ WHERE source = 'window' AND action = 'focused'
   AND occurred_at >= datetime('now', '-1 day')
 ORDER BY occurred_at DESC
 LIMIT 50;
+```
+
+Recent screen content (what the user is reading/doing):
+
+```sql
+SELECT occurred_at, app, window_title, url,
+       substr(text, 1, 500) AS screen_text,
+       json_extract(metadata_json, '$.element_count') AS elements
+FROM activity_events
+WHERE source = 'ax'
+  AND occurred_at >= datetime('now', '-1 day')
+ORDER BY occurred_at DESC
+LIMIT 30;
+```
+
+Screen content for a specific app:
+
+```sql
+SELECT occurred_at, window_title, url,
+       substr(text, 1, 800) AS screen_text
+FROM activity_events
+WHERE source = 'ax' AND app = 'Google Chrome'
+  AND occurred_at >= datetime('now', '-4 hours')
+ORDER BY occurred_at DESC
+LIMIT 20;
 ```
 
 ## Screenpipe Integration

@@ -72,6 +72,20 @@ ORDER BY occurred_at ASC;
 
 从中提取：执行了什么命令、在什么应用间切换、复制了什么有意义的内容。
 
+**5. 屏幕内容（ax）**
+
+```sql
+SELECT occurred_at, app, window_title, url,
+       substr(text, 1, 500) AS screen_text,
+       json_extract(metadata_json, '$.element_count') AS elements
+FROM activity_events
+WHERE source = 'ax'
+  AND occurred_at >= '{window_start}' AND occurred_at < '{window_end}'
+ORDER BY occurred_at DESC;
+```
+
+从中提取：用户屏幕上实际看到的文本内容、当前聚焦的具体内容、正在阅读或编辑什么、所处的 UI 状态。
+
 **每组查到数据后立即分析**，不要等全部查完再统一处理。如果某组窗口内事件很少，扩大查询范围（前后各 30 分钟）。
 
 ### 可选：Screenpipe

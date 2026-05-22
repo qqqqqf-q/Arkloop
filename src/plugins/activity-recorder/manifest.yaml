@@ -12,6 +12,9 @@ settings:
     type: select
     default: lightweight
     options: [lightweight, full, custom]
+  - key: enable_activity_record
+    type: boolean
+    default: true
   - key: enable_window_tracking
     type: boolean
     default: true
@@ -25,6 +28,9 @@ settings:
     type: boolean
     default: false
   - key: enable_mouse_tracking
+    type: boolean
+    default: true
+  - key: enable_ax
     type: boolean
     default: true
   - key: enable_screentime

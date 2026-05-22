@@ -98,6 +98,9 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	}
 
 	var daemonSources []string
+	if settingBoolDefault(settings, "enable_ax", true) {
+		daemonSources = append(daemonSources, "ax")
+	}
 	if settingBoolDefault(settings, "enable_window_tracking", true) {
 		daemonSources = append(daemonSources, "window")
 	}

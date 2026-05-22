@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"arkloop/services/activity-record/internal/sources/ax"
 	"arkloop/services/activity-record/internal/sources/clipboard"
 	"arkloop/services/activity-record/internal/sources/keyboard"
 	"arkloop/services/activity-record/internal/sources/mouse"
@@ -166,6 +167,8 @@ func runSyncSources(ctx context.Context, db *store.Store, sourceNames []string) 
 
 func buildDaemonSource(name string, opts DaemonOptions) (DaemonSource, error) {
 	switch name {
+	case "ax":
+		return ax.New(opts.IdleThreshold), nil
 	case "window":
 		return window.New(opts.IdleThreshold), nil
 	case "clipboard":
