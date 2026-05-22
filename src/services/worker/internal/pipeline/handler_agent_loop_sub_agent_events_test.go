@@ -212,6 +212,66 @@ func TestEventWriterNotifiesVisibleTextDelta(t *testing.T) {
 	}
 }
 
+func TestLoadVisibleSeqCutoffUsesCancelEventSeq(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_cancel_cutoff_event_seq")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	repo := data.RunEventsRepository{}
+	if _, err := repo.AppendEvent(ctx, tx, runID, "message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "kept",
+	}, nil, nil); err != nil {
+		t.Fatalf("append kept delta: %v", err)
+	}
+	cancelSeq, err := repo.AppendEvent(ctx, tx, runID, "run.cancel_requested", map[string]any{}, nil, nil)
+	if err != nil {
+		t.Fatalf("append cancel requested: %v", err)
+	}
+	if _, err := repo.AppendEvent(ctx, tx, runID, "message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "dropped",
+	}, nil, nil); err != nil {
+		t.Fatalf("append dropped delta: %v", err)
+	}
+
+	cutoff, ok, err := loadVisibleSeqCutoff(ctx, tx, runID)
+	if err != nil {
+		t.Fatalf("load cutoff: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected cancel cutoff")
+	}
+	if cutoff != cancelSeq {
+		t.Fatalf("expected cutoff %d, got %d", cancelSeq, cutoff)
+	}
+
+	output, err := loadVisibleAssistantOutput(ctx, tx, runID, cutoff)
+	if err != nil {
+		t.Fatalf("load visible output: %v", err)
+	}
+	if output != "kept" {
+		t.Fatalf("expected only pre-cancel output, got %q", output)
+	}
+}
+
 func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_sub_agent_pending_autorun")
 	pool, err := pgxpool.New(context.Background(), db.DSN)

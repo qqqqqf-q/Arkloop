@@ -2055,7 +2055,7 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel', 1)
+    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-cancel')
     expect(container.textContent).toContain('streaming')
     expect(container.textContent).toContain('canceling')
     expect(container.textContent).toContain('resume after cancel')
@@ -2212,7 +2212,7 @@ describe('ChatPage loading state', () => {
       await flushMicrotasks()
     })
 
-    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-active', 0)
+    expect(mockedCancelRun).toHaveBeenCalledWith('token', 'run-active')
     expect(mockedProvideInput).not.toHaveBeenCalled()
     expect(mockedCreateMessage).not.toHaveBeenCalled()
     expect(container.textContent).toContain('send immediately')

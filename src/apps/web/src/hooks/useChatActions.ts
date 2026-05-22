@@ -519,8 +519,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
   const handleCancel = useCallback(() => {
     if (!activeRunId || cancelSubmitting) return
     const runId = activeRunId
-    const cancelBoundary = Math.max(0, lastVisibleNonTerminalSeqRef.current)
-    freezeCutoffRef.current = cancelBoundary
+    freezeCutoffRef.current = Math.max(0, lastVisibleNonTerminalSeqRef.current)
 
     noResponseMsgIdRef.current = null
 
@@ -529,7 +528,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setInjectionBlocked(null)
 
     let cancelSucceeded = false
-    void agentClient.cancelRun(runId, cancelBoundary)
+    void agentClient.cancelRun(runId)
       .then(() => {
         cancelSucceeded = true
       })

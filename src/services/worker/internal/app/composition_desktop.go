@@ -4875,38 +4875,20 @@ func loadDesktopVisibleAssistantOutput(ctx context.Context, tx pgx.Tx, runID uui
 }
 
 func loadDesktopVisibleSeqCutoff(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, error) {
-	var raw []byte
+	var seq int64
 	err := tx.QueryRow(ctx,
-		`SELECT data_json FROM run_events
+		`SELECT seq FROM run_events
 		 WHERE run_id = $1 AND type = 'run.cancel_requested'
 		 ORDER BY seq ASC LIMIT 1`,
 		runID,
-	).Scan(&raw)
+	).Scan(&seq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 		return 0, err
 	}
-	if len(raw) == 0 {
-		return 0, nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return 0, nil
-	}
-	switch value := payload["visible_seq_cutoff"].(type) {
-	case float64:
-		return int64(value), nil
-	case json.Number:
-		return value.Int64()
-	case int64:
-		return value, nil
-	case int:
-		return int64(value), nil
-	default:
-		return 0, nil
-	}
+	return seq, nil
 }
 
 func toDesktopInt64(v any) (int64, bool) {

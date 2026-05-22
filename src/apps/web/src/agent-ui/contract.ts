@@ -505,7 +505,7 @@ export type AgentClient = {
   createRun: (input: AgentCreateRunInput) => Promise<AgentRun>
   editMessage: (input: AgentEditMessageInput) => Promise<AgentRun>
   retryMessage: (input: AgentRetryMessageInput) => Promise<AgentRun>
-  cancelRun: (streamId: string, lastSeenSequence?: number) => Promise<void>
+  cancelRun: (streamId: string) => Promise<void>
   provideInput: (streamId: string, value: string) => Promise<void>
   openEventStream: (
     streamId: string,

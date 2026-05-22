@@ -1582,7 +1582,7 @@ func (c telegramConnector) deliverTelegramMessageToActiveRun(
 								return false, true, nil
 							}
 						}
-						_, _ = repo.RequestCancel(ctx, run.ID, nil, "heartbeat_superseded", 0, nil)
+						_, _ = repo.RequestCancel(ctx, run.ID, nil, "heartbeat_superseded", nil)
 					}
 					return false, false, nil
 				}

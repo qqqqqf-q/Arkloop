@@ -114,7 +114,6 @@ type cancelRunResponse struct {
 }
 
 type cancelRunRequest struct {
-	LastSeenSeq       *int64  `json:"last_seen_seq"`
 	ClientCancelledAt *string `json:"client_cancelled_at"`
 }
 
@@ -874,10 +873,6 @@ func cancelRun(
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
 			return
 		}
-		if cancelBody.LastSeenSeq == nil || *cancelBody.LastSeenSeq < 0 {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
 		var clientCancelledAt *time.Time
 		if cancelBody.ClientCancelledAt != nil {
 			if trimmed := strings.TrimSpace(*cancelBody.ClientCancelledAt); trimmed != "" {
@@ -903,7 +898,7 @@ func cancelRun(
 			return
 		}
 
-		_, err = txRepo.RequestCancel(r.Context(), run.ID, &actor.UserID, traceID, *cancelBody.LastSeenSeq, clientCancelledAt)
+		_, err = txRepo.RequestCancel(r.Context(), run.ID, &actor.UserID, traceID, clientCancelledAt)
 		if err != nil {
 			var notFound data.RunNotFoundError
 			if errors.As(err, &notFound) {

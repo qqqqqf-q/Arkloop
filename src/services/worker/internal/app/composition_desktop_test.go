@@ -2202,11 +2202,10 @@ func TestDesktopCancelledRunPersistsVisiblePartialFromEvents(t *testing.T) {
 		t.Fatalf("begin tx: %v", err)
 	}
 	emitter := events.NewEmitter("desktop-cancel-visible")
-	visibleSeq, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("message.delta", map[string]any{
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("message.delta", map[string]any{
 		"role":          "assistant",
 		"content_delta": "seen partial",
-	}, nil, nil))
-	if err != nil {
+	}, nil, nil)); err != nil {
 		t.Fatalf("append visible delta: %v", err)
 	}
 	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("message.delta", map[string]any{
@@ -2215,9 +2214,7 @@ func TestDesktopCancelledRunPersistsVisiblePartialFromEvents(t *testing.T) {
 	}, nil, nil)); err != nil {
 		t.Fatalf("append unseen delta: %v", err)
 	}
-	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{
-		"visible_seq_cutoff": visibleSeq,
-	}, nil, nil)); err != nil {
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{}, nil, nil)); err != nil {
 		t.Fatalf("append cancel requested: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -2257,8 +2254,8 @@ func TestDesktopCancelledRunPersistsVisiblePartialFromEvents(t *testing.T) {
 	).Scan(&content, &rawMetadata); err != nil {
 		t.Fatalf("select persisted assistant: %v", err)
 	}
-	if content != "seen partial" {
-		t.Fatalf("expected only visible partial to persist, got %q", content)
+	if content != "seen partial unseen tail" {
+		t.Fatalf("expected backend pre-cancel output to persist, got %q", content)
 	}
 	if !strings.Contains(rawMetadata, `"completion_state":"incomplete"`) || !strings.Contains(rawMetadata, `"finish_reason":"cancelled"`) {
 		t.Fatalf("unexpected metadata: %s", rawMetadata)
@@ -2321,17 +2318,11 @@ func TestDesktopCancelledRunPersistsIntermediateToolHistory(t *testing.T) {
 		}
 	}
 
-	var cutoff int64
-	if err := db.QueryRow(ctx, `SELECT MAX(seq) FROM run_events WHERE run_id = $1`, runID).Scan(&cutoff); err != nil {
-		t.Fatalf("select cutoff: %v", err)
-	}
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		t.Fatalf("begin cancel tx: %v", err)
 	}
-	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{
-		"visible_seq_cutoff": cutoff,
-	}, nil, nil)); err != nil {
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{}, nil, nil)); err != nil {
 		t.Fatalf("append cancel requested: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

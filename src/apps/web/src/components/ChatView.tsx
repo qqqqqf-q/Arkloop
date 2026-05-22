@@ -2179,15 +2179,14 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     if (cancelSubmitting) return
 
     forcedQueuedPromptRef.current = { prompt: item, resumeFromRunId: activeRunId }
-    const cancelBoundary = Math.max(0, lastVisibleNonTerminalSeqRef.current)
-    freezeCutoffRef.current = cancelBoundary
+    freezeCutoffRef.current = Math.max(0, lastVisibleNonTerminalSeqRef.current)
     noResponseMsgIdRef.current = null
     setCancelSubmitting(true)
     setError(null)
     setInjectionBlocked(null)
 
     try {
-      await agentClient.cancelRun(activeRunId, cancelBoundary)
+      await agentClient.cancelRun(activeRunId)
     } catch (err) {
       forcedQueuedPromptRef.current = null
       freezeCutoffRef.current = null
@@ -3477,7 +3476,7 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
           onOpenCodeExecution={openCodePanel}
           onOpenSubAgent={openAgentPanel}
           onOpenDocument={openDocumentPanel}
-          artifacts={currentRunArtifacts}
+          artifacts={currentRunArtifactsRef.current}
           runId={activeRunId ?? undefined}
           activeCodeExecutionId={codePanelExecution?.id}
           accessToken={accessToken}

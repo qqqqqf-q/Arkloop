@@ -592,8 +592,8 @@ export function createArkloopAgentClient({
       input.workDir,
       input.reasoningMode,
     )),
-    cancelRun: async (streamId, lastSeenSequence) => {
-      await cancelRun(accessToken, streamId, lastSeenSequence)
+    cancelRun: async (streamId) => {
+      await cancelRun(accessToken, streamId)
     },
     provideInput: async (streamId, value) => {
       await provideInput(accessToken, streamId, value)

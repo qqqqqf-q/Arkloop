@@ -1252,15 +1252,11 @@ export type CancelRunResponse = {
 export async function cancelRun(
   accessToken: string,
   runId: string,
-  lastSeenSeq?: number,
 ): Promise<CancelRunResponse> {
-  const normalizedSeq = typeof lastSeenSeq === 'number' && Number.isFinite(lastSeenSeq)
-    ? Math.max(0, lastSeenSeq)
-    : 0
   return await apiFetch<CancelRunResponse>(`/v1/runs/${runId}:cancel`, {
     method: 'POST',
     accessToken,
-    body: JSON.stringify({ last_seen_seq: normalizedSeq }),
+    body: JSON.stringify({}),
   })
 }
 

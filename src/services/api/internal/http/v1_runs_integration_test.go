@@ -551,7 +551,6 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 
 	cancelTime := time.Date(2025, time.March, 4, 5, 6, 7, 0, time.UTC).Format(time.RFC3339Nano)
 	cancelRequestBody := map[string]any{
-		"last_seen_seq":       5,
 		"client_cancelled_at": cancelTime,
 	}
 	cancelResp := doJSON(handler, nethttp.MethodPost, "/v1/runs/"+runPayload.RunID+":cancel", cancelRequestBody, aliceHeaders)
@@ -591,11 +590,11 @@ func TestRunsCreateListGetCancelAndEnqueue(t *testing.T) {
 	if err := json.Unmarshal(cancelJSON, &cancelData); err != nil {
 		t.Fatalf("decode cancel event json: %v", err)
 	}
-	if got, ok := cancelData["visible_seq_cutoff"].(float64); !ok || int64(got) != 5 {
-		t.Fatalf("unexpected visible_seq_cutoff: %#v", cancelData["visible_seq_cutoff"])
+	if _, ok := cancelData["visible_seq_cutoff"]; ok {
+		t.Fatalf("cancel event must not store client visible_seq_cutoff: %#v", cancelData["visible_seq_cutoff"])
 	}
-	if got, ok := cancelData["last_seen_seq"].(float64); !ok || int64(got) != 5 {
-		t.Fatalf("unexpected last_seen_seq: %#v", cancelData["last_seen_seq"])
+	if _, ok := cancelData["last_seen_seq"]; ok {
+		t.Fatalf("cancel event must not store client last_seen_seq: %#v", cancelData["last_seen_seq"])
 	}
 	if got, ok := cancelData["client_cancelled_at"].(string); !ok || got != cancelTime {
 		t.Fatalf("unexpected client_cancelled_at: %#v", cancelData["client_cancelled_at"])

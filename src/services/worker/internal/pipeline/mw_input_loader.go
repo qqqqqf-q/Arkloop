@@ -1516,42 +1516,20 @@ func sanitizeStoredAssistantText(text string) string {
 }
 
 func loadVisibleSeqCutoff(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, bool, error) {
-	var raw []byte
+	var seq int64
 	err := tx.QueryRow(ctx,
-		`SELECT data_json FROM run_events
+		`SELECT seq FROM run_events
 		 WHERE run_id = $1 AND type = 'run.cancel_requested'
 		 ORDER BY seq DESC LIMIT 1`,
 		runID,
-	).Scan(&raw)
+	).Scan(&seq)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, false, nil
 		}
 		return 0, false, err
 	}
-	if len(raw) == 0 {
-		return 0, true, nil
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return 0, true, nil
-	}
-	switch value := payload["visible_seq_cutoff"].(type) {
-	case float64:
-		return int64(value), true, nil
-	case json.Number:
-		i, err := value.Int64()
-		if err != nil {
-			return 0, true, nil
-		}
-		return i, true, nil
-	case int64:
-		return value, true, nil
-	case int:
-		return int64(value), true, nil
-	default:
-		return 0, true, nil
-	}
+	return seq, true, nil
 }
 
 func loadVisibleAssistantOutput(ctx context.Context, tx pgx.Tx, runID uuid.UUID, cutoff int64) (string, error) {

@@ -259,7 +259,7 @@ func (r *RunEventRepository) resolveHeartbeatConflict(ctx context.Context, activ
 		return ErrThreadBusy
 	}
 	// 无外发输出，cancel heartbeat
-	_, err = r.RequestCancel(ctx, active.ID, nil, "heartbeat_superseded", 0, nil)
+	_, err = r.RequestCancel(ctx, active.ID, nil, "heartbeat_superseded", nil)
 	return err
 }
 
@@ -698,7 +698,6 @@ func (r *RunEventRepository) RequestCancel(
 	runID uuid.UUID,
 	requestedByUserID *uuid.UUID,
 	traceID string,
-	lastSeenSeq int64,
 	clientCancelledAt *time.Time,
 ) (*RunEvent, error) {
 	if ctx == nil {
@@ -706,9 +705,6 @@ func (r *RunEventRepository) RequestCancel(
 	}
 	if runID == uuid.Nil {
 		return nil, fmt.Errorf("run_id must not be empty")
-	}
-	if lastSeenSeq < 0 {
-		return nil, fmt.Errorf("last_seen_seq must be non-negative")
 	}
 
 	if err := r.lockRunRow(ctx, runID); err != nil {
@@ -731,11 +727,7 @@ func (r *RunEventRepository) RequestCancel(
 		return nil, nil
 	}
 
-	dataJSON := map[string]any{
-		"trace_id":           traceID,
-		"last_seen_seq":      lastSeenSeq,
-		"visible_seq_cutoff": lastSeenSeq,
-	}
+	dataJSON := map[string]any{"trace_id": traceID}
 	if requestedByUserID != nil && *requestedByUserID != uuid.Nil {
 		dataJSON["requested_by_user_id"] = requestedByUserID.String()
 	}

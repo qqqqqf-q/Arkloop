@@ -197,7 +197,7 @@ func TestProvideInputWithKeyDedupesRepeatedInput(t *testing.T) {
 	}
 }
 
-func TestRequestCancelRecordsVisibleSeqCutoff(t *testing.T) {
+func TestRequestCancelDoesNotRecordClientVisibleSeq(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := openRunsRepoTestDB(t, ctx)
 	defer cleanup()
@@ -239,7 +239,7 @@ func TestRequestCancelRecordsVisibleSeqCutoff(t *testing.T) {
 	}
 
 	clientCancelledAt := time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
-	if _, err := repo.RequestCancel(ctx, runID, nil, "trace-123", 7, &clientCancelledAt); err != nil {
+	if _, err := repo.RequestCancel(ctx, runID, nil, "trace-123", &clientCancelledAt); err != nil {
 		t.Fatalf("request cancel: %v", err)
 	}
 
@@ -263,11 +263,11 @@ func TestRequestCancelRecordsVisibleSeqCutoff(t *testing.T) {
 	if err := json.Unmarshal(dataJSON, &payload); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if got, ok := payload["visible_seq_cutoff"].(float64); !ok || int64(got) != 7 {
-		t.Fatalf("unexpected visible_seq_cutoff: %#v", payload["visible_seq_cutoff"])
+	if _, ok := payload["visible_seq_cutoff"]; ok {
+		t.Fatalf("cancel event must not store client visible_seq_cutoff: %#v", payload["visible_seq_cutoff"])
 	}
-	if got, ok := payload["last_seen_seq"].(float64); !ok || int64(got) != 7 {
-		t.Fatalf("unexpected last_seen_seq: %#v", payload["last_seen_seq"])
+	if _, ok := payload["last_seen_seq"]; ok {
+		t.Fatalf("cancel event must not store client last_seen_seq: %#v", payload["last_seen_seq"])
 	}
 	if got, ok := payload["client_cancelled_at"].(string); !ok || got != clientCancelledAt.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected client_cancelled_at: %#v", payload["client_cancelled_at"])

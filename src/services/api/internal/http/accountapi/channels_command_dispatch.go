@@ -179,7 +179,7 @@ func DispatchChannelCommand(
 		if activeRun == nil {
 			return true, &CommandReply{Text: "当前没有运行中的任务。"}, nil
 		}
-		if _, err := deps.RunEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", 0, nil); err != nil {
+		if _, err := deps.RunEventRepo.WithTx(tx).RequestCancel(ctx, activeRun.ID, identity.UserID, "", nil); err != nil {
 			return true, nil, err
 		}
 		return true, &CommandReply{Text: "已请求停止当前任务。", CancelRunID: activeRun.ID}, nil

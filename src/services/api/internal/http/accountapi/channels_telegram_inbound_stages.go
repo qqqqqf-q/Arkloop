@@ -588,7 +588,7 @@ func (c telegramConnector) maybeCancelTelegramHeartbeatRun(
 			return nil
 		}
 	}
-	_, _ = runRepo.RequestCancel(ctx, runID, nil, "heartbeat_superseded", 0, nil)
+	_, _ = runRepo.RequestCancel(ctx, runID, nil, "heartbeat_superseded", nil)
 	return nil
 }
 
