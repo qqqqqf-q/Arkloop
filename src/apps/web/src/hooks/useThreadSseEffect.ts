@@ -66,14 +66,17 @@ function isUnauthorizedStreamError(error: unknown): boolean {
 type UseThreadSseEffectDeps = {
   drainQueuedPromptRef: RefObject<(() => void) | null>
   drainForcedQueuedPromptRef: RefObject<((terminal: { runId: string; status: 'completed' | 'cancelled' | 'failed' | 'interrupted' }) => boolean) | null>
+  threadIdOverride?: string | null
 }
 
 export function useThreadSseEffect({
   drainQueuedPromptRef,
   drainForcedQueuedPromptRef,
+  threadIdOverride,
 }: UseThreadSseEffectDeps): void {
   const { logout: onLoggedOut } = useAuth()
-  const { threadId } = useChatSession()
+  const { threadId: sessionThreadId } = useChatSession()
+  const threadId = threadIdOverride ?? sessionThreadId
   const {
     markIdle: onRunEnded,
     updateTitle: onThreadTitleUpdated,

@@ -15,7 +15,6 @@ import { exploreGroupLabel, exploreGroupText, isExploreFileOp, presentationForTo
 import {
   EXEC_TOOL_NAMES,
   TODO_TOOL_NAMES,
-  TOP_LEVEL_TOOL_NAMES,
   AGENT_TOOL_NAMES,
   FILE_OP_TOOL_NAMES,
   IMAGE_GENERATE_TOOL_NAME,
@@ -81,70 +80,12 @@ export type TodoWriteRef = {
 const AUXILIARY_RENDERED_TOOL_NAMES = new Set([
   'show_widget',
   'create_artifact',
-  'document_write',
   'browser',
 ])
 const EXIT_PLAN_MODE_TOOL_NAME = 'exit_plan_mode'
 
 function sortBySeq<T extends { seq?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-}
-
-export function isTopLevelCopToolName(toolName: string): boolean {
-  return TOP_LEVEL_TOOL_NAMES.has(toolName)
-}
-
-export type SplitCopItemEntry =
-  | { kind: 'timeline'; id: string; seq: number; items: CopBlockItem[] }
-  | { kind: 'tool'; id: string; seq: number; item: Extract<CopBlockItem, { kind: 'call' }> }
-
-export function splitCopItemsByTopLevelTools(
-  items: CopBlockItem[],
-  _options: { segmentTitle?: string | null } = {},
-): SplitCopItemEntry[] {
-  const calls = items.filter((item): item is Extract<CopBlockItem, { kind: 'call' }> => item.kind === 'call')
-  const hasProcessContext = items.some((item) => item.kind !== 'call')
-  if (!hasProcessContext && calls.length === 1 && isTopLevelCopToolName(calls[0]!.call.toolName)) {
-    return [{
-      kind: 'tool',
-      id: calls[0]!.call.toolCallId,
-      seq: calls[0]!.seq,
-      item: calls[0]!,
-    }]
-  }
-
-  const entries: SplitCopItemEntry[] = []
-  let current: CopBlockItem[] = []
-  let timelineIndex = 0
-
-  const flushCurrent = () => {
-    if (current.length === 0) return
-    entries.push({
-      kind: 'timeline',
-      id: `timeline-${timelineIndex}`,
-      seq: current[0]?.seq ?? 0,
-      items: current,
-    })
-    timelineIndex += 1
-    current = []
-  }
-
-  for (const item of items) {
-    if (item.kind === 'call' && isTopLevelCopToolName(item.call.toolName)) {
-      flushCurrent()
-      entries.push({
-        kind: 'tool',
-        id: item.call.toolCallId,
-        seq: item.seq,
-        item,
-      })
-      continue
-    }
-    current.push(item)
-  }
-
-  flushCurrent()
-  return entries
 }
 
 function pickCodeExecutionMode(args: Record<string, unknown>): CodeExecutionRef['mode'] | undefined {

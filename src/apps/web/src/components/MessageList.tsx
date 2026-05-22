@@ -2,7 +2,6 @@ import { memo, Fragment, forwardRef, useCallback, useImperativeHandle, useMemo, 
 import { MessageBubble } from './MessageBubble'
 import { CopTimeline, type WebSearchPhaseStep } from './cop-timeline/CopTimeline'
 import { CopSegmentBlocks } from './CopSegmentBlocks'
-import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
 import { AssistantActionBar } from './messagebubble/AssistantMessage'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { WidgetBlock } from './WidgetBlock'
@@ -79,6 +78,7 @@ export type MessageListProps = {
   }) => string | undefined
   clearUserEnterAnimation: () => void
   isWorkMode?: boolean
+  embeddedReadOnly?: boolean
   workFolder?: string | null
   messagesOverride?: AgentMessage[]
 }
@@ -102,6 +102,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
   currentRunCopHeaderOverride,
   clearUserEnterAnimation,
   isWorkMode,
+  embeddedReadOnly = false,
   workFolder,
   messagesOverride,
 }, ref) {
@@ -233,7 +234,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           onOpenDocument: openDocumentPanel,
           onOpenResource: openResourcePanel,
         }
-        if (!isStreaming && !sending) {
+        if (!embeddedReadOnly && !isStreaming && !sending) {
           callbacks.onFork = () => { void handleFork(msg.id) }
           if (threadId && !privateThreadIds.has(threadId)) {
             callbacks.onShare = () => createShareForMessage(msg.id)
@@ -246,7 +247,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
       }
     }
     return map
-  }, [messages, isStreaming, sending, threadId, privateThreadIds, handleRetryUserMessage, handleEditMessage, handleFork, openDocumentPanel, openResourcePanel, showRunDetailButton, setRunDetailPanelRunId, createShareForMessage])
+  }, [messages, isStreaming, sending, embeddedReadOnly, threadId, privateThreadIds, handleRetryUserMessage, handleEditMessage, handleFork, openDocumentPanel, openResourcePanel, showRunDetailButton, setRunDetailPanelRunId, createShareForMessage])
 
   // Pre-compute cop timeline payloads to avoid calling copTimelinePayloadForSegment
   // on every render for every message with cop segments.
@@ -441,6 +442,9 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                     compactNarrativeEnd={idx < lastTurnStartIdx}
                     onOpenCodeExecution={openCodePanel}
                     onOpenSubAgent={openAgentPanel}
+                    onOpenDocument={openDocumentPanel}
+                    artifacts={msgMeta?.artifacts}
+                    runId={msg.streamId ?? undefined}
                     activeCodeExecutionId={codePanelExecutionId ?? undefined}
                     accessToken={accessToken}
                     baseUrl={baseUrl}
@@ -500,16 +504,18 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           {idx === messages.length - 1 && !isStreaming && !sending && (
             <AssistantActionBar
               textToCopy={assistantTurnPlainText(historicalTurn!)}
-              onFork={() => void handleFork(msg.id)}
-              onShare={threadId && !privateThreadIds.has(threadId) ? () => createShareForMessage(msg.id) : undefined}
+              onFork={embeddedReadOnly ? undefined : () => void handleFork(msg.id)}
+              onShare={!embeddedReadOnly && threadId && !privateThreadIds.has(threadId) ? () => createShareForMessage(msg.id) : undefined}
               shareState={sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'}
-              webSources={resolvedSources}
-              onShowSources={canShowSources ? () => {
+              webSources={embeddedReadOnly ? undefined : resolvedSources}
+              onShowSources={!embeddedReadOnly && canShowSources ? () => {
                 if (sourcePanelMessageId === msg.id) { closePanel(); return }
                 closePanel()
                 openSourcePanel(msg.id)
               } : undefined}
               onViewRunDetail={showRunDetailButton && msg.streamId ? () => setRunDetailPanelRunId(msg.streamId!) : undefined}
+              showFork={!embeddedReadOnly}
+              showShare={!embeddedReadOnly}
               isLast={true}
             />
           )}
@@ -517,35 +523,32 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
         )}
         {msg.role === 'assistant' && !hasAssistantTurn && (timelineSteps.length > 0 || hasMessageCodeExecutions || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
           <div style={{ marginBottom: '12px' }}>
-            {messageCodeExecutions?.map((ce) => (
-              <TopLevelCopToolBlock
-                key={`fallback-code-${msg.id}-${ce.id}`}
-                entry={{ kind: 'code', id: ce.id, seq: ce.seq ?? 0, item: ce }}
-                onOpenCodeExecution={openCodePanel}
-                activeCodeExecutionId={codePanelExecutionId ?? undefined}
-              />
-            ))}
-            {(timelineSteps.length > 0 || (messageSubAgents && messageSubAgents.length > 0) || (messageFileOps && messageFileOps.length > 0) || (messageWebFetches && messageWebFetches.length > 0)) && (
-              <CopTimeline
-                segments={buildFallbackSegments({
-                  subAgents: messageSubAgents,
-                  fileOps: messageFileOps,
-                  webFetches: messageWebFetches,
-                })}
-                pool={buildResolvedPool({
-                  steps: timelineSteps,
-                  sources: resolvedSources ?? [],
-                  subAgents: messageSubAgents,
-                  fileOps: messageFileOps,
-                  webFetches: messageWebFetches,
-                })}
-                isComplete
-                onOpenSubAgent={openAgentPanel}
-                accessToken={accessToken}
-                baseUrl={baseUrl}
-                typography={isWorkMode ? 'work' : 'default'}
-              />
-            )}
+            <CopTimeline
+              segments={buildFallbackSegments({
+                codeExecutions: messageCodeExecutions,
+                subAgents: messageSubAgents,
+                fileOps: messageFileOps,
+                webFetches: messageWebFetches,
+              })}
+              pool={buildResolvedPool({
+                steps: timelineSteps,
+                sources: resolvedSources ?? [],
+                codeExecutions: messageCodeExecutions,
+                subAgents: messageSubAgents,
+                fileOps: messageFileOps,
+                webFetches: messageWebFetches,
+              })}
+              isComplete
+              onOpenCodeExecution={openCodePanel}
+              activeCodeExecutionId={codePanelExecutionId ?? undefined}
+              onOpenSubAgent={openAgentPanel}
+              onOpenDocument={openDocumentPanel}
+              artifacts={msgMeta?.artifacts}
+              runId={msg.streamId ?? undefined}
+              accessToken={accessToken}
+              baseUrl={baseUrl}
+              typography={isWorkMode ? 'work' : 'default'}
+            />
           </div>
         )}
         <MessageBubble
@@ -558,12 +561,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           onUserEnterAnimationEnd={msg.role === 'user' && msg.id === userEnterMessageId ? clearUserEnterAnimation : undefined}
           onRetry={bubbleCallbacks?.onRetry}
           onEdit={bubbleCallbacks?.onEdit}
-          onFork={bubbleCallbacks?.onFork}
-          onShare={bubbleCallbacks?.onShare}
+          onFork={embeddedReadOnly ? undefined : bubbleCallbacks?.onFork}
+          onShare={embeddedReadOnly ? undefined : bubbleCallbacks?.onShare}
           shareState={
             sharingMessageId === msg.id ? 'sharing' : sharedMessageId === msg.id ? 'shared' : 'idle'
           }
-          webSources={resolvedSources}
+          webSources={embeddedReadOnly ? undefined : resolvedSources}
           artifacts={msg.role === 'assistant' ? msgMeta?.artifacts : undefined}
           browserActions={msg.role === 'assistant' ? msgMeta?.browserActions : undefined}
           widgets={bubbleWidgets}
@@ -572,7 +575,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           isWorkMode={isWorkMode}
           onWidgetAction={msg.role === 'assistant' ? handleArtifactAction : undefined}
           onShowSources={
-            msg.role === 'assistant' && canShowSources
+            !embeddedReadOnly && msg.role === 'assistant' && canShowSources
               ? () => {
                   if (sourcePanelMessageId === msg.id) {
                     closePanel()
@@ -586,6 +589,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           onOpenDocument={bubbleCallbacks?.onOpenDocument}
           onOpenResource={bubbleCallbacks?.onOpenResource}
           onViewRunDetail={bubbleCallbacks?.onViewRunDetail}
+          showFork={!embeddedReadOnly}
+          showShare={!embeddedReadOnly}
           contentOverride={msg.role === 'assistant' && hasAssistantTurn ? '' : undefined}
           plainTextForCopy={msg.role === 'assistant' && hasAssistantTurn ? assistantTurnPlainText(historicalTurn!) : undefined}
           suppressActionBar={msg.role === 'assistant' && hasAssistantTurn && idx === messages.length - 1 && !isStreaming && !sending}

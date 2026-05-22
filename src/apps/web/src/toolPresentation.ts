@@ -192,6 +192,27 @@ export function presentationForTool(toolNameInput: string, args: Record<string, 
       text = { kind: 'loaded_resources', tense: 'done', tools: toolName === 'load_skill' ? 0 : 1, skills: toolName === 'load_skill' ? 1 : 0 }
       break
     }
+    case 'spawn_agent':
+    case 'send_input':
+    case 'wait_agent':
+    case 'resume_agent':
+    case 'close_agent':
+    case 'interrupt_agent': {
+      kind = 'agent'
+      const action = toolName === 'spawn_agent'
+        ? 'spawn'
+        : toolName === 'wait_agent'
+          ? 'wait'
+          : toolName === 'resume_agent'
+            ? 'resume'
+            : toolName === 'close_agent'
+              ? 'close'
+              : toolName === 'interrupt_agent'
+                ? 'interrupt'
+                : 'send_input'
+      text = { kind: 'agent_action', action, tense: 'done' }
+      break
+    }
     case 'document_write': {
       kind = 'edit'
       const docTitle = stringArg(args, 'title') || stringArg(args, 'name')

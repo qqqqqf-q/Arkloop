@@ -46,8 +46,6 @@ export const AGENT_TOOL_NAMES = new Set([
 ])
 export const TODO_TOOL_NAMES = new Set(['todo_write'])
 const PLAN_MODE_TOOL_NAMES = new Set(['enter_plan_mode', 'exit_plan_mode'])
-// 仅 todo_write 仍需提升到顶层；exec 工具现已归入 COP timeline 作为 exec 子段渲染
-export const TOP_LEVEL_TOOL_NAMES = new Set(['todo_write'])
 export const FILE_OP_TOOL_NAMES = new Set([
   'grep', 'glob', 'read_file', 'read', 'write_file', 'edit', 'edit_file',
   'load_tools', 'load_skill', 'lsp',
@@ -173,6 +171,23 @@ function planModeSpan(toolName: string, args: Record<string, unknown>): TitleSpa
   return span(presentation.text)
 }
 
+function agentToolText(toolNameInput: string, tense: 'live' | 'done'): TimelineText {
+  const toolName = normalizeToolName(toolNameInput)
+  switch (toolName) {
+    case 'spawn_agent': return { kind: 'agent_action', action: 'spawn', tense }
+    case 'send_input': return { kind: 'agent_action', action: 'send_input', tense }
+    case 'wait_agent': return { kind: 'agent_action', action: 'wait', tense }
+    case 'resume_agent': return { kind: 'agent_action', action: 'resume', tense }
+    case 'close_agent': return { kind: 'agent_action', action: 'close', tense }
+    case 'interrupt_agent': return { kind: 'agent_action', action: 'interrupt', tense }
+    default: return { kind: 'agent_completed' }
+  }
+}
+
+function agentToolSpan(toolNameInput: string, tense: 'live' | 'done'): TitleSpan {
+  return span(agentToolText(toolNameInput, tense))
+}
+
 export function segmentCompletedTitle(seg: CopSubSegment): TitleSpan[] {
   const calls = seg.items
     .filter((i): i is Extract<CopBlockItem, { kind: 'call' }> => i.kind === 'call')
@@ -219,6 +234,7 @@ export function segmentCompletedTitle(seg: CopSubSegment): TitleSpan[] {
     }
     case 'agent': {
       const n = calls.length
+      if (n === 1) return [agentToolSpan(calls[0]!.toolName, 'done')]
       return [span({ kind: 'agent_completed', count: n })]
     }
     case 'fetch': return [fetchCompletedSpan()]
@@ -479,6 +495,7 @@ export function runningToolLabel(
   const toolName = normalizeToolName(toolNameInput)
   if (toolName === IMAGE_GENERATE_TOOL_NAME) return imageGenerateTitle('live')
   if (dd) return dd
+  if (AGENT_TOOL_NAMES.has(toolName)) return renderTimelineText(agentToolText(toolName, 'live'), 'en')
   switch (toolName) {
     case 'read_file': {
       const path = (typeof args.file_path === 'string' && args.file_path)
@@ -525,6 +542,7 @@ function runningToolTitleSpan(call: CallItem['call']): TitleSpan {
   const text = runningToolLabel(call.toolName, call.arguments, call.displayDescription)
   const normalized = normalizeToolName(call.toolName)
   if (normalized === IMAGE_GENERATE_TOOL_NAME) return span({ kind: 'image_generation', status: 'live' })
+  if (!call.displayDescription && AGENT_TOOL_NAMES.has(normalized)) return span(agentToolText(normalized, 'live'))
   return span(call.displayDescription ? contentText(text) : presentationForTool(call.toolName, call.arguments).text)
 }
 
@@ -695,6 +713,9 @@ function buildCompleteMainTitle(segments: ReadonlyArray<CopSubSegment>): TitleSp
     return [planModeSpan(allCalls[0]!.toolName, allCalls[0]!.arguments)]
   }
   if (allCalls.length === 1) {
+    if (AGENT_TOOL_NAMES.has(normalizeToolName(allCalls[0]!.toolName))) {
+      return [agentToolSpan(allCalls[0]!.toolName, 'done')]
+    }
     const known = knownGenericToolSpan(allCalls[0]!.toolName)
     if (known) return [known]
   }
@@ -805,6 +826,7 @@ export type ResolvedPool = {
   webFetches: Map<string, import('./storage').WebFetchRef>
   subAgents: Map<string, import('./storage').SubAgentRef>
   genericTools: Map<string, import('./copSegmentTimeline').GenericToolCallRef>
+  todoWrites: Map<string, import('./copSegmentTimeline').TodoWriteRef>
   steps: Map<string, import('./components/cop-timeline/types').WebSearchPhaseStep>
   sources: import('./storage').WebSource[]
 }
@@ -821,6 +843,7 @@ export function buildResolvedPool(payload: CopTimelinePayload): ResolvedPool {
     webFetches: mapById(payload.webFetches ?? []),
     subAgents: mapById(payload.subAgents ?? []),
     genericTools: mapById(payload.genericTools ?? []),
+    todoWrites: mapById(payload.todoWrites ?? []),
     steps: mapById(payload.steps),
     sources: payload.sources,
   }
@@ -836,6 +859,7 @@ export const EMPTY_POOL: ResolvedPool = {
   webFetches: emptyMap(),
   subAgents: emptyMap(),
   genericTools: emptyMap(),
+  todoWrites: emptyMap(),
   steps: emptyMap(),
   sources: [],
 }

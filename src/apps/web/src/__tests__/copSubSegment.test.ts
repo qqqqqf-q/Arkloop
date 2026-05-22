@@ -144,6 +144,32 @@ describe('copSubSegment todo titles', () => {
   })
 })
 
+describe('copSubSegment agent tool titles', () => {
+  it('wait_agent 使用等待语义，不显示子代理完成', () => {
+    const segments = buildSubSegments([
+      toolCall('wait1', 'wait_agent', 1),
+    ])
+
+    expect(segments[0]?.title).toBe('Waited for agent')
+    expect(titleSpansToLocaleText(aggregateMainTitle(segments, false, true), 'zh')).toBe('等待子代理')
+    expect(titleSpansToText(aggregateMainTitle(segments, false, true))).not.toBe('Agent completed')
+  })
+
+  it('wait_agent live 标题使用等待中语义', () => {
+    const segments = buildSubSegments([
+      toolCall('wait1', 'wait_agent', 1),
+    ])
+    const openSegment = {
+      ...segments[0]!,
+      status: 'open' as const,
+      title: 'Agent running...',
+    }
+
+    expect(runningToolLabel('wait_agent')).toBe('Waiting for agent')
+    expect(titleSpansToLocaleText(aggregateMainTitle([openSegment], true, false), 'zh')).toBe('正在等待子代理...')
+  })
+})
+
 describe('copSubSegment load tool titles', () => {
   it('load_tools 完成态标题不退化为代码探索', () => {
     const segments = buildSubSegments([

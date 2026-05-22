@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { copTimelinePayloadForSegment, buildTimelineEntries, splitCopItemsByTopLevelTools, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
+import { copTimelinePayloadForSegment, buildTimelineEntries, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 
 const call = (id: string, name: string, seq: number) =>
   ({ kind: 'call' as const, call: { toolCallId: id, toolName: name, arguments: {} }, seq })
+const completedCall = (id: string, name: string, seq: number) =>
+  ({ kind: 'call' as const, call: { toolCallId: id, toolName: name, arguments: {}, result: {} }, seq })
 
 describe('copTimelinePayloadForSegment', () => {
   it('无匹配富数据时仍返回空壳，供 COP 标题行挂载', () => {
@@ -11,6 +13,15 @@ describe('copTimelinePayloadForSegment', () => {
       { sources: [] },
     )
     expect(r).toEqual({ steps: [], sources: [] })
+  })
+
+  it('completed document_write is a process entry, not an artifact-card payload', () => {
+    const r = copTimelinePayloadForSegment(
+      { type: 'cop', title: null, items: [completedCall('doc_1', 'document_write', 1)] },
+      { sources: [] },
+    )
+
+    expect(r.genericTools?.map((item) => item.toolName)).toEqual(['document_write'])
   })
 
   it('按 tool_call_id 筛出代码执行', () => {
@@ -249,6 +260,7 @@ describe('copTimelinePayloadForSegment', () => {
         text: { kind: 'search_completed' },
         status: 'done',
         queries: ['Claude Desktop 更新'],
+        sourceKind: 'web',
         seq: 3,
         sources: [{ title: 'u', url: 'https://u.test', snippet: undefined }],
       },
@@ -594,53 +606,6 @@ describe('copTimelinePayloadForSegment', () => {
       `explore:${payload.exploreGroups?.[0]?.id}`,
       'edit:edit_1',
       `explore:${payload.exploreGroups?.[1]?.id}`,
-    ])
-  })
-
-  it('splitCopItemsByTopLevelTools 仅将 todo_write 从 timeline 切出来，exec 留在 timeline 中', () => {
-    const entries = splitCopItemsByTopLevelTools([
-      { kind: 'thinking', content: 'scan first', seq: 1 },
-      call('cmd_1', 'exec_command', 2),
-      call('read_1', 'read', 3),
-      call('todo_1', 'todo_write', 4),
-      { kind: 'thinking', content: 'wrap up', seq: 5 },
-    ])
-
-    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
-      'timeline:3',
-      'tool:todo_write',
-      'timeline:1',
-    ])
-  })
-
-  it('仅单 todo_write 提升为 root tool，其他单工具留在 timeline 中（无 COP shell 渲染）', () => {
-    const entries = splitCopItemsByTopLevelTools([
-      call('read_1', 'read', 1),
-    ])
-
-    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
-      'timeline:1',
-    ])
-  })
-
-  it('timeline_title with single non-todo tool stays in timeline (card mode without COP shell)', () => {
-    const entries = splitCopItemsByTopLevelTools([
-      call('doc_1', 'document_write', 1),
-    ], { segmentTitle: 'Writing report' })
-
-    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
-      'timeline:1',
-    ])
-  })
-
-  it('single tool with thought stays inside COP as the one-step exception', () => {
-    const entries = splitCopItemsByTopLevelTools([
-      { kind: 'thinking', content: 'Need to write the report', seq: 1 },
-      call('doc_1', 'document_write', 2),
-    ])
-
-    expect(entries.map((entry) => entry.kind === 'tool' ? `tool:${entry.item.call.toolName}` : `timeline:${entry.items.length}`)).toEqual([
-      'timeline:2',
     ])
   })
 

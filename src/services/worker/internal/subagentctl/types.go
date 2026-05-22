@@ -101,6 +101,7 @@ type InterruptRequest struct {
 
 type StatusSnapshot struct {
 	SubAgentID         uuid.UUID  `json:"sub_agent_id"`
+	AgentThreadID      uuid.UUID  `json:"agent_thread_id"`
 	Depth              int        `json:"depth"`
 	Status             string     `json:"status"`
 	Role               *string    `json:"role,omitempty"`

@@ -822,7 +822,12 @@ button:not(:disabled) {
   --c-cop-think-card-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-.top-level-todo-root,
+.cop-segment-block {
+  margin-top: 6px;
+  margin-bottom: 6px;
+}
+
+.todo-list-root,
 .work-group-root {
   --c-cop-row-fg: #87857e;
   --c-cop-row-hover-fg: var(--c-text-primary);
@@ -832,7 +837,7 @@ button:not(:disabled) {
   --c-cop-row-line-height: 20px;
 }
 
-.top-level-todo-root .todo-summary-trigger:hover {
+.todo-list-root .todo-summary-trigger:hover {
   color: var(--c-cop-row-hover-fg, var(--c-text-primary)) !important;
 }
 

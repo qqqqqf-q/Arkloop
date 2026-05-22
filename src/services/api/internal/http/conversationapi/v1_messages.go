@@ -204,7 +204,8 @@ func listThreadMessages(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "messages.list", thread, auditWriter) {
+		if !authorizeSubAgentThreadRead(r, actor, thread, threadRepo) &&
+			!authorizeThreadOrAudit(w, r, traceID, actor, "messages.list", thread, auditWriter) {
 			return
 		}
 

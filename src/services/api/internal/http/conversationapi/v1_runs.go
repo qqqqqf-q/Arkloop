@@ -714,7 +714,8 @@ func listThreadRuns(
 			return
 		}
 
-		if !authorizeThreadOrAudit(w, r, traceID, actor, "runs.list", thread, auditWriter) {
+		if !authorizeSubAgentThreadRead(r, actor, thread, threadRepo) &&
+			!authorizeThreadOrAudit(w, r, traceID, actor, "runs.list", thread, auditWriter) {
 			return
 		}
 

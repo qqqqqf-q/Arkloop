@@ -1351,6 +1351,7 @@ export type SubAgentRef = {
   error?: string
   depth?: number
   currentRunId?: string
+  threadId?: string
   seq?: number
 }
 

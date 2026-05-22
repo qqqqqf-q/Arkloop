@@ -1,4 +1,4 @@
-import { act, type ComponentProps } from 'react'
+import { act, useEffect, type ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -80,6 +80,46 @@ describe('RightPanel', () => {
     await act(async () => {
       root.unmount()
     })
+    container.remove()
+  })
+
+  it('keepMounted tab 激活后切走不会卸载内容', async () => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    let mountCount = 0
+    let unmountCount = 0
+
+    function CachedPane() {
+      useEffect(() => {
+        mountCount += 1
+        return () => { unmountCount += 1 }
+      }, [])
+      return <div data-testid="cached-pane">cached body</div>
+    }
+
+    const tabs: RightPanelTab[] = [
+      { id: 'agent', kind: 'agent', title: 'Agent', keepMounted: true, content: <CachedPane /> },
+      { id: 'doc', kind: 'resource', title: 'Doc', content: <div>doc body</div> },
+    ]
+
+    await act(async () => {
+      root.render(<LocalizedRightPanel tabs={tabs} activeTabId="agent" onSelectTab={() => {}} />)
+    })
+
+    expect(mountCount).toBe(1)
+
+    await act(async () => {
+      root.render(<LocalizedRightPanel tabs={tabs} activeTabId="doc" onSelectTab={() => {}} />)
+    })
+
+    expect(unmountCount).toBe(0)
+    expect(container.querySelector('[data-testid="cached-pane"]')).not.toBeNull()
+
+    await act(async () => {
+      root.unmount()
+    })
+    expect(unmountCount).toBe(1)
     container.remove()
   })
 

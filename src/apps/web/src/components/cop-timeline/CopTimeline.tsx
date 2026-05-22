@@ -2,10 +2,10 @@ import { memo, useState, useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronRight } from 'lucide-react'
 import type { CodeExecution } from '../CodeExecutionCard'
-import type { SubAgentRef } from '../../storage'
+import type { ArtifactRef, SubAgentRef } from '../../storage'
 import { useLocale } from '../../contexts/LocaleContext'
 import type { CopSubSegment, ResolvedPool } from '../../copSubSegment'
-import { aggregateMainTitle, titleSpansToLocaleText, TOP_LEVEL_TOOL_NAMES } from '../../copSubSegment'
+import { aggregateMainTitle, titleSpansToLocaleText } from '../../copSubSegment'
 import { recordPerfCount, recordPerfValue } from '../../perfDebug'
 import {
   COP_TIMELINE_THINKING_PLAIN_LINE_HEIGHT_PX,
@@ -20,17 +20,12 @@ import {
   CopTimelineHeaderLabel,
 } from './CopTimelineHeader'
 import { AssistantThinkingMarkdown } from './ThinkingBlock'
-import { CopTimelineSegment } from './CopTimelineSegment'
+import { CopTimelineSegment, isLeafProcessSegment } from './CopTimelineSegment'
 import { CopTimelineUnifiedRow } from './CopUnifiedRow'
 import { localizeTimelineLabel, localizeTimelineTitleSpan } from './labels'
-import { markerForCategory } from './markers'
+import { markerForCategory, markerForToolName } from './markers'
 
 export type { WebSearchPhaseStep } from './types'
-
-function isTopLevelOnlySegment(segment: CopSubSegment): boolean {
-  const calls = segment.items.filter((item): item is Extract<CopSubSegment['items'][number], { kind: 'call' }> => item.kind === 'call')
-  return calls.length > 0 && calls.every((item) => TOP_LEVEL_TOOL_NAMES.has(item.call.toolName))
-}
 
 function isSingleImageToolSegment(segment: CopSubSegment): boolean {
   return segment.category === 'image' && segment.items.length === 1 && segment.items[0]?.kind === 'call'
@@ -49,6 +44,9 @@ export const CopTimeline = memo(function CopTimeline({
   onOpenCodeExecution,
   activeCodeExecutionId,
   onOpenSubAgent,
+  onOpenDocument,
+  artifacts,
+  runId,
   accessToken,
   baseUrl,
   typography = 'default',
@@ -65,16 +63,26 @@ export const CopTimeline = memo(function CopTimeline({
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   onOpenSubAgent?: (agent: SubAgentRef) => void
+  onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  artifacts?: ArtifactRef[] | null
+  runId?: string
   accessToken?: string
   baseUrl?: string
   typography?: 'default' | 'work'
 }) {
   const { t, locale } = useLocale()
   const reduceMotion = useReducedMotion()
-  const timelineSegments = segments.filter((s) => !isTopLevelOnlySegment(s))
+  const timelineSegments = segments
   const segmentDotTop = (segment: CopSubSegment) => isSingleImageToolSegment(segment) ? COP_TIMELINE_DOT_TOP : 8
+  const markerForSegment = (segment: CopSubSegment) => {
+    if (isLeafProcessSegment(segment)) {
+      const call = segment.items.find((item): item is Extract<CopSubSegment['items'][number], { kind: 'call' }> => item.kind === 'call')
+      if (call) return markerForToolName(call.call.toolName)
+    }
+    return markerForCategory(segment.category)
+  }
 
-  const poolHasItems = pool.fileOps.size > 0 || pool.webFetches.size > 0 || pool.subAgents.size > 0 || pool.genericTools.size > 0 || pool.steps.size > 0
+  const poolHasItems = pool.fileOps.size > 0 || pool.webFetches.size > 0 || pool.subAgents.size > 0 || pool.genericTools.size > 0 || pool.todoWrites.size > 0 || pool.steps.size > 0
   const hasSegments = timelineSegments.length > 0 || poolHasItems
   const hasThinkingOnly = thinkingOnly != null && timelineSegments.length === 0 && !poolHasItems
   const anyThinking = thinkingOnly != null
@@ -119,6 +127,11 @@ export const CopTimeline = memo(function CopTimeline({
 
   const timelineLive = !!live && timelineSegments.some((s) => s.status === 'open')
   const hasTimelineBody = timelineSegments.length > 0 || hasThinkingOnly || anyThinking || pendingShowThinkingHeader
+  const onlyLeafProcessSegment = timelineSegments.length === 1 &&
+    isLeafProcessSegment(timelineSegments[0]!) &&
+    !hasThinkingOnly &&
+    !anyThinking &&
+    !pendingShowThinkingHeader
 
   // 带标题的 label："{title} {sec}s" 或 "{title}"
   const titledDurationLabel = (title: string, sec: number) =>
@@ -181,6 +194,30 @@ export const CopTimeline = memo(function CopTimeline({
   }, [collapsed, hasThinkingOnly, live, timelineSegments.length])
 
   if (!shouldRender) return null
+
+  if (onlyLeafProcessSegment) {
+    const segment = timelineSegments[0]!
+    return (
+      <CopTimelineSegment
+        segment={segment}
+        pool={pool}
+        isLive={!!live && segment.status === 'open'}
+        defaultExpanded={false}
+        hideHeader
+        flattenLeafItems
+        compactNarrativeEnd={compactNarrativeEnd}
+        onOpenCodeExecution={onOpenCodeExecution}
+        activeCodeExecutionId={activeCodeExecutionId}
+        onOpenSubAgent={onOpenSubAgent}
+        onOpenDocument={onOpenDocument}
+        artifacts={artifacts}
+        runId={runId}
+        accessToken={accessToken}
+        baseUrl={baseUrl}
+        typography={typography}
+      />
+    )
+  }
 
   return (
     <div className={`cop-timeline-root${typography === 'work' ? ' cop-timeline-root--work' : ''}`} style={typography !== 'work' ? { maxWidth: '663px' } : undefined}>
@@ -313,10 +350,14 @@ export const CopTimeline = memo(function CopTimeline({
                   defaultExpanded={true}
                   hideHeader
                   flattenSingleItem={isSingleImageToolSegment(timelineSegments[0]!)}
+                  flattenLeafItems={isLeafProcessSegment(timelineSegments[0]!)}
                   compactNarrativeEnd={compactNarrativeEnd}
                   onOpenCodeExecution={onOpenCodeExecution}
                   activeCodeExecutionId={activeCodeExecutionId}
                   onOpenSubAgent={onOpenSubAgent}
+                  onOpenDocument={onOpenDocument}
+                  artifacts={artifacts}
+                  runId={runId}
                   accessToken={accessToken}
                   baseUrl={baseUrl}
                   typography={typography}
@@ -325,6 +366,7 @@ export const CopTimeline = memo(function CopTimeline({
                 timelineSegments.map((seg, index) => {
                 const isLast = index === timelineSegments.length - 1
                 const flattenSingleItem = isSingleImageToolSegment(seg)
+                const flattenLeafItems = isLeafProcessSegment(seg)
                 const segDotColor = seg.status === 'open'
                   ? 'var(--c-text-secondary)'
                   : 'var(--c-text-muted)'
@@ -338,22 +380,26 @@ export const CopTimeline = memo(function CopTimeline({
                     dotTop={segmentDotTop(seg)}
                     paddingBottom={10}
                     horizontalMotion={false}
-                    marker={markerForCategory(seg.category)}
+                    marker={markerForSegment(seg)}
                   >
                     <CopTimelineSegment
                       segment={seg}
                       pool={pool}
                       isLive={!!live && seg.status === 'open'}
                       defaultExpanded={isLast && (!isComplete || seg.status === 'open')}
-                      hideHeader={flattenSingleItem}
                       flattenSingleItem={flattenSingleItem}
                       compactNarrativeEnd={compactNarrativeEnd}
                       onOpenCodeExecution={onOpenCodeExecution}
                       activeCodeExecutionId={activeCodeExecutionId}
                       onOpenSubAgent={onOpenSubAgent}
+                      onOpenDocument={onOpenDocument}
+                      artifacts={artifacts}
+                      runId={runId}
                       accessToken={accessToken}
                       baseUrl={baseUrl}
                       typography={typography}
+                      flattenLeafItems={flattenLeafItems}
+                      hideHeader={flattenSingleItem || flattenLeafItems}
                     />
                   </CopTimelineUnifiedRow>
                 )

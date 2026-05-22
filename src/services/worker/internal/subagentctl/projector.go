@@ -231,6 +231,7 @@ func (p *SubAgentStateProjector) ProjectRunTerminal(
 func (p *SubAgentStateProjector) BuildSnapshot(ctx context.Context, tx pgx.Tx, record data.SubAgentRecord) (StatusSnapshot, error) {
 	snapshot := StatusSnapshot{
 		SubAgentID:         record.ID,
+		AgentThreadID:      record.AgentThreadID,
 		Depth:              record.Depth,
 		Status:             record.Status,
 		Role:               cloneStringPtr(record.Role),

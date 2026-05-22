@@ -27,6 +27,7 @@ export type TimelineText =
   | { kind: 'run_command' }
   | { kind: 'agent_running' }
   | { kind: 'agent_completed'; count?: number }
+  | { kind: 'agent_action'; action: 'spawn' | 'send_input' | 'wait' | 'resume' | 'close' | 'interrupt'; tense: 'live' | 'done' }
   | { kind: 'plan_mode'; action: 'enter' | 'exit' }
   | { kind: 'image_generation'; status: 'live' | 'success' | 'failed'; count?: number }
   | { kind: 'updated_todos' }
@@ -105,6 +106,8 @@ export function isTimelineText(value: unknown): value is TimelineText {
     case 'agent_completed':
     case 'search_completed':
       return item.count == null || isFiniteNumber(item.count)
+    case 'agent_action':
+      return isAgentAction(item.action) && (item.tense === 'live' || item.tense === 'done')
     case 'plan_mode': return item.action === 'enter' || item.action === 'exit'
     case 'image_generation':
       return (item.status === 'live' || item.status === 'success' || item.status === 'failed') && (item.count == null || isFiniteNumber(item.count))
@@ -161,6 +164,15 @@ function isToolSubjectAction(value: unknown): value is Extract<TimelineText, { k
     || value === 'listing'
     || value === 'writing'
     || value === 'editing'
+}
+
+function isAgentAction(value: unknown): value is Extract<TimelineText, { kind: 'agent_action' }>['action'] {
+  return value === 'spawn'
+    || value === 'send_input'
+    || value === 'wait'
+    || value === 'resume'
+    || value === 'close'
+    || value === 'interrupt'
 }
 
 function humanizeToolKey(key: string): string {
@@ -235,6 +247,25 @@ function renderEn(value: CoreTimelineText): string {
     case 'run_command': return 'Run command'
     case 'agent_running': return 'Agent running'
     case 'agent_completed': return value.count && value.count > 1 ? `${value.count} agent tasks completed` : 'Agent completed'
+    case 'agent_action': {
+      const done = {
+        spawn: 'Started agent',
+        send_input: 'Sent input to agent',
+        wait: 'Waited for agent',
+        resume: 'Resumed agent',
+        close: 'Closed agent',
+        interrupt: 'Interrupted agent',
+      } satisfies Record<typeof value.action, string>
+      const live = {
+        spawn: 'Starting agent',
+        send_input: 'Sending input to agent',
+        wait: 'Waiting for agent',
+        resume: 'Resuming agent',
+        close: 'Closing agent',
+        interrupt: 'Interrupting agent',
+      } satisfies Record<typeof value.action, string>
+      return value.tense === 'live' ? live[value.action] : done[value.action]
+    }
     case 'plan_mode': return value.action === 'enter' ? 'Enter Plan Mode' : 'Exit Plan Mode'
     case 'image_generation': {
       if (value.status === 'live') return 'Generating image'
@@ -316,6 +347,25 @@ function renderZh(value: CoreTimelineText): string {
     case 'run_command': return '运行命令'
     case 'agent_running': return '子代理运行中'
     case 'agent_completed': return value.count && value.count > 1 ? `${value.count} 个子代理任务完成` : '子代理完成'
+    case 'agent_action': {
+      const done = {
+        spawn: '启动子代理',
+        send_input: '发送输入给子代理',
+        wait: '等待子代理',
+        resume: '恢复子代理',
+        close: '关闭子代理',
+        interrupt: '中断子代理',
+      } satisfies Record<typeof value.action, string>
+      const live = {
+        spawn: '正在启动子代理',
+        send_input: '正在发送输入给子代理',
+        wait: '正在等待子代理',
+        resume: '正在恢复子代理',
+        close: '正在关闭子代理',
+        interrupt: '正在中断子代理',
+      } satisfies Record<typeof value.action, string>
+      return value.tense === 'live' ? live[value.action] : done[value.action]
+    }
     case 'plan_mode': return value.action === 'enter' ? '进入计划模式' : '退出计划模式'
     case 'image_generation': {
       if (value.status === 'live') return '正在生成图片'

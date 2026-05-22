@@ -1,20 +1,15 @@
 import { memo } from 'react'
 import type { AssistantTurnSegment } from '../assistantTurnSegments'
 import type { CodeExecution } from './CodeExecutionCard'
-import type { CodeExecutionRef, FileOpRef, SubAgentRef, WebFetchRef, WebSource } from '../storage'
+import type { ArtifactRef, CodeExecutionRef, FileOpRef, SubAgentRef, WebFetchRef, WebSource } from '../storage'
 import type { WebSearchPhaseStep } from './cop-timeline/CopTimeline'
 import { CopTimeline } from './cop-timeline/CopTimeline'
 import { buildResolvedPool, buildSubSegments, buildThinkingOnlyFromItems, segmentLiveTitle } from '../copSubSegment'
-import { basename, presentationForTool, stringArg } from '../toolPresentation'
-import { contentText } from '../timelineText'
 import {
   copTimelinePayloadForSegment,
   deriveTodoChanges,
-  splitCopItemsByTopLevelTools,
-  type GenericToolCallRef,
   type TodoWriteRef,
 } from '../copSegmentTimeline'
-import { TopLevelCopToolBlock, type TopLevelCopToolEntry } from './TopLevelCopToolBlock'
 
 type CopSegment = Extract<AssistantTurnSegment, { type: 'cop' }>
 
@@ -36,87 +31,13 @@ type Props = {
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   onOpenSubAgent?: (agent: SubAgentRef) => void
+  onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  artifacts?: ArtifactRef[] | null
+  runId?: string
   accessToken?: string
   baseUrl?: string
   typography?: 'default' | 'work'
   todoWritesForFinalDisplay?: TodoWriteRef[] | null
-}
-
-function topLevelEntryForTool(
-  entry: Extract<ReturnType<typeof splitCopItemsByTopLevelTools>[number], { kind: 'tool' }>,
-  payload: ReturnType<typeof copTimelinePayloadForSegment>,
-  todoWritesForFinalDisplay?: TodoWriteRef[] | null,
-): TopLevelCopToolEntry | null {
-  const id = entry.item.call.toolCallId
-  const codeExecution = payload.codeExecutions?.find((item) => item.id === id)
-  if (codeExecution) {
-    return { kind: 'code', id, seq: entry.seq, item: codeExecution }
-  }
-  const searchSteps = payload.steps.filter((item) => item.id === id || item.id.startsWith(`${id}::`))
-  if (searchSteps.length > 0) {
-    return null
-  }
-  const todo = payload.todoWrites?.find((item) => item.id === id)
-  if (todo) {
-    return { kind: 'todo', id, seq: entry.seq, item: todoForFinalDisplay(todo, todoWritesForFinalDisplay ?? payload.todoWrites ?? []) }
-  }
-  const fileOp = payload.fileOps?.find((item) => item.id === id)
-  if (fileOp) {
-    return { kind: 'file', id, seq: entry.seq, item: fileOp }
-  }
-  const generic = payload.genericTools?.find((item) => item.id === id) ?? genericRootToolFromCall(entry.item)
-  if (generic) {
-    return { kind: 'generic', id, seq: entry.seq, item: generic }
-  }
-  return null
-}
-
-function previewFromArgs(toolName: string, args: Record<string, unknown>): string | undefined {
-  switch (toolName) {
-    case 'write_file':
-    case 'document_write':
-    case 'create_artifact':
-      return stringArg(args, 'content') || undefined
-    case 'show_widget':
-      return stringArg(args, 'widget_code') || undefined
-    case 'edit':
-    case 'edit_file':
-      return stringArg(args, 'new_string') || stringArg(args, 'replacement') || stringArg(args, 'content') || undefined
-    case 'image_generate':
-      return stringArg(args, 'prompt') || undefined
-    default:
-      return undefined
-  }
-}
-
-function genericRootToolFromCall(item: Extract<Extract<AssistantTurnSegment, { type: 'cop' }>['items'][number], { kind: 'call' }>): GenericToolCallRef | null {
-  const call = item.call
-  const hasError = typeof call.errorClass === 'string' && call.errorClass.trim() !== ''
-  const status: GenericToolCallRef['status'] = hasError ? 'failed' : call.result === undefined ? 'running' : 'success'
-  const args = call.arguments ?? {}
-  const presentation = presentationForTool(call.toolName, args)
-  const filename = stringArg(args, 'filename') || stringArg(args, 'file_path')
-  const title = stringArg(args, 'title') || stringArg(args, 'name')
-  const label = call.displayDescription || title || (filename ? basename(filename) : presentation.description || call.toolName)
-  const displayText = call.displayDescription
-    ? contentText(call.displayDescription)
-    : title
-      ? contentText(title)
-      : filename
-        ? contentText(basename(filename))
-        : presentation.text
-  const preview = status === 'running' ? previewFromArgs(call.toolName, args) : undefined
-  return {
-    id: call.toolCallId,
-    toolName: call.toolName,
-    label,
-    ...(call.displayDescription || presentation.description !== call.toolName ? { displayDescription: call.displayDescription || presentation.description } : {}),
-    displayText,
-    ...(preview ? { output: preview } : {}),
-    status,
-    errorMessage: hasError ? call.errorMessage ?? call.errorClass : undefined,
-    seq: item.seq,
-  }
 }
 
 function countCompletedTodos(todo: TodoWriteRef): number {
@@ -166,116 +87,77 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
   onOpenCodeExecution,
   activeCodeExecutionId,
   onOpenSubAgent,
+  onOpenDocument,
+  artifacts,
+  runId,
   accessToken,
   baseUrl,
   typography = 'default',
   todoWritesForFinalDisplay,
 }: Props) {
-  const splitEntries = splitCopItemsByTopLevelTools(segment.items, { segmentTitle: segment.title })
-  if (splitEntries.length === 0) return null
-
   const pools = { codeExecutions, fileOps, webFetches, subAgents, searchSteps, sources }
-  const fullPayload = copTimelinePayloadForSegment(segment, pools)
-  const timelineEntryCount = splitEntries.filter((entry) => entry.kind === 'timeline').length
+  const payload = copTimelinePayloadForSegment(segment, pools)
   const effectiveHeaderOverride = headerOverride ?? segment.title?.trim() ?? undefined
+  const todoWrites = payload.todoWrites && payload.todoWrites.length > 0
+    ? payload.todoWrites.map((todo) => todoForFinalDisplay(todo, todoWritesForFinalDisplay ?? payload.todoWrites ?? []))
+    : undefined
+  const timelinePayload = todoWrites ? { ...payload, todoWrites } : payload
+  const pool = buildResolvedPool(timelinePayload)
+  for (const agent of subAgents ?? []) pool.subAgents.set(agent.id, agent)
+  const subSegments = buildSubSegments(segment.items)
+  if (subSegments.length > 0 && live) {
+    const lastSeg = subSegments[subSegments.length - 1]!
+    lastSeg.status = 'open'
+    lastSeg.title = segmentLiveTitle(lastSeg.category)
+  }
+
+  const thinkingOnlyData = subSegments.length === 0 &&
+    !timelinePayload.codeExecutions?.length &&
+    !timelinePayload.subAgents?.length &&
+    !timelinePayload.fileOps?.length &&
+    !timelinePayload.webFetches?.length &&
+    !timelinePayload.genericTools?.length &&
+    !timelinePayload.todoWrites?.length
+    ? buildThinkingOnlyFromItems(segment.items)
+    : null
+
+  const hasTimelineBody =
+    subSegments.length > 0 ||
+    thinkingOnlyData != null ||
+    timelinePayload.steps.length > 0 ||
+    timelinePayload.sources.length > 0 ||
+    !!timelinePayload.fileOps?.length ||
+    !!timelinePayload.webFetches?.length ||
+    !!timelinePayload.genericTools?.length ||
+    !!timelinePayload.subAgents?.length ||
+    !!timelinePayload.todoWrites?.length ||
+    !!(timelinePayload.exploreGroups && timelinePayload.exploreGroups.length > 0)
+
+  if (!hasTimelineBody) return null
 
   return (
-    <>
-      {splitEntries.map((entry, index) => {
-        const entryLive = !!live && index === splitEntries.length - 1
-        const entryComplete = isComplete || !entryLive
-
-        if (entry.kind === 'tool') {
-          const toolEntry = topLevelEntryForTool(entry, fullPayload, todoWritesForFinalDisplay)
-          if (!toolEntry) return null
-          return (
-            <TopLevelCopToolBlock
-              key={`${keyPrefix}-tool-${entry.id}`}
-              entry={toolEntry}
-              live={entryLive}
-              onOpenCodeExecution={onOpenCodeExecution}
-              activeCodeExecutionId={activeCodeExecutionId}
-            />
-          )
-        }
-
-        // Single-call entry without process context → render directly
-        if (entry.items.length === 1 && entry.items[0]?.kind === 'call') {
-          const singleCall = entry.items[0]!
-          const toolEntry: Extract<ReturnType<typeof splitCopItemsByTopLevelTools>[number], { kind: 'tool' }> = {
-            kind: 'tool',
-            id: singleCall.call.toolCallId,
-            seq: singleCall.seq,
-            item: singleCall,
-          }
-          const toolResult = topLevelEntryForTool(toolEntry, fullPayload, todoWritesForFinalDisplay)
-          if (toolResult) {
-            return (
-              <TopLevelCopToolBlock
-                key={`${keyPrefix}-tool-${entry.id}`}
-                entry={toolResult}
-                live={entryLive}
-                onOpenCodeExecution={onOpenCodeExecution}
-                activeCodeExecutionId={activeCodeExecutionId}
-              />
-            )
-          }
-        }
-
-        const timelineSegment: CopSegment = { ...segment, items: entry.items }
-        const payload = copTimelinePayloadForSegment(timelineSegment, pools)
-        const pool = buildResolvedPool(payload)
-        const subSegments = buildSubSegments(entry.items)
-        if (subSegments.length > 0 && entryLive) {
-          const lastSeg = subSegments[subSegments.length - 1]!
-          lastSeg.status = 'open'
-          lastSeg.title = segmentLiveTitle(lastSeg.category)
-        }
-
-        const thinkingOnlyData = subSegments.length === 0 &&
-          !payload.codeExecutions?.length &&
-          !payload.subAgents?.length &&
-          !payload.fileOps?.length &&
-          !payload.webFetches?.length &&
-          !payload.genericTools?.length &&
-          !payload.todoWrites?.length
-          ? buildThinkingOnlyFromItems(entry.items)
-          : null
-
-        const hasTimelineBody =
-          subSegments.length > 0 ||
-          thinkingOnlyData != null ||
-          payload.steps.length > 0 ||
-          payload.sources.length > 0 ||
-          !!payload.fileOps?.length ||
-          !!payload.webFetches?.length ||
-          !!payload.genericTools?.length ||
-          !!payload.subAgents?.length ||
-          !!(payload.exploreGroups && payload.exploreGroups.length > 0)
-
-        if (!hasTimelineBody) return null
-
-        return (
-          <CopTimeline
-            key={`${keyPrefix}-timeline-${entry.id}`}
-            segments={subSegments}
-            pool={pool}
-            thinkingOnly={thinkingOnlyData}
-            thinkingHint={thinkingHint}
-            headerOverride={timelineEntryCount === 1 ? effectiveHeaderOverride : undefined}
-            isComplete={entryComplete}
-            live={entryLive}
-            shimmer={entryLive && !!shimmer}
-            compactNarrativeEnd={compactNarrativeEnd}
-            onOpenCodeExecution={onOpenCodeExecution}
-            onOpenSubAgent={onOpenSubAgent}
-            activeCodeExecutionId={activeCodeExecutionId}
-            accessToken={accessToken}
-            baseUrl={baseUrl}
-            typography={typography}
-          />
-        )
-      })}
-    </>
+    <div className="cop-segment-block">
+      <CopTimeline
+        key={`${keyPrefix}-timeline`}
+        segments={subSegments}
+        pool={pool}
+        thinkingOnly={thinkingOnlyData}
+        thinkingHint={thinkingHint}
+        headerOverride={effectiveHeaderOverride}
+        isComplete={isComplete}
+        live={live}
+        shimmer={live && !!shimmer}
+        compactNarrativeEnd={compactNarrativeEnd}
+        onOpenCodeExecution={onOpenCodeExecution}
+        onOpenSubAgent={onOpenSubAgent}
+        onOpenDocument={onOpenDocument}
+        artifacts={artifacts}
+        runId={runId}
+        activeCodeExecutionId={activeCodeExecutionId}
+        accessToken={accessToken}
+        baseUrl={baseUrl}
+        typography={typography}
+      />
+    </div>
   )
 })

@@ -34,6 +34,8 @@ type Props = {
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onViewRunDetail?: () => void
+  showFork?: boolean
+  showShare?: boolean
   contentPrefix?: string
   contentOverride?: string
   /** 与正文展示解耦的复制文本（例如分段 Markdown 合并） */
@@ -71,6 +73,8 @@ export function AssistantActionBar({
   webSources,
   onShowSources,
   onViewRunDetail,
+  showFork = true,
+  showShare = true,
   isLast,
 }: {
   textToCopy: string
@@ -80,6 +84,8 @@ export function AssistantActionBar({
   webSources?: WebSource[]
   onShowSources?: () => void
   onViewRunDetail?: () => void
+  showFork?: boolean
+  showShare?: boolean
   isLast?: boolean
 }) {
   const { t } = useLocale()
@@ -103,7 +109,7 @@ export function AssistantActionBar({
           className="flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] opacity-60 transition-[opacity,color] duration-[60ms] hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer border-none bg-transparent"
           resetDelay={1500}
         />
-        {!isDesktop() && (
+        {showShare && !isDesktop() && (
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <ActionIconButton
               onClick={onShare}
@@ -131,15 +137,17 @@ export function AssistantActionBar({
             </span>
           </div>
         )}
-        <ActionIconButton
-          onClick={onFork}
-          disabled={!onFork}
-          tooltip={t.forkAction}
-          hoverBackground="var(--c-bg-deep)"
-          className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
-        >
-          <GitBranch size={16} />
-        </ActionIconButton>
+        {showFork && (
+          <ActionIconButton
+            onClick={onFork}
+            disabled={!onFork}
+            tooltip={t.forkAction}
+            hoverBackground="var(--c-bg-deep)"
+            className={`flex h-9 w-9 items-center justify-center rounded-[7px] text-[var(--c-text-secondary)] transition-[opacity,color] duration-[60ms] border-none bg-transparent ${onFork ? 'opacity-60 hover:opacity-100 hover:text-[var(--c-text-primary)] cursor-pointer' : 'opacity-25 cursor-default'}`}
+          >
+            <GitBranch size={16} />
+          </ActionIconButton>
+        )}
         {onViewRunDetail && (
           <ActionIconButton
             onClick={onViewRunDetail}
@@ -217,6 +225,8 @@ export const AssistantMessage = memo(function AssistantMessage({
   onOpenDocument,
   onOpenResource,
   onViewRunDetail,
+  showFork,
+  showShare,
   contentPrefix,
   contentOverride,
   plainTextForCopy,
@@ -284,6 +294,8 @@ export const AssistantMessage = memo(function AssistantMessage({
             webSources={webSources}
             onShowSources={onShowSources}
             onViewRunDetail={onViewRunDetail}
+            showFork={showFork}
+            showShare={showShare}
             isLast={isLast}
           />
         )}

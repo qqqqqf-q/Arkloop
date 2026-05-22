@@ -370,7 +370,8 @@ func getThread(
 			return
 		}
 
-		if !authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter) {
+		if !authorizeSubAgentThreadRead(r, actor, thread, threadRepo) &&
+			!authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter) {
 			return
 		}
 
@@ -1047,6 +1048,25 @@ func authorizeThreadOrAudit(
 		map[string]any{"action": action},
 	)
 	return false
+}
+
+func authorizeSubAgentThreadRead(
+	r *nethttp.Request,
+	actor *httpkit.Actor,
+	thread *data.Thread,
+	threadRepo *data.ThreadRepository,
+) bool {
+	if r == nil || actor == nil || thread == nil || threadRepo == nil {
+		return false
+	}
+	if actor.AccountID != thread.AccountID {
+		return false
+	}
+	if thread.CreatedByUserID != nil && *thread.CreatedByUserID == actor.UserID {
+		return true
+	}
+	ok, err := threadRepo.IsSubAgentThreadOwnedByUser(r.Context(), actor.AccountID, actor.UserID, thread.ID)
+	return err == nil && ok
 }
 
 // authorizeThreadReadOrAudit 用于只读操作，额外检查 project 级别的可见性。

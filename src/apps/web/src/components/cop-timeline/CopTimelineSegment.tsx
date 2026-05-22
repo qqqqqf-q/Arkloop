@@ -1,17 +1,17 @@
 import { memo, useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronDown, ChevronRight } from 'lucide-react'
-import { segmentCompletedTitle, type CopSubSegment, type ResolvedPool } from '../../copSubSegment'
+import { AGENT_TOOL_NAMES, segmentCompletedTitle, type CopSubSegment, type ResolvedPool } from '../../copSubSegment'
 import type { CodeExecution } from '../CodeExecutionCard'
-import type { SubAgentRef } from '../../storage'
+import type { ArtifactRef, SubAgentRef } from '../../storage'
 
 import { CopThoughtSummaryRow, TimelineNarrativeBody } from './ThinkingBlock'
 import { FileOpToolRow, FileOpToolCard } from './ToolRows'
-import { normalizeToolName, presentationForTool } from '../../toolPresentation'
+import { basename, normalizeToolName, presentationForTool, stringArg } from '../../toolPresentation'
 import { WebFetchItem } from './WebFetchItem'
-import { SubAgentBlock } from '../SubAgentBlock'
 import { CodeExecutionCard } from '../CodeExecutionCard'
 import { ExecutionCard } from '../ExecutionCard'
+import { TodoListCard } from '../TodoListCard'
 import { TypewriterText, RenderTitleSpans } from './utils'
 import { timelineStepText } from './types'
 import { SourceListCard } from './SourceList'
@@ -20,6 +20,7 @@ import { useLocale } from '../../contexts/LocaleContext'
 import { localizeTimelineLabel, localizeTimelineTitleSpan } from './labels'
 import type { Locale } from '../../locales'
 import { renderTimelineText } from '../../timelineText'
+import { markerForToolName } from './markers'
 
 const EXPLORE_BOTTOM_PAD = 0
 const SCROLL_EDGE_EPSILON = 1
@@ -46,9 +47,13 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
   hideHeader,
   compactNarrativeEnd = false,
   flattenSingleItem = false,
+  flattenLeafItems = false,
   onOpenCodeExecution,
   activeCodeExecutionId,
   onOpenSubAgent,
+  onOpenDocument,
+  artifacts,
+  runId,
   accessToken,
   baseUrl,
   typography = 'default',
@@ -60,9 +65,13 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
   hideHeader?: boolean
   compactNarrativeEnd?: boolean
   flattenSingleItem?: boolean
+  flattenLeafItems?: boolean
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
   onOpenSubAgent?: (agent: SubAgentRef) => void
+  onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  artifacts?: ArtifactRef[] | null
+  runId?: string
   accessToken?: string
   baseUrl?: string
   typography?: 'default' | 'work'
@@ -166,7 +175,7 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
         <div ref={cardContentRef} className="cop-timeline-items-card__content">
           {segment.items.map((item) => (
             <div key={itemTypeId(item)} style={{ position: 'relative', padding: '4px 0' }}>
-              {renderItem(item, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, accessToken, baseUrl, typography, locale)}
+              {renderItem(item, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, onOpenDocument, artifacts, runId, accessToken, baseUrl, typography, locale, true)}
             </div>
           ))}
         </div>
@@ -175,10 +184,17 @@ export const CopTimelineSegment = memo(function CopTimelineSegment({
   )
 
   if (hideHeader) {
+    const renderFlatItems = flattenLeafItems || (flattenSingleItem && segment.items.length === 1)
     return (
       <div style={{ position: 'relative', paddingTop: flattenSingleItem ? 0 : 1, paddingBottom: flattenSingleItem || endsWithNarrative ? 0 : EXPLORE_BOTTOM_PAD }}>
-        {flattenSingleItem && segment.items.length === 1 ? (
-          renderItem(segment.items[0]!, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, accessToken, baseUrl, typography, locale)
+        {renderFlatItems ? (
+          <div style={{ display: 'grid', gap: 2 }}>
+            {segment.items.map((item) => (
+              <div key={itemTypeId(item)}>
+                {renderItem(item, pool, isLive, onOpenCodeExecution, activeCodeExecutionId, onOpenSubAgent, onOpenDocument, artifacts, runId, accessToken, baseUrl, typography, locale, !flattenLeafItems)}
+              </div>
+            ))}
+          </div>
         ) : (
           renderItemsCard()
         )}
@@ -261,6 +277,19 @@ function itemTypeId(item: CopSubSegment['items'][number]): string {
   return `${item.kind}-${item.seq}`
 }
 
+function isAgentToolName(toolName: string): boolean {
+  return AGENT_TOOL_NAMES.has(normalizeToolName(toolName))
+}
+
+export function isLeafProcessToolName(toolName: string): boolean {
+  const normalized = normalizeToolName(toolName)
+  return normalized === 'document_write' || isAgentToolName(normalized)
+}
+
+export function isLeafProcessSegment(segment: CopSubSegment): boolean {
+  return segment.items.length > 0 && segment.items.every((item) => item.kind === 'call' && isLeafProcessToolName(item.call.toolName))
+}
+
 type ItemResolver = {
   check: (toolCallId: string) => boolean
   render: (toolCallId: string) => React.ReactNode
@@ -293,6 +322,174 @@ function renderSearchStep(
   )
 }
 
+function processRowColor(status?: 'running' | 'success' | 'failed' | SubAgentRef['status']) {
+  if (status === 'failed') return 'var(--c-status-error-text, #ef4444)'
+  if (status === 'running' || status === 'spawning' || status === 'active') return 'var(--c-cop-row-fg)'
+  return 'var(--c-cop-row-fg)'
+}
+
+function ProcessActionRow({
+  toolName,
+  label,
+  subject,
+  status,
+  onClick,
+  showIcon = true,
+}: {
+  toolName: string
+  label: string
+  subject?: string
+  status?: 'running' | 'success' | 'failed' | SubAgentRef['status']
+  onClick?: () => void
+  showIcon?: boolean
+}) {
+  const [hovered, setHovered] = useState(false)
+  const marker = markerForToolName(toolName)
+  const content = (
+    <>
+      {showIcon && marker && <marker.icon width={12} height={12} strokeWidth={2.1} style={{ flexShrink: 0, color: 'currentColor' }} />}
+      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+        {subject && <span style={{ color: 'var(--c-text-tertiary)', fontWeight: 400 }}> {subject}</span>}
+      </span>
+      {onClick && <ChevronRight size={13} style={{ flexShrink: 0, color: 'currentColor' }} />}
+    </>
+  )
+  const style = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+    minWidth: 0,
+    border: 'none',
+    padding: '3px 0',
+    background: 'transparent',
+    cursor: onClick ? 'pointer' : 'default',
+    color: hovered && onClick ? 'var(--c-cop-row-hover-fg)' : processRowColor(status),
+    fontSize: 'var(--c-cop-row-font-size)',
+    fontWeight: 400,
+    lineHeight: 'var(--c-cop-row-line-height)',
+    transition: 'color 0.15s ease',
+    fontFamily: 'inherit',
+    textAlign: 'left' as const,
+  }
+  if (!onClick) {
+    return <div style={style}>{content}</div>
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={style}
+    >
+      {content}
+    </button>
+  )
+}
+
+function resultRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function findSubAgentForCall(
+  call: Extract<CopSubSegment['items'][number], { kind: 'call' }>['call'],
+  pool: ResolvedPool,
+): SubAgentRef | undefined {
+  const direct = pool.subAgents.get(call.toolCallId)
+  if (direct) return direct
+  const result = resultRecord(call.result)
+  const subAgentId = typeof result?.sub_agent_id === 'string' ? result.sub_agent_id : undefined
+  const argSubAgentId = typeof call.arguments?.sub_agent_id === 'string' ? call.arguments.sub_agent_id : undefined
+  const argAgentId = typeof call.arguments?.agent_id === 'string' ? call.arguments.agent_id : undefined
+  const id = subAgentId ?? argSubAgentId ?? argAgentId
+  const agents = [...pool.subAgents.values()]
+  if (id) return agents.find((agent) => agent.subAgentId === id || agent.id === id)
+  return agents.length === 1 ? agents[0] : undefined
+}
+
+function renderAgentActionRow(
+  call: Extract<CopSubSegment['items'][number], { kind: 'call' }>['call'],
+  pool: ResolvedPool,
+  locale: Locale,
+  onOpenSubAgent?: (agent: SubAgentRef) => void,
+  showIcon = true,
+) {
+  const agent = findSubAgentForCall(call, pool)
+  const result = resultRecord(call.result)
+  const name = agent?.nickname || agent?.personaId ||
+    (typeof result?.nickname === 'string' ? result.nickname : undefined) ||
+    stringArg(call.arguments, 'nickname') ||
+    stringArg(call.arguments, 'persona_id')
+  const label = renderTimelineText(presentationForTool(call.toolName, call.arguments).text, locale)
+  return (
+    <ProcessActionRow
+      toolName={call.toolName}
+      label={label}
+      subject={name}
+      status={agent?.status}
+      onClick={agent && onOpenSubAgent ? () => onOpenSubAgent(agent) : undefined}
+      showIcon={showIcon}
+    />
+  )
+}
+
+function artifactRefsFromResult(result: unknown): ArtifactRef[] {
+  const record = resultRecord(result)
+  const artifacts = Array.isArray(record?.artifacts) ? record.artifacts : []
+  return artifacts
+    .filter((item): item is Record<string, unknown> => item != null && typeof item === 'object')
+    .filter((item) => typeof item.key === 'string' && typeof item.filename === 'string')
+    .map((item) => ({
+      key: item.key as string,
+      filename: item.filename as string,
+      size: typeof item.size === 'number' ? item.size : 0,
+      mime_type: typeof item.mime_type === 'string' ? item.mime_type : '',
+      title: typeof item.title === 'string' ? item.title : undefined,
+      display: item.display === 'inline' || item.display === 'panel' ? item.display as 'inline' | 'panel' : undefined,
+    }))
+}
+
+function findDocumentArtifact(call: Extract<CopSubSegment['items'][number], { kind: 'call' }>['call'], artifacts?: ArtifactRef[] | null): ArtifactRef | undefined {
+  const resultArtifacts = artifactRefsFromResult(call.result)
+  const filename = stringArg(call.arguments, 'filename')
+  const title = stringArg(call.arguments, 'title') || stringArg(call.arguments, 'name')
+  const candidates = [...resultArtifacts, ...(artifacts ?? [])]
+  return candidates.find((artifact) => (
+    (filename && artifact.filename === filename) ||
+    (title && artifact.title === title) ||
+    resultArtifacts.some((item) => item.key === artifact.key)
+  )) ?? resultArtifacts[0] ?? artifacts?.[0]
+}
+
+function renderDocumentWriteRow(
+  call: Extract<CopSubSegment['items'][number], { kind: 'call' }>['call'],
+  locale: Locale,
+  onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void,
+  artifacts?: ArtifactRef[] | null,
+  runId?: string,
+  showIcon = true,
+) {
+  const hasError = typeof call.errorClass === 'string' && call.errorClass.trim() !== ''
+  const running = call.result === undefined && !hasError
+  const label = localizeTimelineLabel(hasError ? 'Document write failed' : running ? 'Writing document' : 'Wrote document', locale)
+  const subject = stringArg(call.arguments, 'title') ||
+    stringArg(call.arguments, 'name') ||
+    (stringArg(call.arguments, 'filename') ? basename(stringArg(call.arguments, 'filename')!) : undefined)
+  const artifact = findDocumentArtifact(call, artifacts)
+  return (
+    <ProcessActionRow
+      toolName={call.toolName}
+      label={label}
+      subject={subject}
+      status={hasError ? 'failed' : running ? 'running' : 'success'}
+      onClick={artifact && onOpenDocument ? () => onOpenDocument(artifact, { artifacts: artifacts ?? artifactRefsFromResult(call.result), runId }) : undefined}
+      showIcon={showIcon}
+    />
+  )
+}
+
 function renderItem(
   item: CopSubSegment['items'][number],
   pool: ResolvedPool,
@@ -300,10 +497,14 @@ function renderItem(
   onOpenCodeExecution?: (ce: CodeExecution) => void,
   activeCodeExecutionId?: string,
   onOpenSubAgent?: (agent: SubAgentRef) => void,
+  onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void,
+  artifacts?: ArtifactRef[] | null,
+  runId?: string,
   accessToken?: string,
   baseUrl?: string,
   typography: 'default' | 'work' = 'default',
   locale: Locale = 'zh',
+  showLeafIcon = true,
 ): React.ReactNode {
   if (item.kind === 'thinking') {
     return (
@@ -326,7 +527,19 @@ function renderItem(
   const call = item.call
   const toolCallId = call.toolCallId
 
+  if (isAgentToolName(call.toolName)) {
+    return renderAgentActionRow(call, pool, locale, onOpenSubAgent, showLeafIcon)
+  }
+
+  if (normalizeToolName(call.toolName) === 'document_write') {
+    return renderDocumentWriteRow(call, locale, onOpenDocument, artifacts, runId, showLeafIcon)
+  }
+
   const resolvers: ItemResolver[] = [
+    {
+      check: (id) => pool.todoWrites.has(id),
+      render: (id) => <TodoListCard todo={pool.todoWrites.get(id)!} />,
+    },
     {
       check: (id) => pool.codeExecutions.has(id),
       render: (id) => {
@@ -347,13 +560,6 @@ function renderItem(
           return <FileOpToolCard op={fileOp} />
         }
         return <FileOpToolRow op={fileOp} live={live} />
-      },
-    },
-    {
-      check: (id) => pool.subAgents.has(id),
-      render: (id) => {
-        const subAgent = pool.subAgents.get(id)!
-        return <SubAgentBlock nickname={subAgent.nickname} personaId={subAgent.personaId} input={subAgent.input} output={subAgent.output} status={subAgent.status} error={subAgent.error} live={live} currentRunId={subAgent.currentRunId} accessToken={accessToken} baseUrl={baseUrl} onOpenPanel={onOpenSubAgent ? () => onOpenSubAgent(subAgent) : undefined} typography={typography} />
       },
     },
     {

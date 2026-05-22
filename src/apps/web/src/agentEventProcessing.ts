@@ -927,6 +927,27 @@ function findAgentIndexBySubAgentId(agents: SubAgentRef[], subAgentId: string): 
   return agents.findIndex((a) => a.subAgentId === subAgentId)
 }
 
+function statusFromSubAgentSnapshot(status: string | undefined, fallback: SubAgentRef['status']): SubAgentRef['status'] {
+  switch (status) {
+    case 'created':
+    case 'queued':
+      return fallback === 'spawning' ? 'spawning' : 'active'
+    case 'running':
+    case 'waiting_input':
+    case 'resumable':
+      return 'active'
+    case 'completed':
+      return 'completed'
+    case 'failed':
+    case 'cancelled':
+      return 'failed'
+    case 'closed':
+      return 'closed'
+    default:
+      return fallback
+  }
+}
+
 export function applySubAgentToolCall(
   agents: SubAgentRef[],
   event: AgentUIEvent,
@@ -965,6 +986,11 @@ export function applySubAgentToolResult(
   const output = typeof result.output === 'string' ? result.output : undefined
   const nickname = typeof result.nickname === 'string' ? result.nickname : undefined
   const depth = typeof result.depth === 'number' ? result.depth : undefined
+  const threadId = typeof result.agent_thread_id === 'string'
+    ? result.agent_thread_id
+    : typeof result.thread_id === 'string'
+      ? result.thread_id
+      : undefined
   const resultStatus = typeof result.status === 'string' ? result.status : undefined
 
   if (toolName === 'spawn_agent') {
@@ -979,6 +1005,7 @@ export function applySubAgentToolResult(
       status: isError ? 'failed' : 'active',
       error: errorMessage,
       currentRunId: currentRunId ?? agents[idx].currentRunId,
+      threadId: threadId ?? agents[idx].threadId,
     }
     if (nickname) updated.nickname = nickname
     return { updated, nextAgents: agents.map((a, i) => i === idx ? updated : a) }
@@ -1012,7 +1039,7 @@ export function applySubAgentToolResult(
   if (targetIdx < 0) return { nextAgents: agents }
   const resolvedStatus = isError
     ? 'failed' as const
-    : resultStatus === 'completed' ? 'completed' as const : agents[targetIdx].status
+    : statusFromSubAgentSnapshot(resultStatus, agents[targetIdx].status)
   const updated: SubAgentRef = {
     ...agents[targetIdx],
     status: resolvedStatus,
@@ -1020,6 +1047,7 @@ export function applySubAgentToolResult(
   }
   if (output) updated.output = output
   if (nickname) updated.nickname = nickname
+  if (threadId) updated.threadId = threadId
   return { updated, nextAgents: agents.map((a, i) => i === targetIdx ? updated : a) }
 }
 

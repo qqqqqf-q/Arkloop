@@ -198,6 +198,38 @@ func (r *ThreadRepository) GetByID(ctx context.Context, threadID uuid.UUID) (*Th
 	return &thread, nil
 }
 
+func (r *ThreadRepository) IsSubAgentThreadOwnedByUser(ctx context.Context, accountID, userID, agentThreadID uuid.UUID) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || userID == uuid.Nil || agentThreadID == uuid.Nil {
+		return false, fmt.Errorf("account_id, user_id and agent_thread_id must not be empty")
+	}
+
+	var exists bool
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT EXISTS (
+		   SELECT 1
+		     FROM sub_agents sa
+		     JOIN threads owner_thread
+		       ON owner_thread.id = sa.owner_thread_id
+		      AND owner_thread.account_id = sa.account_id
+		      AND owner_thread.deleted_at IS NULL
+		    WHERE sa.account_id = $1
+		      AND sa.agent_thread_id = $2
+		      AND owner_thread.created_by_user_id = $3
+		 )`,
+		accountID,
+		agentThreadID,
+		userID,
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 // ListForkTree 返回 thread 所属 root fork tree 下的全部未删除 threads。
 func (r *ThreadRepository) ListForkTree(ctx context.Context, accountID, threadID uuid.UUID) ([]Thread, error) {
 	if ctx == nil {

@@ -172,7 +172,7 @@ function TodoItemsList({ todo }: { todo: TodoWriteRef }) {
 function TodoChangeSummaryRow({ summary, todo }: { summary: TodoChangeSummary; todo: TodoWriteRef }) {
   const [expanded, setExpanded] = useState(false)
   return (
-    <div className="top-level-todo-root" style={{ maxWidth: 'min(100%, 760px)', padding: '4px 0' }}>
+    <div className="todo-list-root" style={{ maxWidth: 'min(100%, 760px)', padding: '4px 0' }}>
       <button
         type="button"
         className="todo-summary-trigger"
@@ -252,7 +252,7 @@ export function TodoListCard({ todo }: Props) {
   }
 
   return (
-    <div className="top-level-todo-root" style={{ maxWidth: 'min(100%, 760px)', padding: '4px 0' }}>
+    <div className="todo-list-root" style={{ maxWidth: 'min(100%, 760px)', padding: '4px 0' }}>
       <div
         style={{
           borderRadius: 8,

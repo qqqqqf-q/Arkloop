@@ -79,8 +79,9 @@ interface RunLifecycleContextValue {
 
 const Ctx = createContext<RunLifecycleContextValue | null>(null)
 
-export function RunLifecycleProvider({ children }: { children: ReactNode }) {
-  const { threadId } = useChatSession()
+export function RunLifecycleProvider({ children, threadIdOverride }: { children: ReactNode; threadIdOverride?: string | null }) {
+  const { threadId: sessionThreadId } = useChatSession()
+  const threadId = threadIdOverride ?? sessionThreadId
   const agentClient = useAgentClient()
 
   const [activeRunId, setActiveRunId] = useState<string | null>(null)

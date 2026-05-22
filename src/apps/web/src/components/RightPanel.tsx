@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type WheelEvent } from 'react'
-import { FileText, FolderOpen, GitBranch, Globe2, Plus, X } from 'lucide-react'
+import { BotMessageSquare, FileText, FolderOpen, GitBranch, Globe2, Plus, X } from 'lucide-react'
 import { iconButtonSmCls } from './buttonStyles'
 import { DropdownAction } from './DropdownAction'
 import { rightPanelIconButtonCls, rightPanelIconButtonSize, rightPanelIconSize } from './rightPanelControls'
@@ -14,6 +14,7 @@ export type RightPanelTab = {
   closable?: boolean
   icon?: ReactNode
   hideTitle?: boolean
+  keepMounted?: boolean
 }
 
 export type RightPanelAddOption = {
@@ -40,6 +41,7 @@ function TabIcon({ kind }: { kind: RightPanelTab['kind'] }) {
   if (kind === 'web') return <Globe2 size={rightPanelIconSize} />
   if (kind === 'files') return <FolderOpen size={rightPanelIconSize} />
   if (kind === 'conversation-graph') return <GitBranch size={rightPanelIconSize} />
+  if (kind === 'agent') return <BotMessageSquare size={rightPanelIconSize} />
   return <FileText size={rightPanelIconSize} />
 }
 
@@ -70,6 +72,7 @@ export const RightPanel = memo(function RightPanel({
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null)
   const [scrollFade, setScrollFade] = useState({ left: false, right: false })
+  const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set())
   const addMenuRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
   const draggingTabIdRef = useRef<string | null>(null)
@@ -110,6 +113,29 @@ export const RightPanel = memo(function RightPanel({
     const byId = new Map(tabs.map((tab) => [tab.id, tab]))
     return normalizedCurrentTabOrder.map((id) => byId.get(id)).filter((tab): tab is RightPanelTab => !!tab)
   }, [normalizedCurrentTabOrder, tabs])
+
+  useEffect(() => {
+    if (!activeTab) return
+    setMountedTabIds((current) => {
+      if (current.has(activeTab.id)) return current
+      const next = new Set(current)
+      next.add(activeTab.id)
+      return next
+    })
+  }, [activeTab])
+
+  useEffect(() => {
+    const ids = new Set(tabs.map((tab) => tab.id))
+    setMountedTabIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => ids.has(id)))
+      return sameStringArray(Array.from(next), Array.from(current)) ? current : next
+    })
+  }, [tabs])
+
+  const visibleContentTabs = useMemo(() => {
+    if (!activeTab) return []
+    return orderedTabs.filter((tab) => tab.id === activeTab.id || (tab.keepMounted && mountedTabIds.has(tab.id)))
+  }, [activeTab, mountedTabIds, orderedTabs])
 
   useEffect(() => {
     updateScrollFade()
@@ -331,8 +357,16 @@ export const RightPanel = memo(function RightPanel({
           </div>
         ) : null}
       </div>
-      <div key={activeTab?.id ?? 'empty'} style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
-        {activeTab?.content ?? (
+      <div style={{ flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
+        {activeTab ? visibleContentTabs.map((tab) => (
+          <div
+            key={tab.id}
+            hidden={tab.id !== activeTab.id}
+            style={{ position: 'absolute', inset: 0, minHeight: 0, minWidth: 0 }}
+          >
+            {tab.content}
+          </div>
+        )) : (
           <div style={{ height: '100%', display: 'grid', placeItems: 'center', color: 'var(--c-text-muted)', fontSize: 13 }}>
             {effectiveEmptyLabel}
           </div>

@@ -5,6 +5,7 @@ import { CopSegmentBlocks } from '../components/CopSegmentBlocks'
 import { LocaleProvider } from '../contexts/LocaleContext'
 import type { AssistantTurnSegment } from '../assistantTurnSegments'
 import type { TodoWriteRef } from '../copSegmentTimeline'
+import type { ArtifactRef, SubAgentRef } from '../storage'
 
 const originalMatchMedia = window.matchMedia
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -39,7 +40,15 @@ afterEach(() => {
 
 async function renderBlocks(
   segment: Extract<AssistantTurnSegment, { type: 'cop' }>,
-  options: { todoWritesForFinalDisplay?: TodoWriteRef[]; live?: boolean; isComplete?: boolean } = {},
+  options: {
+    todoWritesForFinalDisplay?: TodoWriteRef[]
+    live?: boolean
+    isComplete?: boolean
+    subAgents?: SubAgentRef[]
+    artifacts?: ArtifactRef[]
+    onOpenSubAgent?: (agent: SubAgentRef) => void
+    onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
+  } = {},
 ) {
   const container = document.createElement('div')
   document.body.appendChild(container)
@@ -51,9 +60,13 @@ async function renderBlocks(
           segment={segment}
           keyPrefix="test"
           fileOps={[{ id: 'read-1', toolName: 'read_file', label: 'Read app.tsx', status: 'success', seq: 2, filePath: 'app.tsx', displayKind: 'read' }]}
+          subAgents={options.subAgents}
+          artifacts={options.artifacts}
           sources={[]}
           isComplete={options.isComplete ?? true}
           live={options.live}
+          onOpenSubAgent={options.onOpenSubAgent}
+          onOpenDocument={options.onOpenDocument}
           todoWritesForFinalDisplay={options.todoWritesForFinalDisplay}
         />
       </LocaleProvider>,
@@ -88,7 +101,7 @@ describe('CopSegmentBlocks', () => {
     }
   })
 
-  it('renders todo_write as a top-level sibling; remaining single tool renders in card mode without COP shell', async () => {
+  it('renders todo_write and remaining tools inside the same process timeline', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
       title: null,
@@ -113,14 +126,13 @@ describe('CopSegmentBlocks', () => {
     try {
       expect(container.textContent).toContain('Write focused test')
       expect(container.textContent).toContain('1/2 完成')
-      // todo_write is promoted as top-level, read renders in card mode without COP shell
-      expect(container.querySelector('.cop-timeline-root')).toBeNull()
+      expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
     } finally {
       cleanup()
     }
   })
 
-  it('renders single document_write in card mode without COP shell', async () => {
+  it('renders single document_write as an action placeholder without document card', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
       title: null,
@@ -137,9 +149,132 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      expect(container.textContent).toContain('report.md')
-      expect(container.querySelector('[aria-label="Document"]')).not.toBeNull()
+      expect(container.textContent).toContain('正在写入文档')
+      expect(container.querySelector('[aria-label="Document"]')).toBeNull()
       expect(container.querySelector('.cop-timeline-root')).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('renders completed document_write as an action placeholder without document card', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md', content: '# Report\nBody' },
+            result: { artifacts: [{ filename: 'report.md', title: 'report' }] },
+          },
+          seq: 1,
+        },
+      ],
+    })
+    try {
+      expect(container.querySelector('[aria-label="Document"]')).toBeNull()
+      expect(container.textContent).toContain('写入了文档')
+      expect(container.querySelector('.cop-timeline-root')).toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('opens the document artifact from a document_write leaf row', async () => {
+    const onOpenDocument = vi.fn()
+    const artifact: ArtifactRef = { key: 'artifact-doc', filename: 'report.md', size: 0, mime_type: 'text/markdown', title: 'report' }
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md', content: '# Report\nBody' },
+            result: { artifacts: [artifact] },
+          },
+          seq: 1,
+        },
+      ],
+    }, { artifacts: [artifact], onOpenDocument })
+    try {
+      const button = container.querySelector('button')
+      expect(button?.textContent).toContain('写入了文档')
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(onOpenDocument).toHaveBeenCalledWith(artifact, expect.objectContaining({ artifacts: [artifact] }))
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('opens the existing sub-agent from a wait_agent leaf row', async () => {
+    const onOpenSubAgent = vi.fn()
+    const agent: SubAgentRef = { id: 'spawn-1', subAgentId: 'sub-1', nickname: 'yansu-research', status: 'active' }
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'wait-1',
+            toolName: 'wait_agent',
+            arguments: { sub_agent_id: 'sub-1' },
+            result: { sub_agent_id: 'sub-1', status: 'running' },
+          },
+          seq: 1,
+        },
+      ],
+    }, { subAgents: [agent], onOpenSubAgent })
+    try {
+      const button = container.querySelector('button')
+      expect(button?.textContent).toContain('等待子代理 yansu-research')
+      await act(async () => {
+        button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+      expect(onOpenSubAgent).toHaveBeenCalledWith(agent)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('does not duplicate the leaf icon when the timeline axis already shows it', async () => {
+    const { container, cleanup } = await renderBlocks({
+      type: 'cop',
+      title: null,
+      items: [
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'doc-1',
+            toolName: 'document_write',
+            arguments: { filename: 'report.md' },
+          },
+          seq: 1,
+        },
+        {
+          kind: 'call',
+          call: {
+            toolCallId: 'wait-1',
+            toolName: 'wait_agent',
+            arguments: { sub_agent_id: 'sub-1' },
+          },
+          seq: 2,
+        },
+      ],
+    }, { subAgents: [{ id: 'spawn-1', subAgentId: 'sub-1', nickname: 'yansu-research', status: 'active' }] })
+    try {
+      const documentIcons = container.querySelectorAll('.lucide-file-text')
+      const agentIcons = container.querySelectorAll('.lucide-bot-message-square')
+      expect(documentIcons).toHaveLength(1)
+      expect(agentIcons).toHaveLength(1)
     } finally {
       cleanup()
     }
@@ -207,7 +342,7 @@ describe('CopSegmentBlocks', () => {
     }
   })
 
-  it('timeline_title with single document_write renders in card mode without COP shell', async () => {
+  it('timeline_title with single document_write renders an action placeholder without document card', async () => {
     const { container, cleanup } = await renderBlocks({
       type: 'cop',
       title: 'Writing report',
@@ -224,8 +359,8 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      expect(container.textContent).toContain('report.md')
-      expect(container.querySelector('[aria-label="Document"]')).not.toBeNull()
+      expect(container.textContent).toContain('正在写入文档')
+      expect(container.querySelector('[aria-label="Document"]')).toBeNull()
       expect(container.querySelector('.cop-timeline-root')).toBeNull()
     } finally {
       cleanup()
@@ -250,7 +385,7 @@ describe('CopSegmentBlocks', () => {
       ],
     })
     try {
-      expect(container.textContent).toContain('写入了文档')
+      expect(container.textContent).toContain('正在写入文档')
       expect(container.querySelector('.cop-timeline-root')).not.toBeNull()
     } finally {
       cleanup()

@@ -23,7 +23,6 @@ import { RunErrorNotice, type AppError } from './ErrorCallout'
 import { ShareModal } from './ShareModal'
 import { SourcesPanel } from './SourcesPanel'
 import { CodeExecutionPanel } from './CodeExecutionPanel'
-import { AgentPanel } from './AgentPanel'
 import { RightPanel, type RightPanelTab } from './RightPanel'
 import { rightPanelIconSize } from './rightPanelControls'
 import { LocalFilesPanel } from './local-files/LocalFilesPanel'
@@ -38,7 +37,6 @@ import { ChatTitleMenu } from './ChatTitleMenu'
 import { MessageList, type MessageListHandle } from './MessageList'
 import { ChatMessageNavigator } from './ChatMessageNavigator'
 import { CopSegmentBlocks } from './CopSegmentBlocks'
-import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
 import { ContextCompactBar } from './ContextCompactBar'
 import { IncognitoDivider } from './IncognitoDivider'
 import { AssistantActionBar } from './messagebubble/AssistantMessage'
@@ -72,11 +70,11 @@ import { useAuth } from '../contexts/auth'
 import { useThreadList, useThreadLiveState } from '../contexts/thread-list'
 import { useAppModeUI, useRightPanelActions, useSettingsUI, useTitleBarRightPanelUI } from '../contexts/app-ui'
 import { useChatSession } from '../contexts/chat-session'
-import { useMessageStore } from '../contexts/message-store'
-import { useRunLifecycle } from '../contexts/run-lifecycle'
-import { useMessageMeta, type MessageMeta } from '../contexts/message-meta'
-import { useStream, useStreamingContent } from '../contexts/stream'
-import { usePanels } from '../contexts/panels'
+import { MessageStoreProvider, useMessageStore } from '../contexts/message-store'
+import { RunLifecycleProvider, useRunLifecycle } from '../contexts/run-lifecycle'
+import { MessageMetaProvider, useMessageMeta, type MessageMeta } from '../contexts/message-meta'
+import { StreamProvider, useStream, useStreamingContent } from '../contexts/stream'
+import { PanelProvider, usePanels } from '../contexts/panels'
 import { useScrollPin } from '../hooks/useScrollPin'
 import { useDevTools } from '../hooks/useDevTools'
 import { useChatActions } from '../hooks/useChatActions'
@@ -102,6 +100,7 @@ import {
   forkThread,
   getThread,
   listThreadRuns,
+  getRunDetail,
   updateThreadCollaborationMode,
   updateThreadLearningMode,
   uploadStagingAttachment,
@@ -517,35 +516,32 @@ const LiveRunPane = memo(function LiveRunPane({
         allStreamItemsForUi.length === 0 &&
         (dedupedTopLevelCodeExecutions.length > 0 || topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
         <div style={{ maxWidth: liveContentMaxWidth }}>
-          {dedupedTopLevelCodeExecutions.map((ce) => (
-            <TopLevelCopToolBlock
-              key={`fallback-code-${ce.id}`}
-              entry={{ kind: 'code', id: ce.id, seq: ce.seq ?? 0, item: ce }}
-              onOpenCodeExecution={onOpenCodeExecution}
-              activeCodeExecutionId={codePanelExecutionId ?? undefined}
-            />
-          ))}
-          {(topLevelSubAgents.length > 0 || topLevelFileOps.length > 0 || topLevelWebFetches.length > 0) && (
-            <CopTimeline
-              segments={buildFallbackSegments({
-                subAgents: topLevelSubAgents,
-                fileOps: topLevelFileOps,
-                webFetches: topLevelWebFetches,
-              })}
-              pool={buildResolvedPool({
-                steps: [],
-                sources: [],
-                subAgents: topLevelSubAgents,
-                fileOps: topLevelFileOps,
-                webFetches: topLevelWebFetches,
-              })}
-              isComplete
-              onOpenSubAgent={onOpenSubAgent}
-              accessToken={accessToken}
-              baseUrl={baseUrl}
-              typography={isWorkMode ? 'work' : 'default'}
-            />
-          )}
+          <CopTimeline
+            segments={buildFallbackSegments({
+              codeExecutions: dedupedTopLevelCodeExecutions,
+              subAgents: topLevelSubAgents,
+              fileOps: topLevelFileOps,
+              webFetches: topLevelWebFetches,
+            })}
+            pool={buildResolvedPool({
+              steps: [],
+              sources: [],
+              codeExecutions: dedupedTopLevelCodeExecutions,
+              subAgents: topLevelSubAgents,
+              fileOps: topLevelFileOps,
+              webFetches: topLevelWebFetches,
+            })}
+            isComplete
+            onOpenCodeExecution={onOpenCodeExecution}
+            activeCodeExecutionId={codePanelExecutionId ?? undefined}
+            onOpenSubAgent={onOpenSubAgent}
+            onOpenDocument={onOpenDocument}
+            artifacts={currentRunArtifacts}
+            runId={activeRunId ?? undefined}
+            accessToken={accessToken}
+            baseUrl={baseUrl}
+            typography={isWorkMode ? 'work' : 'default'}
+          />
         </div>
       )}
 
@@ -907,7 +903,51 @@ function QueuedPromptNotice({
   )
 }
 
-export const ChatView = memo(function ChatView() {
+type ChatViewProps = {
+  embeddedThreadId?: string
+}
+
+function SubAgentChatPanel({ agent }: { agent: SubAgentRef }) {
+  const { accessToken } = useAuth()
+  const [resolvedThreadId, setResolvedThreadId] = useState(agent.threadId ?? null)
+
+  useEffect(() => {
+    setResolvedThreadId(agent.threadId ?? null)
+  }, [agent.threadId])
+
+  useEffect(() => {
+    if (agent.threadId || !agent.currentRunId || !accessToken) return
+    let cancelled = false
+    getRunDetail(accessToken, agent.currentRunId)
+      .then((detail) => {
+        if (!cancelled) setResolvedThreadId(detail.thread_id)
+      })
+      .catch(() => {
+        if (!cancelled) setResolvedThreadId(null)
+      })
+    return () => { cancelled = true }
+  }, [accessToken, agent.currentRunId, agent.threadId])
+
+  if (!resolvedThreadId) {
+    return <div style={{ width: '100%', height: '100%', background: 'var(--c-bg-page)' }} />
+  }
+
+  return (
+    <RunLifecycleProvider threadIdOverride={resolvedThreadId}>
+      <MessageStoreProvider threadIdOverride={resolvedThreadId}>
+        <MessageMetaProvider>
+          <StreamProvider>
+            <PanelProvider>
+              <ChatView embeddedThreadId={resolvedThreadId} />
+            </PanelProvider>
+          </StreamProvider>
+        </MessageMetaProvider>
+      </MessageStoreProvider>
+    </RunLifecycleProvider>
+  )
+}
+
+export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewProps = {}) {
   const { accessToken, logout: onLoggedOut, me } = useAuth()
   const {
     threads, addThread: onThreadCreated,
@@ -920,7 +960,9 @@ export const ChatView = memo(function ChatView() {
   const { setRightPanelOpen } = useRightPanelActions()
   const { setTitleBarRightPanelClick } = useTitleBarRightPanelUI()
   const { openSettings: onOpenSettings } = useSettingsUI()
-  const { threadId } = useChatSession()
+  const { threadId: sessionThreadId } = useChatSession()
+  const threadId = embeddedThreadId ?? sessionThreadId
+  const isEmbeddedThread = !!embeddedThreadId
   const currentThread = useMemo(
     () => threads.find((thread) => thread.id === threadId) ?? null,
     [threadId, threads],
@@ -954,6 +996,8 @@ export const ChatView = memo(function ChatView() {
   const [rightPanelTabs, setRightPanelTabs] = useState<RightPanelStoredTab[]>([])
   const [activeRightPanelTabId, setActiveRightPanelTabId] = useState<string | null>(null)
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<string[]>([])
+  const rightPanelTabsRef = useRef<RightPanelStoredTab[]>([])
+  useEffect(() => { rightPanelTabsRef.current = rightPanelTabs }, [rightPanelTabs])
   const [webPanelResource, setWebPanelResource] = useState<BrowserResourceRef | null>(null)
   const [extraBrowserTabs, setExtraBrowserTabs] = useState<Array<{ id: string; resource: BrowserResourceRef | null }>>([])
   const [filesPreviewResource, setFilesPreviewResource] = useState<LocalFileResourceRef | null>(null)
@@ -1201,7 +1245,7 @@ export const ChatView = memo(function ChatView() {
 
   const { resetAssistantTurnLive, captureTerminalRunCache, persistThreadRunHandoff } = useRunTransition()
 
-  useThreadSseEffect({ drainQueuedPromptRef, drainForcedQueuedPromptRef })
+  useThreadSseEffect({ drainQueuedPromptRef, drainForcedQueuedPromptRef, threadIdOverride: embeddedThreadId })
 
   const prevActiveRunIdRef = useRef<string | null>(null)
   useEffect(() => {
@@ -2511,9 +2555,10 @@ export const ChatView = memo(function ChatView() {
   const sourcePanelSources = sourcePanelMessageId ? resolvedMessageSources.get(sourcePanelMessageId) : undefined
   const workPanelFolder = threadId ? resolveThreadWorkFolder(threadId) : undefined
   const isSourcePanelOpen = !!(sourcePanelSources && sourcePanelSources.length > 0)
-  const isPanelOpen = rightPanelVisible
+  const isPanelOpen = !isEmbeddedThread && rightPanelVisible
 
   useEffect(() => {
+    if (isEmbeddedThread) return
     skipRightPanelSaveRef.current = true
     const previousThreadId = restoredRightPanelThreadRef.current
     const isCursorNavigation = !!locationState?.cursorMessageId
@@ -2550,29 +2595,32 @@ export const ChatView = memo(function ChatView() {
     setFilesPreviewResource(saved?.filesPreview ?? null)
     browserTabSeqRef.current = saved ? browserTabSeqFromTabs(saved.browserTabs) : 0
     localFileTabSeqRef.current = saved ? localFileTabSeqFromTabs(saved.resourceTabs) : 0
-  }, [threadId, workPanelFolder])
+  }, [isEmbeddedThread, threadId, workPanelFolder])
 
   useEffect(() => {
+    if (isEmbeddedThread) return
     if (activePanel) {
       setRightPanelVisible(true)
       setRightPanelOpen(true)
     }
-  }, [activePanel, setRightPanelOpen])
+  }, [activePanel, isEmbeddedThread, setRightPanelOpen])
 
   useEffect(() => {
+    if (isEmbeddedThread) return
     setRightPanelOpen(isPanelOpen)
-  }, [isPanelOpen, setRightPanelOpen])
+  }, [isEmbeddedThread, isPanelOpen, setRightPanelOpen])
 
   useEffect(() => {
     if (isPanelOpen) writeSavedRightPanelWidth(rightPanelWidth)
   }, [isPanelOpen, rightPanelWidth])
 
   useEffect(() => {
+    if (isEmbeddedThread) return
     setTitleBarRightPanelClick(() => {
       setRightPanelVisible((visible) => !visible)
     })
     return () => setTitleBarRightPanelClick(null)
-  }, [setTitleBarRightPanelClick])
+  }, [isEmbeddedThread, setTitleBarRightPanelClick])
 
   useEffect(() => {
     if (!isPanelOpen) return
@@ -2668,19 +2716,23 @@ export const ChatView = memo(function ChatView() {
   }, [upsertRightPanelTab])
 
   const closeRightPanelTab = useCallback((id: string) => {
+    const wasActive = effectiveRightPanelTabIdRef.current === id
     if (id === 'conversation-graph') {
       setConversationCursor({ kind: 'tail', threadId })
       setActiveRightPanelTabId((activeId) => activeId === id ? 'web' : activeId)
+      if (wasActive) setRightPanelVisible(false)
       return
     }
     if (id === 'web') {
       setWebPanelResource(null)
       setActiveRightPanelTabId('web')
+      if (wasActive) setRightPanelVisible(false)
       return
     }
     if (id.startsWith('web:')) {
       setExtraBrowserTabs((current) => current.filter((tab) => tab.id !== id))
       setActiveRightPanelTabId((activeId) => activeId === id ? 'web' : activeId)
+      if (wasActive) setRightPanelVisible(false)
       return
     }
     setRightPanelTabs((current) => {
@@ -2701,9 +2753,10 @@ export const ChatView = memo(function ChatView() {
         if (activeId !== id) return activeId
         return next[index]?.id ?? next[index - 1]?.id ?? (workPanelFolder?.trim() ? 'files' : 'web')
       })
+      if (wasActive) setRightPanelVisible(false)
       return next
     })
-  }, [closePanel, workPanelFolder])
+  }, [closePanel, threadId, workPanelFolder])
 
   const setBrowserResourceForCurrentTab = useCallback((resource: BrowserResourceRef) => {
     const activeId = effectiveRightPanelTabIdRef.current
@@ -2762,6 +2815,26 @@ export const ChatView = memo(function ChatView() {
       })
     }
   }, [agentPanelAgent, upsertRightPanelTab])
+
+  useEffect(() => {
+    if (topLevelSubAgents.length === 0) return
+    const latestByID = new Map(topLevelSubAgents.map((agent) => [agent.id, agent]))
+    setRightPanelTabs((current) => {
+      let changed = false
+      const next = current.map((tab) => {
+        if (tab.kind !== 'agent') return tab
+        const latest = latestByID.get(tab.agent.id)
+        if (!latest || latest === tab.agent) return tab
+        changed = true
+        return {
+          ...tab,
+          title: latest.nickname || latest.personaId || 'Agent',
+          agent: latest,
+        }
+      })
+      return changed ? next : current
+    })
+  }, [topLevelSubAgents])
 
   useEffect(() => {
     if (resourcePanelResource) {
@@ -2823,9 +2896,10 @@ export const ChatView = memo(function ChatView() {
         id: tab.id,
         kind: tab.kind,
         title: tab.title,
+        keepMounted: true,
         content: (
           <div style={{ width: '100%', height: '100%', contain: 'layout style' }}>
-            <AgentPanel agent={tab.agent} onClose={() => closeRightPanelTab(tab.id)} />
+            <SubAgentChatPanel agent={tab.agent} />
           </div>
         ),
       }
@@ -2978,6 +3052,7 @@ export const ChatView = memo(function ChatView() {
   const rightPanelSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    if (isEmbeddedThread) return
     if (skipRightPanelSaveRef.current) {
       skipRightPanelSaveRef.current = false
       return
@@ -3010,6 +3085,7 @@ export const ChatView = memo(function ChatView() {
     effectiveRightPanelTabId,
     extraBrowserTabs,
     filesPreviewResource,
+    isEmbeddedThread,
     rightPanelTabs,
     rightPanelTabOrder,
     rightPanelVisible,
@@ -3067,6 +3143,23 @@ export const ChatView = memo(function ChatView() {
       runId: options?.runId,
     })
   }, [closeRightPanelTab, openDocumentPanelState, stabilizeDocumentPanelScroll])
+
+  const openAgentPanel = useCallback((agent: SubAgentRef) => {
+    const tabId = `agent:${agent.id}`
+    const existingTab = rightPanelTabsRef.current.find((tab) => tab.id === tabId && tab.kind === 'agent')
+    if (agentPanelAgentIdRef.current === agent.id || existingTab) {
+      if (isPanelOpenRef.current && effectiveRightPanelTabIdRef.current === tabId) {
+        closeRightPanelTab(tabId)
+      } else {
+        openAgentPanelState(agent)
+        setRightPanelVisible(true)
+        setActiveRightPanelTabId(tabId)
+      }
+      return
+    }
+    openAgentPanelState(agent)
+    setRightPanelVisible(true)
+  }, [closeRightPanelTab, openAgentPanelState])
 
   const openResourcePanel = useCallback((resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => {
     stabilizeDocumentPanelScroll(options?.trigger)
@@ -3385,7 +3478,10 @@ export const ChatView = memo(function ChatView() {
           thinkingHint={thinkingHint}
           headerOverride={timelineTitleOverride}
           onOpenCodeExecution={openCodePanel}
-          onOpenSubAgent={openAgentPanelState}
+          onOpenSubAgent={openAgentPanel}
+          onOpenDocument={openDocumentPanel}
+          artifacts={currentRunArtifacts}
+          runId={activeRunId ?? undefined}
           activeCodeExecutionId={codePanelExecution?.id}
           accessToken={accessToken}
           baseUrl={baseUrl}
@@ -3431,7 +3527,7 @@ export const ChatView = memo(function ChatView() {
     liveAssistantTurn,
     liveRunUiActive,
     liveSegments,
-    openAgentPanelState,
+    openAgentPanel,
     openCodePanel,
     preserveLiveRunUi,
     searchSteps,
@@ -3510,7 +3606,7 @@ export const ChatView = memo(function ChatView() {
       onOpenDocument={openDocumentPanel}
       onOpenResource={openResourcePanel}
       onOpenCodeExecution={openCodePanel}
-      onOpenSubAgent={openAgentPanelState}
+      onOpenSubAgent={openAgentPanel}
       onArtifactAction={handleArtifactAction}
       renderLiveCopItems={renderLiveCopItems}
       renderLiveCopSegment={renderLiveCopSegment}
@@ -3536,7 +3632,7 @@ export const ChatView = memo(function ChatView() {
     liveRunUiActive,
     liveRunUiVisible,
     liveSegments,
-    openAgentPanelState,
+    openAgentPanel,
     openCodePanel,
     openDocumentPanel,
     openResourcePanel,
@@ -3573,9 +3669,9 @@ export const ChatView = memo(function ChatView() {
         style={{
           maxWidth: isWorkMode ? 1000 : 800,
           margin: '0 auto',
-          paddingTop: '50px',
+          paddingTop: isEmbeddedThread ? '24px' : '50px',
           paddingRight: 'calc(var(--chat-message-horizontal-padding) + var(--main-content-axis-padding-right, 0px))',
-          paddingBottom: 'var(--chat-input-area-height)',
+          paddingBottom: isEmbeddedThread ? '24px' : 'var(--chat-input-area-height)',
           paddingLeft: 'calc(var(--chat-message-horizontal-padding) + var(--main-content-axis-padding-left, 0px))',
           gap: isWorkMode ? 0 : undefined,
           transition: `padding ${rightPanelLayoutTransitionCss}`,
@@ -3599,6 +3695,7 @@ export const ChatView = memo(function ChatView() {
               <MessageList
                 ref={messageListRef}
                 isWorkMode={isWorkMode}
+                embeddedReadOnly={isEmbeddedThread}
                 lastTurnStartIdx={lastTurnStartIdx}
                 lastTurnRef={lastUserMsgRef}
                 lastUserPromptRef={lastUserPromptRef}
@@ -3612,7 +3709,7 @@ export const ChatView = memo(function ChatView() {
                 openDocumentPanel={openDocumentPanel}
                 openResourcePanel={openResourcePanel}
                 openCodePanel={openCodePanel}
-                openAgentPanel={openAgentPanelState}
+                openAgentPanel={openAgentPanel}
                 sourcePanelMessageId={sourcePanelMessageId}
                 setRunDetailPanelRunId={setRunDetailPanelRunId}
                 clearUserEnterAnimation={clearUserEnterAnimation}
@@ -3634,12 +3731,13 @@ export const ChatView = memo(function ChatView() {
     handleFork,
     handleRetryUserMessage,
     handleScrollContainerScroll,
+    isEmbeddedThread,
     isWorkMode,
     lastTurnChildren,
     lastTurnStartIdx,
     messages,
     messagesLoading,
-    openAgentPanelState,
+    openAgentPanel,
     openCodePanel,
     openDocumentPanel,
     openResourcePanel,
@@ -3655,7 +3753,11 @@ export const ChatView = memo(function ChatView() {
   ])
 
   return (
-    <div ref={chatViewRootRef} className="theme-surface-page theme-chat-surface relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]">
+    <div
+      ref={chatViewRootRef}
+      className="theme-surface-page theme-chat-surface relative flex min-w-0 flex-1 overflow-hidden bg-[var(--c-bg-page)]"
+      style={isEmbeddedThread ? { width: '100%', height: '100%' } : undefined}
+    >
       {/* Chat column + right panel: starts below the desktop Chat/Work titlebar. */}
       <div className="relative flex flex-1 min-h-0 min-w-0">
         <div
@@ -3666,8 +3768,8 @@ export const ChatView = memo(function ChatView() {
             transition: `min-width ${rightPanelLayoutTransitionCss}`,
           } as React.CSSProperties}
         >
-          <ChatTitleMenu />
-          <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />
+          {!isEmbeddedThread && <ChatTitleMenu />}
+          {!isEmbeddedThread && <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />}
           {/* 消息列表 */}
           {messageListArea}
           <ChatMessageNavigator
@@ -3676,7 +3778,7 @@ export const ChatView = memo(function ChatView() {
           />
 
       {/* 输入区域 */}
-      <div
+      {!isEmbeddedThread && <div
         ref={inputAreaRef}
         style={{
           '--chat-input-horizontal-padding': inputHorizontalPadding,
@@ -3766,10 +3868,10 @@ export const ChatView = memo(function ChatView() {
         <p style={{ color: 'var(--c-text-muted)', fontSize: '11px', letterSpacing: '-0.3px', textAlign: 'center', marginBottom: 0, marginTop: '-2px' }}>
           Arkloop is AI and can make mistakes. Please double-check responses.
         </p>
-      </div>
+      </div>}
         </div>
 
-      <motion.div
+      {!isEmbeddedThread && <motion.div
         ref={rightPanelShellRef}
         className="relative flex-shrink-0 overflow-hidden bg-[var(--c-bg-page)]"
         initial={false}
@@ -3804,7 +3906,7 @@ export const ChatView = memo(function ChatView() {
             emptyLabel={t.rightPanel.empty}
           />
         </div>
-      </motion.div>
+      </motion.div>}
       </div>
 
       {shareModalEl}

@@ -71,8 +71,9 @@ function mergeLocalTerminalMessages(
   return merged
 }
 
-export function MessageStoreProvider({ children }: { children: ReactNode }) {
-  const { threadId } = useChatSession()
+export function MessageStoreProvider({ children, threadIdOverride }: { children: ReactNode; threadIdOverride?: string | null }) {
+  const { threadId: sessionThreadId } = useChatSession()
+  const threadId = threadIdOverride ?? sessionThreadId
   return (
     <MessageStoreProviderContent key={threadId ?? '__no_thread__'} threadId={threadId}>
       {children}
