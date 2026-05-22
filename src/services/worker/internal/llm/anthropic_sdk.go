@@ -187,6 +187,9 @@ func (g *anthropicSDKGateway) streamAttempt(ctx context.Context, request Request
 	if g.quirks.Has(QuirkStripUnsignedThinking) {
 		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
 	}
+	if g.quirks.Has(QuirkEchoReasoningContent) {
+		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
+	}
 	if g.quirks.Has(QuirkEchoEmptyTextOnThink) {
 		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
 	}
