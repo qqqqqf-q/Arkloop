@@ -8,11 +8,6 @@ const AT_BOTTOM_THRESHOLD = 80
 
 type ScrollState = 'following' | 'pinned' | 'free'
 
-const DEBUG = false
-function dbg(_tag: string, _extra = '') {
-  if (!DEBUG) return
-}
-
 interface UseScrollPinOptions {
   messagesLoading?: boolean
   messages?: readonly unknown[]
@@ -107,11 +102,12 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       spacer.style.height = '0px'
       return
     }
-    const spacerH = Number.parseFloat(spacer.style.height) || 0
-    const naturalScrollHeight = container.scrollHeight - spacerH
+    const oldSpacerH = Number.parseFloat(spacer.style.height) || 0
+    const naturalScrollHeight = container.scrollHeight - oldSpacerH
     const promptTop = prompt.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
     const desiredScrollTop = Math.max(0, promptTop - PROMPT_PIN_TOP_OFFSET)
     const needed = Math.max(0, desiredScrollTop + container.clientHeight - naturalScrollHeight)
+    if (Math.abs(needed - oldSpacerH) < 1.5) return
     spacer.style.height = needed + 'px'
   }, [])
 
@@ -126,7 +122,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   }, [])
 
   // --- scroll handler: only updates isAtBottom for button UI ---
-  // 不做任何状态转换。free→following 只通过用户显式操作（点按钮、发消息）。
   const handleScrollContainerScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -141,7 +136,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     const onWheel = (e: WheelEvent) => {
       if (e.deltaY >= 0) return
       if (stateRef.current === 'free') return
-      dbg(`wheel→free dy=${e.deltaY}`)
       stateRef.current = 'free'
       const el = scrollContainerRef.current
       if (el) syncBottomState(el)
@@ -149,7 +143,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
 
     const onTouchStart = () => {
       if (stateRef.current === 'free') return
-      dbg(`touch→free state=${stateRef.current}`)
       stateRef.current = 'free'
     }
 
@@ -162,16 +155,21 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   }, [collapseSpacer, syncBottomState])
 
   const activateAnchor = useCallback(() => {
-    dbg('activateAnchor', `pinDisabled=${promptPinningDisabled} prompt=${!!lastUserPromptRef.current} msg=${!!lastUserMsgRef.current}`)
-    stateRef.current = 'following'
-    pinnedNeedsInitialScrollRef.current = false
-    collapseSpacer()
+    if (promptPinningDisabled) {
+      stateRef.current = 'following'
+      collapseSpacer()
+      setAtBottomState(true)
+      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
+      return
+    }
+
+    stateRef.current = 'pinned'
+    pinnedNeedsInitialScrollRef.current = true
     setAtBottomState(true)
-    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-  }, [setAtBottomState, collapseSpacer])
+
+  }, [promptPinningDisabled, recalcSpacer, setAtBottomState, collapseSpacer])
 
   const scrollToBottom = useCallback(() => {
-    dbg('scrollToBottom')
     stateRef.current = 'following'
     collapseSpacer()
     setAtBottomState(true)
@@ -229,8 +227,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   useEffect(() => {
     const isLive = liveAssistantTurn != null || liveRunUiVisible
 
-    dbg('streamEffect', `state=${stateRef.current} needsInit=${pinnedNeedsInitialScrollRef.current} prompt=${!!(lastUserPromptRef.current ?? lastUserMsgRef.current)} msgs=${messages.length} live=${liveAssistantTurn != null} runUi=${liveRunUiVisible}`)
-
     if (!isLive && stateRef.current !== 'pinned') {
       collapseSpacer()
     }
@@ -242,7 +238,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       if (pinnedNeedsInitialScrollRef.current && prompt) {
         pinnedNeedsInitialScrollRef.current = false
         recalcSpacer()
-        dbg('streamEffect:initialScroll')
         const container = scrollContainerRef.current
         if (container) {
           const promptTop = prompt.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop
@@ -255,7 +250,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
   // history load complete
   useEffect(() => {
     if (messagesLoading) {
-      dbg('historyLoad:loading')
       wasLoadingRef.current = true
       stateRef.current = 'following'
       collapseSpacer()
@@ -263,7 +257,6 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
     }
     if (!wasLoadingRef.current) return
     wasLoadingRef.current = false
-    dbg('historyLoad:complete', `turn=${!!lastUserMsgRef.current} container=${!!scrollContainerRef.current}`)
 
     const container = scrollContainerRef.current
     if (!container) return
@@ -313,6 +306,7 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
       }
     })
     for (const child of Array.from(container.children)) {
+      if (child === spacerRef.current) continue
       ro.observe(child)
     }
     return () => ro.disconnect()
