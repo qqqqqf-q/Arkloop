@@ -56,7 +56,7 @@ import {
   buildMessageResourcesFromAgentEvents,
   buildTodosFromAgentEvents,
 } from '../agentEventProcessing'
-import type { McpAppResource } from '../storage'
+import { readMessageResources, type McpAppResource } from '../storage'
 import { getThreadTodos, setThreadTodos, clearThreadTodos, type TodoItem } from '../todoDb'
 import {
   buildAssistantTurnFromAgentEvents,
@@ -1346,6 +1346,8 @@ export const ChatView = memo(function ChatView() {
           if (cached) sourcesMap.set(msg.id, cached)
           const cachedArt = readMessageArtifacts(msg.id)
           if (cachedArt) artifactsMap.set(msg.id, cachedArt)
+          const cachedResources = readMessageResources(msg.id)
+          if (cachedResources) resourcesMap.set(msg.id, cachedResources)
           const cachedWidgets = readMessageWidgets(msg.id)
           if (cachedWidgets) widgetsMap.set(msg.id, cachedWidgets)
           const cachedExec = readMessageCodeExecutions(msg.id)
