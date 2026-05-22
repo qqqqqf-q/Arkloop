@@ -399,9 +399,6 @@ func createThreadRun(
 		jobData := map[string]any{"source": "api"}
 		setRunCollaborationMode(startedData, jobData, collaborationMode, collaborationModeRevision)
 		setRunLearningMode(startedData, jobData, thread.LearningModeEnabled)
-		if thread.ProjectMetaContext != nil && strings.TrimSpace(*thread.ProjectMetaContext) != "" {
-			startedData["project_meta_context"] = strings.TrimSpace(*thread.ProjectMetaContext)
-		}
 
 		var resumeFromRunID *uuid.UUID
 		if requestedResumeFromRunID != nil {
