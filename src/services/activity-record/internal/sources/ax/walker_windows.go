@@ -14,3 +14,7 @@ func walkOnThread(maxDepth, maxNodes int, timeoutMs float64) WalkResult {
 func idleSeconds() (float64, error) {
 	return 0, fmt.Errorf("idle check not available on %s", runtime.GOOS)
 }
+
+func checkPermission() bool {
+	return false
+}

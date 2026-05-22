@@ -91,16 +91,9 @@ runtime:
         - "-y"
         - "screenpipe@latest"
         - "record"
+        - "--disable-vision"
         - "--audio-transcription-engine"
         - "${settings.transcription_engine}"
-        - "--video-quality"
-        - "${settings.video_quality}"
-        - "--idle-capture-interval-ms"
-        - "${settings.capture_interval_ms}"
-        - "--visual-check-interval-ms"
-        - "5000"
-        - "--min-capture-interval-ms"
-        - "10000"
         - "--disable-telemetry"
         - "--retention-days"
         - "${settings.retention_days}"
@@ -111,9 +104,6 @@ runtime:
         - setting: meeting_detector
           equals: false
           args: ["--disable-meeting-detector"]
-        - setting: snapshot_compaction
-          equals: false
-          args: ["--disable-snapshot-compaction"]
       health_url: "http://127.0.0.1:3030/health"
 
 mcp_servers:

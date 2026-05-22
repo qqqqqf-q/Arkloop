@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/activity-record/internal/sources/ax"
 	"arkloop/services/activity-record/internal/syncer"
 )
 
@@ -31,6 +33,8 @@ func run() error {
 		return runSync(args)
 	case "daemon":
 		return runDaemon(args)
+	case "check":
+		return runCheck()
 	case "help", "-h", "--help":
 		printUsage()
 		return nil
@@ -97,5 +101,13 @@ func splitList(value string) []string {
 func printUsage() {
 	fmt.Fprintln(os.Stdout, `Usage:
   activity-record sync   [--data-dir DIR] [--sources codex,chrome]
-  activity-record daemon [--data-dir DIR] [--sync-sources codex,chrome,screentime,safari,shell] [--sources ax,window,clipboard,mouse] [--sync-interval 300] [--idle-threshold 300]`)
+  activity-record daemon [--data-dir DIR] [--sync-sources codex,chrome,screentime,safari,shell] [--sources ax,window,clipboard,mouse] [--sync-interval 300] [--idle-threshold 300]
+  activity-record check`)
+}
+
+func runCheck() error {
+	result := map[string]any{
+		"ax_permission": ax.CheckAXPermission(),
+	}
+	return json.NewEncoder(os.Stdout).Encode(result)
 }

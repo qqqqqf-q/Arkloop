@@ -3,6 +3,7 @@ package plugincontrib
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -50,6 +51,7 @@ func prepareActivityRecord(settings map[string]any, runtimeState map[string]any)
 		runtimeState[prefix+"db_error"] = err.Error()
 	}
 	startActivityRecordDaemon(settings, runtimeState, dataDir)
+	checkActivityRecordAXPermission(runtimeState)
 }
 
 func clearActivityRecordDaemonIfStopped(runtimeState map[string]any) {
@@ -291,4 +293,28 @@ func sqliteCount(path, query string) (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+func checkActivityRecordAXPermission(runtimeState map[string]any) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	cmdParts, err := activityRecordCommand()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, cmdParts[0], append(cmdParts[1:], "check")...)
+	cmd.Env = os.Environ()
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	var result struct {
+		AXPermission bool `json:"ax_permission"`
+	}
+	if json.Unmarshal(output, &result) == nil {
+		runtimeState["activity_record.ax_permission"] = result.AXPermission
+	}
 }

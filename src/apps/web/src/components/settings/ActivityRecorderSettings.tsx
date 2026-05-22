@@ -14,6 +14,7 @@ import {
   type PluginRuntimeState,
 } from '../../api'
 import { useLocale } from '../../contexts/LocaleContext'
+import { openExternal } from '../../openExternal'
 import { SettingsButton, SettingsIconButton } from './_SettingsButton'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow } from './_SettingsLayout'
@@ -480,7 +481,27 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
             </SettingsCard>
           </SettingsGroup>
 
-          <SettingsGroup title={copy.modeSection}>
+          {settings.enable_activity_record && runtimeBool(status.runtime, 'activity_record.ax_permission') === false && (
+          <SettingsGroup title={copy.axPermissionSection}>
+            <SettingsCard>
+              <SettingsRow
+                title={copy.axPermissionRequired}
+                description={copy.axPermissionDesc}
+                control={(
+                  <SettingsButton
+                    variant="primary"
+                    onClick={() => openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility')}
+                  >
+                    {copy.grantAccess}
+                  </SettingsButton>
+                )}
+              />
+            </SettingsCard>
+          </SettingsGroup>
+          )}
+
+          {settings.enable_screenpipe && (
+          <SettingsGroup title={copy.captureSection}>
             <SettingsCard>
               <SettingsRow
                 title={copy.mode}
@@ -499,11 +520,6 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
                   </div>
                 )}
               />
-            </SettingsCard>
-          </SettingsGroup>
-
-          <SettingsGroup title={copy.captureSection}>
-            <SettingsCard>
               <SettingsRow
                 title={copy.audio}
                 description={copy.audioDesc}
@@ -531,42 +547,6 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
                 )}
               />
               <SettingsRow
-                title={copy.videoQuality}
-                description={copy.videoQualityDesc}
-                control={(
-                  <div className="w-[150px] max-w-full">
-                    <SettingsSelect
-                      value={settings.video_quality}
-                      disabled={busy === 'settings'}
-                      onChange={(value) => setCustom({ video_quality: value })}
-                      options={[
-                        { value: 'low', label: 'low' },
-                        { value: 'balanced', label: 'balanced' },
-                        { value: 'high', label: 'high' },
-                      ]}
-                    />
-                  </div>
-                )}
-              />
-              <SettingsRow
-                title={copy.captureInterval}
-                description={copy.captureIntervalDesc}
-                control={(
-                  <SettingsInput
-                    variant="md"
-                    defaultValue={String(settings.capture_interval_ms)}
-                    disabled={busy === 'settings'}
-                    onBlur={(event) => {
-                      const value = Number(event.currentTarget.value)
-                      if (Number.isFinite(value) && value > 0 && value !== settings.capture_interval_ms) {
-                        setCustom({ capture_interval_ms: Math.round(value) })
-                      }
-                    }}
-                    className="w-[132px]"
-                  />
-                )}
-              />
-              <SettingsRow
                 title={copy.retentionDays}
                 description={copy.retentionDaysDesc}
                 control={(
@@ -589,13 +569,9 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
                 description={copy.meetingDetectorDesc}
                 control={<SettingsSwitch checked={settings.meeting_detector} disabled={busy === 'settings'} onChange={(value) => setCustom({ meeting_detector: value })} />}
               />
-              <SettingsRow
-                title={copy.snapshotCompaction}
-                description={copy.snapshotCompactionDesc}
-                control={<SettingsSwitch checked={settings.snapshot_compaction} disabled={busy === 'settings'} onChange={(value) => setCustom({ snapshot_compaction: value })} />}
-              />
             </SettingsCard>
           </SettingsGroup>
+          )}
         </>
       )}
     </SettingsPage>

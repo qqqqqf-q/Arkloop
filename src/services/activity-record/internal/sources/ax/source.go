@@ -136,3 +136,7 @@ func truncateRunes(text string, maxLen int) string {
 	}
 	return string(runes[:maxLen])
 }
+
+func CheckAXPermission() bool {
+	return checkPermission()
+}

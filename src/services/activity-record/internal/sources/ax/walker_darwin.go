@@ -528,3 +528,7 @@ func idleSeconds() (float64, error) {
 
 // ensure unsafe import is used
 var _ = unsafe.Pointer(nil)
+
+func checkPermission() bool {
+	return C.AXIsProcessTrusted() != 0
+}
