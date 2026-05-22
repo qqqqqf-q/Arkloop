@@ -3113,7 +3113,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     const tabId = `code:${ce.id}`
     if (codePanelExecutionIdRef.current === ce.id) {
       if (isPanelOpenRef.current && effectiveRightPanelTabIdRef.current === tabId) {
-        closeRightPanelTab(tabId)
         setRightPanelVisible(false)
       } else {
         setRightPanelVisible(true)
@@ -3122,14 +3121,13 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       return
     }
     openCodePanelState(ce)
-  }, [closeRightPanelTab, openCodePanelState])
+  }, [openCodePanelState])
 
   const openDocumentPanel = useCallback((artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => {
     stabilizeDocumentPanelScroll(options?.trigger)
     const tabId = `resource:artifact:${artifact.key}`
     if (documentPanelArtifactKeyRef.current === artifact.key) {
       if (isPanelOpenRef.current && effectiveRightPanelTabIdRef.current === tabId) {
-        closeRightPanelTab(tabId)
         setRightPanelVisible(false)
       } else {
         setRightPanelVisible(true)
@@ -3142,14 +3140,14 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       artifacts: options?.artifacts ?? [],
       runId: options?.runId,
     })
-  }, [closeRightPanelTab, openDocumentPanelState, stabilizeDocumentPanelScroll])
+  }, [openDocumentPanelState, stabilizeDocumentPanelScroll])
 
   const openAgentPanel = useCallback((agent: SubAgentRef) => {
     const tabId = `agent:${agent.id}`
     const existingTab = rightPanelTabsRef.current.find((tab) => tab.id === tabId && tab.kind === 'agent')
     if (agentPanelAgentIdRef.current === agent.id || existingTab) {
       if (isPanelOpenRef.current && effectiveRightPanelTabIdRef.current === tabId) {
-        closeRightPanelTab(tabId)
+        setRightPanelVisible(false)
       } else {
         openAgentPanelState(agent)
         setRightPanelVisible(true)
@@ -3159,7 +3157,7 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     }
     openAgentPanelState(agent)
     setRightPanelVisible(true)
-  }, [closeRightPanelTab, openAgentPanelState])
+  }, [openAgentPanelState])
 
   const openResourcePanel = useCallback((resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => {
     stabilizeDocumentPanelScroll(options?.trigger)
@@ -3172,7 +3170,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     const current = resourcePanelResourceRef.current
     if (current && resourceTabId(current) === tabId) {
       if (isPanelOpenRef.current && effectiveRightPanelTabIdRef.current === tabId) {
-        closeRightPanelTab(tabId)
         setRightPanelVisible(false)
       } else {
         upsertRightPanelTab({
@@ -3197,7 +3194,7 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       runId: options?.runId,
     })
     openResourcePanelState(resource)
-  }, [closeRightPanelTab, openResourcePanelState, setBrowserResourceForCurrentTab, stabilizeDocumentPanelScroll, upsertRightPanelTab])
+  }, [openResourcePanelState, setBrowserResourceForCurrentTab, stabilizeDocumentPanelScroll, upsertRightPanelTab])
 
   // COP step 计数：timeline 中所有非 finished 的点
   const dedupedTopLevelCodeExecutions = useMemo(() => {
