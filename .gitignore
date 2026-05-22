@@ -79,3 +79,4 @@ release-files/
 .cache
 .gstack/
 .codegraph
+src/services/activity-record/activity-record

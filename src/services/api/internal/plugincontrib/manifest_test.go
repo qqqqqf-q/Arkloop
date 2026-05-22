@@ -328,6 +328,10 @@ settings:
 	if err == nil {
 		t.Fatalf("expected select option validation error")
 	}
+	_, _, err = normalizeSettings(map[string]any{"unknown": true}, manifest)
+	if err == nil {
+		t.Fatalf("expected unknown setting validation error")
+	}
 }
 
 func TestNormalizeSettingsValidatesSettingsSchemaDefaults(t *testing.T) {
