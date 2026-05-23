@@ -207,7 +207,7 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 	applyManifestRuntimeDefaults(manifest, statusMap)
 	settings := map[string]any{}
 	if current != nil {
-		settings = decodePluginJSONMap(current.SettingsJSON)
+		settings = stripUnknownSettings(decodePluginJSONMap(current.SettingsJSON), manifest)
 	}
 	_, defaultSettings, err := normalizeSettings(settings, manifest)
 	if err != nil {

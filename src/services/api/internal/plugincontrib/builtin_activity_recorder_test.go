@@ -49,7 +49,7 @@ func TestCheckRuntimeDaemonsDoesNotWaitForHealthyStatus(t *testing.T) {
 
 	manifest := Manifest{
 		Runtime: []pluginmanifest.RuntimeConfig{{
-			ID: "screenpipe",
+			ID: "test-daemon",
 			Daemon: &pluginmanifest.RuntimeDaemonConfig{
 				ID:        "server",
 				HealthURL: server.URL,
@@ -65,7 +65,7 @@ func TestCheckRuntimeDaemonsDoesNotWaitForHealthyStatus(t *testing.T) {
 	if elapsed := time.Since(startedAt); elapsed > 150*time.Millisecond {
 		t.Fatalf("daemon status check waited too long: %s", elapsed)
 	}
-	if got := state["screenpipe.server.daemon.status"]; got != "stopped" {
+	if got := state["test-daemon.server.daemon.status"]; got != "stopped" {
 		t.Fatalf("daemon status = %v, want stopped", got)
 	}
 }
@@ -73,10 +73,10 @@ func TestCheckRuntimeDaemonsDoesNotWaitForHealthyStatus(t *testing.T) {
 func TestCheckRuntimeDaemonsClearsStalePID(t *testing.T) {
 	root := t.TempDir()
 	state := map[string]any{
-		"plugin_data":                  root,
-		"screenpipe.server.daemon.pid": 999999,
+		"plugin_data":                     root,
+		"test-daemon.server.daemon.pid": 999999,
 	}
-	pidPath := filepath.Join(root, "runtime", "screenpipe.server.pid")
+	pidPath := filepath.Join(root, "runtime", "test-daemon.server.pid")
 	if err := os.MkdirAll(filepath.Dir(pidPath), 0o755); err != nil {
 		t.Fatalf("mkdir pid dir: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestCheckRuntimeDaemonsClearsStalePID(t *testing.T) {
 	}
 	manifest := Manifest{
 		Runtime: []pluginmanifest.RuntimeConfig{{
-			ID: "screenpipe",
+			ID: "test-daemon",
 			Daemon: &pluginmanifest.RuntimeDaemonConfig{
 				ID:        "server",
 				HealthURL: "http://127.0.0.1:1/health",
@@ -94,10 +94,10 @@ func TestCheckRuntimeDaemonsClearsStalePID(t *testing.T) {
 	}
 
 	checkRuntimeDaemons(context.Background(), manifest, nil, state)
-	if got := state["screenpipe.server.daemon.status"]; got != "stopped" {
+	if got := state["test-daemon.server.daemon.status"]; got != "stopped" {
 		t.Fatalf("daemon status = %v, want stopped", got)
 	}
-	if _, ok := state["screenpipe.server.daemon.pid"]; ok {
+	if _, ok := state["test-daemon.server.daemon.pid"]; ok {
 		t.Fatalf("stale pid must be removed from runtime state")
 	}
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
@@ -127,7 +127,7 @@ func TestCheckRuntimeDaemonsTreatsLiveProcessWithoutHealthURLAsRunning(t *testin
 
 func TestRenderDaemonLaunchAppliesConditionalArgs(t *testing.T) {
 	daemon := pluginmanifest.RuntimeDaemonConfig{
-		Command: "screenpipe",
+		Command: "echo",
 		Args:    []string{"record"},
 		ArgsWhen: []pluginmanifest.RuntimeArgsWhen{{
 			Setting: "enable_audio",
@@ -135,7 +135,7 @@ func TestRenderDaemonLaunchAppliesConditionalArgs(t *testing.T) {
 			Args:    []string{"--disable-audio"},
 		}},
 	}
-	_, args, _, _, err := renderDaemonLaunch(pluginmanifest.RuntimeConfig{ID: "screenpipe"}, daemon, map[string]any{
+	_, args, _, _, err := renderDaemonLaunch(pluginmanifest.RuntimeConfig{ID: "test-daemon"}, daemon, map[string]any{
 		"enable_audio": false,
 	}, map[string]any{})
 	if err != nil {

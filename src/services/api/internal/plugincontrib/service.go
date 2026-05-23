@@ -549,6 +549,7 @@ func (e *Enabler) apply(ctx context.Context, req EnableRequest, toggle bool) (da
 		mergedSettings[key] = value
 	}
 	mergedSettings = normalizeRuntimeSettings(manifest, mergedSettings)
+	mergedSettings = stripUnknownSettings(mergedSettings, manifest)
 	settingsPayload, settings, err := normalizeSettings(mergedSettings, manifest)
 	if err != nil {
 		return data.PluginEnablement{}, err
@@ -1500,6 +1501,20 @@ func normalizeSettings(settings map[string]any, manifest Manifest) (json.RawMess
 		return nil, nil, err
 	}
 	return payload, out, nil
+}
+
+func stripUnknownSettings(settings map[string]any, manifest Manifest) map[string]any {
+	rules := pluginSettingRules(manifest)
+	if len(rules) == 0 {
+		return settings
+	}
+	out := make(map[string]any, len(settings))
+	for key, value := range settings {
+		if _, ok := rules[strings.TrimSpace(key)]; ok {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 type pluginSettingRule struct {

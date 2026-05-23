@@ -3,7 +3,7 @@ id: arkloop.plugins.activity-recorder
 name: Activity Recorder
 version: 0.2.0
 publisher: arkloop
-description: Record local desktop activity through the unified activity-record daemon and optional Screenpipe capture.
+description: Record local desktop activity through the unified activity-record daemon.
 host_requirement: desktop_local
 platforms: [darwin, linux, windows]
 
@@ -48,29 +48,6 @@ settings:
   - key: sync_interval_sec
     type: integer
     default: 300
-  - key: enable_screenpipe
-    type: boolean
-    default: false
-  - key: enable_audio
-    type: boolean
-    default: false
-  - key: transcription_engine
-    type: select
-    default: disabled
-    options: [disabled, whisper-tiny, parakeet, deepgram, openai-compatible]
-  - key: video_quality
-    type: select
-    default: low
-    options: [low, balanced, high]
-  - key: capture_interval_ms
-    type: integer
-    default: 120000
-  - key: retention_days
-    type: integer
-    default: 3
-  - key: meeting_detector
-    type: boolean
-    default: false
   - key: snapshot_compaction
     type: boolean
     default: false
@@ -78,56 +55,9 @@ settings:
     type: integer
     default: 300
 
-runtime:
-  - id: screenpipe
-    detect:
-      - path: npx
-    daemon:
-      command: npx
-      enabled_when:
-        - setting: enable_screenpipe
-          equals: true
-      args:
-        - "-y"
-        - "screenpipe@latest"
-        - "record"
-        - "--disable-vision"
-        - "--audio-transcription-engine"
-        - "${settings.transcription_engine}"
-        - "--disable-telemetry"
-        - "--retention-days"
-        - "${settings.retention_days}"
-      args_when:
-        - setting: enable_audio
-          equals: false
-          args: ["--disable-audio"]
-        - setting: meeting_detector
-          equals: false
-          args: ["--disable-meeting-detector"]
-      health_url: "http://127.0.0.1:3030/health"
-
-mcp_servers:
-  - server_id: screenpipe
-    display_name: Screenpipe
-    transport: stdio
-    command: npx
-    args: ["-y", "screenpipe-mcp"]
-    enabled_when:
-      - setting: enable_screenpipe
-        equals: true
-
 skills:
   - skill_key: activity-record
     bundle: skills/activity-record
-    version: "0.1.0"
-  - skill_key: screenpipe-api
-    bundle: skills/screenpipe-api
-    version: "0.1.0"
-  - skill_key: screenpipe-health
-    bundle: skills/screenpipe-health
-    version: "0.1.0"
-  - skill_key: screenpipe-logs
-    bundle: skills/screenpipe-logs
     version: "0.1.0"
 
 context: context.md

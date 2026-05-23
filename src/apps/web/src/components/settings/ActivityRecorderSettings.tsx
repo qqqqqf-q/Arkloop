@@ -18,8 +18,6 @@ import { openExternal } from '../../openExternal'
 import { SettingsButton, SettingsIconButton } from './_SettingsButton'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow } from './_SettingsLayout'
-import { SettingsSegmentedControl } from './_SettingsSegmentedControl'
-import { SettingsSelect } from './_SettingsSelect'
 import { SettingsSwitch } from './_SettingsSwitch'
 
 const activityRecorderPluginID = 'arkloop.plugins.activity-recorder'
@@ -35,14 +33,13 @@ type BusyAction = 'install' | 'toggle' | 'refresh' | 'settings' | 'build' | null
 type SourceView = {
   key: string
   label: string
-  setting: keyof Pick<RecorderSettings, 'enable_activity_record' | 'enable_screenpipe'>
-  kind: 'screen' | 'context'
+  setting: keyof Pick<RecorderSettings, 'enable_activity_record'>
+  kind: 'context'
   daemonKeys?: string[]
 }
 
 const sources: SourceView[] = [
   { key: 'activity-record', label: 'Activity Record', setting: 'enable_activity_record', kind: 'context' },
-  { key: 'screenpipe', label: 'Screenpipe', setting: 'enable_screenpipe', kind: 'screen', daemonKeys: ['screenpipe'] },
 ]
 
 type RecorderMode = 'lightweight' | 'full' | 'custom'
@@ -50,13 +47,6 @@ type RecorderMode = 'lightweight' | 'full' | 'custom'
 type RecorderSettings = {
   mode: RecorderMode
   enable_activity_record: boolean
-  enable_screenpipe: boolean
-  enable_audio: boolean
-  transcription_engine: string
-  video_quality: string
-  capture_interval_ms: number
-  retention_days: number
-  meeting_detector: boolean
   snapshot_compaction: boolean
   builder_interval_min: number
 }
@@ -64,33 +54,8 @@ type RecorderSettings = {
 const defaultRecorderSettings: RecorderSettings = {
   mode: 'lightweight',
   enable_activity_record: true,
-  enable_screenpipe: false,
-  enable_audio: false,
-  transcription_engine: 'disabled',
-  video_quality: 'low',
-  capture_interval_ms: 120000,
-  retention_days: 3,
-  meeting_detector: false,
   snapshot_compaction: false,
   builder_interval_min: 300,
-}
-
-const presetSettings: Record<RecorderMode, RecorderSettings> = {
-  lightweight: defaultRecorderSettings,
-  full: {
-    mode: 'full',
-    enable_activity_record: true,
-    enable_screenpipe: true,
-    enable_audio: true,
-    transcription_engine: 'parakeet',
-    video_quality: 'balanced',
-    capture_interval_ms: 30000,
-    retention_days: 14,
-    meeting_detector: true,
-    snapshot_compaction: true,
-    builder_interval_min: 300,
-  },
-  custom: defaultRecorderSettings,
 }
 
 function toBool(value: unknown, fallback: boolean): boolean {
@@ -114,13 +79,6 @@ function currentSettings(enablement: PluginEnablement | null): RecorderSettings 
   return {
     mode,
     enable_activity_record: toBool(raw.enable_activity_record, defaultRecorderSettings.enable_activity_record),
-    enable_screenpipe: toBool(raw.enable_screenpipe, defaultRecorderSettings.enable_screenpipe),
-    enable_audio: toBool(raw.enable_audio, defaultRecorderSettings.enable_audio),
-    transcription_engine: typeof raw.transcription_engine === 'string' ? raw.transcription_engine : defaultRecorderSettings.transcription_engine,
-    video_quality: typeof raw.video_quality === 'string' ? raw.video_quality : defaultRecorderSettings.video_quality,
-    capture_interval_ms: toNumber(raw.capture_interval_ms, defaultRecorderSettings.capture_interval_ms),
-    retention_days: toNumber(raw.retention_days, defaultRecorderSettings.retention_days),
-    meeting_detector: toBool(raw.meeting_detector, defaultRecorderSettings.meeting_detector),
     snapshot_compaction: toBool(raw.snapshot_compaction, defaultRecorderSettings.snapshot_compaction),
     builder_interval_min: toNumber(raw.builder_interval_min, defaultRecorderSettings.builder_interval_min),
   }
@@ -216,7 +174,6 @@ function SourceRow({
   const checked = settings[source.setting]
   const showStatus = checked && (source.key === 'activity-record' || Boolean(source.daemonKeys && status !== 'running'))
   const description = {
-    screen: copy.screenSource,
     activity: copy.activitySource,
     context: copy.contextSource,
     tool: copy.toolSource,
@@ -356,11 +313,6 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
     }
   }, [accessToken, addToast, copy.settingsFailed, enabled, settings, status.runtime])
 
-  const setMode = useCallback((mode: RecorderMode) => {
-    const preset = presetSettings[mode]
-    void updateSettings(mode === 'custom' ? { mode } : preset)
-  }, [updateSettings])
-
   const setCustom = useCallback((patch: Partial<RecorderSettings>) => {
     void updateSettings({ ...patch, mode: 'custom' })
   }, [updateSettings])
@@ -495,79 +447,6 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
                     {copy.grantAccess}
                   </SettingsButton>
                 )}
-              />
-            </SettingsCard>
-          </SettingsGroup>
-          )}
-
-          {settings.enable_screenpipe && (
-          <SettingsGroup title={copy.captureSection}>
-            <SettingsCard>
-              <SettingsRow
-                title={copy.mode}
-                description={copy.modeDescriptions[settings.mode]}
-                control={(
-                  <div className="flex w-[260px] max-w-full justify-end">
-                    <SettingsSegmentedControl
-                      value={settings.mode}
-                      onChange={(value) => setMode(value as RecorderMode)}
-                      options={[
-                        { value: 'lightweight', label: copy.lightweight },
-                        { value: 'full', label: copy.full },
-                        { value: 'custom', label: copy.custom },
-                      ]}
-                    />
-                  </div>
-                )}
-              />
-              <SettingsRow
-                title={copy.audio}
-                description={copy.audioDesc}
-                control={<SettingsSwitch checked={settings.enable_audio} disabled={busy === 'settings'} onChange={(value) => setCustom({ enable_audio: value })} />}
-              />
-              <SettingsRow
-                title={copy.transcriptionEngine}
-                description={copy.transcriptionEngineDesc}
-                disabled={!settings.enable_audio}
-                control={(
-                  <div className="w-[190px] max-w-full">
-                    <SettingsSelect
-                      value={settings.transcription_engine}
-                      disabled={busy === 'settings' || !settings.enable_audio}
-                      onChange={(value) => setCustom({ transcription_engine: value })}
-                      options={[
-                        { value: 'disabled', label: 'disabled' },
-                        { value: 'whisper-tiny', label: 'whisper-tiny' },
-                        { value: 'parakeet', label: 'parakeet' },
-                        { value: 'deepgram', label: 'deepgram' },
-                        { value: 'openai-compatible', label: 'openai-compatible' },
-                      ]}
-                    />
-                  </div>
-                )}
-              />
-              <SettingsRow
-                title={copy.retentionDays}
-                description={copy.retentionDaysDesc}
-                control={(
-                  <SettingsInput
-                    variant="md"
-                    defaultValue={String(settings.retention_days)}
-                    disabled={busy === 'settings'}
-                    onBlur={(event) => {
-                      const value = Number(event.currentTarget.value)
-                      if (Number.isFinite(value) && value >= 0 && value !== settings.retention_days) {
-                        setCustom({ retention_days: Math.round(value) })
-                      }
-                    }}
-                    className="w-[132px]"
-                  />
-                )}
-              />
-              <SettingsRow
-                title={copy.meetingDetector}
-                description={copy.meetingDetectorDesc}
-                control={<SettingsSwitch checked={settings.meeting_detector} disabled={busy === 'settings'} onChange={(value) => setCustom({ meeting_detector: value })} />}
               />
             </SettingsCard>
           </SettingsGroup>

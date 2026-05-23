@@ -809,6 +809,8 @@ func RunDesktop(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
+	pluginServices.Enabler.StopEnabledRuntimes(context.Background(), auth.DesktopAccountID)
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {

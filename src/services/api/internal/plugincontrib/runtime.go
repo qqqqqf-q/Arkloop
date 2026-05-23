@@ -228,7 +228,7 @@ func (e *Enabler) ResumeEnabledRuntimes(ctx context.Context, accountID uuid.UUID
 }
 
 func (e *Enabler) resumeEnabledRuntime(ctx context.Context, pkg data.PluginPackage, manifest Manifest, enablement data.PluginEnablement) error {
-	settingsPayload := decodePluginJSONMap(enablement.SettingsJSON)
+	settingsPayload := stripUnknownSettings(decodePluginJSONMap(enablement.SettingsJSON), manifest)
 	settingsPayload = normalizeRuntimeSettings(manifest, settingsPayload)
 	_, settings, err := normalizeSettings(settingsPayload, manifest)
 	if err != nil {
@@ -238,6 +238,7 @@ func (e *Enabler) resumeEnabledRuntime(ctx context.Context, pkg data.PluginPacka
 	if err != nil {
 		return err
 	}
+	stopRuntimeDaemons(ctx, manifest, runtimeState)
 	prepareActivityRecorderSources(ctx, pkg.PluginID, settings, runtimeState)
 	startRuntimeDaemons(ctx, manifest, settings, runtimeState)
 	_, err = e.runtimeRepo.Upsert(ctx, data.PluginRuntimeState{
@@ -251,6 +252,27 @@ func (e *Enabler) resumeEnabledRuntime(ctx context.Context, pkg data.PluginPacka
 		StatusJSON:    runtimeStateJSON(runtimeState),
 	})
 	return err
+}
+
+func (e *Enabler) StopEnabledRuntimes(ctx context.Context, accountID uuid.UUID) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	packages, err := e.packagesRepo.ListActive(ctx, accountID)
+	if err != nil {
+		return
+	}
+	for _, pkg := range packages {
+		manifest, _, err := decodeManifest(pkg.ManifestJSON)
+		if err != nil || len(manifest.Runtime) == 0 {
+			continue
+		}
+		statusMap, err := pluginDataRuntimeState(e.pluginStore, pkg.PluginID, pkg.Version)
+		if err != nil {
+			continue
+		}
+		stopRuntimeDaemons(ctx, manifest, statusMap)
+	}
 }
 
 func startRuntimeDaemons(ctx context.Context, manifest Manifest, settings, runtimeState map[string]any) {

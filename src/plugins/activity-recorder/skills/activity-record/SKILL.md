@@ -1,6 +1,6 @@
 ---
 name: activity-record
-description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, screen content (accessibility tree), Codex sessions, and optional Screenpipe integration.
+description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, screen content (accessibility tree), and Codex sessions.
 ---
 
 # Activity Record
@@ -228,10 +228,6 @@ WHERE source = 'ax' AND app = 'Google Chrome'
 ORDER BY occurred_at DESC
 LIMIT 20;
 ```
-
-## Screenpipe Integration
-
-When Screenpipe is enabled, use `screenpipe-api` skill for screen capture, audio transcription, and UI element context. Start with the local SQLite database for structured facts; escalate to Screenpipe for raw screen/audio content.
 
 ## Memory Rules
 
