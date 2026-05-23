@@ -259,16 +259,6 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
   if (resource.kind === 'mcp-app') {
     return (
       <div style={{ height: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--c-bg-page)' }}>
-        {chrome === 'default' ? (
-        <div style={{ minHeight: 42, flexShrink: 0, borderBottom: '0.5px solid var(--c-border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 12px', minWidth: 0 }}>
-          <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ minWidth: 0, color: 'var(--c-text-primary)', fontSize: 14, fontWeight: 480, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {resource.title ?? resource.uri}
-            </span>
-          </div>
-          <PreviewActionsMenu closeLabel={closeLabel} onClose={onClose} />
-        </div>
-        ) : null}
         <div style={{ flex: 1, minHeight: 0 }}>
           <McpAppIframe
             uri={resource.uri}
@@ -278,6 +268,8 @@ export const ResourcePreviewPanel = memo(function ResourcePreviewPanel({
             serverId={resource.serverId}
             accessToken={accessToken}
             onSendMessage={onSendMessage}
+            hideHeader
+            noBorder
             style={{ width: '100%', height: '100%', minHeight: '400px' }}
           />
         </div>

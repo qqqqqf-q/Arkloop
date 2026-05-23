@@ -177,6 +177,8 @@ type Props = {
   className?: string
   displayMode?: 'inline' | 'card'
   onExpand?: () => void
+  hideHeader?: boolean
+  noBorder?: boolean
 }
 
 function toCallToolResult(output: unknown): CallToolResult {
@@ -196,7 +198,7 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, onSendMessage, style, className, displayMode = 'inline', onExpand }: Props) {
+export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, onSendMessage, style, className, displayMode = 'inline', onExpand, hideHeader, noBorder }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
@@ -544,12 +546,14 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      border: '0.5px solid var(--c-border-subtle)',
-      borderRadius: '10px',
+      width: '100%',
+      height: '100%',
+      border: noBorder ? 'none' : '0.5px solid var(--c-border-subtle)',
+      borderRadius: noBorder ? 0 : '10px',
       overflow: 'hidden',
       background: 'var(--c-bg-sub)',
     }}>
-      {(name || uri) && (
+      {(name || uri) && !hideHeader && (
         <div style={{
           display: 'flex',
           alignItems: 'center',
