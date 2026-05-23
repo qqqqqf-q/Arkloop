@@ -510,7 +510,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                     key={`${msg.id}-resource-${res.key}-${ri}`}
                     resource={res}
                     accessToken={accessToken}
-                    displayMode="inline"
+                    displayMode="card"
                     onExpand={() => {
                       openResourcePanel({
                         kind: 'mcp-app',

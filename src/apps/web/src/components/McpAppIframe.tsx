@@ -465,7 +465,6 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
     return (
       <div
         style={{
-          position: 'relative',
           borderRadius: '10px',
           border: '0.5px solid var(--c-border-subtle)',
           overflow: 'hidden',
@@ -477,48 +476,64 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
         onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--c-border-mid)' }}
         onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--c-border-subtle)' }}
       >
-        <div style={{ height: '180px', overflow: 'hidden', position: 'relative' }}>
-          <iframe
-            ref={iframeRef}
-            srcDoc={srcDoc}
-            title={`mcp-app-${uri}`}
-            sandbox="allow-scripts allow-same-origin"
-            onLoad={handleLoad}
-            style={{
-              width: '100%',
-              height: '180px',
-              border: 'none',
-              pointerEvents: 'none',
-              transform: 'scale(0.5)',
-              transformOrigin: 'top left',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-            }}
-          />
-        </div>
         <div style={{
-          padding: '8px 12px',
+          padding: '12px 16px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          borderTop: '0.5px solid var(--c-border-subtle)',
-          background: 'var(--c-bg-input)',
+          gap: '12px',
         }}>
-          <span style={{ fontSize: '12px', color: 'var(--c-text-muted)' }}>
-            {uri}
-          </span>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            minWidth: 0,
+            flex: 1,
+          }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '8px',
+              background: 'var(--c-bg-page)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              border: '0.5px solid var(--c-border-subtle)',
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--c-text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </div>
+            <span style={{
+              fontSize: '14px',
+              color: 'var(--c-text-primary)',
+              fontWeight: 500,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}>
+              {name || uri}
+            </span>
+          </div>
           <span style={{
-            fontSize: '12px',
+            fontSize: '13px',
             color: 'var(--c-text-secondary)',
             display: 'flex',
             alignItems: 'center',
             gap: '4px',
+            flexShrink: 0,
+            padding: '4px 10px',
+            borderRadius: '6px',
+            background: 'var(--c-bg-input)',
+            border: '0.5px solid var(--c-border-subtle)',
           }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
             </svg>
-            Expand
+            预览
           </span>
         </div>
       </div>

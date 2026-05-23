@@ -52,9 +52,16 @@ func (e *ToolExecutor) Execute(
 	_ string,
 ) tools.ExecutionResult {
 	started := time.Now()
+	serverID := strings.TrimSpace(e.server.ServerID)
+	slog.DebugContext(ctx, "mcp: Execute start",
+		"tool_name", toolName,
+		"server_id", serverID,
+		"remote_name", e.remoteToolNameByToolName[toolName],
+	)
 
 	remoteName := e.remoteToolNameByToolName[toolName]
 	if remoteName == "" {
+		slog.DebugContext(ctx, "mcp: Execute aborted, tool not registered", "tool_name", toolName, "server_id", serverID)
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
 				ErrorClass: ErrorClassMcpProtocolError,
@@ -77,6 +84,11 @@ func (e *ToolExecutor) Execute(
 
 	client, err := pool.Borrow(ctx, e.server)
 	if err != nil {
+		slog.DebugContext(ctx, "mcp: Execute borrow failed",
+			"tool_name", toolName,
+			"server_id", serverID,
+			"error", err.Error(),
+		)
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
 				ErrorClass: ErrorClassMcpProtocolError,
@@ -86,6 +98,7 @@ func (e *ToolExecutor) Execute(
 			DurationMs: durationMs(started),
 		}
 	}
+	slog.DebugContext(ctx, "mcp: Execute borrow ok", "tool_name", toolName, "server_id", serverID)
 
 	callCtx := ctx
 	if timeoutMs > 0 {
@@ -97,6 +110,12 @@ func (e *ToolExecutor) Execute(
 
 	result, err := client.CallTool(callCtx, remoteName, args, timeoutMs)
 	if err != nil {
+		slog.DebugContext(ctx, "mcp: Execute CallTool failed",
+			"tool_name", toolName,
+			"server_id", serverID,
+			"remote_name", remoteName,
+			"error", err.Error(),
+		)
 		return tools.ExecutionResult{
 			Error:      toExecutionError(err, toolName, e.server.ServerID),
 			DurationMs: durationMs(started),
@@ -104,6 +123,12 @@ func (e *ToolExecutor) Execute(
 	}
 
 	if result.IsError {
+		slog.DebugContext(ctx, "mcp: Execute CallTool returned isError",
+			"tool_name", toolName,
+			"server_id", serverID,
+			"remote_name", remoteName,
+			"content_count", len(result.Content),
+		)
 		return tools.ExecutionResult{
 			Error: &tools.ExecutionError{
 				ErrorClass: ErrorClassMcpToolError,
@@ -121,6 +146,13 @@ func (e *ToolExecutor) Execute(
 	content, attachments := splitMCPContent(result.Content)
 
 	resultJSON := map[string]any{"content": content}
+	slog.DebugContext(ctx, "mcp: Execute CallTool ok",
+		"tool_name", toolName,
+		"server_id", serverID,
+		"remote_name", remoteName,
+		"content_count", len(result.Content),
+		"attachment_count", len(attachments),
+	)
 
 	resourceURI := e.resourceURIByToolName[toolName]
 	if resourceURI != "" {

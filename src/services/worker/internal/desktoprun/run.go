@@ -39,7 +39,7 @@ func RunDesktop(ctx context.Context) error {
 	// 统一 slog 输出格式（彩色终端或 JSON）
 	slog.SetDefault(sharedlog.New(sharedlog.Config{
 		Component: "worker",
-		Level:     slog.LevelDebug + 1,
+		Level:     slog.LevelDebug,
 		Output:    os.Stdout,
 	}))
 

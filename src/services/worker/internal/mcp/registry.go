@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strconv"
@@ -82,12 +83,21 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 		pool = NewPool()
 	}
 
+	serverIDs := make([]string, len(cfg.Servers))
+	for i, s := range cfg.Servers {
+		serverIDs[i] = strings.TrimSpace(s.ServerID)
+	}
+	slog.DebugContext(ctx, "mcp: DiscoverWithDiagnostics start",
+		"server_count", len(cfg.Servers),
+		"server_ids", serverIDs,
+	)
+
 	type serverResult struct {
-		index       int
-		server      ServerConfig
-		tools       []Tool
+		index        int
+		server       ServerConfig
+		tools        []Tool
 		instructions string
-		diag        ServerDiagnostics
+		diag         ServerDiagnostics
 	}
 
 	results := make([]serverResult, len(cfg.Servers))
@@ -97,35 +107,59 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 		go func(idx int, srv ServerConfig) {
 			defer wg.Done()
 			startedAt := time.Now()
+			srvID := strings.TrimSpace(srv.ServerID)
 			result := serverResult{
 				index:  idx,
 				server: srv,
 				diag: ServerDiagnostics{
-					ServerID:   strings.TrimSpace(srv.ServerID),
+					ServerID:   srvID,
 					Transport:  strings.TrimSpace(srv.Transport),
 					Outcome:    "borrow_failed",
 					ErrorClass: "",
 				},
 			}
+			slog.DebugContext(ctx, "mcp: discovering server", "server_id", srvID, "transport", srv.Transport)
+
 			client, meta, err := pool.BorrowWithMeta(ctx, srv)
 			if err != nil {
 				result.diag.DurationMs = time.Since(startedAt).Milliseconds()
 				result.diag.ErrorClass = classifyDiscoverError(err)
 				results[idx] = result
+				slog.DebugContext(ctx, "mcp: discover borrow failed",
+					"server_id", srvID,
+					"duration_ms", result.diag.DurationMs,
+					"error_class", result.diag.ErrorClass,
+					"error", err.Error(),
+				)
 				return
 			}
 			result.diag.ReusedClient = meta.Reused
+			slog.DebugContext(ctx, "mcp: discover borrow ok",
+				"server_id", srvID,
+				"reused", meta.Reused,
+			)
+
 			toolsList, err := client.ListTools(ctx, srv.CallTimeoutMs)
 			result.diag.DurationMs = time.Since(startedAt).Milliseconds()
 			if err != nil {
 				result.diag.Outcome = "list_failed"
 				result.diag.ErrorClass = classifyDiscoverError(err)
 				results[idx] = result
+				slog.DebugContext(ctx, "mcp: discover ListTools failed",
+					"server_id", srvID,
+					"duration_ms", result.diag.DurationMs,
+					"error_class", result.diag.ErrorClass,
+					"error", err.Error(),
+				)
 				return
 			}
 			if len(toolsList) == 0 {
 				result.diag.Outcome = "empty"
 				results[idx] = result
+				slog.DebugContext(ctx, "mcp: discover ListTools empty",
+					"server_id", srvID,
+					"duration_ms", result.diag.DurationMs,
+				)
 				return
 			}
 			result.tools = toolsList
@@ -133,6 +167,11 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 			result.diag.Outcome = "ok"
 			result.diag.ToolCount = len(toolsList)
 			results[idx] = result
+			slog.DebugContext(ctx, "mcp: discover ListTools ok",
+				"server_id", srvID,
+				"duration_ms", result.diag.DurationMs,
+				"tool_count", len(toolsList),
+			)
 		}(i, server)
 	}
 	wg.Wait()
@@ -254,6 +293,14 @@ func DiscoverWithDiagnostics(ctx context.Context, cfg Config, pool *Pool) (Regis
 	sort.Slice(agentSpecs, func(i, j int) bool { return agentSpecs[i].Name < agentSpecs[j].Name })
 	sort.Slice(llmSpecs, func(i, j int) bool { return llmSpecs[i].Name < llmSpecs[j].Name })
 	diag.ToolCount = len(llmSpecs)
+
+	slog.DebugContext(ctx, "mcp: DiscoverWithDiagnostics complete",
+		"server_count", diag.ServerCount,
+		"tool_count", diag.ToolCount,
+		"llm_spec_count", len(llmSpecs),
+		"agent_spec_count", len(agentSpecs),
+		"executor_count", len(executors),
+	)
 
 	return Registration{
 		AgentSpecs:      agentSpecs,
