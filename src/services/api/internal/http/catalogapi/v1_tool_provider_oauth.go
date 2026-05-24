@@ -92,13 +92,29 @@ func toolProviderOAuthCallbackEntry(
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
+		applyXAIOAuthCallbackCORS(w, r)
 		switch r.Method {
+		case nethttp.MethodOptions:
+			w.WriteHeader(nethttp.StatusNoContent)
 		case nethttp.MethodGet, nethttp.MethodPost:
 			handleToolProviderOAuthCallback(w, r, traceID, secretsRepo, pool, directPool)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
 	}
+}
+
+func applyXAIOAuthCallbackCORS(w nethttp.ResponseWriter, r *nethttp.Request) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "https://accounts.x.ai" && origin != "https://auth.x.ai" {
+		return
+	}
+	header := w.Header()
+	header.Set("Access-Control-Allow-Origin", origin)
+	header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	header.Set("Access-Control-Allow-Headers", "Content-Type")
+	header.Set("Access-Control-Allow-Private-Network", "true")
+	header.Add("Vary", "Origin")
 }
 
 func startToolProviderOAuth(
@@ -161,6 +177,11 @@ func startToolProviderOAuth(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
+	nonce, err := newOAuthRandom()
+	if err != nil {
+		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
+		return
+	}
 	verifier, challenge, err := newPKCEPair()
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -170,7 +191,7 @@ func startToolProviderOAuth(
 	if scope == "" {
 		scope = xaiOAuthScope
 	}
-	authURL := buildXAIAuthorizationURL(discovery.AuthorizationEndpoint, clientID, redirectURI, scope, state, challenge)
+	authURL := buildXAIAuthorizationURL(discovery.AuthorizationEndpoint, clientID, redirectURI, scope, state, challenge, nonce)
 	expiresAt := time.Now().UTC().Add(toolProviderOAuthFlowTTL)
 	flowSecret, err := saveToolProviderOAuthFlowSecret(r.Context(), secretsRepo, ownerKind, ownerUserID, state, toolProviderOAuthFlowSecret{
 		CodeVerifier:  verifier,
@@ -391,7 +412,7 @@ func discoverXAIOAuth(ctx context.Context) (xaiOAuthDiscovery, error) {
 	return discovery, nil
 }
 
-func buildXAIAuthorizationURL(endpoint string, clientID string, redirectURI string, scope string, state string, challenge string) string {
+func buildXAIAuthorizationURL(endpoint string, clientID string, redirectURI string, scope string, state string, challenge string, nonce string) string {
 	values := url.Values{}
 	values.Set("response_type", "code")
 	values.Set("client_id", clientID)
@@ -400,8 +421,7 @@ func buildXAIAuthorizationURL(endpoint string, clientID string, redirectURI stri
 	values.Set("state", state)
 	values.Set("code_challenge", challenge)
 	values.Set("code_challenge_method", "S256")
-	values.Set("plan", "generic")
-	values.Set("referrer", "arkloop")
+	values.Set("nonce", nonce)
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
 		return endpoint + "?" + values.Encode()

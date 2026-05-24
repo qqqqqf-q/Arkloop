@@ -678,7 +678,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
       {historicMessages.map((msg, idx) => (
         <div
           key={messageClientMessageId(msg) ?? msg.id}
-          style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 200px' }}
+          data-message-anchor-id={msg.id}
+          style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 200px', paddingLeft: '6px', marginLeft: '-6px' }}
         >
           {renderMessage(msg, idx)}
         </div>

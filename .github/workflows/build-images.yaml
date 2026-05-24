@@ -14,11 +14,22 @@ permissions:
   packages: write
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Build each image on native runners (no QEMU emulation)
+  # ---------------------------------------------------------------------------
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
+        name: [api, gateway, worker, sandbox, console, console-lite, bridge]
+        platform:
+          - arch: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - arch: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
         include:
           - name: api
             dockerfile: src/services/api/Dockerfile
@@ -52,8 +63,66 @@ jobs:
           INPUT_VERSION="${{ inputs.version }}" \
             node .github/scripts/resolve-release-version.mjs
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/qqqqqf-q/arkloop-${{ matrix.name }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform.arch }}
+          outputs: type=image,"name=ghcr.io/qqqqqf-q/arkloop-${{ matrix.name }}",push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.platform.suffix }}
+          cache-to: type=gha,scope=${{ matrix.name }}-${{ matrix.platform.suffix }},mode=max,ignore-error=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.name }}--${{ matrix.platform.suffix }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Merge per-arch digests into multi-platform manifests
+  # ---------------------------------------------------------------------------
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [api, gateway, worker, sandbox, console, console-lite, bridge]
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-${{ matrix.name }}--*
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -76,14 +145,9 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=${{ inputs.version }},enable=${{ inputs.version != '' }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
+      - name: Create multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/qqqqqf-q/arkloop-${{ matrix.name }}@sha256:%s ' *)

@@ -597,6 +597,63 @@ func (r *SkillPackagesRepository) ListPlatformSkillHashes(ctx context.Context) (
 	return hashes, rows.Err()
 }
 
+func (r *SkillPackagesRepository) DeactivateOrphanedPluginSkills(ctx context.Context, accountID uuid.UUID, pluginID string, activeSkillKeys []string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	pluginID = strings.TrimSpace(pluginID)
+	if accountID == uuid.Nil || pluginID == "" {
+		return 0, fmt.Errorf("account_id and plugin_id must not be empty")
+	}
+	query := `UPDATE skill_packages
+	    SET is_active = false, updated_at = now()
+	  WHERE account_id = $1
+	    AND registry_source_kind = 'plugin'
+	    AND registry_source_url = $2
+	    AND is_active = true`
+	args := []any{accountID, pluginID}
+	if len(activeSkillKeys) > 0 {
+		placeholders := make([]string, len(activeSkillKeys))
+		for i, key := range activeSkillKeys {
+			placeholders[i] = fmt.Sprintf("$%d", i+3)
+			args = append(args, key)
+		}
+		query += ` AND skill_key NOT IN (` + strings.Join(placeholders, ",") + `)`
+	}
+	tag, err := r.db.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+func (r *SkillPackagesRepository) ListActivePluginSkillKeys(ctx context.Context, accountID uuid.UUID, pluginID string) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rows, err := r.db.Query(ctx,
+		`SELECT skill_key FROM skill_packages
+		  WHERE account_id = $1
+		    AND registry_source_kind = 'plugin'
+		    AND registry_source_url = $2
+		    AND is_active = true`,
+		accountID, strings.TrimSpace(pluginID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
 func (r *SkillPackagesRepository) DeactivatePlatformSkill(ctx context.Context, skillKey string) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()

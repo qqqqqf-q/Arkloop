@@ -16,6 +16,14 @@ const desktopBin = resolve(
   'bin',
   process.platform === 'win32' ? 'desktop.exe' : 'desktop',
 )
+const activityRecordBin = resolve(
+  workspaceRoot,
+  'src',
+  'services',
+  'activity-record',
+  'bin',
+  process.platform === 'win32' ? 'activity-record.exe' : 'activity-record',
+)
 
 function resolveCommand(command) {
   if (process.platform !== 'win32') return command
@@ -132,7 +140,11 @@ function startViteDevServer() {
 async function main() {
   console.log('building desktop sidecar...')
   mkdirSync(resolve(desktopBin, '..'), { recursive: true })
+  mkdirSync(resolve(activityRecordBin, '..'), { recursive: true })
   const darwinLdflags = process.platform === 'darwin' ? ['-ldflags', '-extldflags=-Wl,-no_warn_duplicate_libraries'] : []
+  await runStep('go', ['build', '-o', activityRecordBin, './src/services/activity-record/cmd/activity-record'], {
+    cwd: workspaceRoot,
+  })
   await runStep('go', ['build', '-tags', 'desktop', ...darwinLdflags, '-o', desktopBin, './src/services/desktop/cmd/desktop'], {
     cwd: workspaceRoot,
   })

@@ -144,6 +144,20 @@ func (r *WorkspaceSkillEnablementsRepository) DeleteSkill(ctx context.Context, a
 	return err
 }
 
+func (r *WorkspaceSkillEnablementsRepository) DeleteBySkillKey(ctx context.Context, accountID uuid.UUID, skillKey string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, err := r.db.Exec(
+		ctx,
+		`DELETE FROM workspace_skill_enablements
+		  WHERE account_id = $1 AND skill_key = $2`,
+		accountID,
+		strings.TrimSpace(skillKey),
+	)
+	return err
+}
+
 func (r *WorkspaceSkillEnablementsRepository) ListByWorkspace(ctx context.Context, accountID uuid.UUID, workspaceRef string) ([]WorkspaceSkillEnablement, error) {
 	if ctx == nil {
 		ctx = context.Background()

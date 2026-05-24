@@ -98,6 +98,29 @@ func TestRenderLaunchSpecResolvesRuntimePath(t *testing.T) {
 	}
 }
 
+func TestRenderLaunchSpecResolvesPluginRelativeCwd(t *testing.T) {
+	pluginData := filepath.Join(t.TempDir(), "plugin-data")
+	payload, err := renderLaunchSpec(map[string]any{
+		"transport": "stdio",
+		"command":   "uv",
+		"cwd":       "data/chrome-history",
+	}, nil, map[string]any{"plugin_data": pluginData}, true)
+	if err != nil {
+		t.Fatalf("render launch spec: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode launch spec: %v", err)
+	}
+	expected := filepath.Join(pluginData, "data", "chrome-history")
+	if decoded["cwd"] != expected {
+		t.Fatalf("unexpected cwd: %#v", decoded)
+	}
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("expected cwd to exist: %v", err)
+	}
+}
+
 func TestRenderLaunchSpecResolvesRuntimeCommandHelperAndPlatform(t *testing.T) {
 	spec := map[string]any{
 		"command": "${runtime.cua-driver.command}",

@@ -169,6 +169,11 @@ export type ToolProviderOAuthStatusResponse = {
   completed_at?: string
 }
 
+export type ToolProviderOAuthCodeRequest = {
+  state: string
+  code: string
+}
+
 export type ToolProviderConfigField = {
   key: string
   label: string
@@ -293,6 +298,17 @@ export async function getToolProviderOAuthStatus(
     scopedPath(`/v1/tool-providers/${group}/${provider}/oauth/status?state=${encodeURIComponent(state)}`),
     { accessToken },
   )
+}
+
+export async function completeToolProviderOAuthWithCode(
+  accessToken: string,
+  payload: ToolProviderOAuthCodeRequest,
+): Promise<void> {
+  await apiFetch<{ ok: boolean }>('/v1/tool-provider-oauth/callback', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    accessToken,
+  })
 }
 
 // ---------------------------------------------------------------------------

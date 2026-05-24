@@ -381,9 +381,16 @@ export function ThreadListProvider({ children }: { children: ReactNode }) {
     for (const thread of [...modeItemsById.values(), ...sidebarMigration.migratedItems]) {
       itemsById.set(thread.id, thread)
     }
+    for (const thread of threadsRef.current) {
+      if (isBranchThread(thread)) itemsById.set(thread.id, thread)
+    }
     const items = sortThreadsByActivity(Array.from(itemsById.values()))
     mirrorSidebarStateToLocal(items, sidebarMigration.failedThreadIds)
     const nextRunning = new Set(items.filter((t) => t.active_run_id != null).map((t) => t.id))
+    for (const threadId of runningThreadIdsRef.current) {
+      const thread = threadsRef.current.find((item) => item.id === threadId)
+      if (thread && isBranchThread(thread)) nextRunning.add(threadId)
+    }
     const completedThreadIds = Array.from(runningThreadIdsRef.current).filter((threadId) => !nextRunning.has(threadId))
     threadsRef.current = items
     setThreads(items)

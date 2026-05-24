@@ -4,7 +4,7 @@ import { useToast } from '@arkloop/shared'
 import type { ConnectorsConfig, FetchProvider, SearchProvider, XSearchProvider } from '@arkloop/shared/desktop'
 import { useLocale } from '../../contexts/LocaleContext'
 import { getDesktopConnectorsApi } from '../../desktopConnectorsApi'
-import { getToolProviderOAuthStatus, startToolProviderOAuth } from '../../api-admin'
+import { completeToolProviderOAuthWithCode, getToolProviderOAuthStatus, startToolProviderOAuth } from '../../api-admin'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsSelect } from './_SettingsSelect'
 
@@ -120,9 +120,13 @@ export function SearchFetchSettings({ accessToken }: Props) {
 
   const [config, setConfig] = useState<ConnectorsConfig | null>(null)
   const [loading, setLoading] = useState(!!connectorsApi)
-  const [oauthLoading, setOauthLoading] = useState(false)
+  const [oauthStarting, setOauthStarting] = useState(false)
+  const [oauthSubmitting, setOauthSubmitting] = useState(false)
+  const [oauthState, setOauthState] = useState<string | null>(null)
+  const [oauthCode, setOauthCode] = useState('')
   const initializedRef = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const oauthCompletedRef = useRef(false)
 
   useEffect(() => {
     if (!connectorsApi) return
@@ -199,29 +203,59 @@ export function SearchFetchSettings({ accessToken }: Props) {
 
   const handleXaiOAuth = useCallback(async () => {
     if (!connectorsApi || !config) return
-    setOauthLoading(true)
+    setOauthStarting(true)
+    setOauthState(null)
+    setOauthCode('')
+    oauthCompletedRef.current = false
     try {
       await connectorsApi.set(config)
       const started = await startToolProviderOAuth(accessToken, 'x_search', 'x_search.xai')
+      setOauthState(started.state)
       window.open(started.authorization_url, '_blank', 'noopener,noreferrer,width=720,height=820')
       const deadline = Date.now() + 10 * 60 * 1000
       while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        if (oauthCompletedRef.current) return
         const status = await getToolProviderOAuthStatus(accessToken, 'x_search', 'x_search.xai', started.state)
         if (status.completed) {
+          oauthCompletedRef.current = true
           await refreshConfig()
+          setOauthState(null)
+          setOauthCode('')
           addToast(ds.connectorSaved, 'success')
           return
         }
         if (status.expired) break
       }
+      setOauthState(null)
+      setOauthCode('')
       addToast(ds.connectorSaveFailed, 'error')
     } catch {
       addToast(ds.connectorSaveFailed, 'error')
     } finally {
-      setOauthLoading(false)
+      setOauthStarting(false)
     }
   }, [accessToken, addToast, config, connectorsApi, ds.connectorSaved, ds.connectorSaveFailed, refreshConfig])
+
+  const handleXaiOAuthCode = useCallback(async () => {
+    if (!oauthState || oauthCode.trim() === '') return
+    setOauthSubmitting(true)
+    try {
+      await completeToolProviderOAuthWithCode(accessToken, {
+        state: oauthState,
+        code: oauthCode.trim(),
+      })
+      oauthCompletedRef.current = true
+      await refreshConfig()
+      setOauthState(null)
+      setOauthCode('')
+      addToast(ds.connectorSaved, 'success')
+    } catch {
+      addToast(ds.connectorSaveFailed, 'error')
+    } finally {
+      setOauthSubmitting(false)
+    }
+  }, [accessToken, addToast, ds.connectorSaved, ds.connectorSaveFailed, oauthCode, oauthState, refreshConfig])
 
   const fetchProviderOptions = [
     { value: 'none', label: ds.providerNone },
@@ -384,14 +418,37 @@ export function SearchFetchSettings({ accessToken }: Props) {
                   title={ds.xSearchProviderXaiOAuth}
                   description={config.xSearch.xaiOAuthConnected ? ds.connectorConfigured : ds.xSearchProviderXai}
                   control={(
-                    <button
-                      type="button"
-                      onClick={handleXaiOAuth}
-                      disabled={oauthLoading}
-                      className="flex h-9 items-center justify-center rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:pointer-events-none disabled:opacity-60"
-                    >
-                      {oauthLoading ? <Loader2 size={15} className="animate-spin" /> : ds.oauthConnect}
-                    </button>
+                    <div className="flex min-w-0 flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={handleXaiOAuth}
+                        disabled={oauthStarting}
+                        className="flex h-9 items-center justify-center rounded-lg border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:pointer-events-none disabled:opacity-60"
+                      >
+                        {oauthStarting
+                          ? <Loader2 size={15} className="animate-spin" />
+                          : config.xSearch.xaiOAuthConnected ? ds.oauthReconnect : ds.oauthConnect}
+                      </button>
+                      {oauthState && (
+                        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_76px] items-center gap-2">
+                          <SettingsInput
+                            type="text"
+                            value={oauthCode}
+                            onChange={(event) => setOauthCode(event.target.value)}
+                            placeholder={ds.oauthCodePlaceholder}
+                            variant="md"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleXaiOAuthCode}
+                            disabled={oauthSubmitting || oauthCode.trim() === ''}
+                            className="flex h-[35px] items-center justify-center rounded-[6.5px] border border-[var(--c-border-subtle)] bg-[var(--c-bg-input)] px-3 text-sm font-medium text-[var(--c-text-primary)] transition-colors hover:bg-[var(--c-bg-deep)] disabled:pointer-events-none disabled:opacity-60"
+                          >
+                            {oauthSubmitting ? <Loader2 size={15} className="animate-spin" /> : ds.oauthCodeSubmit}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
                 />
               )}

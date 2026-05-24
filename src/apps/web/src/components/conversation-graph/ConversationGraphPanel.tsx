@@ -164,7 +164,7 @@ export function ConversationGraphPanel({ accessToken, threadId, selectedMessageI
     void Promise.resolve()
       .then(() => {
         if (disposed) return null
-        setLoading(!graphRef.current)
+        setLoading(graphRef.current?.active_thread_id !== threadId)
         setError(null)
         return getConversationGraph(accessToken, threadId)
       })
@@ -185,16 +185,17 @@ export function ConversationGraphPanel({ accessToken, threadId, selectedMessageI
     }
   }, [accessToken, threadId, reloadKey, refreshKey])
 
+  const activeGraph = graph?.active_thread_id === threadId ? graph : null
   const flow = useMemo(() => (
-    graph
-      ? buildConversationGraphFlow(graph, selectedMessageId, {
+    activeGraph
+      ? buildConversationGraphFlow(activeGraph, selectedMessageId, {
         user: t.rightPanel.conversationGraphUser,
         assistant: t.rightPanel.conversationGraphAssistant,
         system: t.rightPanel.conversationGraphSystem,
       })
       : { nodes: [], edges: [] }
   ), [
-    graph,
+    activeGraph,
     selectedMessageId,
     t.rightPanel.conversationGraphAssistant,
     t.rightPanel.conversationGraphSystem,
@@ -206,7 +207,7 @@ export function ConversationGraphPanel({ accessToken, threadId, selectedMessageI
     onSelectMessage(data.threadId, data.messageId)
   }, [onSelectMessage])
 
-  const rootThreadId = graph?.root_thread_id ?? null
+  const rootThreadId = activeGraph?.root_thread_id ?? null
   const savedViewport = rootThreadId ? readGraphViewport(rootThreadId) : null
   const showGraph = graph && flow.nodes.length > 0
 

@@ -45,6 +45,11 @@ type threadGraphEdge struct {
 	TargetThreadID string `json:"target_thread_id,omitempty"`
 }
 
+const (
+	maxThreadGraphThreads  = 200
+	maxThreadGraphMessages = 2000
+)
+
 func getThreadGraph(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
@@ -99,14 +104,25 @@ func getThreadGraph(
 			httpkit.WriteError(w, nethttp.StatusNotFound, "threads.not_found", "thread not found", traceID, nil)
 			return
 		}
+		if len(threads) > maxThreadGraphThreads {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "threads.graph_too_large", "thread graph too large", traceID, nil)
+			return
+		}
 
 		threadIDs := make([]uuid.UUID, 0, len(threads))
 		for _, item := range threads {
+			if !authorizeThreadOrAudit(w, r, traceID, actor, "threads.graph", &item, auditWriter) {
+				return
+			}
 			threadIDs = append(threadIDs, item.ID)
 		}
 		messages, err := messageRepo.ListVisibleByThreads(r.Context(), thread.AccountID, threadIDs)
 		if err != nil {
 			writeInternalError(w, traceID, err)
+			return
+		}
+		if len(messages) > maxThreadGraphMessages {
+			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "threads.graph_too_large", "thread graph too large", traceID, nil)
 			return
 		}
 

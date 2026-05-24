@@ -121,69 +121,48 @@ func TestShouldShowTelegramProgress_PrivateOnly(t *testing.T) {
 	}
 }
 
-func TestShouldSendTelegramTypingRefresh_HardTriggersOnly(t *testing.T) {
-	if ShouldSendTelegramTypingRefresh(nil) {
-		t.Fatal("nil run context should not send typing")
+func TestIsVisibleAssistantTextDelta(t *testing.T) {
+	if IsVisibleAssistantTextDelta(nil, "assistant", "", "") {
+		t.Fatal("empty delta should not be visible")
+	}
+	if IsVisibleAssistantTextDelta(nil, "tool", "", "x") {
+		t.Fatal("non-assistant role should not be visible")
+	}
+	if IsVisibleAssistantTextDelta(nil, "assistant", "thinking", "x") {
+		t.Fatal("non-text channel should not be visible")
+	}
+	if !IsVisibleAssistantTextDelta(nil, "assistant", "", "x") {
+		t.Fatal("assistant text delta should be visible without run context")
 	}
 
-	privateRC := &RunContext{
-		ChannelContext: &ChannelContext{ConversationType: "private"},
-	}
-	if !ShouldSendTelegramTypingRefresh(privateRC) {
-		t.Fatal("private conversation should send typing")
+	discussSilent := &RunContext{DiscussRun: true}
+	if IsVisibleAssistantTextDelta(discussSilent, "assistant", "", "x") {
+		t.Fatal("discuss text before visible gate should not be visible")
 	}
 
-	scheduledDiscussRC := &RunContext{
-		DiscussRun: true,
-		ChannelContext: &ChannelContext{
-			ConversationType: "supergroup",
-		},
-	}
-	if ShouldSendTelegramTypingRefresh(scheduledDiscussRC) {
-		t.Fatal("scheduled discuss should not send typing")
+	discussVisible := &RunContext{DiscussRun: true, DiscussTextVisible: true}
+	if !IsVisibleAssistantTextDelta(discussVisible, "assistant", "", "x") {
+		t.Fatal("discuss text after visible gate should be visible")
 	}
 
-	mentionRC := &RunContext{
-		DiscussRun: true,
-		ChannelContext: &ChannelContext{
-			ConversationType: "group",
-			MentionsBot:      true,
-		},
-	}
-	if !ShouldSendTelegramTypingRefresh(mentionRC) {
-		t.Fatal("group mention should send typing")
+	heartbeatSilent := &RunContext{HeartbeatRun: true}
+	if IsVisibleAssistantTextDelta(heartbeatSilent, "assistant", "", "x") {
+		t.Fatal("heartbeat text before reply decision should not be visible")
 	}
 
-	replyRC := &RunContext{
-		DiscussRun: true,
-		ChannelContext: &ChannelContext{
-			ConversationType: "group",
-			IsReplyToBot:     true,
-		},
-	}
-	if !ShouldSendTelegramTypingRefresh(replyRC) {
-		t.Fatal("group reply should send typing")
+	heartbeatPayloadSilent := &RunContext{InputJSON: map[string]any{"run_kind": "heartbeat"}}
+	if IsVisibleAssistantTextDelta(heartbeatPayloadSilent, "assistant", "", "x") {
+		t.Fatal("payload heartbeat text before reply decision should not be visible")
 	}
 
-	keywordRC := &RunContext{
-		DiscussRun: true,
-		ChannelContext: &ChannelContext{
-			ConversationType: "group",
-			MatchesKeyword:   true,
-		},
-	}
-	if !ShouldSendTelegramTypingRefresh(keywordRC) {
-		t.Fatal("group keyword should send typing")
-	}
-
-	heartbeatRC := &RunContext{
+	heartbeatReply := &RunContext{
 		HeartbeatRun: true,
-		ChannelContext: &ChannelContext{
-			ConversationType: "private",
+		HeartbeatToolOutcome: &HeartbeatDecisionOutcome{
+			Reply: true,
 		},
 	}
-	if ShouldSendTelegramTypingRefresh(heartbeatRC) {
-		t.Fatal("heartbeat should not send typing")
+	if !IsVisibleAssistantTextDelta(heartbeatReply, "assistant", "", "x") {
+		t.Fatal("heartbeat reply text should be visible")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"arkloop/services/shared/onebotclient"
@@ -197,14 +198,24 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 			rc.TelegramToolBoundaryFlush = streamFlush
 		}
 
-		var stopTyping context.CancelFunc
-		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && tgClient != nil && ShouldSendTelegramTypingRefresh(rc) {
-			stopTyping = StartTelegramTypingRefresh(ctx, tgClient, preloaded.Token, rc.ChannelContext.Conversation.Target)
+		var (
+			typingMu   sync.Mutex
+			stopTyping context.CancelFunc
+		)
+		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && tgClient != nil && rc != nil && rc.ChannelContext != nil {
+			rc.TelegramVisibleTextDelta = func(context.Context) {
+				typingMu.Lock()
+				defer typingMu.Unlock()
+				if stopTyping == nil {
+					stopTyping = StartTelegramTypingRefresh(ctx, tgClient, preloaded.Token, rc.ChannelContext.Conversation.Target)
+				}
+			}
 		}
 
 		err := next(ctx, rc)
 		if rc != nil {
 			rc.TelegramToolBoundaryFlush = nil
+			rc.TelegramVisibleTextDelta = nil
 			if rc.TelegramProgressTracker != nil {
 				rc.TelegramProgressTracker.Finalize(ctx)
 			}
@@ -1470,14 +1481,26 @@ func ShouldShowTelegramProgress(rc *RunContext) bool {
 	return isPrivateChannelConversation(rc.ChannelContext.ConversationType)
 }
 
-func ShouldSendTelegramTypingRefresh(rc *RunContext) bool {
-	if rc == nil || rc.ChannelContext == nil || IsHeartbeatRunContext(rc) {
+func IsVisibleAssistantTextDelta(rc *RunContext, role, channel, delta string) bool {
+	if strings.TrimSpace(delta) == "" {
 		return false
 	}
-	if isPrivateChannelConversation(rc.ChannelContext.ConversationType) {
+	if role != "" && !strings.EqualFold(strings.TrimSpace(role), "assistant") {
+		return false
+	}
+	if strings.TrimSpace(channel) != "" {
+		return false
+	}
+	if rc == nil {
 		return true
 	}
-	return rc.ChannelContext.MentionsBot || rc.ChannelContext.IsReplyToBot || rc.ChannelContext.MatchesKeyword
+	if rc.DiscussRun && !rc.DiscussTextVisible {
+		return false
+	}
+	if IsHeartbeatRunContext(rc) && (rc.HeartbeatToolOutcome == nil || !rc.HeartbeatToolOutcome.Reply) {
+		return false
+	}
+	return true
 }
 
 // StartTelegramTypingRefresh sends Telegram typing actions until cancel (about every 4s, first immediately).

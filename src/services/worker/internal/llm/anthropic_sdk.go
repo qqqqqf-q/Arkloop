@@ -184,6 +184,9 @@ func (g *anthropicSDKGateway) streamAttempt(ctx context.Context, request Request
 	}
 	// quirk 修改的字段必须显式覆盖 SDK params struct 序列化结果，
 	// 否则 ApplyAll 对 payload 的修改不会到达上游。新增 quirk 时在这里挂对应 key。
+	if g.quirks.Has(QuirkEchoReasoningContent) {
+		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
+	}
 	if g.quirks.Has(QuirkStripUnsignedThinking) {
 		opts = append(opts, option.WithJSONSet("messages", payload["messages"]))
 	}

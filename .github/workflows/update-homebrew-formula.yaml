@@ -1,9 +1,6 @@
 name: Update Homebrew Formula
 
 on:
-  release:
-    types:
-      - published
   workflow_dispatch:
     inputs:
       version:
@@ -16,70 +13,104 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: homebrew-formula-${{ github.event.release.tag_name || inputs.version }}
+  group: homebrew-formula-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   update:
-    name: Update formula version
+    name: Update formula in tap
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
+    env:
+      TAP_REPO: qqqqqf-q/homebrew-arkloop
+      RELEASE_TAG: ${{ inputs.tag }}
+      PACKAGE_VERSION: ${{ inputs.version }}
 
     steps:
-      - name: Checkout
+      - name: Validate inputs
+        run: |
+          if [ -z "${PACKAGE_VERSION}" ] || [ -z "${RELEASE_TAG}" ]; then
+            echo "version and tag inputs are required" >&2
+            exit 1
+          fi
+
+      - name: Validate token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN}" ]; then
+            echo "HOMEBREW_TAP_TOKEN secret is required to push to the tap repo" >&2
+            exit 1
+          fi
+
+      - name: Checkout tap repo
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
-          token: ${{ secrets.HOMEBREW_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
-      - name: Resolve version
-        id: release
-        run: |
-          META="$(
-            INPUT_VERSION="${{ inputs.version }}" \
-            RELEASE_TAG="${{ inputs.tag || github.event.release.tag_name }}" \
-            PRINT_JSON=1 \
-              node .github/scripts/resolve-release-version.mjs
-          )"
-          node -e '
-            const fs = require("node:fs")
-            const meta = JSON.parse(process.argv[1])
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${meta.version}\ntag=${meta.tag}\n`)
-          ' "$META"
+      - name: Checkout formula template
+        uses: actions/checkout@v4
+        with:
+          repository: qqqqqf-q/Arkloop
+          sparse-checkout: packaging/homebrew/arkloop.rb
+          path: upstream
 
-      - name: Update formula
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ["VERSION"]
-          tag = os.environ["TAG"]
-          path = Path("packaging/homebrew/arkloop.rb")
-          text = path.read_text()
-          text = re.sub(r'RELEASE_TAG = "v[^"]+"', f'RELEASE_TAG = "{tag}"', text)
-          text = re.sub(r'version "[^"]+"', f'version "{version}"', text)
-          path.write_text(text)
-          PY
+      - name: Download tarballs and compute SHA256
         env:
-          VERSION: ${{ steps.release.outputs.version }}
-          TAG: ${{ steps.release.outputs.tag }}
-
-      - name: Commit formula update
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if git diff --quiet -- packaging/homebrew/arkloop.rb; then
-            echo "Homebrew formula is already up to date"
+          BASE_URL="https://github.com/qqqqqf-q/Arkloop/releases/download/${RELEASE_TAG}"
+          declare -A PLATFORMS=(
+            [DARWIN_ARM64]="ark-darwin-arm64.tar.gz"
+            [DARWIN_AMD64]="ark-darwin-amd64.tar.gz"
+            [LINUX_ARM64]="ark-linux-arm64.tar.gz"
+            [LINUX_AMD64]="ark-linux-amd64.tar.gz"
+          )
+
+          for key in "${!PLATFORMS[@]}"; do
+            file="${PLATFORMS[$key]}"
+            url="${BASE_URL}/${file}"
+            echo "Downloading ${file}..."
+            curl -fSL "${url}" -o "${file}"
+            sha=$(sha256sum "${file}" | awk '{print $1}')
+            echo "URL_${key}=${url}" >> "$GITHUB_ENV"
+            echo "SHA256_${key}=${sha}" >> "$GITHUB_ENV"
+            echo "${key}: ${sha}"
+          done
+
+      - name: Generate formula
+        run: |
+          cp upstream/packaging/homebrew/arkloop.rb Formula/arkloop.rb
+          sed -i \
+            -e "s|VERSION_PLACEHOLDER|${PACKAGE_VERSION}|g" \
+            -e "s|TAG_PLACEHOLDER|${RELEASE_TAG}|g" \
+            -e "s|URL_DARWIN_ARM64|${URL_DARWIN_ARM64}|g" \
+            -e "s|SHA256_DARWIN_ARM64|${SHA256_DARWIN_ARM64}|g" \
+            -e "s|URL_DARWIN_AMD64|${URL_DARWIN_AMD64}|g" \
+            -e "s|SHA256_DARWIN_AMD64|${SHA256_DARWIN_AMD64}|g" \
+            -e "s|URL_LINUX_ARM64|${URL_LINUX_ARM64}|g" \
+            -e "s|SHA256_LINUX_ARM64|${SHA256_LINUX_ARM64}|g" \
+            -e "s|URL_LINUX_AMD64|${URL_LINUX_AMD64}|g" \
+            -e "s|SHA256_LINUX_AMD64|${SHA256_LINUX_AMD64}|g" \
+            Formula/arkloop.rb
+          echo "--- Generated formula ---"
+          cat Formula/arkloop.rb
+
+      - name: Push to tap
+        run: |
+          if git diff --quiet -- Formula/arkloop.rb; then
+            echo "Homebrew tap is already up to date"
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add packaging/homebrew/arkloop.rb
-          git commit -m "build(homebrew): update arkloop to ${{ steps.release.outputs.version }}"
+          git add Formula/arkloop.rb
+          git commit -m "Update arkloop to ${PACKAGE_VERSION}"
           git push

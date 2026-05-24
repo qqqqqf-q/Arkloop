@@ -96,6 +96,11 @@ func NewAgentLoopHandler(
 			pendingSubAgentCallbackIDs(rc.PendingSubAgentCallbacks),
 			IsHeartbeatRunContext(rc),
 		)
+		writer.telegramVisibleTextDelta = func(ctx context.Context, role, channel, delta string) {
+			if IsVisibleAssistantTextDelta(rc, role, channel, delta) && rc.TelegramVisibleTextDelta != nil {
+				rc.TelegramVisibleTextDelta(ctx)
+			}
+		}
 		defer writer.Close(ctx)
 		defer func() {
 			if writer.terminalRunStatus == "" {
@@ -300,6 +305,7 @@ type eventWriter struct {
 	totalCostUSD             float64
 
 	telegramToolBoundaryFlush func(context.Context, string) error
+	telegramVisibleTextDelta  func(context.Context, string, string, string)
 	telegramSentOutputCount   int
 	telegramProgressTracker   *TelegramProgressTracker
 	pendingReplyOverride      string
@@ -691,16 +697,20 @@ func (w *eventWriter) Append(
 	}
 
 	if ev.Type == "message.delta" {
+		role, _ := ev.DataJSON["role"].(string)
+		channel, _ := ev.DataJSON["channel"].(string)
+		delta := extractAssistantDelta(ev.DataJSON)
 		if w.telegramProgressTracker != nil {
-			role, _ := ev.DataJSON["role"].(string)
-			channel, _ := ev.DataJSON["channel"].(string)
-			if delta := extractAssistantDelta(ev.DataJSON); delta != "" {
+			if delta != "" {
 				w.telegramProgressTracker.OnMessageDelta(ctx, role, channel, delta)
 			}
 		}
 		// 只累积主内容，thinking channel 不计入最终消息文本
-		if channel, _ := ev.DataJSON["channel"].(string); channel == "" {
-			if delta := extractAssistantDelta(ev.DataJSON); delta != "" {
+		if channel == "" {
+			if delta != "" {
+				if w.telegramVisibleTextDelta != nil {
+					w.telegramVisibleTextDelta(ctx, role, channel, delta)
+				}
 				w.assistantDeltas = append(w.assistantDeltas, delta)
 			}
 		}

@@ -91,6 +91,7 @@ var openAIQuirks = []Quirk{
 }
 
 var anthropicQuirks = []Quirk{
+	{ID: QuirkEchoReasoningContent, Symptom: SymptomReasoningContentPassback, Apply: applyEchoReasoningContent},
 	{ID: QuirkStripUnsignedThinking, Symptom: SymptomUnsignedThinking, Apply: applyStripUnsignedThinking},
 	{ID: QuirkForceTempOneOnThink, Symptom: SymptomTempMustBeOneOnThinking, Apply: applyForceTempOneOnThinking},
 	{ID: QuirkEchoReasoningContent, Symptom: SymptomReasoningContentPassback, Apply: applyEchoReasoningContent},

@@ -232,9 +232,18 @@ func (i *Installer) Install(ctx context.Context, req InstallRequest) (data.Plugi
 	txMCP := i.mcpInstallsRepo.WithTx(tx)
 	txSkillPackages := i.skillPackagesRepo.WithTx(tx)
 	txSkills := i.skillInstallsRepo.WithTx(tx)
-	for _, skill := range manifest.Skills {
-		if err := i.ensureSkillPackage(ctx, txSkillPackages, req.AccountID, manifest, skill, pluginRoot); err != nil {
-			return data.PluginPackage{}, err
+	txWorkspaceSkills := i.workspaceSkillRepo.WithTx(tx)
+	if _, _, err := i.reconcilePluginSkills(ctx, txSkillPackages, txWorkspaceSkills, req.AccountID, manifest, pluginRoot); err != nil {
+		return data.PluginPackage{}, err
+	}
+	for _, enablement := range priorEnablements {
+		if !enablement.Enabled {
+			continue
+		}
+		for _, skill := range manifest.Skills {
+			if err := txWorkspaceSkills.Set(ctx, req.AccountID, enablement.WorkspaceRef, enablement.EnabledByUserID, skill.SkillKey, skill.Version, true); err != nil {
+				return data.PluginPackage{}, err
+			}
 		}
 	}
 	_, defaultSettings, err := normalizeSettings(nil, manifest)
@@ -248,6 +257,9 @@ func (i *Installer) Install(ctx context.Context, req InstallRequest) (data.Plugi
 	if _, err := syncProfileMCPInstalls(ctx, txMCP, req.AccountID, profileRef, manifest, defaultSettings, runtimeState, false); err != nil {
 		return data.PluginPackage{}, err
 	}
+	if err := txSkills.DeleteByOwnerPlugin(ctx, req.AccountID, manifest.ID); err != nil {
+		return data.PluginPackage{}, err
+	}
 	if err := installProfileSkills(ctx, txSkills, req.AccountID, req.UserID, profileRef, manifest); err != nil {
 		return data.PluginPackage{}, err
 	}
@@ -255,6 +267,40 @@ func (i *Installer) Install(ctx context.Context, req InstallRequest) (data.Plugi
 		return data.PluginPackage{}, err
 	}
 	return pkg, nil
+}
+
+func (i *Installer) reconcilePluginSkills(
+	ctx context.Context,
+	skillPkgRepo *data.SkillPackagesRepository,
+	wsSkillRepo *data.WorkspaceSkillEnablementsRepository,
+	accountID uuid.UUID,
+	manifest Manifest,
+	pluginRoot string,
+) (oldKeys []string, activeKeys []string, err error) {
+	oldKeys, err = skillPkgRepo.ListActivePluginSkillKeys(ctx, accountID, manifest.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	activeKeys = make([]string, 0, len(manifest.Skills))
+	newKeySet := make(map[string]bool, len(manifest.Skills))
+	for _, skill := range manifest.Skills {
+		if err := i.ensureSkillPackage(ctx, skillPkgRepo, accountID, manifest, skill, pluginRoot); err != nil {
+			return nil, nil, err
+		}
+		activeKeys = append(activeKeys, skill.SkillKey)
+		newKeySet[skill.SkillKey] = true
+	}
+	if _, err := skillPkgRepo.DeactivateOrphanedPluginSkills(ctx, accountID, manifest.ID, activeKeys); err != nil {
+		return nil, nil, err
+	}
+	for _, key := range oldKeys {
+		if !newKeySet[key] {
+			if err := wsSkillRepo.DeleteBySkillKey(ctx, accountID, key); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	return oldKeys, activeKeys, nil
 }
 
 func (i *Installer) Uninstall(ctx context.Context, accountID uuid.UUID, pluginID string) error {
@@ -841,11 +887,44 @@ func renderLaunchSpec(spec map[string]any, settings map[string]any, runtimeState
 	if err != nil {
 		return nil, err
 	}
+	if renderedMap, ok := rendered.(map[string]any); ok {
+		if err := resolvePluginLaunchCwd(renderedMap, runtimeState); err != nil {
+			return nil, err
+		}
+	}
 	payload, err := json.Marshal(rendered)
 	if err != nil {
 		return nil, err
 	}
 	return payload, nil
+}
+
+func resolvePluginLaunchCwd(spec map[string]any, runtimeState map[string]any) error {
+	raw := launchCwdValue(spec)
+	if raw == "" || filepath.IsAbs(raw) {
+		return nil
+	}
+	pluginData := stringFromPluginMap(runtimeState, "plugin_data")
+	if pluginData == "" {
+		return nil
+	}
+	resolved := filepath.Join(pluginData, raw)
+	if err := os.MkdirAll(resolved, 0o755); err != nil {
+		return err
+	}
+	spec["cwd"] = resolved
+	delete(spec, "working_dir")
+	delete(spec, "workingDir")
+	return nil
+}
+
+func launchCwdValue(spec map[string]any) string {
+	for _, key := range []string{"cwd", "working_dir", "workingDir"} {
+		if value, ok := spec[key]; ok && value != nil {
+			return strings.TrimSpace(fmt.Sprint(value))
+		}
+	}
+	return ""
 }
 
 func renderValue(value any, settings map[string]any, runtimeState map[string]any, strictPlaceholders bool) (any, error) {

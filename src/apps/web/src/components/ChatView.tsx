@@ -36,6 +36,7 @@ import { resourceTitle } from './resource-preview/resourceUri'
 import { isPlanMarkdownPath } from '../planMetadata'
 import { ChatTitleMenu } from './ChatTitleMenu'
 import { MessageList, type MessageListHandle } from './MessageList'
+import { ChatMessageNavigator } from './ChatMessageNavigator'
 import { CopSegmentBlocks } from './CopSegmentBlocks'
 import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
 import { ContextCompactBar } from './ContextCompactBar'
@@ -285,8 +286,12 @@ type LocationState = {
   forkBaseCount?: number
   userEnterMessageId?: string
   welcomeUserMessage?: AgentMessage
-  graphFocusMessageId?: string
+  cursorMessageId?: string
 } | null
+
+type ConversationCursor =
+  | { kind: 'tail'; threadId: string }
+  | { kind: 'message'; threadId: string; messageId: string }
 
 type RightPanelStoredTab =
   | { id: string; kind: 'source'; title: string; messageId: string }
@@ -956,7 +961,7 @@ export const ChatView = memo(function ChatView() {
   const [webPanelResource, setWebPanelResource] = useState<BrowserResourceRef | null>(null)
   const [extraBrowserTabs, setExtraBrowserTabs] = useState<Array<{ id: string; resource: BrowserResourceRef | null }>>([])
   const [filesPreviewResource, setFilesPreviewResource] = useState<LocalFileResourceRef | null>(null)
-  const [selectedGraphMessageId, setSelectedGraphMessageId] = useState<string | null>(null)
+  const [conversationCursor, setConversationCursor] = useState<ConversationCursor>(() => ({ kind: 'tail', threadId }))
   const browserTabSeqRef = useRef(0)
   const localFileTabSeqRef = useRef(0)
   const restoredRightPanelThreadRef = useRef<string | null>(null)
@@ -1161,9 +1166,8 @@ export const ChatView = memo(function ChatView() {
     (sending || activeRunId != null)
 
   const messageListRef = useRef<MessageListHandle>(null)
-  const graphNavigationHandoffRef = useRef<{ threadId: string; messageId: string; messages: AgentMessage[] } | null>(null)
   const selectForkAnchor = useCallback((messageId: string) => {
-    setSelectedGraphMessageId(messageId)
+    setConversationCursor({ kind: 'message', threadId, messageId })
     setRightPanelVisible(true)
     setActiveRightPanelTabId('conversation-graph')
     setRightPanelWidth((current) => {
@@ -1176,7 +1180,7 @@ export const ChatView = memo(function ChatView() {
     window.requestAnimationFrame(() => {
       messageListRef.current?.scrollToMessage(messageId, { align: 'center', behavior: 'smooth' })
     })
-  }, [])
+  }, [threadId])
 
   const {
     bottomRef,
@@ -1258,25 +1262,15 @@ export const ChatView = memo(function ChatView() {
     const syncVersion = beginMessageSync()
     let disposed = false
     const navUserEnterMessageId = locationState?.userEnterMessageId
-    const navGraphFocusMessageId = locationState?.graphFocusMessageId
-    const graphHandoff = graphNavigationHandoffRef.current
-    const hasGraphHandoff = !!(
-      graphHandoff &&
-      graphHandoff.threadId === threadId &&
-      graphHandoff.messageId === navGraphFocusMessageId
-    )
+    const navCursorMessageId = locationState?.cursorMessageId
 
     if (!shouldSkipInitialSkeleton) {
-      setMessagesLoading(!hasGraphHandoff)
+      setMessagesLoading(true)
       setUserEnterMessageId(null)
     } else if (welcomeUserMessage) {
       setMessages([welcomeUserMessage])
       setUserEnterMessageId(welcomeUserMessage.id)
       setMessagesLoading(false)
-    }
-    if (hasGraphHandoff) {
-      setMessages(graphHandoff.messages)
-      setSelectedGraphMessageId(navGraphFocusMessageId ?? null)
     }
     setError(null)
     setInjectionBlocked(null)
@@ -1290,12 +1284,11 @@ export const ChatView = memo(function ChatView() {
       try {
         const [thread, initialItems, runs] = await Promise.all([
           getThread(accessToken, threadId),
-          hasGraphHandoff ? Promise.resolve(graphHandoff.messages) : agentClient.listMessages(threadId),
+          agentClient.listMessages(threadId),
           listThreadRuns(accessToken, threadId, 1),
         ])
         if (disposed || !isMessageSyncCurrent(syncVersion)) return
         onThreadUpserted(thread)
-        if (hasGraphHandoff) graphNavigationHandoffRef.current = null
 
         const latest = runs[0]
         let items = initialItems
@@ -1309,10 +1302,10 @@ export const ChatView = memo(function ChatView() {
 
         loadedItems = items
         setMessages(items)
-        setSelectedGraphMessageId(
-          navGraphFocusMessageId && items.some((item) => item.id === navGraphFocusMessageId)
-            ? navGraphFocusMessageId
-            : null,
+        setConversationCursor(
+          navCursorMessageId && items.some((item) => item.id === navCursorMessageId)
+            ? { kind: 'message', threadId, messageId: navCursorMessageId }
+            : { kind: 'tail', threadId },
         )
         let interruptedError = latest?.status === 'interrupted'
           ? { message: t.runInterrupted }
@@ -1773,11 +1766,11 @@ export const ChatView = memo(function ChatView() {
             setUserEnterMessageId(navUserEnterMessageId)
           }
           setMessagesLoading(false)
-          if (locationState?.userEnterMessageId || locationState?.welcomeUserMessage || locationState?.graphFocusMessageId) {
+          if (locationState?.userEnterMessageId || locationState?.welcomeUserMessage || locationState?.cursorMessageId) {
             const rest: LocationState = { ...locationState }
             delete rest.userEnterMessageId
             delete rest.welcomeUserMessage
-            delete rest.graphFocusMessageId
+            delete rest.cursorMessageId
             queueMicrotask(() => {
               navigate('.', { replace: true, state: Object.keys(rest as object).length > 0 ? rest : undefined })
             })
@@ -1922,34 +1915,32 @@ export const ChatView = memo(function ChatView() {
   pendingIncognitoRef.current = pendingIncognito
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const cursorMessageId = conversationCursor.kind === 'message' && conversationCursor.threadId === threadId
+    ? conversationCursor.messageId
+    : null
   const displayedMessages = useMemo(() => {
-    if (!selectedGraphMessageId) return messages
-    const index = messages.findIndex((message) => message.id === selectedGraphMessageId)
+    if (!cursorMessageId) return messages
+    const index = messages.findIndex((message) => message.id === cursorMessageId)
     return index < 0 ? messages : messages.slice(0, index + 1)
-  }, [messages, selectedGraphMessageId])
-  const selectedGraphMessageIdRef = useRef<string | null>(selectedGraphMessageId)
-  selectedGraphMessageIdRef.current = selectedGraphMessageId
+  }, [messages, cursorMessageId])
+  const conversationCursorRef = useRef<ConversationCursor>(conversationCursor)
+  conversationCursorRef.current = conversationCursor
   useEffect(() => {
-    if (!selectedGraphMessageId) return
-    if (!messages.some((message) => message.id === selectedGraphMessageId)) setSelectedGraphMessageId(null)
-  }, [messages, selectedGraphMessageId])
+    if (conversationCursor.kind !== 'message' || conversationCursor.threadId !== threadId) return
+    if (!messages.some((message) => message.id === conversationCursor.messageId)) {
+      setConversationCursor({ kind: 'tail', threadId })
+    }
+  }, [conversationCursor, messages, threadId])
   const handleSelectGraphMessage = useCallback((targetThreadId: string, messageId: string) => {
     if (targetThreadId !== threadId) {
-      void agentClient.listMessages(targetThreadId)
-        .then((items) => {
-          graphNavigationHandoffRef.current = { threadId: targetThreadId, messageId, messages: items }
-          navigate(`/t/${targetThreadId}`, { state: { graphFocusMessageId: messageId } })
-        })
-        .catch((err) => {
-          setError(normalizeError(err))
-        })
+      navigate(`/t/${targetThreadId}`, { state: { cursorMessageId: messageId } })
       return
     }
-    setSelectedGraphMessageId(messageId)
+    setConversationCursor({ kind: 'message', threadId, messageId })
     window.requestAnimationFrame(() => {
       messageListRef.current?.scrollToMessage(messageId, { align: 'center', behavior: 'smooth' })
     })
-  }, [agentClient, navigate, threadId])
+  }, [navigate, threadId])
   const draftScope = useMemo<InputDraftScope>(() => ({
     ownerKey: me?.id,
     page: 'thread',
@@ -2340,16 +2331,19 @@ export const ChatView = memo(function ChatView() {
         setError({ message: 'Attachments are still uploading.' })
         return
       }
-      const graphForkAnchorMessageId = selectedGraphMessageIdRef.current
-      const graphForkAnchorIndex = graphForkAnchorMessageId
-        ? messages.findIndex((message) => message.id === graphForkAnchorMessageId)
+      const cursor = conversationCursorRef.current
+      const forkAnchorMessageId = cursor.kind === 'message' && cursor.threadId === threadId
+        ? cursor.messageId
+        : null
+      const forkAnchorIndex = forkAnchorMessageId
+        ? messages.findIndex((message) => message.id === forkAnchorMessageId)
         : -1
-      const shouldForkFromGraphSelection =
-        graphForkAnchorMessageId != null &&
-        graphForkAnchorIndex >= 0 &&
-        messages[messages.length - 1]?.id !== graphForkAnchorMessageId
-      if (shouldForkFromGraphSelection) {
-        setSelectedGraphMessageId(null)
+      const shouldForkFromCursor =
+        forkAnchorMessageId != null &&
+        forkAnchorIndex >= 0 &&
+        messages[messages.length - 1]?.id !== forkAnchorMessageId
+      if (shouldForkFromCursor) {
+        setConversationCursor({ kind: 'tail', threadId })
         setSending(true)
         setPendingThinking(true)
         setThinkingHint(hint)
@@ -2357,7 +2351,7 @@ export const ChatView = memo(function ChatView() {
         setInjectionBlocked(null)
         injectionBlockedRunIdRef.current = null
         await waitForThreadModeUpdates()
-        const forked = await forkThread(accessToken, threadId, graphForkAnchorMessageId)
+        const forked = await forkThread(accessToken, threadId, forkAnchorMessageId)
         if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
         onThreadCreated(forked)
         const forkUserMessage = await agentClient.createMessage({
@@ -2391,7 +2385,7 @@ export const ChatView = memo(function ChatView() {
       const request = buildMessageRequest(text, uploaded)
       const localMessage = buildOptimisticUserMessage(request, clientMessageId)
 
-      setSelectedGraphMessageId(null)
+      setConversationCursor({ kind: 'tail', threadId })
       setSending(true)
       setPendingThinking(true)
       setThinkingHint(hint)
@@ -2543,7 +2537,7 @@ export const ChatView = memo(function ChatView() {
   useEffect(() => {
     skipRightPanelSaveRef.current = true
     const previousThreadId = restoredRightPanelThreadRef.current
-    const isGraphFocusNavigation = !!locationState?.graphFocusMessageId
+    const isCursorNavigation = !!locationState?.cursorMessageId
     if (!threadId) {
       restoredRightPanelThreadRef.current = null
       setRightPanelVisible(false)
@@ -2557,14 +2551,14 @@ export const ChatView = memo(function ChatView() {
       browserTabSeqRef.current = 0
       return
     }
-    if (previousThreadId !== threadId && !isGraphFocusNavigation) {
+    if (previousThreadId !== threadId && !isCursorNavigation) {
       setRightPanelTabs([])
       closePanelRef.current()
     }
     const saved = readThreadRightPanelState(threadId, { workFolder: workPanelFolder })
     restoredRightPanelThreadRef.current = threadId
-    setRightPanelVisible(isGraphFocusNavigation ? true : saved?.visible ?? false)
-    setActiveRightPanelTabId(isGraphFocusNavigation ? 'conversation-graph' : saved?.activeTabId ?? null)
+    setRightPanelVisible(isCursorNavigation ? true : saved?.visible ?? false)
+    setActiveRightPanelTabId(isCursorNavigation ? 'conversation-graph' : saved?.activeTabId ?? null)
     setRightPanelTabOrder(saved?.tabOrder ?? [])
     setWebPanelResource(saved?.web ?? null)
     setExtraBrowserTabs(saved?.browserTabs ?? [])
@@ -2696,7 +2690,7 @@ export const ChatView = memo(function ChatView() {
 
   const closeRightPanelTab = useCallback((id: string) => {
     if (id === 'conversation-graph') {
-      setSelectedGraphMessageId(null)
+      setConversationCursor({ kind: 'tail', threadId })
       setActiveRightPanelTabId((activeId) => activeId === id ? 'web' : activeId)
       return
     }
@@ -2974,12 +2968,12 @@ export const ChatView = memo(function ChatView() {
       <ConversationGraphPanel
         accessToken={accessToken}
         threadId={threadId}
-        selectedMessageId={selectedGraphMessageId}
+        selectedMessageId={cursorMessageId}
         refreshKey={conversationGraphRefreshKey}
         onSelectMessage={handleSelectGraphMessage}
       />
     ),
-  }), [accessToken, conversationGraphRefreshKey, handleSelectGraphMessage, selectedGraphMessageId, t.rightPanel.conversationGraph, threadId])
+  }), [accessToken, conversationGraphRefreshKey, cursorMessageId, handleSelectGraphMessage, t.rightPanel.conversationGraph, threadId])
 
   const resourcePanelTabs = useMemo<RightPanelTab[]>(() => {
     const result: RightPanelTab[] = []
@@ -3630,7 +3624,7 @@ export const ChatView = memo(function ChatView() {
                 lastTurnStartIdx={lastTurnStartIdx}
                 lastTurnRef={lastUserMsgRef}
                 lastUserPromptRef={lastUserPromptRef}
-                lastTurnChildren={!selectedGraphMessageId || messages[messages.length - 1]?.id === selectedGraphMessageId ? lastTurnChildren : undefined}
+                lastTurnChildren={!cursorMessageId || messages[messages.length - 1]?.id === cursorMessageId ? lastTurnChildren : undefined}
                 showRunDetailButton={showRunDetailButton}
                 currentRunCopHeaderOverride={currentRunCopHeaderOverride}
                 handleRetryUserMessage={handleRetryUserMessage}
@@ -3674,7 +3668,7 @@ export const ChatView = memo(function ChatView() {
     openDocumentPanel,
     openResourcePanel,
     sourcePanelMessageId,
-    selectedGraphMessageId,
+    cursorMessageId,
     setRunDetailPanelRunId,
     stabilizeDocumentPanelScroll,
     t.desktopSettings.chatCompactBannerDone,
@@ -3700,6 +3694,10 @@ export const ChatView = memo(function ChatView() {
           <div className="pointer-events-none absolute inset-x-0 top-[60px] z-10 h-10" style={{ background: 'linear-gradient(to bottom, var(--c-chat-bg-gradient-stop, var(--c-bg-page-gradient-stop, var(--c-bg-page))), transparent)' }} />
           {/* 消息列表 */}
           {messageListArea}
+          <ChatMessageNavigator
+            messages={displayedMessages}
+            scrollContainerRef={scrollContainerRef}
+          />
 
       {/* 输入区域 */}
       <div

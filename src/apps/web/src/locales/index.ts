@@ -893,6 +893,10 @@ export interface LocaleStrings {
   checkInPlaceholder: string;
   replyPlaceholder: string;
   followUpPlaceholder: string;
+  previousResponse: string;
+  nextResponse: string;
+  alreadyAtFirstResponse: string;
+  alreadyAtLastResponse: string;
   // connection settings (desktop only)
   connection: {
     title: string;
@@ -1310,6 +1314,9 @@ export interface LocaleStrings {
     xSearchProviderXaiOAuth: string;
     xSearchProviderXaiApiKey: string;
     oauthConnect: string;
+    oauthReconnect: string;
+    oauthCodePlaceholder: string;
+    oauthCodeSubmit: string;
     searchProviderBasicDesc: string;
     searchProviderTavilyDesc: string;
     searchProviderExaDesc: string;

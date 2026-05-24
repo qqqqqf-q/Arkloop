@@ -386,11 +386,9 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       })
       if (personaKey === SEARCH_PERSONA_KEY) addSearchThreadId(forked.id)
       resetSearchSteps()
-      setActiveRunId(run.id)
       navigate(`/t/${forked.id}`, {
         state: {
           initialRunId: run.id,
-          graphFocusMessageId: forkedMessageId,
         },
       })
       onRunStarted(forked.id)

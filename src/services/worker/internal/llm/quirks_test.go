@@ -92,8 +92,35 @@ func TestQuirkMatch_StripToolChoice(t *testing.T) {
 	}
 }
 
-func TestQuirkMatch_StripUnsignedThinking(t *testing.T) {
+func TestQuirkMatch_EchoReasoningContent_Anthropic(t *testing.T) {
 	q := anthropicQuirks[0]
+	if q.ID != QuirkEchoReasoningContent {
+		t.Fatalf("unexpected id %s", q.ID)
+	}
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{"deepseek_real", 400, `{"error":{"message":"The reasoning_content in the thinking mode must be passed back to the API."}}`, true},
+		{"moonshot_missing", 400, `{"error":{"message":"reasoning_content is missing when thinking is enabled"}}`, true},
+		{"wrong_status", 500, `reasoning_content must be passed back`, false},
+		{"missing_phrase", 400, `reasoning_content is invalid`, false},
+		{"missing_field", 400, `must be passed back`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := matchQuirkForTest(q, tc.status, tc.body)
+			if got != tc.want {
+				t.Fatalf("Match(%d,%q)=%v want %v", tc.status, tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQuirkMatch_StripUnsignedThinking(t *testing.T) {
+	q := anthropicQuirks[1]
 	if q.ID != QuirkStripUnsignedThinking {
 		t.Fatalf("unexpected id %s", q.ID)
 	}
@@ -117,7 +144,7 @@ func TestQuirkMatch_StripUnsignedThinking(t *testing.T) {
 }
 
 func TestQuirkMatch_ForceTempOneOnThinking(t *testing.T) {
-	q := anthropicQuirks[1]
+	q := anthropicQuirks[2]
 	if q.ID != QuirkForceTempOneOnThink {
 		t.Fatalf("unexpected id %s", q.ID)
 	}

@@ -28,6 +28,11 @@ function binaryName(platform, arch) {
   return platform === 'win32' ? `${name}.exe` : name
 }
 
+function activityRecordBinaryName(platform, arch) {
+  const name = `activity-record-${platform}-${arch}`
+  return platform === 'win32' ? `${name}.exe` : name
+}
+
 function currentTarget() {
   const platform = process.platform
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
@@ -41,6 +46,7 @@ function buildTarget({ platform, arch }) {
   if (!goarch) throw new Error(`unsupported arch: ${arch}`)
 
   const outFile = resolve(outDir, binaryName(platform, arch))
+  const activityRecordOutFile = resolve(outDir, activityRecordBinaryName(platform, arch))
   mkdirSync(outDir, { recursive: true })
 
   // Darwin builds require CGO=1 because the VZ (Virtualization.framework)
@@ -69,6 +75,21 @@ function buildTarget({ platform, arch }) {
       GOOS: goos,
       GOARCH: goarch,
       CGO_ENABLED: cgoEnabled,
+    },
+  })
+
+  execFileSync('go', [
+    'build',
+    '-o', activityRecordOutFile,
+    './src/services/activity-record/cmd/activity-record',
+  ], {
+    cwd: workspaceRoot,
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      GOOS: goos,
+      GOARCH: goarch,
+      CGO_ENABLED: '0',
     },
   })
 

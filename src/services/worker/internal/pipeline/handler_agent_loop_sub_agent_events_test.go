@@ -141,6 +141,77 @@ func TestEventWriterAppend_AppendsSubAgentCancelledEventOnCancelRequest(t *testi
 	}
 }
 
+func TestEventWriterNotifiesVisibleTextDelta(t *testing.T) {
+	db := testutil.SetupPostgresDatabase(t, "arkloop_visible_text_delta_notify")
+	pool, err := pgxpool.New(context.Background(), db.DSN)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedPipelineThread(t, pool, accountID, threadID, projectID)
+	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
+
+	rc := &RunContext{}
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-visible-delta", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	defer writer.Close(context.Background())
+
+	var visibleCalls int
+	writer.telegramVisibleTextDelta = func(_ context.Context, role, channel, delta string) {
+		if IsVisibleAssistantTextDelta(rc, role, channel, delta) {
+			visibleCalls++
+		}
+	}
+	emitter := events.NewEmitter("trace-visible-delta")
+
+	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "hello",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append visible delta: %v", err)
+	}
+	if visibleCalls != 1 {
+		t.Fatalf("expected visible callback once, got %d", visibleCalls)
+	}
+
+	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"channel":       "thinking",
+		"content_delta": "hidden",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append thinking delta: %v", err)
+	}
+	if visibleCalls != 1 {
+		t.Fatalf("thinking delta should not notify visible callback, got %d", visibleCalls)
+	}
+
+	rc.DiscussRun = true
+	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "private",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append private discuss delta: %v", err)
+	}
+	if visibleCalls != 1 {
+		t.Fatalf("private discuss delta should not notify visible callback, got %d", visibleCalls)
+	}
+
+	rc.DiscussTextVisible = true
+	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "public",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append visible discuss delta: %v", err)
+	}
+	if visibleCalls != 2 {
+		t.Fatalf("expected visible discuss delta to notify callback, got %d", visibleCalls)
+	}
+}
+
 func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	db := testutil.SetupPostgresDatabase(t, "arkloop_sub_agent_pending_autorun")
 	pool, err := pgxpool.New(context.Background(), db.DSN)

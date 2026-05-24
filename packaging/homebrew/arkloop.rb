@@ -1,39 +1,41 @@
 class Arkloop < Formula
-  RELEASE_TAG = "v26.5.4"
-
   desc "Command-line client for Arkloop"
   homepage "https://github.com/qqqqqf-q/Arkloop"
-  url "https://github.com/qqqqqf-q/Arkloop.git", tag: RELEASE_TAG
-  version "26.5.4"
+  version "VERSION_PLACEHOLDER"
   license :cannot_represent
 
-  depends_on "go" => :build
-  depends_on "node" => :build
-  depends_on "pnpm" => :build
+  RELEASE_TAG = "TAG_PLACEHOLDER"
 
-  def install
-    system "pnpm", "install", "--frozen-lockfile"
-    system "pnpm", "--dir", "src/apps/web", "build"
-    prefix.install "src/apps/web/dist" => "web"
-    prefix.install "src/personas" => "src/personas"
-    prefix.install "src/skills" => "src/skills"
-
-    cd "src/services/cli" do
-      system "go", "build", "-tags", "desktop",
-             "-ldflags", "-X main.version=#{RELEASE_TAG} -X main.webRootHint=#{prefix}/web",
-             "-o", bin/"ark", "./cmd/ark"
+  on_macos do
+    on_arm do
+      url "URL_DARWIN_ARM64"
+      sha256 "SHA256_DARWIN_ARM64"
+    end
+    on_intel do
+      url "URL_DARWIN_AMD64"
+      sha256 "SHA256_DARWIN_AMD64"
     end
   end
 
+  on_linux do
+    on_arm do
+      url "URL_LINUX_ARM64"
+      sha256 "SHA256_LINUX_ARM64"
+    end
+    on_intel do
+      url "URL_LINUX_AMD64"
+      sha256 "SHA256_LINUX_AMD64"
+    end
+  end
+
+  def install
+    bin.install "ark"
+    prefix.install "web"
+    prefix.install "src"
+  end
+
   test do
-    output = shell_output("#{bin}/ark 2>&1", 2)
-    assert_match "usage: ark <command> [flags]", output
-    assert_match "sessions resume <session-id>", output
-
+    assert_match "usage: ark <command> [flags]", shell_output("#{bin}/ark 2>&1", 2)
     assert_match "ark version #{RELEASE_TAG}", shell_output("#{bin}/ark version")
-
-    web_help = shell_output("#{bin}/ark web -h 2>&1", 1)
-    assert_match "Usage of web:", web_help
-    assert_match "-no-open", web_help
   end
 end

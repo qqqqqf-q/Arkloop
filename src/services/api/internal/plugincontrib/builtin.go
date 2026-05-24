@@ -144,10 +144,15 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 		if err := persistPluginAssets(ctx, i.pluginStore, manifest, pluginRoot); err != nil {
 			return err
 		}
-		for _, skill := range manifest.Skills {
-			if err := i.ensureSkillPackage(ctx, i.skillPackagesRepo, accountID, manifest, skill, pluginRoot); err != nil {
-				return err
-			}
+		if _, _, err := i.reconcilePluginSkills(ctx, i.skillPackagesRepo, i.workspaceSkillRepo, accountID, manifest, pluginRoot); err != nil {
+			return err
+		}
+		if err := i.skillInstallsRepo.DeleteByOwnerPlugin(ctx, accountID, manifest.ID); err != nil {
+			return err
+		}
+		profileRef := sharedenvironmentref.BuildProfileRef(accountID, &userID)
+		if err := installProfileSkills(ctx, i.skillInstallsRepo, accountID, userID, profileRef, manifest); err != nil {
+			return err
 		}
 	}
 	profileRef := sharedenvironmentref.BuildProfileRef(accountID, &userID)
@@ -175,6 +180,13 @@ func (i *Installer) SeedBuiltin(ctx context.Context, accountID, userID uuid.UUID
 			return err
 		}
 		current = &created
+	}
+	if current != nil && current.Enabled {
+		for _, skill := range manifest.Skills {
+			if err := i.workspaceSkillRepo.Set(ctx, accountID, workspaceRef, userID, skill.SkillKey, skill.Version, true); err != nil {
+				return err
+			}
+		}
 	}
 	runtimeState, err := i.runtimeRepo.Get(ctx, accountID, pkg.ID, profileRef, workspaceRef)
 	if err != nil {

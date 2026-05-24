@@ -215,7 +215,7 @@ func (r *ThreadRepository) ListForkTree(ctx context.Context, accountID, threadID
 		            expires_at, parent_thread_id, branched_from_message_id, title_locked
 		       FROM threads
 		      WHERE id = $2 AND account_id = $1 AND deleted_at IS NULL
-		     UNION ALL
+		     UNION
 		     SELECT p.id, p.account_id, p.created_by_user_id, p.title, p.created_at, p.updated_at, p.deleted_at,
 		            p.project_id, p.is_private, p.mode, p.collaboration_mode, p.collaboration_mode_revision,
 		            p.learning_mode_enabled, p.sidebar_work_folder, p.sidebar_pinned_at, p.sidebar_gtd_bucket,
@@ -240,7 +240,7 @@ func (r *ThreadRepository) ListForkTree(ctx context.Context, accountID, threadID
 		       FROM threads t
 		       JOIN root ON t.id = root.id
 		      WHERE t.account_id = $1 AND t.deleted_at IS NULL
-		     UNION ALL
+		     UNION
 		     SELECT c.id, c.account_id, c.created_by_user_id, c.title, c.created_at, c.updated_at, c.deleted_at,
 		            c.project_id, c.is_private, c.mode, c.collaboration_mode, c.collaboration_mode_revision,
 		            c.learning_mode_enabled, c.sidebar_work_folder, c.sidebar_pinned_at, c.sidebar_gtd_bucket,
@@ -798,7 +798,6 @@ func (r *ThreadRepository) SearchByQueryWithMode(
 		 WHERE t.account_id = $1
 		   AND t.created_by_user_id = $2
 		   AND t.deleted_at IS NULL
-		   AND t.parent_thread_id IS NULL
 		   AND t.is_private = false`
 	args := []any{accountID, ownerUserID}
 	if normalizedMode != "" {

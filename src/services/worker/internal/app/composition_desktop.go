@@ -1507,14 +1507,24 @@ func desktopChannelDelivery(db data.DesktopDB, stickerStore interface {
 			}
 		}
 
-		var stopTyping context.CancelFunc
-		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && pipeline.ShouldSendTelegramTypingRefresh(rc) {
-			stopTyping = pipeline.StartTelegramTypingRefresh(ctx, client, preloaded.Token, rc.ChannelContext.Conversation.Target)
+		var (
+			typingMu   sync.Mutex
+			stopTyping context.CancelFunc
+		)
+		if preloaded != nil && ux.TypingIndicator && strings.TrimSpace(preloaded.Token) != "" && rc != nil && rc.ChannelContext != nil {
+			rc.TelegramVisibleTextDelta = func(context.Context) {
+				typingMu.Lock()
+				defer typingMu.Unlock()
+				if stopTyping == nil {
+					stopTyping = pipeline.StartTelegramTypingRefresh(ctx, client, preloaded.Token, rc.ChannelContext.Conversation.Target)
+				}
+			}
 		}
 
 		err := next(ctx, rc)
 		if rc != nil {
 			rc.TelegramToolBoundaryFlush = nil
+			rc.TelegramVisibleTextDelta = nil
 			if rc.TelegramProgressTracker != nil {
 				rc.TelegramProgressTracker.Finalize(ctx)
 			}
@@ -3399,8 +3409,13 @@ func desktopAgentLoop(
 			responseDraftStore:      rc.ResponseDraftStore,
 			telegramBoundaryFlush:   rc.TelegramToolBoundaryFlush,
 			telegramProgressTracker: rc.TelegramProgressTracker,
-			heartbeatRun:            pipeline.IsHeartbeatRunContext(rc),
-			streamThinking:          rc.StreamThinking,
+			telegramVisibleTextDelta: func(ctx context.Context, role, channel, delta string) {
+				if pipeline.IsVisibleAssistantTextDelta(rc, role, channel, delta) && rc.TelegramVisibleTextDelta != nil {
+					rc.TelegramVisibleTextDelta(ctx)
+				}
+			},
+			heartbeatRun:   pipeline.IsHeartbeatRunContext(rc),
+			streamThinking: rc.StreamThinking,
 		}
 		personaID := ""
 		if rc.PersonaDefinition != nil {
@@ -3532,6 +3547,7 @@ type desktopEventWriter struct {
 	totalCostUSD             float64
 	usageRepo                data.UsageRecordsRepository
 	telegramBoundaryFlush    func(context.Context, string) error
+	telegramVisibleTextDelta func(context.Context, string, string, string)
 	telegramSentOutputCount  int
 	telegramProgressTracker  *pipeline.TelegramProgressTracker
 	terminalUserMessage      string
@@ -3767,15 +3783,19 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	}
 
 	if ev.Type == "message.delta" {
+		role, _ := ev.DataJSON["role"].(string)
+		channel, _ := ev.DataJSON["channel"].(string)
+		delta := desktopExtractDelta(ev.DataJSON)
 		if w.telegramProgressTracker != nil {
-			role, _ := ev.DataJSON["role"].(string)
-			channel, _ := ev.DataJSON["channel"].(string)
-			if delta := desktopExtractDelta(ev.DataJSON); delta != "" {
+			if delta != "" {
 				w.telegramProgressTracker.OnMessageDelta(ctx, role, channel, delta)
 			}
 		}
-		if channel, _ := ev.DataJSON["channel"].(string); channel == "" {
-			if delta := desktopExtractDelta(ev.DataJSON); delta != "" {
+		if channel == "" {
+			if delta != "" {
+				if w.telegramVisibleTextDelta != nil {
+					w.telegramVisibleTextDelta(ctx, role, channel, delta)
+				}
 				w.assistantDeltas = append(w.assistantDeltas, delta)
 				w.latestAssistantSeq = eventSeq
 				if err := w.maybeFlushResponseDraft(ctx, false); err != nil {
