@@ -30,6 +30,10 @@ const LAG_CATCHUP_PER_CHAR = 1.75
 /** 轻微积压（略超一包）时的温和加码，相对 sustainable 的比例 */
 const LAG_SOFT_BOOST = 0.2
 
+const DRAIN_TARGET_MS = 600
+const DRAIN_MIN_CPS = 180
+const DRAIN_MAX_CPS = 600
+
 /**
  * 流式正文揭示：速率由观测到的 **单包字数 / 包间墙钟时间** 推导（与 message.delta 节律一致），
  * 不是手工拍脑袋的 CPS 或每帧上限。
@@ -38,7 +42,7 @@ export function useTypewriter(targetText: string, isComplete = false): string {
   const [displayedLen, setDisplayedLen] = useState(() =>
     isComplete ? targetText.length : 0,
   )
-  const lenRef = useRef(0)
+  const lenRef = useRef(isComplete ? targetText.length : 0)
   const targetLenRef = useRef(0)
   const prevTickRef = useRef(0)
   const rafRef = useRef(0)
@@ -119,17 +123,6 @@ export function useTypewriter(targetText: string, isComplete = false): string {
   }, [targetText, isComplete])
 
   useEffect(() => {
-    if (!isComplete) return
-    const L = targetText.length
-    const id = requestAnimationFrame(() => {
-      lenRef.current = L
-      setDisplayedLen(L)
-      prevTickRef.current = 0
-    })
-    return () => cancelAnimationFrame(id)
-  }, [isComplete, targetText])
-
-  useEffect(() => {
     cancelAnimationFrame(rafRef.current)
 
     const tick = (now: number) => {
@@ -143,11 +136,32 @@ export function useTypewriter(targetText: string, isComplete = false): string {
       }
 
       if (isCompleteRef.current) {
-        if (current < target) {
-          lenRef.current = target
-          setDisplayedLen(target)
+        if (current >= target) {
+          prevTickRef.current = 0
+          rafRef.current = 0
+          return
         }
-        rafRef.current = 0
+
+        if (!prevTickRef.current) prevTickRef.current = now
+        const elapsed = now - prevTickRef.current
+        const pending = target - current
+        const drainTargetCps = (pending * 1000) / DRAIN_TARGET_MS
+        const drainCps = Math.max(DRAIN_MIN_CPS, Math.min(DRAIN_MAX_CPS, drainTargetCps))
+        const step = Math.max(2, Math.ceil((drainCps * Math.max(elapsed, 1)) / 1000))
+        const next = Math.min(current + step, target)
+
+        lenRef.current = next
+        setDisplayedLen(next)
+        prevTickRef.current = now
+        recordPerfCount('typewriter_tick', 1, {
+          step,
+          pending,
+          drain: true,
+          targetLength: target,
+          nextLength: next,
+        })
+
+        rafRef.current = requestAnimationFrame(tick)
         return
       }
 

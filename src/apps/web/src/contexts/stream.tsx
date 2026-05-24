@@ -76,6 +76,8 @@ interface StreamContextValue {
   setLiveAssistantTurn: React.Dispatch<React.SetStateAction<AssistantTurnUi | null>>
   requestAssistantTurnThinkingBreak: () => void
   releaseCompletedHandoffToHistory: () => void
+  markDrainStarted: (onSettle: () => void) => void
+  notifyDrainSettled: () => void
   resetSearchSteps: () => void
 
   // 流式增量更新 API（不走 setState，直接 mutate ref + notify subscribers）
@@ -145,12 +147,19 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const [preserveLiveRunUi, setPreserveLiveRunUiState] = useState(false)
   const [workTodos, setWorkTodos] = useState<Array<{ id: string; content: string; activeForm?: string; status: string }>>([])
 
+  const drainActiveRef = useRef(false)
+  const drainTimeoutRef = useRef<number>(0)
+  const drainCallbackRef = useRef<(() => void) | null>(null)
+
   const segmentsRef = useRef<Segment[]>([])
   useEffect(() => { segmentsRef.current = segments }, [segments])
   // 同步到全局 ref，供 useStreamingContent 读取
   useEffect(() => {
     globalSegmentsRef = segmentsRef
-    return () => { globalSegmentsRef = null }
+    return () => {
+      globalSegmentsRef = null
+      if (drainTimeoutRef.current) clearTimeout(drainTimeoutRef.current)
+    }
   }, [])
   const searchStepsRef = useRef<WebSearchPhaseStep[]>([])
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
@@ -210,6 +219,12 @@ export function StreamProvider({ children }: { children: ReactNode }) {
       bumpRafRef.current = null
     }
     bumpPendingRef.current = false
+    drainActiveRef.current = false
+    if (drainTimeoutRef.current) {
+      clearTimeout(drainTimeoutRef.current)
+      drainTimeoutRef.current = 0
+    }
+    drainCallbackRef.current = null
     setSegments([])
     segmentsRef.current = []
     setStreamingArtifacts([])
@@ -247,6 +262,31 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setTopLevelWebFetches([])
     streamingArtifactsRef.current = []
     setStreamingArtifacts([])
+  }, [])
+
+  const markDrainStarted = useCallback((onSettle: () => void) => {
+    drainActiveRef.current = true
+    drainCallbackRef.current = onSettle
+    if (drainTimeoutRef.current) clearTimeout(drainTimeoutRef.current)
+    drainTimeoutRef.current = window.setTimeout(() => {
+      drainTimeoutRef.current = 0
+      drainActiveRef.current = false
+      const cb = drainCallbackRef.current
+      drainCallbackRef.current = null
+      cb?.()
+    }, 2000)
+  }, [])
+
+  const notifyDrainSettled = useCallback(() => {
+    if (!drainActiveRef.current) return
+    drainActiveRef.current = false
+    if (drainTimeoutRef.current) {
+      clearTimeout(drainTimeoutRef.current)
+      drainTimeoutRef.current = 0
+    }
+    const cb = drainCallbackRef.current
+    drainCallbackRef.current = null
+    cb?.()
   }, [])
 
   const resetSearchSteps = useCallback(() => {
@@ -320,6 +360,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setLiveAssistantTurn,
     requestAssistantTurnThinkingBreak: requestAssistantTurnThinkingBreakAction,
     releaseCompletedHandoffToHistory,
+    markDrainStarted,
+    notifyDrainSettled,
     resetSearchSteps,
     appendSegmentContent,
     endSegmentStream,
@@ -348,6 +390,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setPreserveLiveRunUi,
     requestAssistantTurnThinkingBreakAction,
     releaseCompletedHandoffToHistory,
+    markDrainStarted,
+    notifyDrainSettled,
     resetSearchSteps,
     appendSegmentContent,
     endSegmentStream,

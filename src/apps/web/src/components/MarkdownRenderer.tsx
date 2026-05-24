@@ -949,6 +949,8 @@ type Props = {
 }
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disableMath, streaming = false, webSources, artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, compact = false, typography = 'default', trimTrailingMargin = false, allowHtml = false }: Props) {
+  const everStreamedRef = useRef(streaming)
+  if (streaming) everStreamedRef.current = true
   const sourceCount = webSources?.length ?? 0
   const artifactCount = artifacts?.length ?? 0
   const shouldThrottleStreamingMath = streaming && !disableMath && containsLikelyMath(content)
@@ -1043,7 +1045,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
           className={`md-content${compact ? ' md-content--compact' : ''}${trimTrailingMargin ? ' md-content--trim-trailing' : ''}`}
           style={{ maxWidth: '100%', fontWeight: 350 }}
         >
-          {streaming ? (
+          {everStreamedRef.current ? (
             <StreamingMarkdown
               components={mdComponents}
               rehypePlugins={rehypePlugins}

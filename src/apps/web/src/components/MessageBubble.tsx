@@ -121,7 +121,7 @@ export function StreamingBubble({ content, isComplete, webSources, browserAction
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ maxWidth: '663px' }}>
         {renderBrowserScreenshots(browserActions, accessToken)}
-        <MarkdownRenderer content={displayed} disableMath streaming={!isComplete} webSources={webSources} />
+        <MarkdownRenderer content={displayed} disableMath streaming={!isComplete || displayed.length < content.length} webSources={webSources} />
       </div>
     </div>
   )

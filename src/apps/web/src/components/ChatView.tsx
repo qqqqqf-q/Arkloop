@@ -707,6 +707,7 @@ function LiveTurnMarkdown({
   streamSegmentId?: string | null
 } & Omit<ComponentProps<typeof MarkdownRenderer>, 'content'>) {
   const streamingContent = useStreamingContent(streamSegmentId)
+  const { notifyDrainSettled } = useStream()
   const targetContent = streamSegmentId ? (streamingContent || content) : content
   const displayed = useTypewriter(targetContent, typewriterDone)
   useEffect(() => {
@@ -720,7 +721,11 @@ function LiveTurnMarkdown({
       typewriterDone,
     })
   }, [targetContent.length, displayed.length, typewriterDone])
-  return <MarkdownRenderer content={displayed} streaming={!typewriterDone} {...rest} />
+  const settled = typewriterDone && displayed.length >= targetContent.length
+  useEffect(() => {
+    if (settled) notifyDrainSettled()
+  }, [settled, notifyDrainSettled])
+  return <MarkdownRenderer content={displayed} streaming={!settled} {...rest} />
 }
 
 const ScrollToBottomButton = memo(function ScrollToBottomButton({

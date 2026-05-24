@@ -273,7 +273,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <div ref={contentRef}>
           <MarkdownRenderer
             content={displayedAssistantMd}
-            streaming={streamMarkdown}
+            streaming={streamMarkdown || displayedAssistantMd.length < renderedContent.length}
             webSources={webSources}
             artifacts={artifacts}
             accessToken={accessToken}

@@ -146,6 +146,7 @@ export function useThreadSseEffect({
     setTopLevelFileOps,
     setTopLevelWebFetches,
     setWorkTodos,
+    markDrainStarted,
   } = useStream()
   const {
     refreshMessages,
@@ -831,7 +832,14 @@ export function useThreadSseEffect({
           persistThreadRunHandoff(completedRunId, completedRunCache)
         }
         if (localCompletedAssistant) {
-          releaseCompletedHandoffToHistory()
+          const hasTextToDrain = runCache.handoffAssistantTurn.segments.some(
+            (s) => s.type === 'text' && s.content.length > 0,
+          )
+          if (hasTextToDrain) {
+            markDrainStarted(() => releaseCompletedHandoffToHistory())
+          } else {
+            releaseCompletedHandoffToHistory()
+          }
         }
         setAwaitingInput(false)
         setPendingUserInput(null)
