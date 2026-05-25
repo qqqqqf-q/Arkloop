@@ -186,7 +186,13 @@ function DesktopSettingsPaneImpl({
       case "providers":
         return <ProvidersSettings accessToken={accessToken} />;
       case "routing":
-        return <RoutingSettings accessToken={accessToken} />;
+        return (
+          <RoutingSettings
+            accessToken={accessToken}
+            platformSettings={hydrationSnapshot.platformSettings}
+            onPlatformSettingsChange={onPlatformSettingsChange}
+          />
+        );
       case "channels":
         return <DesktopChannelsSettings accessToken={accessToken} />;
       case "plugins":
@@ -270,6 +276,9 @@ function equalPaneProps(prev: DesktopSettingsPaneProps, next: DesktopSettingsPan
     case "chat":
       return prev.hydrationSnapshot === next.hydrationSnapshot &&
         prev.onExecutionModeChange === next.onExecutionModeChange &&
+        prev.onPlatformSettingsChange === next.onPlatformSettingsChange;
+    case "routing":
+      return prev.hydrationSnapshot.platformSettings === next.hydrationSnapshot.platformSettings &&
         prev.onPlatformSettingsChange === next.onPlatformSettingsChange;
     case "developer":
       return prev.onNavigate === next.onNavigate;

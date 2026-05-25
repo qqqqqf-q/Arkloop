@@ -12,9 +12,12 @@ import { SettingsModelDropdown } from './SettingsModelDropdown'
 import { ToolModelSettingControl } from './ToolModelSettingControl'
 import { ChatModelSettingControl } from './ChatModelSettingControl'
 import { VisionModelSettingControl } from './VisionModelSettingControl'
+import { ImageGenModelSettingControl } from './ImageGenModelSettingControl'
 
 type Props = {
   accessToken: string
+  platformSettings?: Record<string, string> | null
+  onPlatformSettingsChange?: (updates: Record<string, string>) => void
 }
 
 const PROFILE_NAMES = ['explore', 'task', 'strong'] as const
@@ -64,7 +67,7 @@ function RoutingRow({
   )
 }
 
-export function RoutingSettings({ accessToken }: Props) {
+export function RoutingSettings({ accessToken, platformSettings, onPlatformSettingsChange }: Props) {
   const { t } = useLocale()
   const a = t.agentSettings
   const ds = t.desktopSettings
@@ -153,6 +156,17 @@ export function RoutingSettings({ accessToken }: Props) {
             description={ds.visionModelDesc}
             control={(
               <VisionModelSettingControl accessToken={accessToken} />
+            )}
+          />
+          <RoutingRow
+            title={a.imageGenerativeTitle}
+            description={a.imageGenerativeDesc}
+            control={(
+              <ImageGenModelSettingControl
+                accessToken={accessToken}
+                platformSettings={platformSettings ?? null}
+                onPlatformSettingsChange={onPlatformSettingsChange ?? (() => {})}
+              />
             )}
           />
           <RoutingRow

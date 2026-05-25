@@ -1289,9 +1289,14 @@ func testLocalLlmProviderModel(
 }
 
 const testTimeout = 15 * time.Second
+const imageTestTimeout = 60 * time.Second
 
 func runLlmProviderModelTest(ctx context.Context, cfg llmproviders.ProviderModelTestConfig) error {
-	testCtx, cancel := context.WithTimeout(ctx, testTimeout)
+	timeout := testTimeout
+	if determineModelTestType(cfg.Model) == "image" {
+		timeout = imageTestTimeout
+	}
+	testCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	protocolConfig, err := llmproviders.ResolveCatalogProtocolConfig(cfg.Credential, cfg.APIKey)
