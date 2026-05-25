@@ -234,8 +234,10 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setTerminalRunHandoffStatus(null)
     setTerminalRunCoveredRunIds([])
     try {
-      const nonTextParts = original.contentJson?.parts?.filter((part) => part.type !== 'text') ?? []
-      const newContentJson: AgentMessageContent | undefined = original.contentJson
+      const nonTextParts = original.contentJson && 'parts' in original.contentJson
+        ? original.contentJson.parts.filter((part) => part.type !== 'text')
+        : []
+      const newContentJson: AgentMessageContent | undefined = original.contentJson && 'parts' in original.contentJson
         ? { parts: [{ type: 'text', text: newContent }, ...nonTextParts] }
         : undefined
       const personaKey = readSelectedPersonaKeyFromStorage() ?? undefined
@@ -508,6 +510,36 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     }
   }, [agentClient, activeRunId, onLoggedOut, pendingUserInput, setError, setInjectionBlocked, setPendingUserInput])
 
+  const handleAskUserFormSubmit = useCallback(async (_requestId: string, answers: Record<string, unknown>) => {
+    if (!activeRunId) return
+    setError(null)
+    setInjectionBlocked(null)
+    try {
+      await agentClient.provideInput(activeRunId, JSON.stringify(answers))
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    }
+  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked])
+
+  const handleAskUserFormDismiss = useCallback(async (_requestId: string) => {
+    if (!activeRunId) return
+    setError(null)
+    setInjectionBlocked(null)
+    try {
+      await agentClient.provideInput(activeRunId, JSON.stringify({}))
+    } catch (err) {
+      if (isApiError(err) && err.status === 401) {
+        onLoggedOut()
+        return
+      }
+      setError(normalizeError(err))
+    }
+  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked])
+
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {
       onLoggedOut()
@@ -563,6 +595,8 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     handleCheckInSubmit,
     handleUserInputSubmit,
     handleUserInputDismiss,
+    handleAskUserFormSubmit,
+    handleAskUserFormDismiss,
     handleAsrError,
     handleArtifactAction,
   }

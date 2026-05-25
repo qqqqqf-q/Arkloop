@@ -168,6 +168,7 @@ function normalizeInputRequest(value: unknown): AgentInputRequestData {
     ...(stringField(record, 'requestId', 'request_id') ? { requestId: stringField(record, 'requestId', 'request_id') } : {}),
     ...(stringField(record, 'message') ? { message: stringField(record, 'message') } : {}),
     ...(record && 'requestedSchema' in record ? { requestedSchema: record.requestedSchema } : {}),
+    ...(stringField(record, 'display_mode') ? { display_mode: stringField(record, 'display_mode') } : {}),
   }
 }
 

@@ -19,6 +19,7 @@ import (
 	"arkloop/services/worker/internal/security"
 	"arkloop/services/worker/internal/tools"
 	"arkloop/services/worker/internal/tools/builtin"
+	"arkloop/services/worker/internal/tools/builtin/askuser"
 	channeltelegram "arkloop/services/worker/internal/tools/builtin/channel_telegram"
 	heartbeattool "arkloop/services/worker/internal/tools/builtin/heartbeat_decision"
 	"github.com/google/uuid"
@@ -4437,6 +4438,9 @@ func TestAskUserLoopIntercept(t *testing.T) {
 			if ev.DataJSON["request_id"] != "call_askuser" {
 				t.Fatalf("unexpected request_id: %v", ev.DataJSON["request_id"])
 			}
+			if gotMode, _ := ev.DataJSON["display_mode"].(string); gotMode != "inline" {
+				t.Fatalf("display_mode = %q, want inline", gotMode)
+			}
 		case EventTypeRunPaused:
 			hasPaused = true
 		case EventTypeRunResumed:
@@ -4471,6 +4475,45 @@ func TestAskUserLoopIntercept(t *testing.T) {
 	}
 	if !hasCompleted {
 		t.Fatal("expected run.completed")
+	}
+}
+
+func TestValidateAndNormalizeAcceptsDisplayModeForm(t *testing.T) {
+	args := map[string]any{
+		"message":      "Choose deployment options",
+		"display_mode": "form",
+		"fields": []any{
+			map[string]any{
+				"key":      "region",
+				"type":     "string",
+				"enum":     []any{"us-east-1", "ap-southeast-1"},
+				"required": true,
+			},
+		},
+	}
+
+	message, schema, err := askuser.ValidateAndNormalize(args)
+	if err != nil {
+		t.Fatalf("ValidateAndNormalize returned error: %v", err)
+	}
+	if message != "Choose deployment options" {
+		t.Fatalf("unexpected message: %q", message)
+	}
+	if gotMode, _ := schema["display_mode"].(string); gotMode != "form" {
+		t.Fatalf("display_mode = %q, want form", gotMode)
+	}
+}
+
+func TestValidateAndNormalizeRejectsUnknownDisplayMode(t *testing.T) {
+	_, _, err := askuser.ValidateAndNormalize(map[string]any{
+		"message":      "bad mode",
+		"display_mode": "wizard",
+		"fields": []any{
+			map[string]any{"key": "ok", "type": "string"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "display_mode") {
+		t.Fatalf("expected display_mode error, got %v", err)
 	}
 }
 

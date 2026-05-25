@@ -12,9 +12,27 @@ export type AgentMessageContentPart =
   | { type: 'image'; attachment: AgentMessageAttachmentRef }
   | { type: 'file'; attachment: AgentMessageAttachmentRef; extractedText: string }
 
-export type AgentMessageContent = {
-  parts: AgentMessageContentPart[]
+export type AgentAskUserFormContent = {
+  kind: 'ask_user_form'
+  displayMode: 'form'
+  requestId: string
+  runId: string
+  toolCallId?: string
+  message: string
+  schema: {
+    properties: Record<string, unknown>
+    required?: string[]
+    _fieldOrder?: string[]
+    displayMode?: string
+  }
+  status: 'pending' | 'submitted' | 'dismissed' | 'expired'
+  answers: Record<string, unknown> | null
+  submittedAt: string | null
 }
+
+export type AgentMessageContent =
+  | { parts: AgentMessageContentPart[] }
+  | AgentAskUserFormContent
 
 export type AgentProviderMetadata = Record<string, unknown>
 export type AgentUIDataTypes = Record<string, unknown>
@@ -316,6 +334,7 @@ export type AgentInputRequestData = {
   requestId?: string
   message?: string
   requestedSchema?: unknown
+  display_mode?: string
 }
 
 export type AgentSecurityBlockData = {

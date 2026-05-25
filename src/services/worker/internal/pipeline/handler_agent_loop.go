@@ -82,7 +82,7 @@ func NewAgentLoopHandler(
 		writer := newEventWriter(
 			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
 			rc.EventBus, jobQueue,
-			selected.Route.Model, personaID, usageRepo, creditsRepo,
+			selected.Route.Model, personaID, messagesRepo, usageRepo, creditsRepo,
 			creditsPerUSD,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
 			selected.Route.CostPer1kCacheWrite, selected.Route.CostPer1kCacheRead,
@@ -271,6 +271,7 @@ type eventWriter struct {
 	model         string
 	personaID     string
 	runsRepo      data.RunsRepository
+	messagesRepo  data.MessagesRepository
 	usageRepo     data.UsageRecordsRepository
 	creditsRepo   data.CreditsRepository
 	releaseSlot   func() // idempotent per-run slot release (from RunContext)
@@ -349,6 +350,7 @@ func newEventWriter(
 	jobQueue queue.JobQueue,
 	model string,
 	personaID string,
+	messagesRepo data.MessagesRepository,
 	usageRepo data.UsageRecordsRepository,
 	creditsRepo data.CreditsRepository,
 	creditsPerUSD float64,
@@ -385,6 +387,7 @@ func newEventWriter(
 		projector:                 projector,
 		model:                     model,
 		personaID:                 strings.TrimSpace(personaID),
+		messagesRepo:              messagesRepo,
 		usageRepo:                 usageRepo,
 		creditsRepo:               creditsRepo,
 		creditsPerUSD:             creditsPerUSD,
@@ -631,6 +634,40 @@ func (w *eventWriter) Append(
 		return err
 	}
 	w.pendingEventsSinceCommit++
+
+	if ev.Type == "run.input_requested" {
+		if dm, _ := ev.DataJSON["display_mode"].(string); strings.TrimSpace(dm) == "form" {
+			requestID, _ := ev.DataJSON["request_id"].(string)
+			prompt, _ := ev.DataJSON["message"].(string)
+			schemaRaw, _ := json.Marshal(ev.DataJSON["requestedSchema"])
+			existingID, err := w.messagesRepo.FindAskUserFormMessageByRunIDAndRequestID(ctx, w.tx, w.run.AccountID, w.run.ThreadID, runID, requestID)
+			if err != nil {
+				return err
+			}
+			if existingID == nil {
+				contentJSON, _ := json.Marshal(map[string]any{
+					"kind":         "ask_user_form",
+					"display_mode": "form",
+					"run_id":       runID.String(),
+					"request_id":   requestID,
+					"message":      prompt,
+					"schema":       json.RawMessage(schemaRaw),
+					"status":       "pending",
+					"answers":      nil,
+					"submitted_at": nil,
+				})
+				_, err := w.messagesRepo.InsertAssistantMessageWithMetadata(
+					ctx, w.tx, w.run.AccountID, w.run.ThreadID, runID,
+					prompt, contentJSON, false,
+					map[string]any{"run_id": runID.String()},
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	if assistantMessage, ok := assistantMessageFromEventData(ev.DataJSON); ok {
 		w.assistantMessage = &assistantMessage
 		w.assistantMessageFresh = true
@@ -766,6 +803,13 @@ func (w *eventWriter) Append(
 		w.terminalRunStatus = status
 		if status != "completed" {
 			w.terminalMessage = TerminalStatusMessage(ev.DataJSON)
+		}
+		// Expire any pending ask_user_form messages for this run
+		if pendingForms, listErr := w.messagesRepo.ListPendingAskUserFormsByRun(ctx, w.tx, w.run.AccountID, w.run.ThreadID, runID); listErr == nil {
+			now := time.Now().UTC()
+			for _, pf := range pendingForms {
+				_ = w.messagesRepo.UpdateAskUserFormMessageStatus(ctx, w.tx, w.run.AccountID, w.run.ThreadID, pf.ID, "expired", nil, &now)
+			}
 		}
 		w.hasTerminal = true
 		return nil

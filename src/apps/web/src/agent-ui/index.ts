@@ -1,4 +1,5 @@
 export type {
+  AgentAskUserFormContent,
   AgentBackendAdapter,
   AgentChatRequestOptions,
   AgentClient,

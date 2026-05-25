@@ -83,6 +83,11 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "string",
 				"description": "A clear message describing what you need from the user.",
 			},
+			"display_mode": map[string]any{
+				"type":        "string",
+				"enum":        []string{"inline", "form"},
+				"description": "How to present the question. inline for quick confirmations/approvals that don't need a record; form for collecting detailed input that should persist in chat history for later review.",
+			},
 			"fields": map[string]any{
 				"type":        "array",
 				"description": "Form field definitions. Each item is a field rendered in the form.",

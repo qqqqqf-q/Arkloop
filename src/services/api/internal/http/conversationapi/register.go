@@ -100,6 +100,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.AuthService,
 			deps.AccountMembershipRepo,
 			deps.RunEventRepo,
+			deps.MessageRepo,
 			deps.AuditWriter,
 			deps.Pool,
 			deps.DirectPool,

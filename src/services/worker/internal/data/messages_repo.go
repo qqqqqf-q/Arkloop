@@ -895,6 +895,137 @@ func (MessagesRepository) SearchVisibleByOwner(
 	return hits, nil
 }
 
+// FindAskUserFormMessageByRunIDAndRequestID 查找指定 run + request_id 的 ask_user_form 消息。
+func (MessagesRepository) FindAskUserFormMessageByRunIDAndRequestID(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	runID uuid.UUID,
+	requestID string,
+) (*uuid.UUID, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("tx must not be nil")
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || runID == uuid.Nil || requestID == "" {
+		return nil, fmt.Errorf("account_id, thread_id, run_id and request_id must not be empty")
+	}
+	var messageID uuid.UUID
+	err := tx.QueryRow(
+		ctx,
+		`SELECT id
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND metadata_json->>'run_id' = $3
+		    AND content_json->>'request_id' = $4
+		    AND deleted_at IS NULL
+		  LIMIT 1`,
+		accountID, threadID, runID.String(), requestID,
+	).Scan(&messageID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &messageID, nil
+}
+
+// ListPendingAskUserFormsByRun 列出指定 run 的所有 pending 状态 ask_user_form 消息。
+func (MessagesRepository) ListPendingAskUserFormsByRun(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	runID uuid.UUID,
+) ([]ThreadMessage, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("tx must not be nil")
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || runID == uuid.Nil {
+		return nil, fmt.Errorf("account_id, thread_id and run_id must not be empty")
+	}
+	rows, err := tx.Query(
+		ctx,
+		`SELECT id, role, content, content_json, metadata_json, created_at, thread_seq, NULL::bigint as output_tokens
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND metadata_json->>'run_id' = $3
+		    AND content_json->>'kind' = 'ask_user_form'
+		    AND content_json->>'status' = 'pending'
+		    AND deleted_at IS NULL`,
+		accountID, threadID, runID.String(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ThreadMessage, 0)
+	for rows.Next() {
+		var item ThreadMessage
+		if err := rows.Scan(
+			&item.ID, &item.Role, &item.Content, &item.ContentJSON,
+			&item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &item.OutputTokens,
+		); err != nil {
+			return nil, err
+		}
+		item.Role = strings.TrimSpace(item.Role)
+		item.Content = strings.TrimSpace(item.Content)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateAskUserFormMessageStatus 更新 ask_user_form 消息的状态、答案和提交时间。
+func (MessagesRepository) UpdateAskUserFormMessageStatus(
+	ctx context.Context,
+	tx pgx.Tx,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+	status string,
+	answers json.RawMessage,
+	submittedAt *time.Time,
+) error {
+	if tx == nil {
+		return fmt.Errorf("tx must not be nil")
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return fmt.Errorf("account_id, thread_id and message_id must not be empty")
+	}
+	var submittedAtStr *string
+	if submittedAt != nil {
+		s := submittedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
+		submittedAtStr = &s
+	}
+	_, err := tx.Exec(
+		ctx,
+		`UPDATE messages
+		    SET content_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(content_json, '{status}', to_jsonb($5::text)),
+					'{answers}', COALESCE(to_jsonb($6::jsonb), 'null'::jsonb)
+				),
+				'{submitted_at}', COALESCE(to_jsonb($7::text), 'null'::jsonb)
+			)
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND id = $3
+		    AND deleted_at IS NULL`,
+		accountID, threadID, messageID, status, answers, submittedAtStr,
+	)
+	return err
+}
+
 func escapeILikePattern(input string) string {
 	replacer := strings.NewReplacer(
 		"!", "!!",

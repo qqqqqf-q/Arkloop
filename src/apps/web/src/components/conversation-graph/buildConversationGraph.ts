@@ -17,9 +17,8 @@ export type ConversationGraphFlowNode = Node<ConversationGraphNodeData, 'convers
 export type ConversationGraphFlowEdge = Edge
 
 function messageText(message: MessageResponse): string {
-  const parts = message.content_json?.parts
-  if (Array.isArray(parts)) {
-    const text = parts
+  if (message.content_json && 'parts' in message.content_json && Array.isArray(message.content_json.parts)) {
+    const text = message.content_json.parts
       .map((part) => part.type === 'text' && 'text' in part ? part.text : '')
       .join('')
       .trim()
