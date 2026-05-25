@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode, type WheelEvent } from 'react'
-import { FileText, FolderOpen, GitBranch, Globe2, Plus, X } from 'lucide-react'
+import { FileText, FolderOpen, GitBranch, Globe2, Grid3x3, Plus, X } from 'lucide-react'
 import { iconButtonSmCls } from './buttonStyles'
 import { DropdownAction } from './DropdownAction'
 import { rightPanelIconButtonCls, rightPanelIconButtonSize, rightPanelIconSize } from './rightPanelControls'
@@ -9,7 +9,7 @@ import './RightPanel.css'
 export type RightPanelTab = {
   id: string
   title: string
-  kind: 'web' | 'files' | 'source' | 'code' | 'agent' | 'resource' | 'conversation-graph'
+  kind: 'web' | 'files' | 'source' | 'code' | 'agent' | 'resource' | 'conversation-graph' | 'artifacts'
   content: ReactNode
   closable?: boolean
   icon?: ReactNode
@@ -40,6 +40,7 @@ function TabIcon({ kind }: { kind: RightPanelTab['kind'] }) {
   if (kind === 'web') return <Globe2 size={rightPanelIconSize} />
   if (kind === 'files') return <FolderOpen size={rightPanelIconSize} />
   if (kind === 'conversation-graph') return <GitBranch size={rightPanelIconSize} />
+  if (kind === 'artifacts') return <Grid3x3 size={rightPanelIconSize} />
   return <FileText size={rightPanelIconSize} />
 }
 
