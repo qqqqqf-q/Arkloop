@@ -566,6 +566,7 @@ var registry = []ToolMeta{
 		LLMDescription: "generate an image from a text prompt using the configured image model and save it as an artifact. " +
 			"You may optionally provide input_images as artifact references plus simple output options such as size, quality, background, and output_format when the user asks for them. " +
 			"Use when the user explicitly asks for image generation or a visual asset. " +
+			"No need to call visualize_read_me before this tool; that guideline loader is only for HTML/SVG widgets (show_widget, create_artifact). " +
 			"After this tool succeeds, you MUST render the result in your final response with Markdown image syntax: ![short alt text](artifact:<key>). " +
 			"If the user also wants the generated file sent to Telegram or another tool that accepts artifacts, reuse the exact artifact key returned by this tool instead of inventing a URL or path. " +
 			"Do not mention raw storage paths. Do not invent artifact keys. " +

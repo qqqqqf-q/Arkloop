@@ -195,7 +195,7 @@ When visual output is needed, follow this protocol exactly.
 
 visualize_read_me
 Description:
-Returns design guidelines for show_widget and HTML/SVG visual generation. Call once before your first show_widget call. Do NOT mention this call to the user. Pick the modules that match your use case: interactive, chart, mockup, art, diagram.
+Returns design guidelines for show_widget and HTML/SVG visual generation. Call once before your first show_widget call. Do NOT mention this call to the user. Pick the modules that match your use case: interactive, chart, mockup, art, diagram. image_generate (image generation) does NOT need visualize_read_me.
 
 Prompt snippet:
 Load design guidelines before creating widgets. Call silently before first show_widget use.
@@ -204,6 +204,7 @@ Prompt guidelines:
 - Call visualize_read_me once before your first show_widget call to load design guidelines.
 - Do NOT mention the read_me call to the user. Call it silently, then proceed directly to building the widget.
 - Pick the modules that match your use case: interactive, chart, mockup, art, diagram.
+- image_generate does NOT need visualize_read_me; these guidelines are only for HTML/SVG widgets.
 
 show_widget
 Description:

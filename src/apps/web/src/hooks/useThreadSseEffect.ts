@@ -276,8 +276,11 @@ export function useThreadSseEffect({
       }
       if (!handoffRunCache) {
         liveSegmentSnapshotIdsRef.current.clear()
-        streamingArtifactsRef.current = []
-        setStreamingArtifacts([])
+        // Preserve image_generate streaming artifacts for fallback rendering
+        // after the message is complete. They will be cleared when the next run starts.
+        const preserved = streamingArtifactsRef.current.filter((e) => e.toolName === IMAGE_GENERATE_TOOL_NAME)
+        streamingArtifactsRef.current = preserved
+        setStreamingArtifacts([...streamingArtifactsRef.current])
         flushSegmentsRefToState()
         resetAssistantTurnLive()
         activeSegmentIdRef.current = null

@@ -337,6 +337,7 @@ type LiveRunPaneProps = {
   thinkingHint?: string
   visibleStreamingWidgets: StreamingArtifactEntry[]
   visibleStreamingArtifacts: StreamingArtifactEntry[]
+  fallbackImageGenerateArtifacts: StreamingArtifactEntry[]
   injectionBlocked: string | null
   awaitingInput: boolean
   checkInDraft: string
@@ -386,6 +387,7 @@ const LiveRunPane = memo(function LiveRunPane({
   thinkingHint,
   visibleStreamingWidgets,
   visibleStreamingArtifacts,
+  fallbackImageGenerateArtifacts,
   injectionBlocked,
   awaitingInput,
   checkInDraft,
@@ -564,6 +566,16 @@ const LiveRunPane = memo(function LiveRunPane({
       {visibleStreamingArtifacts.map((entry) => (
         <ArtifactStreamBlock
           key={`streaming-artifact-${entry.toolCallIndex}`}
+          entry={entry}
+          accessToken={accessToken}
+          compact
+          onAction={onArtifactAction}
+        />
+      ))}
+
+      {fallbackImageGenerateArtifacts.map((entry) => (
+        <ArtifactStreamBlock
+          key={`fallback-artifact-${entry.toolCallIndex}`}
           entry={entry}
           accessToken={accessToken}
           compact
@@ -3152,17 +3164,21 @@ export const ChatView = memo(function ChatView() {
       if (e.toolName === 'create_artifact') {
         return !!e.content && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))
       }
-      if (e.toolName === IMAGE_GENERATE_TOOL_NAME) {
-        if (!e.artifactRef) return false
-        // If the artifact is already referenced in an assistant message,
-        // MarkdownRenderer will render it inside the message bubble.
-        // Skip the top-level streaming artifact to avoid duplication/flash.
-        return !artifactKeysReferencedInMessages.has(e.artifactRef.key)
-      }
+      // image_generate is never shown as a top-level streaming artifact.
+      // It either renders inside the message bubble via MarkdownRenderer,
+      // or appears as a fallback after the message is complete.
       return false
     }),
-    [streamingArtifacts, livePlacedCreateArtifactCallIds, artifactKeysReferencedInMessages],
+    [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
+  const fallbackImageGenerateArtifacts = useMemo(() => {
+    if (liveRunUiActive) return []
+    return streamingArtifacts.filter((e) =>
+      e.toolName === IMAGE_GENERATE_TOOL_NAME &&
+      e.artifactRef &&
+      !artifactKeysReferencedInMessages.has(e.artifactRef.key),
+    )
+  }, [streamingArtifacts, liveRunUiActive, artifactKeysReferencedInMessages])
   const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
     streamingArtifacts
       .filter((entry) => entry.toolName === 'show_widget')
@@ -3524,6 +3540,7 @@ export const ChatView = memo(function ChatView() {
       thinkingHint={thinkingHint}
       visibleStreamingWidgets={visibleStreamingWidgets}
       visibleStreamingArtifacts={visibleStreamingArtifacts}
+      fallbackImageGenerateArtifacts={fallbackImageGenerateArtifacts}
       injectionBlocked={injectionBlocked}
       awaitingInput={awaitingInput}
       checkInDraft={checkInDraft}
