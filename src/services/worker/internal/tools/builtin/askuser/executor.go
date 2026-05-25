@@ -3,6 +3,7 @@ package askuser
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"arkloop/services/worker/internal/tools"
@@ -53,6 +54,15 @@ func ValidateAndNormalize(args map[string]any) (string, map[string]any, error) {
 		return "", nil, fmt.Errorf("missing required field: message")
 	}
 
+	displayMode, _ := args["display_mode"].(string)
+	displayMode = strings.TrimSpace(displayMode)
+	if displayMode == "" {
+		displayMode = "inline"
+	}
+	if displayMode != "inline" && displayMode != "form" {
+		return "", nil, fmt.Errorf("display_mode must be one of inline, form")
+	}
+
 	fieldsRaw, ok := args["fields"]
 	if !ok {
 		return "", nil, fmt.Errorf("missing required field: fields")
@@ -95,7 +105,10 @@ func ValidateAndNormalize(args map[string]any) (string, map[string]any, error) {
 		}
 	}
 
-	schema := map[string]any{"properties": properties}
+	schema := map[string]any{
+		"properties":   properties,
+		"display_mode": displayMode,
+	}
 	if len(orderedKeys) > 0 {
 		schema["_fieldOrder"] = orderedKeys
 	}

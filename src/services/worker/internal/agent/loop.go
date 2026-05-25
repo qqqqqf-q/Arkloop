@@ -642,10 +642,16 @@ func (l *Loop) Run(
 				continue
 			}
 
+			displayMode := "inline"
+			if raw, _ := schema["display_mode"].(string); strings.TrimSpace(raw) != "" {
+				displayMode = strings.TrimSpace(raw)
+			}
+
 			if err := yield(emitter.Emit("run.input_requested", map[string]any{
 				"request_id":      requestID,
 				"message":         message,
 				"requestedSchema": schema,
+				"display_mode":    displayMode,
 			}, nil, nil)); err != nil {
 				return err
 			}

@@ -1253,6 +1253,54 @@ if err then error(err) end
 	}
 }
 
+func TestLuaExecutor_AgentLoop_AskUserFormIncludesDisplayMode(t *testing.T) {
+	gw := &captureGateway{
+		events: [][]llm.StreamEvent{
+			{
+				llm.ToolCall{
+					ToolCallID: "call_ask_user_form",
+					ToolName:   "ask_user",
+					ArgumentsJSON: map[string]any{
+						"message":      "Fill release form",
+						"display_mode": "form",
+						"fields": []any{
+							map[string]any{"key": "version", "type": "string", "required": true},
+						},
+					},
+				},
+				llm.StreamRunCompleted{},
+			},
+			{
+				llm.StreamMessageDelta{ContentDelta: "handled", Role: "assistant"},
+				llm.StreamRunCompleted{},
+			},
+		},
+	}
+
+	rc := buildLuaRC(gw)
+	rc.WaitForInput = func(_ context.Context) (string, bool) {
+		return `{"version":"1.2.3"}`, true
+	}
+
+	evs := runLuaScript(t, `
+local ok, err = agent.loop("system", "query")
+if err then error(err) end
+`, rc)
+
+	found := false
+	for _, ev := range evs {
+		if ev.Type != "run.input_requested" {
+			continue
+		}
+		if gotMode, _ := ev.DataJSON["display_mode"].(string); gotMode == "form" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected run.input_requested to include display_mode=form")
+	}
+}
+
 func TestLuaExecutor_AgentStreamRoute_UsesResolvedRoute(t *testing.T) {
 	mainGW := &luaSeqGateway{
 		events: []llm.StreamEvent{

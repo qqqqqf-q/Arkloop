@@ -83,6 +83,11 @@ var LlmSpec = llm.ToolSpec{
 				"type":        "string",
 				"description": "A clear message describing what you need from the user.",
 			},
+			"display_mode": map[string]any{
+				"type":        "string",
+				"enum":        []string{"inline", "form"},
+				"description": "How the client should present the question. inline keeps the temporary composer card, form persists a card in the chat stream.",
+			},
 			"fields": map[string]any{
 				"type":        "array",
 				"description": "Form field definitions. Each item is a field rendered in the form.",
