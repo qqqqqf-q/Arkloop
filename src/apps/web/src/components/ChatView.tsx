@@ -2870,7 +2870,6 @@ export const ChatView = memo(function ChatView() {
                     title: artifact.title,
                   },
                 })
-                setActiveRightPanelTabId(tabId)
               }}
             />
           </div>
