@@ -941,6 +941,7 @@ func submitRunInput(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
+	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
@@ -1027,6 +1028,31 @@ func submitRunInput(
 			}
 			writeInternalError(w, traceID, err)
 			return
+		}
+
+		if messageRepo != nil {
+			messageRepoTx := messageRepo.WithTx(tx)
+			pendingForm, err := messageRepoTx.FindLatestPendingAskUserFormByRun(r.Context(), run.AccountID, run.ThreadID, run.ID)
+			if err != nil {
+				writeInternalError(w, traceID, err)
+				return
+			}
+			if pendingForm != nil {
+				now := time.Now().UTC()
+				status := "submitted"
+				trimmed := strings.TrimSpace(body.Content)
+				var answers json.RawMessage
+				if trimmed == "" || trimmed == "{}" {
+					status = "dismissed"
+					answers = nil
+				} else {
+					answers = json.RawMessage(trimmed)
+				}
+				if _, err := messageRepoTx.UpdateAskUserFormMessageStatus(r.Context(), run.AccountID, run.ThreadID, pendingForm.ID, status, answers, &now); err != nil {
+					writeInternalError(w, traceID, err)
+					return
+				}
+			}
 		}
 
 		if err := tx.Commit(r.Context()); err != nil {
@@ -1483,6 +1509,7 @@ func runEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
+	messageRepo *data.MessageRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
 	directPool *pgxpool.Pool,
@@ -1495,7 +1522,7 @@ func runEntry(
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter, apiKeysRepo)
 	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, rdb, bus)
-	submitInput := submitRunInput(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, resolver)
+	submitInput := submitRunInput(authService, membershipRepo, runRepo, messageRepo, auditWriter, pool, apiKeysRepo, resolver)
 	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, directPool, directPoolAcquireTimeout, sseConfig, apiKeysRepo, rdb, bus)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

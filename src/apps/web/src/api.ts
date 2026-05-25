@@ -937,9 +937,27 @@ export type MessageContentPart =
   | { type: 'image'; attachment: MessageAttachmentRef }
   | { type: 'file'; attachment: MessageAttachmentRef; extracted_text: string }
 
-export type MessageContent = {
-  parts: MessageContentPart[]
+export type AskUserFormContent = {
+  kind: 'ask_user_form'
+  display_mode: 'form'
+  request_id: string
+  run_id: string
+  tool_call_id?: string
+  message: string
+  schema: {
+    properties: Record<string, unknown>
+    required?: string[]
+    _fieldOrder?: string[]
+    display_mode?: string
+  }
+  status: 'pending' | 'submitted' | 'dismissed' | 'expired'
+  answers: Record<string, unknown> | null
+  submitted_at: string | null
 }
+
+export type MessageContent =
+  | { parts: MessageContentPart[] }
+  | AskUserFormContent
 
 export type CreateMessageRequest = {
   content?: string

@@ -9,6 +9,7 @@ import {
   retryMessage,
   type MessageContent,
   type MessageContentPart,
+  type AskUserFormContent,
   type MessageResponse,
   type RunEvent,
 } from '../api'
@@ -21,6 +22,7 @@ import type {
   AgentMessageAttachmentRef,
   AgentMessageContent,
   AgentMessageContentPart,
+  AgentAskUserFormContent,
   AgentRun,
   AgentOpenEventStreamOptions,
   AgentUIEvent,
@@ -103,13 +105,57 @@ function toArkloopContentPart(part: AgentMessageContentPart): MessageContentPart
   }
 }
 
+function isAskUserFormContent(content: MessageContent): content is AskUserFormContent {
+  return 'kind' in content && content.kind === 'ask_user_form'
+}
+
 function toAgentContent(content: MessageContent | undefined): AgentMessageContent | undefined {
-  if (!content?.parts?.length) return undefined
+  if (!content) return undefined
+  if (isAskUserFormContent(content)) {
+    return {
+      kind: 'ask_user_form',
+      displayMode: 'form',
+      requestId: content.request_id,
+      runId: content.run_id,
+      toolCallId: content.tool_call_id,
+      message: content.message,
+      schema: {
+        properties: content.schema.properties as Record<string, unknown>,
+        required: content.schema.required,
+        _fieldOrder: content.schema._fieldOrder,
+        displayMode: content.schema.display_mode,
+      },
+      status: content.status,
+      answers: content.answers,
+      submittedAt: content.submitted_at,
+    } as AgentAskUserFormContent
+  }
+  if (!content.parts?.length) return undefined
   return { parts: content.parts.map(toAgentContentPart) }
 }
 
 function toArkloopContent(content: AgentMessageContent | undefined): MessageContent | undefined {
-  if (!content?.parts?.length) return undefined
+  if (!content) return undefined
+  if ('kind' in content && content.kind === 'ask_user_form') {
+    return {
+      kind: 'ask_user_form',
+      display_mode: 'form',
+      request_id: content.requestId,
+      run_id: content.runId,
+      tool_call_id: content.toolCallId,
+      message: content.message,
+      schema: {
+        properties: content.schema.properties,
+        required: content.schema.required,
+        _fieldOrder: content.schema._fieldOrder,
+        display_mode: content.schema.displayMode,
+      },
+      status: content.status,
+      answers: content.answers,
+      submitted_at: content.submittedAt,
+    } as AskUserFormContent
+  }
+  if (!('parts' in content) || !content.parts?.length) return undefined
   return { parts: content.parts.map(toArkloopContentPart) }
 }
 

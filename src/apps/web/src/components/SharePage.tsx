@@ -212,7 +212,7 @@ export function SharePage() {
                 id: msg.id,
                 role: msg.role === 'system' || msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'assistant',
                 content: msg.content,
-                contentJson: msg.content_json
+                contentJson: msg.content_json && 'parts' in msg.content_json
                   ? {
                       parts: msg.content_json.parts.map((part) => {
                         if (part.type === 'text') return part

@@ -750,6 +750,15 @@ export function useThreadSseEffect({
         const data = agentEventDataRecord(event.data)
         const message = data?.message as string | undefined
         const schema = data?.requestedSchema as RequestedSchema | undefined
+        const displayMode = typeof data?.display_mode === 'string' ? data.display_mode : 'inline'
+
+        // Form-mode requests are rendered as persistent messages in the stream
+        // Only set awaitingInput to disable the chat input while waiting
+        if (displayMode === 'form') {
+          setAwaitingInput(true)
+          continue
+        }
+
         if (message && schema && schema.properties && Object.keys(schema.properties).length > 0) {
           const safeSchema: RequestedSchema = {
             ...schema,

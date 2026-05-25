@@ -1,5 +1,6 @@
 import { memo, Fragment, forwardRef, useCallback, useImperativeHandle, useMemo, type ComponentProps } from 'react'
 import { MessageBubble } from './MessageBubble'
+import AskUserFormMessageCard from './AskUserFormMessageCard'
 import { CopTimeline, type WebSearchPhaseStep } from './cop-timeline/CopTimeline'
 import { CopSegmentBlocks } from './CopSegmentBlocks'
 import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
@@ -59,6 +60,8 @@ export type MessageListProps = {
   handleEditMessage: (message: AgentMessage, newContent: string) => void
   handleFork: (messageId: string) => Promise<void>
   handleArtifactAction: ComponentProps<typeof WidgetBlock>['onAction']
+  handleAskUserFormSubmit?: (requestId: string, answers: Record<string, unknown>) => Promise<void>
+  handleAskUserFormDismiss?: (requestId: string) => Promise<void>
   openDocumentPanel: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   openResourcePanel: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   openCodePanel: (ce: CodeExecution) => void
@@ -92,6 +95,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
   handleEditMessage,
   handleFork,
   handleArtifactAction,
+  handleAskUserFormSubmit,
+  handleAskUserFormDismiss,
   openDocumentPanel,
   openResourcePanel,
   openCodePanel,
@@ -310,6 +315,33 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
         (msg.streamId != null && coveredRunIdsForHistory.has(msg.streamId))
       )
     if (hideTerminalRunMessage) return null
+
+    // Render ask_user_form messages as form cards
+    if (
+      msg.role === 'assistant' &&
+      msg.contentJson &&
+      'kind' in msg.contentJson &&
+      msg.contentJson.kind === 'ask_user_form' &&
+      handleAskUserFormSubmit &&
+      handleAskUserFormDismiss
+    ) {
+      return (
+        <div
+          key={messageClientMessageId(msg) ?? msg.id}
+          ref={idx === lastTurnStartIdx ? lastUserPromptRef : undefined}
+          className="group/turn"
+          data-message-id={msg.id}
+          style={{ maxWidth: isWorkMode ? undefined : '663px' }}
+        >
+          <AskUserFormMessageCard
+            content={msg.contentJson}
+            activeRunId={run.activeRunId}
+            onSubmit={handleAskUserFormSubmit}
+            onDismiss={handleAskUserFormDismiss}
+          />
+        </div>
+      )
+    }
 
     const msgMeta = msg.role === 'assistant' ? meta.getMeta(msg.id) : undefined
     const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
@@ -607,6 +639,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
     createShareForMessage,
     currentRunCopHeaderOverride,
     handleArtifactAction,
+    handleAskUserFormSubmit,
+    handleAskUserFormDismiss,
     handleFork,
     hasCurrentRunHandoffUi,
     isSearchThread,
@@ -625,6 +659,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
     openSourcePanel,
     privateThreadIds,
     resolvedMessageSources,
+    run.activeRunId,
     sending,
     setRunDetailPanelRunId,
     sharedMessageId,

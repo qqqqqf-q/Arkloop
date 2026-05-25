@@ -3404,6 +3404,7 @@ func desktopAgentLoop(
 			model:                   selected.Route.Model,
 			runsRepo:                runsRepo,
 			eventsRepo:              eventsRepo,
+			messagesRepo:            data.MessagesRepository{},
 			projector:               projector,
 			usageRepo:               data.UsageRecordsRepository{},
 			responseDraftStore:      rc.ResponseDraftStore,
@@ -3528,6 +3529,7 @@ type desktopEventWriter struct {
 	model                    string
 	runsRepo                 data.DesktopRunsRepository
 	eventsRepo               data.DesktopRunEventsRepository
+	messagesRepo             data.MessagesRepository
 	projector                *subagentctl.SubAgentStateProjector
 	assistantDeltas          []string
 	lastTurnDeltaCount       int
@@ -3715,6 +3717,40 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 	if err != nil {
 		return err
 	}
+
+	if ev.Type == "run.input_requested" {
+		if dm, _ := ev.DataJSON["display_mode"].(string); strings.TrimSpace(dm) == "form" {
+			requestID, _ := ev.DataJSON["request_id"].(string)
+			prompt, _ := ev.DataJSON["message"].(string)
+			schemaRaw, _ := json.Marshal(ev.DataJSON["requestedSchema"])
+			existingID, err := w.messagesRepo.FindAskUserFormMessageByRunIDAndRequestID(ctx, tx, w.run.AccountID, w.run.ThreadID, runID, requestID)
+			if err != nil {
+				return err
+			}
+			if existingID == nil {
+				contentJSON, _ := json.Marshal(map[string]any{
+					"kind":         "ask_user_form",
+					"display_mode": "form",
+					"run_id":       runID.String(),
+					"request_id":   requestID,
+					"message":      prompt,
+					"schema":       json.RawMessage(schemaRaw),
+					"status":       "pending",
+					"answers":      nil,
+					"submitted_at": nil,
+				})
+				_, err := w.messagesRepo.InsertAssistantMessageWithMetadata(
+					ctx, tx, w.run.AccountID, w.run.ThreadID, runID,
+					prompt, contentJSON, false,
+					map[string]any{"run_id": runID.String()},
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	if assistantMessage, ok := desktopAssistantMessageFromEventData(ev.DataJSON); ok {
 		w.assistantMessage = &assistantMessage
 		w.assistantMessageFresh = true
@@ -3838,6 +3874,13 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 			}
 			if projection.NextRunID != nil {
 				nextRunIDs = append(nextRunIDs, *projection.NextRunID)
+			}
+		}
+		// Expire any pending ask_user_form messages for this run
+		if pendingForms, listErr := w.messagesRepo.ListPendingAskUserFormsByRun(ctx, tx, w.run.AccountID, w.run.ThreadID, runID); listErr == nil {
+			now := time.Now().UTC()
+			for _, pf := range pendingForms {
+				_ = w.messagesRepo.UpdateAskUserFormMessageStatus(ctx, tx, w.run.AccountID, w.run.ThreadID, pf.ID, "expired", nil, &now)
 			}
 		}
 		if status == "completed" {

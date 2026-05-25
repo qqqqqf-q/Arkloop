@@ -673,7 +673,6 @@ func (r *MessageRepository) UpdateStructuredContent(
 		 WHERE id = $3
 		   AND thread_id = $2
 		   AND account_id = $1
-		   AND role = 'user'
 		   AND hidden = FALSE
 		   AND deleted_at IS NULL
 		 RETURNING id, account_id, thread_id, created_by_user_id, role, content,
@@ -1036,4 +1035,90 @@ func (r *MessageRepository) ListAllAttachmentKeysByThread(
 		return nil, err
 	}
 	return keys, nil
+}
+
+// FindLatestPendingAskUserFormByRun 查找指定 run 的最新 pending ask_user_form 消息。
+func (r *MessageRepository) FindLatestPendingAskUserFormByRun(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	runID uuid.UUID,
+) (*Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || runID == uuid.Nil {
+		return nil, fmt.Errorf("account_id, thread_id and run_id must not be empty")
+	}
+	var message Message
+	err := r.db.QueryRow(
+		ctx,
+		`SELECT id, account_id, thread_id, created_by_user_id, role, content,
+		        content_json, metadata_json, token_count, deleted_at, created_at, hidden, thread_seq
+		   FROM messages
+		  WHERE account_id = $1
+		    AND thread_id = $2
+		    AND metadata_json->>'run_id' = $3
+		    AND content_json->>'kind' = 'ask_user_form'
+		    AND content_json->>'status' = 'pending'
+		    AND deleted_at IS NULL
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		accountID, threadID, runID.String(),
+	).Scan(
+		&message.ID, &message.AccountID, &message.ThreadID, &message.CreatedByUserID,
+		&message.Role, &message.Content, &message.ContentJSON, &message.MetadataJSON,
+		&message.TokenCount, &message.DeletedAt, &message.CreatedAt, &message.Hidden, &message.ThreadSeq,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &message, nil
+}
+
+// UpdateAskUserFormMessageStatus 更新 ask_user_form 消息的状态、答案和提交时间。
+func (r *MessageRepository) UpdateAskUserFormMessageStatus(
+	ctx context.Context,
+	accountID uuid.UUID,
+	threadID uuid.UUID,
+	messageID uuid.UUID,
+	status string,
+	answers json.RawMessage,
+	submittedAt *time.Time,
+) (Message, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if accountID == uuid.Nil || threadID == uuid.Nil || messageID == uuid.Nil {
+		return Message{}, fmt.Errorf("account_id, thread_id and message_id must not be empty")
+	}
+
+	existing, err := r.GetByID(ctx, accountID, threadID, messageID)
+	if err != nil {
+		return Message{}, err
+	}
+	if existing == nil {
+		return Message{}, fmt.Errorf("message not found")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(existing.ContentJSON, &payload); err != nil {
+		return Message{}, err
+	}
+	payload["status"] = status
+	if len(answers) > 0 {
+		payload["answers"] = json.RawMessage(answers)
+	} else {
+		payload["answers"] = nil
+	}
+	if submittedAt != nil {
+		payload["submitted_at"] = submittedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
+	} else {
+		payload["submitted_at"] = nil
+	}
+	nextContentJSON, _ := json.Marshal(payload)
+	return r.UpdateStructuredContent(ctx, accountID, threadID, messageID, strings.TrimSpace(existing.Content), nextContentJSON)
 }

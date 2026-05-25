@@ -150,7 +150,10 @@ export function extractLegacyFilesFromContent(content: string): { text: string; 
 }
 
 export function messageTextContent(message: Pick<AgentMessage, 'content' | 'contentJson'>): string {
-  if (message.contentJson?.parts?.length) {
+  if (message.contentJson && 'kind' in message.contentJson && message.contentJson.kind === 'ask_user_form') {
+    return message.contentJson.message
+  }
+  if (message.contentJson && 'parts' in message.contentJson && message.contentJson.parts?.length) {
     return message.contentJson.parts
       .filter((part): part is Extract<AgentMessageContentPart, { type: 'text' }> => part.type === 'text')
       .map((part) => part.text)
@@ -161,7 +164,7 @@ export function messageTextContent(message: Pick<AgentMessage, 'content' | 'cont
 }
 
 export function messageAttachmentParts(message: Pick<AgentMessage, 'content' | 'contentJson'>): AgentMessageContentPart[] {
-  if (message.contentJson?.parts?.length) {
+  if (message.contentJson && 'parts' in message.contentJson && message.contentJson.parts?.length) {
     return message.contentJson.parts.filter((part) => part.type === 'image' || part.type === 'file')
   }
   return []
@@ -195,7 +198,13 @@ export function buildMessageRequest(text: string, uploads: UploadedThreadAttachm
 }
 
 export function buildAgentUIParts(contentJson: AgentMessageContent | undefined, content: string): AgentUIMessagePart[] {
-  if (!contentJson?.parts?.length) {
+  if (!contentJson) {
+    return content ? [{ type: 'text', text: content, state: 'done' }] : []
+  }
+  if ('kind' in contentJson && contentJson.kind === 'ask_user_form') {
+    return [{ type: 'text', text: contentJson.message, state: 'done' }]
+  }
+  if (!('parts' in contentJson) || !contentJson.parts?.length) {
     return content ? [{ type: 'text', text: content, state: 'done' }] : []
   }
   return contentJson.parts.flatMap<AgentUIMessagePart>((part) => {
@@ -246,8 +255,10 @@ export function isFilePart(part: AgentMessageContentPart): part is Extract<Agent
 }
 
 export function ensureContent(value?: AgentMessageContent): AgentMessageContent | undefined {
-  if (!value?.parts?.length) return undefined
-  return value
+  if (!value) return undefined
+  if ('kind' in value && value.kind === 'ask_user_form') return value
+  if ('parts' in value && value.parts?.length) return value
+  return undefined
 }
 
 const PASTED_FILENAME_RE = /^pasted-\d+\.txt$/

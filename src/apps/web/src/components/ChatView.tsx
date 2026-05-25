@@ -1244,6 +1244,8 @@ export const ChatView = memo(function ChatView() {
     handleCheckInSubmit,
     handleUserInputSubmit,
     handleUserInputDismiss,
+    handleAskUserFormSubmit,
+    handleAskUserFormDismiss,
     handleAsrError,
     handleArtifactAction,
   } = useChatActions({ scrollToBottom: activateAnchor, onSelectForkAnchor: selectForkAnchor })
@@ -3609,6 +3611,8 @@ export const ChatView = memo(function ChatView() {
                 handleEditMessage={handleEditMessage}
                 handleFork={handleFork}
                 handleArtifactAction={handleArtifactAction}
+                handleAskUserFormSubmit={handleAskUserFormSubmit}
+                handleAskUserFormDismiss={handleAskUserFormDismiss}
                 openDocumentPanel={openDocumentPanel}
                 openResourcePanel={openResourcePanel}
                 openCodePanel={openCodePanel}
@@ -3630,6 +3634,8 @@ export const ChatView = memo(function ChatView() {
     currentRunCopHeaderOverride,
     displayedMessages,
     handleArtifactAction,
+    handleAskUserFormSubmit,
+    handleAskUserFormDismiss,
     handleEditMessage,
     handleFork,
     handleRetryUserMessage,

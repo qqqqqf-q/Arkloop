@@ -109,7 +109,7 @@ function truncateNotificationText(value: string, limit: number): string {
 }
 
 function messageUserText(message: MessageResponse): string {
-  if (message.content_json?.parts?.length) {
+  if (message.content_json && 'parts' in message.content_json && message.content_json.parts?.length) {
     return message.content_json.parts
       .filter((part) => part.type === 'text')
       .map((part) => part.text)
