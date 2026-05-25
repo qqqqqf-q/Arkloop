@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, useSyncExternalStore, memo, Fragment, type ComponentProps } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowDown, ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardList, CornerDownLeft, GitBranch, Globe2, Pencil, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUpFromLine, ChevronDown, ChevronRight, ClipboardList, CornerDownLeft, GitBranch, Globe2, Grid3x3, Pencil, Trash2 } from 'lucide-react'
 import { AutoResizeTextarea, DebugTrigger } from '@arkloop/shared'
 import { ChatInput, type Attachment, type ChatInputHandle } from './ChatInput'
 import { RunDetailPanel } from './RunDetailPanel'
@@ -31,6 +31,7 @@ import { resolveLocalFileIconUrl } from './local-files/fileIconResolver'
 import { ResourcePreviewPanel } from './resource-preview/ResourcePreviewPanel'
 import { ConversationGraphPanel } from './conversation-graph/ConversationGraphPanel'
 import { BrowserSiteIcon } from './resource-preview/BrowserSiteIcon'
+import { ArtifactGalleryPanel } from './ArtifactGalleryPanel'
 import type { BrowserResourceRef, LocalFileResourceRef, ResourceRef } from './resource-preview/types'
 import { resourceTitle } from './resource-preview/resourceUri'
 import { isPlanMarkdownPath } from '../planMetadata'
@@ -294,6 +295,7 @@ type RightPanelStoredTab =
   | { id: string; kind: 'code'; title: string; execution: CodeExecution }
   | { id: string; kind: 'agent'; title: string; agent: SubAgentRef }
   | { id: string; kind: 'resource'; title: string; resource: ResourceRef; artifacts?: ArtifactRef[]; runId?: string }
+  | { id: string; kind: 'artifacts'; title: string }
 
 function browserTabSeqFromTabs(tabs: Array<{ id: string }>): number {
   return tabs.reduce((max, tab) => {
@@ -2844,6 +2846,38 @@ export const ChatView = memo(function ChatView() {
         ),
       }
     }
+    if (tab.kind === 'artifacts') {
+      return {
+        id: tab.id,
+        kind: 'artifacts',
+        title: tab.title,
+        content: (
+          <div style={{ width: '100%', height: '100%', contain: 'layout style' }}>
+            <ArtifactGalleryPanel
+              accessToken={accessToken}
+              onOpenArtifact={(artifact) => {
+                const tabId = `resource:artifact:${artifact.key}`
+                upsertRightPanelTab({
+                  id: tabId,
+                  kind: 'resource',
+                  title: artifact.title || artifact.filename,
+                  resource: {
+                    kind: 'artifact',
+                    key: artifact.key,
+                    filename: artifact.filename,
+                    mimeType: artifact.mime_type,
+                    size: artifact.size,
+                    title: artifact.title,
+                  },
+                })
+                setActiveRightPanelTabId(tabId)
+              }}
+            />
+          </div>
+        ),
+      }
+    }
+
     return {
       id: tab.id,
       kind: tab.kind,
@@ -2871,7 +2905,7 @@ export const ChatView = memo(function ChatView() {
         />
       ),
     }
-  }, [accessToken, closeRightPanelTab, handleBuildPlan, onOpenSettings, resolvedMessageSources, workPanelFolder])
+  }, [accessToken, closeRightPanelTab, handleBuildPlan, onOpenSettings, resolvedMessageSources, upsertRightPanelTab, workPanelFolder])
 
   const handleWebPanelResourceChange = useCallback((resource: ResourceRef) => {
     if (resource.kind !== 'browser') return
@@ -3045,7 +3079,16 @@ export const ChatView = memo(function ChatView() {
         setActiveRightPanelTabId(id)
       },
     },
-  ], [t.rightPanel.browser])
+    {
+      id: 'artifacts',
+      label: t.rightPanel.gallery,
+      icon: <Grid3x3 size={14} />,
+      onSelect: () => {
+        upsertRightPanelTab({ id: 'artifacts', kind: 'artifacts', title: t.rightPanel.gallery })
+        setRightPanelVisible(true)
+      },
+    },
+  ], [t.rightPanel.browser, t.rightPanel.gallery, upsertRightPanelTab])
 
   const openCodePanel = useCallback((ce: CodeExecution) => {
     const tabId = `code:${ce.id}`
