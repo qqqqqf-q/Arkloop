@@ -245,8 +245,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setTopLevelSubAgents([])
     setTopLevelFileOps([])
     setTopLevelWebFetches([])
-    streamingArtifactsRef.current = []
-    setStreamingArtifacts([])
+    // Preserve streaming artifacts for fallback rendering (e.g. image_generate).
+    // They will be cleared by resetLiveState() when the next run starts.
   }, [])
 
   const resetSearchSteps = useCallback(() => {
