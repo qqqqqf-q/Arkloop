@@ -57,6 +57,12 @@ export interface LocaleStrings {
     conversationGraphUser: string;
     conversationGraphAssistant: string;
     conversationGraphSystem: string;
+    gallery: string;
+    allFiles: string;
+    mediaFiles: string;
+    textFiles: string;
+    noArtifacts: string;
+    noMatchingFiles: string;
   };
   browserPanel: {
     preview: string;

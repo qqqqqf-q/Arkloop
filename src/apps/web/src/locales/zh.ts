@@ -47,6 +47,12 @@ export const zh: LocaleStrings = {
     conversationGraphUser: '用户',
     conversationGraphAssistant: '助手',
     conversationGraphSystem: '系统',
+    gallery: '图库',
+    allFiles: '全部',
+    mediaFiles: '媒体',
+    textFiles: '文本',
+    noArtifacts: '当前线程还没有生成文件',
+    noMatchingFiles: '没有匹配的文件',
   },
   browserPanel: {
     preview: '浏览器预览',

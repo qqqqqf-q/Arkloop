@@ -47,6 +47,12 @@ export const en: LocaleStrings = {
     conversationGraphUser: 'User',
     conversationGraphAssistant: 'Assistant',
     conversationGraphSystem: 'System',
+    gallery: 'Gallery',
+    allFiles: 'All',
+    mediaFiles: 'Media',
+    textFiles: 'Text',
+    noArtifacts: 'No files generated yet in this thread',
+    noMatchingFiles: 'No matching files',
   },
   browserPanel: {
     preview: 'Browser preview',
