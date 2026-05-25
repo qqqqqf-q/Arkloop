@@ -3129,6 +3129,23 @@ export const ChatView = memo(function ChatView() {
     ) && (!e.toolCallId || !livePlacedShowWidgetCallIds.has(e.toolCallId))),
     [streamingArtifacts, livePlacedShowWidgetCallIds],
   )
+  const artifactKeysReferencedInMessages = useMemo(() => {
+    const keys = new Set<string>()
+    const artifactRefRe = /(?<!\]\()artifact:([A-Za-z0-9_/-]+)/g
+    for (const msg of messages) {
+      if (msg.role !== 'assistant') continue
+      let text = msg.content
+      if (msg.parts && msg.parts.length > 0) {
+        text = msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n')
+      }
+      if (!text) continue
+      let match
+      while ((match = artifactRefRe.exec(text)) !== null) {
+        if (match[1]) keys.add(match[1])
+      }
+    }
+    return keys
+  }, [messages])
   const visibleStreamingArtifacts = useMemo(
     () => streamingArtifacts.filter((e) => {
       if (e.display === 'panel') return false
@@ -3136,21 +3153,16 @@ export const ChatView = memo(function ChatView() {
         return !!e.content && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))
       }
       if (e.toolName === IMAGE_GENERATE_TOOL_NAME) {
-        return !!e.artifactRef
+        if (!e.artifactRef) return false
+        // If the artifact is already referenced in an assistant message,
+        // MarkdownRenderer will render it inside the message bubble.
+        // Skip the top-level streaming artifact to avoid duplication/flash.
+        return !artifactKeysReferencedInMessages.has(e.artifactRef.key)
       }
       return false
     }),
-    [streamingArtifacts, livePlacedCreateArtifactCallIds],
+    [streamingArtifacts, livePlacedCreateArtifactCallIds, artifactKeysReferencedInMessages],
   )
-  const inlineImageArtifactKeys = useMemo(() => {
-    const keys = new Set<string>()
-    for (const e of streamingArtifacts) {
-      if (e.toolName === IMAGE_GENERATE_TOOL_NAME && e.artifactRef?.key) {
-        keys.add(e.artifactRef.key)
-      }
-    }
-    return keys
-  }, [streamingArtifacts])
   const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
     streamingArtifacts
       .filter((entry) => entry.toolName === 'show_widget')
@@ -3503,7 +3515,7 @@ export const ChatView = memo(function ChatView() {
       topLevelWebFetches={topLevelWebFetches}
       codePanelExecutionId={codePanelExecution?.id}
       currentRunSources={currentRunSourcesRef.current}
-      currentRunArtifacts={currentRunArtifactsRef.current.filter(a => !inlineImageArtifactKeys.has(a.key))}
+      currentRunArtifacts={currentRunArtifactsRef.current}
       activeRunId={activeRunId}
       activeSegmentId={activeSegmentIdRef.current}
       accessToken={accessToken}
