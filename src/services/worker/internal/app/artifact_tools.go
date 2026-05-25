@@ -29,6 +29,9 @@ func registerStoredArtifactTools(
 
 	artifactExecutor := documentwritetool.NewToolExecutor(store)
 	imageExecutor := imagegeneratetool.NewToolExecutor(store, db, configResolver, routingLoader)
+	if attachmentStore != nil {
+		imageExecutor = imageExecutor.WithMessageAttachmentStore(attachmentStore)
+	}
 	resourceCopyExecutor := resourcecopytool.NewExecutor(store, attachmentStore)
 	registered := false
 	for _, item := range []struct {

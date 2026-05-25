@@ -1495,6 +1495,12 @@ func BuildMessagePartsWithOptions(ctx context.Context, store MessageAttachmentSt
 				Attachment: &attachment,
 				Data:       dataBytes,
 			})
+			if msg.Role == "user" && strings.TrimSpace(attachment.Key) != "" {
+				parts = append(parts, llm.ContentPart{
+					Type: messagecontent.PartTypeText,
+					Text: fmt.Sprintf("[uploaded image key: %s]", attachment.Key),
+				})
+			}
 		}
 	}
 	if len(parts) == 0 {

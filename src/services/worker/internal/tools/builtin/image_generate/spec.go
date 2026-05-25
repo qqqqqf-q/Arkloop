@@ -28,7 +28,7 @@ var LlmSpec = llm.ToolSpec{
 			},
 			"input_images": map[string]any{
 				"type":        "array",
-				"description": "optional source images as artifact references, for example artifact:<key>",
+				"description": "optional source images as artifact references (artifact:<key>) or uploaded attachment references (attachments/<accountID>/<messageID>/<filename>)",
 				"items": map[string]any{
 					"type": "string",
 				},

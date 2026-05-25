@@ -27,11 +27,12 @@ const (
 )
 
 type ToolExecutor struct {
-	store         objectstore.Store
-	db            workerdata.QueryDB
-	config        sharedconfig.Resolver
-	routingLoader *routing.ConfigLoader
-	generate      func(context.Context, llm.ResolvedGatewayConfig, llm.ImageGenerationRequest) (llm.GeneratedImage, error)
+	store                 objectstore.Store
+	messageAttachmentStore objectstore.Store
+	db                    workerdata.QueryDB
+	config                sharedconfig.Resolver
+	routingLoader         *routing.ConfigLoader
+	generate              func(context.Context, llm.ResolvedGatewayConfig, llm.ImageGenerationRequest) (llm.GeneratedImage, error)
 }
 
 func NewToolExecutor(
@@ -47,6 +48,11 @@ func NewToolExecutor(
 		routingLoader: routingLoader,
 		generate:      llm.GenerateImageWithResolvedConfig,
 	}
+}
+
+func (e *ToolExecutor) WithMessageAttachmentStore(s objectstore.Store) *ToolExecutor {
+	e.messageAttachmentStore = s
+	return e
 }
 
 func (e *ToolExecutor) Execute(
@@ -251,6 +257,9 @@ func (e *ToolExecutor) loadInputImages(ctx context.Context, args map[string]any,
 			return nil, fmt.Errorf("input_images[%d] is outside the current account", idx)
 		}
 		data, contentType, err := e.store.GetWithContentType(ctx, key)
+		if err != nil && e.messageAttachmentStore != nil {
+			data, contentType, err = e.messageAttachmentStore.GetWithContentType(ctx, key)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("input_images[%d] not found", idx)
 		}
@@ -287,7 +296,8 @@ func artifactKeyMatchesAccount(key string, accountID uuid.UUID) bool {
 	if key == "" || accountID == uuid.Nil {
 		return false
 	}
-	return strings.HasPrefix(key, accountID.String()+"/")
+	prefix := accountID.String() + "/"
+	return strings.HasPrefix(key, prefix) || strings.HasPrefix(key, "attachments/"+prefix)
 }
 
 func normalizeImageContentType(contentType string, data []byte) string {
