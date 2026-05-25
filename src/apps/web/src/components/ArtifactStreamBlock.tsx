@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { ArtifactIframe, type ArtifactIframeHandle, type ArtifactAction } from './ArtifactIframe'
+import { ArtifactImage } from './ArtifactImage'
 import type { ArtifactRef } from '../storage'
 
 export type StreamingArtifactEntry = {
@@ -209,6 +210,14 @@ export function ArtifactStreamBlock({ entry, accessToken, compact = false, onAct
 
   // already have static artifact? render static iframe
   if (entry.artifactRef && isInline) {
+    const isImage = entry.artifactRef.mime_type?.startsWith('image/')
+    if (isImage && accessToken) {
+      return (
+        <div style={{ margin: compact ? '0 0 2px' : '8px 0', maxWidth: '720px' }}>
+          <ArtifactImage artifact={entry.artifactRef} accessToken={accessToken} />
+        </div>
+      )
+    }
     return (
       <div style={{ margin: compact ? '0 0 2px' : '8px 0', maxWidth: '720px' }}>
         <div style={{

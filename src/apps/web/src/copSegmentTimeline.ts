@@ -83,6 +83,7 @@ const AUXILIARY_RENDERED_TOOL_NAMES = new Set([
   'create_artifact',
   'document_write',
   'browser',
+  IMAGE_GENERATE_TOOL_NAME,
 ])
 const EXIT_PLAN_MODE_TOOL_NAME = 'exit_plan_mode'
 

@@ -58,6 +58,7 @@ import {
   agentEventToolOutput,
   type AgentMessage,
 } from '../agent-ui'
+import { IMAGE_GENERATE_TOOL_NAME } from '../copSubSegment'
 
 function isUnauthorizedStreamError(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as { status?: unknown }).status === 401
@@ -656,6 +657,30 @@ export function useThreadSseEffect({
                 : undefined
               if (entry) {
                 entry.artifactRef = art
+              }
+            }
+            setStreamingArtifacts([...streamingArtifactsRef.current])
+          }
+          if (resultToolName === IMAGE_GENERATE_TOOL_NAME) {
+            const callId = typeof obj?.toolCallId === 'string' ? obj.toolCallId : undefined
+            for (const art of newArtifacts) {
+              if (!art.mime_type?.startsWith('image/')) continue
+              const existing = callId
+                ? streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
+                : undefined
+              if (existing) {
+                existing.artifactRef = art
+                existing.complete = true
+              } else {
+                streamingArtifactsRef.current = [...streamingArtifactsRef.current, {
+                  toolCallIndex: streamingArtifactsRef.current.length,
+                  toolCallId: callId,
+                  toolName: IMAGE_GENERATE_TOOL_NAME,
+                  argumentsBuffer: '',
+                  complete: true,
+                  display: 'inline',
+                  artifactRef: art,
+                }]
               }
             }
             setStreamingArtifacts([...streamingArtifactsRef.current])

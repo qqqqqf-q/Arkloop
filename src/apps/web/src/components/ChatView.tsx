@@ -65,7 +65,7 @@ import {
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
 import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
-import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
+import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments, IMAGE_GENERATE_TOOL_NAME } from '../copSubSegment'
 import { applyAgentEventToWebSearchSteps } from '../webSearchTimelineFromAgentEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
@@ -3130,9 +3130,27 @@ export const ChatView = memo(function ChatView() {
     [streamingArtifacts, livePlacedShowWidgetCallIds],
   )
   const visibleStreamingArtifacts = useMemo(
-    () => streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))),
+    () => streamingArtifacts.filter((e) => {
+      if (e.display === 'panel') return false
+      if (e.toolName === 'create_artifact') {
+        return !!e.content && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))
+      }
+      if (e.toolName === IMAGE_GENERATE_TOOL_NAME) {
+        return !!e.artifactRef
+      }
+      return false
+    }),
     [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
+  const inlineImageArtifactKeys = useMemo(() => {
+    const keys = new Set<string>()
+    for (const e of streamingArtifacts) {
+      if (e.toolName === IMAGE_GENERATE_TOOL_NAME && e.artifactRef?.key) {
+        keys.add(e.artifactRef.key)
+      }
+    }
+    return keys
+  }, [streamingArtifacts])
   const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
     streamingArtifacts
       .filter((entry) => entry.toolName === 'show_widget')
@@ -3485,7 +3503,7 @@ export const ChatView = memo(function ChatView() {
       topLevelWebFetches={topLevelWebFetches}
       codePanelExecutionId={codePanelExecution?.id}
       currentRunSources={currentRunSourcesRef.current}
-      currentRunArtifacts={currentRunArtifactsRef.current}
+      currentRunArtifacts={currentRunArtifactsRef.current.filter(a => !inlineImageArtifactKeys.has(a.key))}
       activeRunId={activeRunId}
       activeSegmentId={activeSegmentIdRef.current}
       accessToken={accessToken}
