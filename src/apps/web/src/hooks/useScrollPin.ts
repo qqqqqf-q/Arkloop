@@ -163,19 +163,12 @@ export function useScrollPin(options: UseScrollPinOptions = {}): ScrollPinResult
 
   const activateAnchor = useCallback(() => {
     dbg('activateAnchor', `pinDisabled=${promptPinningDisabled} prompt=${!!lastUserPromptRef.current} msg=${!!lastUserMsgRef.current}`)
-    if (promptPinningDisabled) {
-      stateRef.current = 'following'
-      collapseSpacer()
-      setAtBottomState(true)
-      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-      return
-    }
-
-    stateRef.current = 'pinned'
-    pinnedNeedsInitialScrollRef.current = true
+    stateRef.current = 'following'
+    pinnedNeedsInitialScrollRef.current = false
+    collapseSpacer()
     setAtBottomState(true)
-
-  }, [promptPinningDisabled, recalcSpacer, setAtBottomState, collapseSpacer])
+    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
+  }, [setAtBottomState, collapseSpacer])
 
   const scrollToBottom = useCallback(() => {
     dbg('scrollToBottom')

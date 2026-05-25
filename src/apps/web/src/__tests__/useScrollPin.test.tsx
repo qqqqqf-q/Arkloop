@@ -197,7 +197,7 @@ describe('useScrollPin', () => {
     return { api, root, renderHarness, apiRef }
   }
 
-  it('activateAnchor 应 smooth 滚到 prompt 位置并设为 pinned', async () => {
+  it('activateAnchor 应 smooth 滚到底部并保持 following', async () => {
     let scrollBehavior: ScrollBehavior | undefined
     const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 560, headerOffset: 600, bottomOffset: 1400 }
     const { api, renderHarness } = await setup({
@@ -218,11 +218,11 @@ describe('useScrollPin', () => {
     })
 
     expect(scrollBehavior).toBe('smooth')
-    expect(container.scrollTop).toBe(440)
+    expect(container.scrollTop).toBe(1000)
     expect(api.isAtBottomRef.current).toBe(true)
   })
 
-  it('pinned 状态下流式内容增长不应移动 scrollTop', async () => {
+  it('activateAnchor 后流式内容增长应继续跟随到底部', async () => {
     const metrics = { clientHeight: 400, scrollHeight: 1400, turnHeight: 120, turnOffset: 600, headerOffset: 600, bottomOffset: 1400 }
     const { api, renderHarness } = await setup({ metrics, messages: [{ id: 'user-1' }] })
     const container = api.scrollContainerRef.current!
@@ -232,7 +232,7 @@ describe('useScrollPin', () => {
       renderHarness({ messages: [{ id: 'user-1' }, { id: 'live' }], liveRunUiVisible: true })
       await flushAnimationFrames(2)
     })
-    expect(container.scrollTop).toBe(440)
+    expect(container.scrollTop).toBe(1000)
 
     for (let i = 0; i < 5; i++) {
       await act(async () => {
@@ -242,12 +242,12 @@ describe('useScrollPin', () => {
         renderHarness({ messages: [{ id: 'user-1' }, { id: `live-${i}` }], liveRunUiVisible: true })
         await flushAnimationFrames(2)
       })
-      expect(container.scrollTop).toBe(440)
+      expect(container.scrollTop).toBe(metrics.scrollHeight - metrics.clientHeight)
     }
     expect(api.isAtBottomRef.current).toBe(true)
   })
 
-  it('新 prompt 下方内容不足时 pinned 仍应补 spacer 支撑锚点位置', async () => {
+  it('新 prompt 下方内容不足时 activateAnchor 仍应滚到自然底部，不补 spacer', async () => {
     const metrics = { clientHeight: 769, scrollHeight: 1009, turnHeight: 86, turnOffset: 702, headerOffset: 702, bottomOffset: 1009 }
     const { api, renderHarness } = await setup({
       metrics,
@@ -262,8 +262,8 @@ describe('useScrollPin', () => {
       await flushAnimationFrames(2)
     })
 
-    expect(spacer.style.height).toBe('302px')
-    expect(container.scrollTop).toBe(542)
+    expect(spacer.style.height).toBe('0px')
+    expect(container.scrollTop).toBe(240)
   })
 
   it('scrollToBottom 应回到 following 并 smooth 滚到底部', async () => {
