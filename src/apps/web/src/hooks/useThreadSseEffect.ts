@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, type RefObject } from 'react'
 import { canonicalToolName, pickLogicalToolName } from '@arkloop/shared'
 import { setThreadTodos } from '../todoDb'
 import { PLAN_TODOS_UPDATED_EVENT } from '../planMetadata'
+import { insertMessageByCreatedAt } from '../messageContent'
 import { useAuth } from '../contexts/auth'
 import { useChatSession } from '../contexts/chat-session'
 import { useCredits } from '../contexts/credits'
@@ -57,6 +58,7 @@ import {
   agentEventToolInput,
   agentEventToolOutput,
   type AgentMessage,
+  type AgentMessageContent,
 } from '../agent-ui'
 
 function isUnauthorizedStreamError(error: unknown): boolean {
@@ -147,6 +149,7 @@ export function useThreadSseEffect({
   const {
     refreshMessages,
     upsertLocalTerminalMessage,
+    setMessages,
   } = useMessageStore()
   const {
     resetAssistantTurnLive,
@@ -753,9 +756,47 @@ export function useThreadSseEffect({
         const displayMode = typeof data?.display_mode === 'string' ? data.display_mode : 'inline'
 
         // Form-mode requests are rendered as persistent messages in the stream
-        // Only set awaitingInput to disable the chat input while waiting
         if (displayMode === 'form') {
-          setAwaitingInput(true)
+
+          // Create an optimistic message in the store so MessageList renders it immediately
+          const requestId = (data?.requestId as string) ?? ''
+          const runId = event.streamId
+          const schemaData = data?.requestedSchema as Record<string, unknown> | undefined
+          if (requestId && runId && schemaData) {
+            const formContent: AgentMessageContent = {
+              kind: 'ask_user_form',
+              displayMode: 'form',
+              requestId,
+              runId,
+              message: message ?? '',
+              schema: {
+                properties: (schemaData.properties as Record<string, unknown>) ?? {},
+                required: schemaData.required as string[] | undefined,
+                _fieldOrder: schemaData._fieldOrder as string[] | undefined,
+              },
+              status: 'pending',
+              answers: null,
+              submittedAt: null,
+            }
+            setMessages((prev) => {
+              const exists = prev.some(
+                (m) => m.contentJson && 'kind' in m.contentJson && m.contentJson.kind === 'ask_user_form'
+                  && m.contentJson.requestId === requestId,
+              )
+              if (exists) return prev
+              const optimistic: AgentMessage = {
+                id: `ask-form-${requestId}`,
+                role: 'assistant',
+                parts: [],
+                content: message ?? '',
+                contentJson: formContent,
+                createdAt: new Date().toISOString(),
+                streamId: runId,
+              }
+              return insertMessageByCreatedAt(prev, optimistic)
+            })
+          }
+
           continue
         }
 

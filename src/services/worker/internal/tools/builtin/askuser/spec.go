@@ -86,7 +86,7 @@ var LlmSpec = llm.ToolSpec{
 			"display_mode": map[string]any{
 				"type":        "string",
 				"enum":        []string{"inline", "form"},
-				"description": "How the client should present the question. inline keeps the temporary composer card, form persists a card in the chat stream.",
+				"description": "How to present the question. inline for quick confirmations/approvals that don't need a record; form for collecting detailed input that should persist in chat history for later review.",
 			},
 			"fields": map[string]any{
 				"type":        "array",

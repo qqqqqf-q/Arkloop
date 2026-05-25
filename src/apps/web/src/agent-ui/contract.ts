@@ -334,6 +334,7 @@ export type AgentInputRequestData = {
   requestId?: string
   message?: string
   requestedSchema?: unknown
+  display_mode?: string
 }
 
 export type AgentSecurityBlockData = {
