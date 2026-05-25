@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, memo } from 'react'
 import { File, FileCode, FileText, FileVideo, FileAudio, Download } from 'lucide-react'
 import { apiBaseUrl } from '@arkloop/shared/api'
 import { useMessageMeta } from '../contexts/message-meta'
@@ -7,8 +7,6 @@ import type { ArtifactRef } from '../storage'
 import './ArtifactGalleryPanel.css'
 
 type FilterType = 'all' | 'media' | 'text'
-
-const PATH_PREFIX = '/v1/artifacts'
 
 function isMediaType(mime: string): boolean {
   return mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/')
@@ -41,10 +39,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function ArtifactThumbnail({ artifact, accessToken, onClick }: {
+const ArtifactThumbnail = memo(function ArtifactThumbnail({ artifact, accessToken, onClick, pathPrefix }: {
   artifact: ArtifactRef
   accessToken: string
   onClick: () => void
+  pathPrefix: string
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [imgError, setImgError] = useState(false)
@@ -52,7 +51,7 @@ function ArtifactThumbnail({ artifact, accessToken, onClick }: {
   useEffect(() => {
     if (!isMediaType(artifact.mime_type) || !artifact.mime_type.startsWith('image/')) return
     let cancelled = false
-    const url = `${apiBaseUrl()}${PATH_PREFIX}/${artifact.key}`
+    const url = `${apiBaseUrl()}${pathPrefix}/${artifact.key}`
     fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status}`)
@@ -67,7 +66,7 @@ function ArtifactThumbnail({ artifact, accessToken, onClick }: {
         setImgError(true)
       })
     return () => { cancelled = true }
-  }, [artifact.key, artifact.mime_type, accessToken])
+  }, [artifact.key, artifact.mime_type, accessToken, pathPrefix])
 
   useEffect(() => {
     return () => {
@@ -97,17 +96,21 @@ function ArtifactThumbnail({ artifact, accessToken, onClick }: {
       </div>
       <div className="artifact-card__footer">
         <span className="artifact-card__name" title={artifact.filename}>{artifact.filename}</span>
-        <DownloadButton artifact={artifact} accessToken={accessToken} />
+        <DownloadButton artifact={artifact} accessToken={accessToken} pathPrefix={pathPrefix} />
       </div>
     </div>
   )
-}
+})
 
-function DownloadButton({ artifact, accessToken }: { artifact: ArtifactRef; accessToken: string }) {
+function DownloadButton({ artifact, accessToken, pathPrefix }: { artifact: ArtifactRef; accessToken: string; pathPrefix: string }) {
+  const [downloading, setDownloading] = useState(false)
+
   const handleDownload = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation()
+    if (downloading) return
+    setDownloading(true)
     try {
-      const url = `${apiBaseUrl()}${PATH_PREFIX}/${artifact.key}`
+      const url = `${apiBaseUrl()}${pathPrefix}/${artifact.key}`
       const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
       if (!res.ok) throw new Error(`${res.status}`)
       const blob = await res.blob()
@@ -119,20 +122,26 @@ function DownloadButton({ artifact, accessToken }: { artifact: ArtifactRef; acce
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(blobUrl)
-    } catch { /* ignore */ }
-  }, [artifact.key, artifact.filename, accessToken])
+    } catch {
+      /* ignore */
+    } finally {
+      setDownloading(false)
+    }
+  }, [artifact.key, artifact.filename, accessToken, downloading, pathPrefix])
 
   return (
     <button className="artifact-card__download" onClick={handleDownload}
-      title="Download" aria-label={`Download ${artifact.filename}`}>
+      title="Download" aria-label={`Download ${artifact.filename}`}
+      disabled={downloading}>
       <Download size={12} />
     </button>
   )
 }
 
-export function ArtifactGalleryPanel({ accessToken, onOpenArtifact }: {
+export function ArtifactGalleryPanel({ accessToken, onOpenArtifact, pathPrefix = '/v1/artifacts' }: {
   accessToken: string
   onOpenArtifact: (artifact: ArtifactRef) => void
+  pathPrefix?: string
 }) {
   const { metaMap } = useMessageMeta()
   const { t } = useLocale()
@@ -166,7 +175,7 @@ export function ArtifactGalleryPanel({ accessToken, onOpenArtifact }: {
             </button>
           ))}
         </div>
-        <span className="artifact-gallery__count">{artifacts.length} files</span>
+        <span className="artifact-gallery__count">{t.rightPanel.allFiles}</span>
       </div>
       {artifacts.length === 0 ? (
         <div className="artifact-gallery__empty">
@@ -175,7 +184,7 @@ export function ArtifactGalleryPanel({ accessToken, onOpenArtifact }: {
       ) : (
         <div className="artifact-gallery__grid">
           {artifacts.map((a) => (
-            <ArtifactThumbnail key={a.key} artifact={a} accessToken={accessToken}
+            <ArtifactThumbnail key={a.key} artifact={a} accessToken={accessToken} pathPrefix={pathPrefix}
               onClick={() => onOpenArtifact(a)} />
           ))}
         </div>
