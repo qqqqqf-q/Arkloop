@@ -66,6 +66,7 @@ import {
 } from '../assistantTurnSegments'
 import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
 import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
+import { buildMessageGeneratedImagesFromAgentEvents } from '../agentEventProcessing'
 import { applyAgentEventToWebSearchSteps } from '../webSearchTimelineFromAgentEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
@@ -1576,6 +1577,14 @@ export const ChatView = memo(function ChatView() {
         searchStepsMap.forEach((searchSteps, id) => mergeMeta(id, { searchSteps }))
         assistantTurnMap.forEach((assistantTurn, id) => mergeMeta(id, { assistantTurn }))
         agentEventsMap.forEach((agentEvents, id) => mergeMeta(id, { agentEvents }))
+        // Rebuild generatedImages from persisted agent events so history replay
+        // shows the same images as the live SSE phase.
+        for (const [id, agentEvents] of agentEventsMap) {
+          const generatedImages = buildMessageGeneratedImagesFromAgentEvents(agentEvents)
+          if (generatedImages.length > 0) {
+            mergeMeta(id, { generatedImages })
+          }
+        }
         failedErrorMap.forEach((failedError, id) => mergeMeta(id, { failedError }))
         const metaBatch = Array.from(metaEntries.entries())
         primeMetaBatch(metaBatch)
@@ -3130,7 +3139,15 @@ export const ChatView = memo(function ChatView() {
     [streamingArtifacts, livePlacedShowWidgetCallIds],
   )
   const visibleStreamingArtifacts = useMemo(
-    () => streamingArtifacts.filter((e) => e.toolName === 'create_artifact' && e.content && e.display !== 'panel' && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))),
+    () => streamingArtifacts.filter((e) => {
+      if (e.display === 'panel') return false
+      if (e.toolName === 'create_artifact') {
+        return !!e.content && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))
+      }
+      // image_generate artifacts are now handled via generatedImages
+      // (rendered inside the message bubble via GeneratedImageGroup).
+      return false
+    }),
     [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
   const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(

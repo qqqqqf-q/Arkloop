@@ -14,6 +14,7 @@ function renderMarkdown(content: string, options?: {
   accessToken?: string
   runId?: string
   artifacts?: ArtifactRef[]
+  suppressedArtifactKeys?: Set<string>
   compact?: boolean
   typography?: 'default' | 'work'
   onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
@@ -28,6 +29,7 @@ function renderMarkdown(content: string, options?: {
         accessToken={options?.accessToken}
         runId={options?.runId}
         artifacts={options?.artifacts}
+        suppressedArtifactKeys={options?.suppressedArtifactKeys}
         compact={options?.compact}
         typography={options?.typography}
         onOpenResource={options?.onOpenResource}
@@ -563,5 +565,57 @@ describe('MarkdownRenderer', () => {
     // 通过检查渲染结果包含正常的表格结构来验证（无 || 崩坏）
     expect(html).not.toContain('||')
     expect(html).not.toContain('---------|')
+  })
+
+  it('对已在结构化图片区展示过的图片 artifact 不应再次渲染 markdown 图片', () => {
+    const html = renderMarkdown('![图 1](artifact:img-1)', {
+      accessToken: 'token',
+      artifacts: [{
+        key: 'img-1',
+        filename: '1.png',
+        size: 1,
+        mime_type: 'image/png',
+        title: '图 1',
+      }],
+      suppressedArtifactKeys: new Set(['img-1']),
+    })
+
+    // 已被 suppressedArtifactKeys 覆盖的图片不应渲染
+    expect(html).not.toContain('height:200px')
+  })
+
+  it('不应抑制未在结构化图片区展示的图片 artifact', () => {
+    const html = renderMarkdown('![图 2](artifact:img-2)', {
+      accessToken: 'token',
+      artifacts: [{
+        key: 'img-2',
+        filename: '2.png',
+        size: 1,
+        mime_type: 'image/png',
+        title: '图 2',
+      }],
+    })
+
+    // 未被 suppressed 的图片应正常渲染
+    expect(html).toContain('height:200px')
+  })
+
+  it('不应抑制非图片 artifact 链接', () => {
+    const html = renderMarkdown('[文档](artifact:doc-1)', {
+      accessToken: 'token',
+      artifacts: [{
+        key: 'doc-1',
+        filename: 'notes.md',
+        size: 1,
+        mime_type: 'text/markdown',
+        title: 'notes',
+      }],
+      suppressedArtifactKeys: new Set(['doc-1']),
+      onOpenResource: () => {},
+    })
+
+    // 非图片 artifact 即使 key 在 suppressedArtifactKeys 中也应正常渲染
+    expect(html).toContain('document-resource-card')
+    expect(html).toContain('文档')
   })
 })

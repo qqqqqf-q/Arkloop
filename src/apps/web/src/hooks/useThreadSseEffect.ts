@@ -58,6 +58,8 @@ import {
   agentEventToolOutput,
   type AgentMessage,
 } from '../agent-ui'
+import { IMAGE_GENERATE_TOOL_NAME } from '../copSubSegment'
+import { appendGeneratedImages } from '../generatedImages'
 
 function isUnauthorizedStreamError(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as { status?: unknown }).status === 401
@@ -129,6 +131,8 @@ export function useThreadSseEffect({
     resetSearchSteps,
     setStreamingArtifacts,
     streamingArtifactsRef,
+    liveGeneratedImagesRef,
+    setLiveGeneratedImages,
     setSegments,
     segmentsRef,
     activeSegmentIdRef,
@@ -277,6 +281,8 @@ export function useThreadSseEffect({
         liveSegmentSnapshotIdsRef.current.clear()
         streamingArtifactsRef.current = []
         setStreamingArtifacts([])
+        liveGeneratedImagesRef.current = []
+        setLiveGeneratedImages([])
         flushSegmentsRefToState()
         resetAssistantTurnLive()
         activeSegmentIdRef.current = null
@@ -659,6 +665,17 @@ export function useThreadSseEffect({
               }
             }
             setStreamingArtifacts([...streamingArtifactsRef.current])
+          }
+          if (resultToolName === IMAGE_GENERATE_TOOL_NAME) {
+            const callId = typeof obj?.toolCallId === 'string' ? obj.toolCallId : undefined
+            const callIndex = typeof obj?.toolCallIndex === 'number' ? obj.toolCallIndex : event.order
+            const nextImages = appendGeneratedImages(liveGeneratedImagesRef.current, {
+              toolCallId: callId,
+              toolCallIndex: callIndex,
+              artifacts: newArtifacts,
+            })
+            liveGeneratedImagesRef.current = nextImages
+            setLiveGeneratedImages(nextImages)
           }
         }
         if (resultToolName === 'python_execute' || resultToolName === 'exec_command' || resultToolName === 'continue_process' || resultToolName === 'terminate_process' || resultToolName === 'document_write' || resultToolName === 'create_artifact' || resultToolName === 'browser' || isWebFetchToolName(resultToolName)) {

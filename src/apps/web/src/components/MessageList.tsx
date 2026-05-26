@@ -5,6 +5,8 @@ import { CopSegmentBlocks } from './CopSegmentBlocks'
 import { TopLevelCopToolBlock } from './TopLevelCopToolBlock'
 import { AssistantActionBar } from './messagebubble/AssistantMessage'
 import { MarkdownRenderer } from './MarkdownRenderer'
+import { GeneratedImageGroup } from './GeneratedImageGroup'
+import { generatedImageKeySet } from '../generatedImages'
 import { WidgetBlock } from './WidgetBlock'
 import { IncognitoDivider } from './IncognitoDivider'
 import { useLocale } from '../contexts/LocaleContext'
@@ -312,6 +314,11 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
     if (hideTerminalRunMessage) return null
 
     const msgMeta = msg.role === 'assistant' ? meta.getMeta(msg.id) : undefined
+    const effectiveGeneratedImages =
+      msg.role === 'assistant' && idx === messages.length - 1 && isStreaming
+        ? stream.liveGeneratedImages
+        : msgMeta?.generatedImages
+    const suppressedArtifactKeys = generatedImageKeySet(effectiveGeneratedImages ?? [])
     const resolvedSources = msg.role === 'assistant' ? resolvedMessageSources.get(msg.id) : undefined
     const isCurrentTerminalRunMessage =
       msg.role === 'assistant' &&
@@ -393,6 +400,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                       content={seg.content}
                       webSources={resolvedSources}
                       artifacts={msgMeta?.artifacts}
+                      suppressedArtifactKeys={suppressedArtifactKeys}
                       accessToken={accessToken}
                       runId={msg.streamId ?? undefined}
                       workFolder={workFolder}
@@ -480,6 +488,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                         content={workGroupSplit.finalText}
                         webSources={resolvedSources}
                         artifacts={msgMeta?.artifacts}
+                        suppressedArtifactKeys={suppressedArtifactKeys}
                         accessToken={accessToken}
                         runId={msg.streamId ?? undefined}
                         workFolder={workFolder}
@@ -497,6 +506,9 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                 renderSegment(seg, si, historicalSegments, currentRunMessageLive && si === historicalSegments.length - 1)
               )
             })()}
+          {effectiveGeneratedImages && effectiveGeneratedImages.length > 0 && (
+            <GeneratedImageGroup items={effectiveGeneratedImages} accessToken={accessToken} />
+          )}
           {idx === messages.length - 1 && !isStreaming && !sending && (
             <AssistantActionBar
               textToCopy={assistantTurnPlainText(historicalTurn!)}
@@ -565,6 +577,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
           }
           webSources={resolvedSources}
           artifacts={msg.role === 'assistant' ? msgMeta?.artifacts : undefined}
+          generatedImages={msg.role === 'assistant' && hasAssistantTurn ? undefined : effectiveGeneratedImages}
           browserActions={msg.role === 'assistant' ? msgMeta?.browserActions : undefined}
           widgets={bubbleWidgets}
           accessToken={accessToken}

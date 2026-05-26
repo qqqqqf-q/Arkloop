@@ -23,6 +23,7 @@ import {
   snapshotAssistantTurn,
 } from '../assistantTurnSegments'
 import type { AgentUIEvent } from '../agent-ui'
+import type { GeneratedImageItem } from '../generatedImages'
 
 export type Segment = {
   segmentId: string
@@ -47,6 +48,8 @@ interface StreamContextValue {
   liveAssistantTurn: AssistantTurnUi | null
   preserveLiveRunUi: boolean
   workTodos: Array<{ id: string; content: string; activeForm?: string; status: string }>
+  liveGeneratedImages: GeneratedImageItem[]
+  liveGeneratedImagesRef: React.RefObject<GeneratedImageItem[]>
 
   // internal refs (双写：SSE 热路径先写 ref，渲染时 flush)
   segmentsRef: React.RefObject<Segment[]>
@@ -74,6 +77,7 @@ interface StreamContextValue {
   setWorkTodos: React.Dispatch<React.SetStateAction<Array<{ id: string; content: string; activeForm?: string; status: string }>>>
   setPreserveLiveRunUi: (v: boolean) => void
   setLiveAssistantTurn: React.Dispatch<React.SetStateAction<AssistantTurnUi | null>>
+  setLiveGeneratedImages: React.Dispatch<React.SetStateAction<GeneratedImageItem[]>>
   requestAssistantTurnThinkingBreak: () => void
   releaseCompletedHandoffToHistory: () => void
   resetSearchSteps: () => void
@@ -144,6 +148,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const [liveAssistantTurn, setLiveAssistantTurn] = useState<AssistantTurnUi | null>(null)
   const [preserveLiveRunUi, setPreserveLiveRunUiState] = useState(false)
   const [workTodos, setWorkTodos] = useState<Array<{ id: string; content: string; activeForm?: string; status: string }>>([])
+  const [liveGeneratedImages, setLiveGeneratedImages] = useState<GeneratedImageItem[]>([])
 
   const segmentsRef = useRef<Segment[]>([])
   useEffect(() => { segmentsRef.current = segments }, [segments])
@@ -156,6 +161,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const activeSegmentIdRef = useRef<string | null>(null)
   const assistantTurnFoldStateRef = useRef<AssistantTurnFoldState>(createEmptyAssistantTurnFoldState())
+  const liveGeneratedImagesRef = useRef<GeneratedImageItem[]>([])
+  useEffect(() => { liveGeneratedImagesRef.current = liveGeneratedImages }, [liveGeneratedImages])
   const bumpPendingRef = useRef(false)
   const bumpRafRef = useRef<number | null>(null)
 
@@ -227,6 +234,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setLiveAssistantTurn(null)
     setPreserveLiveRunUiState(false)
     setWorkTodos([])
+    setLiveGeneratedImages([])
+    liveGeneratedImagesRef.current = []
   }, [])
 
   const requestAssistantTurnThinkingBreakAction = useCallback(() => {
@@ -247,6 +256,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setTopLevelWebFetches([])
     streamingArtifactsRef.current = []
     setStreamingArtifacts([])
+    setLiveGeneratedImages([])
+    liveGeneratedImagesRef.current = []
   }, [])
 
   const resetSearchSteps = useCallback(() => {
@@ -294,6 +305,8 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     liveAssistantTurn,
     preserveLiveRunUi,
     workTodos,
+    liveGeneratedImages,
+    liveGeneratedImagesRef,
     segmentsRef,
     searchStepsRef,
     streamingArtifactsRef,
@@ -318,6 +331,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setWorkTodos,
     setPreserveLiveRunUi,
     setLiveAssistantTurn,
+    setLiveGeneratedImages,
     requestAssistantTurnThinkingBreak: requestAssistantTurnThinkingBreakAction,
     releaseCompletedHandoffToHistory,
     resetSearchSteps,
@@ -338,6 +352,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     liveAssistantTurn,
     preserveLiveRunUi,
     workTodos,
+    liveGeneratedImages,
     addTopLevelCodeExecution,
     addTopLevelSubAgent,
     addTopLevelFileOp,

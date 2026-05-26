@@ -8,6 +8,7 @@ import type { ArtifactAction } from './ArtifactIframe'
 import { memo } from 'react'
 import { useTypewriter } from '../hooks/useTypewriter'
 import type { ResourceRef } from './resource-preview/types'
+import type { GeneratedImageItem } from '../generatedImages'
 
 type Props = {
   message: AgentMessage
@@ -22,6 +23,7 @@ type Props = {
   shareState?: 'idle' | 'sharing' | 'shared'
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
+  generatedImages?: GeneratedImageItem[]
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
@@ -39,7 +41,7 @@ type Props = {
   suppressActionBar?: boolean
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, workFolder, onWidgetAction, onShowSources, onOpenDocument, onOpenResource, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, generatedImages, browserActions, widgets, accessToken, workFolder, onWidgetAction, onShowSources, onOpenDocument, onOpenResource, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
@@ -63,6 +65,7 @@ export const MessageBubble = memo(function MessageBubble({ message, streamAssist
       shareState={shareState}
       webSources={webSources}
       artifacts={artifacts}
+      generatedImages={generatedImages}
       browserActions={browserActions}
       widgets={widgets}
       accessToken={accessToken}

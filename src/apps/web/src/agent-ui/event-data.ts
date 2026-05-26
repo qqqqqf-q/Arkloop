@@ -216,6 +216,9 @@ export function normalizeAgentEventData(params: {
     case 'tool-result':
       return {
         toolCallId: stringField(record, 'toolCallId', 'tool_call_id') ?? eventId,
+        ...(numberField(record, 'toolCallIndex', 'tool_call_index') != null
+          ? { toolCallIndex: numberField(record, 'toolCallIndex', 'tool_call_index') }
+          : {}),
         ...(normalizeToolName(record, toolName) ? { toolName: normalizeToolName(record, toolName) } : {}),
         output: record && 'output' in record ? record.output : record?.result,
         ...(normalizeToolError(record?.error, errorCode)
