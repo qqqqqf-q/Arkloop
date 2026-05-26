@@ -6,14 +6,8 @@ import { useLocale } from '../contexts/LocaleContext'
 import type { ArtifactRef } from '../storage'
 import './ArtifactGalleryPanel.css'
 
-type FilterType = 'all' | 'media' | 'text'
-
 function isMediaType(mime: string): boolean {
   return mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/')
-}
-
-function isTextType(mime: string): boolean {
-  return !isMediaType(mime)
 }
 
 function extension(filename: string): string {
@@ -93,9 +87,6 @@ const ArtifactThumbnail = memo(function ArtifactThumbnail({ artifact, accessToke
             )}
           </div>
         )}
-      </div>
-      <div className="artifact-card__footer">
-        <span className="artifact-card__name" title={artifact.filename}>{artifact.filename}</span>
         <DownloadButton artifact={artifact} accessToken={accessToken} pathPrefix={pathPrefix} />
       </div>
     </div>
@@ -145,7 +136,7 @@ export function ArtifactGalleryPanel({ accessToken, onOpenArtifact, pathPrefix =
 }) {
   const { metaMap } = useMessageMeta()
   const { t } = useLocale()
-  const [filter, setFilter] = useState<FilterType>('all')
+  const [filter, setFilter] = useState<'all' | 'media' | 'text'>('all')
 
   const artifacts = useMemo(() => {
     const seen = new Set<string>()
@@ -160,7 +151,7 @@ export function ArtifactGalleryPanel({ accessToken, onOpenArtifact, pathPrefix =
     }
     if (filter === 'all') return result
     if (filter === 'media') return result.filter(a => isMediaType(a.mime_type))
-    return result.filter(a => isTextType(a.mime_type))
+    return result.filter(a => !isMediaType(a.mime_type))
   }, [metaMap, filter])
 
   return (
@@ -175,7 +166,6 @@ export function ArtifactGalleryPanel({ accessToken, onOpenArtifact, pathPrefix =
             </button>
           ))}
         </div>
-        <span className="artifact-gallery__count">{t.rightPanel.allFiles}</span>
       </div>
       {artifacts.length === 0 ? (
         <div className="artifact-gallery__empty">

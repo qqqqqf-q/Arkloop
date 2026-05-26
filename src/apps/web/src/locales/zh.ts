@@ -47,7 +47,7 @@ export const zh: LocaleStrings = {
     conversationGraphUser: '用户',
     conversationGraphAssistant: '助手',
     conversationGraphSystem: '系统',
-    gallery: '图库',
+    gallery: '制品库',
     allFiles: '全部',
     mediaFiles: '媒体',
     textFiles: '文本',

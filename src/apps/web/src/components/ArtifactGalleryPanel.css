@@ -80,6 +80,7 @@
 }
 
 .artifact-card__thumb {
+  position: relative;
   aspect-ratio: 1;
   overflow: hidden;
   background: var(--c-bg-sub);
@@ -115,37 +116,27 @@
   color: var(--c-text-muted);
 }
 
-.artifact-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  padding: 5px 8px;
-}
-
-.artifact-card__name {
-  font-size: 10px;
-  color: var(--c-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
 .artifact-card__download {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--c-text-tertiary);
+  border-radius: 5px;
+  background: var(--c-bg-page);
+  color: var(--c-text-secondary);
   cursor: pointer;
-  flex-shrink: 0;
-  transition: background 120ms, color 120ms;
+  opacity: 0;
+  transition: opacity 120ms, background 120ms, color 120ms;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.artifact-card:hover .artifact-card__download {
+  opacity: 1;
 }
 
 .artifact-card__download:hover {
