@@ -72,6 +72,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setAwaitingInput,
     pendingUserInput,
     setPendingUserInput,
+    setPendingFormInput,
     checkInDraft,
     setCheckInDraft,
     checkInSubmitting,
@@ -514,6 +515,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     if (!activeRunId) return
     setError(null)
     setInjectionBlocked(null)
+    setPendingFormInput(null)
     try {
       await agentClient.provideInput(activeRunId, JSON.stringify(answers))
     } catch (err) {
@@ -523,12 +525,13 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       }
       setError(normalizeError(err))
     }
-  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked])
+  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked, setPendingFormInput])
 
   const handleAskUserFormDismiss = useCallback(async (_requestId: string) => {
     if (!activeRunId) return
     setError(null)
     setInjectionBlocked(null)
+    setPendingFormInput(null)
     try {
       await agentClient.provideInput(activeRunId, JSON.stringify({}))
     } catch (err) {
@@ -538,7 +541,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       }
       setError(normalizeError(err))
     }
-  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked])
+  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked, setPendingFormInput])
 
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {

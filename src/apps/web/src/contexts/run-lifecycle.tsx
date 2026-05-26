@@ -10,7 +10,7 @@ import {
 } from 'react'
 import { useAgentStream, type UseAgentStreamResult } from '../hooks/useAgentStream'
 import { type AppError } from '@arkloop/shared'
-import { useAgentClient } from '../agent-ui'
+import { useAgentClient, type AgentAskUserFormContent } from '../agent-ui'
 import type { UserInputRequest } from '../userInputTypes'
 import { useChatSession } from './chat-session'
 import type { QueuedPrompt } from '../queuedPrompts'
@@ -33,6 +33,7 @@ interface RunLifecycleContextValue {
   queuedPrompts: QueuedPrompt[]
   awaitingInput: boolean
   pendingUserInput: UserInputRequest | null
+  pendingFormInput: AgentAskUserFormContent | null
   checkInDraft: string
   checkInSubmitting: boolean
   contextCompactBar: ContextCompactBarState | null
@@ -56,6 +57,7 @@ interface RunLifecycleContextValue {
   setQueuedPrompts: React.Dispatch<React.SetStateAction<QueuedPrompt[]>>
   setAwaitingInput: (v: boolean) => void
   setPendingUserInput: (v: UserInputRequest | null) => void
+  setPendingFormInput: (v: AgentAskUserFormContent | null) => void
   setCheckInDraft: (v: string) => void
   setCheckInSubmitting: (v: boolean) => void
   setContextCompactBar: (v: ContextCompactBarState | null) => void
@@ -91,6 +93,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([])
   const [awaitingInput, setAwaitingInput] = useState(false)
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null)
+  const [pendingFormInput, setPendingFormInput] = useState<AgentAskUserFormContent | null>(null)
   const [checkInDraft, setCheckInDraft] = useState('')
   const [checkInSubmitting, setCheckInSubmitting] = useState(false)
   const [contextCompactBar, setContextCompactBar] = useState<ContextCompactBarState | null>(null)
@@ -169,6 +172,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     setInjectionBlocked(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
+    setPendingFormInput(null)
     setCheckInDraft('')
     setCheckInSubmitting(false)
     setContextCompactBar(null)
@@ -273,6 +277,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     setInjectionBlocked(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
+    setPendingFormInput(null)
     setCheckInDraft('')
     setCheckInSubmitting(false)
     setQueuedPrompts([])
@@ -297,6 +302,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     queuedPrompts,
     awaitingInput,
     pendingUserInput,
+    pendingFormInput,
     checkInDraft,
     checkInSubmitting,
     contextCompactBar,
@@ -317,6 +323,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     setQueuedPrompts,
     setAwaitingInput,
     setPendingUserInput,
+    setPendingFormInput,
     setCheckInDraft,
     setCheckInSubmitting,
     setContextCompactBar,
@@ -344,6 +351,7 @@ export function RunLifecycleProvider({ children }: { children: ReactNode }) {
     queuedPrompts,
     awaitingInput,
     pendingUserInput,
+    pendingFormInput,
     checkInDraft,
     checkInSubmitting,
     contextCompactBar,

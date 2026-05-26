@@ -18,6 +18,7 @@ import { useTypewriter } from '../hooks/useTypewriter'
 import { ArtifactStreamBlock, type StreamingArtifactEntry } from './ArtifactStreamBlock'
 import { WidgetBlock } from './WidgetBlock'
 import UserInputCard from './UserInputCard'
+import AskUserFormMessageCard from './AskUserFormMessageCard'
 import { resolveMessageSourcesForRender } from './chatSourceResolver'
 import { RunErrorNotice, type AppError } from './ErrorCallout'
 import { ShareModal } from './ShareModal'
@@ -1001,6 +1002,8 @@ export const ChatView = memo(function ChatView() {
     setAwaitingInput,
     pendingUserInput,
     setPendingUserInput,
+    pendingFormInput,
+    setPendingFormInput,
     checkInDraft,
     setCheckInDraft,
     checkInSubmitting,
@@ -1785,6 +1788,7 @@ export const ChatView = memo(function ChatView() {
     setCancelSubmitting(false)
     setAwaitingInput(false)
     setPendingUserInput(null)
+    setPendingFormInput(null)
     setCheckInDraft('')
     setQueuedPrompts([])
     setEditingQueuedPromptId(null)
@@ -3749,7 +3753,23 @@ export const ChatView = memo(function ChatView() {
             )}
           </div>
         )}
-        {pendingUserInput ? (
+        {pendingFormInput ? (
+          <motion.div
+            key="form-input-card"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="w-full max-w-[840px] px-4"
+          >
+            <AskUserFormMessageCard
+              content={pendingFormInput}
+              activeRunId={activeRunId}
+              onSubmit={handleAskUserFormSubmit}
+              onDismiss={handleAskUserFormDismiss}
+            />
+          </motion.div>
+        ) : pendingUserInput ? (
           <motion.div
             key="user-input-card"
             initial={{ opacity: 0, y: 8 }}

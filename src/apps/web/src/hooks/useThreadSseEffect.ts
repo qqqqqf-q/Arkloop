@@ -2,7 +2,6 @@ import { useEffect, useRef, useCallback, type RefObject } from 'react'
 import { canonicalToolName, pickLogicalToolName } from '@arkloop/shared'
 import { setThreadTodos } from '../todoDb'
 import { PLAN_TODOS_UPDATED_EVENT } from '../planMetadata'
-import { insertMessageByCreatedAt } from '../messageContent'
 import { useAuth } from '../contexts/auth'
 import { useChatSession } from '../contexts/chat-session'
 import { useCredits } from '../contexts/credits'
@@ -58,7 +57,6 @@ import {
   agentEventToolInput,
   agentEventToolOutput,
   type AgentMessage,
-  type AgentMessageContent,
 } from '../agent-ui'
 
 function isUnauthorizedStreamError(error: unknown): boolean {
@@ -91,6 +89,7 @@ export function useThreadSseEffect({
     injectionBlockedRunIdRef,
     setAwaitingInput,
     setPendingUserInput,
+    setPendingFormInput,
     setCheckInDraft,
     contextCompactBar: _contextCompactBar,
     setContextCompactBar,
@@ -149,7 +148,6 @@ export function useThreadSseEffect({
   const {
     refreshMessages,
     upsertLocalTerminalMessage,
-    setMessages,
   } = useMessageStore()
   const {
     resetAssistantTurnLive,
@@ -297,6 +295,7 @@ export function useThreadSseEffect({
       pendingSearchStepsRef.current = null
       setAwaitingInput(false)
       setPendingUserInput(null)
+      setPendingFormInput(null)
       setCheckInDraft('')
       if (threadId) onRunEnded(threadId)
     }
@@ -755,15 +754,14 @@ export function useThreadSseEffect({
         const schema = data?.requestedSchema as RequestedSchema | undefined
         const displayMode = typeof data?.display_mode === 'string' ? data.display_mode : 'inline'
 
-        // Form-mode requests are rendered as persistent messages in the stream
+        // Form-mode requests render in the input area during filling;
+        // they appear in the chat flow only after submission (via message sync).
         if (displayMode === 'form') {
-
-          // Create an optimistic message in the store so MessageList renders it immediately
           const requestId = (data?.requestId as string) ?? ''
           const runId = event.streamId
           const schemaData = data?.requestedSchema as Record<string, unknown> | undefined
           if (requestId && runId && schemaData) {
-            const formContent: AgentMessageContent = {
+            setPendingFormInput({
               kind: 'ask_user_form',
               displayMode: 'form',
               requestId,
@@ -777,23 +775,6 @@ export function useThreadSseEffect({
               status: 'pending',
               answers: null,
               submittedAt: null,
-            }
-            setMessages((prev) => {
-              const exists = prev.some(
-                (m) => m.contentJson && 'kind' in m.contentJson && m.contentJson.kind === 'ask_user_form'
-                  && m.contentJson.requestId === requestId,
-              )
-              if (exists) return prev
-              const optimistic: AgentMessage = {
-                id: `ask-form-${requestId}`,
-                role: 'assistant',
-                parts: [],
-                content: message ?? '',
-                contentJson: formContent,
-                createdAt: new Date().toISOString(),
-                streamId: runId,
-              }
-              return insertMessageByCreatedAt(prev, optimistic)
             })
           }
 
@@ -882,6 +863,7 @@ export function useThreadSseEffect({
         }
         setAwaitingInput(false)
         setPendingUserInput(null)
+        setPendingFormInput(null)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
         refreshCredits()
@@ -1136,6 +1118,7 @@ export function useThreadSseEffect({
     setPendingThinking(false)
     setAwaitingInput(false)
     setPendingUserInput(null)
+    setPendingFormInput(null)
     setCheckInDraft('')
     if (threadId) onRunEnded(threadId)
     refreshCredits()
