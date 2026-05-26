@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { CSSProperties } from 'react'
+import { PillToggle } from '@arkloop/shared'
 import type { AgentAskUserFormContent } from '../agent-ui'
 import type { FieldSchema, FieldValue } from '../userInputTypes'
 import {
@@ -351,26 +352,28 @@ function BooleanField({
   disabled: boolean
   onChange: (val: boolean) => void
 }) {
+  const [hovered, setHovered] = useState(false)
   return (
     <div>
       <label
-        className="flex items-center gap-3 cursor-pointer rounded-lg px-2 py-2.5 transition-[background-color] duration-[60ms]"
+        className="flex items-center justify-between gap-3 cursor-pointer rounded-lg px-2 py-2.5 transition-[background-color] duration-[60ms]"
         style={{ opacity: disabled ? 0.5 : 1 }}
-        onMouseEnter={(e) => e.currentTarget.style.background = 'var(--c-bg-deep)'}
-        onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
       >
-        <input
-          type="checkbox"
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[14.5px] font-light truncate" style={{ color: 'var(--c-text-primary)' }}>{field.title}</span>
+          {field.description && (
+            <span className="text-[12px] truncate" style={{ color: 'var(--c-text-muted)' }}>{field.description}</span>
+          )}
+        </div>
+        <PillToggle
           checked={value ?? false}
           onChange={() => onChange(!value)}
           disabled={disabled}
-          className="rounded"
-          style={{ accentColor: 'var(--c-text-primary)' }}
+          forceHover={hovered}
+          size="sm"
         />
-        <span className="text-[14.5px] font-light" style={{ color: 'var(--c-text-primary)' }}>{field.title}</span>
-        {field.description && (
-          <span className="text-[12px]" style={{ color: 'var(--c-text-muted)' }}>{field.description}</span>
-        )}
       </label>
     </div>
   )
