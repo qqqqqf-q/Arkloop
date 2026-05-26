@@ -1,5 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import type { AgentAskUserFormContent } from '../agent-ui'
 import type { FieldSchema, FieldValue } from '../userInputTypes'
 import {
@@ -30,8 +32,6 @@ function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent })
   const [expanded, setExpanded] = useState(false)
   const answers = content.answers ?? {}
   const keys = content.schema._fieldOrder ?? Object.keys(answers)
-  const statusLabel = content.status === 'submitted' ? 'Submitted' : content.status === 'dismissed' ? 'Dismissed' : 'Expired'
-  const statusColor = content.status === 'submitted' ? 'var(--c-status-success)' : 'var(--c-text-muted)'
 
   return (
     <div
@@ -50,9 +50,6 @@ function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent })
         <h2 className="text-[15px] font-normal leading-snug m-0 flex-1" style={{ color: 'var(--c-text-secondary)' }}>
           {content.message}
         </h2>
-        <span className="text-[12px] font-medium flex-shrink-0 px-2 py-0.5 rounded-md" style={{ color: statusColor, background: 'var(--c-bg-deep)' }}>
-          {statusLabel}
-        </span>
       </div>
 
       {keys.length > 0 && (
@@ -111,6 +108,143 @@ function FieldLabel({ title, description }: { title?: string; description?: stri
   )
 }
 
+// --- PopoverSelect (portal-based, shared by SelectField / OneOfSelectField) ---
+
+function PopoverSelect({
+  value,
+  placeholder,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string | undefined
+  placeholder: string
+  options: Array<{ value: string; label: string }>
+  disabled: boolean
+  onChange: (val: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({})
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (
+        menuRef.current?.contains(e.target as Node) ||
+        triggerRef.current?.contains(e.target as Node)
+      ) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  // Close on scroll to avoid misalignment (the form is in a scrollable container)
+  useEffect(() => {
+    if (!open) return
+    const handler = () => setOpen(false)
+    window.addEventListener('scroll', handler, true)
+    return () => window.removeEventListener('scroll', handler, true)
+  }, [open])
+
+  const handleOpen = () => {
+    if (disabled) return
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const viewportWidth = window.innerWidth
+      const margin = 8
+      const menuGap = 4
+      const preferredMaxHeight = 220
+      const minUsefulHeight = 88
+      const estimatedMenuHeight = Math.min(preferredMaxHeight, options.length * 37 + 8)
+      const spaceBelow = viewportHeight - rect.bottom - margin - menuGap
+      const spaceAbove = rect.top - margin - menuGap
+      const openAbove = spaceBelow < Math.min(estimatedMenuHeight, 150) && spaceAbove > spaceBelow
+      const availableHeight = Math.max(minUsefulHeight, openAbove ? spaceAbove : spaceBelow)
+      const maxHeight = Math.min(preferredMaxHeight, availableHeight)
+      const left = Math.max(margin, Math.min(rect.left, viewportWidth - rect.width - margin))
+      setMenuStyle({
+        position: 'fixed',
+        top: openAbove ? rect.top - menuGap - maxHeight : rect.bottom + menuGap,
+        left,
+        width: rect.width,
+        maxHeight,
+        zIndex: 9999,
+      })
+    }
+    setOpen((v) => !v)
+  }
+
+  const selectOption = useCallback((opt: string) => {
+    onChange(opt)
+    setOpen(false)
+  }, [onChange])
+
+  const displayLabel = value
+    ? (options.find(o => o.value === value)?.label ?? value)
+    : placeholder
+
+  const menu = open ? (
+    <div
+      ref={menuRef}
+      style={{
+        ...menuStyle,
+        background: 'var(--c-bg-page)',
+        border: '0.5px solid var(--c-border)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        overflowY: 'auto',
+      }}
+    >
+      {options.map((opt) => {
+        const selected = value === opt.value
+        return (
+          <div
+            key={opt.value}
+            role="option"
+            aria-selected={selected}
+            onClick={() => selectOption(opt.value)}
+            className="flex items-center px-3 py-2 text-[14px] cursor-pointer transition-[background-color] duration-[60ms]"
+            style={{
+              background: selected ? 'var(--c-bg-sub)' : 'transparent',
+              color: 'var(--c-text-primary)',
+            }}
+            onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--c-bg-deep)' }}
+            onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
+          >
+            {opt.label}
+          </div>
+        )
+      })}
+    </div>
+  ) : null
+
+  return (
+    <div>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleOpen}
+        disabled={disabled}
+        className="flex items-center justify-between w-full rounded-lg px-3 py-2 text-[14px] font-light outline-none cursor-pointer disabled:opacity-40"
+        style={{
+          background: 'var(--c-bg-deep)',
+          color: value ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
+          border: '0.5px solid var(--c-border-subtle)',
+          minHeight: '36px',
+        }}
+      >
+        <span>{displayLabel}</span>
+        <ChevronDown size={14} style={{ color: 'var(--c-text-tertiary)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
+      </button>
+      {menu && createPortal(menu, document.body)}
+    </div>
+  )
+}
+
 function SelectField({
   field, value, required, disabled, onChange,
 }: {
@@ -120,67 +254,20 @@ function SelectField({
   disabled: boolean
   onChange: (val: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-
-  const selectOption = useCallback((opt: string) => {
-    onChange(opt)
-    setOpen(false)
-  }, [onChange])
-
+  const options = useMemo(() =>
+    field.enum.map((v, i) => ({ value: v, label: field.enumNames?.[i] ?? v })),
+    [field.enum, field.enumNames],
+  )
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => !disabled && setOpen(!open)}
-          disabled={disabled}
-          className="flex items-center justify-between w-full rounded-lg px-3 py-2 text-[14px] font-light outline-none cursor-pointer disabled:opacity-40"
-          style={{
-            background: 'var(--c-bg-deep)',
-            color: value ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
-            border: '0.5px solid var(--c-border-subtle)',
-            minHeight: '36px',
-          }}
-        >
-          <span>{value ? (field.enumNames?.[field.enum.indexOf(value)] ?? value) : (required ? 'Select...' : 'Optional')}</span>
-          <ChevronDown size={14} style={{ color: 'var(--c-text-tertiary)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
-        </button>
-        {open && (
-          <div
-            className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden"
-            style={{
-              background: 'var(--c-bg-page)',
-              border: '0.5px solid var(--c-border)',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              maxHeight: '220px',
-              overflowY: 'auto',
-            }}
-          >
-            {field.enum.map((opt, idx) => {
-              const label = field.enumNames?.[idx] ?? opt
-              const selected = value === opt
-              return (
-                <div
-                  key={opt}
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => selectOption(opt)}
-                  className="flex items-center px-3 py-2 text-[14px] cursor-pointer transition-[background-color] duration-[60ms]"
-                  style={{
-                    background: selected ? 'var(--c-bg-sub)' : 'transparent',
-                    color: 'var(--c-text-primary)',
-                  }}
-                  onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--c-bg-deep)' }}
-                  onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
-                >
-                  {label}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      <PopoverSelect
+        value={value}
+        placeholder={required ? 'Select...' : 'Optional'}
+        options={options}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </div>
   )
 }
@@ -194,66 +281,20 @@ function OneOfSelectField({
   disabled: boolean
   onChange: (val: string) => void
 }) {
-  const [open, setOpen] = useState(false)
-
-  const selectOption = useCallback((opt: string) => {
-    onChange(opt)
-    setOpen(false)
-  }, [onChange])
-
+  const options = useMemo(() =>
+    field.oneOf.map(o => ({ value: o.const, label: o.title })),
+    [field.oneOf],
+  )
   return (
     <div>
       <FieldLabel title={field.title} description={field.description} />
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => !disabled && setOpen(!open)}
-          disabled={disabled}
-          className="flex items-center justify-between w-full rounded-lg px-3 py-2 text-[14px] font-light outline-none cursor-pointer disabled:opacity-40"
-          style={{
-            background: 'var(--c-bg-deep)',
-            color: value ? 'var(--c-text-primary)' : 'var(--c-text-muted)',
-            border: '0.5px solid var(--c-border-subtle)',
-            minHeight: '36px',
-          }}
-        >
-          <span>{value ? (field.oneOf.find(o => o.const === value)?.title ?? value) : (required ? 'Select...' : 'Optional')}</span>
-          <ChevronDown size={14} style={{ color: 'var(--c-text-tertiary)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 150ms ease' }} />
-        </button>
-        {open && (
-          <div
-            className="absolute z-10 w-full mt-1 rounded-lg overflow-hidden"
-            style={{
-              background: 'var(--c-bg-page)',
-              border: '0.5px solid var(--c-border)',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              maxHeight: '220px',
-              overflowY: 'auto',
-            }}
-          >
-            {field.oneOf.map((opt) => {
-              const selected = value === opt.const
-              return (
-                <div
-                  key={opt.const}
-                  role="option"
-                  aria-selected={selected}
-                  onClick={() => selectOption(opt.const)}
-                  className="flex items-center px-3 py-2 text-[14px] cursor-pointer transition-[background-color] duration-[60ms]"
-                  style={{
-                    background: selected ? 'var(--c-bg-sub)' : 'transparent',
-                    color: 'var(--c-text-primary)',
-                  }}
-                  onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = 'var(--c-bg-deep)' }}
-                  onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent' }}
-                >
-                  {opt.title}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      <PopoverSelect
+        value={value}
+        placeholder={required ? 'Select...' : 'Optional'}
+        options={options}
+        disabled={disabled}
+        onChange={onChange}
+      />
     </div>
   )
 }
