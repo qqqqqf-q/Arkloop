@@ -6,17 +6,23 @@
 
 用户明确说"帮我生成电商图"、"做几张主图"等，此时用户意图明确，**不要做任何额外操作**（如引导上传到电商系统、要求补齐商品信息等）。直接进入核心流程，用 ask_user 表单收集需求后生成图片。
 
-## 核心流程
+## 核心流程（严格按顺序执行，不可跳过任何步骤）
 
 ```
-收集需求 → 生成提示词 → 用户确认修改 → 批量生图
+Step 1: 收集需求（两个 ask_user 表单）
+Step 2: 参数映射
+Step 3: 生成提示词
+Step 4: 用户确认（必须！用 ask_user 表单）
+Step 5: 批量生图
 ```
+
+**关键约束：Step 4 是强制步骤。未获得用户确认前，绝对不要调用 image_generate。**
 
 ## Step 1: 收集需求
 
-使用 `ask_user` 工具（display_mode: "form"）一次性收集以下所有字段。按顺序排列，分两个表单展示。
+**分两次调用 `ask_user` 工具（display_mode: "form"），必须等待第一次返回后再发起第二次。**
 
-### 第一个表单：产品与营销信息
+### 第一次 ask_user：产品与营销信息
 
 | key | type | title | 说明 |
 |-----|------|-------|------|
@@ -24,7 +30,9 @@
 | `promotion_info` | string | 促销信息 | 多行文本。促销活动详情：折扣力度、活动名称、优惠信息等。maxLength: 300 |
 | `language` | string | 输出语言 | enum: ["zh", "en"], enumNames: ["中文", "English"] |
 
-### 第二个表单：图像配置与模块选择
+### 第二次 ask_user：图像配置与模块选择
+
+**必须在第一次 ask_user 返回后，再发起第二次 ask_user。**
 
 | key | type | title | 说明 |
 |-----|------|-------|------|
@@ -170,13 +178,17 @@
 4. 根据分辨率追加清晰度词
 5. 如 language 为 "zh"，在末尾追加中文风格提示（如：适合中国电商平台、中文排版友好）
 
-## Step 4: 确认提示词
+## Step 4: 用户确认提示词（强制步骤）
 
-用 `ask_user` 工具（display_mode: "form"）展示所有生成的提示词，让用户逐条确认或修改。
+**此步骤不可跳过！在用户确认之前，不得调用 image_generate。**
+
+生成所有提示词后，用 `ask_user` 工具（display_mode: "form"）展示所有提示词，让用户逐条确认或修改。
 
 表单字段：
-- key: `confirmed`，type: boolean，title: "提示词确认"，description: "确认无误，开始生成图片"
-- 每张图一个 key 为 `prompt_N`（N 从 0 开始）的 string 字段，title 为模块中文名，default 为生成的提示词文本。用户可以直接修改。
+- key: `confirmed`，type: boolean，title: "提示词确认"，description: "确认无误，开始生成图片"。required: true
+- 每张图一个 key 为 `prompt_N`（N 从 0 开始）的 string 字段，title 为模块中文名，default 为生成的提示词文本，multiline: true。用户可以直接修改。
+
+**只有当用户填写表单且 confirmed 为 true 时，才能进入 Step 5。** 如果 confirmed 为 false 或用户未确认，不要生图。
 
 ## Step 5: 批量生成图片
 
