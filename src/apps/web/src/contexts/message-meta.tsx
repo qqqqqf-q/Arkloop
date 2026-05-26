@@ -53,10 +53,13 @@ import {
 } from '../storage'
 import type { AssistantTurnUi } from '../assistantTurnSegments'
 import type { AppError } from '@arkloop/shared'
+import type { GeneratedImageItem } from '../generatedImages'
+import { buildGeneratedImagesFromAgentEvents } from '../generatedImages'
 
 export type MessageMeta = {
   sources?: WebSource[]
   artifacts?: ArtifactRef[]
+  generatedImages?: GeneratedImageItem[]
   codeExecutions?: CodeExecutionRef[]
   browserActions?: BrowserActionRef[]
   subAgents?: SubAgentRef[]
@@ -233,7 +236,11 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       const widgets = readMessageWidgets(id)
       if (widgets) meta.widgets = widgets
       const agentEvents = readMessageAgentEvents(id)
-      if (agentEvents) meta.agentEvents = agentEvents
+      if (agentEvents) {
+        meta.agentEvents = agentEvents
+        const generatedImages = buildGeneratedImagesFromAgentEvents(agentEvents)
+        if (generatedImages.length > 0) meta.generatedImages = generatedImages
+      }
       const coveredRunIds = readMessageCoveredRunIds(id)
       if (coveredRunIds) meta.coveredRunIds = coveredRunIds
       if (Object.keys(meta).length > 0) entries.push([id, meta])
@@ -342,6 +349,10 @@ export function MessageMetaProvider({ children }: { children: ReactNode }) {
       if (agentEvents.length > 0) {
         writeMessageAgentEvents(messageId, agentEvents)
         meta.agentEvents = agentEvents
+        const generatedImages = buildGeneratedImagesFromAgentEvents(agentEvents)
+        if (generatedImages.length > 0) {
+          meta.generatedImages = generatedImages
+        }
       }
 
       if (Object.keys(meta).length > 0) {

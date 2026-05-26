@@ -61,6 +61,7 @@ import {
   type AgentMessageContent,
 } from '../agent-ui'
 import { IMAGE_GENERATE_TOOL_NAME } from '../copSubSegment'
+import { appendGeneratedImages } from '../generatedImages'
 
 function isUnauthorizedStreamError(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as { status?: unknown }).status === 401
@@ -132,6 +133,8 @@ export function useThreadSseEffect({
     resetSearchSteps,
     setStreamingArtifacts,
     streamingArtifactsRef,
+    liveGeneratedImagesRef,
+    setLiveGeneratedImages,
     setSegments,
     segmentsRef,
     activeSegmentIdRef,
@@ -279,11 +282,10 @@ export function useThreadSseEffect({
       }
       if (!handoffRunCache) {
         liveSegmentSnapshotIdsRef.current.clear()
-        // Preserve image_generate streaming artifacts for fallback rendering
-        // after the message is complete. They will be cleared when the next run starts.
-        const preserved = streamingArtifactsRef.current.filter((e) => e.toolName === IMAGE_GENERATE_TOOL_NAME)
-        streamingArtifactsRef.current = preserved
-        setStreamingArtifacts([...streamingArtifactsRef.current])
+        streamingArtifactsRef.current = []
+        setStreamingArtifacts([])
+        liveGeneratedImagesRef.current = []
+        setLiveGeneratedImages([])
         flushSegmentsRefToState()
         resetAssistantTurnLive()
         activeSegmentIdRef.current = null
@@ -669,27 +671,14 @@ export function useThreadSseEffect({
           }
           if (resultToolName === IMAGE_GENERATE_TOOL_NAME) {
             const callId = typeof obj?.toolCallId === 'string' ? obj.toolCallId : undefined
-            for (const art of newArtifacts) {
-              if (!art.mime_type?.startsWith('image/')) continue
-              const existing = callId
-                ? streamingArtifactsRef.current.find((e) => e.toolCallId === callId)
-                : undefined
-              if (existing) {
-                existing.artifactRef = art
-                existing.complete = true
-              } else {
-                streamingArtifactsRef.current = [...streamingArtifactsRef.current, {
-                  toolCallIndex: streamingArtifactsRef.current.length,
-                  toolCallId: callId,
-                  toolName: IMAGE_GENERATE_TOOL_NAME,
-                  argumentsBuffer: '',
-                  complete: true,
-                  display: 'inline',
-                  artifactRef: art,
-                }]
-              }
-            }
-            setStreamingArtifacts([...streamingArtifactsRef.current])
+            const callIndex = typeof obj?.toolCallIndex === 'number' ? obj.toolCallIndex : event.order
+            const nextImages = appendGeneratedImages(liveGeneratedImagesRef.current, {
+              toolCallId: callId,
+              toolCallIndex: callIndex,
+              artifacts: newArtifacts,
+            })
+            liveGeneratedImagesRef.current = nextImages
+            setLiveGeneratedImages(nextImages)
           }
         }
         if (resultToolName === 'python_execute' || resultToolName === 'exec_command' || resultToolName === 'continue_process' || resultToolName === 'terminate_process' || resultToolName === 'document_write' || resultToolName === 'create_artifact' || resultToolName === 'browser' || isWebFetchToolName(resultToolName)) {

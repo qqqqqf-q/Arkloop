@@ -66,7 +66,8 @@ import {
   type AssistantTurnUi,
 } from '../assistantTurnSegments'
 import { copTimelinePayloadForSegment, toolCallIdsInCopTimelines } from '../copSegmentTimeline'
-import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments, IMAGE_GENERATE_TOOL_NAME } from '../copSubSegment'
+import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
+import { buildMessageGeneratedImagesFromAgentEvents } from '../agentEventProcessing'
 import { applyAgentEventToWebSearchSteps } from '../webSearchTimelineFromAgentEvent'
 import { useLocale } from '../contexts/LocaleContext'
 import { useAuth } from '../contexts/auth'
@@ -339,7 +340,6 @@ type LiveRunPaneProps = {
   thinkingHint?: string
   visibleStreamingWidgets: StreamingArtifactEntry[]
   visibleStreamingArtifacts: StreamingArtifactEntry[]
-  fallbackImageGenerateArtifacts: StreamingArtifactEntry[]
   injectionBlocked: string | null
   awaitingInput: boolean
   checkInDraft: string
@@ -389,7 +389,6 @@ const LiveRunPane = memo(function LiveRunPane({
   thinkingHint,
   visibleStreamingWidgets,
   visibleStreamingArtifacts,
-  fallbackImageGenerateArtifacts,
   injectionBlocked,
   awaitingInput,
   checkInDraft,
@@ -568,16 +567,6 @@ const LiveRunPane = memo(function LiveRunPane({
       {visibleStreamingArtifacts.map((entry) => (
         <ArtifactStreamBlock
           key={`streaming-artifact-${entry.toolCallIndex}`}
-          entry={entry}
-          accessToken={accessToken}
-          compact
-          onAction={onArtifactAction}
-        />
-      ))}
-
-      {fallbackImageGenerateArtifacts.map((entry) => (
-        <ArtifactStreamBlock
-          key={`fallback-artifact-${entry.toolCallIndex}`}
           entry={entry}
           accessToken={accessToken}
           compact
@@ -1592,6 +1581,14 @@ export const ChatView = memo(function ChatView() {
         searchStepsMap.forEach((searchSteps, id) => mergeMeta(id, { searchSteps }))
         assistantTurnMap.forEach((assistantTurn, id) => mergeMeta(id, { assistantTurn }))
         agentEventsMap.forEach((agentEvents, id) => mergeMeta(id, { agentEvents }))
+        // Rebuild generatedImages from persisted agent events so history replay
+        // shows the same images as the live SSE phase.
+        for (const [id, agentEvents] of agentEventsMap) {
+          const generatedImages = buildMessageGeneratedImagesFromAgentEvents(agentEvents)
+          if (generatedImages.length > 0) {
+            mergeMeta(id, { generatedImages })
+          }
+        }
         failedErrorMap.forEach((failedError, id) => mergeMeta(id, { failedError }))
         const metaBatch = Array.from(metaEntries.entries())
         primeMetaBatch(metaBatch)
@@ -3185,44 +3182,18 @@ export const ChatView = memo(function ChatView() {
     ) && (!e.toolCallId || !livePlacedShowWidgetCallIds.has(e.toolCallId))),
     [streamingArtifacts, livePlacedShowWidgetCallIds],
   )
-  const artifactKeysReferencedInMessages = useMemo(() => {
-    const keys = new Set<string>()
-    const artifactRefRe = /(?<!\]\()artifact:([A-Za-z0-9_/-]+)/g
-    for (const msg of messages) {
-      if (msg.role !== 'assistant') continue
-      let text = msg.content
-      if (msg.parts && msg.parts.length > 0) {
-        text = msg.parts.map((p) => (p.type === 'text' ? p.text : '')).join('\n')
-      }
-      if (!text) continue
-      let match
-      while ((match = artifactRefRe.exec(text)) !== null) {
-        if (match[1]) keys.add(match[1])
-      }
-    }
-    return keys
-  }, [messages])
   const visibleStreamingArtifacts = useMemo(
     () => streamingArtifacts.filter((e) => {
       if (e.display === 'panel') return false
       if (e.toolName === 'create_artifact') {
         return !!e.content && (!e.toolCallId || !livePlacedCreateArtifactCallIds.has(e.toolCallId))
       }
-      // image_generate is never shown as a top-level streaming artifact.
-      // It either renders inside the message bubble via MarkdownRenderer,
-      // or appears as a fallback after the message is complete.
+      // image_generate artifacts are now handled via generatedImages
+      // (rendered inside the message bubble via GeneratedImageGroup).
       return false
     }),
     [streamingArtifacts, livePlacedCreateArtifactCallIds],
   )
-  const fallbackImageGenerateArtifacts = useMemo(() => {
-    if (liveRunUiActive) return []
-    return streamingArtifacts.filter((e) =>
-      e.toolName === IMAGE_GENERATE_TOOL_NAME &&
-      e.artifactRef &&
-      !artifactKeysReferencedInMessages.has(e.artifactRef.key),
-    )
-  }, [streamingArtifacts, liveRunUiActive, artifactKeysReferencedInMessages])
   const visibleStreamingWidgetsSignature = useMemo(() => JSON.stringify(
     streamingArtifacts
       .filter((entry) => entry.toolName === 'show_widget')
@@ -3584,7 +3555,6 @@ export const ChatView = memo(function ChatView() {
       thinkingHint={thinkingHint}
       visibleStreamingWidgets={visibleStreamingWidgets}
       visibleStreamingArtifacts={visibleStreamingArtifacts}
-      fallbackImageGenerateArtifacts={fallbackImageGenerateArtifacts}
       injectionBlocked={injectionBlocked}
       awaitingInput={awaitingInput}
       checkInDraft={checkInDraft}

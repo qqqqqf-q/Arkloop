@@ -42,6 +42,8 @@ import {
   readThreadRunHandoff,
   writeThreadRunHandoff,
   clearThreadRunHandoff,
+  readMessageAgentEvents,
+  writeMessageAgentEvents,
 } from '../storage'
 
 const sseMock = vi.hoisted(() => {
@@ -339,6 +341,8 @@ vi.mock('../storage', async () => {
     readThreadRunHandoff: vi.fn(() => null),
     writeThreadRunHandoff: vi.fn(),
     clearThreadRunHandoff: vi.fn(),
+    readMessageAgentEvents: vi.fn(() => null),
+    writeMessageAgentEvents: vi.fn(),
     readMessageBrowserActions: vi.fn(() => null),
     writeMessageBrowserActions: vi.fn(),
     migrateMessageMetadata: vi.fn(),
@@ -410,17 +414,37 @@ vi.mock('../components/ChatInput', () => ({
   }),
 }))
 
+vi.mock('../components/GeneratedImageGroup', () => ({
+  GeneratedImageGroup: ({
+    items,
+  }: {
+    items?: Array<{ artifact: { key: string; filename: string; mime_type: string; size: number; title?: string } }>
+  }) => (
+    <div data-testid="generated-image-group">
+      {items?.map((item) => (
+        <span key={item.artifact.key} data-testid="generated-image-item">
+          {item.artifact.filename}
+        </span>
+      ))}
+    </div>
+  ),
+}))
+
 vi.mock('../components/MessageBubble', () => ({
   MessageBubble: ({
     message,
     contentOverride,
     animateUserEnter,
     onRetry,
+    generatedImages,
+    accessToken,
   }: {
     message: { content: string; role?: string }
     contentOverride?: string
     animateUserEnter?: boolean
     onRetry?: () => void
+    generatedImages?: Array<{ artifact: { key: string; filename: string; mime_type: string; size: number; title?: string } }>
+    accessToken?: string
   }) => (
     <div className={animateUserEnter ? 'user-prompt-bubble-enter' : undefined}>
       {contentOverride ?? message.content}
@@ -428,6 +452,15 @@ vi.mock('../components/MessageBubble', () => ({
         <button type="button" aria-label="retry-user-message" onClick={onRetry}>
           retry-user
         </button>
+      )}
+      {generatedImages && generatedImages.length > 0 && accessToken && (
+        <div data-testid="generated-image-group">
+          {generatedImages.map((item) => (
+            <span key={item.artifact.key} data-testid="generated-image-item">
+              {item.artifact.filename}
+            </span>
+          ))}
+        </div>
       )}
     </div>
   ),
@@ -938,6 +971,7 @@ describe('ChatPage loading state', () => {
   const mockedReadThreadRunHandoff = vi.mocked(readThreadRunHandoff)
   const mockedWriteThreadRunHandoff = vi.mocked(writeThreadRunHandoff)
   const mockedClearThreadRunHandoff = vi.mocked(clearThreadRunHandoff)
+  const mockedReadMessageAgentEvents = vi.mocked(readMessageAgentEvents)
   const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
   const originalActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
@@ -966,6 +1000,7 @@ describe('ChatPage loading state', () => {
     mockedReadThreadWorkFolder.mockReturnValue(null)
     mockedReadThreadThinkingEnabled.mockReturnValue('off')
     mockedReadThreadRunHandoff.mockReturnValue(null)
+    mockedReadMessageAgentEvents.mockReturnValue(null)
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     HTMLElement.prototype.scrollIntoView = vi.fn()
     sseMock.state = 'idle'
@@ -6373,6 +6408,95 @@ describe('ChatPage loading state', () => {
         html: '<svg><text>ok</text></svg>',
       },
     ])
+
+    act(() => {
+      root.unmount()
+    })
+    container.remove()
+  })
+
+  it('hasAssistantTurn=true 时 GeneratedImageGroup 只出现一次', async () => {
+    const imageArtifact = {
+      key: 'img-key-1',
+      filename: 'generated.png',
+      size: 1024,
+      mime_type: 'image/png',
+    }
+
+    mockedListMessages.mockResolvedValue([
+      {
+        id: 'msg-user',
+        role: 'user',
+        content: 'generate an image',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:00Z',
+      },
+      {
+        id: 'msg-assistant',
+        role: 'assistant',
+        content: 'Here is your image',
+        run_id: 'run-1',
+        account_id: 'acc-1',
+        thread_id: 'thread-1',
+        created_by_user_id: 'user-1',
+        created_at: '2026-03-10T00:00:01Z',
+      },
+    ])
+
+    mockedReadMessageAssistantTurn.mockImplementation((messageId: string) =>
+      messageId === 'msg-assistant'
+        ? { segments: [{ type: 'text', content: 'Here is your image' }] }
+        : null,
+    )
+
+    mockedReadMessageAgentEvents.mockImplementation((messageId: string) =>
+      messageId === 'msg-assistant'
+        ? [
+            {
+              id: 'evt-1',
+              streamId: 'run-1',
+              order: 1,
+              timestamp: '2026-03-10T00:00:01Z',
+              type: 'tool-result' as const,
+              toolName: 'image_generate',
+              data: {
+                toolCallId: 'tc-1',
+                toolCallIndex: 0,
+                output: { artifacts: [imageArtifact] },
+              },
+            },
+          ]
+        : null,
+    )
+
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <LocaleProvider>
+          <MemoryRouter initialEntries={['/t/thread-1']}>
+            <Routes>
+              <Route element={<OutletShell context={buildOutletContext()} />}>
+                <Route path="/t/:threadId" element={<ChatPage />} />
+              </Route>
+            </Routes>
+          </MemoryRouter>
+        </LocaleProvider>,
+      )
+      await flushMicrotasks()
+      await flushMicrotasks()
+    })
+
+    const groups = container.querySelectorAll('[data-testid="generated-image-group"]')
+    expect(groups.length).toBe(1)
+
+    const items = container.querySelectorAll('[data-testid="generated-image-item"]')
+    expect(items.length).toBe(1)
+    expect(items[0].textContent).toBe('generated.png')
 
     act(() => {
       root.unmount()

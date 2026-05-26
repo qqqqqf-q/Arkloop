@@ -44,6 +44,7 @@ type ArtifactsContextValue = {
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   onOpenResource?: (resource: ResourceRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void
   activePanelArtifactKey?: string | null
+  suppressedArtifactKeys?: Set<string>
 }
 
 const ArtifactsContext = createContext<ArtifactsContextValue>({ artifacts: [], accessToken: '' })
@@ -345,7 +346,7 @@ function ResourceDocumentCard({
 
 // artifact: 协议感知的 img 渲染器
 function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
-  const { artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, activePanelArtifactKey } = useContext(ArtifactsContext)
+  const { artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, activePanelArtifactKey, suppressedArtifactKeys } = useContext(ArtifactsContext)
   const [failed, setFailed] = useState(false)
 
   if (src?.startsWith(ARTIFACT_URI_PREFIX)) {
@@ -355,6 +356,7 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
     if (!artifact || !accessToken) return null
 
     if (artifact.mime_type.startsWith('image/')) {
+      if (suppressedArtifactKeys?.has(artifact.key)) return null
       return <ArtifactImage artifact={artifact} accessToken={accessToken} />
     }
     if (artifact.mime_type === 'text/html') {
@@ -425,7 +427,7 @@ function ArtifactAwareImg({ src, alt }: { src?: string; alt?: string }) {
 
 // artifact: 协议感知的 a 渲染器
 function ArtifactAwareLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const { artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, activePanelArtifactKey } = useContext(ArtifactsContext)
+  const { artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, activePanelArtifactKey, suppressedArtifactKeys } = useContext(ArtifactsContext)
 
   if (href?.startsWith(BROWSER_URI_PREFIX) && !onOpenResource) {
     return <>{children}</>
@@ -439,6 +441,7 @@ function ArtifactAwareLink({ href, children }: { href?: string; children?: React
 
     // LLM 可能用 [text](artifact:key) 而非 ![text](artifact:key)，统一按 mime_type 分派
     if (artifact.mime_type.startsWith('image/')) {
+      if (suppressedArtifactKeys?.has(artifact.key)) return null
       return <ArtifactImage artifact={artifact} accessToken={accessToken} />
     }
     if (artifact.mime_type === 'text/html') {
@@ -936,6 +939,7 @@ type Props = {
   streaming?: boolean
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
+  suppressedArtifactKeys?: Set<string>
   accessToken?: string
   runId?: string
   workFolder?: string | null
@@ -948,7 +952,7 @@ type Props = {
   allowHtml?: boolean
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disableMath, streaming = false, webSources, artifacts, accessToken, runId, workFolder, onOpenDocument, onOpenResource, compact = false, typography = 'default', trimTrailingMargin = false, allowHtml = false }: Props) {
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disableMath, streaming = false, webSources, artifacts, suppressedArtifactKeys, accessToken, runId, workFolder, onOpenDocument, onOpenResource, compact = false, typography = 'default', trimTrailingMargin = false, allowHtml = false }: Props) {
   const sourceCount = webSources?.length ?? 0
   const artifactCount = artifacts?.length ?? 0
   const shouldThrottleStreamingMath = streaming && !disableMath && containsLikelyMath(content)
@@ -1005,7 +1009,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, disabl
     onOpenDocument,
     onOpenResource,
     activePanelArtifactKey,
-  }), [accessToken, artifacts, onOpenDocument, onOpenResource, runId, workFolder, activePanelArtifactKey])
+    suppressedArtifactKeys,
+  }), [accessToken, artifacts, onOpenDocument, onOpenResource, runId, workFolder, activePanelArtifactKey, suppressedArtifactKeys])
 
   const normalizedContent = useMemo(() => {
     const withArtifactLinks = preprocessBareArtifactRefs(renderContent, artifacts ?? [])

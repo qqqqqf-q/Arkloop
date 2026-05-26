@@ -1585,6 +1585,12 @@ export function buildMessageWebFetchesFromAgentEvents(events: AgentUIEvent[]): W
   return fetches
 }
 
+export {
+  buildGeneratedImagesFromAgentEvents as buildMessageGeneratedImagesFromAgentEvents,
+  generatedImageKeySet,
+  type GeneratedImageItem,
+} from './generatedImages'
+
 export function buildTodosFromAgentEvents(
   events: AgentUIEvent[],
 ): Array<{ id: string; content: string; activeForm?: string; status: string }> {

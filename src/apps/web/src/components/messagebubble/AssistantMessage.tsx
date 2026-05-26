@@ -4,6 +4,8 @@ import type { AgentMessage } from '../../agent-ui'
 import type { WebSource, ArtifactRef, BrowserActionRef, WidgetRef } from '../../storage'
 import { WidgetBlock } from '../WidgetBlock'
 import { MarkdownRenderer } from '../MarkdownRenderer'
+import { GeneratedImageGroup } from '../GeneratedImageGroup'
+import { generatedImageKeySet, type GeneratedImageItem } from '../../generatedImages'
 import { recordPerfCount, recordPerfValue } from '../../perfDebug'
 import { BrowserScreenshotCard } from '../BrowserScreenshotCard'
 import type { ArtifactAction } from '../ArtifactIframe'
@@ -25,6 +27,7 @@ type Props = {
   shareState?: 'idle' | 'sharing' | 'shared'
   webSources?: WebSource[]
   artifacts?: ArtifactRef[]
+  generatedImages?: GeneratedImageItem[]
   browserActions?: BrowserActionRef[]
   widgets?: WidgetRef[]
   accessToken?: string
@@ -208,6 +211,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   shareState,
   webSources,
   artifacts,
+  generatedImages,
   browserActions,
   widgets,
   accessToken,
@@ -225,6 +229,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   suppressActionBar,
 }: Props) {
   const messageText = messageTextContent(message)
+  const suppressedArtifactKeys = generatedImageKeySet(generatedImages ?? [])
   const renderedContent = contentOverride ?? (contentPrefix && messageText.startsWith(contentPrefix) ? messageText.slice(contentPrefix.length).trimStart() : messageText)
   const textForCopy = plainTextForCopy ?? renderedContent
   const displayedAssistantMd = useTypewriter(renderedContent, !streamMarkdown)
@@ -266,6 +271,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             streaming={streamMarkdown}
             webSources={webSources}
             artifacts={artifacts}
+            suppressedArtifactKeys={suppressedArtifactKeys}
             accessToken={accessToken}
             runId={message.streamId}
             workFolder={workFolder}
@@ -275,6 +281,7 @@ export const AssistantMessage = memo(function AssistantMessage({
             trimTrailingMargin
           />
         </div>
+        <GeneratedImageGroup items={generatedImages} accessToken={accessToken} />
         {!suppressActionBar && (
           <AssistantActionBar
             textToCopy={textForCopy}

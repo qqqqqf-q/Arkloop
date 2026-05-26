@@ -6,6 +6,7 @@ import {
   buildMessageSubAgentsFromAgentEvents,
   buildMessageThinkingFromAgentEvents,
   buildMessageWidgetsFromAgentEvents,
+  buildMessageGeneratedImagesFromAgentEvents,
   findAssistantMessageForRun,
   patchCodeExecutionList,
   filterUnprocessedAgentEvents,
@@ -1563,5 +1564,45 @@ describe('memory_search file result summary', () => {
 
   it('summarizes memory_edit as updated', () => {
     expect(fileOpOutputFromResult('memory_edit', { status: 'ok' })).toBe('updated')
+  })
+})
+
+describe('buildMessageGeneratedImagesFromAgentEvents', () => {
+  it('应按 toolCallIndex 和返回顺序重建 assistant message 的 generatedImages', () => {
+    const events = [
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 1,
+        type: 'tool-result',
+        data: {
+          tool_name: 'image_generate',
+          tool_call_id: 'call_img_2',
+          tool_call_index: 2,
+          result: {
+            artifacts: [
+              { key: 'img-2', filename: '2.png', size: 1, mime_type: 'image/png' },
+            ],
+          },
+        },
+      }),
+      makeRunEvent({
+        runId: 'run_1',
+        seq: 2,
+        type: 'tool-result',
+        data: {
+          tool_name: 'image_generate',
+          tool_call_id: 'call_img_1',
+          tool_call_index: 1,
+          result: {
+            artifacts: [
+              { key: 'img-1', filename: '1.png', size: 1, mime_type: 'image/png' },
+              { key: 'img-1', filename: '1-dup.png', size: 1, mime_type: 'image/png' },
+            ],
+          },
+        },
+      }),
+    ]
+
+    expect(buildMessageGeneratedImagesFromAgentEvents(events).map((item) => item.artifact.key)).toEqual(['img-1', 'img-2'])
   })
 })
