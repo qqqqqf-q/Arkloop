@@ -60,7 +60,7 @@ func (e *ToolExecutor) Execute(
 	_ string,
 	args map[string]any,
 	execCtx tools.ExecutionContext,
-	_ string,
+	toolCallID string,
 ) tools.ExecutionResult {
 	started := time.Now()
 	if e == nil || e.store == nil {
@@ -113,7 +113,7 @@ func (e *ToolExecutor) Execute(
 
 	contentType := normalizeImageContentType(image.MimeType, image.Bytes)
 	filename := defaultGeneratedImageName + fileExtForContentType(contentType)
-	key := buildArtifactKey(execCtx, filename)
+	key := buildArtifactKey(execCtx, toolCallID, filename)
 	var threadID *string
 	if execCtx.ThreadID != nil {
 		value := execCtx.ThreadID.String()
@@ -223,12 +223,12 @@ func splitModelSelector(selector string) (string, string, bool) {
 	return credentialName, modelName, true
 }
 
-func buildArtifactKey(execCtx tools.ExecutionContext, filename string) string {
+func buildArtifactKey(execCtx tools.ExecutionContext, toolCallID string, filename string) string {
 	accountID := "_anonymous"
 	if execCtx.AccountID != nil {
 		accountID = execCtx.AccountID.String()
 	}
-	return filepath.ToSlash(fmt.Sprintf("%s/%s/%s", accountID, execCtx.RunID.String(), filename))
+	return filepath.ToSlash(fmt.Sprintf("%s/%s/%s/%s", accountID, execCtx.RunID.String(), toolCallID, filename))
 }
 
 func (e *ToolExecutor) loadInputImages(ctx context.Context, args map[string]any, accountID uuid.UUID) ([]llm.ContentPart, error) {
