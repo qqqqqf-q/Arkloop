@@ -39,12 +39,12 @@ Step 5: 批量生图
 | `version` | string | 主图版本（必选） | enum: ["practical", "cinematic"], enumNames: ["实用版 - 清晰还原，快速出图", "大片版 - 高级质感，品牌差异，转化率更高"]。required: true |
 | `aspect_ratio` | string | 宽高比 | enum: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]。default: "1:1" |
 | `resolution` | string | 分辨率 | enum: ["1k", "2k", "4k"]，enumNames: ["标清 1K", "高清 2K", "超清 4K"]。default: "1k" |
-| `modules` | array | 模块选择（多选） | enum 及 enumNames 见下方模块列表。minItems: 1 |
+| `modules` | array | 模块选择（多选） | items.anyOf 见下方模块列表。minItems: 1 |
 
-**模块列表（enum / enumNames）：**
+**模块列表（items.anyOf：const 为值，title 为显示名）：**
 
-| enum | enumName | 描述 |
-|------|----------|------|
+| const | title | 描述 |
+|------|-------|------|
 | `hero_kv` | 首屏 KV | 建立第一眼识别，吸引点击 |
 | `full_display` | 整体展示 | 完整形态与高级氛围 |
 | `detail_closeup` | 细节特写 | 放大材质与工艺质感 |
