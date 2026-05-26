@@ -139,7 +139,7 @@ func TestToolExecutorExecuteWritesArtifact(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %#v", result.Error)
 	}
-	if store.key != accountID.String()+"/"+runID.String()+"/generated-image.png" {
+	if store.key != accountID.String()+"/"+runID.String()+"/call_1/generated-image.png" {
 		t.Fatalf("unexpected artifact key: %s", store.key)
 	}
 	if store.options.ContentType != "image/png" {
