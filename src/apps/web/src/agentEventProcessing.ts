@@ -130,6 +130,8 @@ export function extractResources(
         baseUriDomains: arr('baseUriDomains'),
       }
     }
+    const rawDisplayMode = typeof item.display_mode === 'string' ? item.display_mode : undefined
+    const displayMode = rawDisplayMode === 'inline' || rawDisplayMode === 'fullscreen' ? rawDisplayMode : undefined
     refs.push({
       key,
       uri: typeof item.uri === 'string' ? item.uri : '',
@@ -142,6 +144,7 @@ export function extractResources(
       serverId: typeof item.server_id === 'string' ? item.server_id : undefined,
       toolName,
       toolInput,
+      displayMode,
     })
   }
   return refs

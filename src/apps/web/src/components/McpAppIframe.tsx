@@ -178,7 +178,7 @@ type Props = {
   onSendMessage?: (text: string) => void
   style?: React.CSSProperties
   className?: string
-  displayMode?: 'inline' | 'card'
+  displayMode?: 'inline' | 'fullscreen'
   onExpand?: () => void
   hideHeader?: boolean
   noBorder?: boolean
@@ -288,7 +288,7 @@ export function McpAppIframe({
     )
 
     const resolvedTheme = getResolvedTheme(themeMode)
-    const resolvedDisplayMode = displayMode === 'card' ? 'fullscreen' : 'inline'
+    const resolvedDisplayMode = displayMode ?? 'inline'
 
     const bridge = new AppBridge(
       null,
@@ -319,7 +319,7 @@ export function McpAppIframe({
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
           timeZone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
           containerDimensions: { maxHeight: 2000 },
-          toolInfo: toolName ? { tool: { name: toolName } } : undefined,
+          toolInfo: toolName ? { tool: { name: toolName, inputSchema: { type: 'object' } } } : undefined,
         },
       },
     )
@@ -598,7 +598,7 @@ export function McpAppIframe({
     return () => observer.disconnect()
   }, [content, rebuildSrcDoc, themeMode])
 
-  if (displayMode === 'card') {
+  if (displayMode === 'fullscreen' && onExpand) {
     return (
       <div
         style={{

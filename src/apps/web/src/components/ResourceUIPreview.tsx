@@ -6,7 +6,7 @@ import { McpAppIframe } from './McpAppIframe'
 type Props = {
   resource: McpAppResource
   accessToken?: string
-  displayMode?: 'inline' | 'card'
+  displayMode?: 'inline' | 'fullscreen'
   onExpand?: () => void
   onSendMessage?: (text: string) => void
 }
@@ -86,7 +86,7 @@ export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline
       onSendMessage={onSendMessage}
       toolName={resource.toolName}
       toolInput={resource.toolInput}
-      style={{ minHeight: displayMode === 'card' ? undefined : '300px' }}
+      style={{ minHeight: displayMode === 'fullscreen' ? undefined : '300px' }}
     />
   )
 }

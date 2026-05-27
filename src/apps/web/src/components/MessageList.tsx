@@ -505,30 +505,33 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
             if (!resources || resources.length === 0) return null
             return (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {resources.map((res, ri) => (
-                  <ResourceUIPreview
-                    key={`${msg.id}-resource-${res.key}-${ri}`}
-                    resource={res}
-                    accessToken={accessToken}
-                    displayMode="card"
-                    onExpand={() => {
-                      openResourcePanel({
-                        kind: 'mcp-app',
-                        uri: res.uri,
-                        content: res.content ?? '',
-                        filename: res.filename,
-                        mimeType: res.mimeType,
-                        size: res.size,
-                        csp: res.csp,
-                        initialData: res.initialData,
-                        serverId: res.serverId,
-                        toolName: res.toolName,
-                        toolInput: res.toolInput,
-                      })
-                    }}
-                    onSendMessage={onSendMessage}
-                  />
-                ))}
+                {resources.map((res, ri) => {
+                  const isInline = res.displayMode === 'inline'
+                  return (
+                    <ResourceUIPreview
+                      key={`${msg.id}-resource-${res.key}-${ri}`}
+                      resource={res}
+                      accessToken={accessToken}
+                      displayMode={res.displayMode ?? 'inline'}
+                      onExpand={isInline ? undefined : () => {
+                        openResourcePanel({
+                          kind: 'mcp-app',
+                          uri: res.uri,
+                          content: res.content ?? '',
+                          filename: res.filename,
+                          mimeType: res.mimeType,
+                          size: res.size,
+                          csp: res.csp,
+                          initialData: res.initialData,
+                          serverId: res.serverId,
+                          toolName: res.toolName,
+                          toolInput: res.toolInput,
+                        })
+                      }}
+                      onSendMessage={onSendMessage}
+                    />
+                  )
+                })}
               </div>
             )
           })()}
