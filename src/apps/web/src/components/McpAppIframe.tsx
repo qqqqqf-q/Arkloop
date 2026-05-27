@@ -300,7 +300,6 @@ export function McpAppIframe({
         serverResources: { listChanged: true },
         logging: {},
         sandbox: {
-          permissions: { camera: false, microphone: false, geolocation: false, clipboardWrite: false },
           csp: {
             connectDomains: csp?.connectDomains,
             resourceDomains: csp?.resourceDomains,
