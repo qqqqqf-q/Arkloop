@@ -742,10 +742,10 @@ export function useThreadSseEffect({
       }
 
       if (event.type === 'input-request') {
-        // SSE 重连时会重放历史事件，只有 run 实际继续执行的事件才能证明 input 已被回答
+        // SSE 重连时会重放历史事件，只要有任何后续事件就说明 input 已被回答
+        // input-request 是阻塞点，在它之后不可能出现其他事件除非用户已响应
         const hasRunContinued = sse.events.some(
-          (e) => e.streamId === event.streamId && e.order > event.order
-            && (e.type === 'tool-result' || isTerminalAgentEventType(e.type)),
+          (e) => e.streamId === event.streamId && e.order > event.order,
         )
         if (hasRunContinued) continue
 
