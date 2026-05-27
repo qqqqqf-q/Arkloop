@@ -58,6 +58,8 @@ export type McpAppResourceRef = {
   }
   initialData?: unknown
   serverId?: string
+  toolName?: string
+  toolInput?: Record<string, unknown>
 }
 
 export type ResourceRef = LocalFileResourceRef | ArtifactResourceRef | WorkspaceFileResourceRef | BrowserResourceRef | McpAppResourceRef

@@ -54,6 +54,7 @@ interface StreamContextValue {
   streamingArtifactsRef: React.RefObject<StreamingArtifactEntry[]>
   activeSegmentIdRef: React.RefObject<string | null>
   assistantTurnFoldStateRef: React.RefObject<AssistantTurnFoldState>
+  cancelledToolCallIdsRef: React.RefObject<Set<string>>
 
   setSegments: React.Dispatch<React.SetStateAction<Segment[]>>
   setStreamingArtifacts: React.Dispatch<React.SetStateAction<StreamingArtifactEntry[]>>
@@ -156,6 +157,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
   const streamingArtifactsRef = useRef<StreamingArtifactEntry[]>([])
   const activeSegmentIdRef = useRef<string | null>(null)
   const assistantTurnFoldStateRef = useRef<AssistantTurnFoldState>(createEmptyAssistantTurnFoldState())
+  const cancelledToolCallIdsRef = useRef<Set<string>>(new Set())
   const bumpPendingRef = useRef(false)
   const bumpRafRef = useRef<number | null>(null)
 
@@ -227,6 +229,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setLiveAssistantTurn(null)
     setPreserveLiveRunUiState(false)
     setWorkTodos([])
+    cancelledToolCallIdsRef.current.clear()
   }, [])
 
   const requestAssistantTurnThinkingBreakAction = useCallback(() => {
@@ -247,6 +250,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     setTopLevelWebFetches([])
     streamingArtifactsRef.current = []
     setStreamingArtifacts([])
+    cancelledToolCallIdsRef.current.clear()
   }, [])
 
   const resetSearchSteps = useCallback(() => {
@@ -299,6 +303,7 @@ export function StreamProvider({ children }: { children: ReactNode }) {
     streamingArtifactsRef,
     activeSegmentIdRef,
     assistantTurnFoldStateRef,
+    cancelledToolCallIdsRef,
     setSegments,
     setStreamingArtifacts,
     setPendingThinking,

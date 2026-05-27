@@ -3,6 +3,9 @@ import { AppBridge, PostMessageTransport } from '@modelcontextprotocol/ext-apps/
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { McpAppCsp } from '../storage'
 import { apiBaseUrl } from '@arkloop/shared/api'
+import { useTheme } from '../contexts/ThemeContext'
+import { useLocale } from '../contexts/LocaleContext'
+import { isDesktop } from '@arkloop/shared/desktop'
 
 function buildCSP(csp?: McpAppCsp): string {
   const resourceDomains = csp?.resourceDomains ?? []
@@ -179,6 +182,10 @@ type Props = {
   onExpand?: () => void
   hideHeader?: boolean
   noBorder?: boolean
+  toolName?: string
+  toolInput?: Record<string, unknown>
+  toolCancelled?: boolean
+  toolCancelReason?: string
 }
 
 function toCallToolResult(output: unknown): CallToolResult {
@@ -198,13 +205,44 @@ function toCallToolResult(output: unknown): CallToolResult {
   return { content: [{ type: 'text', text }] }
 }
 
-export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, accessToken, onOpenLink, onSendMessage, style, className, displayMode = 'inline', onExpand, hideHeader, noBorder }: Props) {
+function getResolvedTheme(theme: 'system' | 'light' | 'dark'): 'light' | 'dark' {
+  if (theme === 'dark') return 'dark'
+  if (theme === 'light') return 'light'
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  return 'light'
+}
+
+export function McpAppIframe({
+  uri,
+  content,
+  toolOutput,
+  csp,
+  serverId,
+  name,
+  accessToken,
+  onOpenLink,
+  onSendMessage,
+  style,
+  className,
+  displayMode = 'inline',
+  onExpand,
+  hideHeader,
+  noBorder,
+  toolName,
+  toolInput,
+  toolCancelled,
+  toolCancelReason,
+}: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const bridgeRef = useRef<AppBridge | null>(null)
   const pendingToolResultRef = useRef<unknown>(undefined)
   const isConnectedRef = useRef(false)
   const lastHeightRef = useRef<number>(0)
   const [iframeHeight, setIframeHeight] = useState<number | undefined>(undefined)
+  const { theme: themeMode } = useTheme()
+  const { locale } = useLocale()
 
   // Rebuild iframe HTML when content or theme changes
   const [srcDoc, setSrcDoc] = useState(() => buildIframeSrcDoc(content, csp))
@@ -248,28 +286,58 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
       iframe.contentWindow,
       iframe.contentWindow,
     )
+
+    const resolvedTheme = getResolvedTheme(themeMode)
+    const resolvedDisplayMode = displayMode === 'card' ? 'fullscreen' : 'inline'
+
     const bridge = new AppBridge(
       null,
       { name: 'arkloop', version: '1.0.0' },
-      { serverTools: { listChanged: true } },
+      {
+        openLinks: {},
+        downloadFile: {},
+        serverTools: { listChanged: true },
+        serverResources: { listChanged: true },
+        logging: {},
+        sandbox: {
+          permissions: { camera: false, microphone: false, geolocation: false, clipboardWrite: false },
+          csp: {
+            connectDomains: csp?.connectDomains,
+            resourceDomains: csp?.resourceDomains,
+            frameDomains: csp?.frameDomains,
+            baseUriDomains: csp?.baseUriDomains,
+          },
+        },
+        message: { text: {} },
+      },
       {
         hostContext: {
-          displayMode: displayMode === 'card' ? 'fullscreen' : 'inline',
-          availableDisplayModes: ['inline', 'fullscreen'],
+          displayMode: resolvedDisplayMode,
+          availableDisplayModes: ['inline', 'fullscreen', 'pip'],
+          theme: resolvedTheme,
+          locale,
+          platform: isDesktop() ? 'desktop' : 'web',
+          userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
+          timeZone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
+          containerDimensions: { maxHeight: 2000 },
+          toolInfo: toolName ? { tool: { name: toolName } } : undefined,
         },
       },
     )
 
     bridge.onrequestdisplaymode = async (request) => {
-      const currentMode = displayMode === 'card' ? 'fullscreen' : 'inline'
-      if (request.mode === currentMode) {
-        return { mode: currentMode }
+      if (request.mode === resolvedDisplayMode) {
+        return { mode: resolvedDisplayMode }
       }
       if (request.mode === 'fullscreen' && onExpand) {
         onExpand()
         return { mode: 'fullscreen' }
       }
-      return { mode: currentMode }
+      if (request.mode === 'pip') {
+        // pip is not supported in this host; keep current mode
+        return { mode: resolvedDisplayMode }
+      }
+      return { mode: resolvedDisplayMode }
     }
 
     bridge.onsizechange = ({ height }) => {
@@ -339,11 +407,56 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
       return { isError: false }
     }
 
+    bridge.onrequestteardown = async () => {
+      onExpand?.()
+      return {}
+    }
+
+      bridge.onupdatemodelcontext = async (params) => {
+      console.log('[McpAppIframe] update-model-context:', params)
+      return {}
+    }
+
+    bridge.onloggingmessage = async (params) => {
+      console.log('[MCP App]', params)
+      return {}
+    }
+
+    bridge.ondownloadfile = async (request) => {
+      try {
+        const a = document.createElement('a')
+        a.href = request.url
+        a.download = request.filename ?? ''
+        a.target = '_blank'
+        a.rel = 'noopener noreferrer'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        return { success: true }
+      } catch {
+        return { success: false }
+      }
+    }
+
     bridge.oninitialized = () => {
       isConnectedRef.current = true
+      if (toolInput && Object.keys(toolInput).length > 0) {
+        try {
+          bridge.sendToolInput({ arguments: toolInput })
+        } catch (err) {
+          console.error('[McpAppIframe] sendToolInput failed:', err)
+        }
+      }
       if (pendingToolResultRef.current !== undefined) {
         sendToolResult(bridge, pendingToolResultRef.current)
         pendingToolResultRef.current = undefined
+      }
+      if (toolCancelled) {
+        try {
+          bridge.sendToolCancelled({ reason: toolCancelReason })
+        } catch (err) {
+          console.error('[McpAppIframe] sendToolCancelled failed:', err)
+        }
       }
     }
 
@@ -368,13 +481,17 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
         // cross-origin, fall back to postMessage
       }
     })
-  }, [onOpenLink, onSendMessage, sendToolResult, serverId, displayMode, onExpand])
+  }, [onOpenLink, onSendMessage, sendToolResult, serverId, displayMode, onExpand, themeMode, locale, toolName, toolInput, toolCancelled, toolCancelReason, csp, accessToken])
 
-  // Cleanup on unmount
+  // Cleanup on unmount: teardown gracefully before closing
   useEffect(() => {
     return () => {
       isConnectedRef.current = false
-      bridgeRef.current?.close().catch(() => {})
+      const bridge = bridgeRef.current
+      if (bridge) {
+        bridge.teardownResource({}).catch(() => {})
+        bridge.close().catch(() => {})
+      }
       bridgeRef.current = null
     }
   }, [])
@@ -452,16 +569,35 @@ export function McpAppIframe({ uri, content, toolOutput, csp, serverId, name, ac
     rebuildSrcDoc(content)
   }, [content, rebuildSrcDoc])
 
-  // Theme change listener: only data-theme, not style (CSS vars change too frequently)
+  // Send tool-cancelled when the prop flips to true (after bridge is connected)
+  useEffect(() => {
+    if (!toolCancelled || !isConnectedRef.current || !bridgeRef.current) return
+    try {
+      bridgeRef.current.sendToolCancelled({ reason: toolCancelReason })
+    } catch (err) {
+      console.error('[McpAppIframe] sendToolCancelled failed:', err)
+    }
+  }, [toolCancelled, toolCancelReason])
+
+  // Theme change listener: rebuild srcDoc AND update hostContext via setHostContext
   useEffect(() => {
     if (typeof document === 'undefined') return
     const root = document.documentElement
     const observer = new MutationObserver(() => {
       rebuildSrcDoc(content)
+      if (bridgeRef.current) {
+        try {
+          bridgeRef.current.setHostContext({
+            theme: getResolvedTheme(themeMode),
+          })
+        } catch {
+          // bridge may have been closed
+        }
+      }
     })
     observer.observe(root, { attributes: true, attributeFilter: ['data-theme'] })
     return () => observer.disconnect()
-  }, [content, rebuildSrcDoc])
+  }, [content, rebuildSrcDoc, themeMode])
 
   if (displayMode === 'card') {
     return (

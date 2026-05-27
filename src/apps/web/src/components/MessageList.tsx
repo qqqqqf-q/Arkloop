@@ -522,6 +522,8 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                         csp: res.csp,
                         initialData: res.initialData,
                         serverId: res.serverId,
+                        toolName: res.toolName,
+                        toolInput: res.toolInput,
                       })
                     }}
                     onSendMessage={onSendMessage}

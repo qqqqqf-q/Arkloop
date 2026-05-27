@@ -91,7 +91,11 @@ export function buildMessageArtifactsFromAgentEvents(events: AgentUIEvent[]): Ar
   return artifacts
 }
 
-export function extractResources(source: unknown): McpAppResource[] {
+export function extractResources(
+  source: unknown,
+  toolName?: string,
+  toolInput?: Record<string, unknown>,
+): McpAppResource[] {
   if (!source || typeof source !== 'object') return []
   const s = source as Record<string, unknown>
 
@@ -130,23 +134,68 @@ export function extractResources(source: unknown): McpAppResource[] {
       key,
       uri: typeof item.uri === 'string' ? item.uri : '',
       filename: typeof item.filename === 'string' ? item.filename : 'mcp-app.html',
-      mimeType: typeof item.mime_type === 'string' ? item.mime_type : '',
+      mimeType: typeof item.mime_type === 'string' ? item.mime_type : 'text/html;profile=mcp-app',
       size: typeof item.size === 'number' ? item.size : 0,
       content: typeof item.content === 'string' ? item.content : undefined,
       initialData: item.initialData ?? result,
       csp,
       serverId: typeof item.server_id === 'string' ? item.server_id : undefined,
+      toolName,
+      toolInput,
     })
   }
   return refs
 }
 
+export function isWizardResource(resource: McpAppResource): boolean {
+  const data = resource.initialData
+  if (!data || typeof data !== 'object') return false
+  const obj = data as Record<string, unknown>
+
+  if (obj.wizard === true) return true
+
+  const content = obj.content
+  if (!Array.isArray(content)) return false
+  for (const item of content) {
+    if (!item || typeof item !== 'object') continue
+    const text = (item as Record<string, unknown>).text
+    if (typeof text !== 'string') continue
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed && typeof parsed === 'object' && parsed.wizard === true) {
+        return true
+      }
+    } catch {
+      // not valid JSON, ignore
+    }
+  }
+  return false
+}
+
 export function buildMessageResourcesFromAgentEvents(events: AgentUIEvent[]): McpAppResource[] {
+  // Build a map of toolCallId -> tool info from tool-call events
+  const toolInfoMap = new Map<string, { toolName: string; toolInput: Record<string, unknown> }>()
+  for (const event of events) {
+    if (event.type !== 'tool-call') continue
+    const data = agentEventDataRecord(event.data) ?? {}
+    const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : event.id
+    const toolName = typeof data.toolName === 'string' ? data.toolName : event.toolName ?? ''
+    const input = agentEventToolInput(event.data) ?? {}
+    toolInfoMap.set(toolCallId, { toolName, toolInput: input })
+  }
+
   const resources: McpAppResource[] = []
   const seen = new Set<string>()
   for (const event of events) {
     if (event.type !== 'tool-result') continue
-    for (const resource of extractResources(agentEventToolOutput(event.data))) {
+    const data = agentEventDataRecord(event.data) ?? {}
+    const toolCallId = typeof data.toolCallId === 'string' ? data.toolCallId : event.id
+    const info = toolInfoMap.get(toolCallId)
+    for (const resource of extractResources(
+      agentEventToolOutput(event.data),
+      info?.toolName,
+      info?.toolInput,
+    )) {
       if (seen.has(resource.key)) continue
       seen.add(resource.key)
       resources.push(resource)

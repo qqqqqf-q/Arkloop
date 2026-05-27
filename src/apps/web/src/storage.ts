@@ -689,6 +689,8 @@ export type McpAppResource = {
   content?: string
   csp?: McpAppCsp
   serverId?: string
+  toolName?: string
+  toolInput?: Record<string, unknown>
 }
 
 function messageArtifactsKey(messageId: string): string {

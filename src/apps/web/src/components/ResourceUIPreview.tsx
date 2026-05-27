@@ -84,6 +84,8 @@ export function ResourceUIPreview({ resource, accessToken, displayMode = 'inline
       name={resource.serverId}
       accessToken={accessToken}
       onSendMessage={onSendMessage}
+      toolName={resource.toolName}
+      toolInput={resource.toolInput}
       style={{ minHeight: displayMode === 'card' ? undefined : '300px' }}
     />
   )
