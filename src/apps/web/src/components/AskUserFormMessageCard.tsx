@@ -14,6 +14,7 @@ import {
   isTextField,
   isNumberField,
 } from '../userInputTypes'
+import { useLocale } from '../contexts/LocaleContext'
 
 interface Props {
   content: AgentAskUserFormContent
@@ -22,15 +23,16 @@ interface Props {
   onDismiss: (requestId: string) => Promise<void>
 }
 
-function formatFieldValue(value: unknown): string {
+function formatFieldValue(value: unknown, t: { yes: string; no: string }): string {
   if (value === null || value === undefined) return '-'
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (typeof value === 'boolean') return value ? t.yes : t.no
   if (Array.isArray(value)) return value.map(String).join(', ')
   return String(value)
 }
 
 function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent }) {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useLocale()
   const answers = content.answers ?? {}
   const keys = content.schema._fieldOrder ?? Object.keys(answers)
 
@@ -61,7 +63,7 @@ function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent })
           style={{ color: 'var(--c-text-muted)' }}
         >
           {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          {expanded ? 'Hide answers' : `Show ${keys.length} answer${keys.length > 1 ? 's' : ''}`}
+          {expanded ? t.userInput.hideAnswers : t.userInput.showAnswers(keys.length)}
         </button>
       )}
 
@@ -79,7 +81,7 @@ function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent })
                   {title}
                 </span>
                 <span className="text-[13px] font-light flex-1" style={{ color: 'var(--c-text-primary)' }}>
-                  {formatFieldValue(value)}
+                  {formatFieldValue(value, t.userInput)}
                 </span>
               </div>
             )
@@ -255,6 +257,7 @@ function SelectField({
   disabled: boolean
   onChange: (val: string) => void
 }) {
+  const { t } = useLocale()
   const options = useMemo(() =>
     field.enum.map((v, i) => ({ value: v, label: field.enumNames?.[i] ?? v })),
     [field.enum, field.enumNames],
@@ -264,7 +267,7 @@ function SelectField({
       <FieldLabel title={field.title} description={field.description} />
       <PopoverSelect
         value={value}
-        placeholder={required ? 'Select...' : 'Optional'}
+        placeholder={required ? t.userInput.selectPlaceholder : t.userInput.optionalPlaceholder}
         options={options}
         disabled={disabled}
         onChange={onChange}
@@ -282,6 +285,7 @@ function OneOfSelectField({
   disabled: boolean
   onChange: (val: string) => void
 }) {
+  const { t } = useLocale()
   const options = useMemo(() =>
     field.oneOf.map(o => ({ value: o.const, label: o.title })),
     [field.oneOf],
@@ -291,7 +295,7 @@ function OneOfSelectField({
       <FieldLabel title={field.title} description={field.description} />
       <PopoverSelect
         value={value}
-        placeholder={required ? 'Select...' : 'Optional'}
+        placeholder={required ? t.userInput.selectPlaceholder : t.userInput.optionalPlaceholder}
         options={options}
         disabled={disabled}
         onChange={onChange}
@@ -464,6 +468,7 @@ function EditableFormView({
   onSubmit: (answers: Record<string, FieldValue>) => void
   onDismiss: () => void
 }) {
+  const { t } = useLocale()
   const fields = useMemo(() => {
     const order = content.schema._fieldOrder
     const props = content.schema.properties as Record<string, FieldSchema>
@@ -613,7 +618,7 @@ function EditableFormView({
           className="rounded-lg px-3 py-1.5 text-[13px] border-none bg-transparent cursor-pointer transition-[background-color] duration-[60ms] disabled:opacity-40 hover:bg-[var(--c-bg-deep)]"
           style={{ color: 'var(--c-text-secondary)' }}
         >
-          Dismiss
+          {t.userInput.dismiss}
         </button>
         <button
           type="button"
@@ -625,7 +630,7 @@ function EditableFormView({
             color: allValid && !submitting ? 'var(--c-bg-page)' : 'var(--c-text-muted)',
           }}
         >
-          {submitting ? 'Submitting...' : 'Submit'}
+          {submitting ? t.userInput.submitting : t.userInput.submit}
         </button>
       </div>
     </div>

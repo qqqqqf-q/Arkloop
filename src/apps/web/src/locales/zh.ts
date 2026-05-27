@@ -561,6 +561,12 @@ export const zh: LocaleStrings = {
     submitting: "提交中...",
     next: "下一步",
     back: "上一步",
+    yes: "是",
+    no: "否",
+    hideAnswers: "隐藏回答",
+    showAnswers: (count: number) => `显示 ${count} 个回答`,
+    selectPlaceholder: "请选择...",
+    optionalPlaceholder: "可选",
   },
   // document panel
   documentPanel: {
