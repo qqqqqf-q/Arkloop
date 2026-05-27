@@ -18,7 +18,7 @@ import { useActiveCodeExecutionId, usePanelActions, useShareModalState } from '.
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
 import { apiBaseUrl } from '@arkloop/shared/api'
-import type { AgentMessage } from '../agent-ui'
+import type { AgentMessage, AgentAskUserFormContent } from '../agent-ui'
 import { copTimelinePayloadForSegment, type CopTimelinePayload, type TodoWriteRef } from '../copSegmentTimeline'
 import { buildResolvedPool, EMPTY_POOL, buildFallbackSegments } from '../copSubSegment'
 import { assistantTurnPlainText, splitWorkGroup, type AssistantTurnSegment, type WorkGroup as WorkGroupType } from '../assistantTurnSegments'
@@ -316,7 +316,10 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
       )
     if (hideTerminalRunMessage) return null
 
-    // Render ask_user_form messages as form cards
+    // Render ask_user_form messages as form cards.
+    // For the currently active pending form, skip the card here and let the
+    // normal message rendering show the prompt text. The editable form is
+    // displayed via pendingFormInput at the bottom input area.
     if (
       msg.role === 'assistant' &&
       msg.contentJson &&
@@ -325,22 +328,26 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
       handleAskUserFormSubmit &&
       handleAskUserFormDismiss
     ) {
-      return (
-        <div
-          key={messageClientMessageId(msg) ?? msg.id}
-          ref={idx === lastTurnStartIdx ? lastUserPromptRef : undefined}
-          className="group/turn"
-          data-message-id={msg.id}
-          style={{ maxWidth: isWorkMode ? undefined : '663px' }}
-        >
-          <AskUserFormMessageCard
-            content={msg.contentJson}
-            activeRunId={run.activeRunId}
-            onSubmit={handleAskUserFormSubmit}
-            onDismiss={handleAskUserFormDismiss}
-          />
-        </div>
-      )
+      const formContent = msg.contentJson as AgentAskUserFormContent
+      const isActivePendingForm = formContent.status === 'pending' && run.activeRunId === formContent.runId
+      if (!isActivePendingForm) {
+        return (
+          <div
+            key={messageClientMessageId(msg) ?? msg.id}
+            ref={idx === lastTurnStartIdx ? lastUserPromptRef : undefined}
+            className="group/turn"
+            data-message-id={msg.id}
+            style={{ maxWidth: isWorkMode ? undefined : '663px' }}
+          >
+            <AskUserFormMessageCard
+              content={msg.contentJson}
+              activeRunId={run.activeRunId}
+              onSubmit={handleAskUserFormSubmit}
+              onDismiss={handleAskUserFormDismiss}
+            />
+          </div>
+        )
+      }
     }
 
     const msgMeta = msg.role === 'assistant' ? meta.getMeta(msg.id) : undefined
