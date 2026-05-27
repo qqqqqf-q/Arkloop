@@ -421,19 +421,34 @@ export function McpAppIframe({
       return {}
     }
 
-    bridge.ondownloadfile = async (request) => {
+    bridge.ondownloadfile = async ({ contents }) => {
       try {
-        const a = document.createElement('a')
-        a.href = request.url
-        a.download = request.filename ?? ''
-        a.target = '_blank'
-        a.rel = 'noopener noreferrer'
-        document.body.appendChild(a)
-        a.click()
-        a.remove()
-        return { success: true }
+        for (const item of contents) {
+          if (item.type === 'resource') {
+            const res = item.resource
+            let blob: Blob
+            if ('blob' in res && res.blob) {
+              blob = new Blob([Uint8Array.from(atob(res.blob), c => c.charCodeAt(0))], { type: res.mimeType })
+            } else if ('text' in res) {
+              blob = new Blob([res.text ?? ''], { type: res.mimeType })
+            } else {
+              continue
+            }
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = res.uri.split('/').pop() ?? 'download'
+            document.body.appendChild(a)
+            a.click()
+            a.remove()
+            URL.revokeObjectURL(url)
+          } else if (item.type === 'resource_link') {
+            window.open(item.uri, '_blank')
+          }
+        }
+        return {}
       } catch {
-        return { success: false }
+        return { isError: true }
       }
     }
 
