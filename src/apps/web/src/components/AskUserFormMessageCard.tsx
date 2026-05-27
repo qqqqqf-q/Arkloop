@@ -76,13 +76,15 @@ function SubmittedAnswersView({ content }: { content: AgentAskUserFormContent })
               : key
             const value = answers[key]
             return (
-              <div key={key} className="flex items-start gap-3 px-2 py-1.5 rounded-lg" style={{ background: 'var(--c-bg-deep)' }}>
-                <span className="text-[13px] font-medium flex-shrink-0" style={{ color: 'var(--c-text-secondary)', minWidth: '80px' }}>
+              <div key={key} className="flex flex-col gap-1">
+                <span className="text-[12px] font-medium px-2" style={{ color: 'var(--c-text-secondary)' }}>
                   {title}
                 </span>
-                <span className="text-[13px] font-light flex-1" style={{ color: 'var(--c-text-primary)' }}>
-                  {formatFieldValue(value, t.userInput)}
-                </span>
+                <div className="px-2 py-1.5 rounded-lg" style={{ background: 'var(--c-bg-deep)' }}>
+                  <span className="text-[13px] font-light" style={{ color: 'var(--c-text-primary)' }}>
+                    {formatFieldValue(value, t.userInput)}
+                  </span>
+                </div>
               </div>
             )
           })}
