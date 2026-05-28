@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/shared/weixinclient"
@@ -31,6 +32,7 @@ type ChannelDeliveryDrainOptions struct {
 	StickerStore   interface {
 		Get(ctx context.Context, key string) ([]byte, error)
 	}
+	ArtifactStore objectstore.Store
 }
 
 // ChannelDeliveryDrainer drains pending channel_delivery_outbox rows in the background.
@@ -308,6 +310,15 @@ func (d *ChannelDeliveryDrainer) drainTelegramSegments(
 				},
 				ReplyTo: ref,
 			}, payload.AccountID, segment.StickerID)
+		case "artifact":
+			messageIDs, sendErr = DeliverArtifactToTelegram(ctx, d.opts.ArtifactStore, telegramClient, channel.Token, ChannelDeliveryTarget{
+				ChannelType: row.ChannelType,
+				Conversation: ChannelConversationRef{
+					Target:   payload.PlatformChatID,
+					ThreadID: payload.PlatformThreadID,
+				},
+				ReplyTo: ref,
+			}, payload.AccountID, segment.ArtifactKey)
 		default:
 			textBody = strings.TrimSpace(segment.Text)
 			if textBody == "" {

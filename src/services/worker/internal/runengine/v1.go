@@ -1031,7 +1031,8 @@ func buildDeliveryLayer(deps EngineV1Deps) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewThreadPersistHookMiddleware(),
 		pipeline.NewChannelDeliveryMiddlewareWithOptions(deps.DBPool, pipeline.ChannelDeliveryMiddlewareOptions{
-			StickerStore: deps.MessageAttachmentStore,
+			StickerStore:  deps.MessageAttachmentStore,
+			ArtifactStore: deps.ArtifactStore,
 		}),
 	}
 }

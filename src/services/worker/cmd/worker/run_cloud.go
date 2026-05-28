@@ -199,8 +199,13 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("open worker sticker store: %w", err)
 	}
+	artifactStore, err := openWorkerArtifactStore(runCtx)
+	if err != nil {
+		return fmt.Errorf("open worker artifact store: %w", err)
+	}
 	drainer := pipeline.NewChannelDeliveryDrainer(pool, pipeline.ChannelDeliveryDrainOptions{
-		StickerStore: stickerStore,
+		StickerStore:  stickerStore,
+		ArtifactStore: artifactStore,
 	})
 	drainer.Start(runCtx)
 	defer drainer.Stop()
@@ -238,6 +243,19 @@ func openWorkerStickerStore(ctx context.Context) (interface {
 		return nil, nil
 	}
 	return opener.Open(ctx, bucket)
+}
+
+// openWorkerArtifactStore 打开 artifact bucket，供 drainer 把 artifact segment 作为文件补投。
+func openWorkerArtifactStore(ctx context.Context) (objectstore.Store, error) {
+	runtimeCfg, err := objectstore.LoadRuntimeConfigFromEnv()
+	if err != nil || !runtimeCfg.Enabled() {
+		return nil, err
+	}
+	opener, err := runtimeCfg.BucketOpener()
+	if err != nil || opener == nil {
+		return nil, err
+	}
+	return opener.Open(ctx, objectstore.ArtifactBucket)
 }
 
 func newRedisClient(ctx context.Context, redisURL string) (*redis.Client, error) {

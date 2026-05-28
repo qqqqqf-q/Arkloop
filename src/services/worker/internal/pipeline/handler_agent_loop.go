@@ -201,6 +201,9 @@ func NewAgentLoopHandler(
 					remainderCleanOutput = stripStickerPlaceholders(writer.telegramStreamRemainder())
 				}
 				cleanOutputs, deliverySegments := prepareStickerDeliveryOutputs(stickerSourceOutputs)
+				if rc.ChannelContext != nil && strings.EqualFold(strings.TrimSpace(rc.ChannelContext.ChannelType), "telegram") {
+					cleanOutputs, deliverySegments = applyArtifactDeliverySegments(cleanOutputs, deliverySegments)
+				}
 				if writer.terminalRunStatus == "completed" && len(writer.intermediateMessages) > 0 {
 					if err := writer.batchInsertIntermediateMessages(ctx, messagesRepo, rc.Run.AccountID, rc.Run.ThreadID, rc.Run.ID); err != nil {
 						return err
@@ -467,6 +470,9 @@ func (w *eventWriter) pendingTelegramFlushChunk() string {
 		return ""
 	}
 	if containsStickerPlaceholderOutputs(unsent) {
+		return ""
+	}
+	if containsArtifactReferenceOutputs(unsent) {
 		return ""
 	}
 	return strings.TrimSpace(strings.Join(unsent, "\n"))

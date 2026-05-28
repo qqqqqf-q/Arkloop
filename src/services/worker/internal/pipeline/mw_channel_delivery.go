@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/shared/weixinclient"
@@ -30,6 +31,7 @@ type ChannelDeliveryMiddlewareOptions struct {
 	StickerStore   interface {
 		Get(ctx context.Context, key string) ([]byte, error)
 	}
+	ArtifactStore objectstore.Store
 }
 
 // NewChannelDeliveryMiddleware posts assistant output to Telegram and records deliveries.
@@ -301,7 +303,7 @@ func NewChannelDeliveryMiddlewareWithOptions(pool *pgxpool.Pool, opts ChannelDel
 		switch channelType {
 		case "telegram":
 			uxSend := ParseTelegramChannelUX(channel.ConfigJSON)
-			deliverErr = inlineDeliverTelegramOutbox(ctx, pool, rc, tgClient, channel, outboxRecord, payload, outboxRepo, repo, ledgerRepo, messagesRepo, opts.StickerStore)
+			deliverErr = inlineDeliverTelegramOutbox(ctx, pool, rc, tgClient, channel, outboxRecord, payload, outboxRepo, repo, ledgerRepo, messagesRepo, opts.StickerStore, opts.ArtifactStore)
 			if deliverErr == nil && strings.TrimSpace(uxSend.ReactionEmoji) != "" && tgClient != nil {
 				MaybeTelegramInboundReaction(ctx, tgClient, channel.Token, rc, uxSend.ReactionEmoji)
 			}
@@ -440,6 +442,7 @@ func inlineDeliverTelegramOutbox(
 	stickerStore interface {
 		Get(ctx context.Context, key string) ([]byte, error)
 	},
+	artifactStore objectstore.Store,
 ) error {
 	if err := validateOutboxPayload(payload); err != nil {
 		return handleInlineOutboxFailure(ctx, pool, outboxRec, err, outboxRepo)
@@ -466,6 +469,12 @@ func inlineDeliverTelegramOutbox(
 					Conversation: rc.ChannelContext.Conversation,
 					ReplyTo:      ref,
 				}, payload.AccountID, segment.StickerID)
+			case "artifact":
+				messageIDs, sendErr = DeliverArtifactToTelegram(ctx, artifactStore, client, channel.Token, ChannelDeliveryTarget{
+					ChannelType:  rc.ChannelContext.ChannelType,
+					Conversation: rc.ChannelContext.Conversation,
+					ReplyTo:      ref,
+				}, payload.AccountID, segment.ArtifactKey)
 			default:
 				textBody = strings.TrimSpace(segment.Text)
 				if textBody == "" {

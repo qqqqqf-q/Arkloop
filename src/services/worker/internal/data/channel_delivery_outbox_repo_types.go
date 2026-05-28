@@ -70,9 +70,10 @@ type OutboxPayload struct {
 }
 
 type OutboxSegment struct {
-	Kind      string `json:"kind"`
-	Text      string `json:"text,omitempty"`
-	StickerID string `json:"sticker_id,omitempty"`
+	Kind        string `json:"kind"`
+	Text        string `json:"text,omitempty"`
+	StickerID   string `json:"sticker_id,omitempty"`
+	ArtifactKey string `json:"artifact_key,omitempty"`
 }
 
 type ChannelDeliveryOutboxRecord struct {
@@ -154,6 +155,10 @@ func (p OutboxPayload) HasDeliverableContent() bool {
 		switch segment.Kind {
 		case "sticker":
 			if strings.TrimSpace(segment.StickerID) != "" {
+				return true
+			}
+		case "artifact":
+			if strings.TrimSpace(segment.ArtifactKey) != "" {
 				return true
 			}
 		default:

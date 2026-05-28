@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/onebotclient"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/shared/weixinclient"
@@ -31,12 +32,16 @@ func StartDesktopChannelDeliveryDrain(ctx context.Context, db data.DesktopDB) {
 	} else {
 		stickerStore = store
 	}
-	go desktopChannelDeliveryDrainLoop(ctx, db, stickerStore)
+	artifactStore, err := openDesktopArtifactStore(ctx)
+	if err != nil {
+		slog.WarnContext(ctx, "desktop channel delivery open artifact store failed", "err", err.Error())
+	}
+	go desktopChannelDeliveryDrainLoop(ctx, db, stickerStore, artifactStore)
 }
 
 func desktopChannelDeliveryDrainLoop(ctx context.Context, db data.DesktopDB, stickerStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
-}) {
+}, artifactStore objectstore.Store) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	cleanupCount := 0
@@ -45,7 +50,7 @@ func desktopChannelDeliveryDrainLoop(ctx context.Context, db data.DesktopDB, sti
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			drainDesktopPendingWithStore(ctx, db, stickerStore)
+			drainDesktopPendingWithStore(ctx, db, stickerStore, artifactStore)
 			cleanupCount++
 			if cleanupCount >= outboxCleanupEveryRounds {
 				cleanupCount = 0
@@ -58,12 +63,12 @@ func desktopChannelDeliveryDrainLoop(ctx context.Context, db data.DesktopDB, sti
 // drainDesktopPending 不再跨 HTTP 持有全局写锁；SQLite 写入由 pool 的 per-call
 // write guard 管理，HTTP 发送阶段释放所有写入资源。
 func drainDesktopPending(ctx context.Context, db data.DesktopDB) {
-	drainDesktopPendingWithStore(ctx, db, nil)
+	drainDesktopPendingWithStore(ctx, db, nil, nil)
 }
 
 func drainDesktopPendingWithStore(ctx context.Context, db data.DesktopDB, stickerStore interface {
 	Get(ctx context.Context, key string) ([]byte, error)
-}) {
+}, artifactStore objectstore.Store) {
 	outboxRepo := data.ChannelDeliveryOutboxRepository{}
 	rows, err := outboxRepo.ListPendingForDrain(ctx, db, 10)
 	if err != nil {
@@ -80,7 +85,7 @@ func drainDesktopPendingWithStore(ctx context.Context, db data.DesktopDB, sticke
 			slog.WarnContext(ctx, "desktop channel delivery drain parse payload failed", "run_id", row.RunID, "err", parseErr.Error())
 			continue
 		}
-		drainErr := drainDesktopOutboxRecord(ctx, db, row, payload, outboxRepo, stickerStore)
+		drainErr := drainDesktopOutboxRecord(ctx, db, row, payload, outboxRepo, stickerStore, artifactStore)
 		if drainErr != nil {
 			slog.WarnContext(ctx, "desktop channel delivery drain failed", "run_id", row.RunID, "err", drainErr.Error())
 		}
@@ -111,10 +116,11 @@ func drainDesktopOutboxRecord(
 	stickerStore interface {
 		Get(ctx context.Context, key string) ([]byte, error)
 	},
+	artifactStore objectstore.Store,
 ) error {
 	switch strings.ToLower(strings.TrimSpace(row.ChannelType)) {
 	case "telegram":
-		return drainDesktopTelegramOutbox(ctx, db, row, payload, outboxRepo, stickerStore)
+		return drainDesktopTelegramOutbox(ctx, db, row, payload, outboxRepo, stickerStore, artifactStore)
 	case "discord":
 		return drainDesktopDiscordOutbox(ctx, db, row, payload, outboxRepo)
 	case "qq":
@@ -139,6 +145,7 @@ func drainDesktopTelegramOutbox(
 	stickerStore interface {
 		Get(ctx context.Context, key string) ([]byte, error)
 	},
+	artifactStore objectstore.Store,
 ) error {
 	channel, err := loadDesktopDeliveryChannel(ctx, db, row.ChannelID)
 	if err != nil || channel == nil {
@@ -174,6 +181,15 @@ func drainDesktopTelegramOutbox(
 					},
 					ReplyTo: ref,
 				}, payload.AccountID, segment.StickerID)
+			case "artifact":
+				messageIDs, sendErr = pipeline.DeliverArtifactToTelegram(ctx, artifactStore, client, channel.Token, pipeline.ChannelDeliveryTarget{
+					ChannelType: row.ChannelType,
+					Conversation: pipeline.ChannelConversationRef{
+						Target:   payload.PlatformChatID,
+						ThreadID: payload.PlatformThreadID,
+					},
+					ReplyTo: ref,
+				}, payload.AccountID, segment.ArtifactKey)
 			default:
 				trimmed := strings.TrimSpace(segment.Text)
 				if trimmed == "" {

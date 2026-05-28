@@ -32,10 +32,14 @@ func validateOutboxPayload(payload data.OutboxPayload) error {
 }
 
 func isDeliverableSegment(segment data.OutboxSegment) bool {
-	if segment.Kind == "sticker" {
+	switch segment.Kind {
+	case "sticker":
 		return strings.TrimSpace(segment.StickerID) != ""
+	case "artifact":
+		return strings.TrimSpace(segment.ArtifactKey) != ""
+	default:
+		return strings.TrimSpace(segment.Text) != ""
 	}
-	return strings.TrimSpace(segment.Text) != ""
 }
 
 func handleInlineOutboxFailure(

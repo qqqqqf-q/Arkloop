@@ -22,7 +22,7 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 				Name:          "runtime.channel_output_behavior",
 				Target:        PromptTargetSystemPrefix,
 				Role:          "system",
-				Text:          buildChannelOutputBehaviorBlock(),
+				Text:          buildChannelOutputBehaviorBlock(rc.ChannelContext),
 				Stability:     PromptStabilityStablePrefix,
 				CacheEligible: true,
 			})
@@ -55,13 +55,29 @@ func NewRuntimeContextMiddleware() RunMiddleware {
 	}
 }
 
-func buildChannelOutputBehaviorBlock() string {
+func buildChannelOutputBehaviorBlock(cc *ChannelContext) string {
 	return `<channel_output_behavior>
 In private channel conversations, your text outputs are delivered to the chat platform in real-time as separate messages.
 In group discuss conversations, text is private by default and is delivered only after you call speak.
 When you call tools mid-reply, text before and after the tool call becomes distinct messages visible to the user.
 Avoid repeating content that was already sent. If you have nothing new to add after a tool call, use end_reply.
-</channel_output_behavior>`
+</channel_output_behavior>
+` + buildChannelSurfaceCapabilitiesBlock(cc)
+}
+
+// buildChannelSurfaceCapabilitiesBlock 告知模型当前渠道的渲染约束：纯文本平台不支持 web 端的富渲染。
+// citation 约束对所有 IM 渠道通用；artifact 自动投递目前仅 Telegram 实现，故按渠道分别注入。
+func buildChannelSurfaceCapabilitiesBlock(cc *ChannelContext) string {
+	var b strings.Builder
+	b.WriteString("<channel_surface_capabilities>\n")
+	b.WriteString("This chat platform renders plain text only; the rich web interface is not available here.\n")
+	b.WriteString("Do not emit [web:N] citation markers — they are not rendered here. Cite sources by naming them or including the URL inline in your sentence.\n")
+	if cc != nil && strings.EqualFold(strings.TrimSpace(cc.ChannelType), "telegram") {
+		b.WriteString("Files you produce with document_write, image_generate, or create_artifact are automatically delivered to this chat as attachments; you do not need to call telegram_send_file for them, and you should not paste raw artifact: links in your reply.\n")
+		b.WriteString("create_artifact output is delivered as a static file, so interactive HTML will not function here — prefer image_generate or document_write when the user needs a visual result on this channel.\n")
+	}
+	b.WriteString("</channel_surface_capabilities>")
+	return b.String()
 }
 
 func buildChannelTriggerContextBlock(cc *ChannelContext) string {
