@@ -3,13 +3,16 @@
 package desktopruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -31,6 +34,8 @@ type Options struct {
 }
 
 func Run(ctx context.Context, opts Options) error {
+	resolveUserShellPATH()
+
 	if err := EnsureToken(); err != nil {
 		return fmt.Errorf("ensure desktop token: %w", err)
 	}
@@ -246,4 +251,109 @@ func StartEmbeddedSandbox(ctx context.Context) {
 
 	desktop.SetSandboxAddr(addr)
 	slog.Info("sandbox: embedded VZ sandbox listening", "addr", addr)
+}
+
+func resolveUserShellPATH() {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	currentPATH := os.Getenv("PATH")
+	shellPATH, err := shellLoginPATH()
+	if err != nil || shellPATH == "" {
+		return
+	}
+	merged := mergePATH(shellPATH, currentPATH)
+	if merged != "" {
+		os.Setenv("PATH", merged)
+	}
+}
+
+func shellLoginPATH() (string, error) {
+	const timeout = 5 * time.Second
+
+	source := "/usr/libexec/path_helper"
+	if _, err := os.Stat(source); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, source, "-s")
+		out, err := cmd.Output()
+		if err == nil {
+			return parsePathHelperOutput(out), nil
+		}
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, "-ilc", "echo __PATH__$PATH__PATH__")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return parseShellPATHOutput(out), nil
+}
+
+func parsePathHelperOutput(out []byte) string {
+	for _, line := range bytes.Split(out, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if bytes.HasPrefix(line, []byte(`PATH="`)) {
+			extracted := bytes.TrimPrefix(line, []byte(`PATH="`))
+			extracted = bytes.TrimSuffix(extracted, []byte(`"; export PATH;`))
+			extracted = bytes.TrimSuffix(extracted, []byte(`";`))
+			return string(extracted)
+		}
+	}
+	return ""
+}
+
+func parseShellPATHOutput(out []byte) string {
+	const marker = "__PATH__"
+	idx := bytes.Index(out, []byte(marker))
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(marker)
+	end := bytes.Index(out[start:], []byte(marker))
+	if end < 0 {
+		return ""
+	}
+	return string(out[start : start+end])
+}
+
+func mergePATH(shellPATH, currentPATH string) string {
+	if shellPATH == "" {
+		return currentPATH
+	}
+	shell := filepath.SplitList(shellPATH)
+	current := filepath.SplitList(currentPATH)
+	seen := make(map[string]struct{}, len(shell)+len(current))
+	var merged []string
+	for _, entry := range shell {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		entry = filepath.Clean(entry)
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		merged = append(merged, entry)
+	}
+	for _, entry := range current {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		entry = filepath.Clean(entry)
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		merged = append(merged, entry)
+	}
+	return strings.Join(merged, string(os.PathListSeparator))
 }

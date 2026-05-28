@@ -990,6 +990,9 @@ func processPath() string {
 			)
 		}
 	} else {
+		if hostPath := strings.TrimSpace(os.Getenv("PATH")); hostPath != "" {
+			entries = append(entries, filepath.SplitList(hostPath)...)
+		}
 		entries = append(entries, filepath.SplitList(defaultUnixProcessPath)...)
 	}
 	return strings.Join(uniqueProcessPathEntries(entries), string(os.PathListSeparator))
