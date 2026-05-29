@@ -990,6 +990,17 @@ export interface LocaleStrings {
       axPermissionRequired: string;
       axPermissionDesc: string;
       grantAccess: string;
+      audioSection: string;
+      audioToggle: string;
+      audioToggleDesc: string;
+      audioApiBase: string;
+      audioApiKey: string;
+      audioModel: string;
+      audioLanguage: string;
+      audioLanguageDesc: string;
+      micPermissionSection: string;
+      micPermissionRequired: string;
+      micPermissionDesc: string;
       builderSection: string;
       builderInterval: string;
       builderIntervalDesc: string;

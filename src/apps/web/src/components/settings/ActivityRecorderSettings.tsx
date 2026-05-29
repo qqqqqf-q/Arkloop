@@ -49,6 +49,11 @@ type RecorderSettings = {
   enable_activity_record: boolean
   snapshot_compaction: boolean
   builder_interval_min: number
+  enable_audio_transcription: boolean
+  audio_transcription_api_base: string
+  audio_transcription_api_key: string
+  audio_transcription_model: string
+  audio_transcription_language: string
 }
 
 const defaultRecorderSettings: RecorderSettings = {
@@ -56,6 +61,11 @@ const defaultRecorderSettings: RecorderSettings = {
   enable_activity_record: true,
   snapshot_compaction: false,
   builder_interval_min: 300,
+  enable_audio_transcription: false,
+  audio_transcription_api_base: 'https://openrouter.ai/api/v1',
+  audio_transcription_api_key: '',
+  audio_transcription_model: 'qwen/qwen3-asr-flash-2026-02-10',
+  audio_transcription_language: '',
 }
 
 function toBool(value: unknown, fallback: boolean): boolean {
@@ -71,6 +81,10 @@ function toNumber(value: unknown, fallback: number): number {
   return fallback
 }
 
+function toStr(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
 function currentSettings(enablement: PluginEnablement | null): RecorderSettings {
   const raw = enablement?.settings ?? {}
   const mode = raw.mode === 'full' || raw.mode === 'custom' || raw.mode === 'lightweight'
@@ -81,6 +95,11 @@ function currentSettings(enablement: PluginEnablement | null): RecorderSettings 
     enable_activity_record: toBool(raw.enable_activity_record, defaultRecorderSettings.enable_activity_record),
     snapshot_compaction: toBool(raw.snapshot_compaction, defaultRecorderSettings.snapshot_compaction),
     builder_interval_min: toNumber(raw.builder_interval_min, defaultRecorderSettings.builder_interval_min),
+    enable_audio_transcription: toBool(raw.enable_audio_transcription, defaultRecorderSettings.enable_audio_transcription),
+    audio_transcription_api_base: toStr(raw.audio_transcription_api_base, defaultRecorderSettings.audio_transcription_api_base),
+    audio_transcription_api_key: toStr(raw.audio_transcription_api_key, defaultRecorderSettings.audio_transcription_api_key),
+    audio_transcription_model: toStr(raw.audio_transcription_model, defaultRecorderSettings.audio_transcription_model),
+    audio_transcription_language: toStr(raw.audio_transcription_language, defaultRecorderSettings.audio_transcription_language),
   }
 }
 
@@ -432,6 +451,118 @@ export function ActivityRecorderSettings({ accessToken }: { accessToken: string 
               ))}
             </SettingsCard>
           </SettingsGroup>
+
+          <SettingsGroup title={copy.audioSection}>
+            <SettingsCard>
+              <SettingsRow
+                title={copy.audioToggle}
+                description={copy.audioToggleDesc}
+                control={(
+                  <SettingsSwitch
+                    checked={settings.enable_audio_transcription}
+                    disabled={busy === 'settings'}
+                    onChange={(value) => setCustom({ enable_audio_transcription: value })}
+                  />
+                )}
+              />
+              {settings.enable_audio_transcription && (
+                <>
+                  <SettingsRow
+                    title={copy.audioApiBase}
+                    control={(
+                      <SettingsInput
+                        variant="md"
+                        defaultValue={settings.audio_transcription_api_base}
+                        placeholder="https://openrouter.ai/api/v1"
+                        disabled={busy === 'settings'}
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value.trim()
+                          if (value !== settings.audio_transcription_api_base) {
+                            setCustom({ audio_transcription_api_base: value })
+                          }
+                        }}
+                        className="w-[260px]"
+                      />
+                    )}
+                  />
+                  <SettingsRow
+                    title={copy.audioApiKey}
+                    control={(
+                      <SettingsInput
+                        variant="md"
+                        type="password"
+                        defaultValue={settings.audio_transcription_api_key}
+                        disabled={busy === 'settings'}
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value
+                          if (value !== settings.audio_transcription_api_key) {
+                            setCustom({ audio_transcription_api_key: value })
+                          }
+                        }}
+                        className="w-[260px]"
+                      />
+                    )}
+                  />
+                  <SettingsRow
+                    title={copy.audioModel}
+                    control={(
+                      <SettingsInput
+                        variant="md"
+                        defaultValue={settings.audio_transcription_model}
+                        placeholder="qwen/qwen3-asr-flash-2026-02-10"
+                        disabled={busy === 'settings'}
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value.trim()
+                          if (value !== settings.audio_transcription_model) {
+                            setCustom({ audio_transcription_model: value })
+                          }
+                        }}
+                        className="w-[280px]"
+                      />
+                    )}
+                  />
+                  <SettingsRow
+                    title={copy.audioLanguage}
+                    description={copy.audioLanguageDesc}
+                    control={(
+                      <SettingsInput
+                        variant="md"
+                        defaultValue={settings.audio_transcription_language}
+                        placeholder="auto"
+                        disabled={busy === 'settings'}
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value.trim()
+                          if (value !== settings.audio_transcription_language) {
+                            setCustom({ audio_transcription_language: value })
+                          }
+                        }}
+                        className="w-[140px]"
+                      />
+                    )}
+                  />
+                </>
+              )}
+            </SettingsCard>
+          </SettingsGroup>
+
+          {settings.enable_audio_transcription && runtimeBool(status.runtime, 'activity_record.mic_permission') === false && (
+          <SettingsGroup title={copy.micPermissionSection}>
+            <SettingsCard>
+              <SettingsRow
+                title={copy.micPermissionRequired}
+                description={copy.micPermissionDesc}
+                control={(
+                  <SettingsButton
+                    variant="primary"
+                    onClick={() => openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone')}
+                  >
+                    {copy.grantAccess}
+                  </SettingsButton>
+                )}
+              />
+            </SettingsCard>
+          </SettingsGroup>
+          )}
 
           {settings.enable_activity_record && runtimeBool(status.runtime, 'activity_record.ax_permission') === false && (
           <SettingsGroup title={copy.axPermissionSection}>

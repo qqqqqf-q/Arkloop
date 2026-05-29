@@ -54,6 +54,21 @@ settings:
   - key: builder_interval_min
     type: integer
     default: 300
+  - key: enable_audio_transcription
+    type: boolean
+    default: false
+  - key: audio_transcription_api_base
+    type: string
+    default: "https://openrouter.ai/api/v1"
+  - key: audio_transcription_api_key
+    type: password
+    default: ""
+  - key: audio_transcription_model
+    type: string
+    default: "qwen/qwen3-asr-flash-2026-02-10"
+  - key: audio_transcription_language
+    type: string
+    default: ""
 
 skills:
   - skill_key: activity-record

@@ -1,6 +1,6 @@
 ---
 name: activity-record
-description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, screen content (accessibility tree), and Codex sessions.
+description: Query and orchestrate Arkloop Activity Record local activity data. Covers browser history, search terms, screen time, bluetooth, shell commands, window focus, keyboard, mouse, clipboard, screen content (accessibility tree), microphone audio transcription, and Codex sessions.
 ---
 
 # Activity Record
@@ -126,6 +126,16 @@ Browser URL: extracted via `AXDocument` attribute when the focused app is a brow
 
 Excluded apps: password managers (1Password, Bitwarden, KeePassXC, LastPass, Dashlane, Keychain Access) and incognito/private browsing windows are skipped entirely.
 
+### `audio` — Microphone Transcription (daemon)
+
+Transcribes microphone speech via an OpenAI-compatible API. Each segment passes an RMS gate, voice-activity detection, and music filtering before transcription, so only segments containing speech are stored.
+
+| Action | Title | Metadata |
+|--------|-------|----------|
+| `audio_transcription` | Transcript preview | `duration_sec`, `device`, `language`, `model`. Full transcript in `text` column. |
+
+Text content: the full transcript of each speech segment is stored in the `text` column. Overlapping words between consecutive segments are deduplicated.
+
 ## Examples
 
 Recent activity across all sources:
@@ -227,6 +237,19 @@ WHERE source = 'ax' AND app = 'Google Chrome'
   AND occurred_at >= datetime('now', '-4 hours')
 ORDER BY occurred_at DESC
 LIMIT 20;
+```
+
+Recent audio transcripts (meetings, conversations):
+
+```sql
+SELECT occurred_at,
+       substr(text, 1, 500) AS transcript,
+       json_extract(metadata_json, '$.duration_sec') AS dur
+FROM activity_events
+WHERE source = 'audio'
+  AND occurred_at >= datetime('now', '-1 day')
+ORDER BY occurred_at DESC
+LIMIT 30;
 ```
 
 ## Memory Rules

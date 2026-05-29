@@ -11,12 +11,23 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 const activityRecorderPluginID = "arkloop.plugins.activity-recorder"
+
+// activityDaemon* serialize daemon spawning within this process and act as the
+// shared source of truth across concurrent calls (CheckRuntime / apply run in
+// separate request goroutines, each with its own runtimeState copy). Without
+// this, concurrent calls each spawn a daemon and the recorder runs twice.
+var (
+	activityDaemonMu          sync.Mutex
+	activityDaemonPID         int
+	activityDaemonFingerprint string
+)
 
 func prepareActivityRecorderSources(ctx context.Context, pluginID string, settings, runtimeState map[string]any) {
 	if pluginID != activityRecorderPluginID {
@@ -72,27 +83,7 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	prefix := key + "."
 	delete(runtimeState, prefix+"error")
 
-	clearActivityRecordDaemonIfStopped(runtimeState)
-	if pid := daemonPID(runtimeState, key); processRunning(pid) {
-		runtimeState[prefix+"status"] = "running"
-		return
-	}
-	removeDaemonPID(runtimeState, key)
-
 	cmdParts, err := activityRecordCommand()
-	if err != nil {
-		runtimeState[prefix+"status"] = "error"
-		runtimeState[prefix+"error"] = err.Error()
-		return
-	}
-
-	logPath := filepath.Join(dataDir, "logs", "daemon.log")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		runtimeState[prefix+"status"] = "error"
-		runtimeState[prefix+"error"] = err.Error()
-		return
-	}
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		runtimeState[prefix+"status"] = "error"
 		runtimeState[prefix+"error"] = err.Error()
@@ -115,6 +106,9 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	if settingBoolDefault(settings, "enable_mouse_tracking", true) {
 		daemonSources = append(daemonSources, "mouse")
 	}
+	if settingBool(settings, "enable_audio_transcription") {
+		daemonSources = append(daemonSources, "audio")
+	}
 
 	syncSources := []string{"codex", "chrome"}
 	if settingBoolDefault(settings, "enable_screentime", true) {
@@ -134,10 +128,65 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	if v, ok := settings["idle_threshold_sec"]; ok {
 		args = append(args, "--idle-threshold", fmt.Sprint(v))
 	}
+	if settingBool(settings, "enable_audio_transcription") {
+		if base := stringSettingDefault(settings, "audio_transcription_api_base", "https://openrouter.ai/api/v1"); base != "" {
+			args = append(args, "--audio-api-base", base)
+		}
+		if model := stringSettingDefault(settings, "audio_transcription_model", "qwen/qwen3-asr-flash-2026-02-10"); model != "" {
+			args = append(args, "--audio-model", model)
+		}
+		if lang := stringSettingDefault(settings, "audio_transcription_language", ""); lang != "" {
+			args = append(args, "--audio-language", lang)
+		}
+	}
+
+	// 指纹 = 二进制 + 完整参数。刷新(参数不变)复用现有进程,配置变更才重启。
+	fingerprint := strings.Join(append([]string{cmdParts[0]}, args...), "\x00")
+
+	// 串行化同进程内的并发调用,避免重复 spawn。
+	activityDaemonMu.Lock()
+	defer activityDaemonMu.Unlock()
+
+	if activityDaemonPID != 0 && processRunning(activityDaemonPID) {
+		if activityDaemonFingerprint == fingerprint {
+			writeDaemonPID(runtimeState, key, activityDaemonPID)
+			runtimeState[prefix+"pid"] = activityDaemonPID
+			runtimeState[prefix+"fingerprint"] = fingerprint
+			runtimeState[prefix+"status"] = "running"
+			return
+		}
+		_ = killDaemonProcess(activityDaemonPID)
+		activityDaemonPID = 0
+	}
+
+	// 上一个 desktop 会话残留的 daemon(持久化在 runtimeState 里)。
+	clearActivityRecordDaemonIfStopped(runtimeState)
+	if pid := daemonPID(runtimeState, key); processRunning(pid) {
+		_ = killDaemonProcess(pid)
+	}
+	removeDaemonPID(runtimeState, key)
+
+	logPath := filepath.Join(dataDir, "logs", "daemon.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		runtimeState[prefix+"status"] = "error"
+		runtimeState[prefix+"error"] = err.Error()
+		return
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		runtimeState[prefix+"status"] = "error"
+		runtimeState[prefix+"error"] = err.Error()
+		return
+	}
 
 	cmd := exec.CommandContext(detachedContext(context.Background()), cmdParts[0], args...)
 	configureDaemonCommand(cmd)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "ARKLOOP_ACTIVITY_RECORD_PARENT_PID="+fmt.Sprint(os.Getpid()))
+	if settingBool(settings, "enable_audio_transcription") {
+		if apiKey := stringSettingDefault(settings, "audio_transcription_api_key", ""); apiKey != "" {
+			cmd.Env = append(cmd.Env, "ARKLOOP_AUDIO_TRANSCRIPTION_API_KEY="+apiKey)
+		}
+	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
@@ -148,9 +197,12 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	}
 	_ = logFile.Close()
 
+	activityDaemonPID = cmd.Process.Pid
+	activityDaemonFingerprint = fingerprint
 	writeDaemonPID(runtimeState, key, cmd.Process.Pid)
 	runtimeState[prefix+"pid"] = cmd.Process.Pid
 	runtimeState[prefix+"log_path"] = logPath
+	runtimeState[prefix+"fingerprint"] = fingerprint
 	runtimeState[prefix+"started_at"] = time.Now().UTC().Format(time.RFC3339)
 	runtimeState[prefix+"status"] = "running"
 	go func() {
@@ -254,6 +306,20 @@ func settingBool(settings map[string]any, key string) bool {
 	return settingBoolDefault(settings, key, false)
 }
 
+func stringSettingDefault(settings map[string]any, key, defaultValue string) string {
+	value, ok := settings[key]
+	if !ok {
+		return defaultValue
+	}
+	if s, ok := value.(string); ok {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			return trimmed
+		}
+		return defaultValue
+	}
+	return defaultValue
+}
+
 func settingBoolDefault(settings map[string]any, key string, defaultValue bool) bool {
 	value, ok := settings[key]
 	if !ok {
@@ -312,9 +378,11 @@ func checkActivityRecordAXPermission(runtimeState map[string]any) {
 		return
 	}
 	var result struct {
-		AXPermission bool `json:"ax_permission"`
+		AXPermission  bool `json:"ax_permission"`
+		MicPermission bool `json:"mic_permission"`
 	}
 	if json.Unmarshal(output, &result) == nil {
 		runtimeState["activity_record.ax_permission"] = result.AXPermission
+		runtimeState["activity_record.mic_permission"] = result.MicPermission
 	}
 }

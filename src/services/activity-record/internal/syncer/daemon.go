@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"arkloop/services/activity-record/internal/sources/audio"
 	"arkloop/services/activity-record/internal/sources/ax"
 	"arkloop/services/activity-record/internal/sources/clipboard"
 	"arkloop/services/activity-record/internal/sources/keyboard"
@@ -30,6 +32,11 @@ type DaemonOptions struct {
 	DaemonSources []string
 	SyncInterval  time.Duration
 	IdleThreshold time.Duration
+
+	AudioAPIBase  string
+	AudioAPIKey   string
+	AudioModel    string
+	AudioLanguage string
 }
 
 func Daemon(ctx context.Context, opts DaemonOptions) error {
@@ -177,6 +184,16 @@ func buildDaemonSource(name string, opts DaemonOptions) (DaemonSource, error) {
 		return keyboard.New(), nil
 	case "mouse":
 		return mouse.New(), nil
+	case "audio":
+		if opts.AudioAPIBase == "" || opts.AudioAPIKey == "" {
+			return nil, fmt.Errorf("audio source requires api base url and api key")
+		}
+		return audio.New(audio.Config{
+			APIBase:  opts.AudioAPIBase,
+			APIKey:   opts.AudioAPIKey,
+			Model:    opts.AudioModel,
+			Language: opts.AudioLanguage,
+		}), nil
 	default:
 		return nil, errUnknownSource(name)
 	}

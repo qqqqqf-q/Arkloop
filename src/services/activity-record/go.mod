@@ -2,7 +2,11 @@ module arkloop/services/activity-record
 
 go 1.26.0
 
-require modernc.org/sqlite v1.46.1
+require (
+	github.com/baabaaox/go-webrtcvad v1.1.1
+	github.com/gen2brain/malgo v0.11.25
+	modernc.org/sqlite v1.46.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

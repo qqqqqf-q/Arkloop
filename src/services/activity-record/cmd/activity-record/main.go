@@ -8,9 +8,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
+	"arkloop/services/activity-record/internal/sources/audio"
 	"arkloop/services/activity-record/internal/sources/ax"
 	"arkloop/services/activity-record/internal/syncer"
 )
@@ -65,16 +67,57 @@ func runDaemon(args []string) error {
 	daemonSources := flags.String("sources", "ax,window,clipboard,mouse", "comma-separated daemon source list")
 	syncInterval := flags.Int("sync-interval", 300, "sync interval in seconds")
 	idleThreshold := flags.Int("idle-threshold", 300, "idle detection threshold in seconds")
+	audioAPIBase := flags.String("audio-api-base", "", "OpenAI-compatible transcription API base URL")
+	audioAPIKey := flags.String("audio-api-key", os.Getenv("ARKLOOP_AUDIO_TRANSCRIPTION_API_KEY"), "transcription API key")
+	audioModel := flags.String("audio-model", "qwen/qwen3-asr-flash-2026-02-10", "transcription model name")
+	audioLanguage := flags.String("audio-language", "", "transcription language hint")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	return syncer.Daemon(context.Background(), syncer.DaemonOptions{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watchParentProcess(ctx, cancel)
+	return syncer.Daemon(ctx, syncer.DaemonOptions{
 		DataDir:       *dataDir,
 		SyncSources:   splitList(*syncSources),
 		DaemonSources: splitList(*daemonSources),
 		SyncInterval:  time.Duration(*syncInterval) * time.Second,
 		IdleThreshold: time.Duration(*idleThreshold) * time.Second,
+		AudioAPIBase:  *audioAPIBase,
+		AudioAPIKey:   *audioAPIKey,
+		AudioModel:    *audioModel,
+		AudioLanguage: *audioLanguage,
 	})
+}
+
+// watchParentProcess ties this daemon's lifetime to the spawning process. When
+// the parent (desktop host) exits, the daemon shuts itself down so it never
+// outlives its host. No-op when launched without a parent pid (manual runs).
+func watchParentProcess(ctx context.Context, cancel context.CancelFunc) {
+	raw := strings.TrimSpace(os.Getenv("ARKLOOP_ACTIVITY_RECORD_PARENT_PID"))
+	if raw == "" {
+		return
+	}
+	ppid, err := strconv.Atoi(raw)
+	if err != nil || ppid <= 1 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !processAlive(ppid) {
+					log.Printf("parent process %d exited, shutting down", ppid)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 }
 
 func defaultDataDir() string {
@@ -109,7 +152,8 @@ func printUsage() {
 
 func runCheck() error {
 	result := map[string]any{
-		"ax_permission": ax.CheckAXPermission(),
+		"ax_permission":  ax.CheckAXPermission(),
+		"mic_permission": audio.CheckMicPermission(),
 	}
 	return json.NewEncoder(os.Stdout).Encode(result)
 }

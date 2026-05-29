@@ -86,11 +86,21 @@ ORDER BY occurred_at DESC;
 
 从中提取：用户屏幕上实际看到的文本内容、当前聚焦的具体内容、正在阅读或编辑什么、所处的 UI 状态。
 
+**6. 语音转写（audio）**
+
+```sql
+SELECT occurred_at, substr(text,1,500) AS transcript,
+       json_extract(metadata_json, '$.duration_sec') AS dur,
+       json_extract(metadata_json, '$.device') AS device
+FROM activity_events
+WHERE source = 'audio'
+  AND occurred_at >= '{window_start}' AND occurred_at < '{window_end}'
+ORDER BY occurred_at ASC;
+```
+
+从中提取：会议或对话中讨论的主题、做出的决定、提到的项目或人、口头表达的计划。提炼要点，不要逐字保留转写原文。
+
 **每组查到数据后立即分析**，不要等全部查完再统一处理。如果某组窗口内事件很少，扩大查询范围（前后各 30 分钟）。
-
-### 可选：Screenpipe
-
-如果 Screenpipe 已启用，先检查 `http://127.0.0.1:3030/health`。可达时，用其 MCP 工具获取屏幕截图、OCR 和音频转写，作为 Activity Record 的补充。
 
 ### 可选：Social Search / XSearch
 
@@ -110,6 +120,7 @@ ORDER BY occurred_at DESC;
 - 最近在学什么：搜索的技术主题、阅读的文档、探索的新领域
 - 生活相关：听的音乐、连接的设备、作息模式的变化
 - 项目上下文变化：新的决策、方向调整、遇到的问题
+- 会议与对话：口头讨论的主题、做出的决定、提到的人或计划
 - 稳定偏好和习惯的变化
 
 不要写入的：
