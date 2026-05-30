@@ -751,7 +751,12 @@ function buildSandboxEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   const vmDir = path.join(os.homedir(), '.arkloop', 'vm')
 
-  if (!fs.existsSync(vmDir)) return env
+  if (!fs.existsSync(vmDir)) {
+    console.info('[sidecar] VZ sandbox directory not found:', vmDir)
+    console.info('[sidecar]   To enable VM isolation, place vmlinux + rootfs.ext4 in this directory,')
+    console.info('[sidecar]   or download them via Desktop Settings → Updates when available.')
+    return env
+  }
 
   const entries = fs.readdirSync(vmDir)
   let kernelPath = ''
@@ -766,6 +771,14 @@ function buildSandboxEnv(): Record<string, string> {
     } else if (lower.endsWith('.ext4') || lower.endsWith('.img')) {
       rootfsPath = fullPath
     }
+  }
+
+  if (!kernelPath || !rootfsPath) {
+    const missing = [!kernelPath && 'vmlinux', !rootfsPath && 'rootfs.ext4'].filter(Boolean)
+    console.warn('[sidecar] VZ sandbox images incomplete:', missing.join(', '), 'missing in', vmDir)
+    console.info('[sidecar]   VM isolation unavailable; commands will run on host (local mode).')
+  } else {
+    console.info('[sidecar] VZ sandbox images found:', { kernel: kernelPath, rootfs: rootfsPath })
   }
 
   if (kernelPath) {
