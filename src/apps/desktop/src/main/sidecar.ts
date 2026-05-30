@@ -747,6 +747,36 @@ function buildNetworkEnv(): Record<string, string> {
   return env
 }
 
+function buildSandboxEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  const vmDir = path.join(os.homedir(), '.arkloop', 'vm')
+
+  if (!fs.existsSync(vmDir)) return env
+
+  const entries = fs.readdirSync(vmDir)
+  let kernelPath = ''
+  let rootfsPath = ''
+
+  for (const entry of entries) {
+    const fullPath = path.join(vmDir, entry)
+    if (!fs.statSync(fullPath).isFile()) continue
+    const lower = entry.toLowerCase()
+    if (lower === 'vmlinux' || lower.startsWith('vmlinux.')) {
+      kernelPath = fullPath
+    } else if (lower.endsWith('.ext4') || lower.endsWith('.img')) {
+      rootfsPath = fullPath
+    }
+  }
+
+  if (kernelPath) {
+    env.ARKLOOP_SANDBOX_KERNEL_IMAGE = kernelPath
+  }
+  if (rootfsPath) {
+    env.ARKLOOP_SANDBOX_ROOTFS = rootfsPath
+  }
+  return env
+}
+
 function buildBrowserSearchEnv(): Record<string, string> {
   const baseUrl = getBrowserSearchBaseUrl()
   if (!baseUrl) return {}
@@ -1270,6 +1300,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...buildBrowserSearchEnv(),
       ...buildMemoryEnv(projectDir),
       ...buildNetworkEnv(),
+      ...buildSandboxEnv(),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })

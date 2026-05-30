@@ -92,12 +92,15 @@ func desktopCurrentSandboxAvailable() bool {
 }
 
 func desktopDockerSandboxAvailable() bool {
-	return desktopSandboxHealthCheck(desktopDockerSandboxAddr)
+	// Desktop 模式下使用 VZ embedded sandbox，不存在独立的 Docker sandbox 服务。
+	// 不应假设 127.0.0.1:19002 上有 sandbox 运行。
+	return false
 }
 
 func desktopFirecrackerAvailable() bool {
+	// Desktop 模式下 VZ embedded sandbox 使用随机端口，只要地址非空且健康即为可用。
 	addr := strings.TrimSpace(desktop.GetSandboxAddr())
-	return addr != "" && addr != desktopDockerSandboxAddr && desktopSandboxHealthCheck(addr)
+	return addr != "" && desktopSandboxHealthCheck(addr)
 }
 
 func probeDesktopSandboxHealth(addr string) bool {
