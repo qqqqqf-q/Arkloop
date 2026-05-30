@@ -59,10 +59,18 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 
 	// Desktop-only: execution-mode endpoint（模式由侧car main 从磁盘恢复，此处不再强制 local）
 	// 若上游已注入真实 sandbox 地址（如 embedded firecracker），这里不覆盖。
+	// 当 sandbox 不可用时，不应假设 127.0.0.1:19002 上有 Docker sandbox；
+	// 此时应回退到 local 模式，避免 Worker 向不存在的地址发起请求。
 	if desktop.GetSandboxAddr() == "" {
-		desktop.SetSandboxAddr("127.0.0.1:19002")
+		if desktop.GetExecutionMode() == "vm" {
+			desktop.SetExecutionMode("local")
+			if err := desktop.PersistExecutionMode("local"); err != nil {
+				slog.Warn("bridge desktop: failed to persist local execution mode", "error", err)
+			}
+			slog.Info("bridge desktop: sandbox unavailable, switched to local mode")
+		}
 	}
-	slog.Debug("bridge desktop: sandbox addr set", "addr", desktop.GetSandboxAddr())
+	slog.Debug("bridge desktop: sandbox addr", "addr", desktop.GetSandboxAddr())
 	mux.HandleFunc("GET /v1/execution-mode", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"mode": desktop.GetExecutionMode()})
 	})
