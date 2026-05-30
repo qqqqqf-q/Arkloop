@@ -197,16 +197,27 @@ func StartEmbeddedSandbox(ctx context.Context) {
 	socketDir := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_SOCKET_DIR"))
 
 	if kernelPath == "" || rootfsPath == "" {
-		slog.Warn("sandbox: kernel/rootfs paths not configured, falling back to trusted mode")
+		slog.Warn("sandbox: VZ sandbox images not configured",
+			slog.String("hint", "Place vmlinux and rootfs.ext4 in ~/.arkloop/vm/ or download via Desktop Settings → Updates"),
+			slog.String("fallback", "local execution mode"),
+		)
 		return
 	}
 
 	if _, err := os.Stat(kernelPath); err != nil {
-		slog.Warn("sandbox: kernel not found, falling back to trusted mode", "path", kernelPath)
+		slog.Warn("sandbox: kernel image not found",
+			slog.String("path", kernelPath),
+			slog.String("hint", "Ensure vmlinux exists at the configured path"),
+			slog.String("fallback", "local execution mode"),
+		)
 		return
 	}
 	if _, err := os.Stat(rootfsPath); err != nil {
-		slog.Warn("sandbox: rootfs not found, falling back to trusted mode", "path", rootfsPath)
+		slog.Warn("sandbox: rootfs image not found",
+			slog.String("path", rootfsPath),
+			slog.String("hint", "Ensure rootfs.ext4 exists at the configured path"),
+			slog.String("fallback", "local execution mode"),
+		)
 		return
 	}
 	if initrdPath != "" {
