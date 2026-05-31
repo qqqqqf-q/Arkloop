@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react'
-import type { CodeExecutionRef } from '../storage'
+import type { CodeExecutionRef, ArtifactRef } from '../storage'
 import type { FileOpRef } from '../storage'
 import type { GenericToolCallRef, TodoWriteRef } from '../copSegmentTimeline'
 import type { CodeExecution } from './CodeExecutionCard'
@@ -102,11 +102,13 @@ export const TopLevelCopToolBlock = memo(function TopLevelCopToolBlock({
   entry,
   live,
   onOpenCodeExecution,
+  onOpenDocument,
   activeCodeExecutionId,
 }: {
   entry: TopLevelCopToolEntry
   live?: boolean
   onOpenCodeExecution?: (ce: CodeExecution) => void
+  onOpenDocument?: (artifact: ArtifactRef) => void
   activeCodeExecutionId?: string
 }) {
   if (entry.kind === 'todo') {
@@ -126,12 +128,22 @@ export const TopLevelCopToolBlock = memo(function TopLevelCopToolBlock({
     const item = entry.item
     if (item.toolName === 'document_write') {
       const title = typeof item.label === 'string' && item.label.trim() ? item.label : item.toolName
+      const filename = item.filename || title
+      const handleClick = onOpenDocument && filename
+        ? () => onOpenDocument({
+          key: filename,
+          filename,
+          size: 0,
+          mime_type: 'text/markdown',
+          title: item.title || title,
+        })
+        : undefined
       return (
         <TopLevelToolFrame toolName={item.toolName}>
           <DocumentResourceCard
             title={title}
             isPlan={isPlanMarkdownPath(title)}
-            onClick={() => {}}
+            onClick={handleClick}
           />
         </TopLevelToolFrame>
       )

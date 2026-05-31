@@ -43,6 +43,10 @@ export type GenericToolCallRef = {
   status: 'running' | 'success' | 'failed'
   errorMessage?: string
   seq?: number
+  /** document_write / create_artifact 写入的文件路径 */
+  filename?: string
+  /** document_write / create_artifact 的标题 */
+  title?: string
 }
 
 export type TodoItemRef = {

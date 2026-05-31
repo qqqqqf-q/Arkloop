@@ -3385,6 +3385,7 @@ export const ChatView = memo(function ChatView() {
           thinkingHint={thinkingHint}
           headerOverride={timelineTitleOverride}
           onOpenCodeExecution={openCodePanel}
+          onOpenDocument={openDocumentPanel}
           onOpenSubAgent={openAgentPanelState}
           activeCodeExecutionId={codePanelExecution?.id}
           accessToken={accessToken}

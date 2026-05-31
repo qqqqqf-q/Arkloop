@@ -440,6 +440,7 @@ export const MessageList = memo(forwardRef<MessageListHandle, MessageListProps>(
                     headerOverride={timelineTitleOverride}
                     compactNarrativeEnd={idx < lastTurnStartIdx}
                     onOpenCodeExecution={openCodePanel}
+                    onOpenDocument={openDocumentPanel}
                     onOpenSubAgent={openAgentPanel}
                     activeCodeExecutionId={codePanelExecutionId ?? undefined}
                     accessToken={accessToken}

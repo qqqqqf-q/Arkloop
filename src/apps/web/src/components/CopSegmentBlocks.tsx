@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import type { AssistantTurnSegment } from '../assistantTurnSegments'
 import type { CodeExecution } from './CodeExecutionCard'
-import type { CodeExecutionRef, FileOpRef, SubAgentRef, WebFetchRef, WebSource } from '../storage'
+import type { CodeExecutionRef, FileOpRef, SubAgentRef, WebFetchRef, WebSource, ArtifactRef } from '../storage'
 import type { WebSearchPhaseStep } from './cop-timeline/CopTimeline'
 import { CopTimeline } from './cop-timeline/CopTimeline'
 import { buildResolvedPool, buildSubSegments, buildThinkingOnlyFromItems, segmentLiveTitle } from '../copSubSegment'
@@ -35,6 +35,7 @@ type Props = {
   compactNarrativeEnd?: boolean
   onOpenCodeExecution?: (ce: CodeExecution) => void
   activeCodeExecutionId?: string
+  onOpenDocument?: (artifact: ArtifactRef) => void
   onOpenSubAgent?: (agent: SubAgentRef) => void
   accessToken?: string
   baseUrl?: string
@@ -116,6 +117,8 @@ function genericRootToolFromCall(item: Extract<Extract<AssistantTurnSegment, { t
     status,
     errorMessage: hasError ? call.errorMessage ?? call.errorClass : undefined,
     seq: item.seq,
+    ...(filename ? { filename } : {}),
+    ...(title ? { title } : {}),
   }
 }
 
@@ -165,6 +168,7 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
   compactNarrativeEnd,
   onOpenCodeExecution,
   activeCodeExecutionId,
+  onOpenDocument,
   onOpenSubAgent,
   accessToken,
   baseUrl,
@@ -194,6 +198,7 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
               entry={toolEntry}
               live={entryLive}
               onOpenCodeExecution={onOpenCodeExecution}
+              onOpenDocument={onOpenDocument}
               activeCodeExecutionId={activeCodeExecutionId}
             />
           )
@@ -216,6 +221,7 @@ export const CopSegmentBlocks = memo(function CopSegmentBlocks({
                 entry={toolResult}
                 live={entryLive}
                 onOpenCodeExecution={onOpenCodeExecution}
+                onOpenDocument={onOpenDocument}
                 activeCodeExecutionId={activeCodeExecutionId}
               />
             )
