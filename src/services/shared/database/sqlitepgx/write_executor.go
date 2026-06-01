@@ -5,6 +5,7 @@ package sqlitepgx
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // WriteGuard 表示一次写执行租约；调用方必须在完成后 Release。
@@ -36,6 +37,10 @@ func (g *serialWriteGuard) Release() {
 // SerialWriteExecutor 提供进程级单写执行能力。
 type SerialWriteExecutor struct {
 	token chan struct{}
+
+	mu        sync.Mutex
+	heldSince time.Time
+	heldSeq   uint64
 }
 
 func NewSerialWriteExecutor() *SerialWriteExecutor {
@@ -52,12 +57,29 @@ func (e *SerialWriteExecutor) AcquireWrite(ctx context.Context) (WriteGuard, err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-e.token:
+		e.mu.Lock()
+		e.heldSeq++
+		e.heldSince = time.Now()
+		e.mu.Unlock()
 		return &serialWriteGuard{
 			release: func() {
+				e.mu.Lock()
+				e.heldSince = time.Time{}
+				e.mu.Unlock()
 				e.token <- struct{}{}
 			},
 		}, nil
 	}
+}
+
+// HoldStatus 返回写令牌当前是否被持有、本次持有序号与已持有时长，供诊断监控定位长时间持锁者。
+func (e *SerialWriteExecutor) HoldStatus() (held bool, seq uint64, dur time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.heldSince.IsZero() {
+		return false, e.heldSeq, 0
+	}
+	return true, e.heldSeq, time.Since(e.heldSince)
 }
 
 type noopWriteGuard struct{}
