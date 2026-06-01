@@ -2,15 +2,12 @@ package pipeline
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	"arkloop/services/shared/messagecontent"
-	"arkloop/services/shared/objectstore"
 	"arkloop/services/worker/internal/data"
-	"arkloop/services/worker/internal/imageutil"
 	"arkloop/services/worker/internal/llm"
 )
 
@@ -79,42 +76,29 @@ func materializeMessageImages(ctx context.Context, store MessageAttachmentStore,
 	out := make([]llm.Message, len(msgs))
 	copy(out, msgs)
 	for i := range out {
-		parts := out[i].Content
-		partsCopied := false
-		for j := range parts {
-			if parts[j].Kind() != messagecontent.PartTypeImage || len(parts[j].Data) > 0 {
+		src := out[i].Content
+		rebuilt := make([]llm.ContentPart, 0, len(src))
+		changed := false
+		for j := range src {
+			if src[j].Kind() != messagecontent.PartTypeImage || len(src[j].Data) > 0 {
+				rebuilt = append(rebuilt, src[j])
 				continue
 			}
-			if parts[j].Attachment == nil || strings.TrimSpace(parts[j].Attachment.Key) == "" {
-				return nil, fmt.Errorf("message image attachment is required")
-			}
-			if store == nil {
-				return nil, fmt.Errorf("message attachment store not configured")
-			}
-			if !partsCopied {
-				parts = append([]llm.ContentPart(nil), out[i].Content...)
-				partsCopied = true
-			}
-			dataBytes, contentType, err := store.GetWithContentType(ctx, parts[j].Attachment.Key)
+			attachment, dataBytes, ok, err := resolveLazyImage(ctx, store, src[j].Attachment)
 			if err != nil {
-				if objectstore.IsNotFound(err) {
-					return nil, fmt.Errorf("message attachment not found")
-				}
 				return nil, err
 			}
-			attachment := *parts[j].Attachment
-			if strings.TrimSpace(contentType) != "" {
-				attachment.MimeType = strings.TrimSpace(contentType)
+			changed = true
+			if !ok {
+				continue // 图片无法解码，丢弃这张图，保留其余内容
 			}
-			dataBytes, attachment.MimeType = imageutil.ProcessImage(dataBytes, attachment.MimeType)
-			if len(dataBytes) == 0 || strings.TrimSpace(attachment.MimeType) == "" {
-				return nil, fmt.Errorf("message attachment image cannot be decoded")
-			}
-			parts[j].Attachment = &attachment
-			parts[j].Data = dataBytes
+			part := src[j]
+			part.Attachment = attachment
+			part.Data = dataBytes
+			rebuilt = append(rebuilt, part)
 		}
-		if partsCopied {
-			out[i].Content = parts
+		if changed {
+			out[i].Content = rebuilt
 		}
 	}
 	return out, nil

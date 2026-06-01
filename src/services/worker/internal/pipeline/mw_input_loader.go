@@ -1472,27 +1472,16 @@ func BuildMessagePartsWithOptions(ctx context.Context, store MessageAttachmentSt
 				})
 				continue
 			}
-			if store == nil {
-				return nil, fmt.Errorf("message attachment store not configured")
-			}
-			dataBytes, contentType, err := store.GetWithContentType(ctx, part.Attachment.Key)
+			attachment, dataBytes, ok, err := resolveLazyImage(ctx, store, part.Attachment)
 			if err != nil {
-				if objectstore.IsNotFound(err) {
-					return nil, fmt.Errorf("message attachment not found")
-				}
 				return nil, err
 			}
-			attachment := *part.Attachment
-			if strings.TrimSpace(contentType) != "" {
-				attachment.MimeType = strings.TrimSpace(contentType)
-			}
-			dataBytes, attachment.MimeType = imageutil.ProcessImage(dataBytes, attachment.MimeType)
-			if len(dataBytes) == 0 || strings.TrimSpace(attachment.MimeType) == "" {
-				return nil, fmt.Errorf("message attachment image cannot be decoded")
+			if !ok {
+				continue // 图片无法解码，丢弃这张图，其余内容照常发给模型
 			}
 			parts = append(parts, llm.ContentPart{
 				Type:       messagecontent.PartTypeImage,
-				Attachment: &attachment,
+				Attachment: attachment,
 				Data:       dataBytes,
 			})
 		}
@@ -1501,6 +1490,33 @@ func BuildMessagePartsWithOptions(ctx context.Context, store MessageAttachmentSt
 		return fallbackTextParts(fallbackContent), nil
 	}
 	return parts, nil
+}
+
+// resolveLazyImage 拉取并处理图片附件。ok=false 且 err==nil 表示图片无法解码，
+// 调用方应丢弃这张图，而不是让整轮 run 失败。
+func resolveLazyImage(ctx context.Context, store MessageAttachmentStore, ref *messagecontent.AttachmentRef) (*messagecontent.AttachmentRef, []byte, bool, error) {
+	if ref == nil || strings.TrimSpace(ref.Key) == "" {
+		return nil, nil, false, fmt.Errorf("message image attachment is required")
+	}
+	if store == nil {
+		return nil, nil, false, fmt.Errorf("message attachment store not configured")
+	}
+	dataBytes, contentType, err := store.GetWithContentType(ctx, ref.Key)
+	if err != nil {
+		if objectstore.IsNotFound(err) {
+			return nil, nil, false, fmt.Errorf("message attachment not found")
+		}
+		return nil, nil, false, err
+	}
+	attachment := *ref
+	if strings.TrimSpace(contentType) != "" {
+		attachment.MimeType = strings.TrimSpace(contentType)
+	}
+	dataBytes, attachment.MimeType = imageutil.ProcessImage(dataBytes, attachment.MimeType)
+	if len(dataBytes) == 0 || strings.TrimSpace(attachment.MimeType) == "" {
+		return nil, nil, false, nil
+	}
+	return &attachment, dataBytes, true, nil
 }
 
 func fallbackTextParts(content string) []llm.ContentPart {

@@ -326,6 +326,35 @@ func TestBuildMessagePartsWithOptionsLazyImagesKeepsAttachmentReference(t *testi
 	}
 }
 
+func TestBuildMessagePartsWithOptions_dropsUndecodableImage(t *testing.T) {
+	contentJSON, err := (messagecontent.Content{Parts: []messagecontent.Part{
+		{Type: messagecontent.PartTypeText, Text: "hello"},
+		{Type: messagecontent.PartTypeImage, Attachment: &messagecontent.AttachmentRef{
+			Key:      "attachments/bad.heic",
+			Filename: "bad.heic",
+			MimeType: "image/heic",
+		}},
+	}}).JSON()
+	if err != nil {
+		t.Fatalf("marshal content json: %v", err)
+	}
+
+	store := &groupTrimAttachmentStore{
+		data:     map[string][]byte{"attachments/bad.heic": []byte("not a decodable image")},
+		mimeType: "image/heic",
+	}
+	parts, err := BuildMessagePartsWithOptions(context.Background(), store, data.ThreadMessage{
+		Role:        "user",
+		ContentJSON: contentJSON,
+	}, MessagePartBuildOptions{LazyImages: false})
+	if err != nil {
+		t.Fatalf("undecodable image should be skipped, not abort the run: %v", err)
+	}
+	if len(parts) != 1 || parts[0].Kind() != messagecontent.PartTypeText || parts[0].Text != "hello" {
+		t.Fatalf("expected only text part kept, got %#v", parts)
+	}
+}
+
 func TestLoadRunInputsBoundsFreshChannelHistoryAtThreadTail(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.SetupPostgresDatabase(t, "pipeline_input_loader_bounded_channel_history")

@@ -135,6 +135,47 @@ func TestNewChannelGroupContextTrimMiddleware_materializesOnlyKeptLazyImages(t *
 	}
 }
 
+func TestNewChannelGroupContextTrimMiddleware_dropsUndecodableImage(t *testing.T) {
+	store := &groupTrimAttachmentStore{
+		data: map[string][]byte{
+			"attachments/good.png": groupTrimPNG(t),
+			"attachments/bad.heic": []byte("not a decodable image"),
+		},
+		mimeType: "image/png",
+	}
+	mw := NewChannelGroupContextTrimMiddleware(GroupContextTrimDeps{AttachmentStore: store})
+	rc := &RunContext{
+		ChannelContext: &ChannelContext{ConversationType: "supergroup"},
+		Messages: []llm.Message{
+			{Role: "user", Content: []llm.ContentPart{
+				{Type: messagecontent.PartTypeText, Text: "看这张图"},
+				lazyImagePart("attachments/bad.heic"),
+			}},
+			{Role: "user", Content: []llm.ContentPart{lazyImagePart("attachments/good.png")}},
+		},
+	}
+
+	nextCalled := false
+	err := mw(context.Background(), rc, func(context.Context, *RunContext) error {
+		nextCalled = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("undecodable image should be skipped, not abort the run: %v", err)
+	}
+	if !nextCalled {
+		t.Fatal("next not invoked — run aborted instead of proceeding")
+	}
+	first := rc.Messages[0].Content
+	if len(first) != 1 || first[0].Kind() != messagecontent.PartTypeText {
+		t.Fatalf("expected bad image dropped and text kept, got %#v", first)
+	}
+	good := rc.Messages[1].Content[0]
+	if good.Kind() != messagecontent.PartTypeImage || len(good.Data) == 0 {
+		t.Fatalf("expected good image materialized, got %#v", good)
+	}
+}
+
 func lazyImagePart(key string) llm.ContentPart {
 	return llm.ContentPart{
 		Type: messagecontent.PartTypeImage,
