@@ -12,9 +12,9 @@ import (
 	sharedmcpinstall "arkloop/services/shared/mcpinstall"
 	sharedmcpoauth "arkloop/services/shared/mcpoauth"
 
-	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type sdkClient struct {
@@ -46,15 +46,39 @@ func newSDKClient(ctx context.Context, server sharedmcpinstall.ServerConfig, aut
 		return nil, fmt.Errorf("mcp: unsupported transport: %s", server.Transport)
 	}
 
-	session, err := client.Connect(ctx, transport, nil)
-	if err != nil {
-		return nil, classifySDKError(err)
+	// Connect 包含建链 + initialize 握手，go-sdk 把 session 后台循环绑定在传入的 ctx 上，
+	// 因此不能用带超时的派生 ctx（cancel 会连带杀掉 pool 复用的 session）。改用竞速：
+	// 用原 ctx 跑 Connect，握手超过 connectTimeout 就放弃，被放弃的 goroutine 随 run ctx 结束回收。
+	connectTimeout := time.Duration(server.CallTimeoutMs) * time.Millisecond
+	if connectTimeout <= 0 {
+		connectTimeout = time.Duration(defaultCallTimeoutMs) * time.Millisecond
 	}
+	type connectResult struct {
+		session *sdkmcp.ClientSession
+		err     error
+	}
+	resultCh := make(chan connectResult, 1)
+	go func() {
+		session, err := client.Connect(ctx, transport, nil)
+		resultCh <- connectResult{session: session, err: err}
+	}()
 
-	return &sdkClient{
-		session: session,
-		server:  server,
-	}, nil
+	timer := time.NewTimer(connectTimeout)
+	defer timer.Stop()
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			return nil, classifySDKError(res.err)
+		}
+		return &sdkClient{
+			session: res.session,
+			server:  server,
+		}, nil
+	case <-timer.C:
+		return nil, TimeoutError{Message: "MCP connect timed out"}
+	case <-ctx.Done():
+		return nil, classifySDKError(ctx.Err())
+	}
 }
 
 func (c *sdkClient) ListTools(ctx context.Context, timeoutMs int) ([]Tool, error) {
