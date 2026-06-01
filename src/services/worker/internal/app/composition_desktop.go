@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -600,6 +601,23 @@ func (e *DesktopEngine) Shutdown(ctx context.Context) {
 }
 
 // Execute runs the agent pipeline for a single run.
+// resolvePipelineWatchdogTimeout 返回 agent loop 之前 pipeline 阶段的看门狗时限。
+// 默认 120s，可通过 ARKLOOP_PIPELINE_WATCHDOG_SECONDS 调整；<=0 关闭看门狗。
+func resolvePipelineWatchdogTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("ARKLOOP_PIPELINE_WATCHDOG_SECONDS"))
+	if raw == "" {
+		return 120 * time.Second
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 120 * time.Second
+	}
+	if v <= 0 {
+		return 0
+	}
+	return time.Duration(v) * time.Second
+}
+
 func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID string, jobPayload map[string]any) error {
 	traceID = strings.TrimSpace(traceID)
 	emitter := events.NewEmitter(traceID)
@@ -844,9 +862,40 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopChannelDelivery(e.db, e.messageAttachmentStore, e.artifactStore),
 	)
 	terminal := desktopAgentLoop(e.db, e.bus, e.jobQueue, runsRepo, eventsRepo, e.shellExecutor, e.runtimeSnapshot)
-	handler := pipeline.Build(middlewares, terminal)
 
-	return handler(ctx, rc)
+	// 看门狗：agent loop 之前的任一 stage（如 MCP 发现连不上的 server）卡住超过阈值时，
+	// 中断前段并写 run.failed 终态，避免 run 静默停在 running、worker 槽被占死。
+	// 触发时 dump 全部 goroutine 到临时文件，便于定位究竟卡在哪个 stage 的哪个调用。
+	watchdog := resolvePipelineWatchdogTimeout()
+	return pipeline.RunWithStageWatchdog(ctx, rc, middlewares, terminal, watchdog, func(octx context.Context) error {
+		details := map[string]any{"timeout_seconds": int(watchdog.Seconds())}
+		if dumpPath := writePipelineStallDump(run.ID); dumpPath != "" {
+			slog.WarnContext(octx, "pipeline stalled before agent loop; goroutine dump written", "run_id", run.ID.String(), "dump", dumpPath)
+			details["goroutine_dump"] = dumpPath
+		}
+		return desktopWriteFailure(octx, e.db, run, emitter, runsRepo, eventsRepo,
+			"worker.pipeline_timeout", "pipeline stalled before agent loop", details)
+	})
+}
+
+// writePipelineStallDump 将全部 goroutine 栈写入临时文件，返回路径（失败返回空串）。
+func writePipelineStallDump(runID uuid.UUID) string {
+	size := 1 << 20
+	var dump []byte
+	for {
+		buf := make([]byte, size)
+		n := stdruntime.Stack(buf, true)
+		if n < size || size >= 16<<20 {
+			dump = buf[:n]
+			break
+		}
+		size *= 2
+	}
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("arkloop-pipeline-stall-%s.txt", runID.String()))
+	if err := os.WriteFile(path, dump, 0o600); err != nil {
+		return ""
+	}
+	return path
 }
 
 func traceDesktopMemoryInjection(inner pipeline.RunMiddleware) pipeline.RunMiddleware {
