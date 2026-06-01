@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	api "arkloop/services/api"
 	"arkloop/services/shared/database/sqlitepgx"
@@ -76,6 +79,7 @@ func RunDesktop(ctx context.Context) error {
 		desktop.SetSharedSQLiteWriteExecutor(writeExecutor)
 	}
 	sqlitepgx.SetGlobalWriteExecutor(writeExecutor)
+	startWriteLockMonitor(ctx, writeExecutor, logger)
 	shared := desktop.GetSharedSQLitePool()
 	if shared == nil {
 		return fmt.Errorf("desktop worker requires shared sqlite pool; start it from the desktop sidecar")
@@ -166,6 +170,65 @@ func desktopWorkerConcurrency() int {
 		return desktopWorkerConcurrencyHardMax
 	}
 	return v
+}
+
+// startWriteLockMonitor 周期检查 SQLite 全局写令牌是否被长时间持有。desktop 进程内所有写共享一个
+// 写令牌，按整段事务持有；一旦某个写事务夹了慢/阻塞操作（无超时工具、sandbox 命令、LLM 调用等），
+// 全进程的写都会被冻结。令牌被连续持有超过阈值时，dump 全部 goroutine 到临时文件并告警路径，用于
+// 定位持令牌者。阈值由 ARKLOOP_WRITE_LOCK_MONITOR_SECONDS 控制，默认 15s，<=0 关闭。
+func startWriteLockMonitor(ctx context.Context, exec sqlitepgx.WriteExecutor, logger *slog.Logger) {
+	se, ok := exec.(*sqlitepgx.SerialWriteExecutor)
+	if !ok || se == nil || logger == nil {
+		return
+	}
+	threshold := 15 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("ARKLOOP_WRITE_LOCK_MONITOR_SECONDS")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err == nil {
+			if v <= 0 {
+				return
+			}
+			threshold = time.Duration(v) * time.Second
+		}
+	}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		var loggedSeq uint64
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				held, seq, dur := se.HoldStatus()
+				if !held || dur < threshold || seq == loggedSeq {
+					continue
+				}
+				loggedSeq = seq
+				path := filepath.Join(os.TempDir(), fmt.Sprintf("arkloop-writelock-%d.txt", seq))
+				if err := os.WriteFile(path, captureGoroutines(), 0o600); err != nil {
+					logger.Warn("sqlite write lock held too long; goroutine dump failed",
+						"held_seconds", int(dur.Seconds()), "hold_seq", seq, "err", err.Error())
+					continue
+				}
+				logger.Warn("sqlite write lock held too long; goroutine dump written",
+					"held_seconds", int(dur.Seconds()), "hold_seq", seq, "dump", path)
+			}
+		}
+	}()
+}
+
+// captureGoroutines 返回全部 goroutine 栈，缓冲不足时翻倍，上限 16MB。
+func captureGoroutines() []byte {
+	size := 1 << 20
+	for {
+		buf := make([]byte, size)
+		n := runtime.Stack(buf, true)
+		if n < size || size >= 16<<20 {
+			return buf[:n]
+		}
+		size *= 2
+	}
 }
 
 type desktopHandler struct {
