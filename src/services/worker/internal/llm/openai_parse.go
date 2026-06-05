@@ -19,6 +19,8 @@ type ParseWarning struct {
 	Message    string
 }
 
+var errOpenAIResponsesMissingOutput = errors.New("response missing output")
+
 func truncateRaw(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -717,7 +719,7 @@ func parseOpenAIResponsesAssistantResponse(root map[string]any) (Message, []Tool
 		if contentBuilder.Len() > 0 {
 			return Message{Role: "assistant", Content: []TextPart{{Text: contentBuilder.String()}}}, nil, nil, nil, nil, nil
 		}
-		return Message{}, nil, nil, nil, nil, fmt.Errorf("response missing output")
+		return Message{}, nil, nil, nil, nil, errOpenAIResponsesMissingOutput
 	}
 
 	toolCalls := []ToolCall{}

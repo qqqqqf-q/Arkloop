@@ -548,7 +548,14 @@ func (s *openAISDKResponsesState) handleRaw(raw string) error {
 		respObj, _ := root["response"].(map[string]any)
 		assistantMessage, toolCalls, usage, cost, warnings, err := parseOpenAIResponsesAssistantResponse(respObj)
 		if err != nil {
-			return s.yield(openAIParseFailure(err, "OpenAI responses response parse failed", "OpenAI responses tool_call arguments parse failed", s.llmCallID))
+			if !isOpenAIResponsesMissingOutput(err) || !s.hasStreamedCompletionData() {
+				return s.yield(openAIParseFailure(err, "OpenAI responses response parse failed", "OpenAI responses tool_call arguments parse failed", s.llmCallID))
+			}
+			assistantMessage = Message{Role: "assistant"}
+			if usageObj, ok := respObj["usage"].(map[string]any); ok {
+				usage = parseResponsesUsage(usageObj)
+				cost = parseResponsesCost(usageObj)
+			}
 		}
 		if len(toolCalls) == 0 && len(s.toolBuffers) > 0 {
 			var bufferedWarnings []ParseWarning
@@ -602,6 +609,18 @@ func (s *openAISDKResponsesState) handleRaw(raw string) error {
 	}
 	return nil
 }
+
+func isOpenAIResponsesMissingOutput(err error) bool {
+	return errors.Is(err, errOpenAIResponsesMissingOutput)
+}
+
+func (s *openAISDKResponsesState) hasStreamedCompletionData() bool {
+	if s == nil {
+		return false
+	}
+	return s.visible.Len() > 0 || s.thinking.Len() > 0 || len(s.toolBuffers) > 0
+}
+
 func (s *openAISDKResponsesState) fail(g GatewayError) error {
 	return s.yield(StreamRunFailed{LlmCallID: s.llmCallID, Error: g})
 }

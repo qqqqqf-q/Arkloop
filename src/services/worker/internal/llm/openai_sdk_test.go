@@ -420,6 +420,81 @@ func TestOpenAISDKResponsesState_ToolDeltaAndCompletedFallback(t *testing.T) {
 	}
 }
 
+func TestOpenAISDKResponsesState_MissingOutputUsesBufferedToolCall(t *testing.T) {
+	var events []StreamEvent
+	state := newOpenAISDKResponsesState(context.Background(), "llm_1", func(event StreamEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	chunks := []string{
+		`{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"load_tools","arguments":""}}`,
+		`{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"{\"queries\":[\"mcp__nowledge__memory_search\"]}"}`,
+		`{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":2}}}`,
+	}
+	for _, chunk := range chunks {
+		var event responses.ResponseStreamEventUnion
+		if err := json.Unmarshal([]byte(chunk), &event); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if err := state.handle(event); err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+	}
+
+	var failed *StreamRunFailed
+	var tool *ToolCall
+	var completed *StreamRunCompleted
+	for _, event := range events {
+		switch ev := event.(type) {
+		case StreamRunFailed:
+			failed = &ev
+		case ToolCall:
+			tool = &ev
+		case StreamRunCompleted:
+			completed = &ev
+		}
+	}
+	if failed != nil {
+		t.Fatalf("unexpected failure: %#v", failed)
+	}
+	if tool == nil || tool.ToolCallID != "call_1" || tool.ToolName != "load_tools" {
+		t.Fatalf("unexpected buffered tool call: %#v", tool)
+	}
+	queries, _ := tool.ArgumentsJSON["queries"].([]any)
+	if len(queries) != 1 || queries[0] != "mcp__nowledge__memory_search" {
+		t.Fatalf("unexpected buffered arguments: %#v", tool.ArgumentsJSON)
+	}
+	if completed == nil || completed.Usage == nil {
+		t.Fatalf("missing completion usage: %#v", completed)
+	}
+	if completed.Usage.InputTokens == nil || *completed.Usage.InputTokens != 1 {
+		t.Fatalf("unexpected input tokens: %#v", completed.Usage)
+	}
+	if completed.Usage.OutputTokens == nil || *completed.Usage.OutputTokens != 2 {
+		t.Fatalf("missing completion usage: %#v", completed)
+	}
+}
+
+func TestOpenAISDKResponsesState_MissingOutputWithoutStreamedDataFails(t *testing.T) {
+	var failed *StreamRunFailed
+	state := newOpenAISDKResponsesState(context.Background(), "llm_1", func(event StreamEvent) error {
+		if ev, ok := event.(StreamRunFailed); ok {
+			failed = &ev
+		}
+		return nil
+	})
+	var event responses.ResponseStreamEventUnion
+	if err := json.Unmarshal([]byte(`{"type":"response.completed","response":{"id":"resp_1","status":"completed"}}`), &event); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if err := state.handle(event); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if failed == nil || failed.Error.Message != "OpenAI responses response parse failed" {
+		t.Fatalf("expected parse failure, got %#v", failed)
+	}
+}
+
 func TestOpenAISDKResponsesState_ErrorEvent(t *testing.T) {
 	var failed *StreamRunFailed
 	state := newOpenAISDKResponsesState(context.Background(), "llm_1", func(event StreamEvent) error {
