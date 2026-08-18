@@ -120,7 +120,7 @@ bin/ci-local full          # 完整检查
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=qqqqqf-q/Arkloop&type=date&legend=top-left)](https://www.star-history.com/#qqqqqf-q/Arkloop&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=qqqqqf-q/Arkloop&type=date&legend=top-left)](https://star-history.dera.page/#qqqqqf-q/Arkloop&type=date&legend=top-left)
 
 ## 安全
 
