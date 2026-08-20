@@ -264,7 +264,9 @@ func resolveUserShellPATH() {
 	}
 	merged := mergePATH(shellPATH, currentPATH)
 	if merged != "" {
-		os.Setenv("PATH", merged)
+		if err := os.Setenv("PATH", merged); err != nil {
+			slog.Warn("desktop: failed to merge user shell PATH", "err", err)
+		}
 	}
 }
 
