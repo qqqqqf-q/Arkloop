@@ -285,7 +285,7 @@ export const Sidebar = memo(function Sidebar({
   const [starredIds, setStarredIds] = useState<string[]>([])
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [shareModalThreadId, setShareModalThreadId] = useState<string | null>(null)
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [menuPos, setMenuPos] = useState<{ x: number; top?: number; bottom?: number; placement: 'down' | 'up' }>({ x: 0, top: 0, placement: 'down' })
   const menuRef = useRef<HTMLDivElement>(null)
   const asideRef = useRef<HTMLElement>(null)
   const toggleStartedRef = useRef<{ startedAt: number; sample?: Record<string, string | number | boolean | null | undefined> } | null>(null)
@@ -466,7 +466,15 @@ export const Sidebar = memo(function Sidebar({
   const openMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    setMenuPos({ x: rect.right, y: rect.bottom + 4 })
+    const gap = 8
+    const estimatedMenuHeight = 240
+    const spaceBelow = window.innerHeight - rect.bottom - gap
+    const placement = spaceBelow >= estimatedMenuHeight || spaceBelow >= rect.top ? 'down' : 'up'
+    setMenuPos(
+      placement === 'up'
+        ? { x: rect.right, bottom: window.innerHeight - rect.top + gap, placement }
+        : { x: rect.right, top: rect.bottom + gap, placement },
+    )
     setMenuThreadId((prev) => (prev === id ? null : id))
   }, [])
 
@@ -1387,7 +1395,7 @@ export const Sidebar = memo(function Sidebar({
       style={{
         position: 'fixed',
         right: `calc(100vw - ${menuPos.x}px)`,
-        top: menuPos.y,
+        ...(menuPos.placement === 'up' ? { bottom: menuPos.bottom } : { top: menuPos.top }),
         zIndex: 9999,
         border: '0.5px solid var(--c-border-subtle)',
         borderRadius: '10px',
@@ -1396,7 +1404,7 @@ export const Sidebar = memo(function Sidebar({
         minWidth: '120px',
         boxShadow: 'var(--c-dropdown-shadow)',
       }}
-      className="dropdown-menu"
+      className={menuPos.placement === 'up' ? 'dropdown-menu-up' : 'dropdown-menu'}
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
         <button
