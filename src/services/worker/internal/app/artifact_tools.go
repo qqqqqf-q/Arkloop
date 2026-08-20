@@ -28,7 +28,10 @@ func registerStoredArtifactTools(
 	}
 
 	artifactExecutor := documentwritetool.NewToolExecutor(store)
-	imageExecutor := imagegeneratetool.NewToolExecutor(store, db, configResolver, routingLoader)
+	// attachmentStore 作为可选回退:input_images 引用的是消息附件而非 artifact 时,
+	// 到附件存储里按原 key 和 "attachments/" 前缀各试一次
+	imageExecutor := imagegeneratetool.NewToolExecutor(store, db, configResolver, routingLoader).
+		WithMessageAttachmentStore(attachmentStore)
 	resourceCopyExecutor := resourcecopytool.NewExecutor(store, attachmentStore)
 	registered := false
 	for _, item := range []struct {
