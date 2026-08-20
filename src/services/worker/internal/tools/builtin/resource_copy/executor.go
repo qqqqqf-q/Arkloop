@@ -123,6 +123,9 @@ func authorizeObjectKey(ctx context.Context, store objectstore.Store, key string
 		return nil
 	}
 	info, err := store.Head(ctx, key)
+	if err != nil && objectstore.IsNotFound(err) && attachment && !strings.HasPrefix(key, "attachments/") {
+		info, err = store.Head(ctx, "attachments/"+key)
+	}
 	if err != nil {
 		return &tools.ExecutionError{ErrorClass: errorFetchFailed, Message: fmt.Sprintf("read resource metadata failed: %s", err.Error())}
 	}
