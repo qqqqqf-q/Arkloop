@@ -10,6 +10,7 @@ import { app } from 'electron'
 import type { LocalPortMode, MemoryConfig, NetworkConfig } from './types'
 import { appendSidecarLog, getDesktopLogPaths } from './logging'
 import { getBrowserSearchBaseUrl } from './browser-search'
+import { resourcePath } from './config'
 
 export type SidecarStatus = 'stopped' | 'starting' | 'running' | 'crashed'
 
@@ -147,7 +148,7 @@ export function getSidecarPath(): string {
 
 function getBundledSidecarPath(): string {
   const bundledName = process.platform === 'win32' ? 'desktop.exe' : 'desktop'
-  return path.join(process.resourcesPath, 'sidecar', bundledName)
+  return resourcePath('sidecar', bundledName)
 }
 
 function getDevBuiltSidecarPath(): string {
@@ -473,7 +474,7 @@ function resolveBinaryPath(): string {
 
 function resolveBundledProjectDir(): string | null {
   if (!app.isPackaged) return null
-  const candidate = path.join(process.resourcesPath, 'arkloop-project')
+  const candidate = resourcePath('arkloop-project')
   if (!fs.existsSync(path.join(candidate, 'compose.yaml'))) return null
   return ensureWritableBundledProjectDir(candidate)
 }

@@ -36,7 +36,12 @@ function readDevMockPhase(): AppUpdaterPhase | null {
   return raw as AppUpdaterPhase
 }
 
+function isUpdaterDisabled(): boolean {
+  return process.env.ARKLOOP_DISABLE_APP_UPDATER === '1'
+}
+
 function isUpdaterSupported(): boolean {
+  if (isUpdaterDisabled()) return false
   return app.isPackaged || readDevMockPhase() !== null
 }
 
@@ -66,6 +71,16 @@ function buildDevMockState(phase: AppUpdaterPhase): AppUpdaterState {
 const baseState = (): AppUpdaterState => {
   const devMockPhase = readDevMockPhase()
   if (devMockPhase) return buildDevMockState(devMockPhase)
+  if (isUpdaterDisabled()) {
+    return {
+      supported: false,
+      phase: 'unsupported',
+      currentVersion: app.getVersion(),
+      latestVersion: null,
+      progressPercent: 0,
+      error: null,
+    }
+  }
   return {
     supported: app.isPackaged,
     phase: app.isPackaged ? 'idle' : 'unsupported',
@@ -111,7 +126,7 @@ export async function checkForAppUpdates(): Promise<AppUpdaterState> {
     return getAppUpdaterState()
   }
 
-  if (!app.isPackaged) {
+  if (isUpdaterDisabled() || !app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return getAppUpdaterState()
   }
@@ -135,7 +150,7 @@ export async function downloadAppUpdate(): Promise<AppUpdaterState> {
     return getAppUpdaterState()
   }
 
-  if (!app.isPackaged) {
+  if (isUpdaterDisabled() || !app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return getAppUpdaterState()
   }
@@ -159,7 +174,7 @@ export function installAppUpdate(): void {
     return
   }
 
-  if (!app.isPackaged) {
+  if (isUpdaterDisabled() || !app.isPackaged) {
     patchState({ phase: 'unsupported', latestVersion: null, progressPercent: 0, error: null })
     return
   }
@@ -183,7 +198,7 @@ export function setupAppUpdater(
   }
 
   initialized = true
-  if (!app.isPackaged) {
+  if (isUpdaterDisabled() || !app.isPackaged) {
     patchState({})
     if (readDevMockPhase() && options.autoCheck) {
       void checkForAppUpdates().catch(() => {})

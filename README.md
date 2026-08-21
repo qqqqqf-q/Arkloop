@@ -39,6 +39,15 @@ Homebrew installs the Arkloop CLI only:
 brew install qqqqqf-q/arkloop/arkloop && ark web
 ```
 
+### Desktop via Nix
+
+Linux users with flakes enabled can run or install the desktop app from the flake:
+
+```bash
+nix run github:qqqqqf-q/Arkloop
+nix profile install github:qqqqqf-q/Arkloop
+```
+
 For a headless Linux machine, use one command:
 
 ```bash

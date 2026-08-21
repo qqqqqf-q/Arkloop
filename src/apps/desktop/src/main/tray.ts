@@ -1,6 +1,7 @@
 import { Tray, Menu, nativeImage, nativeTheme, app, BrowserWindow, globalShortcut } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import { resourcePath } from './config'
 
 let tray: Tray | null = null
 type ShowWindow = () => void
@@ -8,8 +9,8 @@ type ShowWindow = () => void
 function resolveResource(name: string): string {
   const candidates = app.isPackaged
     ? [
-        path.join(process.resourcesPath, name),
-        path.join(process.resourcesPath, 'app.asar', 'resources', name),
+        resourcePath(name),
+        resourcePath('app.asar', 'resources', name),
         path.join(app.getAppPath(), 'resources', name),
       ]
     : [

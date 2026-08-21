@@ -31,6 +31,14 @@ const VERSIONS_FILE = path.join(CONFIG_DIR, 'versions.json')
 const LEGACY_SIDECAR_VERSION_FILE = path.join(CONFIG_DIR, 'bin', 'sidecar.version.json')
 const LEGACY_OPENCLI_VERSION_FILE = path.join(CONFIG_DIR, 'bin', 'opencli.version.json')
 
+export function getResourcesPath(): string {
+  return process.env.ARKLOOP_RESOURCES_PATH || process.resourcesPath
+}
+
+export function resourcePath(...segments: string[]): string {
+  return path.join(getResourcesPath(), ...segments)
+}
+
 export type VersionsState = {
   sidecar?: { version: string; updated_at: string }
   openviking?: { version: string; updated_at: string }

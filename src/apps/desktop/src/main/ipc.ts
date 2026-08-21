@@ -3,7 +3,7 @@ import http from 'http'
 import os from 'os'
 import { DatabaseSync } from 'node:sqlite'
 import path from 'path'
-import { loadConfig, saveConfig, getConfigPath } from './config'
+import { loadConfig, resourcePath, saveConfig, getConfigPath } from './config'
 import {
   getSidecarStatus,
   getSidecarRuntime,
@@ -1083,19 +1083,19 @@ function getDesktopIconDataUrl(): string | null {
     ? (
       process.platform === 'darwin'
         ? [
-            path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
-            path.join(process.resourcesPath, 'icon.png'),
+            resourcePath('app.asar', 'resources', 'icon.png'),
+            resourcePath('icon.png'),
           ]
         : process.platform === 'win32'
           ? [
-              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
-              path.join(process.resourcesPath, 'icon.png'),
-              path.join(process.resourcesPath, 'icon.ico'),
-              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.ico'),
+              resourcePath('app.asar', 'resources', 'icon.png'),
+              resourcePath('icon.png'),
+              resourcePath('icon.ico'),
+              resourcePath('app.asar', 'resources', 'icon.ico'),
             ]
           : [
-              path.join(process.resourcesPath, 'app.asar', 'resources', 'icon.png'),
-              path.join(process.resourcesPath, 'icon.png'),
+              resourcePath('app.asar', 'resources', 'icon.png'),
+              resourcePath('icon.png'),
             ]
     )
     : [

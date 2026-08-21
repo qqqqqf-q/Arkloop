@@ -11,6 +11,14 @@ Thank you for considering a contribution to Arkloop. This document covers the pr
 - Docker and Docker Compose
 - PostgreSQL 16+ (or use `docker compose up postgres`)
 
+Alternatively, if you use Nix with flakes enabled, enter the pinned development shell:
+
+```bash
+nix develop
+```
+
+The flake provides Go 1.26, Node.js, Corepack-managed pnpm, Docker Compose, PostgreSQL/Redis clients, and the local CI helper dependencies. Docker still needs a running host daemon.
+
 ### Local Development Setup
 
 ```bash
