@@ -500,9 +500,10 @@ function renderItem(
   onOpenDocument?: (artifact: ArtifactRef, options?: { trigger?: HTMLElement | null; artifacts?: ArtifactRef[]; runId?: string }) => void,
   artifacts?: ArtifactRef[] | null,
   runId?: string,
-  accessToken?: string,
-  baseUrl?: string,
-  typography: 'default' | 'work' = 'default',
+  // 预留给后续渲染定制的参数,当前未消费;保位以下划线前缀避免 TS6133
+  _accessToken?: string,
+  _baseUrl?: string,
+  _typography: 'default' | 'work' = 'default',
   locale: Locale = 'zh',
   showLeafIcon = true,
 ): React.ReactNode {

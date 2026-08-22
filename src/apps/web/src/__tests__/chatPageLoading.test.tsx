@@ -831,6 +831,7 @@ function OutletShell({ context }: { context: LegacyOutletContext }) {
     settingsOpen: false,
     settingsInitialTab: 'account',
     desktopSettingsSection: 'general',
+    setDesktopSettingsLocation: () => {},
     desktopAdvancedSection: null,
     desktopSettingsRequestId: 0,
     notificationsOpen: false,

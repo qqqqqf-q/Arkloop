@@ -1,5 +1,4 @@
 import { copSegmentCalls, type AssistantTurnSegment, type AssistantTurnUi } from './assistantTurnSegments'
-import type { CopBlockItem } from './assistantTurnSegments'
 import type {
   CodeExecutionRef,
   FileOpRef,

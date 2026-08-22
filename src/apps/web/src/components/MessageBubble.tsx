@@ -37,9 +37,12 @@ type Props = {
   isLast?: boolean
   isWorkMode?: boolean
   suppressActionBar?: boolean
+  /** 嵌入只读场景下隐藏 fork/share 操作,透传给 AssistantMessage */
+  showFork?: boolean
+  showShare?: boolean
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, workFolder, onWidgetAction, onShowSources, onOpenDocument, onOpenResource, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, streamAssistantMarkdown, animateUserEnter, onUserEnterAnimationEnd, onRetry, onEdit, onFork, onShare, shareState, webSources, artifacts, browserActions, widgets, accessToken, workFolder, onWidgetAction, onShowSources, onOpenDocument, onOpenResource, onViewRunDetail, contentPrefix, contentOverride, plainTextForCopy, isLast, isWorkMode, suppressActionBar, showFork, showShare }: Props) {
   if (message.role === 'user') {
     return (
       <UserMessage
@@ -78,6 +81,8 @@ export const MessageBubble = memo(function MessageBubble({ message, streamAssist
       isLast={isLast}
       isWorkMode={isWorkMode}
       suppressActionBar={suppressActionBar}
+      showFork={showFork}
+      showShare={showShare}
     />
   )
 })
