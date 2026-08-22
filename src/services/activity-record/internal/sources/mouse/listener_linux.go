@@ -9,16 +9,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
-	evRel       = 2
-	evKey       = 1
-	btnLeft     = 0x110
-	btnRight    = 0x111
-	btnMiddle   = 0x112
-	relWheel    = 8
-	relHWheel   = 6
+	evRel     = 2
+	evKey     = 1
+	btnLeft   = 0x110
+	btnRight  = 0x111
+	btnMiddle = 0x112
+	relWheel  = 8
+	relHWheel = 6
+	relX      = 0
+	relY      = 1
 )
 
 type inputEvent struct {
@@ -29,15 +32,56 @@ type inputEvent struct {
 	Value    int32
 }
 
-func listenMouse(ctx context.Context, c *counters) error {
+func listenMouse(ctx context.Context, agg *mouseAgg) error {
 	devs, err := findMouseDevices()
 	if err != nil || len(devs) == 0 {
 		return fmt.Errorf("no mouse device found: %v", err)
 	}
 
-	f, err := os.Open(devs[0])
+	ch := make(chan inputEvent, 128)
+	for _, dev := range devs {
+		go readDev(ctx, dev, ch)
+	}
+
+	var curX, curY float64
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			switch ev.Type {
+			case evRel:
+				switch ev.Code {
+				case relX:
+					curX += float64(ev.Value)
+				case relY:
+					curY += float64(ev.Value)
+				case relWheel, relHWheel:
+					agg.scrolls++
+				}
+			case evKey:
+				if ev.Value == 1 {
+					switch ev.Code {
+					case btnLeft, btnRight, btnMiddle:
+						agg.clicks++
+						agg.pathEvents = append(agg.pathEvents, mousePathEvent{
+							at: time.Now(),
+							x:  curX, y: curY,
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+func readDev(ctx context.Context, path string, ch chan<- inputEvent) {
+	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("open %s: %w (try adding user to input group)", devs[0], err)
+		return
 	}
 	defer f.Close()
 
@@ -49,19 +93,12 @@ func listenMouse(ctx context.Context, c *counters) error {
 	var ev inputEvent
 	for {
 		if err := binary.Read(f, binary.LittleEndian, &ev); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
+			return
 		}
-		if ev.Type == evKey && ev.Value == 1 {
-			switch ev.Code {
-			case btnLeft, btnRight, btnMiddle:
-				c.clicks.Add(1)
-			}
-		}
-		if ev.Type == evRel && (ev.Code == relWheel || ev.Code == relHWheel) {
-			c.scrolls.Add(1)
+		select {
+		case ch <- ev:
+		case <-ctx.Done():
+			return
 		}
 	}
 }

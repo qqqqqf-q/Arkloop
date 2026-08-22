@@ -14,9 +14,16 @@ import (
 
 	"arkloop/services/activity-record/internal/sources/audio"
 	"arkloop/services/activity-record/internal/sources/ax"
+	"arkloop/services/activity-record/internal/sources/battery"
+	"arkloop/services/activity-record/internal/sources/bluetooth"
 	"arkloop/services/activity-record/internal/sources/clipboard"
+	"arkloop/services/activity-record/internal/sources/fsevents"
 	"arkloop/services/activity-record/internal/sources/keyboard"
+	"arkloop/services/activity-record/internal/sources/location"
 	"arkloop/services/activity-record/internal/sources/mouse"
+	"arkloop/services/activity-record/internal/sources/processmetrics"
+	"arkloop/services/activity-record/internal/sources/security"
+	"arkloop/services/activity-record/internal/sources/wifi"
 	"arkloop/services/activity-record/internal/sources/window"
 	"arkloop/services/activity-record/internal/store"
 )
@@ -176,14 +183,6 @@ func buildDaemonSource(name string, opts DaemonOptions) (DaemonSource, error) {
 	switch name {
 	case "ax":
 		return ax.New(opts.IdleThreshold), nil
-	case "window":
-		return window.New(opts.IdleThreshold), nil
-	case "clipboard":
-		return clipboard.New(true), nil
-	case "keyboard":
-		return keyboard.New(), nil
-	case "mouse":
-		return mouse.New(), nil
 	case "audio":
 		if opts.AudioAPIBase == "" || opts.AudioAPIKey == "" {
 			return nil, fmt.Errorf("audio source requires api base url and api key")
@@ -194,6 +193,28 @@ func buildDaemonSource(name string, opts DaemonOptions) (DaemonSource, error) {
 			Model:    opts.AudioModel,
 			Language: opts.AudioLanguage,
 		}), nil
+	case "battery":
+		return battery.New(), nil
+	case "bluetooth":
+		return bluetooth.New(), nil
+	case "clipboard":
+		return clipboard.New(true), nil
+	case "fs-events":
+		return fsevents.New(), nil
+	case "keyboard":
+		return keyboard.New(), nil
+	case "location":
+		return location.New(), nil
+	case "mouse":
+		return mouse.New(), nil
+	case "process-metrics":
+		return processmetrics.New(), nil
+	case "security":
+		return security.New(), nil
+	case "wifi":
+		return wifi.New(), nil
+	case "window":
+		return window.New(opts.IdleThreshold), nil
 	default:
 		return nil, errUnknownSource(name)
 	}

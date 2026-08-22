@@ -100,14 +100,34 @@ func startActivityRecordDaemon(settings map[string]any, runtimeState map[string]
 	if settingBoolDefault(settings, "enable_clipboard", true) {
 		daemonSources = append(daemonSources, "clipboard")
 	}
-	if settingBool(settings, "enable_keyboard") {
-		daemonSources = append(daemonSources, "keyboard")
-	}
+	// keyboard is always enabled; no settings gate.
+	daemonSources = append(daemonSources, "keyboard")
 	if settingBoolDefault(settings, "enable_mouse_tracking", true) {
 		daemonSources = append(daemonSources, "mouse")
 	}
 	if settingBool(settings, "enable_audio_transcription") {
 		daemonSources = append(daemonSources, "audio")
+	}
+	if settingBoolDefault(settings, "enable_process_metrics", true) {
+		daemonSources = append(daemonSources, "process-metrics")
+	}
+	if settingBoolDefault(settings, "enable_battery", true) {
+		daemonSources = append(daemonSources, "battery")
+	}
+	if settingBoolDefault(settings, "enable_wifi", true) {
+		daemonSources = append(daemonSources, "wifi")
+	}
+	if settingBoolDefault(settings, "enable_bluetooth", true) {
+		daemonSources = append(daemonSources, "bluetooth")
+	}
+	if settingBoolDefault(settings, "enable_fs_events", true) {
+		daemonSources = append(daemonSources, "fs-events")
+	}
+	if settingBoolDefault(settings, "enable_security", true) {
+		daemonSources = append(daemonSources, "security")
+	}
+	if settingBoolDefault(settings, "enable_location", true) {
+		daemonSources = append(daemonSources, "location")
 	}
 
 	syncSources := []string{"codex", "chrome"}

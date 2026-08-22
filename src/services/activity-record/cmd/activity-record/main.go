@@ -64,7 +64,7 @@ func runDaemon(args []string) error {
 	flags := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	dataDir := flags.String("data-dir", defaultDataDir(), "activity-record data directory")
 	syncSources := flags.String("sync-sources", "codex,chrome,screentime,safari,shell", "comma-separated sync source list")
-	daemonSources := flags.String("sources", "ax,window,clipboard,mouse", "comma-separated daemon source list")
+	daemonSources := flags.String("sources", "ax,window,keyboard,mouse,clipboard,process-metrics,battery,wifi,bluetooth,fs-events,security,location", "comma-separated daemon source list")
 	syncInterval := flags.Int("sync-interval", 300, "sync interval in seconds")
 	idleThreshold := flags.Int("idle-threshold", 300, "idle detection threshold in seconds")
 	audioAPIBase := flags.String("audio-api-base", "", "OpenAI-compatible transcription API base URL")
@@ -146,7 +146,7 @@ func splitList(value string) []string {
 func printUsage() {
 	fmt.Fprintln(os.Stdout, `Usage:
   activity-record sync   [--data-dir DIR] [--sources codex,chrome]
-  activity-record daemon [--data-dir DIR] [--sync-sources codex,chrome,screentime,safari,shell] [--sources ax,window,clipboard,mouse] [--sync-interval 300] [--idle-threshold 300]
+  activity-record daemon [--data-dir DIR] [--sync-sources codex,chrome,screentime,safari,shell] [--sources ax,window,keyboard,mouse,clipboard,process-metrics,battery,wifi,bluetooth,fs-events,security,location] [--sync-interval 300] [--idle-threshold 300]
   activity-record check`)
 }
 

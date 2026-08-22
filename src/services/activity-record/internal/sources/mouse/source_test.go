@@ -2,7 +2,6 @@ package mouse
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,36 +15,19 @@ func TestRunEmitsOnActivity(t *testing.T) {
 	defer cancel()
 
 	events := make(chan store.Event, 100)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = s.Run(ctx, nil, events)
 	}()
 
-	<-ctx.Done()
+	<-done
 	close(events)
 
 	for ev := range events {
-		if ev.Action != "mouse_activity" {
+		if ev.Action != "mouse_activity" && ev.Action != "mouse_path" {
 			t.Fatalf("unexpected action: %s", ev.Action)
 		}
-	}
-}
-
-func TestCountersSwap(t *testing.T) {
-	var c counters
-	c.clicks.Add(5)
-	c.scrolls.Add(3)
-
-	clicks := c.clicks.Swap(0)
-	scrolls := c.scrolls.Swap(0)
-
-	if clicks != 5 {
-		t.Fatalf("expected 5 clicks, got %d", clicks)
-	}
-	if scrolls != 3 {
-		t.Fatalf("expected 3 scrolls, got %d", scrolls)
-	}
-	if c.clicks.Load() != 0 || c.scrolls.Load() != 0 {
-		t.Fatal("counters not reset after swap")
 	}
 }
 
@@ -56,46 +38,75 @@ func TestRunSkipsZeroActivity(t *testing.T) {
 	defer cancel()
 
 	events := make(chan store.Event, 100)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_ = s.Run(ctx, nil, events)
 	}()
 
-	<-ctx.Done()
+	<-done
 	close(events)
 
 	var count int
 	for range events {
 		count++
 	}
-	// listenMouse on macOS may fail without Accessibility permission,
-	// so there should be zero mouse_activity events (no clicks/scrolls).
-	// If running interactively, events may appear.
 	_ = count
 }
 
-func TestAtomicCounterConcurrency(t *testing.T) {
-	var c counters
-	var done atomic.Int32
+func TestMouseAgg(t *testing.T) {
+	var agg mouseAgg
 
-	for i := 0; i < 10; i++ {
-		go func() {
-			for j := 0; j < 1000; j++ {
-				c.clicks.Add(1)
-				c.scrolls.Add(1)
+	agg.clicks = 3
+	agg.scrolls = 5
+	agg.pathEvents = []mousePathEvent{
+		{at: time.Now(), x: 100, y: 200},
+		{at: time.Now(), x: 150, y: 250},
+	}
+
+	s := &Source{emitInterval: 30 * time.Second}
+
+	events := make(chan store.Event, 10)
+	s.emitAgg(time.Now(), events, &agg)
+
+	if agg.clicks != 0 {
+		t.Fatal("clicks not reset")
+	}
+	if agg.scrolls != 0 {
+		t.Fatal("scrolls not reset")
+	}
+
+	close(events)
+	var aggEvents int
+	for ev := range events {
+		if ev.Action == "mouse_activity" {
+			aggEvents++
+			meta := ev.Metadata
+			if meta["clicks"] != 3 {
+				t.Fatalf("expected 3 clicks, got %v", meta["clicks"])
 			}
-			done.Add(1)
-		}()
+			if meta["scrolls"] != 5 {
+				t.Fatalf("expected 5 scrolls, got %v", meta["scrolls"])
+			}
+		}
 	}
-	for done.Load() < 10 {
-		time.Sleep(time.Millisecond)
+	if aggEvents != 1 {
+		t.Fatalf("expected 1 activity event, got %d", aggEvents)
 	}
 
-	clicks := c.clicks.Load()
-	scrolls := c.scrolls.Load()
-	if clicks != 10000 {
-		t.Fatalf("expected 10000 clicks, got %d", clicks)
-	}
-	if scrolls != 10000 {
-		t.Fatalf("expected 10000 scrolls, got %d", scrolls)
+	// Path events.
+	events2 := make(chan store.Event, 10)
+	s.emitPath(events2, &agg)
+	close(events2)
+	for ev := range events2 {
+		if ev.Action == "mouse_path" {
+			if ev.Text == "" {
+				t.Fatal("expected json path in text")
+			}
+			pc := ev.Metadata["point_count"]
+			if pc != 2 {
+				t.Fatalf("expected 2 points, got %v", pc)
+			}
+		}
 	}
 }
