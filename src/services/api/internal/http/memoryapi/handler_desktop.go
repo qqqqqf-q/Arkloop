@@ -43,8 +43,6 @@ type Deps struct {
 	Pool                     data.DB
 	AuthService              *auth.Service
 	MemoryProvider           string
-	OpenVikingBaseURL        string
-	OpenVikingAPIKey         string
 	NowledgeBaseURL          string
 	NowledgeAPIKey           string
 	NowledgeRequestTimeoutMs int
@@ -56,8 +54,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 		pool:                     deps.Pool,
 		authService:              deps.AuthService,
 		memoryProvider:           strings.TrimSpace(deps.MemoryProvider),
-		ovBaseURL:                deps.OpenVikingBaseURL,
-		ovAPIKey:                 deps.OpenVikingAPIKey,
 		nowledgeBaseURL:          deps.NowledgeBaseURL,
 		nowledgeAPIKey:           deps.NowledgeAPIKey,
 		nowledgeRequestTimeoutMs: deps.NowledgeRequestTimeoutMs,
@@ -77,8 +73,6 @@ type handler struct {
 	pool                     data.DB
 	authService              *auth.Service
 	memoryProvider           string
-	ovBaseURL                string
-	ovAPIKey                 string
 	nowledgeBaseURL          string
 	nowledgeAPIKey           string
 	nowledgeRequestTimeoutMs int
@@ -95,9 +89,6 @@ type memoryRuntimeStatus struct {
 			Version  string `json:"version,omitempty"`
 			SearchOK *bool  `json:"search_ok,omitempty"`
 		} `json:"nowledge,omitempty"`
-		OpenViking struct {
-			HealthOK *bool `json:"health_ok,omitempty"`
-		} `json:"openviking,omitempty"`
 	} `json:"details,omitempty"`
 }
 
@@ -215,20 +206,6 @@ func (h *handler) getStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
 			status.Error = firstNonEmpty(errString(healthErr), errString(searchErr))
 		}
 
-	case "openviking":
-		status.Configured = strings.TrimSpace(h.ovBaseURL) != ""
-		if !status.Configured {
-			status.Error = "openviking not configured"
-			writeJSON(w, status)
-			return
-		}
-		ok, err := h.checkOpenVikingHealth(ctx)
-		status.Details.OpenViking.HealthOK = boolPtr(ok)
-		status.Healthy = err == nil && ok
-		if !status.Healthy && err != nil {
-			status.Error = err.Error()
-		}
-
 	default:
 		// notebook mode is treated as healthy, but this endpoint is mainly for semantic memory health.
 		status.Configured = true
@@ -236,32 +213,6 @@ func (h *handler) getStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 
 	writeJSON(w, status)
-}
-
-func (h *handler) checkOpenVikingHealth(ctx context.Context) (bool, error) {
-	base := strings.TrimRight(strings.TrimSpace(h.ovBaseURL), "/")
-	if base == "" {
-		return false, fmt.Errorf("openviking not configured")
-	}
-	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, base+"/health", nil)
-	if err != nil {
-		return false, err
-	}
-	if strings.TrimSpace(h.ovAPIKey) != "" {
-		req.Header.Set("X-API-Key", strings.TrimSpace(h.ovAPIKey))
-	}
-	client := &nethttp.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return false, fmt.Errorf("openviking %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-	io.Copy(io.Discard, resp.Body)
-	return true, nil
 }
 
 func (h *handler) checkNowledgeHealth(ctx context.Context, agentID string, cfg nowledgeConfig) (string, error) {
@@ -475,199 +426,10 @@ func (h *handler) rebuildSnapshotHandler(w nethttp.ResponseWriter, r *nethttp.Re
 }
 
 func (h *handler) rebuildSnapshot(ctx context.Context, agentID, userID string) (string, []snapshotHit, error) {
-	switch h.activeMemoryProvider() {
-	case "nowledge":
+	if h.activeMemoryProvider() == "nowledge" {
 		return h.findAndBuildNowledgeMemoryBlock(ctx, agentID)
-	case "openviking":
-		if strings.TrimSpace(h.ovBaseURL) == "" {
-			return "", nil, fmt.Errorf("openviking not configured")
-		}
-		return h.findAndBuildMemoryBlock(ctx, userID)
-	default:
-		return "", nil, fmt.Errorf("memory provider does not support snapshot rebuild")
 	}
-}
-
-func (h *handler) findAndBuildMemoryBlock(ctx context.Context, userID string) (string, []snapshotHit, error) {
-	rootURI := fmt.Sprintf("viking://user/%s/memories/", userID)
-
-	var skeletonLines []string
-	var leafLines []string
-	var hits []snapshotHit
-
-	rootOverview, err := h.fetchOVContent(ctx, rootURI, "overview")
-	if err == nil && strings.TrimSpace(rootOverview) != "" {
-		skeletonLines = append(skeletonLines, strings.TrimSpace(rootOverview))
-	}
-
-	children, err := h.fetchOVListDir(ctx, rootURI)
-	if err != nil {
-		if len(skeletonLines) > 0 {
-			return buildTreeShapedBlock(skeletonLines, nil), hits, nil
-		}
-		return "", nil, fmt.Errorf("ls root: %w", err)
-	}
-
-	dirCount := 0
-	for _, child := range children {
-		if child.IsDir {
-			if dirCount >= skeletonMaxDirs {
-				continue
-			}
-			dirCount++
-			childOverview, childErr := h.fetchOVContent(ctx, child.URI, "overview")
-			if childErr == nil && strings.TrimSpace(childOverview) != "" {
-				skeletonLines = append(skeletonLines, strings.TrimSpace(childOverview))
-			}
-			// hit 用 ls 返回的 L0 abstract，不用完整 overview
-			abstract := strings.TrimSpace(child.Abstract)
-			if abstract == "" {
-				abstract = firstLine(strings.TrimSpace(childOverview))
-			}
-			if abstract != "" {
-				hits = append(hits, snapshotHit{
-					URI:      strings.TrimSuffix(child.URI, "/"),
-					Abstract: abstract,
-					IsLeaf:   false,
-				})
-			}
-			subChildren, subErr := h.fetchOVListDir(ctx, child.URI)
-			if subErr != nil {
-				continue
-			}
-			leafCount := 0
-			for _, sub := range subChildren {
-				if leafCount >= leafMaxPerDir {
-					break
-				}
-				if sub.IsDir {
-					continue
-				}
-				content, readErr := h.fetchOVContent(ctx, sub.URI, "read")
-				if readErr == nil && strings.TrimSpace(content) != "" {
-					leafLines = append(leafLines, strings.TrimSpace(content))
-					leafCount++
-					hits = append(hits, snapshotHit{
-						URI:      sub.URI,
-						Abstract: firstLine(strings.TrimSpace(content)),
-						IsLeaf:   true,
-					})
-				}
-			}
-		} else {
-			content, readErr := h.fetchOVContent(ctx, child.URI, "read")
-			if readErr == nil && strings.TrimSpace(content) != "" {
-				leafLines = append(leafLines, strings.TrimSpace(content))
-				hits = append(hits, snapshotHit{
-					URI:      child.URI,
-					Abstract: firstLine(strings.TrimSpace(content)),
-					IsLeaf:   true,
-				})
-			}
-		}
-	}
-
-	if len(skeletonLines) == 0 && len(leafLines) == 0 {
-		return "", nil, nil
-	}
-	return buildTreeShapedBlock(skeletonLines, leafLines), hits, nil
-}
-
-const (
-	skeletonMaxDirs = 10
-	leafMaxPerDir   = 30
-)
-
-func (h *handler) fetchOVListDir(ctx context.Context, uri string) ([]lsEntry, error) {
-	ovURL := fmt.Sprintf("%s/api/v1/fs/ls?uri=%s",
-		strings.TrimRight(h.ovBaseURL, "/"), url.QueryEscape(uri))
-
-	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, ovURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if h.ovAPIKey != "" {
-		req.Header.Set("X-API-Key", h.ovAPIKey)
-	}
-	req.Header.Set("X-OpenViking-Account", auth.DesktopAccountID.String())
-	req.Header.Set("X-OpenViking-User", auth.DesktopUserID.String())
-	req.Header.Set("X-OpenViking-Agent", "user_"+auth.DesktopUserID.String())
-
-	client := &nethttp.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("openviking ls: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	if err != nil {
-		return nil, fmt.Errorf("read ls response: %w", err)
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("openviking %d: %s", resp.StatusCode, string(body))
-	}
-
-	var wrapper struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(body, &wrapper); err != nil {
-		return nil, fmt.Errorf("decode ls response: %w", err)
-	}
-	var rawEntries []lsEntry
-	if err := json.Unmarshal(wrapper.Result, &rawEntries); err != nil {
-		return nil, fmt.Errorf("decode ls result: %w", err)
-	}
-	for i := range rawEntries {
-		if rawEntries[i].IsDir && !strings.HasSuffix(rawEntries[i].URI, "/") {
-			rawEntries[i].URI += "/"
-		}
-	}
-	return rawEntries, nil
-}
-
-func buildTreeShapedBlock(skeletonLines []string, leafLines []string) string {
-	if len(skeletonLines) == 0 && len(leafLines) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("\n\n<memory>\n")
-	for _, line := range skeletonLines {
-		cleaned := strings.TrimSpace(line)
-		if cleaned == "" {
-			continue
-		}
-		sb.WriteString(cleaned)
-		sb.WriteString("\n\n")
-	}
-	if len(leafLines) > 0 {
-		if len(skeletonLines) > 0 {
-			sb.WriteString("---\n")
-		}
-		for _, line := range leafLines {
-			cleaned := strings.TrimSpace(line)
-			if cleaned == "" {
-				continue
-			}
-			sb.WriteString("- ")
-			sb.WriteString(cleaned)
-			sb.WriteString("\n")
-		}
-	}
-	sb.WriteString("</memory>")
-	return sb.String()
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	runes := []rune(s)
-	if len(runes) > 100 {
-		return string(runes[:100])
-	}
-	return s
+	return "", nil, fmt.Errorf("memory provider does not support snapshot rebuild")
 }
 
 // ---------- content ----------
@@ -702,12 +464,6 @@ type snapshotHit struct {
 	URI      string `json:"uri"`
 	Abstract string `json:"abstract"`
 	IsLeaf   bool   `json:"is_leaf"`
-}
-
-type lsEntry struct {
-	URI      string `json:"uri"`
-	IsDir    bool   `json:"isDir"`
-	Abstract string `json:"abstract"`
 }
 
 func getMemoryBlock(ctx context.Context, pool data.DB, accountID, userID, agentID string) (string, error) {
@@ -831,72 +587,18 @@ func (h *handler) getContent(w nethttp.ResponseWriter, r *nethttp.Request) {
 }
 
 func (h *handler) fetchContent(ctx context.Context, agentID, uri, layer string) (string, error) {
-	switch {
-	case strings.HasPrefix(strings.TrimSpace(uri), nowledgeMemoryURIPrefix):
+	if strings.HasPrefix(strings.TrimSpace(uri), nowledgeMemoryURIPrefix) {
 		return h.fetchNowledgeContent(ctx, agentID, uri, layer)
-	default:
-		if strings.TrimSpace(h.ovBaseURL) == "" {
-			return "", fmt.Errorf("openviking not configured")
-		}
-		return h.fetchOVContent(ctx, uri, layer)
 	}
-}
-
-func (h *handler) fetchOVContent(ctx context.Context, uri, layer string) (string, error) {
-	ovURL := fmt.Sprintf("%s/api/v1/content/%s?uri=%s",
-		strings.TrimRight(h.ovBaseURL, "/"), url.PathEscape(layer), url.QueryEscape(uri))
-
-	req, err := nethttp.NewRequestWithContext(ctx, nethttp.MethodGet, ovURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if h.ovAPIKey != "" {
-		req.Header.Set("X-API-Key", h.ovAPIKey)
-	}
-	req.Header.Set("X-OpenViking-Account", auth.DesktopAccountID.String())
-	req.Header.Set("X-OpenViking-User", auth.DesktopUserID.String())
-	agentID := "user_" + auth.DesktopUserID.String()
-	req.Header.Set("X-OpenViking-Agent", agentID)
-
-	client := &nethttp.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("openviking request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
-	}
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("openviking %d: %s", resp.StatusCode, string(body))
-	}
-
-	var wrapper struct {
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(body, &wrapper); err != nil {
-		return string(body), nil
-	}
-	var content string
-	if err := json.Unmarshal(wrapper.Result, &content); err != nil {
-		return string(wrapper.Result), nil
-	}
-	return content, nil
+	return "", fmt.Errorf("unsupported memory uri")
 }
 
 func (h *handler) activeMemoryProvider() string {
-	switch provider := strings.TrimSpace(h.memoryProvider); provider {
-	case "nowledge", "openviking":
+	if provider := strings.TrimSpace(h.memoryProvider); provider == "nowledge" {
 		return provider
 	}
 	if strings.TrimSpace(h.nowledgeBaseURL) != "" {
 		return "nowledge"
-	}
-	if strings.TrimSpace(h.ovBaseURL) != "" {
-		return "openviking"
 	}
 	return "notebook"
 }

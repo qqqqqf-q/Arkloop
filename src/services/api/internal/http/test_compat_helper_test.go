@@ -320,7 +320,7 @@ type liteAgentResponse struct {
 
 func validateAdvancedJSONForProvider(provider string, advancedJSON map[string]any) error {
 	if advancedJSON != nil {
-		if err := validateOpenVikingAdvancedJSON(advancedJSON); err != nil {
+		if err := validateExtraHeadersAdvancedJSON(advancedJSON); err != nil {
 			return err
 		}
 	}
@@ -334,24 +334,12 @@ const (
 	anthropicAdvancedVersionKey      = "anthropic_version"
 	anthropicAdvancedExtraHeadersKey = "extra_headers"
 	anthropicBetaHeaderName          = "anthropic-beta"
-	openVikingBackendKey             = "openviking_backend"
 	openVikingExtraHeadersKey        = "openviking_extra_headers"
 )
 
-func validateOpenVikingAdvancedJSON(advancedJSON map[string]any) error {
+func validateExtraHeadersAdvancedJSON(advancedJSON map[string]any) error {
 	if advancedJSON == nil {
 		return nil
-	}
-	if rawBackend, ok := advancedJSON[openVikingBackendKey]; ok {
-		backend, ok := rawBackend.(string)
-		if !ok || strings.TrimSpace(backend) == "" {
-			return errors.New("advanced_json.openviking_backend must be a non-empty string")
-		}
-		switch strings.ToLower(strings.TrimSpace(backend)) {
-		case "openai", "azure", "volcengine", "litellm", "openai_compatible":
-		default:
-			return errors.New("advanced_json.openviking_backend must be one of openai, azure, volcengine, openai_compatible")
-		}
 	}
 	if rawHeaders, ok := advancedJSON[openVikingExtraHeadersKey]; ok {
 		headers, ok := rawHeaders.(map[string]any)

@@ -363,8 +363,8 @@ func TestEffectiveToolCatalogIncludesConditionalAndMCPTools(t *testing.T) {
 	defer mcpServer.Close()
 
 	t.Setenv("ARKLOOP_SANDBOX_BASE_URL", "http://sandbox.internal")
-	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://memory.internal")
-	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "memory-root-key")
+	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "http://memory.internal")
+	t.Setenv("ARKLOOP_NOWLEDGE_API_KEY", "memory-key")
 	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://seaweedfs.internal")
 
 	envCfgDir := t.TempDir()

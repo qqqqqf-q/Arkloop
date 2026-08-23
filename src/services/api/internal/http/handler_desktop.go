@@ -429,8 +429,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		Pool:                     cfg.Pool,
 		AuthService:              cfg.AuthService,
 		MemoryProvider:           os.Getenv("ARKLOOP_MEMORY_PROVIDER"),
-		OpenVikingBaseURL:        os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"),
-		OpenVikingAPIKey:         os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY"),
 		NowledgeBaseURL:          os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL"),
 		NowledgeAPIKey:           os.Getenv("ARKLOOP_NOWLEDGE_API_KEY"),
 		NowledgeRequestTimeoutMs: atoiDefault(os.Getenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"), 30000),
