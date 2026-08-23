@@ -334,8 +334,8 @@ func RegisterTrackB(r *Registry) error {
 		{
 			Key:         "sandbox.provider",
 			Type:        TypeString,
-			Default:     "firecracker",
-			Description: "Sandbox 后端类型：firecracker / docker",
+			Default:     "docker",
+			Description: "Sandbox 后端类型：docker（自部署）/ vz（desktop 内嵌）",
 			Sensitive:   false,
 			Scope:       ScopePlatform,
 		},

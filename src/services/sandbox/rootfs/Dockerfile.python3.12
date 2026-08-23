@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Sandbox microVM rootfs (Firecracker)
+# Sandbox microVM rootfs
 #
 # 输出: python3.12.ext4
 # 构建: ./build.sh

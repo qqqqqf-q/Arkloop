@@ -58,6 +58,8 @@
 | memory.impression_score_threshold | int | both | 50 | false | impression 更新触发阈值 |
 | nowledge.api_key | string | platform |  | true | Nowledge API Key |
 | nowledge.base_url | string | platform |  | false | Nowledge Base URL |
+| nowledge.max_context_results | int | platform | 5 | false | Max recalled memories injected per turn (1-20) |
+| nowledge.recall_min_score | int | platform | 0 | false | Min recall score threshold 0-100 (0 = no filter) |
 | nowledge.request_timeout_ms | int | platform | 30000 | false | Nowledge request timeout in milliseconds |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
 | openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
@@ -82,7 +84,7 @@
 | sandbox.max_lifetime_browser_s | int | platform | 600 | false | Sandbox browser tier 最大存活时间（秒） |
 | sandbox.max_lifetime_s | int | platform | 1800 | false | Sandbox session 最大存活时间（秒） |
 | sandbox.max_sessions | int | platform | 50 | false | Sandbox 最大并发 session 数 |
-| sandbox.provider | string | platform | firecracker | false | Sandbox 后端类型：firecracker / docker |
+| sandbox.provider | string | platform | docker | false | Sandbox 后端类型：docker（自部署）/ vz（desktop 内嵌） |
 | sandbox.refill_concurrency | int | platform | 2 | false | 预热补充最大并发数 |
 | sandbox.refill_interval_s | int | platform | 5 | false | 预热补充检查间隔（秒） |
 | sandbox.restore_ttl_days | int | platform | 7 | false | session restore state 保留天数 |
@@ -108,6 +110,9 @@
 | spawn.profile.explore | string | both | anthropic^claude-haiku-3-5 | false | Sub-agent 'explore' profile: 低延迟低成本模型 |
 | spawn.profile.strong | string | both | anthropic^claude-sonnet-4-5 | false | Sub-agent 'strong' profile: 最强推理能力模型 |
 | spawn.profile.task | string | both | anthropic^claude-sonnet-4-5 | false | Sub-agent 'task' profile: 平衡性价比模型 |
+| spawn.profile.tool | string | both |  | false | 工具模型（标题摘要、结果摘要等子任务），格式 provider^model |
+| spawn.profile.vision | string | both |  | false | 图像理解模型；persona.image_model 未设置时使用，格式 provider^model |
+| suggestion.score_threshold | int | both | 15 | false | suggestion 更新触发阈值 |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

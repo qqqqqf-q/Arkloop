@@ -41,7 +41,7 @@ type entry struct {
 
 // Pool manages macOS Virtualization.framework VMs as sandbox execution
 // environments. It follows the same warm-pool pattern used by the Docker
-// and Firecracker providers.
+// provider.
 type Pool struct {
 	cfg   Config
 	ready map[string]chan *entry

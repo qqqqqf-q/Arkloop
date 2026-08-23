@@ -102,20 +102,6 @@ func TestLoadConfigFromEnvAllowEgressRejectInvalid(t *testing.T) {
 	}
 }
 
-func TestLoadConfigFromEnvFirecrackerDNS(t *testing.T) {
-	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
-	t.Setenv("ARKLOOP_SANDBOX_FIRECRACKER_DNS", "1.1.1.1, 8.8.8.8")
-	unsetSandboxConfigRegistryEnv(t)
-
-	cfg, err := LoadConfigFromEnv()
-	if err != nil {
-		t.Fatalf("load config failed: %v", err)
-	}
-	if len(cfg.FirecrackerDNS) != 2 {
-		t.Fatalf("unexpected dns list: %#v", cfg.FirecrackerDNS)
-	}
-}
-
 func TestLoadConfigFromEnvBrowserSettings(t *testing.T) {
 	t.Setenv("ARKLOOP_SANDBOX_ADDR", "127.0.0.1:19002")
 	t.Setenv("ARKLOOP_SANDBOX_BROWSER_DOCKER_IMAGE", "arkloop/sandbox-browser:test")
