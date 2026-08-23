@@ -24,7 +24,6 @@ type EnvConfig struct {
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
-	MemoryRootAPIKey       string
 	MemoryRequestTimeoutMs int
 }
 
@@ -45,7 +44,6 @@ type RuntimeSnapshot struct {
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
-	MemoryRootAPIKey       string
 	MemoryRequestTimeoutMs int
 	PlatformProviders      []ProviderConfig
 
@@ -67,7 +65,6 @@ type BuiltinAvailability struct {
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
-	MemoryRootAPIKey       string
 	MemoryRequestTimeoutMs int
 	DocumentWrite          bool
 }
@@ -113,7 +110,6 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 		MemoryProvider:         availability.MemoryProvider,
 		MemoryBaseURL:          availability.MemoryBaseURL,
 		MemoryAPIKey:           availability.MemoryAPIKey,
-		MemoryRootAPIKey:       availability.MemoryRootAPIKey,
 		MemoryRequestTimeoutMs: availability.MemoryRequestTimeoutMs,
 		PlatformProviders:      copyProviders(providers),
 		builtinAvailability:    availability,
@@ -220,12 +216,8 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 	memoryProvider := normalizeMemoryProvider(strings.TrimSpace(input.Env.MemoryProvider))
 	memoryBaseURL := strings.TrimSpace(input.Env.MemoryBaseURL)
 	memoryAPIKey := strings.TrimSpace(input.Env.MemoryAPIKey)
-	memoryRootAPIKey := strings.TrimSpace(input.Env.MemoryRootAPIKey)
 	memoryRequestTimeoutMs := input.Env.MemoryRequestTimeoutMs
-	if memoryProvider == "" && memoryBaseURL != "" {
-		memoryProvider = "openviking"
-	}
-	if memoryProvider == "" || memoryBaseURL == "" || memoryAPIKey == "" || memoryRootAPIKey == "" {
+	if memoryProvider == "" || memoryBaseURL == "" || memoryAPIKey == "" {
 		if provider := findProvider(input.PlatformProviders, "memory"); provider != nil {
 			if memoryProvider == "" {
 				memoryProvider = normalizeMemoryProvider(strings.TrimSpace(provider.ProviderName))
@@ -233,26 +225,13 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 			if memoryBaseURL == "" && provider.BaseURL != nil {
 				memoryBaseURL = strings.TrimSpace(*provider.BaseURL)
 			}
-			if provider.APIKeyValue != nil {
-				switch memoryProvider {
-				case "nowledge":
-					if memoryAPIKey == "" {
-						memoryAPIKey = strings.TrimSpace(*provider.APIKeyValue)
-					}
-				default:
-					if memoryRootAPIKey == "" {
-						memoryRootAPIKey = strings.TrimSpace(*provider.APIKeyValue)
-					}
-				}
+			if provider.APIKeyValue != nil && memoryProvider == "nowledge" && memoryAPIKey == "" {
+				memoryAPIKey = strings.TrimSpace(*provider.APIKeyValue)
 			}
 		}
 	}
 	if memoryProvider == "nowledge" && memoryBaseURL != "" {
 		for _, name := range []string{"memory_list", "memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline", "memory_context", "memory_status"} {
-			available[name] = struct{}{}
-		}
-	} else if memoryBaseURL != "" {
-		for _, name := range []string{"memory_list", "memory_search", "memory_read", "memory_write", "memory_edit", "memory_forget"} {
 			available[name] = struct{}{}
 		}
 	}
@@ -276,7 +255,6 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		MemoryProvider:         memoryProvider,
 		MemoryBaseURL:          memoryBaseURL,
 		MemoryAPIKey:           memoryAPIKey,
-		MemoryRootAPIKey:       memoryRootAPIKey,
 		MemoryRequestTimeoutMs: memoryRequestTimeoutMs,
 		DocumentWrite:          input.ArtifactStoreAvailable,
 	}
@@ -298,23 +276,11 @@ func resolveMemoryFromConfig(ctx context.Context, resolver sharedconfig.Resolver
 			}
 		}
 	}
-	if strings.TrimSpace(availability.MemoryProvider) == "" {
-		if baseURL, err := resolver.Resolve(ctx, "openviking.base_url", sharedconfig.Scope{}); err == nil && strings.TrimSpace(baseURL) != "" {
-			availability.MemoryProvider = "openviking"
-			availability.MemoryBaseURL = strings.TrimSpace(baseURL)
-			if apiKey, apiErr := resolver.Resolve(ctx, "openviking.root_api_key", sharedconfig.Scope{}); apiErr == nil {
-				availability.MemoryRootAPIKey = strings.TrimSpace(apiKey)
-			}
-		}
-	}
 	if availability.MemoryBaseURL == "" {
 		return availability
 	}
-	switch availability.MemoryProvider {
-	case "nowledge":
+	if availability.MemoryProvider == "nowledge" {
 		availability.toolNames = appendToolNames(availability.toolNames, "memory_list", "memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline", "memory_context", "memory_status")
-	default:
-		availability.toolNames = appendToolNames(availability.toolNames, "memory_list", "memory_search", "memory_read", "memory_write", "memory_edit", "memory_forget")
 	}
 	return availability
 }
@@ -344,8 +310,6 @@ func resolveMemoryEnvConfig(ctx context.Context, resolver sharedconfig.Resolver)
 
 	nowledgeBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL"))
 	nowledgeAPIKey := strings.TrimSpace(os.Getenv("ARKLOOP_NOWLEDGE_API_KEY"))
-	openvikingBaseURL := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"))
-	openvikingRootAPIKey := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY"))
 
 	if resolver != nil {
 		if nowledgeBaseURL == "" {
@@ -357,31 +321,17 @@ func resolveMemoryEnvConfig(ctx context.Context, resolver sharedconfig.Resolver)
 		if cfg.MemoryRequestTimeoutMs <= 0 {
 			cfg.MemoryRequestTimeoutMs = resolveOptionalConfigInt(ctx, resolver, "nowledge.request_timeout_ms")
 		}
-		if openvikingBaseURL == "" {
-			openvikingBaseURL = resolveOptionalConfigString(ctx, resolver, "openviking.base_url")
-		}
-		if openvikingRootAPIKey == "" {
-			openvikingRootAPIKey = resolveOptionalConfigString(ctx, resolver, "openviking.root_api_key")
-		}
 	}
 
 	switch cfg.MemoryProvider {
 	case "nowledge":
 		cfg.MemoryBaseURL = nowledgeBaseURL
 		cfg.MemoryAPIKey = nowledgeAPIKey
-	case "openviking":
-		cfg.MemoryBaseURL = openvikingBaseURL
-		cfg.MemoryRootAPIKey = openvikingRootAPIKey
 	default:
-		switch {
-		case nowledgeBaseURL != "":
+		if nowledgeBaseURL != "" {
 			cfg.MemoryProvider = "nowledge"
 			cfg.MemoryBaseURL = nowledgeBaseURL
 			cfg.MemoryAPIKey = nowledgeAPIKey
-		case openvikingBaseURL != "":
-			cfg.MemoryProvider = "openviking"
-			cfg.MemoryBaseURL = openvikingBaseURL
-			cfg.MemoryRootAPIKey = openvikingRootAPIKey
 		}
 	}
 
@@ -390,14 +340,10 @@ func resolveMemoryEnvConfig(ctx context.Context, resolver sharedconfig.Resolver)
 
 func normalizeMemoryProvider(raw string) string {
 	value := strings.TrimSpace(strings.ToLower(raw))
-	switch strings.TrimPrefix(value, "memory.") {
-	case "nowledge":
+	if strings.TrimPrefix(value, "memory.") == "nowledge" {
 		return "nowledge"
-	case "openviking":
-		return "openviking"
-	default:
-		return ""
 	}
+	return ""
 }
 
 func parsePositiveInt(raw string) int {
@@ -522,5 +468,5 @@ func SandboxAvailableFromEnv() bool {
 }
 
 func MemoryAvailableFromEnv() bool {
-	return strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL")) != ""
+	return strings.TrimSpace(os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL")) != ""
 }
