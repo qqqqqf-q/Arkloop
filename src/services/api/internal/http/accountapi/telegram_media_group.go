@@ -260,7 +260,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 		handled, reply, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			trimmedCommandText, true, incoming.PlatformChatID,
-			c.entitlementSvc,
 			ChannelCommandResolver{
 				ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 					return c.resolveTelegramThreadID(ctx, tx, ch, personaID, projectID, identity, incoming)
@@ -331,8 +330,7 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 			handled, reply, err := DispatchChannelCommand(
 				ctx, tx, ch, *persona, commandIdentity,
 				cmdText, false, incoming.PlatformChatID,
-				c.entitlementSvc,
-				ChannelCommandResolver{
+					ChannelCommandResolver{
 					ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 						return c.resolveTelegramThreadID(ctx, tx, ch, personaID, projectID, identity, incoming)
 					},

@@ -3,7 +3,6 @@ package accountapi
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	nethttp "net/http"
@@ -11,7 +10,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 
 	"github.com/google/uuid"
@@ -67,37 +65,6 @@ func authenticateUser(
 	}, true
 }
 
-func requireEntitlementInt(
-	ctx context.Context,
-	w nethttp.ResponseWriter,
-	traceID string,
-	entSvc *entitlement.Service,
-	accountID uuid.UUID,
-	key string,
-	actual int64,
-	errCode string,
-	errMsg string,
-) bool {
-	if entSvc == nil {
-		return true
-	}
-
-	val, err := entSvc.Resolve(ctx, accountID, key)
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return false
-	}
-
-	limit, _ := strconv.ParseInt(val.Raw, 10, 64)
-	if limit <= 0 {
-		return true
-	}
-	if actual >= limit {
-		httpkit.WriteError(w, nethttp.StatusForbidden, errCode, errMsg, traceID, nil)
-		return false
-	}
-	return true
-}
 
 func channelOwnerUserID(ch data.Channel) *uuid.UUID {
 	if ch.OwnerUserID != nil && *ch.OwnerUserID != uuid.Nil {

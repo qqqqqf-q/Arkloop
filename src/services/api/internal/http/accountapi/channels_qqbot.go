@@ -410,7 +410,6 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		text, conversationType == "private", platformChatID,
-		nil,
 		ChannelCommandResolver{
 			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 				return c.resolveThreadID(ctx, tx, ch, personaID, projectID, identity, isPrivate, chatID, displayName)

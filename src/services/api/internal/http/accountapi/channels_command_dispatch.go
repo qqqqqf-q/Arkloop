@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -64,7 +63,6 @@ func DispatchChannelCommand(
 	commandText string,
 	isPrivate bool,
 	platformChatID string,
-	entSvc *entitlement.Service,
 	resolver ChannelCommandResolver,
 	deps ChannelCommandDeps,
 	channelLabel string,
@@ -109,7 +107,7 @@ func DispatchChannelCommand(
 		if err != nil {
 			return true, nil, err
 		}
-		reply, err = handlePreferenceCommand(ctx, tx, ch.AccountID, threadID, strings.TrimSpace(commandText), entSvc)
+		reply, err = handlePreferenceCommand(ctx, tx, ch.AccountID, threadID, strings.TrimSpace(commandText))
 		return true, reply, err
 
 	case strings.HasPrefix(cmd, "/heartbeat"):
@@ -138,7 +136,6 @@ func DispatchChannelCommand(
 			strings.TrimSpace(commandText),
 			deps.ChannelIdentitiesRepo,
 			deps.PersonasRepo,
-			entSvc,
 		)
 		if err != nil {
 			return true, nil, err
@@ -263,10 +260,7 @@ func DispatchChannelCommand(
 		return true, &CommandReply{Text: RenderStatusText(modelDisplay, reasoningMode, personaName, runStatus)}, nil
 
 	case cmd == "/models":
-		allowUserScoped, err := resolveByokEnabled(ctx, entSvc, ch.AccountID)
-		if err != nil {
-			return true, nil, err
-		}
+		allowUserScoped := true
 		candidates, err := loadModelSelectorCandidates(ctx, tx, ch.AccountID)
 		if err != nil {
 			return true, nil, err
@@ -328,7 +322,6 @@ func handlePreferenceCommand(
 	accountID uuid.UUID,
 	threadID uuid.UUID,
 	rawText string,
-	entSvc *entitlement.Service,
 ) (*CommandReply, error) {
 	parts := strings.Fields(rawText)
 	if len(parts) == 0 {
@@ -337,10 +330,7 @@ func handlePreferenceCommand(
 	cmd, _ := slashCommandBase(rawText, "")
 	switch cmd {
 	case "/model":
-		allowUserScoped, err := resolveByokEnabled(ctx, entSvc, accountID)
-		if err != nil {
-			return nil, err
-		}
+		allowUserScoped := true
 		if threadID == uuid.Nil {
 			return &CommandReply{Text: "当前会话未配置 persona。"}, nil
 		}

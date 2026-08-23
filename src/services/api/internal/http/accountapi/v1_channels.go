@@ -14,7 +14,6 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
@@ -94,7 +93,6 @@ func channelsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
-	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -106,7 +104,7 @@ func channelsEntry(
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodPost:
-			createChannel(w, r, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, appBaseURL, telegramClient, discordClient, telegramMode)
+			createChannel(w, r, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, appBaseURL, telegramClient, discordClient, telegramMode)
 		case nethttp.MethodGet:
 			listChannels(w, r, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		default:
@@ -123,7 +121,6 @@ func channelEntry(
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	channelDMThreadsRepo *data.ChannelDMThreadsRepository,
 	personasRepo *data.PersonasRepository,
-	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -199,9 +196,9 @@ func channelEntry(
 		case nethttp.MethodGet:
 			getChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, apiKeysRepo)
 		case nethttp.MethodPatch:
-			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, telegramClient, discordClient, telegramMode)
+			updateChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, telegramClient, discordClient, telegramMode)
 		case nethttp.MethodDelete:
-			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, entitlementSvc, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
+			deleteChannel(w, r, traceID, channelID, authService, membershipRepo, channelsRepo, personasRepo, apiKeysRepo, secretsRepo, pool, telegramClient, telegramMode)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -215,7 +212,6 @@ func createChannel(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
-	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -515,7 +511,6 @@ func updateChannel(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
-	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -911,7 +906,6 @@ func updateChannel(
 			actor.AccountID,
 			channelID,
 			derefUUID(ch.PersonaID) != derefUUID(desiredPersonaID),
-			entitlementSvc,
 			personasRepo,
 		); err != nil {
 			slog.WarnContext(r.Context(), "telegram channel heartbeat sync failed after update",
@@ -941,7 +935,6 @@ func deleteChannel(
 	membershipRepo *data.AccountMembershipRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
-	entitlementSvc *entitlement.Service,
 	apiKeysRepo *data.APIKeysRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
@@ -1032,7 +1025,6 @@ func syncTelegramHeartbeatStateAfterChannelMutation(
 	accountID uuid.UUID,
 	channelID uuid.UUID,
 	personaChanged bool,
-	entitlementSvc *entitlement.Service,
 	personasRepo *data.PersonasRepository,
 ) error {
 	if pool == nil || channelsRepo == nil {
@@ -1055,10 +1047,7 @@ func syncTelegramHeartbeatStateAfterChannelMutation(
 		return tx.Commit(ctx)
 	}
 
-	allowUserScoped, err := resolveByokEnabled(ctx, entitlementSvc, accountID)
-	if err != nil {
-		return err
-	}
+	allowUserScoped := true
 	if err := syncTelegramChannelHeartbeatTriggers(
 		ctx,
 		tx,

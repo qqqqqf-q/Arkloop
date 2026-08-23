@@ -136,15 +136,6 @@ func effectiveImageGenerateConfigured(ctx context.Context, pool data.DB, account
 	if !effectiveCatalogPoolReady(pool) {
 		return false
 	}
-	if accountID != uuid.Nil {
-		repo, err := data.NewEntitlementsRepository(pool)
-		if err == nil {
-			override, err := repo.GetOverride(ctx, accountID, "image_generative.model")
-			if err == nil && override != nil && strings.TrimSpace(override.Value) != "" {
-				return true
-			}
-		}
-	}
 	resolver, _ := sharedconfig.NewResolver(
 		sharedconfig.DefaultRegistry(),
 		sharedconfig.NewPGXStoreQuerier(pool),

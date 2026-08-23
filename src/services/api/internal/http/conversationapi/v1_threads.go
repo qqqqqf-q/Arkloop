@@ -12,7 +12,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/eventbus"
@@ -871,7 +870,6 @@ func threadEntry(
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	runLimiter *data.RunLimiter,
-	entSvc *entitlement.Service,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 	attachmentStore messageAttachmentStore,
@@ -882,7 +880,7 @@ func threadEntry(
 	del := deleteThread(authService, membershipRepo, threadRepo, messageRepo, attachmentStore, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService, attachmentStore)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
-	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, entSvc, rdb, bus)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, rdb, bus)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	retryMessage := retryThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)

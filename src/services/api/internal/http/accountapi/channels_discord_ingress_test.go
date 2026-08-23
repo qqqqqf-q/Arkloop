@@ -46,7 +46,6 @@ type discordChannelsTestEnv struct {
 	messageRepo              *data.MessageRepository
 	runEventRepo             *data.RunEventRepository
 	jobRepo                  *data.JobRepository
-	creditsRepo              *data.CreditsRepository
 	secretsRepo              *data.SecretsRepository
 }
 
@@ -143,10 +142,6 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 	if err != nil {
 		t.Fatalf("job repo: %v", err)
 	}
-	creditsRepo, err := data.NewCreditsRepository(pool)
-	if err != nil {
-		t.Fatalf("credits repo: %v", err)
-	}
 
 	key := make([]byte, 32)
 	for i := range key {
@@ -240,7 +235,6 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		CreditsRepo:              creditsRepo,
 		PersonasRepo:             personasRepo,
 		AppBaseURL:               "https://app.example",
 		DiscordBotClient:         botClient,
@@ -268,7 +262,6 @@ func setupDiscordChannelsTestEnv(t *testing.T, botClient *discordbot.Client) dis
 		messageRepo:              messageRepo,
 		runEventRepo:             runEventRepo,
 		jobRepo:                  jobRepo,
-		creditsRepo:              creditsRepo,
 		secretsRepo:              secretsRepo,
 	}
 }
@@ -289,7 +282,6 @@ func (e discordChannelsTestEnv) connector() discordConnector {
 		messageRepo:              e.messageRepo,
 		runEventRepo:             e.runEventRepo,
 		jobRepo:                  e.jobRepo,
-		creditsRepo:              e.creditsRepo,
 		pool:                     e.pool,
 	}
 }

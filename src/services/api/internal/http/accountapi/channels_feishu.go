@@ -943,7 +943,6 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		cmdText, incoming.ConversationType == "private", incoming.ChatID,
-		nil,
 		ChannelCommandResolver{
 			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 				return c.resolveFeishuThreadID(ctx, tx, ch, personaID, projectID, identity, incoming)

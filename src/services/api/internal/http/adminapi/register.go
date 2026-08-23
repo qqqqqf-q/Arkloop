@@ -18,7 +18,6 @@ type Deps struct {
 	UsersRepo             *data.UserRepository
 	RunEventRepo          *data.RunEventRepository
 	RunPipelineEventsRepo *data.RunPipelineEventsRepository
-	UsageRepo             *data.UsageRepository
 	AccountRepo           *data.AccountRepository
 	APIKeysRepo           *data.APIKeysRepository
 	MessageRepo           *data.MessageRepository
@@ -28,8 +27,6 @@ type Deps struct {
 	AuditWriter           *audit.Writer
 	InviteCodesRepo       *data.InviteCodeRepository
 	ReferralsRepo         *data.ReferralRepository
-	CreditsRepo           *data.CreditsRepository
-	RedemptionCodesRepo   *data.RedemptionCodesRepository
 	NotificationsRepo     *data.NotificationsRepository
 	Pool                  data.DB
 	Logger                *slog.Logger
@@ -45,7 +42,7 @@ type Deps struct {
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
-	mux.HandleFunc("/v1/admin/dashboard", adminDashboard(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.RunEventRepo, deps.UsageRepo, deps.AccountRepo, deps.APIKeysRepo))
+	mux.HandleFunc("/v1/admin/dashboard", adminDashboard(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.RunEventRepo, deps.AccountRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/admin/runs/", adminRunsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.RunEventRepo, deps.RunPipelineEventsRepo, deps.UsersRepo, deps.APIKeysRepo, deps.MessageRepo, deps.LlmCredentialsRepo, deps.ThreadRepo))
 	mux.HandleFunc("/v1/admin/reports", adminReportsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadReportRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/admin/users", adminUsersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.UserCredentialRepo))

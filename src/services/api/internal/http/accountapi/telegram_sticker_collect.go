@@ -331,10 +331,7 @@ func (c telegramConnector) buildTelegramStickerRegisterStartedData(
 		return startedData, nil
 	}
 	startedData["model"] = selector
-	allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
-	if err != nil {
-		return nil, err
-	}
+	allowUserScoped := true
 	routeID, err := resolveTelegramRouteIDBySelector(ctx, tx, ch.AccountID, selector, allowUserScoped)
 	if err != nil {
 		return nil, err

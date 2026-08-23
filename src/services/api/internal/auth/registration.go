@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -121,25 +120,8 @@ type RegistrationService struct {
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
 	jobRepo          *data.JobRepository
-	entitlementSvc   EntitlementResolver
 	emailVerifySvc   *EmailVerifyService
 	now              func() time.Time
-}
-
-// EntitlementResolver 注册时读取 entitlement 默认值。
-type EntitlementResolver interface {
-	Resolve(ctx context.Context, accountID uuid.UUID, key string) (EntitlementValue, error)
-}
-
-// EntitlementValue 对 entitlement.EntitlementValue 的镜像，避免循环依赖。
-type EntitlementValue struct {
-	Raw  string
-	Type string
-}
-
-func (v EntitlementValue) Int() int64 {
-	n, _ := strconv.ParseInt(v.Raw, 10, 64)
-	return n
 }
 
 func NewRegistrationService(
@@ -169,11 +151,6 @@ func NewRegistrationService(
 		jobRepo:          jobRepo,
 		now:              func() time.Time { return time.Now().UTC() },
 	}, nil
-}
-
-// SetEntitlementResolver 设置 entitlement 解析器，用于注册时读取默认配额。
-func (s *RegistrationService) SetEntitlementResolver(resolver EntitlementResolver) {
-	s.entitlementSvc = resolver
 }
 
 // SetEmailVerifyService 设置邮箱验证服务，注册完成后自动发送验证邮件。
@@ -271,35 +248,12 @@ func (s *RegistrationService) Register(
 		return RegisterResult{}, err
 	}
 
-	creditsRepo, err := data.NewCreditsRepository(tx)
-	if err != nil {
-		return RegisterResult{}, err
-	}
-	initialGrant := int64(1000)
-	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.initial_grant")
-		if resolveErr == nil {
-			if v := val.Int(); v > 0 {
-				initialGrant = v
-			}
-		}
-	}
-	if _, err := creditsRepo.InitBalance(ctx, account.ID, initialGrant); err != nil {
-		return RegisterResult{}, err
-	}
-
 	inviteCodeRepo, err := data.NewInviteCodeRepository(tx)
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
 	maxUses := 0
-	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "invite.default_max_uses")
-		if resolveErr == nil {
-			maxUses = data.NormalizeInviteCodeMaxUses(val.Int())
-		}
-	}
 
 	code, err := data.GenerateCode()
 	if err != nil {
@@ -335,21 +289,6 @@ func (s *RegistrationService) Register(
 
 			inviterMembership, err := membershipRepo.GetDefaultForUser(ctx, existingCode.UserID)
 			if err == nil && inviterMembership != nil {
-				referralReward := int64(100)
-				if s.entitlementSvc != nil {
-					val, resolveErr := s.entitlementSvc.Resolve(ctx, inviterMembership.AccountID, "credit.invite_reward")
-					if resolveErr == nil {
-						if v := val.Int(); v > 0 {
-							referralReward = v
-						}
-					}
-				}
-
-				refType := "referral"
-				if err := creditsRepo.Add(ctx, inviterMembership.AccountID, referralReward, "referral_reward", &refType, &referral.ID, nil); err != nil {
-					return RegisterResult{}, err
-				}
-
 				if err := referralRepo.MarkCredited(ctx, referral.ID); err != nil {
 					return RegisterResult{}, err
 				}
@@ -359,22 +298,6 @@ func (s *RegistrationService) Register(
 			result.InviterUserID = existingCode.UserID
 			result.InviteCodeID = existingCode.ID
 
-			// 被邀请人奖励
-			inviteeReward := int64(0)
-			if s.entitlementSvc != nil {
-				val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.invitee_reward")
-				if resolveErr == nil {
-					if v := val.Int(); v > 0 {
-						inviteeReward = v
-					}
-				}
-			}
-			if inviteeReward > 0 {
-				refType := "referral"
-				if err := creditsRepo.Add(ctx, account.ID, inviteeReward, "invitee_reward", &refType, &referral.ID, nil); err != nil {
-					return RegisterResult{}, err
-				}
-			}
 		} else {
 			if requireValidCode {
 				return RegisterResult{}, InviteCodeInvalidError{Reason: "invite code is invalid or exhausted"}
@@ -493,34 +416,11 @@ func (s *RegistrationService) createLocalAccountTx(
 		return createdLocalAccount{}, err
 	}
 
-	creditsRepo, err := data.NewCreditsRepository(tx)
-	if err != nil {
-		return createdLocalAccount{}, err
-	}
-	initialGrant := int64(1000)
-	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "credit.initial_grant")
-		if resolveErr == nil {
-			if v := val.Int(); v > 0 {
-				initialGrant = v
-			}
-		}
-	}
-	if _, err := creditsRepo.InitBalance(ctx, account.ID, initialGrant); err != nil {
-		return createdLocalAccount{}, err
-	}
-
 	inviteCodeRepo, err := data.NewInviteCodeRepository(tx)
 	if err != nil {
 		return createdLocalAccount{}, err
 	}
 	maxUses := 0
-	if s.entitlementSvc != nil {
-		val, resolveErr := s.entitlementSvc.Resolve(ctx, account.ID, "invite.default_max_uses")
-		if resolveErr == nil {
-			maxUses = data.NormalizeInviteCodeMaxUses(val.Int())
-		}
-	}
 	code, err := data.GenerateCode()
 	if err != nil {
 		return createdLocalAccount{}, err

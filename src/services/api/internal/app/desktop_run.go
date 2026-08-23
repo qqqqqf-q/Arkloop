@@ -19,7 +19,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	internalcrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/http/accountapi"
@@ -298,10 +297,6 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init workspace registries repo: %w", err)
 	}
-	ipRulesRepo, err := data.NewIPRulesRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init ip rules repo: %w", err)
-	}
 	apiKeysRepo, err := data.NewAPIKeysRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init api keys repo: %w", err)
@@ -350,22 +345,6 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init channel ledger repo: %w", err)
 	}
-	planRepo, err := data.NewPlanRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init plan repo: %w", err)
-	}
-	subscriptionRepo, err := data.NewSubscriptionRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init subscription repo: %w", err)
-	}
-	entitlementsRepo, err := data.NewEntitlementsRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init entitlements repo: %w", err)
-	}
-	usageRepo, err := data.NewUsageRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init usage repo: %w", err)
-	}
 	featureFlagsRepo, err := data.NewFeatureFlagRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init feature flags repo: %w", err)
@@ -385,14 +364,6 @@ func RunDesktop(ctx context.Context) error {
 	referralsRepo, err := data.NewReferralRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init referrals repo: %w", err)
-	}
-	creditsRepo, err := data.NewCreditsRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init credits repo: %w", err)
-	}
-	redemptionCodesRepo, err := data.NewRedemptionCodesRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init redemption codes repo: %w", err)
 	}
 	platformSettingsRepo, err := data.NewPlatformSettingsRepository(pgxPool)
 	if err != nil {
@@ -435,15 +406,6 @@ func RunDesktop(ctx context.Context) error {
 	resolver, err := sharedconfig.NewResolver(registry, nil, nil, 0)
 	if err != nil {
 		return fmt.Errorf("init config resolver: %w", err)
-	}
-
-	entitlementService, err := entitlement.NewService(
-		entitlementsRepo, subscriptionRepo, planRepo,
-		nil, // redis
-		resolver,
-	)
-	if err != nil {
-		return fmt.Errorf("init entitlement service: %w", err)
 	}
 
 	featureFlagService, err := featureflag.NewService(featureFlagsRepo, nil)
@@ -580,7 +542,6 @@ func RunDesktop(ctx context.Context) error {
 		PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 		ProfileRegistriesRepo:        profileRegistriesRepo,
 		WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
-		IPRulesRepo:                  ipRulesRepo,
 		APIKeysRepo:                  apiKeysRepo,
 		TeamRepo:                     teamRepo,
 		ProjectRepo:                  projectRepo,
@@ -592,11 +553,6 @@ func RunDesktop(ctx context.Context) error {
 		ChannelDMThreadsRepo:         channelDMThreadsRepo,
 		ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
 		ChannelReceiptsRepo:          channelReceiptsRepo,
-		PlansRepo:                    planRepo,
-		SubscriptionsRepo:            subscriptionRepo,
-		EntitlementsRepo:             entitlementsRepo,
-		EntitlementService:           entitlementService,
-		UsageRepo:                    usageRepo,
 
 		FeatureFlagsRepo:   featureFlagsRepo,
 		FeatureFlagService: featureFlagService,
@@ -607,8 +563,6 @@ func RunDesktop(ctx context.Context) error {
 		InviteCodesRepo: inviteCodesRepo,
 		ReferralsRepo:   referralsRepo,
 
-		CreditsRepo:         creditsRepo,
-		RedemptionCodesRepo: redemptionCodesRepo,
 
 		PlatformSettingsRepo: platformSettingsRepo,
 		SmtpProviderRepo:     smtpProviderRepo,
@@ -666,9 +620,7 @@ func RunDesktop(ctx context.Context) error {
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		CreditsRepo:              creditsRepo,
 		Pool:                     pgxPool,
-		EntitlementService:       entitlementService,
 		MessageAttachmentStore:   messageAttachmentStore,
 		TelegramMode:             "polling",
 		Bus:                      desktopBus,
@@ -692,9 +644,7 @@ func RunDesktop(ctx context.Context) error {
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		CreditsRepo:              creditsRepo,
 		Pool:                     pgxPool,
-		EntitlementService:       entitlementService,
 		TelegramBotClient:        telegramClient,
 		DiscordBotClient:         discordClient,
 		MessageAttachmentStore:   messageAttachmentStore,
@@ -716,9 +666,7 @@ func RunDesktop(ctx context.Context) error {
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		CreditsRepo:              creditsRepo,
 		Pool:                     pgxPool,
-		EntitlementService:       entitlementService,
 		DiscordClient:            discordClient,
 		Bus:                      desktopBus,
 	})

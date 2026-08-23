@@ -358,7 +358,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		handled, reply, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			text, true, platformChatID,
-			nil,
 			ChannelCommandResolver{
 				ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 					return c.resolveQQThreadID(ctx, tx, ch, personaID, projectID, identity, true, chatID, displayName)
@@ -409,7 +408,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		handled, reply, err := DispatchChannelCommand(
 			ctx, tx, ch, *persona, identity,
 			cmdText, false, platformChatID,
-			nil,
 			ChannelCommandResolver{
 				ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 					return c.resolveQQThreadID(ctx, tx, ch, personaID, projectID, identity, false, chatID, "")

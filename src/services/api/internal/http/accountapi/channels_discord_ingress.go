@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/eventbus"
@@ -40,9 +39,7 @@ type DiscordIngressRunnerDeps struct {
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
-	CreditsRepo              *data.CreditsRepository
 	Pool                     data.DB
-	EntitlementService       *entitlement.Service
 	DiscordClient            *discordbot.Client
 	ScanInterval             time.Duration
 	Bus                      eventbus.EventBus
@@ -75,7 +72,6 @@ type discordConnector struct {
 	messageRepo              *data.MessageRepository
 	runEventRepo             *data.RunEventRepository
 	jobRepo                  *data.JobRepository
-	creditsRepo              *data.CreditsRepository
 	pool                     data.DB
 	discordClient            *discordbot.Client
 	inputNotify              func(ctx context.Context, runID uuid.UUID)
@@ -145,7 +141,7 @@ func StartDiscordIngressRunner(ctx context.Context, deps DiscordIngressRunnerDep
 		deps.ChannelReceiptsRepo == nil || deps.SecretsRepo == nil || deps.PersonasRepo == nil ||
 		deps.UsersRepo == nil || deps.AccountRepo == nil ||
 		deps.ThreadRepo == nil || deps.MessageRepo == nil || deps.RunEventRepo == nil ||
-		deps.JobRepo == nil || deps.CreditsRepo == nil || deps.Pool == nil {
+		deps.JobRepo == nil || deps.Pool == nil {
 		slog.Warn("discord_ingress_runner_skip", "reason", "deps")
 		return
 	}
@@ -285,7 +281,6 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 		messageRepo:              m.deps.MessageRepo,
 		runEventRepo:             m.deps.RunEventRepo,
 		jobRepo:                  m.deps.JobRepo,
-		creditsRepo:              m.deps.CreditsRepo,
 		pool:                     m.deps.Pool,
 		discordClient:            m.deps.DiscordClient,
 		inputNotify:              buildDiscordInputNotifier(m.deps.Pool, m.deps.Bus),
@@ -470,7 +465,7 @@ func (c discordConnector) HandleInteraction(
 		return nil, err
 	}
 
-	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.channelsRepo, c.personasRepo, nil, c.pool)
+	reply, err := handleDiscordCommand(ctx, tx, ch, identity, event, c.channelBindCodesRepo, c.channelIdentitiesRepo, c.channelIdentityLinksRepo, c.channelDMThreadsRepo, c.threadRepo, c.runEventRepo, c.channelsRepo, c.personasRepo, c.pool)
 	if err != nil {
 		return nil, err
 	}
@@ -988,7 +983,6 @@ func handleDiscordCommand(
 	runEventRepo *data.RunEventRepository,
 	channelsRepo *data.ChannelsRepository,
 	personasRepo *data.PersonasRepository,
-	entSvc *entitlement.Service,
 	pool data.DB,
 ) (*discordInteractionReply, error) {
 	cmdData := evt.ApplicationCommandData()
@@ -1079,7 +1073,6 @@ func handleDiscordCommand(
 	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, persona, identity,
 		cmdText, evt.GuildID == "", evt.ChannelID,
-		entSvc,
 		ChannelCommandResolver{
 			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 				if isPrivate {

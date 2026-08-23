@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/http/conversationapi"
 	"arkloop/services/api/internal/observability"
 	shareddesktop "arkloop/services/shared/desktop"
@@ -48,9 +47,7 @@ type TelegramDesktopPollerDeps struct {
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
-	CreditsRepo              *data.CreditsRepository
 	Pool                     data.DB
-	EntitlementService       *entitlement.Service
 	TelegramBotClient        *telegrambot.Client
 	MessageAttachmentStore   MessageAttachmentPutStore
 	PollInterval             time.Duration
@@ -100,8 +97,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		abort = "nil_run_event_repo"
 	case deps.JobRepo == nil:
 		abort = "nil_job_repo"
-	case deps.CreditsRepo == nil:
-		abort = "nil_credits_repo"
+			abort = "nil_credits_repo"
 	case deps.Pool == nil:
 		abort = "nil_pool"
 	}
@@ -169,9 +165,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		messageRepo:              deps.MessageRepo,
 		runEventRepo:             deps.RunEventRepo,
 		jobRepo:                  deps.JobRepo,
-		creditsRepo:              deps.CreditsRepo,
 		pool:                     deps.Pool,
-		entitlementSvc:           deps.EntitlementService,
 		telegramClient:           telegramForConnector,
 		attachmentStore:          deps.MessageAttachmentStore,
 		inputNotify:              busInputNotify,

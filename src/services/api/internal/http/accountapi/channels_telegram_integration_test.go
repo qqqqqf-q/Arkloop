@@ -146,10 +146,6 @@ func setupTelegramChannelsTestEnvWithAttachmentStore(
 	if err != nil {
 		t.Fatalf("job repo: %v", err)
 	}
-	creditsRepo, err := data.NewCreditsRepository(pool)
-	if err != nil {
-		t.Fatalf("credits repo: %v", err)
-	}
 
 	key := make([]byte, 32)
 	for i := range key {
@@ -243,7 +239,6 @@ func setupTelegramChannelsTestEnvWithAttachmentStore(
 		MessageRepo:              messageRepo,
 		RunEventRepo:             runEventRepo,
 		JobRepo:                  jobRepo,
-		CreditsRepo:              creditsRepo,
 		PersonasRepo:             personasRepo,
 		AppBaseURL:               "https://app.example",
 		TelegramBotClient:        botClient,
@@ -642,7 +637,7 @@ func TestModelCommandWritesThreadChatModel(t *testing.T) {
 	}
 	defer tx.Rollback(context.Background()) //nolint:errcheck
 
-	reply, err := handlePreferenceCommand(context.Background(), tx, env.accountID, threadID, "/model cmd-cred^gpt-command", nil)
+	reply, err := handlePreferenceCommand(context.Background(), tx, env.accountID, threadID, "/model cmd-cred^gpt-command")
 	if err != nil {
 		t.Fatalf("handle model command: %v", err)
 	}

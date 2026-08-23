@@ -173,7 +173,6 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 	handled, reply, err := DispatchChannelCommand(
 		ctx, tx, ch, *persona, identity,
 		cmdText, isPrivate, platformChatID,
-		nil,
 		ChannelCommandResolver{
 			ResolveThreadID: func(ctx context.Context, tx pgx.Tx, personaID, projectID uuid.UUID, isPrivate bool, chatID string) (uuid.UUID, error) {
 				return c.resolveWeixinThreadID(ctx, tx, ch, personaID, projectID, identity, isPrivate, chatID)

@@ -15,7 +15,6 @@ import (
 	"arkloop/services/api/internal/http/accountapi"
 	"arkloop/services/api/internal/http/adminapi"
 	"arkloop/services/api/internal/http/authapi"
-	"arkloop/services/api/internal/http/billingapi"
 	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/api/internal/http/conversationapi"
 	"arkloop/services/api/internal/http/memoryapi"
@@ -25,7 +24,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
 	repopersonas "arkloop/services/api/internal/personas"
@@ -144,11 +142,6 @@ type HandlerConfig struct {
 	ChannelDMThreadsRepo         *data.ChannelDMThreadsRepository
 	ChannelGroupThreadsRepo      *data.ChannelGroupThreadsRepository
 	ChannelReceiptsRepo          *data.ChannelMessageReceiptsRepository
-	PlansRepo                    *data.PlanRepository
-	SubscriptionsRepo            *data.SubscriptionRepository
-	EntitlementsRepo             *data.EntitlementsRepository
-	EntitlementService           *entitlement.Service
-	UsageRepo                    *data.UsageRepository
 
 	FeatureFlagsRepo   *data.FeatureFlagRepository
 	FeatureFlagService *featureflag.Service
@@ -159,8 +152,6 @@ type HandlerConfig struct {
 	InviteCodesRepo *data.InviteCodeRepository
 	ReferralsRepo   *data.ReferralRepository
 
-	CreditsRepo         *data.CreditsRepository
-	RedemptionCodesRepo *data.RedemptionCodesRepository
 
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	SmtpProviderRepo     *data.SmtpProviderRepository
@@ -272,7 +263,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		DirectPool:             nil,      // desktop: no LISTEN/NOTIFY
 		APIKeysRepo:            cfg.APIKeysRepo,
 		RunLimiter:             cfg.RunLimiter,
-		EntitlementService:     cfg.EntitlementService,
 		RedisClient:            nil, // desktop: no Redis
 		ConfigResolver:         resolver,
 		SSEConfig:              conversationapi.SSEConfig(sseConfig),
@@ -322,22 +312,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmProviderListAugmenter:     catalogapi.NewLocalProviderListAugmenter(localproviders.NewResolver(localproviders.Options{})),
 	})
 
-	billingapi.RegisterRoutes(mux, billingapi.Deps{
-		AuthService:           cfg.AuthService,
-		AccountMembershipRepo: cfg.AccountMembershipRepo,
-		PlansRepo:             cfg.PlansRepo,
-		EntitlementsRepo:      cfg.EntitlementsRepo,
-		APIKeysRepo:           cfg.APIKeysRepo,
-		SubscriptionsRepo:     cfg.SubscriptionsRepo,
-		EntitlementService:    cfg.EntitlementService,
-		UsageRepo:             cfg.UsageRepo,
-		CreditsRepo:           cfg.CreditsRepo,
-		InviteCodesRepo:       cfg.InviteCodesRepo,
-		ReferralsRepo:         cfg.ReferralsRepo,
-		RedemptionCodesRepo:   cfg.RedemptionCodesRepo,
-		AuditWriter:           cfg.AuditWriter,
-		Pool:                  cfg.Pool,
-	})
 
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:              cfg.AuthService,
@@ -347,7 +321,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ProjectRepo:              cfg.ProjectRepo,
 		APIKeysRepo:              cfg.APIKeysRepo,
 		AuditWriter:              cfg.AuditWriter,
-		EntitlementService:       cfg.EntitlementService,
 		Pool:                     cfg.Pool,
 		AccountRepo:              cfg.AccountRepo,
 		AccountService:           cfg.AccountService,
@@ -365,7 +338,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		UsersRepo:                cfg.UsersRepo,
 		MessageRepo:              cfg.MessageRepo,
 		JobRepo:                  cfg.JobRepo,
-		CreditsRepo:              cfg.CreditsRepo,
 		PersonasRepo:             cfg.PersonasRepo,
 		TelegramBotClient:        telegramClient,
 		DiscordBotClient:         discordClient,
@@ -373,7 +345,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AppBaseURL:               cfg.AppBaseURL,
 		EnvironmentStore:         cfg.EnvironmentStore,
 		RunEventRepo:             cfg.RunEventRepo,
-		EntitlementsRepo:         cfg.EntitlementsRepo,
 		ConfigResolver:           resolver,
 		MessageAttachmentStore:   cfg.MessageAttachmentStore,
 	})
@@ -399,7 +370,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		UsersRepo:             cfg.UsersRepo,
 		RunEventRepo:          cfg.RunEventRepo,
 		RunPipelineEventsRepo: cfg.RunPipelineEventsRepo,
-		UsageRepo:             cfg.UsageRepo,
 		AccountRepo:           cfg.AccountRepo,
 		APIKeysRepo:           cfg.APIKeysRepo,
 		MessageRepo:           cfg.MessageRepo,
@@ -409,8 +379,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AuditWriter:           cfg.AuditWriter,
 		InviteCodesRepo:       cfg.InviteCodesRepo,
 		ReferralsRepo:         cfg.ReferralsRepo,
-		CreditsRepo:           cfg.CreditsRepo,
-		RedemptionCodesRepo:   cfg.RedemptionCodesRepo,
 		NotificationsRepo:     cfg.NotificationsRepo,
 		Pool:                  cfg.Pool,
 		Logger:                cfg.Logger,

@@ -18,7 +18,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	apihttp "arkloop/services/api/internal/http"
 	"arkloop/services/api/internal/http/accountapi"
@@ -251,11 +250,6 @@ func (a *Application) Run(ctx context.Context) error {
 		channelGroupThreadsRepo      *data.ChannelGroupThreadsRepository
 		channelReceiptsRepo          *data.ChannelMessageReceiptsRepository
 		channelLedgerRepo            *data.ChannelMessageLedgerRepository
-		plansRepo                    *data.PlanRepository
-		subscriptionsRepo            *data.SubscriptionRepository
-		entitlementsRepo             *data.EntitlementsRepository
-		entitlementSvc               *entitlement.Service
-		usageRepo                    *data.UsageRepository
 
 		featureFlagsRepo *data.FeatureFlagRepository
 		featureFlagSvc   *featureflag.Service
@@ -264,8 +258,6 @@ func (a *Application) Run(ctx context.Context) error {
 
 		inviteCodesRepo     *data.InviteCodeRepository
 		referralsRepo       *data.ReferralRepository
-		creditsRepo         *data.CreditsRepository
-		redemptionCodesRepo *data.RedemptionCodesRepository
 
 		platformSettingsRepo *data.PlatformSettingsRepository
 		smtpProviderRepo     *data.SmtpProviderRepository
@@ -459,26 +451,6 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		plansRepo, err = data.NewPlanRepository(pool)
-		if err != nil {
-			return err
-		}
-		subscriptionsRepo, err = data.NewSubscriptionRepository(pool)
-		if err != nil {
-			return err
-		}
-		entitlementsRepo, err = data.NewEntitlementsRepository(pool)
-		if err != nil {
-			return err
-		}
-		entitlementSvc, err = entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, redisClient, configResolver)
-		if err != nil {
-			return err
-		}
-		usageRepo, err = data.NewUsageRepository(pool)
-		if err != nil {
-			return err
-		}
 		featureFlagsRepo, err = data.NewFeatureFlagRepository(pool)
 		if err != nil {
 			return err
@@ -496,14 +468,6 @@ func (a *Application) Run(ctx context.Context) error {
 			return err
 		}
 		referralsRepo, err = data.NewReferralRepository(pool)
-		if err != nil {
-			return err
-		}
-		creditsRepo, err = data.NewCreditsRepository(pool)
-		if err != nil {
-			return err
-		}
-		redemptionCodesRepo, err = data.NewRedemptionCodesRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -600,9 +564,6 @@ func (a *Application) Run(ctx context.Context) error {
 		accountService, err = auth.NewAccountService(pool, accountRepo, membershipRepo)
 		if err != nil {
 			return err
-		}
-		if entitlementSvc != nil {
-			registrationService.SetEntitlementResolver(&entitlementAdapter{svc: entitlementSvc})
 		}
 
 		if emailVerifyTokenRepo != nil && userRepo != nil && jobRepo != nil {
@@ -734,7 +695,7 @@ func (a *Application) Run(ctx context.Context) error {
 	if channelsRepo != nil && channelIdentitiesRepo != nil && channelIdentityLinksRepo != nil && channelBindCodesRepo != nil &&
 		channelDMThreadsRepo != nil && channelReceiptsRepo != nil && secretsRepo != nil &&
 		personasRepo != nil && threadRepo != nil && messageRepo != nil &&
-		runEventRepo != nil && jobRepo != nil && creditsRepo != nil && pool != nil {
+		runEventRepo != nil && jobRepo != nil && pool != nil {
 		accountapi.StartChannelInboundBurstRunner(ctx, accountapi.ChannelInboundBurstRunnerDeps{
 			ChannelsRepo:             channelsRepo,
 			ChannelIdentitiesRepo:    channelIdentitiesRepo,
@@ -754,9 +715,7 @@ func (a *Application) Run(ctx context.Context) error {
 			MessageRepo:              messageRepo,
 			RunEventRepo:             runEventRepo,
 			JobRepo:                  jobRepo,
-			CreditsRepo:              creditsRepo,
 			Pool:                     pool,
-			EntitlementService:       entitlementSvc,
 			TelegramBotClient:        telegramClient,
 			DiscordBotClient:         discordClient,
 			MessageAttachmentStore:   messageAttachmentStore,
@@ -777,9 +736,7 @@ func (a *Application) Run(ctx context.Context) error {
 			MessageRepo:              messageRepo,
 			RunEventRepo:             runEventRepo,
 			JobRepo:                  jobRepo,
-			CreditsRepo:              creditsRepo,
 			Pool:                     pool,
-			EntitlementService:       entitlementSvc,
 			DiscordClient:            discordClient,
 		})
 	}
@@ -863,11 +820,6 @@ func (a *Application) Run(ctx context.Context) error {
 			ChannelDMThreadsRepo:         channelDMThreadsRepo,
 			ChannelGroupThreadsRepo:      channelGroupThreadsRepo,
 			ChannelReceiptsRepo:          channelReceiptsRepo,
-			PlansRepo:                    plansRepo,
-			SubscriptionsRepo:            subscriptionsRepo,
-			EntitlementsRepo:             entitlementsRepo,
-			EntitlementService:           entitlementSvc,
-			UsageRepo:                    usageRepo,
 			FeatureFlagsRepo:             featureFlagsRepo,
 			FeatureFlagService:           featureFlagSvc,
 			NotificationsRepo:            notificationsRepo,
@@ -877,8 +829,6 @@ func (a *Application) Run(ctx context.Context) error {
 			UserCredentialRepo:           credentialRepo,
 			InviteCodesRepo:              inviteCodesRepo,
 			ReferralsRepo:                referralsRepo,
-			CreditsRepo:                  creditsRepo,
-			RedemptionCodesRepo:          redemptionCodesRepo,
 			PlatformSettingsRepo:         platformSettingsRepo,
 			SmtpProviderRepo:             smtpProviderRepo,
 			RedisClient:                  redisClient,
@@ -1108,15 +1058,3 @@ func bootstrapPlatformAdminOnce(
 	return nil
 }
 
-// entitlementAdapter adapts entitlement.Service to the auth.EntitlementResolver interface.
-type entitlementAdapter struct {
-	svc *entitlement.Service
-}
-
-func (a *entitlementAdapter) Resolve(ctx context.Context, accountID uuid.UUID, key string) (auth.EntitlementValue, error) {
-	val, err := a.svc.Resolve(ctx, accountID, key)
-	if err != nil {
-		return auth.EntitlementValue{}, err
-	}
-	return auth.EntitlementValue{Raw: val.Raw, Type: val.Type}, nil
-}

@@ -18,7 +18,6 @@ import (
 	"arkloop/services/api/internal/auth"
 	apiCrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/shared/database/sqliteadapter"
 	"arkloop/services/shared/database/sqlitepgx"
 
@@ -672,23 +671,6 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 	if err != nil {
 		t.Fatalf("new secrets repo: %v", err)
 	}
-	entitlementsRepo, err := data.NewEntitlementsRepository(pool)
-	if err != nil {
-		t.Fatalf("new entitlements repo: %v", err)
-	}
-	subscriptionsRepo, err := data.NewSubscriptionRepository(pool)
-	if err != nil {
-		t.Fatalf("new subscriptions repo: %v", err)
-	}
-	plansRepo, err := data.NewPlanRepository(pool)
-	if err != nil {
-		t.Fatalf("new plans repo: %v", err)
-	}
-	entitlementService, err := entitlement.NewService(entitlementsRepo, subscriptionsRepo, plansRepo, nil, nil)
-	if err != nil {
-		t.Fatalf("new entitlement service: %v", err)
-	}
-
 	passwordHasher, err := auth.NewBcryptPasswordHasher(0)
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
@@ -722,6 +704,5 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
 		ProjectRepo:              projectRepo,
 		SecretsRepo:              secretsRepo,
-		EntitlementService:       entitlementService,
 	})
 }

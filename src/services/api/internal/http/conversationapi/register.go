@@ -8,7 +8,6 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/featureflag"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
@@ -35,7 +34,6 @@ type Deps struct {
 	DirectPoolAcquireTimeout time.Duration
 	APIKeysRepo              *data.APIKeysRepository
 	RunLimiter               *data.RunLimiter
-	EntitlementService       *entitlement.Service
 	RedisClient              *redis.Client
 	ConfigResolver           sharedconfig.Resolver
 	SSEConfig                SSEConfig
@@ -85,7 +83,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.Pool,
 			deps.APIKeysRepo,
 			deps.RunLimiter,
-			deps.EntitlementService,
 			deps.RedisClient,
 			deps.EventBus,
 			deps.MessageAttachmentStore,

@@ -20,12 +20,10 @@ import (
 	"arkloop/services/api/internal/audit"
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/pgnotify"
-	"arkloop/services/shared/runlimit"
 	"arkloop/services/shared/threadrunstate"
 
 	"github.com/google/uuid"
@@ -204,7 +202,6 @@ func createThreadRun(
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	limiter *data.RunLimiter,
-	entSvc *entitlement.Service,
 	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -331,25 +328,7 @@ func createThreadRun(
 		}
 
 		var acquired bool
-		if entSvc != nil && rdb != nil {
-			// 从权益系统获取该 account 的并发上限，动态解析覆盖全局配置。
-			limitVal, err := entSvc.Resolve(r.Context(), thread.AccountID, "limit.concurrent_runs")
-			if err != nil {
-				writeInternalError(w, traceID, err)
-				return
-			}
-			key := runlimit.Key(thread.AccountID.String())
-			if !runlimit.TryAcquire(r.Context(), rdb, key, limitVal.Int()) {
-				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "runs.limit_exceeded", "concurrent run limit exceeded", traceID, nil)
-				return
-			}
-			acquired = true
-			defer func() {
-				if acquired {
-					runlimit.Release(r.Context(), rdb, key)
-				}
-			}()
-		} else if limiter != nil {
+		if limiter != nil {
 			if !limiter.TryAcquire(r.Context(), thread.AccountID) {
 				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "runs.limit_exceeded", "concurrent run limit exceeded", traceID, nil)
 				return

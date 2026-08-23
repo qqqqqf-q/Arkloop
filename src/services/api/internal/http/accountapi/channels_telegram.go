@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/eventbus"
@@ -564,16 +563,6 @@ func findTelegramCredentialIDByName(candidates []telegramSelectorCandidate, name
 	return platformMatch
 }
 
-func resolveByokEnabled(ctx context.Context, entSvc *entitlement.Service, accountID uuid.UUID) (bool, error) {
-	if entSvc == nil || accountID == uuid.Nil {
-		return true, nil
-	}
-	val, err := entSvc.Resolve(ctx, accountID, "feature.byok_enabled")
-	if err != nil {
-		return false, err
-	}
-	return val.Bool(), nil
-}
 
 func syncTelegramChannelHeartbeatTriggers(
 	ctx context.Context,
@@ -933,9 +922,7 @@ type telegramConnector struct {
 	messageRepo              *data.MessageRepository
 	runEventRepo             *data.RunEventRepository
 	jobRepo                  *data.JobRepository
-	creditsRepo              *data.CreditsRepository
 	pool                     data.DB
-	entitlementSvc           *entitlement.Service
 	telegramClient           *telegrambot.Client
 	attachmentStore          MessageAttachmentPutStore
 	inputNotify              func(ctx context.Context, runID uuid.UUID)
@@ -1301,7 +1288,7 @@ func (c telegramConnector) HandleUpdate(
 		}
 	}
 
-	// Both mustValidateTelegramActivation and entitlementSvc.Resolve use non-tx
+	// mustValidateTelegramActivation uses non-tx
 	// connections. On SQLite (single-connection pool) calling them inside a
 	// transaction deadlocks. Resolve everything before BeginTx.
 	persona, _, _, err := mustValidateTelegramActivation(ctx, ch.AccountID, c.personasRepo, ch.PersonaID, ch.ConfigJSON)
@@ -1361,9 +1348,7 @@ func telegramWebhookEntry(
 	messageRepo *data.MessageRepository,
 	runEventRepo *data.RunEventRepository,
 	jobRepo *data.JobRepository,
-	creditsRepo *data.CreditsRepository,
 	pool data.DB,
-	entitlementSvc *entitlement.Service,
 	telegramClient *telegrambot.Client,
 	messageAttachmentStore MessageAttachmentPutStore,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -1395,9 +1380,7 @@ func telegramWebhookEntry(
 		messageRepo:              messageRepo,
 		runEventRepo:             runEventRepo,
 		jobRepo:                  jobRepo,
-		creditsRepo:              creditsRepo,
 		pool:                     pool,
-		entitlementSvc:           entitlementSvc,
 		telegramClient:           telegramClient,
 		attachmentStore:          messageAttachmentStore,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
@@ -1415,7 +1398,7 @@ func telegramWebhookEntry(
 		}
 		if channelsRepo == nil || channelIdentitiesRepo == nil || channelIdentityLinksRepo == nil || channelBindCodesRepo == nil || channelDMThreadsRepo == nil || channelReceiptsRepo == nil ||
 			secretsRepo == nil || personasRepo == nil || usersRepo == nil || accountRepo == nil || membershipRepo == nil ||
-			projectRepo == nil || threadRepo == nil || messageRepo == nil || runEventRepo == nil || jobRepo == nil || creditsRepo == nil || pool == nil {
+			projectRepo == nil || threadRepo == nil || messageRepo == nil || runEventRepo == nil || jobRepo == nil || pool == nil {
 			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
 			return
 		}
@@ -1743,13 +1726,9 @@ func handleTelegramHeartbeatCommand(
 	rawText string,
 	channelIdentitiesRepo *data.ChannelIdentitiesRepository,
 	personasRepo *data.PersonasRepository,
-	entSvc *entitlement.Service,
 ) (string, error) {
 	parts := strings.Fields(rawText)
-	allowUserScoped, err := resolveByokEnabled(ctx, entSvc, accountID)
-	if err != nil {
-		return "", err
-	}
+		allowUserScoped := true
 	if threadID == uuid.Nil {
 		return "当前会话未配置 persona。", nil
 	}
@@ -2208,10 +2187,7 @@ func (c telegramConnector) handleTelegramCallbackQuery(
 		return nil
 
 	case "providers":
-		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
-		if err != nil {
-			return err
-		}
+		allowUserScoped := true
 		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
 		if err != nil {
 			return err
@@ -2222,10 +2198,7 @@ func (c telegramConnector) handleTelegramCallbackQuery(
 		return nil
 
 	case "provider_models":
-		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
-		if err != nil {
-			return err
-		}
+		allowUserScoped := true
 		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
 		if err != nil {
 			return err
@@ -2237,10 +2210,7 @@ func (c telegramConnector) handleTelegramCallbackQuery(
 		return nil
 
 	case "model_select":
-		allowUserScoped, err := resolveByokEnabled(ctx, c.entitlementSvc, ch.AccountID)
-		if err != nil {
-			return err
-		}
+		allowUserScoped := true
 		candidates, err := loadModelSelectorCandidates(ctx, c.pool, ch.AccountID)
 		if err != nil {
 			return err

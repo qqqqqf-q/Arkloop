@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/eventbus"
@@ -45,9 +44,7 @@ type ChannelInboundBurstRunnerDeps struct {
 	MessageRepo              *data.MessageRepository
 	RunEventRepo             *data.RunEventRepository
 	JobRepo                  *data.JobRepository
-	CreditsRepo              *data.CreditsRepository
 	Pool                     data.DB
-	EntitlementService       *entitlement.Service
 	TelegramBotClient        *telegrambot.Client
 	DiscordBotClient         *discordbot.Client
 	MessageAttachmentStore   MessageAttachmentPutStore

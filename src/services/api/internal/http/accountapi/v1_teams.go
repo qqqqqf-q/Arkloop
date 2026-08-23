@@ -9,7 +9,6 @@ import (
 
 	"arkloop/services/api/internal/auth"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
@@ -45,7 +44,6 @@ func teamsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
-	entSvc *entitlement.Service,
 	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -65,7 +63,6 @@ func teamEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
-	entSvc *entitlement.Service,
 	pool data.DB,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -74,7 +71,7 @@ func teamEntry(
 		tail := strings.TrimPrefix(r.URL.Path, "/v1/teams/")
 		tail = strings.Trim(tail, "/")
 		if tail == "" {
-			teamsEntry(authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)(w, r)
+			teamsEntry(authService, membershipRepo, teamRepo, apiKeysRepo, pool)(w, r)
 			return
 		}
 
@@ -107,7 +104,7 @@ func teamEntry(
 			case nethttp.MethodGet:
 				listTeamMembers(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo)
 			case nethttp.MethodPost:
-				addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo, entSvc, pool)
+				addTeamMember(w, r, traceID, teamID, authService, membershipRepo, teamRepo, apiKeysRepo, pool)
 			default:
 				httpkit.WriteMethodNotAllowed(w, r)
 			}
@@ -224,7 +221,6 @@ func addTeamMember(
 	membershipRepo *data.AccountMembershipRepository,
 	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
-	entSvc *entitlement.Service,
 	pool data.DB,
 ) {
 	if authService == nil {
@@ -303,15 +299,6 @@ func addTeamMember(
 	}
 
 	txTeamRepo := teamRepo.WithTx(tx)
-	currentCount, err := txTeamRepo.CountMembers(r.Context(), teamID)
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return
-	}
-	if !requireEntitlementInt(r.Context(), w, traceID, entSvc, actor.AccountID, "limit.team_members", currentCount, "quota.team_members_exceeded", "team member limit reached") {
-		return
-	}
-
 	membership, err := txTeamRepo.AddMember(r.Context(), teamID, userID, role)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)

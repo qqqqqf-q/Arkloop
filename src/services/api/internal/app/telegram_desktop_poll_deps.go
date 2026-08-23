@@ -8,10 +8,8 @@ import (
 
 	internalcrypto "arkloop/services/api/internal/crypto"
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/entitlement"
 	"arkloop/services/api/internal/http/accountapi"
 	shareddesktop "arkloop/services/shared/desktop"
-	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
 )
@@ -94,36 +92,6 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 	if err != nil {
 		return zero, fmt.Errorf("init channel receipts repo: %w", err)
 	}
-	planRepo, err := data.NewPlanRepository(pgxPool)
-	if err != nil {
-		return zero, fmt.Errorf("init plan repo: %w", err)
-	}
-	subscriptionRepo, err := data.NewSubscriptionRepository(pgxPool)
-	if err != nil {
-		return zero, fmt.Errorf("init subscription repo: %w", err)
-	}
-	entitlementsRepo, err := data.NewEntitlementsRepository(pgxPool)
-	if err != nil {
-		return zero, fmt.Errorf("init entitlements repo: %w", err)
-	}
-	creditsRepo, err := data.NewCreditsRepository(pgxPool)
-	if err != nil {
-		return zero, fmt.Errorf("init credits repo: %w", err)
-	}
-
-	registry := sharedconfig.DefaultRegistry()
-	resolver, err := sharedconfig.NewResolver(registry, nil, nil, 0)
-	if err != nil {
-		return zero, fmt.Errorf("init config resolver: %w", err)
-	}
-	entitlementService, err := entitlement.NewService(
-		entitlementsRepo, subscriptionRepo, planRepo,
-		nil,
-		resolver,
-	)
-	if err != nil {
-		return zero, fmt.Errorf("init entitlement service: %w", err)
-	}
 
 	cfg, err := LoadDesktopConfig()
 	if err != nil {
@@ -159,9 +127,7 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 		MessageRepo:             messageRepo,
 		RunEventRepo:            runEventRepo,
 		JobRepo:                 jobRepo,
-		CreditsRepo:             creditsRepo,
 		Pool:                   pgxPool,
-		EntitlementService:     entitlementService,
 		MessageAttachmentStore: msgAttach,
 		TelegramMode:            "polling",
 		Bus:                     bus,
