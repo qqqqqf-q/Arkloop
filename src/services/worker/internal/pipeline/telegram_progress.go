@@ -602,8 +602,6 @@ func displayToolName(toolName string) string {
 		return "Read Memory"
 	case "memory_write":
 		return "Write Memory"
-	case "memory_edit":
-		return "Edit Memory"
 	case "memory_forget":
 		return "Forget Memory"
 	case "arkloop_help":

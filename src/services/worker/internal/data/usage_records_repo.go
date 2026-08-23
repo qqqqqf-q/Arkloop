@@ -46,34 +46,3 @@ func (UsageRecordsRepository) Insert(
 	}
 	return nil
 }
-
-// InsertMemoryUsage 通过连接池（非事务）写入 memory 类型的 usage record。
-// costUSD <= 0 时跳过写入。
-func (UsageRecordsRepository) InsertMemoryUsage(
-	ctx context.Context,
-	db MemoryMiddlewareDB,
-	accountID, runID uuid.UUID,
-	costUSD float64,
-) error {
-	if costUSD <= 0 {
-		return nil
-	}
-	if db == nil {
-		return nil
-	}
-	tag, err := db.Exec(
-		ctx,
-		`INSERT INTO usage_records (account_id, run_id, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cached_tokens, cost_usd, usage_type)
-		 VALUES ($1, $2, 'memory/openviking', 0, 0, 0, 0, 0, $3, 'memory')
-		 ON CONFLICT (run_id, usage_type) DO UPDATE
-		   SET cost_usd = EXCLUDED.cost_usd`,
-		accountID, runID, costUSD,
-	)
-	if err != nil {
-		return fmt.Errorf("usage_records.InsertMemoryUsage: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("usage_records.InsertMemoryUsage: no rows affected")
-	}
-	return nil
-}

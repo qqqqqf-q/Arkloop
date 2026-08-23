@@ -13,7 +13,7 @@ import (
 )
 
 // NewNotebookInjectionMiddleware injects the cached <notebook> block
-// into prompt assembly before the run, independently of the OpenViking
+// into prompt assembly before the run, independently of the semantic
 // memory snapshot.
 func NewNotebookInjectionMiddleware(pool *pgxpool.Pool) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {

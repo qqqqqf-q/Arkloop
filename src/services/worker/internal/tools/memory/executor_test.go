@@ -869,52 +869,6 @@ func TestMemoryExecutor_Forget_MissingURI(t *testing.T) {
 	}
 }
 
-func TestMemoryExecutor_Edit_Success(t *testing.T) {
-	mp := &mockProvider{}
-	ex := NewToolExecutor(mp, nil, nil)
-	targetURI := "viking://user/memories/preferences/lang.md"
-	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
-		"uri":     targetURI,
-		"content": "updated memory body",
-	}, newUserExecCtx(), "")
-
-	if result.Error != nil {
-		t.Fatalf("unexpected error: %v", result.Error.Message)
-	}
-	if result.ResultJSON["status"] != "ok" {
-		t.Fatalf("unexpected status: %v", result.ResultJSON["status"])
-	}
-	if !mp.updateCalled {
-		t.Fatal("expected UpdateByURI to be called on provider")
-	}
-	if mp.lastDeleteURI != targetURI {
-		t.Fatalf("unexpected edit uri: %q", mp.lastDeleteURI)
-	}
-	if mp.lastWriteEntry.Content != "updated memory body" {
-		t.Fatalf("unexpected edit content: %q", mp.lastWriteEntry.Content)
-	}
-}
-
-func TestMemoryExecutor_Edit_MissingURI(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil, nil)
-	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
-		"content": "updated memory body",
-	}, newUserExecCtx(), "")
-	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
-		t.Fatalf("expected args_invalid, got: %+v", result.Error)
-	}
-}
-
-func TestMemoryExecutor_Edit_MissingContent(t *testing.T) {
-	ex := NewToolExecutor(&mockProvider{}, nil, nil)
-	result := ex.Execute(context.Background(), "memory_edit", map[string]any{
-		"uri": "viking://user/memories/preferences/lang.md",
-	}, newUserExecCtx(), "")
-	if result.Error == nil || result.Error.ErrorClass != errorArgsInvalid {
-		t.Fatalf("expected args_invalid, got: %+v", result.Error)
-	}
-}
-
 // --- identity missing ---
 
 func TestMemoryExecutor_NoUserID_IdentityMissing(t *testing.T) {

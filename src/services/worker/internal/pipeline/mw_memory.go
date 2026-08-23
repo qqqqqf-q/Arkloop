@@ -29,8 +29,6 @@ const (
 	impressionFragmentLimit = 40
 )
 
-var usageRepo = data.UsageRecordsRepository{}
-
 var snapshotRefreshWindow = 5 * time.Minute
 var snapshotRefreshRetryInterval = 10 * time.Second
 var snapshotRefreshMaxAttempts = 30
@@ -52,8 +50,8 @@ const (
 // NewMemoryMiddleware 在 run 前仅从快照注入 <memory>；run 后异步刷写显式 memory_write 并触发后台快照刷新。
 // provider 为 nil 时整个 middleware 为 no-op。
 // snap 为 nil 时不注入、不刷新快照表（与旧版 pool==nil 行为一致）。
-// mdb 为 nil 时跳过 run_events / usage_records 写入，仍会执行 OpenViking 写与快照 Upsert。
-// configResolver 为 nil 时跳过 memory usage 记录。
+// mdb 为 nil 时跳过 run_events 写入，仍会执行 provider 写与快照 Upsert。
+// configResolver 为 nil 时跳过 impression/suggestion 阈值配置解析。
 // impStore 为 nil 时不注入 impression、不累积 score。
 // sugStore 为 nil 时不累积 suggestion score。
 func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, impStore ImpressionStore, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc) RunMiddleware {
@@ -84,7 +82,6 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 	if len(pending) == 0 {
 		return
 	}
-	costPerWrite := resolveCommitCost(ctx, configResolver)
 
 	ident := memory.MemoryIdentity{
 		AccountID: rc.Run.AccountID,
@@ -92,10 +89,10 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		AgentID:   StableAgentID(rc),
 	}
 	threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
-	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
+	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.ID, rc.TraceID, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, runID uuid.UUID, traceID string, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
@@ -142,22 +139,6 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 	}
 	if sugStore != nil && successCount > 0 && threadMode != "" {
 		addSuggestionScore(ctx, sugStore, ident.AccountID, ident.UserID, ident.AgentID, threadMode, successCount, configResolver, sugRefresh)
-	}
-
-	if successCount == 0 {
-		return
-	}
-
-	if costPerWrite > 0 && mdb != nil {
-		totalCost := costPerWrite * float64(successCount)
-		uCtx, uCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer uCancel()
-		if err := usageRepo.InsertMemoryUsage(uCtx, mdb, accountID, runID, totalCost); err != nil {
-			slog.Warn("memory: usage record insert failed",
-				"run_id", runID.String(),
-				"err", err.Error(),
-			)
-		}
 	}
 }
 
@@ -496,7 +477,6 @@ func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, m
 		return
 	}
 
-	costPerCommit := resolveCommitCost(context.Background(), configResolver)
 	accountID := rc.Run.AccountID
 	runID := rc.Run.ID
 	appendAsyncRunEvent(context.Background(), mdb, runID, emitter.Emit(eventTypeMemoryDistillStarted, map[string]any{
@@ -548,17 +528,6 @@ func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, m
 			addImpressionScore(ctx, impStore, ident, weight, configResolver, impRefresh)
 		}
 		scheduleSnapshotRefresh(provider, snap, mdb, runID, rc.TraceID, ident, sessionID, userMessagesToQueries(msgs), "memory.distill", "distill")
-
-		if costPerCommit > 0 && mdb != nil {
-			uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer uCancel()
-			if err := usageRepo.InsertMemoryUsage(uCtx, mdb, accountID, runID, costPerCommit); err != nil {
-				slog.Warn("memory: distill usage record failed",
-					"run_id", runID.String(),
-					"err", err.Error(),
-				)
-			}
-		}
 	}()
 }
 
@@ -715,7 +684,7 @@ func ForgetSnapshotRefresh(
 	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.forget", "forget")
 }
 
-// EditSnapshotRefresh schedules a background snapshot rebuild after memory_edit.
+// EditSnapshotRefresh 在记忆内容变更后调度后台快照重建。
 func EditSnapshotRefresh(
 	provider memory.MemoryProvider,
 	store MemorySnapshotStore,
@@ -733,22 +702,6 @@ func EditSnapshotRefresh(
 		string(memory.MemoryScopeUser): {query},
 	}
 	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.edit", "edit")
-}
-
-// resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。
-func resolveCommitCost(ctx context.Context, resolver sharedconfig.Resolver) float64 {
-	if resolver == nil {
-		return 0
-	}
-	raw, err := resolver.Resolve(ctx, "openviking.cost_per_commit", sharedconfig.Scope{})
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return 0
-	}
-	value, parseErr := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if parseErr != nil || value <= 0 {
-		return 0
-	}
-	return value
 }
 
 func stringPtr(value string) *string {

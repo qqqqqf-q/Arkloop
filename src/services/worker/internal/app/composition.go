@@ -287,7 +287,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 		executors[spec.Name] = dynamicMemoryExec
 	}
 
-	// notebook: PG-backed stable notes, independent of OpenViking
+	// notebook: PG-backed stable notes, independent of the semantic memory provider
 	if pool != nil {
 		nbProvider := notebookprovider.NewProvider(pool)
 		nbExec := memorytool.NewToolExecutor(nbProvider, pool, data.MemorySnapshotRepository{})
