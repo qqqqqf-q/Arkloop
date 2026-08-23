@@ -4,7 +4,6 @@ import { setThreadTodos } from '../todoDb'
 import { PLAN_TODOS_UPDATED_EVENT } from '../planMetadata'
 import { useAuth } from '../contexts/auth'
 import { useChatSession } from '../contexts/chat-session'
-import { useCredits } from '../contexts/credits'
 import { useMessageMeta } from '../contexts/message-meta'
 import { useMessageStore } from '../contexts/message-store'
 import { useRunLifecycle } from '../contexts/run-lifecycle'
@@ -82,7 +81,6 @@ export function useThreadSseEffect({
     updateTitle: onThreadTitleUpdated,
     updateCollaborationMode: onThreadCollaborationModeUpdated,
   } = useThreadList()
-  const { refreshCredits } = useCredits()
   const {
     activeRunId,
     setActiveRunId,
@@ -845,7 +843,6 @@ export function useThreadSseEffect({
         setPendingUserInput(null)
         setCheckInDraft('')
         if (threadId) onRunEnded(threadId)
-        refreshCredits()
         void refreshMessages({ requiredCompletedRunId: completedHasRecoverableOutput ? completedRunId : undefined })
           .then((items) => {
             const completedAssistant = findAssistantMessageForRun(items, completedRunId)
@@ -1099,7 +1096,6 @@ export function useThreadSseEffect({
     setPendingUserInput(null)
     setCheckInDraft('')
     if (threadId) onRunEnded(threadId)
-    refreshCredits()
 
     void refreshMessages({ requiredCompletedRunId: terminalRunId })
       .then((items) => {

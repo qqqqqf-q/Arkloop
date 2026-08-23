@@ -25,7 +25,6 @@ import {
   useTitleBarIncognitoUI,
   useTitleBarRightPanelUI,
 } from '../contexts/app-ui'
-import { useCredits } from '../contexts/credits'
 import { isPerfDebugEnabled, recordPerfValue } from '../perfDebug'
 import { applyDevAppUpdateMock, resolveAppUpdaterApi } from '../devAppUpdateMock'
 
@@ -135,7 +134,6 @@ const LayoutMain = memo(function LayoutMain({
   onTrySkill,
 }: LayoutMainProps) {
   const { me, accessToken, logout } = useAuth()
-  const { setCreditsBalance } = useCredits()
   const {
     settingsOpen,
     settingsInitialTab,
@@ -168,8 +166,7 @@ const LayoutMain = memo(function LayoutMain({
           initialTab={settingsInitialTab}
           onClose={closeSettings}
           onLogout={logout}
-          onCreditsChanged={setCreditsBalance}
-          onMeUpdated={onMeUpdated}
+                    onMeUpdated={onMeUpdated}
           onTrySkill={onTrySkill}
         />
       )}
@@ -223,7 +220,6 @@ export function AppLayout() {
   const { queueSkillPrompt } = useSkillPromptUI()
   const { triggerTitleBarIncognitoClick } = useTitleBarIncognitoUI()
   const { triggerTitleBarRightPanelClick } = useTitleBarRightPanelUI()
-  useCredits()
   const { t } = useLocale()
   const navigate = useNavigate()
   const location = useLocation()

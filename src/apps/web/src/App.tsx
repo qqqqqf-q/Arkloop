@@ -8,7 +8,6 @@ import { ChatShell } from './components/ChatShell'
 import { AuthProvider } from './contexts/auth'
 import { ThreadListProvider } from './contexts/thread-list'
 import { AppUIProvider } from './contexts/app-ui'
-import { CreditsProvider } from './contexts/credits'
 import { SharePage } from './components/SharePage'
 import { VerifyEmailPage } from './components/VerifyEmailPage'
 import { OnboardingWizard } from './components/OnboardingWizard'
@@ -386,9 +385,7 @@ function App() {
             <AuthProvider accessToken={accessToken} onLoggedOut={handleLoggedOut}>
               <ThreadListProvider>
                 <AppUIProvider>
-                  <CreditsProvider>
                     <AppLayout />
-                  </CreditsProvider>
                 </AppUIProvider>
               </ThreadListProvider>
             </AuthProvider>

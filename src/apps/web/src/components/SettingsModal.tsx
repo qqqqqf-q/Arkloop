@@ -5,7 +5,6 @@ import {
   User,
   Settings,
   ChevronLeft,
-  Coins,
   Puzzle,
   Cpu,
   Radio,
@@ -25,13 +24,12 @@ import { AccountContent, ProfileContent } from './settings/AccountSettings'
 import { AppearanceContent, LanguageContent, ThemeContent } from './settings/AppearanceSettings'
 import { InviteCodeContent } from './settings/InviteSettings'
 import { HelpContent, ReportFeedbackContent } from './settings/HelpSettings'
-import { CreditsContent } from './settings/CreditsSettings'
 import { UpdateSettingsContent } from './settings/UpdateSettings'
 import { ToolsSettings } from './settings/ToolsSettings'
 import { TimeZoneSettings } from './settings/TimeZoneSettings'
-import { isDesktop, isLocalMode } from '@arkloop/shared/desktop'
+import { isDesktop } from '@arkloop/shared/desktop'
 
-export type SettingsTab = 'account' | 'appearance' | 'settings' | 'tools' | 'skills' | 'credits' | 'models' | 'channels' | 'connection' | 'updates'
+export type SettingsTab = 'account' | 'appearance' | 'settings' | 'tools' | 'skills' | 'models' | 'channels' | 'connection' | 'updates'
 
 type NavItem = { key: SettingsTab; icon: LucideIcon }
 
@@ -43,7 +41,6 @@ const BASE_NAV_ITEMS: NavItem[] = [
   { key: 'skills',     icon: Puzzle },
   { key: 'models',     icon: Cpu },
   { key: 'channels',   icon: Radio },
-  { key: 'credits',    icon: Coins },
 ]
 
 const DESKTOP_NAV_ITEMS: NavItem[] = [
@@ -58,19 +55,16 @@ type Props = {
   initialTab?: SettingsTab
   onClose: () => void
   onLogout: () => void
-  onCreditsChanged?: (balance: number) => void
   onMeUpdated?: (me: MeResponse) => void
   onTrySkill?: (prompt: string) => void
 }
 
-export function SettingsModal({ me, accessToken, initialTab = 'account', onClose, onLogout, onCreditsChanged, onMeUpdated, onTrySkill }: Props) {
+export function SettingsModal({ me, accessToken, initialTab = 'account', onClose, onLogout, onMeUpdated, onTrySkill }: Props) {
   const { t, locale, setLocale } = useLocale()
   const { theme, setTheme } = useTheme()
   const [activeKey, setActiveKey] = useState<SettingsTab>(initialTab)
   const [profileView, setProfileView] = useState(false)
-  const localMode = isLocalMode()
   const navItems = (isDesktop() ? DESKTOP_NAV_ITEMS : BASE_NAV_ITEMS)
-    .filter(item => !(localMode && item.key === 'credits'))
   const userInitial = me?.username?.charAt(0).toUpperCase() ?? '?'
   const activeLabel = t.nav[activeKey as keyof typeof t.nav] ?? t.nav.account
 
@@ -176,11 +170,6 @@ export function SettingsModal({ me, accessToken, initialTab = 'account', onClose
             <div className={['absolute inset-0 overflow-y-auto p-6', activeKey === 'skills' ? '' : 'hidden'].join(' ')} style={{ scrollbarGutter: 'stable' }}>
               <SkillsSettingsContent accessToken={accessToken} onTrySkill={(prompt) => { onClose(); onTrySkill?.(prompt) }} />
             </div>
-            {!localMode && (
-              <div className={['absolute inset-0 overflow-y-auto p-6', activeKey === 'credits' ? '' : 'hidden'].join(' ')} style={{ scrollbarGutter: 'stable' }}>
-                <CreditsContent accessToken={accessToken} onCreditsChanged={onCreditsChanged} />
-              </div>
-            )}
             <div className={['absolute inset-0 overflow-y-auto p-6', activeKey === 'models' ? '' : 'hidden'].join(' ')} style={{ scrollbarGutter: 'stable' }}>
               <ProvidersSettings accessToken={accessToken} />
             </div>

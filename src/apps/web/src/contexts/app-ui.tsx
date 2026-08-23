@@ -116,7 +116,7 @@ const DESKTOP_SETTINGS_KEYS = new Set<DesktopSettingsKey>([
   'about',
 ])
 
-const ADVANCED_SETTINGS_KEYS = new Set<AdvancedSettingsKey>(['usage', 'voice', 'network', 'data', 'logs'])
+const ADVANCED_SETTINGS_KEYS = new Set<AdvancedSettingsKey>(['voice', 'network', 'data', 'logs'])
 
 function readStoredDesktopSettingsState(): {
   open: boolean

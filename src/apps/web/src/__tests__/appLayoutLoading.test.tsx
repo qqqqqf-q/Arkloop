@@ -8,8 +8,7 @@ import { LocaleProvider } from '../contexts/LocaleContext'
 import { AuthProvider } from '../contexts/auth'
 import { ThreadListProvider, useThreadList } from '../contexts/thread-list'
 import { AppUIProvider } from '../contexts/app-ui'
-import { CreditsProvider } from '../contexts/credits'
-import { getMe, listThreads, getMyCredits, streamThreadRunStateEvents, updateThreadMode, updateThreadSidebarState, type ThreadResponse } from '../api'
+import { getMe, listThreads, streamThreadRunStateEvents, updateThreadMode, updateThreadSidebarState, type ThreadResponse } from '../api'
 import {
   readGtdArchivedThreadIds,
   readGtdInboxThreadIds,
@@ -34,7 +33,6 @@ vi.mock('../api', async () => {
     ...actual,
     getMe: vi.fn(),
     listThreads: vi.fn(),
-    getMyCredits: vi.fn(),
     streamThreadRunStateEvents: vi.fn(),
     updateThreadMode: vi.fn(),
     updateThreadSidebarState: vi.fn(),
@@ -109,7 +107,6 @@ function UpsertProbe({ thread }: { thread: ThreadResponse }) {
 describe('AppLayout loading state', () => {
   const mockedGetMe = vi.mocked(getMe)
   const mockedListThreads = vi.mocked(listThreads)
-  const mockedGetMyCredits = vi.mocked(getMyCredits)
   const mockedStreamThreadRunStateEvents = vi.mocked(streamThreadRunStateEvents)
   const mockedUpdateThreadMode = vi.mocked(updateThreadMode)
   const mockedUpdateThreadSidebarState = vi.mocked(updateThreadSidebarState)
@@ -135,7 +132,6 @@ describe('AppLayout loading state', () => {
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true
     mockedGetMe.mockReset()
     mockedListThreads.mockReset()
-    mockedGetMyCredits.mockReset()
     mockedStreamThreadRunStateEvents.mockReset()
     mockedUpdateThreadMode.mockReset()
     mockedUpdateThreadSidebarState.mockReset()
@@ -157,7 +153,6 @@ describe('AppLayout loading state', () => {
 
     mockedGetMe.mockReturnValue(new Promise(() => {}))
     mockedListThreads.mockReturnValue(new Promise(() => {}))
-    mockedGetMyCredits.mockReturnValue(new Promise(() => {}))
     mockedStreamThreadRunStateEvents.mockReturnValue(new Promise(() => {}))
     mockedReadLegacyThreadModesForMigration.mockReturnValue({})
     mockedReadPinnedThreadIds.mockReturnValue(new Set())
@@ -190,7 +185,7 @@ describe('AppLayout loading state', () => {
             <AuthProvider accessToken="token" onLoggedOut={vi.fn()}>
               <ThreadListProvider>
                 <AppUIProvider>
-                  <CreditsProvider>
+                  
                     <Routes>
                       <Route
                         element={<AppLayout />}
@@ -200,7 +195,7 @@ describe('AppLayout loading state', () => {
                         </Route>
                       </Route>
                     </Routes>
-                  </CreditsProvider>
+                  
                 </AppUIProvider>
               </ThreadListProvider>
             </AuthProvider>
@@ -212,7 +207,6 @@ describe('AppLayout loading state', () => {
     expect(mockedGetMe).toHaveBeenCalledWith('token')
     expect(mockedListThreads).toHaveBeenCalledWith('token', { limit: 200, mode: 'chat' })
     expect(mockedListThreads).toHaveBeenCalledWith('token', { limit: 200, mode: 'work' })
-    expect(mockedGetMyCredits).toHaveBeenCalledWith('token')
     expect(container.textContent).toContain('Arkloop')
     expect(container.textContent).toContain('加载中...')
 

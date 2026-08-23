@@ -43,7 +43,6 @@ import {
   useSkillPromptUI,
   useTitleBarRightPanelUI,
 } from '../contexts/app-ui'
-import { useCredits } from '../contexts/credits'
 
 const welcomeRightPanelDefaultWidth = 520
 const welcomeRightPanelMinWidth = 420
@@ -177,7 +176,6 @@ export function WelcomePage() {
   const { setRightPanelOpen } = useRightPanelActions()
   const { setTitleBarRightPanelClick } = useTitleBarRightPanelUI()
   const { pendingSkillPrompt, consumeSkillPrompt } = useSkillPromptUI()
-  const { refreshCredits } = useCredits()
   const [showDebugPanel, setShowDebugPanel] = useState(() => readDeveloperShowDebugPanel())
   const [rightPanelVisible, setRightPanelVisible] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(welcomeRightPanelDefaultWidth)
@@ -538,7 +536,6 @@ export function WelcomePage() {
       attachments.forEach((attachment) => revokeDraftAttachment(attachment))
       chatInputRef.current?.clear()
       setAttachments([])
-      refreshCredits()
       writeActiveThreadIdToStorage(thread.id)
       if (appMode === 'work') transferGlobalWorkFolderToThread(thread.id)
       transferGlobalThinkingToThread(thread.id)
