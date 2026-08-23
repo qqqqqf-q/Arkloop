@@ -650,7 +650,7 @@ func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing
 	}
 }
 
-func TestDesktopOpenVikingMemoryMiddlewareUsesConfigResolver(t *testing.T) {
+func TestDesktopMemoryMiddlewareDistillDisabledViaResolver(t *testing.T) {
 	ctx := context.Background()
 	db := openDesktopRuntimeTestDB(t)
 
@@ -687,7 +687,7 @@ func TestDesktopOpenVikingMemoryMiddlewareUsesConfigResolver(t *testing.T) {
 
 	select {
 	case <-provider.appendCalled:
-		t.Fatal("expected OpenViking memory distill to stay disabled via prompt injection resolver")
+		t.Fatal("expected memory distill to stay disabled via prompt injection resolver")
 	case <-time.After(250 * time.Millisecond):
 	}
 }
@@ -724,36 +724,11 @@ func TestComposeDesktopEngineInitializesRolloutStore(t *testing.T) {
 	}
 }
 
-func TestComposeDesktopEngineUsesOpenVikingWithBaseURLOnly(t *testing.T) {
-	ctx := context.Background()
-	dataDir := t.TempDir()
-	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
-	t.Setenv("ARKLOOP_MEMORY_ENABLED", "true")
-	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://127.0.0.1:19010")
-	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "")
-
-	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
-	if err != nil {
-		t.Fatalf("open sqlite: %v", err)
-	}
-	defer db.Close()
-
-	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
-	if err != nil {
-		t.Fatalf("compose desktop engine: %v", err)
-	}
-	if !engine.useOV {
-		t.Fatal("expected OpenViking provider when base url is configured")
-	}
-}
-
 func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
 	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
 	t.Setenv("ARKLOOP_MEMORY_ENABLED", "true")
-	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "")
-	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "test-key")
 
 	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
 	if err != nil {
@@ -765,8 +740,8 @@ func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compose desktop engine: %v", err)
 	}
-	if engine.useOV {
-		t.Fatal("expected local provider when base url is absent")
+	if engine.useMemProvider {
+		t.Fatal("expected no semantic provider without nowledge config")
 	}
 	if engine.notebookProvider == nil {
 		t.Fatal("expected notebook provider to be configured")

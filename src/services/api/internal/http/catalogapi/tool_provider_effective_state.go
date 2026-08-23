@@ -55,14 +55,6 @@ func resolveToolProviderRuntimeStatus(
 	selected := runtimeProviderSelected(def.ProviderName, snapshot.PlatformProviders)
 
 	switch def.GroupName {
-	case "memory":
-		if selected {
-			source := toolProviderRuntimeSourceProviderConfig
-			if sharedtoolruntime.MemoryAvailableFromEnv() {
-				source = toolProviderRuntimeSourceEnv
-			}
-			return toolProviderRuntimeStatus{Status: toolProviderRuntimeStatusAvailable, Source: source}
-		}
 	case "sandbox":
 		if selected {
 			source := toolProviderRuntimeSourceProviderConfig

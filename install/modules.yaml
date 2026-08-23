@@ -106,24 +106,6 @@ modules:
 
   # ── Optional ─────────────────────────────────────────────────
 
-  openviking:
-    category: optional
-    description: Memory system (embedding + vector store)
-    compose_service: openviking
-    compose_profile: openviking
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: true
-      external_admin_supported: true
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
-
   sandbox-docker:
     category: optional
     description: Code execution sandbox (Docker backend)

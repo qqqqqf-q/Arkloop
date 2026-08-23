@@ -26,8 +26,9 @@ func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 
 	t.Setenv("ARKLOOP_SANDBOX_AUTH_TOKEN", "sandbox-token")
 	t.Setenv("ARKLOOP_SANDBOX_BASE_URL", "")
-	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "")
-	t.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", "")
+	t.Setenv("ARKLOOP_MEMORY_PROVIDER", "")
+	t.Setenv("ARKLOOP_NOWLEDGE_BASE_URL", "")
+	t.Setenv("ARKLOOP_NOWLEDGE_API_KEY", "")
 
 	snapshot, err := BuildRuntimeSnapshot(context.Background(), SnapshotInput{
 		ConfigResolver:         stubResolver{values: map[string]string{"browser.enabled": "true"}},
@@ -36,7 +37,7 @@ func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 		LoadPlatformProviders: func(context.Context) ([]ProviderConfig, error) {
 			return []ProviderConfig{
 				{GroupName: "sandbox", ProviderName: "sandbox.docker", BaseURL: &sandboxBaseURL},
-				{GroupName: "memory", ProviderName: "memory.openviking", BaseURL: &memoryBaseURL, APIKeyValue: &memoryKey},
+				{GroupName: "memory", ProviderName: "memory.nowledge", BaseURL: &memoryBaseURL, APIKeyValue: &memoryKey},
 			}, nil
 		},
 	})
@@ -55,8 +56,8 @@ func TestBuildRuntimeSnapshotUsesResolverAndProviderLoader(t *testing.T) {
 	if snapshot.MemoryBaseURL != memoryBaseURL {
 		t.Fatalf("unexpected memory base url: %q", snapshot.MemoryBaseURL)
 	}
-	if snapshot.MemoryRootAPIKey != memoryKey {
-		t.Fatalf("unexpected memory key: %q", snapshot.MemoryRootAPIKey)
+	if snapshot.MemoryAPIKey != memoryKey {
+		t.Fatalf("unexpected memory key: %q", snapshot.MemoryAPIKey)
 	}
 	if !snapshot.BuiltinAvailable("browser") {
 		t.Fatal("expected browser builtin to be visible")

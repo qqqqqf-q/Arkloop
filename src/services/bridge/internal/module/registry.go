@@ -180,7 +180,6 @@ func (r *Registry) OptionalModules() []ModuleDefinition {
 
 // frontendCategory maps a module ID to its frontend display category.
 var categoryMap = map[string]ModuleCategory{
-	"openviking":     CategoryMemory,
 	"sandbox-docker": CategorySandbox,
 	"browser":        CategoryBrowser,
 	"searxng":        CategorySearch,
@@ -203,7 +202,6 @@ func frontendCategory(id string) ModuleCategory {
 
 // knownPort returns the display port for modules that expose one.
 var portMap = map[string]int{
-	"openviking":     19010,
 	"sandbox-docker": 19002,
 	"searxng":        19011,
 	"firecrawl":      19012,
@@ -224,7 +222,6 @@ var nameMap = map[string]string{
 	"migrate":        "Database Migrations",
 	"api":            "API Server",
 	"worker":         "Worker",
-	"openviking":     "OpenViking",
 	"sandbox-docker": "Sandbox (Docker)",
 	"browser":        "Browser Automation",
 	"pgbouncer":      "PgBouncer",

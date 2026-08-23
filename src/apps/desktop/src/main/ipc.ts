@@ -225,7 +225,7 @@ export function registerIpcHandlers(
     return getCachedUpdateStatus()
   })
 
-  ipcMain.handle('arkloop:updater:apply', async (_event, { component }: { component: 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli' }) => {
+  ipcMain.handle('arkloop:updater:apply', async (_event, { component }: { component: 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli' }) => {
     const win = getWindow()
     await applyUpdate(component, (progress) => {
       if (win) win.webContents.send('arkloop:updater:progress', { component, ...progress })
@@ -653,7 +653,7 @@ function getLocalApiBaseUrl(): string | null {
 }
 
 function isSemanticMemoryProvider(provider: MemoryConfig['provider']): boolean {
-  return provider === 'openviking' || provider === 'nowledge'
+  return provider === 'nowledge'
 }
 
 function shouldAutoRebuildSemanticMemory(previous: MemoryConfig, next: MemoryConfig): boolean {

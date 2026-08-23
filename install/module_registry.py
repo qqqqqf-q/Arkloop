@@ -125,7 +125,6 @@ def parse_modules(path: str) -> Dict[str, dict]:
 ALLOWED = {
     "profile": {"standard", "full"},
     "mode": {"self-hosted", "saas"},
-    "memory": {"none", "openviking"},
     "sandbox": {"none", "docker", "auto"},
     "browser": {"off", "on"},
     "web_tools": {"builtin", "self-hosted"},
@@ -144,14 +143,12 @@ def normalize_choice(value: str, field: str) -> str:
 def default_selections(profile: str, mode: str) -> dict:
     if profile == "full":
         defaults = {
-            "memory": "openviking",
             "sandbox": "docker",
             "browser": "off",
             "web_tools": "self-hosted",
         }
     else:
         defaults = {
-            "memory": "none",
             "sandbox": "none",
             "browser": "off",
             "web_tools": "builtin",
@@ -174,7 +171,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
     mode = normalize_choice(args.mode or "self-hosted", "mode")
     defaults = default_selections(profile, mode)
 
-    memory = normalize_choice(args.memory or defaults["memory"], "memory")
     sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
     if sandbox == "auto":
         # auto 不再探测宿主：Firecracker 已移除，唯一可选后端即 docker
@@ -191,8 +187,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         if profile_meta.get("required") is True:
             selected.append(module_id)
 
-    if memory == "openviking":
-        selected.append("openviking")
     if sandbox == "docker":
         selected.append("sandbox-docker")
     if browser == "on":
@@ -254,7 +248,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
     return {
         "profile": profile,
         "mode": mode,
-        "memory": memory,
         "sandbox": sandbox,
         "browser": browser,
         "web_tools": web_tools,
@@ -273,7 +266,6 @@ def emit_shell(plan: dict):
     scalars = [
         ("RESOLVED_PROFILE", plan["profile"]),
         ("RESOLVED_MODE", plan["mode"]),
-        ("RESOLVED_MEMORY", plan["memory"]),
         ("RESOLVED_SANDBOX", plan["sandbox"]),
         ("RESOLVED_BROWSER", plan["browser"]),
         ("RESOLVED_WEB_TOOLS", plan["web_tools"]),
@@ -298,7 +290,6 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--modules", default=os.path.join(os.getcwd(), "install", "modules.yaml"))
     resolve.add_argument("--profile", default="")
     resolve.add_argument("--mode", default="")
-    resolve.add_argument("--memory", default="")
     resolve.add_argument("--sandbox", default="")
     resolve.add_argument("--browser", default="")
     resolve.add_argument("--web-tools", dest="web_tools", default="")

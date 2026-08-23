@@ -272,21 +272,3 @@ func issueTestAccessToken(t *testing.T, authService *auth.Service) string {
 	return issued.AccessToken
 }
 
-func TestCheckOpenVikingHealthSucceeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	h := &handler{ovBaseURL: srv.URL}
-	ok, err := h.checkOpenVikingHealth(context.Background())
-	if err != nil {
-		t.Fatalf("checkOpenVikingHealth: %v", err)
-	}
-	if !ok {
-		t.Fatal("expected openviking health check to pass")
-	}
-}

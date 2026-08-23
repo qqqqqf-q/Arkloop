@@ -34,27 +34,7 @@ export type ConnectorsConfig = {
   xSearch: XSearchConnectorConfig
 }
 
-export type MemoryProvider = 'notebook' | 'openviking' | 'nowledge'
-
-export type OpenVikingDesktopConfig = {
-  rootApiKey?: string
-  embeddingSelector?: string
-  embeddingProvider?: string
-  embeddingModel?: string
-  embeddingApiKey?: string
-  embeddingApiBase?: string
-  embeddingDimension?: number
-  vlmSelector?: string
-  vlmProvider?: string
-  vlmModel?: string
-  vlmApiKey?: string
-  vlmApiBase?: string
-  rerankSelector?: string
-  rerankProvider?: string
-  rerankModel?: string
-  rerankApiKey?: string
-  rerankApiBase?: string
-}
+export type MemoryProvider = 'notebook' | 'nowledge'
 
 export type NowledgeDesktopConfig = {
   baseUrl?: string
@@ -66,7 +46,6 @@ export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
   memoryCommitEachTurn?: boolean
-  openviking?: OpenVikingDesktopConfig
   nowledge?: NowledgeDesktopConfig
 }
 
@@ -103,7 +82,7 @@ export type LocalConfig = {
 
 /** applyConfigUpdate 可选行为（仅 Electron 主进程使用） */
 export type ApplyConfigUpdateOptions = {
-  /** 本地模式：无论记忆字段是否变化都重启 sidecar，使 Worker 重读 ARKLOOP_MEMORY_* / OPENVIKING 等环境 */
+  /** 本地模式：无论记忆字段是否变化都重启 sidecar，使 Worker 重读 ARKLOOP_MEMORY_* 等环境 */
   forceLocalSidecarRestart?: boolean
 }
 

@@ -20,7 +20,6 @@ type ComponentStatus = {
 }
 
 type UpdateStatus = {
-  openviking: ComponentStatus
   sandbox: {
     kernel: ComponentStatus
     rootfs: ComponentStatus
@@ -381,7 +380,6 @@ export function UpdateSettingsContent() {
 
   const rows: ComponentRow[] = updateStatus
     ? [
-        { key: 'openviking',       label: 'OpenViking',      status: updateStatus.openviking },
         { key: 'sandbox_kernel',   label: 'Sandbox Kernel',  status: updateStatus.sandbox.kernel },
         { key: 'sandbox_rootfs',   label: 'Sandbox Rootfs',  status: updateStatus.sandbox.rootfs },
         ...(updateStatus.bins ? [

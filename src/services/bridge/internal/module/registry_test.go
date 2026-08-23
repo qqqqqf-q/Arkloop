@@ -42,7 +42,7 @@ func TestLoadRegistry(t *testing.T) {
 		t.Fatalf("expected >10 modules, got %d", len(list))
 	}
 
-	knownModules := []string{"postgres", "redis", "openviking", "sandbox-docker", "api", "worker"}
+	knownModules := []string{"postgres", "redis", "sandbox-docker", "api", "worker"}
 	for _, id := range knownModules {
 		if _, ok := reg.Get(id); !ok {
 			t.Errorf("expected module %q to exist in registry", id)
@@ -56,22 +56,22 @@ func TestRegistryGet(t *testing.T) {
 		t.Fatalf("LoadRegistry: %v", err)
 	}
 
-	def, ok := reg.Get("openviking")
+	def, ok := reg.Get("sandbox-docker")
 	if !ok {
-		t.Fatal("expected openviking to exist")
+		t.Fatal("expected sandbox-docker to exist")
 	}
 
-	if def.Name != "OpenViking" {
-		t.Errorf("Name = %q, want %q", def.Name, "OpenViking")
+	if def.Name != "Sandbox (Docker)" {
+		t.Errorf("Name = %q, want %q", def.Name, "Sandbox (Docker)")
 	}
-	if def.FrontendCategory != CategoryMemory {
-		t.Errorf("FrontendCategory = %q, want %q", def.FrontendCategory, CategoryMemory)
+	if def.FrontendCategory != CategorySandbox {
+		t.Errorf("FrontendCategory = %q, want %q", def.FrontendCategory, CategorySandbox)
 	}
 	if !def.Capabilities.BootstrapSupported {
 		t.Error("expected BootstrapSupported to be true")
 	}
-	if def.Port == nil || *def.Port != 19010 {
-		t.Errorf("Port = %v, want 19010", def.Port)
+	if def.Port == nil || *def.Port != 19002 {
+		t.Errorf("Port = %v, want 19002", def.Port)
 	}
 }
 
@@ -163,7 +163,6 @@ func TestFrontendCategoryMapping(t *testing.T) {
 		id       string
 		expected ModuleCategory
 	}{
-		{"openviking", CategoryMemory},
 		{"sandbox-docker", CategorySandbox},
 		{"searxng", CategorySearch},
 		{"browser", CategoryBrowser},

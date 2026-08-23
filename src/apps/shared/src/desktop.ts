@@ -35,27 +35,7 @@ export type ConnectorsConfig = {
   xSearch: XSearchConnectorConfig
 }
 
-export type MemoryProvider = 'notebook' | 'openviking' | 'nowledge'
-
-export type OpenVikingDesktopConfig = {
-  rootApiKey?: string
-  embeddingSelector?: string
-  embeddingProvider?: string
-  embeddingModel?: string
-  embeddingApiKey?: string
-  embeddingApiBase?: string
-  embeddingDimension?: number
-  vlmSelector?: string
-  vlmProvider?: string
-  vlmModel?: string
-  vlmApiKey?: string
-  vlmApiBase?: string
-  rerankSelector?: string
-  rerankProvider?: string
-  rerankModel?: string
-  rerankApiKey?: string
-  rerankApiBase?: string
-}
+export type MemoryProvider = 'notebook' | 'nowledge'
 
 export type NowledgeDesktopConfig = {
   baseUrl?: string
@@ -67,7 +47,6 @@ export type MemoryConfig = {
   enabled: boolean
   provider: MemoryProvider
   memoryCommitEachTurn?: boolean
-  openviking?: OpenVikingDesktopConfig
   nowledge?: NowledgeDesktopConfig
 }
 
@@ -143,7 +122,6 @@ export type MemoryRuntimeStatus = {
   error?: string
   details?: {
     nowledge?: { version?: string; search_ok?: boolean }
-    openviking?: { health_ok?: boolean }
   }
 }
 
@@ -202,12 +180,11 @@ export type AppUpdaterState = {
 }
 
 export type UpdaterStatus = {
-  openviking: UpdaterComponentStatus
   sandbox: { kernel: UpdaterComponentStatus; rootfs: UpdaterComponentStatus }
   bins: { rtk: UpdaterComponentStatus; opencli: UpdaterComponentStatus }
 }
 
-export type UpdaterComponent = 'openviking' | 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
+export type UpdaterComponent = 'sandbox_kernel' | 'sandbox_rootfs' | 'rtk' | 'opencli'
 
 export type CommandLineToolStatus = {
   available: boolean

@@ -10,7 +10,6 @@ vi.mock('../api', async () => {
     listSpawnProfiles: vi.fn(),
     setSpawnProfile: vi.fn(),
     deleteSpawnProfile: vi.fn(),
-    resolveOpenVikingConfig: vi.fn(),
     testLlmProviderModel: vi.fn(),
     updateMe: vi.fn(),
   }

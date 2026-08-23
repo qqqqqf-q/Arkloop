@@ -61,16 +61,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("GET /v1/workspace-files", workspaceFilesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.AuditWriter, deps.Pool, deps.EnvironmentStore))
 	mux.HandleFunc("/v1/webhook-endpoints", webhookEndpointsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo, deps.SecretsRepo, deps.Pool))
 	mux.HandleFunc("/v1/webhook-endpoints/", webhookEndpointEntry(deps.AuthService, deps.AccountMembershipRepo, deps.WebhookRepo, deps.APIKeysRepo))
-	mux.HandleFunc("/v1/account/openviking/resolve", openVikingResolveEntry(
-		deps.AuthService,
-		deps.AccountMembershipRepo,
-		deps.APIKeysRepo,
-		deps.LlmCredentialsRepo,
-		deps.LlmRoutesRepo,
-		deps.SecretsRepo,
-		deps.ProjectRepo,
-		deps.Pool,
-	))
 	mux.HandleFunc("GET /v1/account/memory/errors", memoryErrorsEntry(
 		deps.AuthService,
 		deps.AccountMembershipRepo,

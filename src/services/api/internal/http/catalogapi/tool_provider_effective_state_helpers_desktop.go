@@ -31,10 +31,6 @@ func desktopSandboxAvailable() bool {
 	return desktop.GetExecutionMode() == "vm" && desktopCurrentSandboxAvailable()
 }
 
-func desktopLocalMemoryAvailable() bool {
-	return desktop.GetMemoryRuntime() == "notebook"
-}
-
 func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapshot sharedtoolruntime.RuntimeSnapshot) (toolProviderRuntimeStatus, bool) {
 	switch def.GroupName {
 	case "sandbox":
@@ -58,30 +54,6 @@ func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapsho
 			Status: toolProviderRuntimeStatusUnavailable,
 			Source: toolProviderRuntimeSourceNone,
 		}, true
-	case "memory":
-		switch desktop.GetMemoryRuntime() {
-		case "openviking":
-			if def.ProviderName != "memory.openviking" {
-				return toolProviderRuntimeStatus{
-					Status: toolProviderRuntimeStatusUnavailable,
-					Source: toolProviderRuntimeSourceNone,
-				}, true
-			}
-			return toolProviderRuntimeStatus{
-				Status: toolProviderRuntimeStatusAvailable,
-				Source: toolProviderRuntimeSourceProviderConfig,
-			}, true
-		case "notebook":
-			return toolProviderRuntimeStatus{
-				Status: toolProviderRuntimeStatusAvailable,
-				Source: toolProviderRuntimeSourceLocal,
-			}, true
-		default:
-			return toolProviderRuntimeStatus{
-				Status: toolProviderRuntimeStatusUnavailable,
-				Source: toolProviderRuntimeSourceNone,
-			}, true
-		}
 	}
 	return toolProviderRuntimeStatus{}, false
 }

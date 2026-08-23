@@ -222,8 +222,6 @@ func TestConfigureHeadlessEnvLoadsNowledgeMemoryConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte(config), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	t.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://stale-openviking")
-
 	if err := configureHeadlessEnv(19101, 19103, dataDir, ""); err != nil {
 		t.Fatalf("configureHeadlessEnv: %v", err)
 	}
@@ -251,9 +249,6 @@ func TestConfigureHeadlessEnvLoadsNowledgeMemoryConfig(t *testing.T) {
 	}
 	if got := os.Getenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"); got != "45000" {
 		t.Fatalf("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS = %q", got)
-	}
-	if got := os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"); got != "" {
-		t.Fatalf("ARKLOOP_OPENVIKING_BASE_URL = %q", got)
 	}
 }
 

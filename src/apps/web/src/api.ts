@@ -1886,33 +1886,6 @@ export type SpawnProfile = {
   auto_model?: string
 }
 
-export type ResolveOpenVikingConfigRequest = {
-  vlm_selector?: string
-  embedding_selector?: string
-  embedding_dimension_hint?: number
-  rerank_selector?: string
-}
-
-export type ResolvedOpenVikingModel = {
-  selector: string
-  credential_name: string
-  provider: string
-  model: string
-  api_base: string
-  api_key: string
-  extra_headers?: Record<string, string>
-}
-
-export type ResolvedOpenVikingEmbedding = ResolvedOpenVikingModel & {
-  dimension: number
-}
-
-export type ResolveOpenVikingConfigResponse = {
-  vlm?: ResolvedOpenVikingModel
-  embedding?: ResolvedOpenVikingEmbedding
-  rerank?: ResolvedOpenVikingModel
-}
-
 export type AccountSettingsResponse = {
   pipeline_trace_enabled: boolean
   prompt_cache_debug_enabled: boolean
@@ -1935,17 +1908,6 @@ export async function deleteSpawnProfile(accessToken: string, name: string): Pro
   await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
     method: 'DELETE',
     accessToken,
-  })
-}
-
-export async function resolveOpenVikingConfig(
-  accessToken: string,
-  req: ResolveOpenVikingConfigRequest,
-): Promise<ResolveOpenVikingConfigResponse> {
-  return apiFetch<ResolveOpenVikingConfigResponse>('/v1/account/openviking/resolve', {
-    method: 'POST',
-    accessToken,
-    body: JSON.stringify(req),
   })
 }
 

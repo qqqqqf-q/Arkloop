@@ -336,7 +336,7 @@ var registry = []ToolMeta{
 		Label:     "Notebook edit",
 		ShortDesc: "edit one long-lived notebook entry by URI",
 		LLMDescription: "edit one existing notebook entry by exact local://memory/<id> uri returned from notebook_write. " +
-			"Only Notebook entries are editable. Do not use this on OpenViking memory URIs.",
+			"Only Notebook entries are editable with this tool.",
 	},
 	{
 		Name:      "notebook_forget",
@@ -354,7 +354,7 @@ var registry = []ToolMeta{
 		LLMDescription: "search auto-organized long-term memory for user preferences, past experiences, constraints, or prior interactions. " +
 			"Use for recommendations, comparisons, preference-driven questions, or open-ended problems where user context improves quality. " +
 			"Call at most once per query. Results may inform subsequent tool choices but rarely suffice alone. " +
-			"Each hit includes uri and kind. For kind=memory, pass that exact uri to memory_read, memory_edit, or memory_forget. For kind=thread, pass that exact uri to memory_read or use thread_id with memory_thread_fetch. " +
+			"Each hit includes uri and kind. For kind=memory, pass that exact uri to memory_read or memory_forget. For kind=thread, pass that exact uri to memory_read or use thread_id with memory_thread_fetch. " +
 			"Memory is not auto-recalled into the prompt; call this tool when prior context would improve the answer. " +
 			"Internal fields (uri, _ref) are system identifiers — never expose raw uri text to the user unless they explicitly need to copy it.",
 	},
@@ -430,15 +430,6 @@ var registry = []ToolMeta{
 		LLMDescription: "store knowledge in auto-organized long-term memory for future semantic recall. " +
 			"Use this for events, entities, and preferences that do not need to be stably injected every turn. " +
 			"If you need a stable maintained note, use notebook_write instead.",
-	},
-	{
-		Name:      "memory_edit",
-		Group:     GroupMemory,
-		Label:     "Memory edit",
-		ShortDesc: "overwrite one semantic memory entry by URI",
-		LLMDescription: "overwrite one existing auto-organized memory entry by exact URI, usually copied from memory_search or memory_read context. " +
-			"Use this when a semantic memory is still the same memory object but its full content should be replaced. " +
-			"Do not use this for Notebook entries; use notebook_edit instead.",
 	},
 	{
 		Name:           "memory_forget",

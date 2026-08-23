@@ -59,10 +59,6 @@ const VENDOR_PRESETS = [
 
 type VendorPresetKey = (typeof VENDOR_PRESETS)[number]['key']
 
-const OPENVIKING_BACKEND_ADVANCED_KEY = 'openviking_backend'
-
-type OpenVikingBackendKey = 'openai' | 'azure' | 'volcengine' | 'openai_compatible'
-
 function isManagedLocalProvider(provider: LlmProvider): boolean {
   return provider.source === 'local' || provider.read_only === true
 }
@@ -99,31 +95,6 @@ function toVendorKey(provider: string, mode: string | null): VendorPresetKey {
   if (provider === 'gemini') return 'gemini'
   if (mode === 'chat_completions') return 'openai_chat_completions'
   return 'openai_responses'
-}
-
-function defaultOpenVikingBackendForVendor(provider: string): OpenVikingBackendKey {
-  if (provider === 'anthropic' || provider === 'gemini') return 'openai_compatible'
-  return 'openai'
-}
-
-function readOpenVikingBackend(provider: LlmProvider): OpenVikingBackendKey {
-  const raw = provider.advanced_json?.[OPENVIKING_BACKEND_ADVANCED_KEY]
-  if (raw === 'openai' || raw === 'azure' || raw === 'volcengine' || raw === 'openai_compatible') {
-    return raw
-  }
-  if (raw === 'litellm') {
-    return 'openai_compatible'
-  }
-  return defaultOpenVikingBackendForVendor(provider.provider)
-}
-
-function mergeProviderAdvancedJSON(
-  current: Record<string, unknown> | null | undefined,
-  backend: OpenVikingBackendKey,
-): Record<string, unknown> {
-  const next = { ...(current ?? {}) }
-  next[OPENVIKING_BACKEND_ADVANCED_KEY] = backend
-  return next
 }
 
 type ProviderActionError = {
@@ -529,10 +500,7 @@ function AddProviderModal({ accessToken, p, onClose, onCreated }: {
         api_key: apiKey.trim(),
         base_url: baseUrl.trim() || undefined,
         openai_api_mode: v.openai_api_mode,
-        advanced_json: writeHeaderEntriesToAdvancedJSON(
-          mergeProviderAdvancedJSON({}, defaultOpenVikingBackendForVendor(v.provider)),
-          headers,
-        ),
+        advanced_json: writeHeaderEntriesToAdvancedJSON({}, headers),
       })
       onCreated(provider)
     } catch (e) {
@@ -678,10 +646,7 @@ function ProviderDetail({
     const nameChanged = formName.trim() !== provider.name
     const baseUrlChanged = nextBaseUrl !== (provider.base_url ?? '')
     const apiKeyChanged = apiKey !== ''
-    const nextAdvancedJSON = writeHeaderEntriesToAdvancedJSON(
-      mergeProviderAdvancedJSON(provider.advanced_json, readOpenVikingBackend(provider)),
-      formHeaders,
-    )
+    const nextAdvancedJSON = writeHeaderEntriesToAdvancedJSON(provider.advanced_json, formHeaders)
     const advancedChanged = advancedJSONSignature(nextAdvancedJSON) !== advancedJSONSignature(provider.advanced_json)
     if (!providerChanged && !modeChanged && !nameChanged && !baseUrlChanged && !apiKeyChanged && !advancedChanged) return
 

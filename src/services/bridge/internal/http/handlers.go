@@ -16,7 +16,6 @@ import (
 	"arkloop/services/bridge/internal/audit"
 	"arkloop/services/bridge/internal/docker"
 	"arkloop/services/bridge/internal/module"
-	"arkloop/services/bridge/internal/openviking"
 	"arkloop/services/bridge/internal/platform"
 
 	"github.com/google/uuid"
@@ -151,51 +150,7 @@ func (h *Handler) getModule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) moduleInfo(ctx context.Context, def *module.ModuleDefinition, status module.ModuleStatus) module.ModuleInfo {
-	info := def.ToModuleInfo(status)
-	if status == module.StatusNotInstalled || status == module.StatusError || def.ID != "openviking" {
-		return info
-	}
-
-	version := h.moduleVersion(ctx, def)
-	if version != "" {
-		info.Version = version
-	}
-	return info
-}
-
-func (h *Handler) moduleVersion(ctx context.Context, def *module.ModuleDefinition) string {
-	if def.ComposeService == "" {
-		return ""
-	}
-
-	queryCtx, cancel := context.WithTimeout(ctx, dockerQueryTimeout)
-	defer cancel()
-
-	image, err := h.compose.ContainerImage(queryCtx, def.ComposeService, def.ComposeProfile)
-	if err != nil {
-		h.appLogger.Error("container image query failed", map[string]any{
-			"module": def.ID,
-			"error":  err.Error(),
-		})
-		return ""
-	}
-	return imageRefVersion(image)
-}
-
-func imageRefVersion(ref string) string {
-	trimmed := strings.TrimSpace(ref)
-	if trimmed == "" {
-		return ""
-	}
-	if digestSep := strings.Index(trimmed, "@"); digestSep >= 0 {
-		trimmed = trimmed[:digestSep]
-	}
-	slash := strings.LastIndex(trimmed, "/")
-	colon := strings.LastIndex(trimmed, ":")
-	if colon <= slash {
-		return ""
-	}
-	return strings.TrimPrefix(trimmed[colon+1:], "v")
+	return def.ToModuleInfo(status)
 }
 
 // moduleStatus queries Docker for the live status of a module's compose service.
@@ -376,7 +331,6 @@ var validActions = map[module.ModuleAction]struct{}{
 	module.ActionStart:               {},
 	module.ActionStop:                {},
 	module.ActionRestart:             {},
-	module.ActionConfigure:           {},
 	module.ActionConfigureConnection: {},
 	module.ActionBootstrapDefaults:   {},
 }
@@ -439,8 +393,6 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 			op, err = h.compose.Stop(opCtx, def.ComposeService)
 		case module.ActionRestart:
 			op, err = h.compose.Restart(opCtx, def.ComposeService)
-		case module.ActionConfigure:
-			op, err = h.handleConfigure(opCtx, id, def.ComposeService, req.Params)
 		case module.ActionConfigureConnection, module.ActionBootstrapDefaults:
 			placeholderID := uuid.New().String()
 			writeJSON(w, http.StatusAccepted, actionResponse{OperationID: placeholderID})
@@ -473,95 +425,7 @@ func (h *Handler) moduleAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, actionResponse{OperationID: op.ID})
 }
 
-// --- Configure ---------------------------------------------------------
 
-const healthCheckTimeout = 30 * time.Second
-
-func (h *Handler) handleConfigure(ctx context.Context, moduleID, composeService string, params map[string]any) (*docker.Operation, error) {
-	if moduleID != "openviking" {
-		return nil, fmt.Errorf("configure action only supported for openviking module")
-	}
-
-	// Parse params into ConfigureParams.
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return nil, fmt.Errorf("marshal params: %w", err)
-	}
-	var cp openviking.ConfigureParams
-	if err := json.Unmarshal(raw, &cp); err != nil {
-		return nil, fmt.Errorf("invalid configure params: %w", err)
-	}
-
-	configPath := filepath.Join(h.compose.ProjectDir(), "config", "openviking", "ov.conf")
-	healthURL := fmt.Sprintf("http://localhost:%s", envOrDefault("ARKLOOP_OPENVIKING_PORT", "19010"))
-
-	op := docker.NewOperation(moduleID, "configure")
-	op.Status = docker.OperationRunning
-
-	go func() {
-		var opErr error
-		defer func() { op.Complete(opErr) }()
-
-		// 1. Render config.
-		op.AppendLog("Rendering OpenViking configuration...")
-		data, err := openviking.RenderConfig(configPath, cp)
-		if err != nil {
-			op.AppendLog("ERROR: " + err.Error())
-			opErr = err
-			return
-		}
-
-		// 2. Write config.
-		if err := openviking.WriteConfig(configPath, data); err != nil {
-			op.AppendLog("ERROR: " + err.Error())
-			opErr = err
-			return
-		}
-		op.AppendLog("Configuration written to " + configPath)
-
-		// 3. Restart container.
-		op.AppendLog("Restarting OpenViking container...")
-		restartOp, err := h.compose.Restart(ctx, composeService)
-		if err != nil {
-			op.AppendLog("ERROR restarting: " + err.Error())
-			opErr = err
-			return
-		}
-		// Wait for the restart operation to finish and relay its logs.
-		if waitErr := restartOp.Wait(); waitErr != nil {
-			for _, line := range restartOp.Lines(0) {
-				op.AppendLog(line)
-			}
-			op.AppendLog("ERROR: restart failed: " + waitErr.Error())
-			opErr = waitErr
-			return
-		}
-		for _, line := range restartOp.Lines(0) {
-			op.AppendLog(line)
-		}
-		op.AppendLog("Container restarted")
-
-		// 4. Health check.
-		op.AppendLog("Waiting for OpenViking health check...")
-		if err := openviking.WaitHealthy(ctx, healthURL, healthCheckTimeout); err != nil {
-			op.AppendLog("ERROR: " + err.Error())
-			opErr = err
-			return
-		}
-		op.AppendLog("OpenViking health check passed")
-
-		op.AppendLog("OpenViking configured successfully")
-	}()
-
-	return op, nil
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		return v
-	}
-	return fallback
-}
 
 // --- Cancel ------------------------------------------------------------
 
@@ -903,6 +767,13 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 }
 
 // relayLogs copies all log lines from a sub-operation to the parent operation.
+func envOrDefault(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func relayLogs(parent, child *docker.Operation) {
 	for _, line := range child.Lines(0) {
 		parent.AppendLog(line)

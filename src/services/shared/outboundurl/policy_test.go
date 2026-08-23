@@ -228,11 +228,11 @@ func TestNormalizeInternalBaseURL(t *testing.T) {
 		want       string
 		wantReason string
 	}{
-		{name: "internal service http allowed", raw: "http://openviking:19010/api/", want: "http://openviking:19010/api"},
+		{name: "internal service http allowed", raw: "http://searxng:8080/api/", want: "http://searxng:8080/api"},
 		{name: "private ip http allowed", raw: "http://10.0.0.8:19002/v1", want: "http://10.0.0.8:19002/v1"},
-		{name: "userinfo denied", raw: "http://user:pass@openviking:19010/api", wantReason: "userinfo_denied"},
-		{name: "query denied", raw: "http://openviking:19010/api?q=1", wantReason: "query_denied"},
-		{name: "unsupported scheme denied", raw: "ftp://openviking:19010/api", wantReason: "unsupported_scheme"},
+		{name: "userinfo denied", raw: "http://user:pass@searxng:8080/api", wantReason: "userinfo_denied"},
+		{name: "query denied", raw: "http://searxng:8080/api?q=1", wantReason: "query_denied"},
+		{name: "unsupported scheme denied", raw: "ftp://searxng:8080/api", wantReason: "unsupported_scheme"},
 	}
 
 	for _, tt := range tests {

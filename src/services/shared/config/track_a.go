@@ -64,30 +64,6 @@ func RegisterTrackA(r *Registry) error {
 		},
 
 		{
-			Key:         "openviking.base_url",
-			Type:        TypeString,
-			Default:     "",
-			Description: "OpenViking Base URL",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "openviking.root_api_key",
-			Type:        TypeString,
-			Default:     "",
-			Description: "OpenViking Root API Key",
-			Sensitive:   true,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "openviking.cost_per_commit",
-			Type:        TypeNumber,
-			Default:     "0",
-			Description: "OpenViking CommitSession Cost (USD)",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
 			Key:         "nowledge.base_url",
 			Type:        TypeString,
 			Default:     "",

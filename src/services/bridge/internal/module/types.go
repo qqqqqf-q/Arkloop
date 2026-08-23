@@ -16,7 +16,6 @@ const (
 type ModuleCategory string
 
 const (
-	CategoryMemory         ModuleCategory = "memory"
 	CategorySandbox        ModuleCategory = "sandbox"
 	CategorySearch         ModuleCategory = "search"
 	CategoryBrowser        ModuleCategory = "browser"
@@ -57,7 +56,6 @@ const (
 	ActionStart               ModuleAction = "start"
 	ActionStop                ModuleAction = "stop"
 	ActionRestart             ModuleAction = "restart"
-	ActionConfigure           ModuleAction = "configure"
 	ActionConfigureConnection ModuleAction = "configure_connection"
 	ActionBootstrapDefaults   ModuleAction = "bootstrap_defaults"
 )

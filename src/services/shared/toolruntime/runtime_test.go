@@ -51,14 +51,14 @@ func TestResolveBuiltinArtifactToolsReflectStorageAvailability(t *testing.T) {
 func TestRuntimeSnapshotWithMergedBuiltinToolNames(t *testing.T) {
 	snap := RuntimeSnapshot{}
 	snap.builtinAvailability = BuiltinAvailability{toolNames: []string{"grep"}}
-	merged := snap.WithMergedBuiltinToolNames("memory_search", "memory_read", "memory_edit", "notebook_read", "")
+	merged := snap.WithMergedBuiltinToolNames("memory_search", "memory_read", "memory_write", "notebook_read", "")
 	if !merged.BuiltinAvailable("grep") {
 		t.Fatal("expected grep preserved")
 	}
 	if !merged.BuiltinAvailable("memory_search") || !merged.BuiltinAvailable("memory_read") {
 		t.Fatalf("unexpected set: %v", merged.BuiltinToolNames())
 	}
-	if !merged.BuiltinAvailable("memory_edit") {
+	if !merged.BuiltinAvailable("memory_write") {
 		t.Fatalf("unexpected set: %v", merged.BuiltinToolNames())
 	}
 	if !merged.BuiltinAvailable("notebook_read") {
@@ -69,15 +69,15 @@ func TestRuntimeSnapshotWithMergedBuiltinToolNames(t *testing.T) {
 func TestResolveBuiltinMemoryToolsWithURLOnly(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{
 		Env: EnvConfig{
-			MemoryProvider: "openviking",
+			MemoryProvider: "nowledge",
 			MemoryBaseURL:  "http://memory.internal",
 		},
 	})
 	if resolved.MemoryBaseURL != "http://memory.internal" {
 		t.Fatalf("unexpected memory base url: %q", resolved.MemoryBaseURL)
 	}
-	if resolved.MemoryRootAPIKey != "" {
-		t.Fatalf("expected empty key, got %q", resolved.MemoryRootAPIKey)
+	if resolved.MemoryAPIKey != "" {
+		t.Fatalf("expected empty key, got %q", resolved.MemoryAPIKey)
 	}
 	if _, ok := resolved.ToolNameSet()["memory_search"]; !ok {
 		t.Fatal("memory_search should be available with URL only")
@@ -93,13 +93,13 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		ArtifactStoreAvailable: true,
 		BrowserEnabled:         true,
 		Env: EnvConfig{
-			MemoryProvider: "openviking",
+			MemoryProvider: "nowledge",
 			MemoryBaseURL:  memoryBaseURL,
 		},
 		PlatformProviders: []ProviderConfig{
 			{GroupName: "web_search", ProviderName: "web_search.searxng", BaseURL: strPtr("http://searxng:8080")},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
-			{GroupName: "memory", ProviderName: "memory.openviking", APIKeyValue: &memoryAPIKey},
+			{GroupName: "memory", ProviderName: "memory.nowledge", APIKeyValue: &memoryAPIKey},
 			{GroupName: "sandbox", ProviderName: "sandbox.docker", BaseURL: &sandboxBaseURL},
 		},
 	})
@@ -107,8 +107,8 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	if resolved.MemoryBaseURL != "http://memory.internal" {
 		t.Fatalf("unexpected memory base url: %q", resolved.MemoryBaseURL)
 	}
-	if resolved.MemoryRootAPIKey != "provider-key" {
-		t.Fatalf("unexpected memory api key: %q", resolved.MemoryRootAPIKey)
+	if resolved.MemoryAPIKey != "provider-key" {
+		t.Fatalf("unexpected memory api key: %q", resolved.MemoryAPIKey)
 	}
 	if resolved.SandboxBaseURL != "http://sandbox.internal" {
 		t.Fatalf("unexpected sandbox base url: %q", resolved.SandboxBaseURL)
@@ -132,11 +132,16 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"grep",
 		"image_generate",
 		"interrupt_agent",
-		"memory_edit",
+		"memory_connections",
+		"memory_context",
 		"memory_forget",
 		"memory_list",
 		"memory_read",
 		"memory_search",
+		"memory_status",
+		"memory_thread_fetch",
+		"memory_thread_search",
+		"memory_timeline",
 		"memory_write",
 		"python_execute",
 		"read",

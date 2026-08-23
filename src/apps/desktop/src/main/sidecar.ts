@@ -48,11 +48,6 @@ const HEALTH_POLL_MS = 500
 const HEALTH_TIMEOUT_MS = 30_000
 const BRIDGE_READY_POLL_MS = 400
 const BRIDGE_READY_ATTEMPTS = 40
-const OPENVIKING_INSTALL_WAIT_MS = 600_000
-const OPENVIKING_START_WAIT_MS = 180_000
-const OPENVIKING_STOP_WAIT_MS = 120_000
-const MODULE_ACTION_RETRIES = 3
-const MODULE_ACTION_RETRY_MS = 2000
 const MAX_RESTARTS = 3
 const MAX_AUTO_PORT_RETRIES = 6
 const AUTO_PORT_SCAN_WINDOW = 20
@@ -62,9 +57,7 @@ const SIDECAR_DIR = path.join(os.homedir(), '.arkloop', 'bin')
 const VERSION_FILE = path.join(os.homedir(), '.arkloop', 'bin', 'sidecar.version.json')
 const PACKAGED_PROJECT_DIR = path.join(ARKLOOP_HOME, 'project')
 const PACKAGED_PROJECT_STATE_FILE = path.join(PACKAGED_PROJECT_DIR, '.bundle-state.json')
-const PACKAGED_PROJECT_PRESERVED_FILES = new Set([
-  path.join('config', 'openviking', 'ov.conf'),
-])
+const PACKAGED_PROJECT_PRESERVED_FILES = new Set<string>()
 const DEFAULT_GITHUB_REPO = 'qqqqqf-q/Arkloop'
 const DEFAULT_DOWNLOAD_BASE = `https://github.com/${DEFAULT_GITHUB_REPO}/releases/download`
 const GITHUB_API_LATEST_RELEASE = `https://api.github.com/repos/${DEFAULT_GITHUB_REPO}/releases/latest`
@@ -685,7 +678,7 @@ function buildWorkspaceEnv(projectDir: string | null): Record<string, string> {
   return env
 }
 
-function buildMemoryEnv(projectDir: string | null): Record<string, string> {
+function buildMemoryEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   const cfg = memoryConfig
   if (!cfg) return env
@@ -702,26 +695,6 @@ function buildMemoryEnv(projectDir: string | null): Record<string, string> {
     }
     if (cfg.nowledge?.requestTimeoutMs) {
       env.ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS = String(cfg.nowledge.requestTimeoutMs)
-    }
-  } else if (cfg.enabled && cfg.provider === 'openviking') {
-    env.ARKLOOP_OPENVIKING_BASE_URL = 'http://127.0.0.1:19010'
-    if (cfg.openviking?.rootApiKey) {
-      env.ARKLOOP_OPENVIKING_ROOT_API_KEY = cfg.openviking.rootApiKey
-    } else {
-      // Fallback: read root_api_key directly from ov.conf (source of truth).
-      const ovConfPath = projectDir
-        ? path.join(projectDir, 'config', 'openviking', 'ov.conf')
-        : null
-      if (ovConfPath) {
-        try {
-          const ovData = JSON.parse(fs.readFileSync(ovConfPath, 'utf-8'))
-          if (ovData?.server?.root_api_key) {
-            env.ARKLOOP_OPENVIKING_ROOT_API_KEY = String(ovData.server.root_api_key)
-          }
-        } catch {
-          // ov.conf not present or unreadable; env var will be used as last resort.
-        }
-      }
     }
   }
   return env
@@ -827,12 +800,6 @@ function desktopOsUsername(): string {
   }
 }
 
-export type BridgeModuleRow = {
-  id: string
-  status: string
-  version?: string
-}
-
 async function waitForBridgeReady(): Promise<boolean> {
   const base = bridgeBaseUrl
   for (let i = 0; i < BRIDGE_READY_ATTEMPTS; i++) {
@@ -852,221 +819,6 @@ async function waitForBridgeReady(): Promise<boolean> {
   return false
 }
 
-async function bridgeGetJson<T>(urlPath: string): Promise<T | null> {
-  const base = bridgeBaseUrl
-  return new Promise((resolve) => {
-    const req = http.get(`${base}${urlPath}`, {
-      headers: {
-        Authorization: `Bearer ${desktopAccessToken}`,
-      },
-    }, (res) => {
-      let data = ''
-      res.on('data', (c) => { data += c })
-      res.on('end', () => {
-        if (res.statusCode !== 200) {
-          resolve(null)
-          return
-        }
-        try {
-          resolve(JSON.parse(data) as T)
-        } catch {
-          resolve(null)
-        }
-      })
-    })
-    req.on('error', () => resolve(null))
-    req.setTimeout(10_000, () => {
-      req.destroy()
-      resolve(null)
-    })
-  })
-}
-
-async function bridgePostModuleAction(
-  moduleId: string,
-  action: string,
-): Promise<{ operationId: string | null; statusCode: number }> {
-  const base = bridgeBaseUrl
-  const body = JSON.stringify({ action })
-  return new Promise((resolve) => {
-    const url = new URL(`${base}/v1/modules/${encodeURIComponent(moduleId)}/actions`)
-    const req = http.request(
-      url,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${desktopAccessToken}`,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body, 'utf8'),
-        },
-      },
-      (res) => {
-        let data = ''
-        res.on('data', (c) => { data += c })
-        res.on('end', () => {
-          if (res.statusCode !== 202) {
-            resolve({ operationId: null, statusCode: res.statusCode ?? 0 })
-            return
-          }
-          try {
-            const j = JSON.parse(data) as { operation_id?: string }
-            resolve({ operationId: j.operation_id ?? null, statusCode: 202 })
-          } catch {
-            resolve({ operationId: null, statusCode: 202 })
-          }
-        })
-      },
-    )
-    req.on('error', () => resolve({ operationId: null, statusCode: 0 }))
-    req.setTimeout(15_000, () => {
-      req.destroy()
-      resolve({ operationId: null, statusCode: 0 })
-    })
-    req.write(body)
-    req.end()
-  })
-}
-
-async function bridgePostActionWithRetry(moduleId: string, action: string): Promise<string | null> {
-  for (let attempt = 0; attempt < MODULE_ACTION_RETRIES; attempt++) {
-    const { operationId, statusCode } = await bridgePostModuleAction(moduleId, action)
-    if (operationId) return operationId
-    if (statusCode === 409 && attempt + 1 < MODULE_ACTION_RETRIES) {
-      await sleep(MODULE_ACTION_RETRY_MS)
-      continue
-    }
-    return null
-  }
-  return null
-}
-
-export async function waitForBridgeOperation(
-  operationId: string,
-  timeoutMs: number,
-): Promise<{ ok: boolean; error?: string }> {
-  const base = bridgeBaseUrl
-  return new Promise((resolve) => {
-    const url = new URL(`/v1/operations/${encodeURIComponent(operationId)}/stream`, base)
-    const req = http.get(url, {
-      headers: {
-        Authorization: `Bearer ${desktopAccessToken}`,
-      },
-    }, (res) => {
-      let buf = ''
-      const timer = setTimeout(() => {
-        req.destroy()
-        resolve({ ok: false, error: 'timeout' })
-      }, timeoutMs)
-
-      const done = (result: { ok: boolean; error?: string }) => {
-        clearTimeout(timer)
-        req.destroy()
-        resolve(result)
-      }
-
-      res.on('data', (chunk: Buffer) => {
-        buf += chunk.toString()
-        let scanFrom = 0
-        for (;;) {
-          const ev = buf.indexOf('event: status', scanFrom)
-          if (ev < 0) break
-          const dataLabel = buf.indexOf('data:', ev)
-          if (dataLabel < 0) break
-          const lineEnd = buf.indexOf('\n', dataLabel)
-          if (lineEnd < 0) break
-          const jsonStr = buf.slice(dataLabel + 5, lineEnd).trim()
-          scanFrom = lineEnd + 1
-          try {
-            const j = JSON.parse(jsonStr) as { status: string; error?: string }
-            if (j.status === 'completed') {
-              done({ ok: true })
-              return
-            }
-            if (j.status === 'failed') {
-              done({ ok: false, error: j.error })
-              return
-            }
-          } catch {
-            // keep scanning
-          }
-        }
-        if (buf.length > 512 * 1024) {
-          buf = buf.slice(-256 * 1024)
-        }
-      })
-
-      res.on('end', () => {
-        clearTimeout(timer)
-        resolve({ ok: false, error: 'stream_closed' })
-      })
-    })
-    req.on('error', () => resolve({ ok: false, error: 'request' }))
-  })
-}
-
-export async function bridgeListModules(): Promise<BridgeModuleRow[] | null> {
-  return await bridgeGetJson<BridgeModuleRow[]>('/v1/modules')
-}
-
-async function maybeEnsureOpenVikingRunning(): Promise<void> {
-  const cfg = memoryConfig
-  if (!cfg?.enabled || cfg.provider !== 'openviking') return
-
-  const ready = await waitForBridgeReady()
-  if (!ready) {
-    console.error('[sidecar] bridge health timeout (openviking autostart skipped)')
-    return
-  }
-
-  let list = await bridgeListModules()
-  if (!list) return
-  let mod = list.find((m) => m.id === 'openviking')
-  if (!mod) return
-
-  if (mod.status === 'not_installed') {
-    const opId = await bridgePostActionWithRetry('openviking', 'install')
-    if (!opId) {
-      console.error('[sidecar] openviking install request failed')
-      return
-    }
-    const inst = await waitForBridgeOperation(opId, OPENVIKING_INSTALL_WAIT_MS)
-    if (!inst.ok) {
-      console.error('[sidecar] openviking install:', inst.error ?? 'failed')
-      return
-    }
-    list = await bridgeListModules()
-    mod = list?.find((m) => m.id === 'openviking')
-  }
-
-  if (mod?.status === 'running') return
-
-  if (mod?.status === 'stopped' || mod?.status === 'error') {
-    const startOp = await bridgePostActionWithRetry('openviking', 'start')
-    if (!startOp) {
-      console.error('[sidecar] openviking start request failed')
-      return
-    }
-    const st = await waitForBridgeOperation(startOp, OPENVIKING_START_WAIT_MS)
-    if (!st.ok) {
-      console.error('[sidecar] openviking start:', st.error ?? 'failed')
-    }
-  }
-}
-
-export async function stopBridgeOpenvikingIfNeeded(memory: MemoryConfig): Promise<void> {
-  if (!memory.enabled || memory.provider !== 'openviking') return
-
-  const ready = await waitForBridgeReady()
-  if (!ready) return
-
-  const list = await bridgeListModules()
-  const mod = list?.find((m) => m.id === 'openviking')
-  if (!mod || mod.status !== 'running') return
-
-  const opId = await bridgePostActionWithRetry('openviking', 'stop')
-  if (!opId) return
-  await waitForBridgeOperation(opId, OPENVIKING_STOP_WAIT_MS)
-}
 
 function isPortConflictText(text: string, sidecarPort: number): boolean {
   const normalized = text.toLowerCase()
@@ -1268,7 +1020,7 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
       ...buildWorkspaceEnv(projectDir),
       ...buildBridgeEnv(bridgePort, projectDir),
       ...buildBrowserSearchEnv(),
-      ...buildMemoryEnv(projectDir),
+      ...buildMemoryEnv(),
       ...buildNetworkEnv(),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -1348,7 +1100,6 @@ async function launchOnPort(port: number, portMode: LocalPortMode): Promise<Side
   healthy = true
   restartCount = 0
   setRuntime({ status: 'running', port, portMode, lastError: undefined })
-  await maybeEnsureOpenVikingRunning()
   return getSidecarRuntime()
 }
 

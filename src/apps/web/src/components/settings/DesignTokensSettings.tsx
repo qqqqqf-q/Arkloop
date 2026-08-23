@@ -982,12 +982,6 @@ function CompositionsPreview() {
               selected
               onSelect={() => {}}
             />
-            <ProviderSelectCard
-              title="OpenViking"
-              description="Semantic vector memory"
-              selected={false}
-              onSelect={() => {}}
-            />
           </div>
         </SpecCard>
       </div>

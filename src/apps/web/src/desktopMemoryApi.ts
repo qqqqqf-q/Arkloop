@@ -8,7 +8,7 @@ let cachedLocalToken = ''
 let cachedLocalMemoryApi: DesktopMemoryApi | null = null
 
 function normalizeProvider(provider: string | undefined): MemoryProvider {
-  if (provider === 'openviking' || provider === 'nowledge') return provider
+  if (provider === 'nowledge') return provider
   return 'notebook'
 }
 

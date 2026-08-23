@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Shield,
-  Database,
   Search,
   Globe,
   Bot,
@@ -32,12 +31,6 @@ const MODULE_SPECS: ModuleDisplaySpec[] = [
     icon: Shield,
     titleKey: "sandboxTitle",
     descKey: "sandboxDesc",
-  },
-  {
-    id: "openviking",
-    icon: Database,
-    titleKey: "memoryTitle",
-    descKey: "memoryDesc",
   },
   {
     id: "searxng",

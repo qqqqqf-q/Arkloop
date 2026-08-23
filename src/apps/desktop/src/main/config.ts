@@ -16,7 +16,6 @@ import type {
   MemoryProvider,
   NetworkConfig,
   NowledgeDesktopConfig,
-  OpenVikingDesktopConfig,
   SearchConnectorConfig,
   SearchProvider,
   StartupOpenMode,
@@ -33,12 +32,10 @@ const LEGACY_OPENCLI_VERSION_FILE = path.join(CONFIG_DIR, 'bin', 'opencli.versio
 
 export type VersionsState = {
   sidecar?: { version: string; updated_at: string }
-  openviking?: { version: string; updated_at: string }
   opencli?: { version: string; updated_at: string }
   rtk?: { version: string; updated_at: string }
   update_check?: {
     checked_at: string
-    openviking?: string | null
     sandbox_kernel?: string | null
     sandbox_rootfs?: string | null
     rtk?: string | null
@@ -129,42 +126,7 @@ function normalizeConnectors(raw: unknown): ConnectorsConfig {
 }
 
 function normalizeMemoryProvider(p: unknown): MemoryProvider {
-  return p === 'openviking'
-    ? 'openviking'
-    : p === 'nowledge'
-      ? 'nowledge'
-      : 'notebook'
-}
-
-function normalizeStr(v: unknown): string | undefined {
-  return typeof v === 'string' && v.trim() ? v.trim() : undefined
-}
-
-function normalizeOpenVikingConfig(raw: unknown): OpenVikingDesktopConfig | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const r = raw as Partial<OpenVikingDesktopConfig>
-  const out: OpenVikingDesktopConfig = {}
-  const s = normalizeStr
-  if (s(r.rootApiKey)) out.rootApiKey = s(r.rootApiKey)
-  if (s(r.embeddingSelector)) out.embeddingSelector = s(r.embeddingSelector)
-  if (s(r.embeddingProvider)) out.embeddingProvider = s(r.embeddingProvider)
-  if (s(r.embeddingModel)) out.embeddingModel = s(r.embeddingModel)
-  if (s(r.embeddingApiKey)) out.embeddingApiKey = s(r.embeddingApiKey)
-  if (s(r.embeddingApiBase)) out.embeddingApiBase = s(r.embeddingApiBase)
-  if (typeof r.embeddingDimension === 'number' && r.embeddingDimension > 0) {
-    out.embeddingDimension = r.embeddingDimension
-  }
-  if (s(r.vlmSelector)) out.vlmSelector = s(r.vlmSelector)
-  if (s(r.vlmProvider)) out.vlmProvider = s(r.vlmProvider)
-  if (s(r.vlmModel)) out.vlmModel = s(r.vlmModel)
-  if (s(r.vlmApiKey)) out.vlmApiKey = s(r.vlmApiKey)
-  if (s(r.vlmApiBase)) out.vlmApiBase = s(r.vlmApiBase)
-  if (s(r.rerankSelector)) out.rerankSelector = s(r.rerankSelector)
-  if (s(r.rerankProvider)) out.rerankProvider = s(r.rerankProvider)
-  if (s(r.rerankModel)) out.rerankModel = s(r.rerankModel)
-  if (s(r.rerankApiKey)) out.rerankApiKey = s(r.rerankApiKey)
-  if (s(r.rerankApiBase)) out.rerankApiBase = s(r.rerankApiBase)
-  return out
+  return p === 'nowledge' ? 'nowledge' : 'notebook'
 }
 
 function normalizeNowledgeConfig(raw: unknown): NowledgeDesktopConfig | undefined {
@@ -185,7 +147,6 @@ function normalizeMemory(raw: unknown): MemoryConfig {
     enabled: r.enabled === false ? false : true,
     provider: normalizeMemoryProvider(r.provider),
     memoryCommitEachTurn: r.memoryCommitEachTurn === false ? false : true,
-    openviking: normalizeOpenVikingConfig(r.openviking),
     nowledge: normalizeNowledgeConfig(r.nowledge),
   }
 }

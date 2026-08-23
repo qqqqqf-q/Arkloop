@@ -9,13 +9,14 @@ const (
 	anthropicAdvancedVersionKey      = "anthropic_version"
 	anthropicAdvancedExtraHeadersKey = "extra_headers"
 	anthropicBetaHeaderName          = "anthropic-beta"
-	openVikingBackendKey             = "openviking_backend"
-	openVikingExtraHeadersKey        = "openviking_extra_headers"
+	// openVikingExtraHeadersKey 是 LLM provider 自定义请求头在 advanced_json 中的
+	// 历史键名,数据库中已有存量配置,不能随子系统下线而改名。
+	openVikingExtraHeadersKey = "openviking_extra_headers"
 )
 
 func ValidateAdvancedJSONForProvider(provider string, advancedJSON map[string]any) error {
 	if advancedJSON != nil {
-		if err := validateOpenVikingAdvancedJSON(advancedJSON); err != nil {
+		if err := validateExtraHeadersAdvancedJSON(advancedJSON); err != nil {
 			return err
 		}
 	}
@@ -25,18 +26,9 @@ func ValidateAdvancedJSONForProvider(provider string, advancedJSON map[string]an
 	return validateAnthropicAdvancedJSON(advancedJSON)
 }
 
-func validateOpenVikingAdvancedJSON(advancedJSON map[string]any) error {
+func validateExtraHeadersAdvancedJSON(advancedJSON map[string]any) error {
 	if advancedJSON == nil {
 		return nil
-	}
-	if rawBackend, ok := advancedJSON[openVikingBackendKey]; ok {
-		backend, ok := rawBackend.(string)
-		if !ok || strings.TrimSpace(backend) == "" {
-			return errors.New("advanced_json.openviking_backend must be a non-empty string")
-		}
-		if !IsValidOpenVikingBackend(backend) {
-			return errors.New("advanced_json.openviking_backend must be one of openai, azure, volcengine, openai_compatible")
-		}
 	}
 	if rawHeaders, ok := advancedJSON[openVikingExtraHeadersKey]; ok {
 		headers, ok := rawHeaders.(map[string]any)
@@ -86,21 +78,6 @@ func validateAnthropicAdvancedJSON(advancedJSON map[string]any) error {
 		}
 	}
 	return nil
-}
-
-func OpenVikingBackendFromAdvancedJSON(advancedJSON map[string]any) string {
-	if advancedJSON == nil {
-		return ""
-	}
-	rawBackend, ok := advancedJSON[openVikingBackendKey]
-	if !ok {
-		return ""
-	}
-	backend, ok := rawBackend.(string)
-	if !ok {
-		return ""
-	}
-	return normalizeOpenVikingBackend(backend)
 }
 
 func OpenVikingExtraHeadersFromAdvancedJSON(advancedJSON map[string]any) map[string]string {

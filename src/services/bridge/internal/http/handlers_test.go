@@ -115,7 +115,7 @@ func TestListModulesEndpoint(t *testing.T) {
 func TestGetModuleEndpoint(t *testing.T) {
 	_, mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/modules/openviking", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/modules/sandbox-docker", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -128,11 +128,11 @@ func TestGetModuleEndpoint(t *testing.T) {
 		t.Fatalf("json decode: %v", err)
 	}
 
-	if body["id"] != "openviking" {
-		t.Errorf("id = %v, want %q", body["id"], "openviking")
+	if body["id"] != "sandbox-docker" {
+		t.Errorf("id = %v, want %q", body["id"], "sandbox-docker")
 	}
-	if body["name"] != "OpenViking" {
-		t.Errorf("name = %v, want %q", body["name"], "OpenViking")
+	if body["name"] != "Sandbox (Docker)" {
+		t.Errorf("name = %v, want %q", body["name"], "Sandbox (Docker)")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestGetModuleNotFound(t *testing.T) {
 func TestPerformActionInvalidBody(t *testing.T) {
 	_, mux := newTestHandler(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/modules/openviking/actions", strings.NewReader("not json"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/modules/sandbox-docker/actions", strings.NewReader("not json"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
@@ -173,22 +173,3 @@ func TestPerformActionUnknownModule(t *testing.T) {
 	}
 }
 
-func TestImageRefVersion(t *testing.T) {
-	tests := []struct {
-		name string
-		ref  string
-		want string
-	}{
-		{name: "tagged image", ref: "ghcr.io/volcengine/openviking:v0.3.3", want: "0.3.3"},
-		{name: "digest image", ref: "ghcr.io/volcengine/openviking:v0.3.3@sha256:deadbeef", want: "0.3.3"},
-		{name: "untagged image", ref: "ghcr.io/volcengine/openviking", want: ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := imageRefVersion(tc.ref); got != tc.want {
-				t.Fatalf("imageRefVersion(%q) = %q, want %q", tc.ref, got, tc.want)
-			}
-		})
-	}
-}

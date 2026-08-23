@@ -52,7 +52,6 @@ type ProviderCandidate = {
   apiKey?: string
   baseUrl?: string
   openaiApiMode?: 'chat_completions' | 'responses'
-  advancedJson?: Record<string, unknown>
   models: ModelCandidate[]
 }
 
@@ -416,10 +415,6 @@ function mapProviderCandidate(
     provider === 'openai'
       ? normalizeOpenAiMode(api)
       : undefined
-  const advancedJson =
-    provider === 'openai' && shouldUseOpenAICompatibleBackend(sourceName, baseUrl)
-      ? { openviking_backend: 'openai_compatible' }
-      : undefined
 
   return {
     sourceName,
@@ -428,7 +423,6 @@ function mapProviderCandidate(
     apiKey,
     baseUrl,
     openaiApiMode,
-    advancedJson,
     models,
   }
 }
@@ -454,15 +448,6 @@ function mapArkloopProvider(api: string, sourceName: string): ProviderCandidate[
 
 function normalizeOpenAiMode(api: string): 'chat_completions' | 'responses' {
   return api.toLowerCase().includes('responses') ? 'responses' : 'chat_completions'
-}
-
-function shouldUseOpenAICompatibleBackend(sourceName: string, baseUrl?: string): boolean {
-  const normalizedName = sourceName.toLowerCase()
-  const normalizedUrl = (baseUrl ?? '').toLowerCase()
-  if (normalizedName === 'openai' && (normalizedUrl === '' || normalizedUrl.includes('api.openai.com'))) {
-    return false
-  }
-  return true
 }
 
 function normalizeProviderBaseUrl(provider: ProviderCandidate['provider'] | null, baseUrl: string): string | undefined {
@@ -656,7 +641,7 @@ async function importProviders(source: SourceDetails, options: ApiOptions): Prom
       api_key: candidate.apiKey,
       ...(candidate.baseUrl ? { base_url: candidate.baseUrl } : {}),
       ...(candidate.openaiApiMode ? { openai_api_mode: candidate.openaiApiMode } : {}),
-      ...(candidate.advancedJson ? { advanced_json: candidate.advancedJson } : {}),
+
     }
     const saved = existing
       ? await api.json<LlmProviderResponse>(`/v1/llm-providers/${existing.id}?scope=user`, 'PATCH', payload)

@@ -253,11 +253,6 @@ func evaluateProviderRuntimeStatus(status ProviderRuntimeStatus) (ProviderRuntim
 		return validateOptionalBaseURL(status.BaseURL)
 	case "sandbox.docker", "sandbox.firecracker":
 		return validateInternalBaseURL(status.BaseURL)
-	case "memory.openviking":
-		if blankPtr(status.APIKeyValue) {
-			return ProviderRuntimeStateMissingConfig, "missing_api_key"
-		}
-		return validateInternalBaseURL(status.BaseURL)
 	case "memory.nowledge":
 		if blankPtr(status.APIKeyValue) {
 			return ProviderRuntimeStateMissingConfig, "missing_api_key"

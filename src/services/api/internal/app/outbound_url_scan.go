@@ -59,7 +59,7 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 			}
 			normalize := policy.NormalizeBaseURL
 			providerName := strings.TrimSpace(provider)
-			if check.table == "tool_provider_configs" && (providerName == "memory.openviking" || strings.HasPrefix(providerName, "sandbox.")) {
+			if check.table == "tool_provider_configs" && strings.HasPrefix(providerName, "sandbox.") {
 				normalize = policy.NormalizeInternalBaseURL
 			}
 			if _, err := normalize(baseURL); err != nil {

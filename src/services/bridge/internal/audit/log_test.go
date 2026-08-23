@@ -13,7 +13,7 @@ func TestLogAction(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(&buf)
 
-	logger.LogAction("install", "openviking", map[string]string{"key": "val"})
+	logger.LogAction("install", "searxng", map[string]string{"key": "val"})
 
 	var entry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
@@ -29,8 +29,8 @@ func TestLogAction(t *testing.T) {
 	if entry["action"] != "install" {
 		t.Errorf("action = %v, want %q", entry["action"], "install")
 	}
-	if entry["module_id"] != "openviking" {
-		t.Errorf("module_id = %v, want %q", entry["module_id"], "openviking")
+	if entry["module_id"] != "searxng" {
+		t.Errorf("module_id = %v, want %q", entry["module_id"], "searxng")
 	}
 	if entry["result"] != "started" {
 		t.Errorf("result = %v, want %q", entry["result"], "started")
@@ -41,7 +41,7 @@ func TestLogActionComplete(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(&buf)
 
-	logger.LogActionComplete("install", "openviking", 2*time.Second, nil)
+	logger.LogActionComplete("install", "searxng", 2*time.Second, nil)
 
 	var entry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
@@ -60,7 +60,7 @@ func TestLogActionCompleteFailed(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(&buf)
 
-	logger.LogActionComplete("install", "openviking", time.Second, errors.New("connection refused"))
+	logger.LogActionComplete("install", "searxng", time.Second, errors.New("connection refused"))
 
 	var entry map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
@@ -79,7 +79,7 @@ func TestLogActionTruncatesParams(t *testing.T) {
 	var buf bytes.Buffer
 	logger := NewLogger(&buf)
 
-	logger.LogAction("install", "openviking", map[string]string{
+	logger.LogAction("install", "searxng", map[string]string{
 		"body": strings.Repeat("x", 2048),
 	})
 

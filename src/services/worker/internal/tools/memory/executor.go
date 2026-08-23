@@ -136,8 +136,6 @@ func (e *ToolExecutor) Execute(
 		return e.read(ctx, args, ident, started)
 	case "memory_write":
 		return e.write(ctx, args, ident, execCtx, started)
-	case "memory_edit":
-		return e.edit(ctx, args, ident, execCtx, started)
 	case "memory_forget":
 		return e.forget(ctx, args, ident, execCtx, started)
 	default:
@@ -282,7 +280,7 @@ func (e *ToolExecutor) list(ctx context.Context, args map[string]any, ident memo
 		}
 	}
 
-	// OpenViking backend: ListDir 不支持分页，在结果上做 slice
+	// 目录型后端: ListDir 不支持分页，在结果上做 slice
 	if uri == "" {
 		uri = memory.SelfURI(ident.UserID.String())
 	}
@@ -973,32 +971,6 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"status": "ok"},
-		DurationMs: durationMs(started),
-	}
-}
-
-func (e *ToolExecutor) edit(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
-	editor, ok := e.provider.(memory.MemoryEditURI)
-	if !ok {
-		return stateError("memory editing is not available in this runtime", started)
-	}
-	uri, ok := args["uri"].(string)
-	if !ok || strings.TrimSpace(uri) == "" {
-		return argError("uri must be a non-empty string", started)
-	}
-	content, ok := args["content"].(string)
-	if !ok || strings.TrimSpace(content) == "" {
-		return argError("content must be a non-empty string", started)
-	}
-	trimmed := strings.TrimSpace(content)
-	if err := editor.UpdateByURI(ctx, ident, strings.TrimSpace(uri), memory.MemoryEntry{Content: trimmed}); err != nil {
-		return providerError("edit", err, started)
-	}
-	if e.pool != nil {
-		pipeline.EditSnapshotRefresh(e.provider, pipeline.NewPgxMemorySnapshotStore(e.pool), e.pool, execCtx.RunID, execCtx.TraceID, ident, trimmed)
-	}
-	return tools.ExecutionResult{
-		ResultJSON: map[string]any{"status": "ok", "uri": strings.TrimSpace(uri)},
 		DurationMs: durationMs(started),
 	}
 }

@@ -41,7 +41,6 @@ import (
 	"arkloop/services/worker/internal/memory"
 	localmemory "arkloop/services/worker/internal/memory/local"
 	"arkloop/services/worker/internal/memory/nowledge"
-	"arkloop/services/worker/internal/memory/openviking"
 	"arkloop/services/worker/internal/personas"
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/queue"
@@ -114,7 +113,7 @@ type DesktopEngine struct {
 	personaRegistry        func() *personas.Registry
 	notebookProvider       memory.MemoryProvider
 	memProvider            memory.MemoryProvider
-	useOV                  bool
+	useMemProvider                  bool
 	useVM                  bool
 	skillLayout            pipeline.SkillLayoutResolver
 	runtimeSnapshot        *sharedtoolruntime.RuntimeSnapshot
@@ -262,13 +261,11 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 
 	memEnabled := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_ENABLED")) != "false"
 	memoryProviderName := strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_PROVIDER"))
-	ovURL := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_BASE_URL"))
-	ovKey := strings.TrimSpace(os.Getenv("ARKLOOP_OPENVIKING_ROOT_API_KEY"))
 	nowledgeCfg := nowledge.LoadConfigFromEnv()
 
 	var notebookProvider memory.MemoryProvider
 	var memProvider memory.MemoryProvider
-	useOV := false
+	useMemProvider := false
 	if memEnabled {
 		notebookProvider = localmemory.NewProvider(db)
 		slog.Info("desktop: notebook enabled")
@@ -277,15 +274,10 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		nowledgeCfg = nowledge.ResolveDesktopConfig(nowledgeCfg)
 		memProvider = nowledge.NewProvider(nowledgeCfg)
 		if memProvider != nil {
-			useOV = true
+			useMemProvider = true
 			desktop.SetMemoryRuntime("nowledge")
 			slog.Info("desktop: using Nowledge memory provider", "url", nowledgeCfg.BaseURL)
 		}
-	} else if memEnabled && ovURL != "" {
-		memProvider = openviking.NewProvider(openviking.Config{BaseURL: ovURL, RootAPIKey: ovKey})
-		useOV = true
-		desktop.SetMemoryRuntime("openviking")
-		slog.Info("desktop: using OpenViking memory provider", "url", ovURL)
 	} else if memEnabled {
 		desktop.SetMemoryRuntime("notebook")
 		slog.Info("desktop: using notebook-only memory mode")
@@ -306,7 +298,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		}
 	}
 
-	if useOV && memProvider != nil {
+	if useMemProvider && memProvider != nil {
 		memExec := memorytool.NewToolExecutor(memProvider, db, nil)
 		for _, spec := range memorytool.MemoryAgentSpecs() {
 			executors[spec.Name] = memExec
@@ -397,7 +389,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if notebookProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.NotebookLlmSpecs()...)
 	}
-	if useOV && memProvider != nil {
+	if useMemProvider && memProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 	}
 	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, configResolver, routingLoader, messageAttachmentStore)
@@ -426,16 +418,10 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 			"notebook_read", "notebook_write", "notebook_edit", "notebook_forget",
 		)
 	}
-	if useOV && memProvider != nil {
-		if _, ok := memProvider.(*nowledge.Provider); ok {
-			mergedRT = mergedRT.WithMergedBuiltinToolNames(
-				"memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline", "memory_context", "memory_status",
-			)
-		} else {
-			mergedRT = mergedRT.WithMergedBuiltinToolNames(
-				"memory_search", "memory_read", "memory_write", "memory_edit", "memory_forget",
-			)
-		}
+	if useMemProvider && memProvider != nil {
+		mergedRT = mergedRT.WithMergedBuiltinToolNames(
+			"memory_search", "memory_read", "memory_write", "memory_forget", "memory_thread_search", "memory_thread_fetch", "memory_connections", "memory_timeline", "memory_context", "memory_status",
+		)
 	}
 	runtimeSnapshot = &mergedRT
 
@@ -484,7 +470,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		personaRegistry:        personaGetter,
 		notebookProvider:       notebookProvider,
 		memProvider:            memProvider,
-		useOV:                  useOV,
+		useMemProvider:                  useMemProvider,
 		useVM:                  useVM,
 		skillLayout:            skillLayout,
 		runtimeSnapshot:        runtimeSnapshot,
@@ -731,7 +717,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	}
 	rc.ContextCompact = cc
 
-	if e.useOV && e.memProvider != nil {
+	if e.useMemProvider && e.memProvider != nil {
 		rc.MemoryProvider = e.memProvider
 	}
 
@@ -740,7 +726,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	impRefresh := newDesktopImpressionRefresh(e.db, e.jobQueue)
 	sugStore := pipeline.NewDesktopSuggestionStore(e.db)
 	sugRefresh := newDesktopSuggestionRefresh(e.db, e.jobQueue)
-	if e.useOV {
+	if e.useMemProvider {
 		memoryMW := pipeline.NewMemoryMiddleware(
 			e.memProvider,
 			pipeline.NewDesktopMemorySnapshotStore(e.db),

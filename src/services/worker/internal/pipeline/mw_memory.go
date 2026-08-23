@@ -51,8 +51,8 @@ const (
 // NewMemoryMiddleware 在 run 前仅从快照注入 <memory>；run 后异步刷写显式 memory_write 并触发后台快照刷新。
 // provider 为 nil 时整个 middleware 为 no-op。
 // snap 为 nil 时不注入、不刷新快照表（与旧版 pool==nil 行为一致）。
-// mdb 为 nil 时跳过 run_events / usage_records 写入，仍会执行 OpenViking 写与快照 Upsert。
-// configResolver 为 nil 时跳过 memory usage 记录。
+// mdb 为 nil 时跳过 run_events 写入，仍会执行 provider 写与快照 Upsert。
+// configResolver 为 nil 时跳过 impression/suggestion 阈值配置解析。
 // impStore 为 nil 时不注入 impression、不累积 score。
 // sugStore 为 nil 时不累积 suggestion score。
 func NewMemoryMiddleware(provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, configResolver sharedconfig.Resolver, impStore ImpressionStore, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc) RunMiddleware {
@@ -90,10 +90,10 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		AgentID:   StableAgentID(rc),
 	}
 	threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
-	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
+	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.ID, rc.TraceID, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, runID uuid.UUID, traceID string, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
@@ -140,10 +140,6 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 	}
 	if sugStore != nil && successCount > 0 && threadMode != "" {
 		addSuggestionScore(ctx, sugStore, ident.AccountID, ident.UserID, ident.AgentID, threadMode, successCount, configResolver, sugRefresh)
-	}
-
-	if successCount == 0 {
-		return
 	}
 
 }
@@ -691,7 +687,7 @@ func ForgetSnapshotRefresh(
 	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.forget", "forget")
 }
 
-// EditSnapshotRefresh schedules a background snapshot rebuild after memory_edit.
+// EditSnapshotRefresh 在记忆内容变更后调度后台快照重建。
 func EditSnapshotRefresh(
 	provider memory.MemoryProvider,
 	store MemorySnapshotStore,
