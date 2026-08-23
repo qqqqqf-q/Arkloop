@@ -187,9 +187,6 @@ jobs:
       - name: Console Lite build
         run: pnpm --filter console-lite build
 
-      - name: Developers build
-        run: pnpm --filter developers build
-
       - name: Desktop type-check
         run: pnpm --filter @arkloop/desktop type-check
 

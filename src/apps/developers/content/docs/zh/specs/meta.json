@@ -1,4 +1,0 @@
-{
-  "title": "技术规范",
-  "pages": ["api-and-sse", "database-architecture", "logging-and-observability", "run-execution-architecture"]
-}
