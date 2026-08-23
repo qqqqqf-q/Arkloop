@@ -19,7 +19,6 @@ import (
 	"arkloop/services/bridge/internal/audit"
 	"arkloop/services/bridge/internal/docker"
 	bridgehttp "arkloop/services/bridge/internal/http"
-	"arkloop/services/bridge/internal/model"
 	"arkloop/services/bridge/internal/module"
 )
 
@@ -85,15 +84,11 @@ func (a *Application) Run(ctx context.Context) error {
 	}
 	auditLog := audit.NewLogger(auditWriter)
 
-	// Create model downloader for virtual modules (e.g. prompt-guard).
-	modelDir := os.Getenv("ARKLOOP_PROMPT_GUARD_MODEL_DIR")
-	modelDL := model.NewDownloader(modelDir, adapter)
-
 	// Register routes.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 
-	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, modelDL, bridgeVersion)
+	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, bridgeVersion)
 	apiHandler.RegisterRoutes(mux)
 
 	handler := bridgeHandler(a.config.AuthToken, a.config.CORSAllowedOrigins, mux)

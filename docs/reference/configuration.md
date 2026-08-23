@@ -58,6 +58,8 @@
 | memory.impression_score_threshold | int | both | 50 | false | impression 更新触发阈值 |
 | nowledge.api_key | string | platform |  | true | Nowledge API Key |
 | nowledge.base_url | string | platform |  | false | Nowledge Base URL |
+| nowledge.max_context_results | int | platform | 5 | false | Max recalled memories injected per turn (1-20) |
+| nowledge.recall_min_score | int | platform | 0 | false | Min recall score threshold 0-100 (0 = no filter) |
 | nowledge.request_timeout_ms | int | platform | 30000 | false | Nowledge request timeout in milliseconds |
 | openviking.base_url | string | platform |  | false | OpenViking Base URL |
 | openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
@@ -89,16 +91,6 @@
 | sandbox.warm_browser | int | platform | 1 | false | browser tier 预热实例数 |
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
-| security.injection_scan.blocking_enabled | bool | platform | false | false | 检测到注入时直接拦截请求 |
-| security.injection_scan.regex_enabled | bool | platform | true | false | Regex Scanner 开关 |
-| security.injection_scan.semantic_enabled | bool | platform | false | false | Prompt Guard 语义扫描开关 |
-| security.injection_scan.tool_output_scan_enabled | bool | platform | true | false | 扫描工具输出中的间接注入 |
-| security.injection_scan.trust_source_enabled | bool | platform | true | false | Trust Source 标记开关 |
-| security.semantic_scanner.api_endpoint | string | platform |  | false | 远端语义扫描服务地址（OpenAI 兼容 /chat/completions） |
-| security.semantic_scanner.api_key | string | platform |  | true | 远端语义扫描服务 API Key |
-| security.semantic_scanner.api_model | string | platform | openai/gpt-oss-safeguard-20b | false | 远端语义扫描模型标识 |
-| security.semantic_scanner.api_timeout_ms | int | platform | 4000 | false | 远端语义扫描超时（毫秒） |
-| security.semantic_scanner.provider | string | platform |  | false | 语义扫描提供方（留空 / local / api） |
 | skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
 | skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | skills.registry.api_base_url | string | platform |  | false | 官方技能 Registry API 基础地址，留空则沿用 Base URL |
@@ -108,6 +100,9 @@
 | spawn.profile.explore | string | both | anthropic^claude-haiku-3-5 | false | Sub-agent 'explore' profile: 低延迟低成本模型 |
 | spawn.profile.strong | string | both | anthropic^claude-sonnet-4-5 | false | Sub-agent 'strong' profile: 最强推理能力模型 |
 | spawn.profile.task | string | both | anthropic^claude-sonnet-4-5 | false | Sub-agent 'task' profile: 平衡性价比模型 |
+| spawn.profile.tool | string | both |  | false | 工具模型（标题摘要、结果摘要等子任务），格式 provider^model |
+| spawn.profile.vision | string | both |  | false | 图像理解模型；persona.image_model 未设置时使用，格式 provider^model |
+| suggestion.score_threshold | int | both | 15 | false | suggestion 更新触发阈值 |
 | turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
 | turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
 | turnstile.site_key | string | platform |  | false | Turnstile Site Key |

@@ -19,7 +19,6 @@ import (
 	"arkloop/services/bridge/internal/audit"
 	"arkloop/services/bridge/internal/docker"
 	bridgehttp "arkloop/services/bridge/internal/http"
-	"arkloop/services/bridge/internal/model"
 	"arkloop/services/bridge/internal/module"
 	"arkloop/services/shared/desktop"
 )
@@ -48,13 +47,10 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 	}
 	auditLog := audit.NewLogger(auditWriter)
 
-	modelDir := os.Getenv("ARKLOOP_PROMPT_GUARD_MODEL_DIR")
-	modelDL := model.NewDownloader(modelDir, adapter)
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 
-	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, modelDL, bridgeVersion)
+	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, bridgeVersion)
 	apiHandler.RegisterRoutes(mux)
 
 	// Desktop-only: execution-mode endpoint（模式由侧car main 从磁盘恢复，此处不再强制 local）

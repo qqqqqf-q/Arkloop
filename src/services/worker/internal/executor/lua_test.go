@@ -1077,7 +1077,6 @@ context.set_output(out)
 
 func TestLuaExecutor_AgentLoop_SteeringInjectedAfterTool(t *testing.T) {
 	var secondCallMessages []llm.Message
-	var phases []string
 	gw := &multiTurnGateway{
 		onSecondCall: func(req llm.Request) {
 			secondCallMessages = req.Messages
@@ -1096,13 +1095,6 @@ if loopErr then error(loopErr) end
 
 	rc := buildLuaRC(gw)
 	rc.ToolExecutor = buildMinimalToolExecutor()
-	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
-		if text != "runtime steering" {
-			t.Fatalf("unexpected scan text: %q", text)
-		}
-		phases = append(phases, phase)
-		return nil
-	}
 
 	pollCount := 0
 	rc.PollSteeringInput = func(_ context.Context) (string, bool) {
@@ -1132,9 +1124,6 @@ if loopErr then error(loopErr) end
 	if !sawSteering {
 		t.Fatal("expected run.steering_injected event")
 	}
-	if len(phases) != 1 || phases[0] != "steering_input" {
-		t.Fatalf("unexpected scan phases: %v", phases)
-	}
 
 	injectedFound := false
 	for _, msg := range secondCallMessages {
@@ -1152,7 +1141,7 @@ if loopErr then error(loopErr) end
 	}
 }
 
-func TestLuaExecutor_AgentLoop_AskUserUsesWaitForInputAndPromptScan(t *testing.T) {
+func TestLuaExecutor_AgentLoop_AskUserUsesWaitForInput(t *testing.T) {
 	userAnswer := `{"db":"postgres"}`
 	gw := &captureGateway{
 		events: [][]llm.StreamEvent{
@@ -1184,17 +1173,9 @@ func TestLuaExecutor_AgentLoop_AskUserUsesWaitForInputAndPromptScan(t *testing.T
 
 	rc := buildLuaRC(gw)
 	waitCalls := 0
-	var phases []string
 	rc.WaitForInput = func(_ context.Context) (string, bool) {
 		waitCalls++
 		return userAnswer, true
-	}
-	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
-		if text != userAnswer {
-			t.Fatalf("unexpected scan text: %q", text)
-		}
-		phases = append(phases, phase)
-		return nil
 	}
 
 	evs := runLuaScript(t, `
@@ -1204,9 +1185,6 @@ if err then error(err) end
 
 	if waitCalls != 1 {
 		t.Fatalf("expected WaitForInput called once, got %d", waitCalls)
-	}
-	if len(phases) != 1 || phases[0] != "ask_user" {
-		t.Fatalf("unexpected scan phases: %v", phases)
 	}
 	if len(gw.requests) != 2 {
 		t.Fatalf("expected 2 gateway requests, got %d", len(gw.requests))

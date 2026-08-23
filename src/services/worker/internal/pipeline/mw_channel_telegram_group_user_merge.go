@@ -16,7 +16,6 @@ import (
 
 // NewChannelTelegramGroupUserMergeMiddleware 遍历整个消息列表，将每一段连续 user 消息
 // compact 为单条 user 再交给后续中间件与 LLM。每段 burst 的 ThreadMessageIDs 仅保留该段最后一条 id。
-// InjectionScanUserTexts 仍取物理上最后一条 user 输入。
 func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		if rc == nil || rc.ChannelContext == nil {
@@ -26,28 +25,23 @@ func NewChannelTelegramGroupUserMergeMiddleware() RunMiddleware {
 		if ct != "telegram" && ct != "qq" {
 			return next(ctx, rc)
 		}
-		msgs, ids, lastScan := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
+		msgs, ids := mergeAllTelegramGroupUserBursts(rc.Messages, rc.ThreadMessageIDs)
 		rc.Messages = msgs
 		rc.ThreadMessageIDs = ids
-		if len(lastScan) > 0 {
-			rc.InjectionScanUserTexts = lastScan
-		}
 		return next(ctx, rc)
 	}
 }
 
 // mergeAllTelegramGroupUserBursts 遍历全部消息，对每一段连续 user 消息都做 compact。
 // 每段 burst 的 ThreadMessageIDs 只保留该段最后一条 id。
-// lastScan 取物理上最后一条 user 消息的 scan text。
-func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uuid.UUID, []string) {
+func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm.Message, []uuid.UUID) {
 	if len(msgs) != len(ids) {
 		slog.Warn("channel_group_user_merge: msgs/ids length mismatch, skipping merge", "msgs", len(msgs), "ids", len(ids))
-		return msgs, ids, nil
+		return msgs, ids
 	}
 
 	outMsgs := make([]llm.Message, 0, len(msgs))
 	outIDs := make([]uuid.UUID, 0, len(ids))
-	var lastScan []string
 
 	i := 0
 	for i < len(msgs) {
@@ -65,8 +59,6 @@ func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm
 		burst := msgs[burstStart:i]
 		burstIDs := ids[burstStart:i]
 
-		lastScan = userMessageScanTextVariants(burst[len(burst)-1])
-
 		if len(burst) == 1 {
 			content := compactSingleUserMessage(burst[0])
 			if content != nil {
@@ -83,7 +75,7 @@ func mergeAllTelegramGroupUserBursts(msgs []llm.Message, ids []uuid.UUID) ([]llm
 		outIDs = append(outIDs, burstIDs[len(burstIDs)-1])
 	}
 
-	return outMsgs, outIDs, lastScan
+	return outMsgs, outIDs
 }
 
 // NormalizeRuntimeSteeringInputs compacts runtime-injected channel envelope texts

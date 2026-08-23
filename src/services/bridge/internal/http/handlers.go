@@ -15,7 +15,6 @@ import (
 
 	"arkloop/services/bridge/internal/audit"
 	"arkloop/services/bridge/internal/docker"
-	"arkloop/services/bridge/internal/model"
 	"arkloop/services/bridge/internal/module"
 	"arkloop/services/bridge/internal/openviking"
 	"arkloop/services/bridge/internal/platform"
@@ -38,7 +37,6 @@ type Handler struct {
 	operations *docker.OperationStore
 	auditLog   *audit.Logger
 	appLogger  AppLogger
-	modelDL    *model.Downloader
 	version    string
 	upgradeMu  sync.Mutex
 	upgrading  bool
@@ -51,7 +49,6 @@ func NewHandler(
 	operations *docker.OperationStore,
 	auditLog *audit.Logger,
 	logger AppLogger,
-	modelDL *model.Downloader,
 	version string,
 ) *Handler {
 	return &Handler{
@@ -60,7 +57,6 @@ func NewHandler(
 		operations: operations,
 		auditLog:   auditLog,
 		appLogger:  logger,
-		modelDL:    modelDL,
 		version:    version,
 	}
 }
@@ -225,10 +221,8 @@ func (h *Handler) moduleStatus(ctx context.Context, def *module.ModuleDefinition
 }
 
 // virtualModuleStatus checks file-based status for virtual modules.
+// 目前没有虚拟模块带自定义状态探测，一律按未安装处理。
 func (h *Handler) virtualModuleStatus(def *module.ModuleDefinition) module.ModuleStatus {
-	if def.ID == "prompt-guard" && h.modelDL != nil && h.modelDL.ModelFilesExist() {
-		return module.StatusRunning
-	}
 	return module.StatusNotInstalled
 }
 
@@ -945,21 +939,7 @@ func toStringMap(m map[string]any) map[string]string {
 }
 
 // handleVirtualInstall routes install actions for virtual modules (no compose
-// service) to the appropriate installer. Currently supports prompt-guard.
+// service) to the appropriate installer. 目前没有虚拟模块带自定义安装器。
 func (h *Handler) handleVirtualInstall(ctx context.Context, moduleID string, params map[string]any) (*docker.Operation, error) {
-	switch moduleID {
-	case "prompt-guard":
-		if h.modelDL == nil {
-			return nil, fmt.Errorf("model downloader not configured")
-		}
-		variant := "22m"
-		if v, ok := params["variant"]; ok {
-			if s, ok := v.(string); ok && s != "" {
-				variant = s
-			}
-		}
-		return h.modelDL.Install(ctx, variant)
-	default:
-		return nil, fmt.Errorf("module %q is virtual but has no custom installer", moduleID)
-	}
+	return nil, fmt.Errorf("module %q is virtual but has no custom installer", moduleID)
 }

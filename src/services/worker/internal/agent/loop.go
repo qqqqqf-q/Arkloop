@@ -20,7 +20,6 @@ import (
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
 	"arkloop/services/worker/internal/pipeline"
-	"arkloop/services/worker/internal/security"
 	"arkloop/services/worker/internal/stablejson"
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tooldiagnostics"
@@ -95,13 +94,6 @@ type RunContext struct {
 
 	// PollSteeringInput 非阻塞轮询用户 steering 消息（工具执行后检查）。nil 时不触发。
 	PollSteeringInput func(ctx context.Context) (string, bool)
-
-	// UserPromptScanFunc 对运行中追加的人类输入执行 prompt injection 检测。
-	UserPromptScanFunc func(ctx context.Context, text string, phase string) error
-
-	// ToolOutputScanFunc 扫描 tool output，检测间接注入。
-	// 返回 (sanitized, true) 表示检测到注入；返回 ("", false) 表示安全。
-	ToolOutputScanFunc func(toolName, text string) (string, bool)
 
 	Channel *tools.ChannelToolSurface
 
@@ -207,14 +199,8 @@ func (l *Loop) Run(
 		}
 
 		if runCtx.PollSteeringInput != nil {
-			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
+			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
 			if err != nil {
-				if errors.Is(err, security.ErrInputBlocked) {
-					if runCtx.RolloutRecorder != nil {
-						appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-					}
-					return nil
-				}
 				return err
 			}
 			messages = append(messages, drained...)
@@ -439,14 +425,8 @@ func (l *Loop) Run(
 
 		if len(turn.ToolCalls) == 0 {
 			if runCtx.PollSteeringInput != nil {
-				drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
+				drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
 				if err != nil {
-					if errors.Is(err, security.ErrInputBlocked) {
-						if runCtx.RolloutRecorder != nil {
-							appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-						}
-						return nil
-					}
 					return err
 				}
 				if len(drained) > 0 {
@@ -540,12 +520,6 @@ func (l *Loop) Run(
 					webSourceCount = injectWebSourceIDs(toolResult.ResultJSON, webSourceCount)
 				}
 
-				if runCtx.ToolOutputScanFunc != nil {
-					if err := scanToolOutput(&toolResult, runCtx.ToolOutputScanFunc, emitter, yield); err != nil {
-						return err
-					}
-				}
-
 				suppressResultReplay := shouldSuppressToolResultReplay(runCtx, call.ToolName, toolResult.Error == nil)
 				if !suppressResultReplay {
 					dedupKey, sig, ok := toolResultDedupKey(call.ToolName, call.ArgumentsJSON, toolResult)
@@ -600,14 +574,8 @@ func (l *Loop) Run(
 
 		// 工具执行完成后，检查是否有 steering 消息
 		if runCtx.PollSteeringInput != nil {
-			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, runCtx.UserPromptScanFunc, emitter, yield)
+			drained, err := drainSteeringMessages(ctx, runCtx.PollSteeringInput, emitter, yield)
 			if err != nil {
-				if errors.Is(err, security.ErrInputBlocked) {
-					if runCtx.RolloutRecorder != nil {
-						appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-					}
-					return nil
-				}
 				return err
 			}
 			messages = append(messages, drained...)
@@ -657,14 +625,6 @@ func (l *Loop) Run(
 					return waitErr
 				}
 				if ok && text != "" {
-					if runCtx.UserPromptScanFunc != nil {
-						if err := runCtx.UserPromptScanFunc(ctx, text, "ask_user"); err != nil {
-							if errors.Is(err, security.ErrInputBlocked) {
-								return nil
-							}
-							return err
-						}
-					}
 					var parsed map[string]any
 					if err := json.Unmarshal([]byte(text), &parsed); err == nil {
 						answerResult = llm.StreamToolResult{
@@ -785,17 +745,6 @@ func (l *Loop) Run(
 				return hookErr
 			}
 			if inject && injected != "" {
-				if runCtx.UserPromptScanFunc != nil {
-					if err := runCtx.UserPromptScanFunc(ctx, injected, "interactive_checkin"); err != nil {
-						if errors.Is(err, security.ErrInputBlocked) {
-							if runCtx.RolloutRecorder != nil {
-								appendRolloutSync(ctx, runCtx.RolloutRecorder, MakeRunEnd("cancelled"))
-							}
-							return nil
-						}
-						return err
-					}
-				}
 				messages = append(messages, llm.Message{
 					Role:    "user",
 					Content: []llm.TextPart{{Text: injected}},
@@ -1150,7 +1099,6 @@ func updateContinuationTracking(state *continuationBudgetState, call llm.ToolCal
 func drainSteeringMessages(
 	ctx context.Context,
 	poll func(ctx context.Context) (string, bool),
-	scan func(context.Context, string, string) error,
 	emitter events.Emitter,
 	yield func(events.RunEvent) error,
 ) ([]llm.Message, error) {
@@ -1162,11 +1110,6 @@ func drainSteeringMessages(
 		text, ok := poll(ctx)
 		if !ok || strings.TrimSpace(text) == "" {
 			break
-		}
-		if scan != nil {
-			if err := scan(ctx, text, "steering_input"); err != nil {
-				return nil, err
-			}
 		}
 		texts = append(texts, strings.TrimSpace(text))
 	}
@@ -3253,81 +3196,6 @@ func toolResultMessage(result llm.StreamToolResult) llm.Message {
 		Role:    "tool",
 		Content: parts,
 	}
-}
-
-// scanToolOutput 扫描 tool output 是否包含间接注入。
-// 检测到注入时用消毒后的内容替换 ResultJSON，并发出事件。
-func scanToolOutput(
-	result *llm.StreamToolResult,
-	scanFunc func(string, string) (string, bool),
-	emitter events.Emitter,
-	yield func(events.RunEvent) error,
-) error {
-	if result.Error != nil || result.ResultJSON == nil {
-		return nil
-	}
-	text := collectToolOutputScanText(result.ResultJSON)
-	if strings.TrimSpace(text) == "" {
-		return nil
-	}
-	sanitized, detected := scanFunc(result.ToolName, text)
-	if !detected {
-		return nil
-	}
-	result.ResultJSON = map[string]any{
-		"warning":            "indirect injection detected, content sanitized",
-		"sanitized_content":  sanitized,
-		"original_tool_name": result.ToolName,
-	}
-	return yield(emitter.Emit("security.tool_injection.detected", map[string]any{
-		"tool_name": result.ToolName,
-	}, nil, nil))
-}
-
-func collectToolOutputScanText(result map[string]any) string {
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return ""
-	}
-
-	var normalized any
-	if err := json.Unmarshal(raw, &normalized); err != nil {
-		return ""
-	}
-
-	seen := map[string]struct{}{}
-	parts := collectToolOutputStrings(nil, normalized, seen)
-	return strings.Join(parts, "\n\n")
-}
-
-func collectToolOutputStrings(parts []string, value any, seen map[string]struct{}) []string {
-	switch typed := value.(type) {
-	case string:
-		text := strings.TrimSpace(typed)
-		if text == "" {
-			return parts
-		}
-		if _, ok := seen[text]; ok {
-			return parts
-		}
-		seen[text] = struct{}{}
-		return append(parts, text)
-	case []any:
-		for _, item := range typed {
-			parts = collectToolOutputStrings(parts, item, seen)
-		}
-		return parts
-	case map[string]any:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			parts = collectToolOutputStrings(parts, typed[key], seen)
-		}
-	}
-	return parts
 }
 
 type toolResultDedupInfo struct {

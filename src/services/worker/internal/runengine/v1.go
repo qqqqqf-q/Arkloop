@@ -20,7 +20,6 @@ import (
 	"arkloop/services/shared/skillstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/agentdirectory"
-	promptinjection "arkloop/services/worker/internal/app/promptinjection"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/llm"
@@ -33,7 +32,6 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	workerruntime "arkloop/services/worker/internal/runtime"
-	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tooldiagnostics"
 	"arkloop/services/worker/internal/toolprovider"
@@ -200,15 +198,13 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		resolver = sharedent.NewResolver(deps.DBPool, rdb)
 	}
 
-	promptInjection, err := promptinjection.Build(promptinjection.BuilderDeps{
-		Resolver: deps.ConfigResolver,
-		Store:    sharedconfig.NewPGXStore(deps.DBPool),
-		AuditDB:  deps.DBPool,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("init prompt injection capability: %w", err)
+	cfgResolver := deps.ConfigResolver
+	if cfgResolver == nil {
+		cfgResolver, err = sharedconfig.NewResolver(sharedconfig.DefaultRegistry(), sharedconfig.NewPGXStore(deps.DBPool), nil, 0)
+		if err != nil {
+			return nil, fmt.Errorf("init config resolver: %w", err)
+		}
 	}
-	cfgResolver := promptInjection.Resolver
 	hookRegistry := pipeline.NewHookRegistry()
 	hookRegistry.RegisterContextContributor(pipeline.NewNotebookContextContributor(notebookprovider.NewProvider(deps.DBPool)))
 	hookRegistry.RegisterContextContributor(pipeline.NewImpressionContextContributor(pipeline.NewPgxImpressionStore(deps.DBPool)))
@@ -240,12 +236,11 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	//   PersonaResolution — 在 Memory/Routing 前：SystemPrompt、AgentConfig 由此确定
 	//   ChannelContext  — 在 HeartbeatSchedule 前：后者依赖 ChannelContext.ChannelID
 	//   Memory          — 在 Routing 前：可能修改 SystemPrompt，Routing 依赖最终 prompt
-	//   InjectionScan   — 在 Routing 前：扫描结果影响路由决策（trust source）
 	//   Routing         — 在 ContextCompact/TitleSummarizer 前：后两者依赖 Gateway
 	//   ToolBuild       — 必须最后：依赖前面所有 mw 对 ToolRegistry/Specs 的修改
 	//   ThreadPersist   — 包裹 ChannelDelivery：thread persist 依赖最终助手输出
 	//   ChannelDelivery — 包裹 handler：run 结束后立刻停 typing 并执行渠道投递
-	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot, promptInjection, baseAllowlistSet)
+	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot, baseAllowlistSet)
 
 	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
 
@@ -830,7 +825,6 @@ func buildPipeline(
 	messagesRepo data.MessagesRepository,
 	resolver *sharedent.Resolver,
 	releaseSlot func(ctx context.Context, run data.Run),
-	promptInjection securitycap.Runtime,
 	baseAllowlistSet map[string]struct{},
 ) []pipeline.RunMiddleware {
 	var mws []pipeline.RunMiddleware
@@ -838,7 +832,7 @@ func buildPipeline(
 	mws = append(mws, buildAgentConfigLayer(deps, runsRepo, eventsRepo, baseAllowlistSet, releaseSlot)...)
 	mws = append(mws, buildChannelLayer(deps, messagesRepo, eventsRepo)...)
 	mws = append(mws, pipeline.NewScheduledJobPrepareMiddleware())
-	mws = append(mws, buildCapabilityLayer(deps, promptInjection, eventsRepo)...)
+	mws = append(mws, buildCapabilityLayer(deps)...)
 	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot)...)
 	mws = append(mws, buildToolFinalizeLayer(deps, eventsRepo)...)
 	mws = append(mws, buildDeliveryLayer(deps)...)
@@ -912,8 +906,6 @@ func buildChannelLayer(deps EngineV1Deps, messagesRepo data.MessagesRepository, 
 
 func buildCapabilityLayer(
 	deps EngineV1Deps,
-	promptInjection securitycap.Runtime,
-	eventsRepo data.RunEventsRepository,
 ) []pipeline.RunMiddleware {
 	memoryMW := pipeline.NewMemoryMiddleware(
 		nil,
@@ -951,7 +943,6 @@ func buildCapabilityLayer(
 		}),
 		pipeline.NewRuntimeContextMiddleware(),
 	}
-	mws = append(mws, promptInjection.Middlewares(eventsRepo)...)
 	return mws
 }
 

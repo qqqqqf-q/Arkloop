@@ -32,7 +32,6 @@ import (
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/shared/weixinclient"
 	"arkloop/services/worker/internal/agentdirectory"
-	promptinjection "arkloop/services/worker/internal/app/promptinjection"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/environmentbindings"
 	"arkloop/services/worker/internal/events"
@@ -48,7 +47,6 @@ import (
 	"arkloop/services/worker/internal/queue"
 	"arkloop/services/worker/internal/routing"
 	"arkloop/services/worker/internal/runtime"
-	"arkloop/services/worker/internal/securitycap"
 	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tooldiagnostics"
 	"arkloop/services/worker/internal/toolprovider"
@@ -125,7 +123,7 @@ type DesktopEngine struct {
 	artifactStore          objectstore.Store
 	messageAttachmentStore objectstore.Store
 	rolloutStore           objectstore.BlobStore
-	promptInjection        securitycap.Runtime
+	configResolver         sharedconfig.Resolver
 	groupSearchExec        tools.Executor
 	mcpPool                *mcp.Pool
 	mcpDiscoveryCache      *mcp.DiscoveryCache
@@ -347,12 +345,9 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		rolloutStore = rs
 	}
 
-	promptInjection, err := promptinjection.Build(promptinjection.BuilderDeps{
-		Store:   sharedconfig.NewPGXStoreQuerier(db),
-		AuditDB: db,
-	})
+	configResolver, err := sharedconfig.NewResolver(sharedconfig.DefaultRegistry(), sharedconfig.NewPGXStoreQuerier(db), nil, 0)
 	if err != nil {
-		return nil, fmt.Errorf("desktop: init prompt injection capability: %w", err)
+		return nil, fmt.Errorf("desktop: init config resolver: %w", err)
 	}
 	hookRegistry := pipeline.NewHookRegistry()
 	if notebookProvider != nil {
@@ -367,7 +362,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		if memExec, ok := exec.(interface {
 			ConfigureImpression(store pipeline.ImpressionStore, refresh pipeline.ImpressionRefreshFunc, resolver sharedconfig.Resolver)
 		}); ok {
-			memExec.ConfigureImpression(desktopImpStore, newDesktopImpressionRefresh(db, jobQueue), promptInjection.Resolver)
+			memExec.ConfigureImpression(desktopImpStore, newDesktopImpressionRefresh(db, jobQueue), configResolver)
 		}
 	}
 	hookRegistry.RegisterContextContributor(pipeline.NewImpressionContextContributor(desktopImpStore))
@@ -380,7 +375,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	hookRegistry.RegisterAfterThreadPersistHook(pipeline.NewLegacyMemoryDistillObserver(
 		pipeline.NewDesktopMemorySnapshotStore(db),
 		db,
-		promptInjection.Resolver,
+		configResolver,
 		desktopImpStore,
 		newDesktopImpressionRefresh(db, jobQueue),
 		pipeline.NewDesktopSuggestionStore(db),
@@ -405,7 +400,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if useOV && memProvider != nil {
 		allLlmSpecs = append(allLlmSpecs, memorytool.MemoryLlmSpecs()...)
 	}
-	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, promptInjection.Resolver, routingLoader, messageAttachmentStore)
+	allLlmSpecs, artifactToolsRegistered, err := registerStoredArtifactTools(toolRegistry, executors, allLlmSpecs, artifactStore, db, configResolver, routingLoader, messageAttachmentStore)
 	if err != nil {
 		return nil, fmt.Errorf("register desktop artifact tools: %w", err)
 	}
@@ -498,7 +493,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		artifactStore:          artifactStore,
 		messageAttachmentStore: messageAttachmentStore,
 		rolloutStore:           rolloutStore,
-		promptInjection:        promptInjection,
+		configResolver:         configResolver,
 		groupSearchExec:        groupSearchExec,
 		mcpPool:                mcpPool,
 		mcpDiscoveryCache:      mcpDiscoveryCache,
@@ -751,7 +746,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			e.memProvider,
 			pipeline.NewDesktopMemorySnapshotStore(e.db),
 			e.db,
-			e.promptInjection.Resolver,
+			e.configResolver,
 			impStore,
 			impRefresh,
 			sugStore,
@@ -822,7 +817,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		)),
 		desktopObservedStage("plugin_context", eventsRepo, pipeline.NewPluginContextMiddleware(e.db)),
 	}
-	middlewares = append(middlewares, desktopCapabilityMiddlewares(memMiddleware, e.promptInjection, eventsRepo)...)
+	middlewares = append(middlewares, desktopCapabilityMiddlewares(memMiddleware, eventsRepo)...)
 	if e.lspManager != nil {
 		middlewares = append(middlewares, lsp.NewDiagnosticMiddleware(e.lspManager))
 	}
@@ -924,14 +919,12 @@ func traceDesktopMemoryInjection(inner pipeline.RunMiddleware) pipeline.RunMiddl
 
 func desktopCapabilityMiddlewares(
 	memMiddleware pipeline.RunMiddleware,
-	promptInjection securitycap.Runtime,
 	eventsRepo data.RunEventStore,
 ) []pipeline.RunMiddleware {
-	middlewares := []pipeline.RunMiddleware{
+	return []pipeline.RunMiddleware{
 		desktopObservedStage("memory_injection", eventsRepo, memMiddleware),
 		desktopObservedStage("runtime_context", eventsRepo, pipeline.NewRuntimeContextMiddleware()),
 	}
-	return append(middlewares, promptInjection.Middlewares(eventsRepo)...)
 }
 
 func desktopObservedStage(stage string, eventsRepo data.RunEventStore, inner pipeline.RunMiddleware) pipeline.RunMiddleware {
