@@ -298,10 +298,6 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init workspace registries repo: %w", err)
 	}
-	ipRulesRepo, err := data.NewIPRulesRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init ip rules repo: %w", err)
-	}
 	apiKeysRepo, err := data.NewAPIKeysRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init api keys repo: %w", err)
@@ -580,7 +576,6 @@ func RunDesktop(ctx context.Context) error {
 		PlatformSkillOverridesRepo:   platformSkillOverridesRepo,
 		ProfileRegistriesRepo:        profileRegistriesRepo,
 		WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
-		IPRulesRepo:                  ipRulesRepo,
 		APIKeysRepo:                  apiKeysRepo,
 		TeamRepo:                     teamRepo,
 		ProjectRepo:                  projectRepo,
