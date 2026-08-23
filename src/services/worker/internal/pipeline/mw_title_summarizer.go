@@ -143,13 +143,6 @@ func resolveTitleGateway(
 	configLoader *routing.ConfigLoader,
 	byokEnabled bool,
 ) (llm.Gateway, string) {
-	// account-level override takes precedence over platform setting
-	if accountID != nil {
-		if gw, model, ok := resolveAccountToolGateway(ctx, pool, *accountID, auxGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byokEnabled); ok {
-			return gw, model
-		}
-	}
-
 	var selector string
 	err := pool.QueryRow(ctx,
 		`SELECT value FROM platform_settings WHERE key = $1`,
@@ -611,69 +604,7 @@ func floatPtr(v float64) *float64 {
 	return &v
 }
 
-// resolveAccountToolGateway 查询账户级 spawn.profile.tool override，若存在则构建对应 gateway。
-func resolveAccountToolGateway(
-	ctx context.Context,
-	pool CompactPersistDB,
-	accountID uuid.UUID,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	llmMaxResponseBytes int,
-	configLoader *routing.ConfigLoader,
-	byokEnabled bool,
-) (llm.Gateway, string, bool) {
-	resolution, ok := resolveEntitlementRoute(ctx, pool, accountID, "spawn.profile.tool", auxGateway, emitDebugEvents, llmMaxResponseBytes, configLoader, byokEnabled)
-	if !ok {
-		return nil, "", false
-	}
-	return resolution.Gateway, resolution.Selected.Route.Model, true
-}
 
-// resolveAccountToolRouteStrict 解析账户级 spawn.profile.tool override（严格模式），
-// 不做 credential name fallback，精确 route 不存在即失败。
-func resolveAccountToolRouteStrict(
-	ctx context.Context,
-	pool CompactPersistDB,
-	accountID uuid.UUID,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	llmMaxResponseBytes int,
-	configLoader *routing.ConfigLoader,
-	byokEnabled bool,
-) (*entitlementRouteResolution, bool) {
-	var selector string
-	err := pool.QueryRow(ctx,
-		`SELECT value FROM account_entitlement_overrides
-		  WHERE account_id = $1 AND key = 'spawn.profile.tool'
-		    AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-		  LIMIT 1`,
-		accountID,
-	).Scan(&selector)
-	selector = strings.TrimSpace(selector)
-	if err != nil || selector == "" || configLoader == nil {
-		return nil, false
-	}
-
-	aid := accountID
-	routingCfg, err := configLoader.Load(ctx, &aid)
-	if err != nil {
-		slog.Warn("tool_gateway: load routing config failed", "err", err.Error())
-		return nil, false
-	}
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, byokEnabled)
-	if err != nil || selected == nil {
-		return nil, false
-	}
-	gw, err := gatewayFromSelectedRoute(*selected, auxGateway, emitDebugEvents, llmMaxResponseBytes)
-	if err != nil {
-		slog.Warn("tool_gateway: build failed", "selector", selector, "err", err.Error())
-		return nil, false
-	}
-	return &entitlementRouteResolution{
-		Selected: selected,
-		Gateway:  gw,
-	}, true
-}
 
 func buildSummarizeSystem(styleHint string) string {
 	base := "Generate a very short conversation title from the provided User prompt and Materials.\n" +

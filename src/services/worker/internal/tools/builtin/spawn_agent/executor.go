@@ -7,7 +7,6 @@ import (
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
-	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/skillstore"
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
 	"arkloop/services/worker/internal/llm"
@@ -252,7 +251,6 @@ var InterruptAgentLlmSpec = llm.ToolSpec{
 type ToolExecutor struct {
 	Control             subagentctl.Control
 	PersonaKeys         []string // 可用 persona ID 列表，spawn 前快速校验
-	EntitlementResolver *sharedent.Resolver
 	AccountID           uuid.UUID
 }
 
@@ -280,7 +278,6 @@ func (e *ToolExecutor) Execute(
 			err = e.validatePersonaID(req.PersonaID)
 		}
 		if err == nil {
-			e.resolveProfile(ctx, &req)
 			snapshot, err = e.Control.Spawn(ctx, req)
 		}
 	case SendInputSpec.Name:
@@ -349,19 +346,6 @@ func (e *ToolExecutor) validatePersonaID(id string) error {
 		ErrorClass: errorControlFailed,
 		Message:    fmt.Sprintf("persona not found: %s, available: %v", id, e.PersonaKeys),
 	}
-}
-
-// resolveProfile resolves profile to provider^model and writes it into req.ParentContext.Model.
-func (e *ToolExecutor) resolveProfile(ctx context.Context, req *subagentctl.SpawnRequest) {
-	if req.Profile == "" || e.EntitlementResolver == nil {
-		return
-	}
-	key := "spawn.profile." + req.Profile
-	val, err := e.EntitlementResolver.Resolve(ctx, e.AccountID, key)
-	if err != nil || strings.TrimSpace(val) == "" {
-		return
-	}
-	applyResolvedProfile(req, val)
 }
 
 func applyResolvedProfile(req *subagentctl.SpawnRequest, value string) bool {

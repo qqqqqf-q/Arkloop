@@ -767,7 +767,7 @@ func TestRoutingMiddlewareInjectsProviderRequestEstimator(t *testing.T) {
 	mw := NewRoutingMiddleware(
 		router, nil, nil, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &RunContext{

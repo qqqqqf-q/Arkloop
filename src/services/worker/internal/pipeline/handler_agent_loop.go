@@ -6,12 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
-	"arkloop/services/shared/creditpolicy"
-	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/threadrunstate"
@@ -55,24 +52,9 @@ func NewAgentLoopHandler(
 	messagesRepo data.MessagesRepository,
 	runLimiterRDB *redis.Client,
 	jobQueue queue.JobQueue,
-	usageRepo data.UsageRecordsRepository,
-	creditsRepo data.CreditsRepository,
-	resolver *sharedent.Resolver,
 ) RunHandler {
 	return func(ctx context.Context, rc *RunContext) error {
 		selected := rc.SelectedRoute
-
-		policy := creditpolicy.DefaultPolicy
-		if resolver != nil {
-			if p, err := resolver.ResolveDeductionPolicy(ctx, rc.Run.AccountID); err == nil {
-				policy = p
-			}
-		}
-
-		creditsPerUSD := float64(rc.CreditPerUSD)
-		if creditsPerUSD <= 0 {
-			creditsPerUSD = 1000.0
-		}
 
 		personaID := ""
 		if rc.PersonaDefinition != nil {
@@ -82,11 +64,9 @@ func NewAgentLoopHandler(
 		writer := newEventWriter(
 			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
 			rc.EventBus, jobQueue,
-			selected.Route.Model, personaID, usageRepo, creditsRepo,
-			creditsPerUSD,
+			selected.Route.Model, personaID,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
 			selected.Route.CostPer1kCacheWrite, selected.Route.CostPer1kCacheRead,
-			policy,
 			rc.StreamThinking,
 			rc.ReleaseSlot,
 			rc.TelegramToolBoundaryFlush,
@@ -274,8 +254,6 @@ type eventWriter struct {
 	model         string
 	personaID     string
 	runsRepo      data.RunsRepository
-	usageRepo     data.UsageRecordsRepository
-	creditsRepo   data.CreditsRepository
 	releaseSlot   func() // idempotent per-run slot release (from RunContext)
 
 	multiplier          float64
@@ -283,8 +261,6 @@ type eventWriter struct {
 	costPer1kOutput     *float64
 	costPer1kCacheWrite *float64
 	costPer1kCacheRead  *float64
-	policy              creditpolicy.CreditDeductionPolicy
-	creditsPerUSD       float64
 	streamThinking      bool
 
 	tx                       pgx.Tx
@@ -352,15 +328,11 @@ func newEventWriter(
 	jobQueue queue.JobQueue,
 	model string,
 	personaID string,
-	usageRepo data.UsageRecordsRepository,
-	creditsRepo data.CreditsRepository,
-	creditsPerUSD float64,
 	multiplier float64,
 	costPer1kInput *float64,
 	costPer1kOutput *float64,
 	costPer1kCacheWrite *float64,
 	costPer1kCacheRead *float64,
-	policy creditpolicy.CreditDeductionPolicy,
 	streamThinking bool,
 	releaseSlot func(),
 	telegramToolBoundaryFlush func(context.Context, string) error,
@@ -370,9 +342,6 @@ func newEventWriter(
 	pendingCallbackIDs []uuid.UUID,
 	heartbeatRun bool,
 ) *eventWriter {
-	if creditsPerUSD <= 0 {
-		creditsPerUSD = 1000.0
-	}
 	if multiplier <= 0 {
 		multiplier = 1.0
 	}
@@ -388,15 +357,11 @@ func newEventWriter(
 		projector:                 projector,
 		model:                     model,
 		personaID:                 strings.TrimSpace(personaID),
-		usageRepo:                 usageRepo,
-		creditsRepo:               creditsRepo,
-		creditsPerUSD:             creditsPerUSD,
 		multiplier:                multiplier,
 		costPer1kInput:            costPer1kInput,
 		costPer1kOutput:           costPer1kOutput,
 		costPer1kCacheWrite:       costPer1kCacheWrite,
 		costPer1kCacheRead:        costPer1kCacheRead,
-		policy:                    policy,
 		streamThinking:            streamThinking,
 		releaseSlot:               releaseSlot,
 		telegramToolBoundaryFlush: telegramToolBoundaryFlush,
@@ -609,17 +574,6 @@ func (w *eventWriter) Append(
 		}); err != nil {
 			return err
 		}
-		if err := w.usageRepo.Insert(ctx, w.tx, w.run.AccountID, runID, w.model,
-			w.totalInputTokens, w.totalOutputTokens,
-			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
-			w.totalCostUSD); err != nil {
-			return err
-		}
-		if r := w.calcCreditDeduction(); r.Credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.AccountID, r.Credits, runID, r.Metadata); err != nil {
-				return err
-			}
-		}
 		w.terminalRunStatus = "cancelled"
 		w.hasTerminal = true
 		if err := w.commit(ctx); err != nil {
@@ -756,17 +710,6 @@ func (w *eventWriter) Append(
 				if err := (data.ThreadSubAgentCallbacksRepository{}).MarkConsumed(ctx, w.tx, callbackID, runID); err != nil {
 					return err
 				}
-			}
-		}
-		if err := w.usageRepo.Insert(ctx, w.tx, w.run.AccountID, runID, w.model,
-			w.totalInputTokens, w.totalOutputTokens,
-			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
-			w.totalCostUSD); err != nil {
-			return err
-		}
-		if r := w.calcCreditDeduction(); r.Credits > 0 {
-			if err := w.creditsRepo.Deduct(ctx, w.tx, w.run.AccountID, r.Credits, runID, r.Metadata); err != nil {
-				return err
 			}
 		}
 		w.terminalRunStatus = status
@@ -1470,94 +1413,6 @@ func toInt64(v any) (int64, bool) {
 	}
 }
 
-// creditDeductionResult 封装积分计算结果和明细。
-type creditDeductionResult struct {
-	Credits  int64
-	Metadata map[string]any
-}
-
-// calcCreditDeduction 按实际 cost（USD）计算积分消耗，并返回计算明细。
-// 汇率：creditsPerUSD（credit.per_usd）* multiplier。
-// totalCostUSD 为 0 时退回按 token 计算的兜底值。
-func (w *eventWriter) calcCreditDeduction() creditDeductionResult {
-	totalTokens := w.totalInputTokens + w.totalOutputTokens
-	policyMultiplier := w.policy.MultiplierFor(totalTokens, w.totalCostUSD)
-	if policyMultiplier == 0 {
-		return creditDeductionResult{}
-	}
-
-	meta := map[string]any{
-		"type":              "llm",
-		"model":             w.model,
-		"input_tokens":      w.totalInputTokens,
-		"output_tokens":     w.totalOutputTokens,
-		"cost_usd":          w.totalCostUSD,
-		"credits_per_usd":   w.creditsPerUSD,
-		"multiplier":        w.multiplier,
-		"policy_multiplier": policyMultiplier,
-	}
-
-	if w.totalCostUSD > 0 {
-		raw := w.totalCostUSD * w.creditsPerUSD * w.multiplier * policyMultiplier
-		credits := int64(math.Ceil(raw))
-		if credits < 1 {
-			credits = 1
-		}
-		meta["method"] = "cost_usd"
-		meta["raw_credits"] = raw
-		meta["credits"] = credits
-		return creditDeductionResult{Credits: credits, Metadata: meta}
-	}
-
-	// 兜底：无 cost 数据时按加权 token 计算
-	if w.totalInputTokens <= 0 && w.totalOutputTokens <= 0 {
-		return creditDeductionResult{}
-	}
-	hasAnthropicCache := w.totalCacheCreationTokens > 0 || w.totalCacheReadTokens > 0
-	hasOpenAICache := w.totalCachedTokens > 0
-
-	effective := 0.0
-	switch {
-	case hasAnthropicCache && !hasOpenAICache:
-		effective = float64(w.totalInputTokens)*1.0 +
-			float64(w.totalCacheCreationTokens)*1.25 +
-			float64(w.totalCacheReadTokens)*0.1 +
-			float64(w.totalOutputTokens)*1.0
-	case hasOpenAICache && !hasAnthropicCache:
-		nonCached := w.totalInputTokens - w.totalCachedTokens
-		if nonCached < 0 {
-			nonCached = 0
-		}
-		effective = float64(nonCached)*1.0 +
-			float64(w.totalCachedTokens)*0.5 +
-			float64(w.totalOutputTokens)*1.0
-	case hasAnthropicCache && hasOpenAICache:
-		nonCached := w.totalInputTokens - w.totalCacheReadTokens - w.totalCachedTokens
-		if nonCached < 0 {
-			nonCached = 0
-		}
-		effective = float64(nonCached)*1.0 +
-			float64(w.totalCacheCreationTokens)*1.25 +
-			float64(w.totalCacheReadTokens)*0.1 +
-			float64(w.totalCachedTokens)*0.5 +
-			float64(w.totalOutputTokens)*1.0
-	default:
-		effective = float64(w.totalInputTokens)*1.0 + float64(w.totalOutputTokens)*1.0
-	}
-	raw := effective / 1000.0 * w.multiplier * policyMultiplier
-	credits := int64(math.Ceil(raw))
-	if credits < 1 {
-		credits = 1
-	}
-	meta["method"] = "token_fallback"
-	meta["effective_tokens"] = effective
-	meta["cache_creation_tokens"] = w.totalCacheCreationTokens
-	meta["cache_read_tokens"] = w.totalCacheReadTokens
-	meta["cached_tokens"] = w.totalCachedTokens
-	meta["raw_credits"] = raw
-	meta["credits"] = credits
-	return creditDeductionResult{Credits: credits, Metadata: meta}
-}
 
 // calcPlatformCost 分段计算实际成本（USD）。
 // 未配置任何 input/output 费率时返回 -1，表示使用 LLM 返回的原始值。

@@ -693,7 +693,6 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		RunWallClockTimeout:           runWallClockTimeout,
 		PausedInputTimeout:            5 * time.Minute,
 		IdleHeartbeatInterval:         15 * time.Second,
-		CreditPerUSD:                  1000,
 		LlmMaxResponseBytes:           16384,
 
 		UserID:       run.CreatedByUserID,
@@ -3295,30 +3294,7 @@ func desktopRouting(
 				decision = router.Decide(rc.InputJSON, false, false)
 			}
 			// auxiliary runs without model selector: try entitlement fallback
-			if decision.Selected == nil && decision.Denied == nil {
-				if pipeline.IsStickerRegisterRun(rc) {
-					if resolution, ok := pipeline.ResolveStickerVisionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
-				} else if pipeline.IsImpressionRun(rc) {
-					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
-				} else if pipeline.IsSuggestionRun(rc) {
-					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
-				} else if pipeline.IsActivityRecorderRun(rc) {
-					if resolution, ok := pipeline.ResolveImpressionRouteForDesktop(ctx, db, rc, auxGateway, emitDebugEvents, routingLoader); ok {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
-				}
-			}
-			if decision.Selected == nil && decision.Denied == nil {
+				if decision.Selected == nil && decision.Denied == nil {
 				decision = routing.ProviderRouteDecision{
 					Denied: &routing.ProviderRouteDenied{
 						ErrorClass: llm.ErrorClassRoutingNotFound,
@@ -3461,7 +3437,6 @@ func desktopAgentLoop(
 			runsRepo:                runsRepo,
 			eventsRepo:              eventsRepo,
 			projector:               projector,
-			usageRepo:               data.UsageRecordsRepository{},
 			responseDraftStore:      rc.ResponseDraftStore,
 			telegramBoundaryFlush:   rc.TelegramToolBoundaryFlush,
 			telegramProgressTracker: rc.TelegramProgressTracker,
@@ -3601,7 +3576,6 @@ type desktopEventWriter struct {
 	totalCacheReadTokens     int64
 	totalCachedTokens        int64
 	totalCostUSD             float64
-	usageRepo                data.UsageRecordsRepository
 	telegramBoundaryFlush    func(context.Context, string) error
 	telegramVisibleTextDelta func(context.Context, string, string, string)
 	telegramSentOutputCount  int
@@ -3880,13 +3854,6 @@ func (w *desktopEventWriter) append(ctx context.Context, runID uuid.UUID, ev eve
 		}); err != nil {
 			return err
 		}
-		if err := w.usageRepo.Insert(ctx, tx, w.run.AccountID, runID, w.model,
-			w.totalInputTokens, w.totalOutputTokens,
-			w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
-			w.totalCostUSD,
-		); err != nil {
-			return err
-		}
 		if w.projector != nil {
 			projection, err := w.projector.ProjectRunTerminal(ctx, tx, w.run, status, ev.DataJSON, ev.ErrorClass)
 			if err != nil {
@@ -4091,13 +4058,6 @@ func (w *desktopEventWriter) transitionCancelled(ctx context.Context, tx pgx.Tx,
 	if err := w.runsRepo.UpdateRunTerminalStatus(ctx, tx, runID, data.TerminalStatusUpdate{
 		Status: "cancelled", TotalInputTokens: w.totalInputTokens, TotalOutputTokens: w.totalOutputTokens, TotalCostUSD: w.totalCostUSD,
 	}); err != nil {
-		return nil, err
-	}
-	if err := w.usageRepo.Insert(ctx, tx, w.run.AccountID, runID, w.model,
-		w.totalInputTokens, w.totalOutputTokens,
-		w.totalCacheCreationTokens, w.totalCacheReadTokens, w.totalCachedTokens,
-		w.totalCostUSD,
-	); err != nil {
 		return nil, err
 	}
 	w.terminalUserMessage = ""

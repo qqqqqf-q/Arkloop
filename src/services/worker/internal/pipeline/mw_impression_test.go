@@ -9,7 +9,6 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/memory"
-	"arkloop/services/worker/internal/routing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -148,130 +147,6 @@ func (p *impressionFragmentProviderStub) Delete(context.Context, memory.MemoryId
 
 func (p *impressionFragmentProviderStub) ListFragments(_ context.Context, _ memory.MemoryIdentity, _ int) ([]memory.MemoryFragment, error) {
 	return append([]memory.MemoryFragment(nil), p.fragments...), nil
-}
-
-func TestImpressionPrepareMiddlewareUsesAccountToolRoute(t *testing.T) {
-	routeCfg := routing.ProviderRoutingConfig{
-		Credentials: []routing.ProviderCredential{
-			{
-				ID:           "cred-tool",
-				Name:         "tool-cred",
-				OwnerKind:    routing.CredentialScopePlatform,
-				ProviderKind: routing.ProviderKindStub,
-			},
-		},
-		Routes: []routing.ProviderRouteRule{
-			{
-				ID:           "route-chat",
-				Model:        "chat-model",
-				CredentialID: "cred-tool",
-			},
-			{
-				ID:           "route-tool",
-				Model:        "tool-model",
-				CredentialID: "cred-tool",
-				Priority:     10,
-			},
-		},
-	}
-	loader := routing.NewDesktopSQLiteRoutingLoader(func(context.Context) (routing.ProviderRoutingConfig, error) {
-		return routeCfg, nil
-	}, routing.ProviderRoutingConfig{})
-	auxGateway := impressionTestGateway{}
-
-	mw := NewImpressionPrepareMiddleware(nil, impressionTestDB{selector: "tool-cred^tool-model"}, auxGateway, false, loader)
-
-	uid := uuid.New()
-	rc := &RunContext{
-		Run: data.Run{
-			ID:        uuid.New(),
-			AccountID: uuid.New(),
-		},
-		InputJSON: map[string]any{
-			"run_kind": "impression",
-		},
-		UserID:  &uid,
-		Gateway: auxGateway,
-		SelectedRoute: &routing.SelectedProviderRoute{
-			Route: routing.ProviderRouteRule{
-				ID:    "route-chat",
-				Model: "chat-model",
-			},
-			Credential: routeCfg.Credentials[0],
-		},
-		RoutingByokEnabled: true,
-	}
-
-	err := mw(context.Background(), rc, func(_ context.Context, inner *RunContext) error {
-		if inner.Gateway == nil {
-			t.Fatal("expected gateway override")
-		}
-		if inner.SelectedRoute == nil {
-			t.Fatal("expected selected route override")
-		}
-		if inner.SelectedRoute.Route.ID != "route-tool" {
-			t.Fatalf("got route id %q, want %q", inner.SelectedRoute.Route.ID, "route-tool")
-		}
-		if inner.SelectedRoute.Route.Model != "tool-model" {
-			t.Fatalf("got model %q, want %q", inner.SelectedRoute.Route.Model, "tool-model")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestImpressionPrepareMiddlewareUpdatesModelIdentityAfterRouteOverride(t *testing.T) {
-	routeCfg := routing.ProviderRoutingConfig{
-		Credentials: []routing.ProviderCredential{
-			{
-				ID:           "cred-tool",
-				Name:         "tool-cred",
-				OwnerKind:    routing.CredentialScopePlatform,
-				ProviderKind: routing.ProviderKindStub,
-			},
-		},
-		Routes: []routing.ProviderRouteRule{
-			{ID: "route-chat", Model: "chat-model", CredentialID: "cred-tool"},
-			{ID: "route-tool", Model: "tool-model", CredentialID: "cred-tool", Priority: 10},
-		},
-	}
-	loader := routing.NewDesktopSQLiteRoutingLoader(func(context.Context) (routing.ProviderRoutingConfig, error) {
-		return routeCfg, nil
-	}, routing.ProviderRoutingConfig{})
-	auxGateway := impressionTestGateway{}
-	uid := uuid.New()
-	rc := &RunContext{
-		Run: data.Run{
-			ID:        uuid.New(),
-			AccountID: uuid.New(),
-		},
-		InputJSON: map[string]any{"run_kind": "impression"},
-		UserID:    &uid,
-		Gateway:   auxGateway,
-		SelectedRoute: &routing.SelectedProviderRoute{
-			Route:      routing.ProviderRouteRule{ID: "route-chat", Model: "chat-model"},
-			Credential: routeCfg.Credentials[0],
-		},
-	}
-
-	h := Build([]RunMiddleware{
-		NewImpressionPrepareMiddleware(nil, impressionTestDB{selector: "tool-cred^tool-model"}, auxGateway, false, loader),
-		NewModelIdentityMiddleware(),
-	}, func(_ context.Context, rc *RunContext) error {
-		prompt := rc.MaterializedSystemPrompt()
-		if !strings.Contains(prompt, "Model: tool-model") {
-			t.Fatalf("expected model identity to use tool-model, got: %s", prompt)
-		}
-		if strings.Contains(prompt, "Model: chat-model") {
-			t.Fatalf("model identity still contains stale chat-model: %s", prompt)
-		}
-		return nil
-	})
-	if err := h(context.Background(), rc); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 }
 
 func TestImpressionPrepareMiddlewareInjectsOverviewAndLeafReadContent(t *testing.T) {

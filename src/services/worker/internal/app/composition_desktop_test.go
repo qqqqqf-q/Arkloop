@@ -2228,7 +2228,6 @@ func TestDesktopCancelledRunPersistsVisiblePartialFromEvents(t *testing.T) {
 		traceID:    "desktop-cancel-visible",
 		runsRepo:   data.DesktopRunsRepository{},
 		eventsRepo: data.DesktopRunEventsRepository{},
-		usageRepo:  data.UsageRecordsRepository{},
 	}
 	stopped, err := writer.finalizeCancelledIfRequested(ctx)
 	if err != nil {
@@ -2290,7 +2289,6 @@ func TestDesktopCancelledRunPersistsIntermediateToolHistory(t *testing.T) {
 		traceID:    "desktop-cancel-tools",
 		runsRepo:   data.DesktopRunsRepository{},
 		eventsRepo: data.DesktopRunEventsRepository{},
-		usageRepo:  data.UsageRecordsRepository{},
 	}
 	emitter := events.NewEmitter("desktop-cancel-tools")
 	for _, ev := range []events.RunEvent{
@@ -2391,7 +2389,6 @@ func TestDesktopFailedRunPersistsPartialOutput(t *testing.T) {
 		traceID:              "desktop-failed-partial",
 		runsRepo:             data.DesktopRunsRepository{},
 		eventsRepo:           data.DesktopRunEventsRepository{},
-		usageRepo:            data.UsageRecordsRepository{},
 		terminalStatus:       "failed",
 		visibleAssistantText: "partial before error",
 	}
@@ -2455,7 +2452,6 @@ func TestDesktopCompletedRunPublishesAfterAssistantMessagePersisted(t *testing.T
 		traceID:    "desktop-completed-publish-order",
 		runsRepo:   data.DesktopRunsRepository{},
 		eventsRepo: data.DesktopRunEventsRepository{},
-		usageRepo:  data.UsageRecordsRepository{},
 	}
 	writer.intermediateMessages = []desktopIntermediateMessage{
 		{Role: "assistant", Content: "tool call", ContentJSON: json.RawMessage(`[]`), Ordinal: 1},
@@ -2728,7 +2724,6 @@ func TestDesktopEventWriterCapturesTelegramReplyOverride(t *testing.T) {
 		traceID:    "telegram-reply-override",
 		runsRepo:   data.DesktopRunsRepository{},
 		eventsRepo: data.DesktopRunEventsRepository{},
-		usageRepo:  data.UsageRecordsRepository{},
 	}
 
 	replyCall := events.NewEmitter("telegram-reply-override").Emit("tool.call", map[string]any{
@@ -2775,7 +2770,6 @@ func TestDesktopEventWriterIgnoresTelegramSendFileCaptionAsAssistantOutput(t *te
 		traceID:    "telegram-send-file",
 		runsRepo:   data.DesktopRunsRepository{},
 		eventsRepo: data.DesktopRunEventsRepository{},
-		usageRepo:  data.UsageRecordsRepository{},
 	}
 
 	sendFileCall := events.NewEmitter("telegram-send-file").Emit("tool.call", map[string]any{

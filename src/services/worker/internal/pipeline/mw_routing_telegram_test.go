@@ -30,7 +30,6 @@ func TestRoutingUsesInputModelOverride(t *testing.T) {
 		data.RunsRepository{},
 		data.RunEventsRepository{},
 		nil,
-		nil,
 	)
 
 	personaModel := "old-model"

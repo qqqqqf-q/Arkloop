@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"strings"
 
-	sharedent "arkloop/services/shared/entitlement"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/personas"
@@ -290,14 +289,9 @@ func injectSpawnAgentTools(ctx context.Context, rc *RunContext) {
 	}
 
 	personaKeys := loadPersonaKeys(ctx, rc)
-	var entResolver *sharedent.Resolver
-	if rc.Pool != nil {
-		entResolver = sharedent.NewResolver(rc.Pool, rc.BroadcastRDB)
-	}
 	executor := &spawnagent.ToolExecutor{
 		Control:             rc.SubAgentControl,
 		PersonaKeys:         personaKeys,
-		EntitlementResolver: entResolver,
 		AccountID:           rc.Run.AccountID,
 	}
 	specs := []tools.AgentToolSpec{

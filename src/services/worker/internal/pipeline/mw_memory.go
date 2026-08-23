@@ -29,7 +29,6 @@ const (
 	impressionFragmentLimit = 40
 )
 
-var usageRepo = data.UsageRecordsRepository{}
 
 var snapshotRefreshWindow = 5 * time.Minute
 var snapshotRefreshRetryInterval = 10 * time.Second
@@ -84,7 +83,6 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 	if len(pending) == 0 {
 		return
 	}
-	costPerWrite := resolveCommitCost(ctx, configResolver)
 
 	ident := memory.MemoryIdentity{
 		AccountID: rc.Run.AccountID,
@@ -92,10 +90,10 @@ func flushPendingWritesAfterRun(ctx context.Context, provider memory.MemoryProvi
 		AgentID:   StableAgentID(rc),
 	}
 	threadMode := queryThreadMode(ctx, rc.DB, rc.Run.ThreadID)
-	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, costPerWrite, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
+	go flushPendingWrites(pending, provider, snap, mdb, rc.Run.AccountID, rc.Run.ID, rc.TraceID, impStore, ident, configResolver, impRefresh, sugStore, sugRefresh, threadMode)
 }
 
-func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, costPerWrite float64, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
+func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryProvider, snap MemorySnapshotStore, mdb data.MemoryMiddlewareDB, accountID, runID uuid.UUID, traceID string, impStore ImpressionStore, ident memory.MemoryIdentity, configResolver sharedconfig.Resolver, impRefresh ImpressionRefreshFunc, sugStore SuggestionStore, sugRefresh SuggestionRefreshFunc, threadMode string) {
 	// 由 goroutine 调用，超出请求生命周期，需要独立 context
 	ctx, cancel := context.WithTimeout(context.Background(), memoryFlushTimeout)
 	defer cancel()
@@ -148,17 +146,6 @@ func flushPendingWrites(pending []memory.PendingWrite, provider memory.MemoryPro
 		return
 	}
 
-	if costPerWrite > 0 && mdb != nil {
-		totalCost := costPerWrite * float64(successCount)
-		uCtx, uCancel := context.WithTimeout(ctx, 5*time.Second)
-		defer uCancel()
-		if err := usageRepo.InsertMemoryUsage(uCtx, mdb, accountID, runID, totalCost); err != nil {
-			slog.Warn("memory: usage record insert failed",
-				"run_id", runID.String(),
-				"err", err.Error(),
-			)
-		}
-	}
 }
 
 func rebuildSnapshotBlock(ctx context.Context, provider memory.MemoryProvider, ident memory.MemoryIdentity, successfulQueries map[string][]string) (string, []memory.MemoryHit, bool) {
@@ -496,7 +483,6 @@ func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, m
 		return
 	}
 
-	costPerCommit := resolveCommitCost(context.Background(), configResolver)
 	accountID := rc.Run.AccountID
 	runID := rc.Run.ID
 	appendAsyncRunEvent(context.Background(), mdb, runID, emitter.Emit(eventTypeMemoryDistillStarted, map[string]any{
@@ -549,16 +535,6 @@ func distillAfterRun(provider memory.MemoryProvider, snap MemorySnapshotStore, m
 		}
 		scheduleSnapshotRefresh(provider, snap, mdb, runID, rc.TraceID, ident, sessionID, userMessagesToQueries(msgs), "memory.distill", "distill")
 
-		if costPerCommit > 0 && mdb != nil {
-			uCtx, uCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer uCancel()
-			if err := usageRepo.InsertMemoryUsage(uCtx, mdb, accountID, runID, costPerCommit); err != nil {
-				slog.Warn("memory: distill usage record failed",
-					"run_id", runID.String(),
-					"err", err.Error(),
-				)
-			}
-		}
 	}()
 }
 
@@ -735,21 +711,6 @@ func EditSnapshotRefresh(
 	scheduleSnapshotRefresh(provider, store, mdb, runID, traceID, ident, "", queries, "memory.edit", "edit")
 }
 
-// resolveCommitCost 从配置中获取每次 commit 的费用（USD），解析失败或未配置时返回 0。
-func resolveCommitCost(ctx context.Context, resolver sharedconfig.Resolver) float64 {
-	if resolver == nil {
-		return 0
-	}
-	raw, err := resolver.Resolve(ctx, "openviking.cost_per_commit", sharedconfig.Scope{})
-	if err != nil || strings.TrimSpace(raw) == "" {
-		return 0
-	}
-	value, parseErr := strconv.ParseFloat(strings.TrimSpace(raw), 64)
-	if parseErr != nil || value <= 0 {
-		return 0
-	}
-	return value
-}
 
 func stringPtr(value string) *string {
 	cleaned := strings.TrimSpace(value)

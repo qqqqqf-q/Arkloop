@@ -221,7 +221,6 @@ type RunContext struct {
 	RunWallClockTimeout           time.Duration
 	PausedInputTimeout            time.Duration
 	IdleHeartbeatInterval         time.Duration
-	CreditPerUSD                  int
 	LlmMaxResponseBytes           int
 
 	// -- 默认来自平台限制，PersonaResolution 可缩小 --

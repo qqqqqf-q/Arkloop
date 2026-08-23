@@ -14,7 +14,6 @@ import (
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
-	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/objectstore"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 	"arkloop/services/worker/internal/data"
@@ -269,12 +268,7 @@ func ComposeNativeEngine(ctx context.Context, pool *pgxpool.Pool, directPool *pg
 
 	sandboxExecutorFactory := workerruntime.NewSandboxExecutorFactory(pool)
 	dynamicSandboxExec := workerruntime.NewDynamicSandboxExecutor(runtimeManager, sandboxExecutorFactory)
-	var sandboxExec tools.Executor = dynamicSandboxExec
-	if pool != nil {
-		billingCfg := resolveSandboxBillingConfig(ctx, configResolver)
-		entResolver := sharedent.NewResolver(pool, rdb)
-		sandboxExec = sandboxtool.NewBillingExecutor(dynamicSandboxExec, pool, entResolver, billingCfg)
-	}
+	sandboxExec := tools.Executor(dynamicSandboxExec)
 	for _, spec := range sandboxtool.AgentSpecs() {
 		executors[spec.Name] = sandboxExec
 	}
@@ -488,27 +482,6 @@ func loadRoutingConfig(ctx context.Context, pool *pgxpool.Pool) (routing.Provide
 	return routing.LoadRoutingConfigFromEnv()
 }
 
-func resolveSandboxBillingConfig(ctx context.Context, resolver sharedconfig.Resolver) sandboxtool.BillingConfig {
-	cfg := sandboxtool.BillingConfig{BaseFee: 1, RatePerSecond: 0.5}
-	if resolver == nil {
-		return cfg
-	}
-	m, err := resolver.ResolvePrefix(ctx, "sandbox.credit_", sharedconfig.Scope{})
-	if err != nil {
-		return cfg
-	}
-	if raw := strings.TrimSpace(m["sandbox.credit_base_fee"]); raw != "" {
-		if v, err := strconv.ParseInt(raw, 10, 64); err == nil && v >= 0 {
-			cfg.BaseFee = v
-		}
-	}
-	if raw := strings.TrimSpace(m["sandbox.credit_rate_per_second"]); raw != "" {
-		if v, err := strconv.ParseFloat(raw, 64); err == nil && v >= 0 {
-			cfg.RatePerSecond = v
-		}
-	}
-	return cfg
-}
 
 // initPlatformTokenProvider 从环境变量读取 JWT secret，从 DB 查询 system_agent user ID，
 // 构造用于 platform tool executor 的 TokenProvider。任何前置条件不满足时返回 nil（跳过注册）。

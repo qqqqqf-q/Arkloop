@@ -10,7 +10,6 @@ import (
 	"arkloop/services/worker/internal/routing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type entitlementRouteResolution struct {
@@ -18,77 +17,9 @@ type entitlementRouteResolution struct {
 	Gateway  llm.Gateway
 }
 
-// resolveEntitlementRoute 根据 entitlement key 查询账户级 override，
-// 解析对应的 provider route 并构建 gateway。
-func resolveEntitlementRoute(
-	ctx context.Context,
-	pool CompactPersistDB,
-	accountID uuid.UUID,
-	entitlementKey string,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	llmMaxResponseBytes int,
-	configLoader *routing.ConfigLoader,
-	byokEnabled bool,
-) (*entitlementRouteResolution, bool) {
-	var selector string
-	err := pool.QueryRow(ctx,
-		`SELECT value FROM account_entitlement_overrides
-		  WHERE account_id = $1 AND key = $2
-		    AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-		  LIMIT 1`,
-		accountID, entitlementKey,
-	).Scan(&selector)
-	if err != nil {
-		if err != pgx.ErrNoRows {
-			slog.Warn("entitlement_route: query account_entitlement_overrides failed", "key", entitlementKey, "account_id", accountID, "err", err.Error())
-		}
-		return nil, false
-	}
-	selector = strings.TrimSpace(selector)
-	if selector == "" || configLoader == nil {
-		return nil, false
-	}
 
-	aid := accountID
-	routingCfg, err := configLoader.Load(ctx, &aid)
-	if err != nil {
-		slog.Warn("entitlement_route: load routing config failed", "key", entitlementKey, "err", err.Error())
-		return nil, false
-	}
-
-	selected, err := resolveSelectedRouteBySelector(routingCfg, selector, map[string]any{}, byokEnabled)
-	if err != nil || selected == nil {
-		credName, modelName, exact := splitModelSelector(selector)
-		if exact {
-			if baseRoute, cred, ok := routingCfg.GetHighestPriorityRouteByCredentialName(credName, map[string]any{}); ok {
-				selected = &routing.SelectedProviderRoute{
-					Route:      baseRoute,
-					Credential: cred,
-				}
-				selected.Route.Model = modelName
-			}
-		}
-		if selected == nil {
-			return nil, false
-		}
-	}
-
-	gw, err := gatewayFromSelectedRoute(*selected, auxGateway, emitDebugEvents, llmMaxResponseBytes)
-	if err != nil {
-		slog.Warn("entitlement_route: build gateway failed", "key", entitlementKey, "selector", selector, "err", err.Error())
-		return nil, false
-	}
-	return &entitlementRouteResolution{
-		Selected: selected,
-		Gateway:  gw,
-	}, true
-}
-
-// resolveVisionRoute 解析图像理解模型路由，优先级：
-// 1. persona.ImageModel (provider^model selector)
-// 2. spawn.profile.vision entitlement override
-// 失败时不兜底，返回 false。
+// resolveVisionRoute 解析图像理解模型路由:仅取 persona.ImageModel
+// (provider^model selector)。失败时不兜底,返回 false。
 func resolveVisionRoute(
 	ctx context.Context,
 	pool CompactPersistDB,
@@ -127,11 +58,7 @@ func resolveVisionRoute(
 		}
 	}
 
-	// fallback: spawn.profile.vision entitlement
-	return resolveEntitlementRoute(ctx, pool, accountID,
-		"spawn.profile.vision",
-		auxGateway, emitDebugEvents, llmMaxResponseBytes,
-		configLoader, byokEnabled)
+	return nil, false
 }
 
 // messageContainsImage 检测 messages 中是否包含 image part。
@@ -170,45 +97,7 @@ func swapRunContextRoute(rc *RunContext, resolution *entitlementRouteResolution,
 	}
 }
 
-// ResolveImpressionRouteForDesktop resolves a tool route for
-// impression runs from the desktop routing middleware.
-func ResolveImpressionRouteForDesktop(
-	ctx context.Context,
-	pool CompactPersistDB,
-	rc *RunContext,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	configLoader *routing.ConfigLoader,
-) (*entitlementRouteResolution, bool) {
-	if pool == nil || rc == nil {
-		return nil, false
-	}
-	return resolveEntitlementRoute(ctx, pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled)
-}
 
-// ResolveStickerVisionRouteForDesktop resolves a vision-capable route for
-// sticker register runs from the desktop routing middleware.
-func ResolveStickerVisionRouteForDesktop(
-	ctx context.Context,
-	pool CompactPersistDB,
-	rc *RunContext,
-	auxGateway llm.Gateway,
-	emitDebugEvents bool,
-	configLoader *routing.ConfigLoader,
-) (*entitlementRouteResolution, bool) {
-	if pool == nil || rc == nil {
-		return nil, false
-	}
-	// 1. spawn.profile.vision
-	if resolution, ok := resolveVisionRoute(ctx, pool, rc.Run.AccountID, rc.AgentConfig.ImageModel, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled); ok && routeSupportsVision(resolution.Selected) {
-		return resolution, true
-	}
-	// 2. spawn.profile.tool (if supports vision)
-	if resolution, ok := resolveEntitlementRoute(ctx, pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled); ok && routeSupportsVision(resolution.Selected) {
-		return resolution, true
-	}
-	return nil, false
-}
 
 // publishRunEventFromRC 通知 run event channel。
 func publishRunEventFromRC(ctx context.Context, rc *RunContext) {

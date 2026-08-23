@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 
-	"arkloop/services/shared/creditpolicy"
 )
 
 func RegisterTrackB(r *Registry) error {
@@ -12,55 +11,7 @@ func RegisterTrackB(r *Registry) error {
 	}
 
 	entries := []Entry{
-		{
-			Key:         "credit.deduction_policy",
-			Type:        TypeString,
-			Default:     creditpolicy.DefaultPolicyJSON,
-			Description: "积分扣减策略（JSON）",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "credit.initial_grant",
-			Type:        TypeInt,
-			Default:     "1000",
-			Description: "新账户初始积分发放数量",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "credit.invite_reward",
-			Type:        TypeInt,
-			Default:     "500",
-			Description: "邀请者奖励积分数量",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "credit.invitee_reward",
-			Type:        TypeInt,
-			Default:     "200",
-			Description: "被邀请者奖励积分数量",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "credit.per_usd",
-			Type:        TypeInt,
-			Default:     "1000",
-			Description: "积分汇率：每 1 USD 对应积分数",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
 
-		{
-			Key:         "feature.byok_enabled",
-			Type:        TypeBool,
-			Default:     "true",
-			Description: "是否允许使用用户级凭证（BYOK）",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
-		},
 		{
 			Key:         "feature.mcp_remote_enabled",
 			Type:        TypeBool,
@@ -70,14 +21,6 @@ func RegisterTrackB(r *Registry) error {
 			Scope:       ScopeBoth,
 		},
 
-		{
-			Key:         "invite.default_max_uses",
-			Type:        TypeInt,
-			Default:     "0",
-			Description: "邀请码默认可用次数，0 表示不限",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
-		},
 		{
 			Key:         "invite.max_codes_per_user",
 			Type:        TypeInt,
@@ -102,14 +45,6 @@ func RegisterTrackB(r *Registry) error {
 			Description: "长工具 continuation 总预算上限",
 			Sensitive:   false,
 			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "limit.concurrent_runs",
-			Type:        TypeInt,
-			Default:     "0",
-			Description: "并发 run 上限，0 表示不限",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
 		},
 		{
 			Key:         "limit.max_input_content_bytes",
@@ -158,14 +93,6 @@ func RegisterTrackB(r *Registry) error {
 			Description: "长等待期间发出活跃事件的心跳间隔（毫秒）",
 			Sensitive:   false,
 			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "limit.team_members",
-			Type:        TypeInt,
-			Default:     "0",
-			Description: "Team 成员数量上限，0 表示不限",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
 		},
 		{
 			Key:         "context.compact.enabled",
@@ -296,22 +223,6 @@ func RegisterTrackB(r *Registry) error {
 			Scope:       ScopePlatform,
 		},
 
-		{
-			Key:         "quota.runs_per_month",
-			Type:        TypeInt,
-			Default:     "0",
-			Description: "每月 run 数量配额，0 表示不限",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
-		},
-		{
-			Key:         "quota.tokens_per_month",
-			Type:        TypeInt,
-			Default:     "0",
-			Description: "每月 token 配额，0 表示不限",
-			Sensitive:   false,
-			Scope:       ScopeBoth,
-		},
 
 		{
 			Key:         "browser.enabled",

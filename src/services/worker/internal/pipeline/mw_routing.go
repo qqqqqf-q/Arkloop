@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 
-	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/localproviders"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
@@ -31,7 +30,6 @@ func NewRoutingMiddleware(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	releaseSlot func(ctx context.Context, run data.Run),
-	resolver *sharedent.Resolver,
 ) RunMiddleware {
 	return func(ctx context.Context, rc *RunContext, next RunHandler) error {
 		activeRouter := staticRouter
@@ -51,13 +49,8 @@ func NewRoutingMiddleware(
 
 		platformSelectorConfig := selectorConfig.PlatformOnly()
 
-		byokEnabled := false
-		if resolver != nil {
-			raw, err := resolver.Resolve(ctx, rc.Run.AccountID, "feature.byok_enabled")
-			if err == nil {
-				byokEnabled = raw == "true"
-			}
-		}
+		// 个人项目恒为 true:用户始终使用自己的 key,无平台代付概念
+		byokEnabled := true
 		rc.RoutingByokEnabled = byokEnabled
 
 		resolveGatewayForRouteID := func(resolveCtx context.Context, routeID string) (llm.Gateway, *routing.SelectedProviderRoute, error) {
@@ -172,22 +165,11 @@ func NewRoutingMiddleware(
 				}
 			}
 			// auxiliary runs without model selector: try entitlement fallback
-			if decision.Selected == nil && decision.Denied == nil {
-				if isStickerRegisterRun(rc) {
-					// sticker: vision -> tool (vision required)
-					if resolution, ok := resolveVisionRoute(ctx, rc.Pool, rc.Run.AccountID, rc.AgentConfig.ImageModel, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok && routeSupportsVision(resolution.Selected) {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					} else if resolution, ok := resolveEntitlementRoute(ctx, rc.Pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok && routeSupportsVision(resolution.Selected) {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
-				} else if isImpressionRun(rc) {
-					// impression: tool
-					if resolution, ok := resolveEntitlementRoute(ctx, rc.Pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok {
-						decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
-						rc.Gateway = resolution.Gateway
-					}
+			if decision.Selected == nil && decision.Denied == nil && isStickerRegisterRun(rc) {
+				// sticker 需要视觉路由:仅取 persona.ImageModel 配置
+				if resolution, ok := resolveVisionRoute(ctx, rc.Pool, rc.Run.AccountID, rc.AgentConfig.ImageModel, auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, byokEnabled); ok && routeSupportsVision(resolution.Selected) {
+					decision = routing.ProviderRouteDecision{Selected: resolution.Selected}
+					rc.Gateway = resolution.Gateway
 				}
 			}
 			if decision.Selected == nil && decision.Denied == nil {
@@ -195,7 +177,7 @@ func NewRoutingMiddleware(
 					Denied: &routing.ProviderRouteDenied{
 						ErrorClass: llm.ErrorClassRoutingNotFound,
 						Code:       "routing.no_model_configured",
-						Message:    "no model configured for this run; set persona.model or spawn.profile.task entitlement override",
+						Message:    "no model configured for this run; set persona.model",
 					},
 				}
 			}

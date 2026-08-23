@@ -13,7 +13,6 @@ import (
 	"time"
 
 	sharedconfig "arkloop/services/shared/config"
-	sharedent "arkloop/services/shared/entitlement"
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/rollout"
 	"arkloop/services/shared/runlimit"
@@ -181,8 +180,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	runsRepo := data.RunsRepository{}
 	eventsRepo := data.RunEventsRepository{}
 	messagesRepo := data.MessagesRepository{}
-	usageRepo := data.UsageRecordsRepository{}
-	creditsRepo := data.CreditsRepository{}
 
 	rdb := deps.RunLimiterRDB
 	releaseSlot := func(ctx context.Context, run data.Run) {
@@ -192,12 +189,6 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 		}
 		key := runlimit.Key(run.AccountID.String())
 		runlimit.Release(ctx, rdb, key)
-	}
-
-	// deps.DBPool 为 nil 时 resolver 保持 nil，EntitlementMiddleware 以 fail-open 方式跳过检查
-	var resolver *sharedent.Resolver
-	if deps.DBPool != nil {
-		resolver = sharedent.NewResolver(deps.DBPool, rdb)
 	}
 
 	promptInjection, err := promptinjection.Build(promptinjection.BuilderDeps{
@@ -245,9 +236,9 @@ func NewEngineV1(deps EngineV1Deps) (*EngineV1, error) {
 	//   ToolBuild       — 必须最后：依赖前面所有 mw 对 ToolRegistry/Specs 的修改
 	//   ThreadPersist   — 包裹 ChannelDelivery：thread persist 依赖最终助手输出
 	//   ChannelDelivery — 包裹 handler：run 结束后立刻停 typing 并执行渠道投递
-	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot, promptInjection, baseAllowlistSet)
+	middlewares := buildPipeline(deps, runsRepo, eventsRepo, messagesRepo, releaseSlot, promptInjection, baseAllowlistSet)
 
-	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue, usageRepo, creditsRepo, resolver)
+	terminal := pipeline.NewAgentLoopHandler(runsRepo, eventsRepo, messagesRepo, deps.RunLimiterRDB, deps.JobQueue)
 
 	return &EngineV1{
 		middlewares:           middlewares,
@@ -455,7 +446,6 @@ func (e *EngineV1) Execute(ctx context.Context, pool *pgxpool.Pool, run data.Run
 	rc.RunWallClockTimeout = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.run_wall_clock_timeout_ms", platformScope, 14400000)) * time.Millisecond
 	rc.PausedInputTimeout = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.paused_input_timeout_ms", platformScope, 300000)) * time.Millisecond
 	rc.IdleHeartbeatInterval = time.Duration(resolvePositiveInt(ctx, e.configResolver, registry, "limit.idle_heartbeat_interval_ms", platformScope, 15000)) * time.Millisecond
-	rc.CreditPerUSD = resolvePositiveInt(ctx, e.configResolver, registry, "credit.per_usd", sharedconfig.Scope{}, 1000)
 	rc.LlmMaxResponseBytes = resolvePositiveInt(ctx, e.configResolver, registry, "llm.max_response_bytes", sharedconfig.Scope{}, 16384)
 	rc.ReasoningIterations = rc.AgentReasoningIterationsLimit
 	rc.ToolContinuationBudget = rc.ToolContinuationBudgetLimit
@@ -828,18 +818,17 @@ func buildPipeline(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
-	resolver *sharedent.Resolver,
 	releaseSlot func(ctx context.Context, run data.Run),
 	promptInjection securitycap.Runtime,
 	baseAllowlistSet map[string]struct{},
 ) []pipeline.RunMiddleware {
 	var mws []pipeline.RunMiddleware
-	mws = append(mws, buildBaseLayer(runsRepo, eventsRepo, messagesRepo, deps.RunControlHub, deps.MessageAttachmentStore, deps.RolloutBlobStore, resolver, releaseSlot)...)
+	mws = append(mws, buildBaseLayer(runsRepo, eventsRepo, messagesRepo, deps.RunControlHub, deps.MessageAttachmentStore, deps.RolloutBlobStore, releaseSlot)...)
 	mws = append(mws, buildAgentConfigLayer(deps, runsRepo, eventsRepo, baseAllowlistSet, releaseSlot)...)
 	mws = append(mws, buildChannelLayer(deps, messagesRepo, eventsRepo)...)
 	mws = append(mws, pipeline.NewScheduledJobPrepareMiddleware())
 	mws = append(mws, buildCapabilityLayer(deps, promptInjection, eventsRepo)...)
-	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, resolver, releaseSlot)...)
+	mws = append(mws, buildRoutingLayer(deps, runsRepo, eventsRepo, messagesRepo, releaseSlot)...)
 	mws = append(mws, buildToolFinalizeLayer(deps, eventsRepo)...)
 	mws = append(mws, buildDeliveryLayer(deps)...)
 	return mws
@@ -852,14 +841,12 @@ func buildBaseLayer(
 	runControlHub *pipeline.RunControlHub,
 	attachmentStore pipeline.MessageAttachmentStore,
 	rolloutStore objectstore.BlobStore,
-	resolver *sharedent.Resolver,
 	releaseSlot func(ctx context.Context, run data.Run),
 ) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
 		pipeline.NewCancelGuardMiddleware(runsRepo, eventsRepo, runControlHub),
 		pipeline.NewInputLoaderMiddleware(runsRepo, eventsRepo, messagesRepo, attachmentStore, rolloutStore),
 		pipeline.NewSubAgentCallbackMiddleware(),
-		pipeline.NewEntitlementMiddleware(resolver, runsRepo, eventsRepo, releaseSlot),
 	}
 }
 
@@ -982,11 +969,10 @@ func buildRoutingLayer(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
-	resolver *sharedent.Resolver,
 	releaseSlot func(ctx context.Context, run data.Run),
 ) []pipeline.RunMiddleware {
 	return []pipeline.RunMiddleware{
-		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.AuxGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot, resolver),
+		pipeline.NewRoutingMiddleware(deps.Router, deps.RoutingConfigLoader, deps.AuxGateway, deps.EmitDebugEvents, runsRepo, eventsRepo, releaseSlot),
 		pipeline.NewChannelGroupContextTrimMiddleware(pipeline.GroupContextTrimDeps{
 			Pool:            deps.DBPool,
 			MessagesRepo:    messagesRepo,

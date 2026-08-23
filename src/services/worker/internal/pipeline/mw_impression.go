@@ -44,13 +44,6 @@ func NewImpressionPrepareMiddleware(impStore ImpressionStore, pool CompactPersis
 		rc.ImpressionRun = true
 
 		// 优先使用账户级工具模型；无 override 时保留 routing middleware 选的默认路由
-		if pool != nil && configLoader != nil {
-			if resolution, ok := resolveEntitlementRoute(ctx, pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled); ok {
-				rc.Gateway = resolution.Gateway
-				rc.SelectedRoute = resolution.Selected
-			}
-		}
-
 		provider := rc.MemoryProvider
 		if provider == nil || rc.UserID == nil {
 			slog.WarnContext(ctx, "impression: skipped, no memory provider or user")

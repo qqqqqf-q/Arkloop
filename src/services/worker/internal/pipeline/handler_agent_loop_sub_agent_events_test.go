@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	creditpolicy "arkloop/services/shared/creditpolicy"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
@@ -80,7 +79,7 @@ func TestEventWriterAppend_AppendsSubAgentCompletedEvent(t *testing.T) {
 	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
 	seedPipelineSubAgent(t, pool, subAgentID, accountID, threadID, runID)
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-1", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-1", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, nil, false)
 	ev := events.NewEmitter("trace-1").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -126,7 +125,7 @@ func TestEventWriterAppend_AppendsSubAgentCancelledEventOnCancelRequest(t *testi
 		t.Fatalf("commit cancel_requested: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-2", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-2", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, nil, false)
 	ev := events.NewEmitter("trace-2").Emit("message.delta", map[string]any{"content_delta": "ignored"}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append after cancel request: %v", err)
@@ -157,7 +156,7 @@ func TestEventWriterNotifiesVisibleTextDelta(t *testing.T) {
 	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
 
 	rc := &RunContext{}
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-visible-delta", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-visible-delta", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, nil, false)
 	defer writer.Close(context.Background())
 
 	var visibleCalls int
@@ -306,7 +305,7 @@ func TestEventWriterAppend_AutoQueuesNextRunFromPendingInputs(t *testing.T) {
 	}
 
 	jobQueue := &stubJobQueue{}
-	writer := newEventWriter(pool, data.Run{ID: childRunID, AccountID: accountID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	writer := newEventWriter(pool, data.Run{ID: childRunID, AccountID: accountID, ThreadID: childThreadID, ParentRunID: &parentRunID}, "trace-3", nil, nil, jobQueue, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, nil, false)
 	ev := events.NewEmitter("trace-3").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, childRunID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -358,7 +357,7 @@ func TestEventWriterAppend_TouchesRunActivityOnNonTerminalCommit(t *testing.T) {
 		t.Fatalf("set old activity: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-activity", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, nil, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-activity", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, nil, false)
 	ev := events.NewEmitter("trace-activity").Emit("llm.turn.completed", map[string]any{
 		"usage": map[string]any{
 			"input_tokens":  3,
@@ -419,7 +418,7 @@ func TestEventWriterAppend_ConsumesPendingCallbacksOnCompletedRun(t *testing.T) 
 		t.Fatalf("insert callback: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-consume", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, []uuid.UUID{callbackID}, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-consume", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, []uuid.UUID{callbackID}, false)
 	ev := events.NewEmitter("trace-consume").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -467,7 +466,7 @@ func TestEventWriterAppend_KeepsPendingCallbacksOnFailedRun(t *testing.T) {
 		t.Fatalf("insert callback: %v", err)
 	}
 
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-failed", nil, nil, nil, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, "", nil, []uuid.UUID{callbackID}, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-failed", nil, nil, nil, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, "", nil, []uuid.UUID{callbackID}, false)
 	ev := events.NewEmitter("trace-failed").Emit("run.failed", map[string]any{"message": "boom"}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append terminal event: %v", err)
@@ -552,7 +551,7 @@ func TestAgentLoopHandlerShortCircuitsStaleCallbackRun(t *testing.T) {
 	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
 
 	executor := &captureExecutor{}
-	handler := NewAgentLoopHandler(data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, &stubJobQueue{}, data.UsageRecordsRepository{}, data.CreditsRepository{}, nil)
+	handler := NewAgentLoopHandler(data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, &stubJobQueue{})
 	rc := &RunContext{
 		Run:       data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
 		Pool:      pool,
@@ -562,7 +561,6 @@ func TestAgentLoopHandlerShortCircuitsStaleCallbackRun(t *testing.T) {
 		},
 		Emitter:         events.NewEmitter("trace-stale"),
 		ToolExecutors:   map[string]tools.Executor{},
-		CreditPerUSD:    1000,
 		ExecutorBuilder: staticExecutorBuilder{executor: executor},
 	}
 
@@ -597,7 +595,7 @@ func TestAgentLoopHandlerPersistsStickerPlaceholderForHistory(t *testing.T) {
 	seedPipelineThread(t, pool, accountID, threadID, projectID)
 	seedPipelineRun(t, pool, accountID, threadID, runID, nil)
 
-	handler := NewAgentLoopHandler(data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, &stubJobQueue{}, data.UsageRecordsRepository{}, data.CreditsRepository{}, nil)
+	handler := NewAgentLoopHandler(data.RunsRepository{}, data.RunEventsRepository{}, data.MessagesRepository{}, nil, &stubJobQueue{})
 	rc := &RunContext{
 		Run:       data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
 		Pool:      pool,
@@ -607,7 +605,6 @@ func TestAgentLoopHandlerPersistsStickerPlaceholderForHistory(t *testing.T) {
 		},
 		Emitter:       events.NewEmitter("trace-sticker"),
 		ToolExecutors: map[string]tools.Executor{},
-		CreditPerUSD:  1000,
 		ExecutorBuilder: staticExecutorBuilder{executor: assistantMessageExecutor{message: llm.Message{
 			Role:    "assistant",
 			Content: []llm.ContentPart{{Type: "text", Text: "[sticker:hash]"}},
@@ -678,7 +675,7 @@ func TestEventWriterFlushRewakesPendingCallbackAfterCallbackRunCompletes(t *test
 	}
 
 	jobQueue := &stubJobQueue{}
-	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-rewake", nil, nil, jobQueue, "", "", data.UsageRecordsRepository{}, data.CreditsRepository{}, 1000, 1, nil, nil, nil, nil, creditpolicy.DefaultPolicy, false, nil, nil, nil, runkind.SubagentCallback, uuidPtr(callbackID), nil, false)
+	writer := newEventWriter(pool, data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}, "trace-rewake", nil, nil, jobQueue, "", "", 1, nil, nil, nil, nil, false, nil, nil, nil, runkind.SubagentCallback, uuidPtr(callbackID), nil, false)
 	ev := events.NewEmitter("trace-rewake").Emit("run.completed", map[string]any{}, nil, nil)
 	if err := writer.Append(context.Background(), data.RunsRepository{}, data.RunEventsRepository{}, runID, ev); err != nil {
 		t.Fatalf("append completed: %v", err)

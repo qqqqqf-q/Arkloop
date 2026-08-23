@@ -125,20 +125,6 @@ func resolveStickerVisionRoute(
 	); ok && routeSupportsVision(resolution.Selected) {
 		return resolution, true
 	}
-	// 2. spawn.profile.tool (if supports vision)
-	if resolution, ok := resolveEntitlementRoute(
-		ctx,
-		db,
-		rc.Run.AccountID,
-		"spawn.profile.tool",
-		cfg.AuxGateway,
-		cfg.EmitDebugEvents,
-		rc.LlmMaxResponseBytes,
-		cfg.RoutingConfigLoader,
-		rc.RoutingByokEnabled,
-	); ok && routeSupportsVision(resolution.Selected) {
-		return resolution, true
-	}
 	return nil, false
 }
 

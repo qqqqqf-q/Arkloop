@@ -38,7 +38,7 @@ func TestRoutingMiddleware_AuxGatewaySelected(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -83,7 +83,7 @@ func TestRoutingMiddleware_NilDbPoolUsesStaticRouter(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -113,7 +113,7 @@ func TestRoutingMiddleware_EmptyRouterNoSelectedRoute(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -151,7 +151,7 @@ func TestRoutingMiddleware_UnknownProviderKind(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -182,7 +182,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_EmptyFallbackCurrent(t *test
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -215,7 +215,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_ValidRoute(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -250,7 +250,7 @@ func TestRoutingMiddleware_ResolveGatewayForRouteID_NotFound(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, stub, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -296,7 +296,7 @@ func TestRoutingMiddleware_OpenAIGateway_WithEnvApiKey(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -337,7 +337,7 @@ func TestRoutingMiddleware_AnthropicGateway_WithDirectApiKey(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -378,7 +378,7 @@ func TestRoutingMiddleware_MissingApiKey_Panics(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -408,7 +408,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_NilDbPool(t *testing.T) {
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -436,7 +436,7 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_EmptyFallbackCurrent(t *te
 	mw := pipeline.NewRoutingMiddleware(
 		router, nil, auxGateway{}, false,
 		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
+		nil,
 	)
 
 	rc := &pipeline.RunContext{
@@ -460,53 +460,3 @@ func TestRoutingMiddleware_ResolveGatewayForAgentName_EmptyFallbackCurrent(t *te
 	}
 }
 
-func TestRoutingMiddleware_ResolveGatewayForAgentName_UsesFullSelectorConfigForByok(t *testing.T) {
-	cfg := routing.ProviderRoutingConfig{
-		
-		Credentials: []routing.ProviderCredential{
-			{
-				ID:           "cred-platform",
-				Name:         "platform-openai",
-				OwnerKind:    routing.CredentialScopePlatform,
-				ProviderKind: routing.ProviderKindStub,
-			},
-			{
-				ID:           "cred-user",
-				Name:         "byok-openai",
-				OwnerKind:    routing.CredentialScopeUser,
-				ProviderKind: routing.ProviderKindStub,
-			},
-		},
-		Routes: []routing.ProviderRouteRule{
-			{ID: "route-default", Model: "gpt-4o-mini", CredentialID: "cred-platform", Priority: 100, When: map[string]any{"model": "gpt-4o-mini"}},
-			{ID: "route-byok", Model: "gpt-5", CredentialID: "cred-user", Priority: 90},
-		},
-	}
-	router := routing.NewProviderRouter(cfg)
-
-	mw := pipeline.NewRoutingMiddleware(
-		router, nil, auxGateway{}, false,
-		data.RunsRepository{}, data.RunEventsRepository{},
-		nil, nil,
-	)
-
-	rc := &pipeline.RunContext{
-		Emitter:   events.NewEmitter("test"),
-		InputJSON: map[string]any{"model": "gpt-4o-mini"},
-	}
-
-	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
-		_, _, err := rc.ResolveGatewayForAgentName(context.Background(), "byok-openai^gpt-5")
-		if err == nil {
-			t.Fatal("expected BYOK selector to be evaluated and denied when feature is off")
-		}
-		if got := err.Error(); got != "policy.byok_disabled: BYOK not enabled" {
-			t.Fatalf("unexpected selector error: %v", err)
-		}
-		return nil
-	})
-
-	if err := h(context.Background(), rc); err != nil {
-		t.Fatalf("unexpected middleware error: %v", err)
-	}
-}

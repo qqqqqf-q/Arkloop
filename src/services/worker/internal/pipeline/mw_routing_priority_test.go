@@ -19,7 +19,6 @@ func buildRoutingMW(staticRouter *routing.ProviderRouter) pipeline.RunMiddleware
 		data.RunsRepository{},
 		data.RunEventsRepository{},
 		nil,
-		nil,
 	)
 }
 

@@ -37,13 +37,6 @@ func NewActivityRecorderPrepareMiddleware(pool CompactPersistDB, auxGateway llm.
 			return next(ctx, rc)
 		}
 
-		if pool != nil && configLoader != nil {
-			if resolution, ok := resolveEntitlementRoute(ctx, pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled); ok {
-				rc.Gateway = resolution.Gateway
-				rc.SelectedRoute = resolution.Selected
-			}
-		}
-
 		content := strings.TrimSpace(stringValue(rc.JobPayload["instruction"]))
 		if content == "" {
 			content = "执行 activity recorder 后台扫描。加载可用的数据源 skill 和 MCP 工具，读取近期桌面活动，只把具有长期价值的事实、偏好、项目上下文或重要事件写入 memory_write。完成前必须调用 activity_recorder_finish 记录本轮状态。不要写 Notebook，不要输出用户可见说明。"

@@ -41,13 +41,6 @@ func NewSuggestionPrepareMiddleware(sugStore SuggestionStore, pool CompactPersis
 		rc.SuggestionRun = true
 
 		// 优先使用账户级工具模型
-		if pool != nil && configLoader != nil {
-			if resolution, ok := resolveEntitlementRoute(ctx, pool, rc.Run.AccountID, "spawn.profile.tool", auxGateway, emitDebugEvents, rc.LlmMaxResponseBytes, configLoader, rc.RoutingByokEnabled); ok {
-				rc.Gateway = resolution.Gateway
-				rc.SelectedRoute = resolution.Selected
-			}
-		}
-
 		// 从 payload 读取 mode
 		mode := "chat"
 		if m, ok := stringField(rc.JobPayload, "mode"); ok && m != "" {

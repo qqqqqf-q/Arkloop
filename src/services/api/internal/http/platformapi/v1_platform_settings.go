@@ -2,7 +2,6 @@ package platformapi
 
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
-	"context"
 	"strings"
 
 	nethttp "net/http"
@@ -11,7 +10,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
 	sharedconfig "arkloop/services/shared/config"
-	sharedent "arkloop/services/shared/entitlement"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -144,9 +142,6 @@ func platformSettingEntry(
 			if invalidator != nil {
 				_ = invalidator.Invalidate(r.Context(), key, sharedconfig.Scope{})
 			}
-			if shouldInvalidateEntitlementCache(key) {
-				invalidateEntitlementCacheByKey(r.Context(), rdb, key)
-			}
 			httpkit.WriteJSON(w, traceID, nethttp.StatusOK, platformSettingResponse{
 				Key:       setting.Key,
 				Value:     maskIfSensitive(setting.Key, setting.Value, registry),
@@ -161,9 +156,6 @@ func platformSettingEntry(
 			if invalidator != nil {
 				_ = invalidator.Invalidate(r.Context(), key, sharedconfig.Scope{})
 			}
-			if shouldInvalidateEntitlementCache(key) {
-				invalidateEntitlementCacheByKey(r.Context(), rdb, key)
-			}
 			w.WriteHeader(nethttp.StatusNoContent)
 
 		default:
@@ -172,49 +164,3 @@ func platformSettingEntry(
 	}
 }
 
-func shouldInvalidateEntitlementCache(key string) bool {
-	switch {
-	case strings.HasPrefix(key, "quota."):
-		return true
-	case strings.HasPrefix(key, "limit."):
-		return true
-	case strings.HasPrefix(key, "feature."):
-		return true
-	case strings.HasPrefix(key, "invite."):
-		return true
-	case strings.HasPrefix(key, "credit."):
-		return true
-	case strings.HasPrefix(key, "spawn.profile."):
-		return true
-	default:
-		return false
-	}
-}
-
-func invalidateEntitlementCacheByKey(ctx context.Context, rdb *redis.Client, key string) {
-	if rdb == nil {
-		return
-	}
-	if !sharedent.EntitlementCacheSigningEnabled() {
-		return
-	}
-	pattern := "arkloop:entitlement:*:" + key
-	var cursor uint64
-	for {
-		keys, next, err := rdb.Scan(ctx, cursor, pattern, 100).Result()
-		if err != nil {
-			return
-		}
-		if len(keys) > 0 {
-			toDelete := make([]string, 0, len(keys)*2)
-			for _, k := range keys {
-				toDelete = append(toDelete, k, k+sharedent.EntitlementCacheSignatureSuffix)
-			}
-			_ = rdb.Del(ctx, toDelete...).Err()
-		}
-		cursor = next
-		if cursor == 0 {
-			return
-		}
-	}
-}
