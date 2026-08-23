@@ -466,7 +466,3 @@ func normalizeBaseURL(raw string) string {
 func SandboxAvailableFromEnv() bool {
 	return normalizeBaseURL(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")) != ""
 }
-
-func MemoryAvailableFromEnv() bool {
-	return strings.TrimSpace(os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL")) != ""
-}

@@ -34,23 +34,6 @@ var toolProviderCatalog = []toolProviderDefinition{
 	},
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox-docker:19002"},
 	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
-	{
-		GroupName: "memory", ProviderName: "memory.openviking",
-		RequiresBaseURL: true, RequiresAPIKey: true, AllowsInternalHTTP: true,
-		DefaultBaseURL: "http://openviking:1933",
-		ConfigFields: []ConfigFieldDef{
-			{Key: "embedding.provider", Label: "Embedding Provider", Type: "select", Required: true, Default: "volcengine", Options: []string{"openai", "volcengine", "vikingdb", "jina"}, Group: "embedding"},
-			{Key: "embedding.model", Label: "Embedding Model", Type: "string", Required: true, Default: "doubao-embedding-vision-250615", Group: "embedding", Placeholder: "e.g. text-embedding-3-small"},
-			{Key: "embedding.api_key", Label: "Embedding API Key", Type: "password", Required: true, Group: "embedding"},
-			{Key: "embedding.api_base", Label: "Embedding API Base", Type: "string", Required: true, Default: "https://ark.cn-beijing.volces.com/api/v3", Group: "embedding", Placeholder: "https://api.openai.com/v1"},
-			{Key: "embedding.dimension", Label: "Embedding Dimension", Type: "number", Required: true, Default: "1024", Group: "embedding"},
-			{Key: "vlm.provider", Label: "VLM Provider", Type: "select", Required: true, Default: "litellm", Options: []string{"volcengine", "openai", "litellm"}, Group: "vlm"},
-			{Key: "vlm.model", Label: "VLM Model", Type: "string", Required: true, Default: "doubao-seed-1-8-251228", Group: "vlm", Placeholder: "e.g. gpt-4o"},
-			{Key: "vlm.api_key", Label: "VLM API Key", Type: "password", Required: true, Group: "vlm"},
-			{Key: "vlm.api_base", Label: "VLM API Base", Type: "string", Required: true, Default: "https://ark.cn-beijing.volces.com/api/v3", Group: "vlm", Placeholder: "https://api.openai.com/v1"},
-			{Key: "cost_per_commit", Label: "Cost per Commit", Type: "number", Required: false, Default: "0", Group: "billing"},
-		},
-	},
 }
 
 func findProviderDef(groupName string, providerName string) (toolProviderDefinition, bool) {
