@@ -13,9 +13,8 @@ import (
 )
 
 type Targets struct {
-	GatewayBaseURL    string `json:"gateway_base_url"`
-	APIBaseURL        string `json:"api_base_url"`
-	OpenVikingBaseURL string `json:"openviking_base_url"`
+	GatewayBaseURL string `json:"gateway_base_url"`
+	APIBaseURL     string `json:"api_base_url"`
 }
 
 type Meta struct {
@@ -62,7 +61,6 @@ func BuildMeta(ctx context.Context, targets Targets) Meta {
 		Assumptions: []string{
 			"env.docker_compose_single_node",
 			"worker.llm_stub_by_default",
-			"openviking.skipped_in_baseline_by_default",
 		},
 	}
 }

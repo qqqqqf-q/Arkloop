@@ -21,8 +21,7 @@ docker compose -f compose.bench.yaml -p arkloop-bench up -d
   - API：`http://127.0.0.1:8006`
   - Postgres：`127.0.0.1:5437`（用于 bench 自动注册/bootstrapping）
 - bench compose 内置独立的 `redis_gateway`（禁用持久化），仅供 Gateway 限流/鉴权链路使用，避免和主 Redis 的持久化抖动互相干扰
-- baseline suite 只跑核心链路（Gateway / API / Worker + stub LLM），不包含 Sandbox / OpenViking 等外部能力压测
-- OpenViking 使用独立子命令压测，避免 baseline 被外部依赖拖垮
+- baseline suite 只跑核心链路（Gateway / API / Worker + stub LLM），不包含 Sandbox 等外部能力压测
 
 bench 自动注册依赖 `DATABASE_URL`（连到 bench 的 Postgres）：
 
@@ -85,15 +84,6 @@ go run ./tests/bench/cmd/bench baseline \
   -out /tmp/arkloop-baseline.json
 ```
 
-可选开启 OpenViking：
-
-```bash
-go run ./tests/bench/cmd/bench baseline \
-  -include-openviking \
-  -openviking-root-key "$ARKLOOP_OPENVIKING_ROOT_API_KEY" \
-  -out docs/benchmark/baseline-2026-03-03.json
-```
-
 ## Interpretation
 
 - 输出为 JSON，`overall_pass=false` 时进程退出码为 1
@@ -104,18 +94,9 @@ go run ./tests/bench/cmd/bench baseline \
 - `worker_runs.stats.pg_stat_activity_max_total` / `worker_runs.stats.pg_stat_activity_max_active`：同上
 - `*.stats.net_error_kinds`：网络错误类型聚合（便于区分超时/拒绝/重置等）
 
-## OpenViking
-
-OpenViking 的压测默认不在 baseline suite 中执行，避免触发外部 embedding / VLM 调用导致成本与波动；需要显式 `-include-openviking`，并提供 root key。
-
-当前 `compose.bench.yaml` 不包含 OpenViking 服务。如果你要测 OpenViking：
-
-- 自行启动 OpenViking（独立 compose/容器），并确保 bench 能访问到它
-- 运行 baseline 时显式传 `-include-openviking -openviking-base-url ... -openviking-root-key ...`
-
 ## Troubleshooting
 
-- `gateway.not_ready` / `api.not_ready` / `openviking.not_ready`：服务未就绪（检查对应服务 `/healthz` 或 OpenViking `/health`）
+- `gateway.not_ready` / `api.not_ready`：服务未就绪（检查对应服务 `/healthz`）
 - `gateway_ratelimit` 返回 404：确认 Gateway 已启用 `/benchz`（bench compose 默认设置 `ARKLOOP_GATEWAY_ENABLE_BENCHZ=true`），并可直接 `curl http://127.0.0.1:8005/benchz` 验证
 - `auth.register.code.auth.invite_code_required`：注册模式为 invite_only（需要配置 `registration.open=true` 或提供邀请码/显式 token）
 - `worker_runs.runs_create_failed` 很高：通常是 `limit.concurrent_runs` 太低或 Worker 未消费队列

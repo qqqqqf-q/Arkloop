@@ -17,15 +17,14 @@ import (
 )
 
 const (
-	envAccessToken       = "ARKLOOP_BENCH_ACCESS_TOKEN"
-	envDatabaseURL       = "DATABASE_URL"
-	envOpenVikingRootKey = "ARKLOOP_OPENVIKING_ROOT_API_KEY"
-	envWorkerPersona     = "ARKLOOP_BENCH_WORKER_PERSONA"
+	envAccessToken   = "ARKLOOP_BENCH_ACCESS_TOKEN"
+	envDatabaseURL   = "DATABASE_URL"
+	envWorkerPersona = "ARKLOOP_BENCH_WORKER_PERSONA"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		_, _ = os.Stderr.WriteString("usage: bench <baseline|gateway|api-crud|sse|worker|openviking>\n")
+		_, _ = os.Stderr.WriteString("usage: bench <baseline|gateway|api-crud|sse|worker>\n")
 		os.Exit(2)
 	}
 
@@ -40,18 +39,15 @@ func main() {
 		runSSE(os.Args[2:])
 	case "worker":
 		runWorker(os.Args[2:])
-	case "openviking":
-		runOpenViking(os.Args[2:])
 	default:
 		_, _ = os.Stderr.WriteString("unknown command\n")
 		os.Exit(2)
 	}
 }
 
-func commonFlags(fs *flag.FlagSet) (gateway, api, openviking, accessToken, dbDSN *string, forceOpen *bool, out *string) {
+func commonFlags(fs *flag.FlagSet) (gateway, api, accessToken, dbDSN *string, forceOpen *bool, out *string) {
 	gateway = fs.String("gateway", "http://127.0.0.1:8005", "gateway base url")
 	api = fs.String("api", "http://127.0.0.1:8006", "api base url")
-	openviking = fs.String("openviking", "http://127.0.0.1:1938", "openviking base url")
 	accessToken = fs.String("access-token", "", "access token")
 	dbDSN = fs.String("db-dsn", "", "database dsn")
 	forceOpen = fs.Bool("force-open-registration", false, "force set registration.open=true")
@@ -180,9 +176,7 @@ func itoa(v int) string {
 
 func runBaseline(args []string) {
 	fs := flag.NewFlagSet("baseline", flag.ExitOnError)
-	gateway, api, openviking, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
-	includeOpenViking := fs.Bool("include-openviking", false, "include openviking scenario")
-	openvikingRootKey := fs.String("openviking-root-key", "", "openviking root api key")
+	gateway, api, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
 	workerPersona := fs.String("worker-persona", "", "worker scenario persona id")
 	fs.Parse(args)
 
@@ -190,9 +184,8 @@ func runBaseline(args []string) {
 	effectiveDBDSN := resolveDBDSN(*dbDSN)
 
 	targets := report.Targets{
-		GatewayBaseURL:    strings.TrimSpace(*gateway),
-		APIBaseURL:        strings.TrimSpace(*api),
-		OpenVikingBaseURL: strings.TrimSpace(*openviking),
+		GatewayBaseURL: strings.TrimSpace(*gateway),
+		APIBaseURL:     strings.TrimSpace(*api),
 	}
 	rep := report.Report{
 		Meta: report.BuildMeta(ctx, targets),
@@ -200,10 +193,6 @@ func runBaseline(args []string) {
 
 	gatewayReadyErr := waitServiceReady(ctx, targets.GatewayBaseURL, "/healthz", "gateway.not_ready")
 	apiReadyErr := waitServiceReady(ctx, targets.APIBaseURL, "/healthz", "api.not_ready")
-	openVikingReadyErr := ""
-	if *includeOpenViking {
-		openVikingReadyErr = waitServiceReady(ctx, targets.OpenVikingBaseURL, "/health", "openviking.not_ready")
-	}
 
 	if gatewayReadyErr != "" {
 		rep.Results = append(rep.Results, tokenRequiredResult("gateway_ratelimit", gatewayReadyErr))
@@ -233,18 +222,6 @@ func runBaseline(args []string) {
 		}
 	}
 
-	if *includeOpenViking {
-		if openVikingReadyErr != "" {
-			rep.Results = append(rep.Results, tokenRequiredResult("openviking_find", openVikingReadyErr))
-		} else {
-			rootKey := strings.TrimSpace(*openvikingRootKey)
-			if rootKey == "" {
-				rootKey = strings.TrimSpace(os.Getenv(envOpenVikingRootKey))
-			}
-			rep.Results = append(rep.Results, scenarios.RunOpenVikingFind(ctx, scenarios.DefaultOpenVikingFindConfig(targets.OpenVikingBaseURL, rootKey)))
-		}
-	}
-
 	rep.OverallPass = true
 	for _, r := range rep.Results {
 		if !r.Pass {
@@ -257,7 +234,7 @@ func runBaseline(args []string) {
 
 func runGateway(args []string) {
 	fs := flag.NewFlagSet("gateway", flag.ExitOnError)
-	gateway, _, _, _, _, _, out := commonFlags(fs)
+	gateway, _, _, _, _, out := commonFlags(fs)
 	jwtSecret := fs.String("jwt-secret", "", "JWT signing secret (enables gateway_jwt scenario)")
 	redisURL := fs.String("redis-url", "", "gateway Redis URL (enables gateway_apikey scenario)")
 	fs.Parse(args)
@@ -328,7 +305,7 @@ func runGateway(args []string) {
 
 func runAPICRUD(args []string) {
 	fs := flag.NewFlagSet("api-crud", flag.ExitOnError)
-	_, api, _, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
+	_, api, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
 	fs.Parse(args)
 
 	ctx := context.Background()
@@ -358,7 +335,7 @@ func runAPICRUD(args []string) {
 
 func runSSE(args []string) {
 	fs := flag.NewFlagSet("sse", flag.ExitOnError)
-	_, api, _, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
+	_, api, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
 	fs.Parse(args)
 
 	ctx := context.Background()
@@ -386,7 +363,7 @@ func runSSE(args []string) {
 
 func runWorker(args []string) {
 	fs := flag.NewFlagSet("worker", flag.ExitOnError)
-	_, api, _, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
+	_, api, accessToken, dbDSN, forceOpen, out := commonFlags(fs)
 	workerPersona := fs.String("worker-persona", "", "worker scenario persona id")
 	fs.Parse(args)
 
@@ -413,34 +390,6 @@ func runWorker(args []string) {
 	cfg.DBDSN = effectiveDBDSN
 	cfg.PersonaID = resolveWorkerPersona(*workerPersona)
 	rep.Results = append(rep.Results, scenarios.RunWorkerRuns(ctx, cfg))
-	rep.OverallPass = rep.Results[0].Pass
-	writeReportAndExit(rep, *out)
-}
-
-func runOpenViking(args []string) {
-	fs := flag.NewFlagSet("openviking", flag.ExitOnError)
-	_, _, openviking, _, _, _, out := commonFlags(fs)
-	rootKey := fs.String("openviking-root-key", "", "openviking root api key")
-	fs.Parse(args)
-
-	key := strings.TrimSpace(*rootKey)
-	if key == "" {
-		key = strings.TrimSpace(os.Getenv(envOpenVikingRootKey))
-	}
-
-	ctx := context.Background()
-	targets := report.Targets{OpenVikingBaseURL: strings.TrimSpace(*openviking)}
-	rep := report.Report{
-		Meta: report.BuildMeta(ctx, targets),
-	}
-	readyErr := waitServiceReady(ctx, targets.OpenVikingBaseURL, "/health", "openviking.not_ready")
-	if readyErr != "" {
-		rep.Results = append(rep.Results, tokenRequiredResult("openviking_find", readyErr))
-		rep.OverallPass = false
-		writeReportAndExit(rep, *out)
-	}
-
-	rep.Results = append(rep.Results, scenarios.RunOpenVikingFind(ctx, scenarios.DefaultOpenVikingFindConfig(targets.OpenVikingBaseURL, key)))
 	rep.OverallPass = rep.Results[0].Pass
 	writeReportAndExit(rep, *out)
 }
