@@ -21,7 +21,7 @@ export type ModuleInfo = {
   id: string
   name: string
   description: string
-  category: 'memory' | 'sandbox' | 'search' | 'browser' | 'console' | 'infrastructure'
+  category: 'memory' | 'sandbox' | 'search' | 'browser' | 'infrastructure'
   status: ModuleStatus
   version?: string
   port?: number

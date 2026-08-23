@@ -19,8 +19,6 @@ type Deps struct {
 	FeatureFlagService   *featureflag.Service
 	APIKeysRepo          *data.APIKeysRepository
 	AuditWriter          *audit.Writer
-	IPRulesRepo          *data.IPRulesRepository
-	GatewayRedisClient   *redis.Client
 	NotificationsRepo    *data.NotificationsRepository
 	AuditLogRepo         *data.AuditLogRepository
 	PlatformSettingsRepo *data.PlatformSettingsRepository
@@ -30,8 +28,6 @@ type Deps struct {
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
-	mux.HandleFunc("/v1/ip-rules", ipRulesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.IPRulesRepo, deps.GatewayRedisClient))
-	mux.HandleFunc("/v1/ip-rules/", ipRuleEntry(deps.AuthService, deps.AccountMembershipRepo, deps.IPRulesRepo, deps.GatewayRedisClient))
 	mux.HandleFunc("/v1/feature-flags", featureFlagsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.FeatureFlagsRepo, deps.APIKeysRepo, deps.AuditWriter))
 	mux.HandleFunc("/v1/feature-flags/", featureFlagEntry(deps.AuthService, deps.AccountMembershipRepo, deps.FeatureFlagsRepo, deps.FeatureFlagService, deps.APIKeysRepo, deps.AuditWriter))
 	mux.HandleFunc("/v1/notifications", notificationsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo))

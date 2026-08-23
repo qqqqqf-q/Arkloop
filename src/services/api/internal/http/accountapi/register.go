@@ -11,7 +11,6 @@ import (
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/telegrambot"
 
-	"github.com/redis/go-redis/v9"
 )
 
 type Deps struct {
@@ -48,15 +47,14 @@ type Deps struct {
 	AppBaseURL               string
 	EnvironmentStore         environmentStore
 	RunEventRepo             *data.RunEventRepository
-	GatewayRedisClient       *redis.Client
 	EntitlementsRepo         *data.EntitlementsRepository
 	ConfigResolver           sharedconfig.Resolver
 	MessageAttachmentStore   MessageAttachmentPutStore
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
-	mux.HandleFunc("/v1/api-keys", apiKeysEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.GatewayRedisClient))
-	mux.HandleFunc("/v1/api-keys/", apiKeyEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.GatewayRedisClient))
+	mux.HandleFunc("/v1/api-keys", apiKeysEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter))
+	mux.HandleFunc("/v1/api-keys/", apiKeyEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter))
 	mux.HandleFunc("/v1/teams", teamsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.TeamRepo, deps.APIKeysRepo, deps.EntitlementService, deps.Pool))
 	mux.HandleFunc("/v1/teams/", teamEntry(deps.AuthService, deps.AccountMembershipRepo, deps.TeamRepo, deps.APIKeysRepo, deps.EntitlementService, deps.Pool))
 	mux.HandleFunc("/v1/projects", projectsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo))

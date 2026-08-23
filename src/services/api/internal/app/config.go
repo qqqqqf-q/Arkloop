@@ -37,7 +37,6 @@ const (
 	defaultMaxInFlight                = 256
 
 	redisURLEnv                    = "ARKLOOP_REDIS_URL"
-	gatewayRedisURLEnv             = "ARKLOOP_GATEWAY_REDIS_URL"
 	maxConcurrentRunsPerAccountEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT"
 	defaultMaxConcurrentRunsPerAccount = int64(10)
 
@@ -102,7 +101,6 @@ type Config struct {
 	SSE                        SSEConfig
 
 	RedisURL                string
-	GatewayRedisURL         string
 	MaxConcurrentRunsPerAccount int64
 
 	S3Endpoint     string
@@ -238,9 +236,6 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(redisURLEnv); ok {
 		cfg.RedisURL = raw
-	}
-	if raw, ok := lookupEnv(gatewayRedisURLEnv); ok {
-		cfg.GatewayRedisURL = raw
 	}
 	if raw, ok := lookupEnv(maxConcurrentRunsPerAccountEnv); ok {
 		v, err := parsePositiveInt64(raw)

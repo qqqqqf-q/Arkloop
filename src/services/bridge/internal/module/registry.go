@@ -14,10 +14,7 @@ type webURLSpec struct {
 }
 
 var webURLMap = map[string]webURLSpec{
-	"console":      {envVar: "ARKLOOP_CONSOLE_PORT", defaultVal: "19081"},
-	"console-lite": {envVar: "ARKLOOP_CONSOLE_LITE_PORT", defaultVal: "19082"},
 	"searxng":      {envVar: "ARKLOOP_SEARXNG_PORT", defaultVal: "19011"},
-	"gateway":      {envVar: "ARKLOOP_GATEWAY_PORT", defaultVal: "19000"},
 }
 
 func resolveWebURL(id string) string {
@@ -190,14 +187,11 @@ var categoryMap = map[string]ModuleCategory{
 	"searxng":            CategorySearch,
 	"firecrawl":          CategorySearch,
 	"prompt-guard":       CategorySecurity,
-	"console":            CategoryConsole,
-	"console-lite":       CategoryConsole,
 	"postgres":           CategoryInfrastructure,
 	"redis":              CategoryInfrastructure,
 	"migrate":            CategoryInfrastructure,
 	"api":                CategoryInfrastructure,
 	"worker":             CategoryInfrastructure,
-	"gateway":            CategoryInfrastructure,
 	"pgbouncer":          CategoryInfrastructure,
 	"seaweedfs":          CategoryInfrastructure,
 }
@@ -216,10 +210,7 @@ var portMap = map[string]int{
 	"sandbox-firecracker": 19002,
 	"searxng":            19011,
 	"firecrawl":          19012,
-	"console":            19081,
-	"console-lite":       19082,
 	"api":                19001,
-	"gateway":            19000,
 }
 
 func knownPort(id string) *int {
@@ -236,9 +227,6 @@ var nameMap = map[string]string{
 	"migrate":            "Database Migrations",
 	"api":                "API Server",
 	"worker":             "Worker",
-	"gateway":            "Gateway",
-	"console-lite":       "Console Lite",
-	"console":            "Console",
 	"openviking":         "OpenViking",
 	"sandbox-docker":     "Sandbox (Docker)",
 	"sandbox-firecracker": "Sandbox (Firecracker)",

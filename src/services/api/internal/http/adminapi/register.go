@@ -10,7 +10,6 @@ import (
 	repopersonas "arkloop/services/api/internal/personas"
 	sharedconfig "arkloop/services/shared/config"
 
-	"github.com/redis/go-redis/v9"
 )
 
 type Deps struct {
@@ -34,7 +33,6 @@ type Deps struct {
 	NotificationsRepo     *data.NotificationsRepository
 	Pool                  data.DB
 	Logger                *slog.Logger
-	GatewayRedisClient    *redis.Client
 	PlatformSettingsRepo  *data.PlatformSettingsRepository
 	ConfigResolver        sharedconfig.Resolver
 	ConfigInvalidator     sharedconfig.Invalidator
@@ -54,8 +52,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/admin/users/", adminUserEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.AuditWriter, deps.InviteCodesRepo, deps.UserCredentialRepo))
 	mux.HandleFunc("/v1/admin/notifications/broadcasts/", adminBroadcastEntry(deps.AuthService, deps.AccountMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo))
 	mux.HandleFunc("/v1/admin/notifications/broadcasts", adminBroadcastsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.NotificationsRepo, deps.APIKeysRepo, deps.AuditWriter, deps.Pool, deps.Logger))
-	mux.HandleFunc("/v1/admin/gateway-config", adminGatewayConfigEntry(deps.AuthService, deps.AccountMembershipRepo, deps.PlatformSettingsRepo, deps.APIKeysRepo, deps.GatewayRedisClient, deps.ConfigResolver, deps.ConfigInvalidator))
-	mux.HandleFunc("/v1/admin/access-log", adminAccessLogEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.UsersRepo, deps.GatewayRedisClient))
 	mux.HandleFunc("/v1/admin/execution-governance", adminExecutionGovernance(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.PersonasRepo, deps.RepoPersonas, deps.ConfigRegistry, deps.Pool))
 	mux.HandleFunc("/v1/admin/email/status", adminEmailStatus(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.ConfigResolver))
 	mux.HandleFunc("/v1/admin/email/config", adminEmailConfig(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.PlatformSettingsRepo, deps.ConfigResolver, deps.ConfigInvalidator))

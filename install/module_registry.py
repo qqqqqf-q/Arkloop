@@ -127,10 +127,8 @@ ALLOWED = {
     "mode": {"self-hosted", "saas"},
     "memory": {"none", "openviking"},
     "sandbox": {"none", "docker", "firecracker", "auto"},
-    "console": {"lite", "full"},
     "browser": {"off", "on"},
     "web_tools": {"builtin", "self-hosted"},
-    "gateway": {"on", "off"},
 }
 
 
@@ -149,22 +147,16 @@ def default_selections(profile: str, mode: str, host_os: str, has_kvm: bool) -> 
         defaults = {
             "memory": "openviking",
             "sandbox": sandbox,
-            "console": "full",
             "browser": "off",
             "web_tools": "self-hosted",
-            "gateway": "on",
         }
     else:
         defaults = {
             "memory": "none",
             "sandbox": "none",
-            "console": "lite",
             "browser": "off",
             "web_tools": "builtin",
-            "gateway": "on",
         }
-    if mode == "saas":
-        defaults["console"] = "full"
     return defaults
 
 
@@ -187,15 +179,11 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
     sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
     if sandbox == "auto":
         sandbox = defaults["sandbox"]
-    console = normalize_choice(args.console or defaults["console"], "console")
     browser = normalize_choice(args.browser or defaults["browser"], "browser")
     web_tools = normalize_choice(args.web_tools or defaults["web_tools"], "web_tools")
-    gateway = normalize_choice(args.gateway or defaults["gateway"], "gateway")
 
     if browser == "on" and sandbox != "docker":
         raise ValueError("browser=on 仅支持 sandbox=docker")
-    if gateway == "off" and console in {"lite", "full"}:
-        raise ValueError("gateway=off 时不能启用 Console")
 
     selected: List[str] = []
     for module_id, module in modules.items():
@@ -203,12 +191,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         if profile_meta.get("required") is True:
             selected.append(module_id)
 
-    if gateway == "on":
-        selected.append("gateway")
-    if console == "lite":
-        selected.append("console-lite")
-    if console == "full":
-        selected.append("console")
     if memory == "openviking":
         selected.append("openviking")
     if sandbox == "docker":
@@ -278,10 +260,8 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         "mode": mode,
         "memory": memory,
         "sandbox": sandbox,
-        "console": console,
         "browser": browser,
         "web_tools": web_tools,
-        "gateway": gateway,
         "selected_modules": resolved_modules,
         "compose_services": compose_services,
         "compose_profiles": compose_profiles,
@@ -299,10 +279,8 @@ def emit_shell(plan: dict):
         ("RESOLVED_MODE", plan["mode"]),
         ("RESOLVED_MEMORY", plan["memory"]),
         ("RESOLVED_SANDBOX", plan["sandbox"]),
-        ("RESOLVED_CONSOLE", plan["console"]),
         ("RESOLVED_BROWSER", plan["browser"]),
         ("RESOLVED_WEB_TOOLS", plan["web_tools"]),
-        ("RESOLVED_GATEWAY", plan["gateway"]),
     ]
     for key, value in scalars:
         print(f"{key}={shell_quote(value)}")
@@ -326,10 +304,8 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--mode", default="")
     resolve.add_argument("--memory", default="")
     resolve.add_argument("--sandbox", default="")
-    resolve.add_argument("--console", default="")
     resolve.add_argument("--browser", default="")
     resolve.add_argument("--web-tools", dest="web_tools", default="")
-    resolve.add_argument("--gateway", default="")
     resolve.add_argument("--host-os", choices=["linux", "macos", "wsl2"], default="macos")
     resolve.add_argument("--has-kvm", action="store_true")
     resolve.add_argument("--format", choices=["shell"], default="shell")

@@ -145,19 +145,6 @@ func (a *Application) Run(ctx context.Context) error {
 		a.logger.Info("redis connected")
 	}
 
-	gatewayRedisClient := redisClient
-	gatewayRedisURL := strings.TrimSpace(a.config.GatewayRedisURL)
-	redisURL := strings.TrimSpace(a.config.RedisURL)
-	if gatewayRedisURL != "" && gatewayRedisURL != redisURL {
-		rc, err := sharedredis.NewClient(ctx, gatewayRedisURL)
-		if err != nil {
-			return fmt.Errorf("gateway redis: %w", err)
-		}
-		defer func() { _ = rc.Close() }()
-		gatewayRedisClient = rc
-		a.logger.Info("gateway redis connected")
-	}
-
 	var runLimiter *data.RunLimiter
 	if redisClient != nil && a.config.MaxConcurrentRunsPerAccount > 0 {
 		rl, err := data.NewRunLimiter(redisClient, a.config.MaxConcurrentRunsPerAccount)
@@ -252,7 +239,6 @@ func (a *Application) Run(ctx context.Context) error {
 		pluginServices               *plugincontrib.Services
 		profileRegistriesRepo        *data.ProfileRegistriesRepository
 		workspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
-		ipRulesRepo                  *data.IPRulesRepository
 		apiKeysRepo                  *data.APIKeysRepository
 		teamRepo                     *data.TeamRepository
 		projectRepo                  *data.ProjectRepository
@@ -422,7 +408,6 @@ func (a *Application) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		ipRulesRepo, err = data.NewIPRulesRepository(pool)
 		if err != nil {
 			return err
 		}
@@ -867,7 +852,6 @@ func (a *Application) Run(ctx context.Context) error {
 			PluginEnabler:                pluginEnabler,
 			ProfileRegistriesRepo:        profileRegistriesRepo,
 			WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
-			IPRulesRepo:                  ipRulesRepo,
 			APIKeysRepo:                  apiKeysRepo,
 			TeamRepo:                     teamRepo,
 			ProjectRepo:                  projectRepo,
@@ -898,7 +882,6 @@ func (a *Application) Run(ctx context.Context) error {
 			PlatformSettingsRepo:         platformSettingsRepo,
 			SmtpProviderRepo:             smtpProviderRepo,
 			RedisClient:                  redisClient,
-			GatewayRedisClient:           gatewayRedisClient,
 			RunLimiter:                   runLimiter,
 			AsrCredentialsRepo:           asrCredRepo,
 			EmailVerifyService:           emailVerifyService,

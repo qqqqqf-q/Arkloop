@@ -167,7 +167,6 @@ func TestFrontendCategoryMapping(t *testing.T) {
 		{"sandbox-docker", CategorySandbox},
 		{"searxng", CategorySearch},
 		{"browser", CategoryBrowser},
-		{"console", CategoryConsole},
 		{"postgres", CategoryInfrastructure},
 	}
 

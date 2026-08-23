@@ -98,7 +98,6 @@ type HandlerConfig struct {
 	PluginEnabler                *plugincontrib.Enabler
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
-	IPRulesRepo                  *data.IPRulesRepository
 	APIKeysRepo                  *data.APIKeysRepository
 	TeamRepo                     *data.TeamRepository
 	ProjectRepo                  *data.ProjectRepository
@@ -157,8 +156,6 @@ type HandlerConfig struct {
 	TurnstileEnvAllowedHost string
 
 	RedisClient *redis.Client
-	// 网关相关 key 专用 Redis（未设置时回退到 RedisClient）。
-	GatewayRedisClient *redis.Client
 	RunLimiter         *data.RunLimiter
 
 	SSEConfig SSEConfig
@@ -222,11 +219,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	discordClient := cfg.DiscordBotClient
 	if discordClient == nil {
 		discordClient = discordbot.NewClient("", nil)
-	}
-
-	gatewayRedis := cfg.GatewayRedisClient
-	if gatewayRedis == nil {
-		gatewayRedis = cfg.RedisClient
 	}
 
 	effectiveToolCatalogCache := catalogapi.NewEffectiveToolCatalogCache(catalogapi.EffectiveToolCatalogTTL)
@@ -376,7 +368,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AppBaseURL:               cfg.AppBaseURL,
 		EnvironmentStore:         cfg.EnvironmentStore,
 		RunEventRepo:             cfg.RunEventRepo,
-		GatewayRedisClient:       gatewayRedis,
 		EntitlementsRepo:         cfg.EntitlementsRepo,
 		ConfigResolver:           resolver,
 		MessageAttachmentStore:   cfg.MessageAttachmentStore,
@@ -389,8 +380,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		FeatureFlagService:    cfg.FeatureFlagService,
 		APIKeysRepo:           cfg.APIKeysRepo,
 		AuditWriter:           cfg.AuditWriter,
-		IPRulesRepo:           cfg.IPRulesRepo,
-		GatewayRedisClient:    gatewayRedis,
 		NotificationsRepo:     cfg.NotificationsRepo,
 		AuditLogRepo:          cfg.AuditLogRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
@@ -420,7 +409,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		NotificationsRepo:     cfg.NotificationsRepo,
 		Pool:                  cfg.Pool,
 		Logger:                cfg.Logger,
-		GatewayRedisClient:    gatewayRedis,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		ConfigResolver:        resolver,
 		ConfigInvalidator:     invalidator,

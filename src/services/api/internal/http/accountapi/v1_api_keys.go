@@ -3,10 +3,7 @@ package accountapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"context"
-	"encoding/json"
-	"fmt"
 	"strings"
-	"time"
 
 	nethttp "net/http"
 
@@ -16,10 +13,7 @@ import (
 	"arkloop/services/api/internal/observability"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
-
-const apiKeysCacheTTL = 5 * time.Minute
 
 type createAPIKeyRequest struct {
 	Name   string   `json:"name"`
@@ -43,24 +37,19 @@ type createAPIKeyResponse struct {
 	Key string `json:"key"`
 }
 
-type apiKeyCacheEntry struct {
-	AccountID   string `json:"account_id"`
-	UserID  string `json:"user_id"`
-	Revoked bool   `json:"revoked"`
-}
+
 
 func apiKeysEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	redisClient *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
 		switch r.Method {
 		case nethttp.MethodPost:
-			createAPIKey(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter, redisClient)
+			createAPIKey(w, r, traceID, authService, membershipRepo, apiKeysRepo, auditWriter)
 		case nethttp.MethodGet:
 			listAPIKeys(w, r, traceID, authService, membershipRepo, apiKeysRepo)
 		default:
@@ -74,7 +63,6 @@ func apiKeyEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	redisClient *redis.Client,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -94,7 +82,7 @@ func apiKeyEntry(
 
 		switch r.Method {
 		case nethttp.MethodDelete:
-			revokeAPIKey(w, r, traceID, keyID, authService, membershipRepo, apiKeysRepo, auditWriter, redisClient)
+			revokeAPIKey(w, r, traceID, keyID, authService, membershipRepo, apiKeysRepo, auditWriter)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -109,7 +97,6 @@ func createAPIKey(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	redisClient *redis.Client,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -162,8 +149,6 @@ func createAPIKey(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-
-	syncAPIKeyCache(r.Context(), redisClient, apiKey, data.HashAPIKey(rawKey))
 
 	if auditWriter != nil {
 		auditWriter.WriteAPIKeyCreated(r.Context(), traceID, actor.AccountID, actor.UserID, apiKey.ID, apiKey.Name)
@@ -223,7 +208,6 @@ func revokeAPIKey(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
-	redisClient *redis.Client,
 ) {
 	if authService == nil {
 		httpkit.WriteAuthNotConfigured(w, traceID)
@@ -252,41 +236,11 @@ func revokeAPIKey(
 		return
 	}
 
-	invalidateAPIKeyCache(r.Context(), redisClient, keyHash)
-
 	if auditWriter != nil {
 		auditWriter.WriteAPIKeyRevoked(r.Context(), traceID, actor.AccountID, actor.UserID, keyID)
 	}
 
 	w.WriteHeader(nethttp.StatusNoContent)
-}
-
-// syncAPIKeyCache 将 API Key 元数据写入 Redis，供 Gateway 限流和 IP 过滤提取 account_id。
-func syncAPIKeyCache(ctx context.Context, client *redis.Client, apiKey data.APIKey, keyHash string) {
-	if client == nil {
-		return
-	}
-
-	entry := apiKeyCacheEntry{
-		AccountID:   apiKey.AccountID.String(),
-		UserID:  apiKey.UserID.String(),
-		Revoked: false,
-	}
-	raw, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	key := fmt.Sprintf("arkloop:api_keys:%s", keyHash)
-	_ = client.Set(ctx, key, raw, apiKeysCacheTTL).Err()
-}
-
-// invalidateAPIKeyCache 吊销时删除 Redis 缓存，使 Gateway 立即感知。
-func invalidateAPIKeyCache(ctx context.Context, client *redis.Client, keyHash string) {
-	if client == nil {
-		return
-	}
-	key := fmt.Sprintf("arkloop:api_keys:%s", keyHash)
-	_ = client.Del(ctx, key).Err()
 }
 
 func toAPIKeyResponse(k data.APIKey) apiKeyResponse {

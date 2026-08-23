@@ -104,67 +104,7 @@ modules:
         default: true
         required: true
 
-  # ── Standard (default entry for self-hosted) ─────────────────
-
-  gateway:
-    category: standard
-    description: Reverse proxy with rate-limiting, geo-IP, and risk scoring
-    compose_service: gateway
-    depends_on: [api, redis]
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-      saas:
-        default: true
-
-  console-lite:
-    category: standard
-    description: Self-hosted management console (7 pages)
-    compose_service: console-lite
-    depends_on: [api, gateway]
-    mutually_exclusive: [console]
-    capabilities:
-      installable: true
-      configurable: false
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-      saas:
-        default: false
-
   # ── Optional ─────────────────────────────────────────────────
-
-  console:
-    category: optional
-    description: Full management console (~35 pages)
-    compose_service: console
-    compose_profile: console-full
-    depends_on: [api, gateway]
-    mutually_exclusive: [console-lite]
-    web_port: "${ARKLOOP_CONSOLE_PORT:-5174}"
-    capabilities:
-      installable: true
-      configurable: false
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: true
 
   openviking:
     category: optional

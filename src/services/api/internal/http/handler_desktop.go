@@ -133,7 +133,6 @@ type HandlerConfig struct {
 	PluginEnabler                *plugincontrib.Enabler
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
-	IPRulesRepo                  *data.IPRulesRepository
 	APIKeysRepo                  *data.APIKeysRepository
 	TeamRepo                     *data.TeamRepository
 	ProjectRepo                  *data.ProjectRepository
@@ -374,7 +373,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AppBaseURL:               cfg.AppBaseURL,
 		EnvironmentStore:         cfg.EnvironmentStore,
 		RunEventRepo:             cfg.RunEventRepo,
-		GatewayRedisClient:       nil,
 		EntitlementsRepo:         cfg.EntitlementsRepo,
 		ConfigResolver:           resolver,
 		MessageAttachmentStore:   cfg.MessageAttachmentStore,
@@ -387,8 +385,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		FeatureFlagService:    cfg.FeatureFlagService,
 		APIKeysRepo:           cfg.APIKeysRepo,
 		AuditWriter:           cfg.AuditWriter,
-		IPRulesRepo:           cfg.IPRulesRepo,
-		GatewayRedisClient:    nil,
 		NotificationsRepo:     cfg.NotificationsRepo,
 		AuditLogRepo:          cfg.AuditLogRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
@@ -418,7 +414,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		NotificationsRepo:     cfg.NotificationsRepo,
 		Pool:                  cfg.Pool,
 		Logger:                cfg.Logger,
-		GatewayRedisClient:    nil,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		ConfigResolver:        resolver,
 		ConfigInvalidator:     invalidator,

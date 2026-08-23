@@ -18,15 +18,15 @@ with the following additional conditions:
 
    b. LOGO and Copyright Information: In the process of using Arkloop's
       frontend components, you may not remove or modify the LOGO or
-      copyright information in the Arkloop console or applications. This
+      copyright information in Arkloop applications. This
       restriction is inapplicable to uses of Arkloop that do not involve
       its frontend.
 
       Frontend Definition: For the purposes of this license, the
       "frontend" of Arkloop includes all components located in the
-      `src/apps/web/` and `src/apps/console/` directories when running
-      Arkloop from the raw source code, or the "web" and "console"
-      Docker images when running Arkloop with Docker.
+      `src/apps/web/` directory when running
+      Arkloop from the raw source code, or the "web"
+      Docker image when running Arkloop with Docker.
 
 2. As a contributor, you should agree that:
 

@@ -53,7 +53,7 @@ t() {
       cat <<'EOF'
 用法：
   ./setup.sh install [flags]
-  ./setup.sh doctor [--gateway-port <port>] [--lang zh-CN|en]
+  ./setup.sh doctor [--lang zh-CN|en]
   ./setup.sh status [--lang zh-CN|en]
   ./setup.sh upgrade [--prod] [--version <tag>] [--yes] [--lang zh-CN|en]
   ./setup.sh uninstall [--purge] [--yes] [--lang zh-CN|en]
@@ -63,11 +63,8 @@ install flags:
   --mode self-hosted|saas
   --memory none|openviking
   --sandbox none|docker|firecracker
-  --console lite|full
   --browser off|on
   --web-tools builtin|self-hosted
-  --gateway on|off
-  --gateway-port <port>
   --lang zh-CN|en
   --non-interactive
   --prod                    使用预构建镜像（compose.prod.yaml）
@@ -80,7 +77,7 @@ EOF
       cat <<'EOF'
 Usage:
   ./setup.sh install [flags]
-  ./setup.sh doctor [--gateway-port <port>] [--lang zh-CN|en]
+  ./setup.sh doctor [--lang zh-CN|en]
   ./setup.sh status [--lang zh-CN|en]
   ./setup.sh upgrade [--prod] [--version <tag>] [--yes] [--lang zh-CN|en]
   ./setup.sh uninstall [--purge] [--yes] [--lang zh-CN|en]
@@ -90,11 +87,8 @@ install flags:
   --mode self-hosted|saas
   --memory none|openviking
   --sandbox none|docker|firecracker
-  --console lite|full
   --browser off|on
   --web-tools builtin|self-hosted
-  --gateway on|off
-  --gateway-port <port>
   --lang zh-CN|en
   --non-interactive
   --prod                    Use pre-built images (compose.prod.yaml)
@@ -121,14 +115,8 @@ EOF
     en:prompt_sandbox) printf 'Code execution (none/docker/firecracker)' ;;
     zh-CN:prompt_web_tools) printf '搜索/抓取（builtin/self-hosted）' ;;
     en:prompt_web_tools) printf 'Search/scraping (builtin/self-hosted)' ;;
-    zh-CN:prompt_console) printf 'Console（lite/full）' ;;
-    en:prompt_console) printf 'Console (lite/full)' ;;
     zh-CN:prompt_browser) printf '浏览器模块（off/on）' ;;
     en:prompt_browser) printf 'Browser module (off/on)' ;;
-    zh-CN:prompt_gateway) printf 'Gateway（on/off）' ;;
-    en:prompt_gateway) printf 'Gateway (on/off)' ;;
-    zh-CN:prompt_gateway_port) printf 'Gateway 端口' ;;
-    en:prompt_gateway_port) printf 'Gateway port' ;;
     zh-CN:missing_docker_socket) printf '未找到可用的用户态 Docker socket' ;;
     en:missing_docker_socket) printf 'No usable user-space Docker socket found' ;;
     zh-CN:docker_unavailable) printf 'Docker 不可用' ;;
@@ -139,8 +127,6 @@ EOF
     en:firecracker_linux_only) printf 'firecracker is only supported on Linux' ;;
     zh-CN:kvm_missing) printf '当前宿主未检测到 KVM' ;;
     en:kvm_missing) printf 'KVM was not detected on this host' ;;
-    zh-CN:gateway_port_in_use) printf '端口 %s 已被占用' "$2" ;;
-    en:gateway_port_in_use) printf 'Port %s is already in use' "$2" ;;
     zh-CN:preflight_failed) printf 'pre-flight 检测未通过' ;;
     en:preflight_failed) printf 'Pre-flight checks failed' ;;
     zh-CN:stale_postgres_volume) printf '检测到旧的 PostgreSQL 数据卷，但当前 .env 是新生成的。请执行 ./setup.sh uninstall --purge --yes 清理旧卷，或恢复原来的 .env。' ;;
@@ -149,28 +135,22 @@ EOF
     en:unknown_arg) printf 'Unknown argument: %s' "$2" ;;
     zh-CN:invalid_port) printf '无效端口：%s' "$2" ;;
     en:invalid_port) printf 'Invalid port: %s' "$2" ;;
-    zh-CN:install_plan) printf '安装方案：profile=%s mode=%s memory=%s sandbox=%s console=%s browser=%s web-tools=%s gateway-port=%s' "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" ;;
-    en:install_plan) printf 'Install plan: profile=%s mode=%s memory=%s sandbox=%s console=%s browser=%s web-tools=%s gateway-port=%s' "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" ;;
+    zh-CN:install_plan) printf '安装方案：profile=%s mode=%s memory=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" "$7" ;;
+    en:install_plan) printf 'Install plan: profile=%s mode=%s memory=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" "$7" ;;
     zh-CN:skip_compose) printf '已跳过 Compose 执行（ARKLOOP_SETUP_SKIP_COMPOSE=1）' ;;
     en:skip_compose) printf 'Skipped Compose execution (ARKLOOP_SETUP_SKIP_COMPOSE=1)' ;;
     zh-CN:starting_modules) printf '启动模块：%s' "$2" ;;
     en:starting_modules) printf 'Starting modules: %s' "$2" ;;
-    zh-CN:starting_gateway) printf '启动 Gateway' ;;
-    en:starting_gateway) printf 'Starting Gateway' ;;
     zh-CN:service_health_timeout) printf '服务健康检查超时，请执行 ./setup.sh status 查看详情' ;;
     en:service_health_timeout) printf 'Service health checks timed out, run ./setup.sh status for details' ;;
-    zh-CN:gateway_health_failed) printf 'Gateway 健康检查失败' ;;
-    en:gateway_health_failed) printf 'Gateway health check failed' ;;
-    zh-CN:console_not_ready) printf 'Console 入口未就绪' ;;
-    en:console_not_ready) printf 'Console entry is not ready' ;;
+    zh-CN:web_health_failed) printf 'Web 健康检查失败' ;;
+    en:web_health_failed) printf 'Web health check failed' ;;
     zh-CN:install_done) printf '安装完成' ;;
     en:install_done) printf 'Install completed' ;;
     zh-CN:entry_url) printf '入口地址：http://localhost:%s' "$2" ;;
     en:entry_url) printf 'Entry URL: http://localhost:%s' "$2" ;;
-    zh-CN:next_step_console) printf '下一步：如上方已打印管理员初始化地址，请优先打开它；否则直接登录 Console。' ;;
-    en:next_step_console) printf 'Next: open the admin bootstrap URL above if one was printed; otherwise log in to Console directly.' ;;
-    zh-CN:install_done_no_gateway) printf '安装完成（未启用 Gateway）' ;;
-    en:install_done_no_gateway) printf 'Install completed (Gateway disabled)' ;;
+    zh-CN:next_step_web) printf '下一步：如上方已打印管理员初始化地址，请优先打开它；否则直接登录。' ;;
+    en:next_step_web) printf 'Next: open the admin bootstrap URL above if one was printed; otherwise log in directly.' ;;
     zh-CN:status_metadata_missing) printf '未发现 setup.sh 安装元数据，仅输出当前 compose 状态' ;;
     en:status_metadata_missing) printf 'No setup.sh install metadata found, printing current compose state only' ;;
     zh-CN:upgrade_prereq_failed) printf 'upgrade 前置检查失败：Docker / Compose 不可用' ;;
@@ -564,10 +544,8 @@ resolve_plan() {
   local mode="$2"
   local memory="$3"
   local sandbox="$4"
-  local console="$5"
-  local browser="$6"
-  local web_tools="$7"
-  local gateway="$8"
+  local browser="$5"
+  local web_tools="$6"
   local cmd=(python3 "$MODULE_HELPER" resolve --modules "$MODULES_FILE" --host-os "$HOST_OS")
   if [ "$HAS_KVM" = "1" ]; then
     cmd+=(--has-kvm)
@@ -576,10 +554,8 @@ resolve_plan() {
   [ -n "$mode" ] && cmd+=(--mode "$mode")
   [ -n "$memory" ] && cmd+=(--memory "$memory")
   [ -n "$sandbox" ] && cmd+=(--sandbox "$sandbox")
-  [ -n "$console" ] && cmd+=(--console "$console")
   [ -n "$browser" ] && cmd+=(--browser "$browser")
   [ -n "$web_tools" ] && cmd+=(--web-tools "$web_tools")
-  [ -n "$gateway" ] && cmd+=(--gateway "$gateway")
   local output
   if ! output="$("${cmd[@]}")"; then
     fail "$(t install_validation_failed)"
@@ -613,22 +589,16 @@ collect_install_inputs() {
   local mode="$2"
   local memory="$3"
   local sandbox="$4"
-  local console="$5"
-  local browser="$6"
-  local web_tools="$7"
-  local gateway="$8"
-  local gateway_port="$9"
+  local browser="$5"
+  local web_tools="$6"
 
   if [ "${NON_INTERACTIVE:-0}" = "1" ]; then
     INSTALL_PROFILE="$profile"
     INSTALL_MODE="$mode"
     INSTALL_MEMORY="$memory"
     INSTALL_SANDBOX="$sandbox"
-    INSTALL_CONSOLE="$console"
     INSTALL_BROWSER="$browser"
     INSTALL_WEB_TOOLS="$web_tools"
-    INSTALL_GATEWAY="$gateway"
-    INSTALL_GATEWAY_PORT="$gateway_port"
     return
   fi
 
@@ -637,10 +607,7 @@ collect_install_inputs() {
   INSTALL_MEMORY="$(prompt_choice "$(t prompt_memory)" "${memory:-}")"
   INSTALL_SANDBOX="$(prompt_choice "$(t prompt_sandbox)" "${sandbox:-}")"
   INSTALL_WEB_TOOLS="$(prompt_choice "$(t prompt_web_tools)" "${web_tools:-}")"
-  INSTALL_CONSOLE="$(prompt_choice "$(t prompt_console)" "${console:-}")"
   INSTALL_BROWSER="$(prompt_choice "$(t prompt_browser)" "${browser:-off}")"
-  INSTALL_GATEWAY="$(prompt_choice "$(t prompt_gateway)" "${gateway:-on}")"
-  INSTALL_GATEWAY_PORT="$(prompt_choice "$(t prompt_gateway_port)" "${gateway_port:-19000}")"
 }
 
 compose_ps_lines() {
@@ -746,8 +713,8 @@ wait_for_http() {
 }
 
 bootstrap_init_url() {
-  local gateway_port="$1"
-  local endpoint="http://127.0.0.1:${gateway_port}/v1/bootstrap/init"
+  local port="$1"
+  local endpoint="http://127.0.0.1:${port}/v1/bootstrap/init"
   local tmp_file http_code payload token expires_at
   tmp_file="$(mktemp)"
   http_code="$(curl -sS -o "$tmp_file" -w '%{http_code}' -X POST "$endpoint" || true)"
@@ -763,7 +730,7 @@ bootstrap_init_url() {
         return 0
       fi
       printf '管理员初始化地址：http://localhost:%s/bootstrap/%s
-' "$gateway_port" "$token"
+' "$port" "$token"
       if [ -n "$expires_at" ]; then
         printf '过期时间：%s
 ' "$expires_at"
@@ -803,12 +770,7 @@ wait_for_services() {
 }
 
 apply_runtime_env() {
-  local gateway_port pg_user pg_db pg_pass redis_pass console_upstream
-  gateway_port="$INSTALL_GATEWAY_PORT"
-  [ -n "$gateway_port" ] || gateway_port="$(python_env_get ARKLOOP_GATEWAY_PORT)"
-  [ -n "$gateway_port" ] || gateway_port="19000"
-  validate_port "$gateway_port" || fail "$(t invalid_port "$gateway_port")"
-  set_value ARKLOOP_GATEWAY_PORT "$gateway_port"
+  local pg_user pg_db pg_pass redis_pass
   pg_user="$(python_env_get ARKLOOP_POSTGRES_USER)"
   [ -n "$pg_user" ] || pg_user="arkloop"
   pg_db="$(python_env_get ARKLOOP_POSTGRES_DB)"
@@ -820,16 +782,6 @@ apply_runtime_env() {
   set_value ARKLOOP_DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5432/${pg_db}"
   set_value ARKLOOP_PGBOUNCER_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5433/${pg_db}"
   set_value ARKLOOP_REDIS_URL "redis://:${redis_pass}@127.0.0.1:6379/0"
-  set_value ARKLOOP_GATEWAY_REDIS_URL "redis://:${redis_pass}@127.0.0.1:6379/1"
-  set_if_empty ARKLOOP_GATEWAY_CORS_ALLOWED_ORIGINS "http://localhost:19080,http://localhost:19081,http://localhost:19082"
-
-  case "$RESOLVED_CONSOLE" in
-    lite) console_upstream="http://console-lite:80" ;;
-    full) console_upstream="http://console:80" ;;
-    *) console_upstream="" ;;
-  esac
-  set_value ARKLOOP_GATEWAY_FRONTEND_UPSTREAM "$console_upstream"
-
   case "$RESOLVED_MEMORY" in
     openviking|none) python_env_delete ARKLOOP_OPENVIKING_BASE_URL ;;
   esac
@@ -888,10 +840,8 @@ apply_runtime_env() {
   python_env_delete ARKLOOP_INSTALL_MODE
   python_env_delete ARKLOOP_INSTALL_MEMORY
   python_env_delete ARKLOOP_INSTALL_SANDBOX
-  python_env_delete ARKLOOP_INSTALL_CONSOLE
   python_env_delete ARKLOOP_INSTALL_BROWSER
   python_env_delete ARKLOOP_INSTALL_WEB_TOOLS
-  python_env_delete ARKLOOP_INSTALL_GATEWAY
   python_env_delete ARKLOOP_INSTALL_MODULES
   python_env_delete ARKLOOP_SETUP_LANG
 
@@ -899,10 +849,8 @@ apply_runtime_env() {
   set_install_state ARKLOOP_INSTALL_MODE "$RESOLVED_MODE"
   set_install_state ARKLOOP_INSTALL_MEMORY "$RESOLVED_MEMORY"
   set_install_state ARKLOOP_INSTALL_SANDBOX "$RESOLVED_SANDBOX"
-  set_install_state ARKLOOP_INSTALL_CONSOLE "$RESOLVED_CONSOLE"
   set_install_state ARKLOOP_INSTALL_BROWSER "$RESOLVED_BROWSER"
   set_install_state ARKLOOP_INSTALL_WEB_TOOLS "$RESOLVED_WEB_TOOLS"
-  set_install_state ARKLOOP_INSTALL_GATEWAY "$RESOLVED_GATEWAY"
   set_install_state ARKLOOP_INSTALL_MODULES "$(printf '%s' "$SELECTED_MODULES" | paste -sd, -)"
   set_install_state ARKLOOP_SETUP_LANG "$(setup_lang)"
 }
@@ -950,21 +898,12 @@ preflight_install() {
 
   compose_base_cmd "$COMPOSE_PROFILES"
 
-  local gateway_port
-  gateway_port="$(python_env_get ARKLOOP_GATEWAY_PORT || true)"
-  [ -n "$gateway_port" ] || gateway_port="19000"
-  if [ "$RESOLVED_GATEWAY" = "on" ] && port_in_use "$gateway_port"; then
-    if ! service_ready gateway >/dev/null 2>&1; then
-      warn "$(t gateway_port_in_use "$gateway_port")"
-      failures=1
-    fi
-  fi
 
   [ "$failures" -eq 0 ] || fail "$(t preflight_failed)"
 }
 
 run_install() {
-  local profile="" mode="" memory="" sandbox="" console="" browser="" web_tools="" gateway="" gateway_port=""
+  local profile="" mode="" memory="" sandbox="" browser="" web_tools=""
   NON_INTERACTIVE="0"
 
   while [ "$#" -gt 0 ]; do
@@ -973,11 +912,8 @@ run_install() {
       --mode) mode="$2"; shift 2 ;;
       --memory) memory="$2"; shift 2 ;;
       --sandbox) sandbox="$2"; shift 2 ;;
-      --console) console="$2"; shift 2 ;;
       --browser) browser="$2"; shift 2 ;;
       --web-tools) web_tools="$2"; shift 2 ;;
-      --gateway) gateway="$2"; shift 2 ;;
-      --gateway-port) gateway_port="$2"; shift 2 ;;
       --lang) SETUP_LANG="$(normalize_setup_lang "$2")"; shift 2 ;;
       --non-interactive) NON_INTERACTIVE="1"; shift ;;
       --prod) USE_PROD_IMAGES="1"; shift ;;
@@ -992,8 +928,8 @@ run_install() {
   else
     HAD_ENV_FILE_BEFORE_INSTALL="0"
   fi
-  collect_install_inputs "$profile" "$mode" "$memory" "$sandbox" "$console" "$browser" "$web_tools" "$gateway" "$gateway_port"
-  resolve_plan "$INSTALL_PROFILE" "$INSTALL_MODE" "$INSTALL_MEMORY" "$INSTALL_SANDBOX" "$INSTALL_CONSOLE" "$INSTALL_BROWSER" "$INSTALL_WEB_TOOLS" "$INSTALL_GATEWAY"
+  collect_install_inputs "$profile" "$mode" "$memory" "$sandbox" "$browser" "$web_tools"
+  resolve_plan "$INSTALL_PROFILE" "$INSTALL_MODE" "$INSTALL_MEMORY" "$INSTALL_SANDBOX" "$INSTALL_BROWSER" "$INSTALL_WEB_TOOLS"
 
   ensure_env_file
   ensure_secret ARKLOOP_POSTGRES_PASSWORD hex16
@@ -1009,7 +945,7 @@ run_install() {
   apply_runtime_env
   preflight_install
 
-  log "$(t install_plan "$RESOLVED_PROFILE" "$RESOLVED_MODE" "$RESOLVED_MEMORY" "$RESOLVED_SANDBOX" "$RESOLVED_CONSOLE" "$RESOLVED_BROWSER" "$RESOLVED_WEB_TOOLS" "$INSTALL_GATEWAY_PORT")"
+  log "$(t install_plan "$RESOLVED_PROFILE" "$RESOLVED_MODE" "$RESOLVED_MEMORY" "$RESOLVED_SANDBOX" "$RESOLVED_BROWSER" "$RESOLVED_WEB_TOOLS")"
 
   if [ "$SETUP_SKIP_COMPOSE" = "1" ]; then
     log "$(t skip_compose)"
@@ -1020,26 +956,9 @@ run_install() {
   compose_base_cmd "$COMPOSE_PROFILES"
   read_lines_to_array "$COMPOSE_SERVICES" SELECTED_SERVICES_ARRAY
 
-  local -a phase_one=()
-  local -a phase_two=()
-  local service
-  for service in "${SELECTED_SERVICES_ARRAY[@]}"; do
-    if [ "$service" = "gateway" ]; then
-      phase_two+=("$service")
-    else
-      phase_one+=("$service")
-    fi
-  done
-
-  if [ "${#phase_one[@]}" -gt 0 ]; then
-    log "$(t starting_modules "${phase_one[*]}")"
-    local cmd=("${COMPOSE_BASE_CMD[@]}" up -d "${phase_one[@]}")
-    "${cmd[@]}"
-  fi
-
-  if [ "${#phase_two[@]}" -gt 0 ]; then
-    log "$(t starting_gateway)"
-    local cmd=("${COMPOSE_BASE_CMD[@]}" up -d "${phase_two[@]}")
+  if [ "${#SELECTED_SERVICES_ARRAY[@]}" -gt 0 ]; then
+    log "$(t starting_modules "${SELECTED_SERVICES_ARRAY[*]}")"
+    local cmd=("${COMPOSE_BASE_CMD[@]}" up -d "${SELECTED_SERVICES_ARRAY[@]}")
     "${cmd[@]}"
   fi
 
@@ -1047,24 +966,19 @@ run_install() {
     fail "$(t service_health_timeout)"
   fi
 
-  local gateway_port
-  gateway_port="$(python_env_get ARKLOOP_GATEWAY_PORT)"
-  [ -n "$gateway_port" ] || gateway_port="19000"
+  local web_port
+  web_port="$(python_env_get ARKLOOP_WEB_PORT)"
+  [ -n "$web_port" ] || web_port="19080"
 
   install_rtk_host
 
-  if [ "$RESOLVED_GATEWAY" = "on" ]; then
-    wait_for_http "http://127.0.0.1:${gateway_port}/healthz" 60 || fail "$(t gateway_health_failed)"
-    wait_for_http "http://127.0.0.1:${gateway_port}/" 60 || fail "$(t console_not_ready)"
-    if [ "$RESOLVED_MODE" != "saas" ]; then
-      bootstrap_init_url "$gateway_port"
-    fi
-    log "$(t install_done)"
-    printf '%s\n' "$(t entry_url "$gateway_port")"
-    printf '%s\n' "$(t next_step_console)"
-  else
-    log "$(t install_done_no_gateway)"
+  wait_for_http "http://127.0.0.1:${web_port}/healthz" 60 || fail "$(t web_health_failed)"
+  if [ "$RESOLVED_MODE" != "saas" ]; then
+    bootstrap_init_url "$web_port"
   fi
+  log "$(t install_done)"
+  printf '%s\n' "$(t entry_url "$web_port")"
+  printf '%s\n' "$(t next_step_web)"
 }
 
 # install_rtk_host installs the rtk binary to ~/.arkloop/bin/rtk.
@@ -1094,10 +1008,8 @@ install_rtk_host() {
 }
 
 run_doctor() {
-  local gateway_port_override=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --gateway-port) gateway_port_override="$2"; shift 2 ;;
       --lang) SETUP_LANG="$(normalize_setup_lang "$2")"; shift 2 ;;
       -h|--help) print_usage; exit 0 ;;
       *) fail "$(t unknown_arg "$1")" ;;
@@ -1108,21 +1020,20 @@ run_doctor() {
   check_docker_tools
   detect_docker_socket
 
-  local gateway_port
-  gateway_port="$gateway_port_override"
-  [ -n "$gateway_port" ] || gateway_port="$(python_env_get ARKLOOP_GATEWAY_PORT)"
-  [ -n "$gateway_port" ] || gateway_port="19000"
-  validate_port "$gateway_port" || fail "$(t invalid_port "$gateway_port")"
+  local web_port
+  web_port="$(python_env_get ARKLOOP_WEB_PORT)"
+  [ -n "$web_port" ] || web_port="19080"
+  validate_port "$web_port" || fail "$(t invalid_port "$web_port")"
 
   printf 'platform=%s\n' "$HOST_OS"
   printf 'docker=%s\n' "$DOCKER_OK"
   printf 'compose=%s\n' "$COMPOSE_OK"
   printf 'docker_socket=%s\n' "${DETECTED_DOCKER_SOCKET:-not-found}"
   printf 'kvm=%s\n' "$HAS_KVM"
-  if port_in_use "$gateway_port"; then
-    printf 'port_%s=in-use\n' "$gateway_port"
+  if port_in_use "$web_port"; then
+    printf 'port_%s=in-use\n' "$web_port"
   else
-    printf 'port_%s=free\n' "$gateway_port"
+    printf 'port_%s=free\n' "$web_port"
   fi
   if port_in_use 9000; then
     printf 'port_9000=in-use (SeaweedFS S3 API)\n'
@@ -1152,32 +1063,28 @@ EOF
 }
 
 status_from_metadata() {
-  local profile mode memory sandbox console browser web_tools gateway
+  local profile mode memory sandbox browser web_tools
   profile="$(python_state_get ARKLOOP_INSTALL_PROFILE)"
   mode="$(python_state_get ARKLOOP_INSTALL_MODE)"
   memory="$(python_state_get ARKLOOP_INSTALL_MEMORY)"
   sandbox="$(python_state_get ARKLOOP_INSTALL_SANDBOX)"
-  console="$(python_state_get ARKLOOP_INSTALL_CONSOLE)"
   browser="$(python_state_get ARKLOOP_INSTALL_BROWSER)"
   web_tools="$(python_state_get ARKLOOP_INSTALL_WEB_TOOLS)"
-  gateway="$(python_state_get ARKLOOP_INSTALL_GATEWAY)"
 
   if [ -z "$profile" ]; then
     profile="$(python_env_get ARKLOOP_INSTALL_PROFILE)"
     mode="$(python_env_get ARKLOOP_INSTALL_MODE)"
     memory="$(python_env_get ARKLOOP_INSTALL_MEMORY)"
     sandbox="$(python_env_get ARKLOOP_INSTALL_SANDBOX)"
-    console="$(python_env_get ARKLOOP_INSTALL_CONSOLE)"
     browser="$(python_env_get ARKLOOP_INSTALL_BROWSER)"
     web_tools="$(python_env_get ARKLOOP_INSTALL_WEB_TOOLS)"
-    gateway="$(python_env_get ARKLOOP_INSTALL_GATEWAY)"
   fi
 
   if [ -z "$profile" ]; then
     return 1
   fi
   detect_host
-  resolve_plan "$profile" "$mode" "$memory" "$sandbox" "$console" "$browser" "$web_tools" "$gateway"
+  resolve_plan "$profile" "$mode" "$memory" "$sandbox" "$browser" "$web_tools"
   return 0
 }
 
@@ -1207,9 +1114,6 @@ run_status() {
         migrate) service="migrate" ;;
         api) service="api" ;;
         worker) service="worker" ;;
-        gateway) service="gateway" ;;
-        console-lite) service="console-lite" ;;
-        console) service="console" ;;
         openviking) service="openviking" ;;
         sandbox-docker|browser) service="sandbox-docker" ;;
         sandbox-firecracker) service="sandbox" ;;
