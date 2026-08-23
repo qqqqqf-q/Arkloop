@@ -14,7 +14,6 @@ import (
 
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/objectstore"
-	"arkloop/services/shared/stringutil"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,16 +30,10 @@ const (
 	flushForceCountEnv       = "ARKLOOP_SANDBOX_FLUSH_FORCE_COUNT_THRESHOLD"
 	allowEgressEnv           = "ARKLOOP_SANDBOX_ALLOW_EGRESS"
 	dockerNetworkEnv         = "ARKLOOP_SANDBOX_DOCKER_NETWORK"
-	firecrackerBinEnv        = "ARKLOOP_FIRECRACKER_BIN"
 	kernelImagePathEnv       = "ARKLOOP_SANDBOX_KERNEL_IMAGE"
 	initrdPathEnv            = "ARKLOOP_SANDBOX_INITRD"
 	rootfsPathEnv            = "ARKLOOP_SANDBOX_ROOTFS"
 	socketBaseDirEnv         = "ARKLOOP_SANDBOX_SOCKET_DIR"
-	templatesPathEnv         = "ARKLOOP_SANDBOX_TEMPLATES_PATH"
-	firecrackerIfaceEnv      = "ARKLOOP_SANDBOX_EGRESS_INTERFACE"
-	firecrackerTapEnv        = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_PREFIX"
-	firecrackerCIDREnv       = "ARKLOOP_SANDBOX_FIRECRACKER_TAP_CIDR"
-	firecrackerDNSEnv        = "ARKLOOP_SANDBOX_FIRECRACKER_DNS"
 	s3EndpointEnv            = "ARKLOOP_S3_ENDPOINT"
 	s3AccessKeyEnv           = "ARKLOOP_S3_ACCESS_KEY"
 	s3SecretKeyEnv           = "ARKLOOP_S3_SECRET_KEY"
@@ -48,16 +41,14 @@ const (
 
 // Provider 标识 sandbox 后端类型。
 const (
-	ProviderFirecracker = "firecracker"
-	ProviderDocker      = "docker"
-	ProviderVz          = "vz"
+	ProviderDocker = "docker"
+	ProviderVz     = "vz"
 )
 
 type Config struct {
 	Addr                       string
 	AuthToken                  string // 服务间认证 Bearer token，空则跳过校验（仅限开发环境）
-	Provider                   string // "firecracker" | "docker"
-	FirecrackerBin             string
+	Provider                   string // "docker" | "vz"
 	KernelImagePath            string
 	InitrdPath                 string // optional initramfs for Vz provider
 	RootfsPath                 string
@@ -75,15 +66,10 @@ type Config struct {
 	FlushMaxDirtyAgeMS         int
 	FlushForceBytesThreshold   int
 	FlushForceCountThreshold   int
-	TemplatesPath              string
 	DockerImage                string // Docker 后端 lite/pro 使用的 sandbox-agent 镜像
 	BrowserDockerImage         string // Docker 后端 browser 使用的 sandbox-agent 镜像
 	AllowEgress                bool
 	DockerNetwork              string // agent 容器加入的 Docker 网络（compose 桥接网络）
-	FirecrackerEgressInterface string
-	FirecrackerTapPrefix       string
-	FirecrackerTapCIDR         string
-	FirecrackerDNS             []string
 
 	// Warm pool: 各 tier 的预热 VM 数量
 	WarmLite    int
@@ -106,9 +92,10 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:                       "0.0.0.0:19002",
-		Provider:                   ProviderFirecracker,
-		FirecrackerBin:             "/usr/bin/firecracker",
+		Addr:  "0.0.0.0:19002",
+		// Firecracker 后端已随个人化转型移除，Docker 是唯一自部署后端；
+		// vz 仅供 desktop（darwin）内嵌使用。
+		Provider:                   ProviderDocker,
 		KernelImagePath:            "/opt/sandbox/vmlinux",
 		RootfsPath:                 "/opt/sandbox/rootfs.ext4",
 		SocketBaseDir:              "/run/sandbox",
@@ -120,15 +107,10 @@ func DefaultConfig() Config {
 		FlushMaxDirtyAgeMS:         15000,
 		FlushForceBytesThreshold:   16 << 20,
 		FlushForceCountThreshold:   512,
-		TemplatesPath:              "/opt/sandbox/templates.json",
 		DockerImage:                "arkloop/sandbox-agent:latest",
 		BrowserDockerImage:         "arkloop/sandbox-browser:dev",
 		AllowEgress:                true,
 		DockerNetwork:              "arkloop_sandbox_agent_egress",
-		FirecrackerEgressInterface: "eth0",
-		FirecrackerTapPrefix:       "arktap",
-		FirecrackerTapCIDR:         "172.29.0.0/16",
-		FirecrackerDNS:             []string{"1.1.1.1", "8.8.8.8"},
 
 		WarmLite:                  3,
 		WarmPro:                   2,
@@ -196,21 +178,6 @@ func LoadConfigFromEnv() (Config, error) {
 	if raw := strings.TrimSpace(os.Getenv(dockerNetworkEnv)); raw != "" {
 		cfg.DockerNetwork = raw
 	}
-	if raw := strings.TrimSpace(os.Getenv(firecrackerIfaceEnv)); raw != "" {
-		cfg.FirecrackerEgressInterface = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(firecrackerTapEnv)); raw != "" {
-		cfg.FirecrackerTapPrefix = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(firecrackerCIDREnv)); raw != "" {
-		cfg.FirecrackerTapCIDR = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(firecrackerDNSEnv)); raw != "" {
-		cfg.FirecrackerDNS = stringutil.SplitCSV(raw)
-	}
-	if raw := strings.TrimSpace(os.Getenv(firecrackerBinEnv)); raw != "" {
-		cfg.FirecrackerBin = raw
-	}
 	if raw := strings.TrimSpace(os.Getenv(kernelImagePathEnv)); raw != "" {
 		cfg.KernelImagePath = raw
 	}
@@ -222,9 +189,6 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 	if raw := strings.TrimSpace(os.Getenv(socketBaseDirEnv)); raw != "" {
 		cfg.SocketBaseDir = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(templatesPathEnv)); raw != "" {
-		cfg.TemplatesPath = raw
 	}
 	if raw := strings.TrimSpace(os.Getenv(s3EndpointEnv)); raw != "" {
 		cfg.S3Endpoint = raw
@@ -392,9 +356,9 @@ func (c Config) Validate() error {
 		return fmt.Errorf("addr invalid: %w", err)
 	}
 	switch c.Provider {
-	case ProviderFirecracker, ProviderDocker, ProviderVz:
+	case ProviderDocker, ProviderVz:
 	default:
-		return fmt.Errorf("provider must be %q, %q, or %q", ProviderFirecracker, ProviderDocker, ProviderVz)
+		return fmt.Errorf("provider must be %q or %q", ProviderDocker, ProviderVz)
 	}
 	if c.WarmBrowser > 0 && !c.AllowEgress {
 		return fmt.Errorf("browser warm pool requires allow_egress=true")
@@ -441,25 +405,6 @@ func (c Config) Validate() error {
 		}
 		if strings.TrimSpace(c.BrowserDockerImage) == "" {
 			return fmt.Errorf("browser_docker_image must not be empty")
-		}
-	}
-	if c.Provider == ProviderFirecracker {
-		if strings.TrimSpace(c.FirecrackerEgressInterface) == "" {
-			return fmt.Errorf("firecracker_egress_interface must not be empty")
-		}
-		if strings.TrimSpace(c.FirecrackerTapPrefix) == "" {
-			return fmt.Errorf("firecracker_tap_prefix must not be empty")
-		}
-		if len(c.FirecrackerTapPrefix) > 10 {
-			return fmt.Errorf("firecracker_tap_prefix must be 10 chars or shorter")
-		}
-		if _, _, err := net.ParseCIDR(c.FirecrackerTapCIDR); err != nil {
-			return fmt.Errorf("firecracker_tap_cidr invalid: %w", err)
-		}
-		for _, ns := range c.FirecrackerDNS {
-			if net.ParseIP(strings.TrimSpace(ns)) == nil {
-				return fmt.Errorf("firecracker_dns contains invalid ip %q", ns)
-			}
 		}
 	}
 	if c.Provider == ProviderVz {

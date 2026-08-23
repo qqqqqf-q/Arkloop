@@ -17,7 +17,7 @@ type PoolStats struct {
 	TotalDestroyed int64
 }
 
-// VMPool 抽象 VM 的获取与销毁，由 pool.WarmPool 实现。
+// VMPool 抽象执行环境的获取与销毁，由 Docker / vz pool 实现。
 type VMPool interface {
 	Acquire(ctx context.Context, tier string) (*Session, *os.Process, error)
 	DestroyVM(proc *os.Process, socketDir string)
@@ -58,7 +58,7 @@ type Manager struct {
 	cfg      ManagerConfig
 	mu       sync.Mutex
 	sessions map[string]*Session
-	procs    map[string]*os.Process // session_id -> Firecracker 进程
+	procs    map[string]*os.Process // session_id -> 执行环境宿主进程（容器/VM 进程）
 	creating sync.Map               // session_id -> chan *createResult
 	pending  int
 

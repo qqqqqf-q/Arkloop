@@ -1,11 +1,6 @@
 # syntax=docker/dockerfile:1
-# Sandbox 服务需要宿主机具备 KVM 支持和 Firecracker 二进制。
-# 运行容器时必须挂载 /dev/kvm 设备和 Firecracker 二进制：
-#   docker run --device /dev/kvm -v /usr/bin/firecracker:/usr/bin/firecracker ...
-#
-# 内核镜像和 rootfs 需单独构建并挂载进容器：
-#   -v /path/to/vmlinux:/opt/sandbox/vmlinux
-#   -v /path/to/rootfs.ext4:/opt/sandbox/rootfs.ext4
+# Sandbox 服务（Docker 后端）。通过挂载的用户态 Docker socket 创建 sandbox-agent 容器：
+#   docker run -v /path/to/docker.sock:/run/docker-host.sock ...
 FROM golang:1.26-alpine AS builder
 WORKDIR /workspace
 COPY src/services/sandbox/go.mod src/services/sandbox/go.sum src/services/sandbox/
@@ -22,7 +17,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -ldflags="-s -w" -o /sandbox-agent ./src/services/sandbox/agent
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata wget iproute2 iptables
+RUN apk add --no-cache ca-certificates tzdata wget
 COPY --from=builder /sandbox       /usr/local/bin/sandbox
 COPY --from=builder /sandbox-agent /usr/local/share/arkloop/sandbox/sandbox-agent
 ENV ARKLOOP_SANDBOX_ADDR=0.0.0.0:8002

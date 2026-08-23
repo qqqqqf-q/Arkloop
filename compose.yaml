@@ -185,66 +185,9 @@ services:
       - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
       - arkloop_models:/var/lib/arkloop/models
 
-  # --- Sandbox: Firecracker 模式 ---
-  # 启用条件：ARKLOOP_SANDBOX_PROVIDER=firecracker（默认）
-  # 需要 Linux 宿主 + /dev/kvm + Firecracker 二进制
-  sandbox:
-    build:
-      context: .
-      dockerfile: src/services/sandbox/Dockerfile
-    restart: unless-stopped
-    devices:
-      - /dev/kvm:/dev/kvm
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - NET_ADMIN
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    sysctls:
-      net.ipv4.ip_forward: "1"
-    profiles:
-      - firecracker
-    environment:
-      ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
-      ARKLOOP_SANDBOX_ADDR: "0.0.0.0:19002"
-      ARKLOOP_SANDBOX_PROVIDER: "firecracker"
-      ARKLOOP_SANDBOX_ALLOW_EGRESS: "${ARKLOOP_SANDBOX_ALLOW_EGRESS:-true}"
-      ARKLOOP_FIRECRACKER_BIN: "${ARKLOOP_FIRECRACKER_BIN:-/usr/bin/firecracker}"
-      ARKLOOP_SANDBOX_KERNEL_IMAGE: "${ARKLOOP_SANDBOX_KERNEL_IMAGE:-/opt/sandbox/vmlinux}"
-      ARKLOOP_SANDBOX_ROOTFS: "${ARKLOOP_SANDBOX_ROOTFS:-/opt/sandbox/rootfs.ext4}"
-      ARKLOOP_SANDBOX_SOCKET_DIR: "/run/sandbox"
-      ARKLOOP_SANDBOX_EGRESS_INTERFACE: "${ARKLOOP_SANDBOX_EGRESS_INTERFACE:-eth0}"
-      ARKLOOP_SANDBOX_FIRECRACKER_TAP_PREFIX: "${ARKLOOP_SANDBOX_FIRECRACKER_TAP_PREFIX:-arktap}"
-      ARKLOOP_SANDBOX_FIRECRACKER_TAP_CIDR: "${ARKLOOP_SANDBOX_FIRECRACKER_TAP_CIDR:-172.29.0.0/16}"
-      ARKLOOP_SANDBOX_FIRECRACKER_DNS: "${ARKLOOP_SANDBOX_FIRECRACKER_DNS:-1.1.1.1,8.8.8.8}"
-      ARKLOOP_SANDBOX_MAX_SESSIONS: "${ARKLOOP_SANDBOX_MAX_SESSIONS:-50}"
-      ARKLOOP_SANDBOX_AUTH_TOKEN: "${ARKLOOP_SANDBOX_AUTH_TOKEN}"
-      ARKLOOP_STORAGE_BACKEND: "${ARKLOOP_STORAGE_BACKEND:-filesystem}"
-      ARKLOOP_STORAGE_ROOT: "${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}"
-      ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-}"
-      ARKLOOP_S3_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-}"
-      ARKLOOP_S3_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:-}"
-    volumes:
-      - sandbox_sockets:/run/sandbox
-      - arkloop_storage:${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}
-      - ./config/sandbox/templates.json:/opt/sandbox/templates.json:ro
-      - /usr/bin/firecracker:/usr/bin/firecracker:ro
-      - /opt/sandbox/vmlinux:/opt/sandbox/vmlinux:ro
-      - /opt/sandbox/rootfs:/opt/sandbox/rootfs:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:19002/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # --- Sandbox: Docker 模式 ---
-  # 启用条件：ARKLOOP_SANDBOX_PROVIDER=docker
-  # macOS/Windows/无 KVM 环境使用，通过用户态 Docker socket 创建 sandbox 容器
+  # 启用条件：profile docker-sandbox（--sandbox docker / auto）
+  # 通过用户态 Docker socket 创建 sandbox-agent 容器
   # 通过专用网络连接 sandbox-agent，默认允许外网访问以支持 git clone / curl 等开发任务
   sandbox-agent-image:
     build:
@@ -286,7 +229,6 @@ services:
       ARKLOOP_SANDBOX_SOCKET_DIR: "/run/sandbox"
       ARKLOOP_SANDBOX_MAX_SESSIONS: "${ARKLOOP_SANDBOX_MAX_SESSIONS:-50}"
       ARKLOOP_SANDBOX_AUTH_TOKEN: "${ARKLOOP_SANDBOX_AUTH_TOKEN}"
-      ARKLOOP_SANDBOX_TEMPLATES_PATH: ""
       ARKLOOP_STORAGE_BACKEND: "${ARKLOOP_STORAGE_BACKEND:-filesystem}"
       ARKLOOP_STORAGE_ROOT: "${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}"
       ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-}"

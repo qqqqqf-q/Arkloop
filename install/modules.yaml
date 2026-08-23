@@ -126,13 +126,12 @@ modules:
 
   sandbox-docker:
     category: optional
-    description: Code execution sandbox (Docker backend, macOS/Windows/no-KVM)
+    description: Code execution sandbox (Docker backend)
     compose_service: sandbox-docker
     compose_profile: docker-sandbox
     depends_on: [postgres]
     platform_constraints:
       requires_docker: true
-    mutually_exclusive: [sandbox-firecracker]
     capabilities:
       installable: true
       configurable: true
@@ -140,29 +139,6 @@ modules:
       bootstrap_supported: true
       external_admin_supported: false
       privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
-
-  sandbox-firecracker:
-    category: optional
-    description: Code execution sandbox (Firecracker backend, Linux + KVM)
-    compose_service: sandbox
-    compose_profile: firecracker
-    depends_on: [postgres]
-    platform_constraints:
-      requires_linux: true
-      requires_kvm: true
-    mutually_exclusive: [sandbox-docker]
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: true
-      external_admin_supported: false
-      privileged_required: true
     profiles:
       self-hosted:
         default: false

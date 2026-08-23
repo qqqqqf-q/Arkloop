@@ -50,7 +50,7 @@ sh -c 'set -e; arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; a
 Arkloop does what other AI chat tools do — multi-model support, tool calling, code execution, memory — but we focus on doing it cleanly:
 
 - **Multi-Model Routing** — OpenAI, Anthropic, and any compatible API; priority-based automatic routing with rate limit handling
-- **Sandboxed Execution** — Code runs in Firecracker microVMs or Docker containers with strict resource limits
+- **Sandboxed Execution** — Code runs in Docker containers with strict resource limits
 - **Persistent Memory** — System constraints, long-term facts, and session context preserved across conversations
 - **Prompt Injection Protection** — Semantic-level scanning that detects and blocks injection attacks
 - **Channel Integration** — Telegram integration with media handling and group context

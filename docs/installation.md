@@ -37,7 +37,6 @@ Expected output fields:
 | `docker=1\|0` | Docker daemon reachable |
 | `compose=1\|0` | `docker compose` plugin available |
 | `docker_socket=<path>\|not-found` | Accessible Docker socket path |
-| `kvm=1\|0` | KVM device present (Linux only) |
 | `port_19000=free\|in-use` | Default gateway port availability |
 | `port_9000=free\|in-use` | SeaweedFS S3 API port availability |
 
@@ -82,20 +81,9 @@ Ask these questions to determine installation parameters. Keep them in this orde
 > Do you want agents to be able to execute code in an isolated environment?
 
 - No: disable code execution → `--sandbox none`
-- Yes: enable sandbox (auto-detect below) → `--sandbox docker` or `--sandbox firecracker`
+- Yes: enable sandbox → `--sandbox docker`（或 `--sandbox auto`，同样解析为 docker）
 
 **Default: none**
-
-If the user answers Yes, proceed to **Q3a** before continuing.
-
-**Q3a — Sandbox backend (auto-detect, ask only if Q3 = yes)**
-
-Check doctor output:
-
-- `platform=linux` AND `kvm=1` → recommend Firecracker (`--sandbox firecracker`)
-- Otherwise → Docker sandbox only (`--sandbox docker`)
-
-Tell the user which backend will be used. Only ask for confirmation if the recommendation differs from their expectation.
 
 ---
 
@@ -171,7 +159,7 @@ Construct the install command from the answers above and run it. Always include 
   --profile <standard|full> \
   --mode self-hosted \
   --memory <none|openviking> \
-  --sandbox <none|docker|firecracker> \
+  --sandbox <none|docker|auto> \
   --console <lite|full> \
   --browser <off|on> \
   --web-tools <builtin|self-hosted> \
@@ -211,24 +199,9 @@ Full install with memory, Docker sandbox, and self-hosted search:
   --non-interactive
 ```
 
-Full install with Firecracker (Linux with KVM):
-
-```bash
-./setup.sh install \
-  --profile full \
-  --mode self-hosted \
-  --memory openviking \
-  --sandbox firecracker \
-  --console lite \
-  --browser on \
-  --web-tools builtin \
-  --gateway on \
-  --non-interactive
-```
-
 The installer will:
 
-1. Check host prerequisites (Docker, Compose, KVM if needed, port availability)
+1. Check host prerequisites (Docker, Compose, port availability)
 2. Generate missing secrets and populate `.env`
 3. Start core services, then start the gateway
 4. Wait for health checks to pass
@@ -289,7 +262,7 @@ If the URL was not printed (gateway was off, or bootstrap already completed), sk
 | `--profile` | `standard`, `full` | `standard` | `full` enables all optional modules |
 | `--mode` | `self-hosted`, `saas` | `self-hosted` | `saas` enables PGBouncer, S3, full Console |
 | `--memory` | `none`, `openviking` | `none` | Adds persistent agent memory |
-| `--sandbox` | `none`, `docker`, `firecracker` | `none` | Code execution isolation |
+| `--sandbox` | `none`, `docker`, `auto` | `none` | Code execution isolation (`auto` resolves to `docker`) |
 | `--console` | `lite`, `full` | `lite` | Full adds advanced management UI |
 | `--browser` | `off`, `on` | `off` | Requires sandbox to be enabled |
 | `--web-tools` | `builtin`, `self-hosted` | `builtin` | `self-hosted` installs SearXNG + Firecrawl |
@@ -333,18 +306,6 @@ sudo usermod -aG docker $USER
 newgrp docker
 docker info  # should succeed without sudo
 ```
-
----
-
-### Firecracker Not Available
-
-Symptom: installer fails with `firecracker 仅支持 Linux` or `当前宿主未检测到 KVM`.
-
-Firecracker requires:
-- A Linux host (not macOS, not WSL2)
-- KVM support (`/dev/kvm` must exist)
-
-If running in a VM, enable nested virtualization. If running on macOS or WSL2, use `--sandbox docker` instead.
 
 ---
 

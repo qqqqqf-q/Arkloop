@@ -1,7 +1,6 @@
 package session
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -102,10 +101,10 @@ type GuestNetworkRequest struct {
 }
 
 // Dialer 抽象与 Guest Agent 的连接建立。
-// Firecracker 使用 vsock，Docker 使用 TCP。
+// vz 使用 vsock，Docker 使用 TCP。
 type Dialer func(ctx context.Context) (net.Conn, error)
 
-// Session 对应一个隔离执行环境（Firecracker microVM 或 Docker 容器）的执行上下文。
+// Session 对应一个隔离执行环境（vz microVM 或 Docker 容器）的执行上下文。
 type Session struct {
 	ID         string
 	Tier       string
@@ -449,54 +448,11 @@ func (s *Session) agentLabel() string {
 	return "runtime"
 }
 
-// NewVsockDialer 创建 Firecracker vsock 连接的 Dialer。
-//
-// Firecracker vsock 握手协议：
-//
-//	HOST: CONNECT {port}\n
-//	GUEST: OK {ephemeral_port}\n
-func NewVsockDialer(vsockPath string, agentPort uint32) Dialer {
-	return func(ctx context.Context) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", vsockPath)
-		if err != nil {
-			return nil, err
-		}
-
-		if _, err := fmt.Fprintf(conn, "CONNECT %d\n", agentPort); err != nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("vsock handshake write: %w", err)
-		}
-
-		reader := bufio.NewReaderSize(conn, 64)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("vsock handshake read: %w", err)
-		}
-		if !strings.HasPrefix(strings.TrimSpace(line), "OK") {
-			_ = conn.Close()
-			return nil, fmt.Errorf("vsock handshake failed: %q", line)
-		}
-
-		return &vsockConn{Conn: conn, reader: reader}, nil
-	}
-}
-
 // NewTCPDialer 创建 TCP 连接的 Dialer（用于 Docker 后端）。
 func NewTCPDialer(addr string) Dialer {
 	return func(ctx context.Context) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
 	}
-}
-
-// vsockConn 将 bufio.Reader（握手后可能有缓冲）和原始 Conn 合并为 net.Conn。
-type vsockConn struct {
-	net.Conn
-	reader *bufio.Reader
-}
-
-func (c *vsockConn) Read(b []byte) (int, error) {
-	return c.reader.Read(b)
 }
 
 func (s *Session) ApplySkillOverlay(ctx context.Context, req sandboxskills.ApplyRequest) error {

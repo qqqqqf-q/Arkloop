@@ -13,17 +13,12 @@ import (
 	"arkloop/services/sandbox/internal/app"
 	dockerpool "arkloop/services/sandbox/internal/docker"
 	"arkloop/services/sandbox/internal/environment"
-	"arkloop/services/sandbox/internal/firecracker"
 	sandboxhttp "arkloop/services/sandbox/internal/http"
 	"arkloop/services/sandbox/internal/logging"
-	"arkloop/services/sandbox/internal/pool"
 	processsvc "arkloop/services/sandbox/internal/process"
 	"arkloop/services/sandbox/internal/session"
 	"arkloop/services/sandbox/internal/shell"
 	"arkloop/services/sandbox/internal/skills"
-	"arkloop/services/sandbox/internal/snapshot"
-	"arkloop/services/sandbox/internal/storage"
-	"arkloop/services/sandbox/internal/template"
 	sharedlog "arkloop/services/shared/log"
 	"arkloop/services/shared/objectstore"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -98,8 +93,6 @@ func run() error {
 	var vmPool session.VMPool
 
 	switch cfg.Provider {
-	case app.ProviderFirecracker:
-		vmPool, err = buildFirecrackerPool(cfg, logger)
 	case app.ProviderDocker:
 		vmPool, err = buildDockerPool(cfg, logger)
 	case app.ProviderVz:
@@ -195,91 +188,6 @@ func buildStorageBucketOpener(cfg app.Config) (objectstore.BucketOpener, error) 
 		return nil, nil
 	}
 	return runtimeConfig.BucketOpener()
-}
-
-func buildFirecrackerPool(cfg app.Config, logger *logging.JSONLogger) (session.VMPool, error) {
-	var snapshotStore storage.SnapshotStore
-	var registry *template.Registry
-
-	bucketOpener, err := buildStorageBucketOpener(cfg)
-	if err != nil {
-		return nil, err
-	}
-	if bucketOpener != nil {
-		cacheDir := cfg.SocketBaseDir + "/_snapshots"
-		store, err := storage.NewSnapshotStore(context.Background(), bucketOpener, cacheDir)
-		if err != nil {
-			return nil, err
-		}
-		snapshotStore = store
-	}
-
-	if cfg.TemplatesPath != "" {
-		reg, err := template.LoadFromFile(cfg.TemplatesPath)
-		if err != nil {
-			return nil, err
-		}
-		registry = reg
-	}
-
-	networkManager, err := firecracker.NewNetworkManager(firecracker.NetworkConfig{
-		AllowEgress:     cfg.AllowEgress,
-		EgressInterface: cfg.FirecrackerEgressInterface,
-		TapPrefix:       cfg.FirecrackerTapPrefix,
-		AddressPoolCIDR: cfg.FirecrackerTapCIDR,
-		Nameservers:     cfg.FirecrackerDNS,
-	})
-	if err != nil {
-		return nil, err
-	}
-	validateCtx, validateCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer validateCancel()
-	if err := networkManager.ValidateHost(validateCtx); err != nil {
-		return nil, err
-	}
-	version, err := firecracker.DetectVersion(validateCtx, cfg.FirecrackerBin)
-	if err != nil {
-		return nil, err
-	}
-	if version.Less(firecracker.MinSnapshotTapPatchVersion) {
-		return nil, fmt.Errorf("firecracker version must be >= %d.%d.%d for snapshot network restore", firecracker.MinSnapshotTapPatchVersion.Major, firecracker.MinSnapshotTapPatchVersion.Minor, firecracker.MinSnapshotTapPatchVersion.Patch)
-	}
-
-	if snapshotStore != nil && registry != nil {
-		builder := snapshot.NewBuilder(
-			cfg.FirecrackerBin,
-			cfg.SocketBaseDir,
-			cfg.BootTimeoutSeconds,
-			cfg.GuestAgentPort,
-			snapshotStore,
-			networkManager,
-			logger,
-		)
-		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		if err := builder.EnsureAll(ensureCtx, registry); err != nil {
-			logger.Warn("snapshot ensure incomplete, falling back to cold boot", logging.LogFields{}, map[string]any{"error": err.Error()})
-		}
-		ensureCancel()
-	}
-
-	warmPool := pool.New(pool.Config{
-		WarmSizes:             cfg.WarmSizes(),
-		RefillIntervalSeconds: cfg.RefillIntervalSeconds,
-		MaxRefillConcurrency:  cfg.RefillConcurrency,
-		FirecrackerBin:        cfg.FirecrackerBin,
-		KernelImagePath:       cfg.KernelImagePath,
-		RootfsPath:            cfg.RootfsPath,
-		SocketBaseDir:         cfg.SocketBaseDir,
-		BootTimeoutSeconds:    cfg.BootTimeoutSeconds,
-		GuestAgentPort:        cfg.GuestAgentPort,
-		SnapshotStore:         snapshotStore,
-		Registry:              registry,
-		NetworkManager:        networkManager,
-		Logger:                logger,
-	})
-	warmPool.Start()
-
-	return warmPool, nil
 }
 
 func buildDockerPool(cfg app.Config, logger *logging.JSONLogger) (session.VMPool, error) {
