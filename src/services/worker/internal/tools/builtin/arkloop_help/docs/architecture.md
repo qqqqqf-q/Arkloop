@@ -18,7 +18,7 @@ Gateway 承担反代、限流、地理与风控等边缘能力；API 负责鉴�
 | `api` | **19001** | 核心 REST、认证、RBAC、计费、迁移、任务入队 |
 | `gateway` | **19000** | 反向代理、限流、Geo-IP、风险评分 |
 | `worker` | - | Job 执行：LLM 路由、工具分发、Agent 循环、Persona |
-| `sandbox` | 实现相关（如容器内 **19002** 等，视 profile） | 隔离代码执行：Linux 生产常见 Firecracker，macOS/Windows 常见 Docker |
+| `sandbox` | 实现相关（如容器内 **19002** 等，视 profile） | 隔离代码执行：Docker 容器（desktop 上为 vz 虚拟机） |
 | `bridge` | **19003** | 项目桥：Compose 管理、模块注册、审计等 |
 | `desktop` | - | **单进程**：API + Worker + Bridge，**SQLite**，无独立 Postgres/Redis 依赖 |
 | `shared` | - | 配置、S3 抽象、Redis 工具、积分策略等共享库 |
@@ -46,7 +46,7 @@ Gateway 承担反代、限流、地理与风控等边缘能力；API 负责鉴�
 - **对象存储**：**SeaweedFS（S3 profile）** 或 **本地 filesystem**（默认存储后端以环境变量为准）
 - **OpenViking**：向量/语义记忆（**openviking** profile，宿主机端口常映射 **19010**）
 
-根目录 **`compose.yaml`** 中的服务名包括：`postgres`、`redis`、`migrate`、`api`、`gateway`、`worker`、`web`、`console-lite`、`console`、`sandbox`（及 firecracker/docker 变体）、`openviking`、`searxng`、`firecrawl` 家族、`bridge`、`seaweedfs`、`pgbouncer` 等。**可选能力通过 `profiles` 打开**（如 `s3`、`pgbouncer`、`openviking`、`firecracker`、`docker-sandbox`、`searxng`、`firecrawl`、`bridge`）。  
+根目录 **`compose.yaml`** 中的服务名包括：`postgres`、`redis`、`migrate`、`api`、`gateway`、`worker`、`web`、`console-lite`、`console`、`sandbox-docker`、`openviking`、`searxng`、`firecrawl` 家族、`bridge`、`seaweedfs`、`pgbouncer` 等。**可选能力通过 `profiles` 打开**（如 `s3`、`pgbouncer`、`openviking`、`docker-sandbox`、`searxng`、`firecrawl`、`bridge`）。  
 若其他文档出现 `performance`、`redis_gateway` 等与当前 `compose.yaml` 不完全一致的 profile 名，**以仓库根目录 `compose.yaml` 实际定义为准**。
 
 ## Worker 中间件管道（概念顺序）

@@ -26,7 +26,7 @@ Arkloop 是**开源**、面向**对话式 AI Agent** 的平台：托管运行时
 ## 核心能力（与 README 对齐）
 
 1. **多模型路由**：OpenAI、Anthropic 及兼容 API；支持按优先级自动路由与限流等策略（细节以控制台/路由配置为准）。
-2. **沙箱执行**：代码隔离；生产常见 **Firecracker**（Linux），开发/桌面环境常见 **Docker** 容器。
+2. **沙箱执行**：代码隔离在 **Docker** 容器中运行（desktop 上为 vz 虚拟机）。
 3. **持久记忆**：长期事实与约束跨会话保留；实现上分 **OpenViking 语义记忆** 与 **Notebook 结构化笔记** 两个子系统（见内嵌 `architecture` 文档记忆小节）。
 4. **Prompt 注入防护**：语义级扫描等安全约束（具体策略以部署配置为准）。
 5. **渠道**：如 **Telegram** 等，消息进入与 Web 类似的 Worker 管道（详见 `channels_telegram` 文档）。
