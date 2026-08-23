@@ -102,7 +102,7 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 | Web | React / TypeScript | 用户界面 |
 | Console | React / TypeScript | 管理仪表板 |
 
-基础设施：PostgreSQL、Redis、SeaweedFS（或 filesystem）、OpenViking（向量记忆）。
+基础设施：PostgreSQL、Redis、SeaweedFS（或 filesystem）。
 
 ## 开发
 

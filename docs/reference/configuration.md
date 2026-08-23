@@ -59,9 +59,6 @@
 | nowledge.api_key | string | platform |  | true | Nowledge API Key |
 | nowledge.base_url | string | platform |  | false | Nowledge Base URL |
 | nowledge.request_timeout_ms | int | platform | 30000 | false | Nowledge request timeout in milliseconds |
-| openviking.base_url | string | platform |  | false | OpenViking Base URL |
-| openviking.cost_per_commit | number | platform | 0 | false | OpenViking CommitSession Cost (USD) |
-| openviking.root_api_key | string | platform |  | true | OpenViking Root API Key |
 | quota.runs_per_month | int | both | 0 | false | 每月 run 数量配额，0 表示不限 |
 | quota.tokens_per_month | int | both | 0 | false | 每月 token 配额，0 表示不限 |
 | sandbox.agent_port | int | platform | 8080 | false | Sandbox Agent 监听端口 |

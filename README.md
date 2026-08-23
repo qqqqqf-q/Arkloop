@@ -101,7 +101,7 @@ Thanks to the following friends for their support, keeping Arkloop going:
 | Web | React / TypeScript | User interface |
 | Console | React / TypeScript | Admin dashboard |
 
-Infrastructure: PostgreSQL, Redis, SeaweedFS (or filesystem), OpenViking (vector memory).
+Infrastructure: PostgreSQL, Redis, SeaweedFS (or filesystem).
 
 ## Development
 

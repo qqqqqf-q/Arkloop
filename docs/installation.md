@@ -66,17 +66,6 @@ Ask these questions to determine installation parameters. Keep them in this orde
 
 ---
 
-**Q2 — Memory system**
-
-> Do you want to enable a persistent memory system for agents (OpenViking)?
-
-- No: agents have no cross-session memory → `--memory none`
-- Yes: install and connect OpenViking → `--memory openviking`
-
-**Default: none**
-
----
-
 **Q3 — Code execution sandbox**
 
 > Do you want agents to be able to execute code in an isolated environment?
@@ -170,7 +159,6 @@ Construct the install command from the answers above and run it. Always include 
 ./setup.sh install \
   --profile <standard|full> \
   --mode self-hosted \
-  --memory <none|openviking> \
   --sandbox <none|docker|firecracker> \
   --console <lite|full> \
   --browser <off|on> \
@@ -187,7 +175,6 @@ Minimal install, no optional modules:
 ./setup.sh install \
   --profile standard \
   --mode self-hosted \
-  --memory none \
   --sandbox none \
   --console lite \
   --browser off \
@@ -202,7 +189,6 @@ Full install with memory, Docker sandbox, and self-hosted search:
 ./setup.sh install \
   --profile full \
   --mode self-hosted \
-  --memory openviking \
   --sandbox docker \
   --console lite \
   --browser off \
@@ -217,7 +203,6 @@ Full install with Firecracker (Linux with KVM):
 ./setup.sh install \
   --profile full \
   --mode self-hosted \
-  --memory openviking \
   --sandbox firecracker \
   --console lite \
   --browser on \
@@ -288,7 +273,6 @@ If the URL was not printed (gateway was off, or bootstrap already completed), sk
 |------|--------|---------|-------|
 | `--profile` | `standard`, `full` | `standard` | `full` enables all optional modules |
 | `--mode` | `self-hosted`, `saas` | `self-hosted` | `saas` enables PGBouncer, S3, full Console |
-| `--memory` | `none`, `openviking` | `none` | Adds persistent agent memory |
 | `--sandbox` | `none`, `docker`, `firecracker` | `none` | Code execution isolation |
 | `--console` | `lite`, `full` | `lite` | Full adds advanced management UI |
 | `--browser` | `off`, `on` | `off` | Requires sandbox to be enabled |
