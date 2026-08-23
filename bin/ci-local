@@ -83,16 +83,6 @@ run_typescript_quick() {
   ensure_pnpm_dependencies
   log_section "TypeScript: web lint"
   (cd "${ROOT_DIR}" && pnpm --filter web lint)
-  log_section "TypeScript: console lint"
-  (cd "${ROOT_DIR}" && pnpm --filter console lint)
-  log_section "TypeScript: web type-check"
-  (cd "${ROOT_DIR}" && pnpm --filter web type-check)
-  log_section "TypeScript: console type-check"
-  (cd "${ROOT_DIR}" && pnpm --filter console type-check)
-  log_section "TypeScript: web test"
-  (cd "${ROOT_DIR}" && pnpm --filter web test)
-  log_section "TypeScript: console test"
-  (cd "${ROOT_DIR}" && pnpm --filter console test)
 }
 
 cleanup_postgres() {

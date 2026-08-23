@@ -36,7 +36,6 @@ cd src/services/worker && go run .
 
 # 前端
 cd src/apps/web && pnpm install && pnpm dev
-cd src/apps/console && pnpm install && pnpm dev
 ```
 
 ### 项目结构
@@ -132,7 +131,6 @@ cd src/services/worker && go test ./...
 
 # 前端测试
 cd src/apps/web && pnpm test
-cd src/apps/console && pnpm test
 
 # 集成 / 冒烟测试
 cd tests/smoke && go test ./...
@@ -149,7 +147,7 @@ Arkloop 名称、Logo 和品牌资产是 The Arkloop Authors 的商标。
 
 - 你可以使用 Arkloop 名称来准确描述你与该项目的关系（例如"基于 Arkloop 构建"、"兼容 Arkloop"）。
 - 未经书面许可，不得以暗示官方认可或隶属关系的方式使用 Arkloop 名称、Logo 或品牌资产。
-- 如 [LICENSE](../../LICENSE) 所述，前端组件（`src/apps/web/` 和 `src/apps/console/`）必须保留原始 LOGO 和版权信息。
+- 如 [LICENSE](../../LICENSE) 所述，前端组件（`src/apps/web/`）必须保留原始 LOGO 和版权信息。
 
 ## 贡献者许可
 

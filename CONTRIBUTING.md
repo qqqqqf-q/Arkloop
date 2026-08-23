@@ -36,7 +36,6 @@ cd src/services/worker && go run .
 
 # Frontend
 cd src/apps/web && pnpm install && pnpm dev
-cd src/apps/console && pnpm install && pnpm dev
 ```
 
 ### Project Structure
@@ -45,7 +44,6 @@ cd src/apps/console && pnpm install && pnpm dev
 src/
   apps/
     web/          # User-facing chat interface (React)
-    console/      # Admin dashboard (React)
     cli/          # CLI reference client
     shared/       # Shared frontend packages
   services/
@@ -173,7 +171,6 @@ cd src/services/worker && go test ./...
 
 # Frontend tests
 cd src/apps/web && pnpm test
-cd src/apps/console && pnpm test
 
 # Integration / smoke tests
 cd tests/smoke && go test ./...
@@ -234,7 +231,7 @@ The Arkloop name, logo, and brand assets are trademarks of The Arkloop Authors.
 
 - You may use the Arkloop name to accurately describe your relationship with the project (e.g., "built on Arkloop", "compatible with Arkloop").
 - You may not use the Arkloop name, logo, or brand assets in a way that implies official endorsement or affiliation without written permission.
-- As stated in the [LICENSE](LICENSE), frontend components (`src/apps/web/` and `src/apps/console/`) must retain the original LOGO and copyright information.
+- As stated in the [LICENSE](LICENSE), frontend components (`src/apps/web/`) must retain the original LOGO and copyright information.
 
 ## Contributor License
 

@@ -14,9 +14,7 @@ const sourceRoots = [
   'package.json',
 ]
 const sourceExtensions = new Set(['.go', '.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.yml', '.yaml', '.sh', '.sql'])
-const consoleRoots = ['src/apps/console/src/']
 const frontendApiRoots = [
-  'src/apps/console/src/api/',
   'src/apps/web/src/api',
   'src/apps/shared/src/api/',
 ]
@@ -42,13 +40,6 @@ const rules = [
       return isFrontendApiFile(file)
     },
     regex: /\borg_id\s*:/,
-  },
-  {
-    name: 'console org entry',
-    appliesTo(file) {
-      return isConsoleFile(file)
-    },
-    regex: /\bOrgsPage\b|\blistMyOrgs\b|["'`]\/orgs\b["'`]|["'`]orgs["'`]|\bOrganizations\b/,
   },
 ]
 
@@ -204,9 +195,6 @@ function isCurrentSourceFile(file) {
   return !file.includes('/migrate/migrations/')
 }
 
-function isConsoleFile(file) {
-  return consoleRoots.some((root) => file.startsWith(root))
-}
 
 function isFrontendApiFile(file) {
   return frontendApiRoots.some((root) => file.startsWith(root))

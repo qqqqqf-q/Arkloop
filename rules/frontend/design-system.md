@@ -36,18 +36,6 @@ size: 'sm' | 'md'
 loading: boolean
 ```
 
-### Console 页面按钮
-
-Console 页面使用 `consoleCls`（`src/apps/console/src/styles.ts`）：
-
-```typescript
-consoleCls.btnPrimary      // 主操作
-consoleCls.btnSecondary    // 取消/次要操作
-consoleCls.btnDestructive  // 删除/危险操作
-consoleCls.input           // 文本输入框
-consoleCls.textarea        // 多行输入框
-```
-
 ## CSS 变量规范
 
 **禁止硬编码颜色值**，必须使用 CSS 变量。

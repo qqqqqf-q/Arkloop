@@ -163,27 +163,6 @@ jobs:
       - name: Web build
         run: pnpm --filter web build
 
-      - name: Console lint
-        run: pnpm --filter console lint
-
-      - name: Console type-check
-        run: pnpm --filter console type-check
-
-      - name: Console test
-        run: pnpm --filter console test
-
-      - name: Console build
-        run: pnpm --filter console build
-
-      - name: Console Lite lint
-        run: pnpm --filter console-lite lint
-
-      - name: Console Lite type-check
-        run: pnpm --filter console-lite type-check
-
-      - name: Console Lite build
-        run: pnpm --filter console-lite build
-
       - name: Desktop type-check
         run: pnpm --filter @arkloop/desktop type-check
 

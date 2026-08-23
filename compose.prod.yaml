@@ -14,11 +14,6 @@ services:
   api:
     image: ghcr.io/qqqqqf-q/arkloop-api:${ARKLOOP_VERSION:-latest}
 
-  console:
-    image: ghcr.io/qqqqqf-q/arkloop-console:${ARKLOOP_VERSION:-latest}
-
-  console-lite:
-    image: ghcr.io/qqqqqf-q/arkloop-console-lite:${ARKLOOP_VERSION:-latest}
 
   bridge:
     image: ghcr.io/qqqqqf-q/arkloop-bridge:${ARKLOOP_VERSION:-latest}
