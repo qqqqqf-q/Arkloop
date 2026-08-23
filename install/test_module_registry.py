@@ -36,7 +36,7 @@ class ModuleRegistryTest(unittest.TestCase):
         self.assertEqual(plan["sandbox"], "none")
         self.assertNotIn("gateway", plan["selected_modules"])
 
-    def test_resolve_full_defaults_prefers_firecracker_on_linux_kvm(self):
+    def test_resolve_full_defaults_uses_docker(self):
         modules = module_registry.parse_modules(MODULES)
         parser = module_registry.build_parser()
         args = parser.parse_args([
@@ -47,11 +47,26 @@ class ModuleRegistryTest(unittest.TestCase):
             "full",
             "--host-os",
             "linux",
-            "--has-kvm",
         ])
         plan = module_registry.resolve_plan(modules, args)
-        self.assertEqual(plan["sandbox"], "firecracker")
-        self.assertIn("sandbox-firecracker", plan["selected_modules"])
+        self.assertEqual(plan["sandbox"], "docker")
+        self.assertIn("sandbox-docker", plan["selected_modules"])
+
+    def test_resolve_sandbox_auto_resolves_to_docker(self):
+        modules = module_registry.parse_modules(MODULES)
+        parser = module_registry.build_parser()
+        args = parser.parse_args([
+            "resolve",
+            "--modules",
+            MODULES,
+            "--sandbox",
+            "auto",
+            "--host-os",
+            "linux",
+        ])
+        plan = module_registry.resolve_plan(modules, args)
+        self.assertEqual(plan["sandbox"], "docker")
+        self.assertIn("sandbox-docker", plan["selected_modules"])
 
     def test_resolve_saas_standard_defaults(self):
         """SaaS mode standard profile should auto-select pgbouncer and seaweedfs."""
@@ -82,13 +97,12 @@ class ModuleRegistryTest(unittest.TestCase):
             "--mode", "saas",
             "--profile", "full",
             "--host-os", "linux",
-            "--has-kvm",
         ])
         plan = module_registry.resolve_plan(modules, args)
         selected = plan["selected_modules"]
         self.assertIn("pgbouncer", selected)
         self.assertIn("seaweedfs", selected)
-        self.assertIn("sandbox-firecracker", selected)
+        self.assertIn("sandbox-docker", selected)
 
     def test_saas_does_not_raise(self):
         """SaaS mode should no longer raise ValueError (PR8 unblocked it)."""

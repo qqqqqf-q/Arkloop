@@ -180,20 +180,19 @@ func (r *Registry) OptionalModules() []ModuleDefinition {
 
 // frontendCategory maps a module ID to its frontend display category.
 var categoryMap = map[string]ModuleCategory{
-	"openviking":         CategoryMemory,
-	"sandbox-docker":     CategorySandbox,
-	"sandbox-firecracker": CategorySandbox,
-	"browser":            CategoryBrowser,
-	"searxng":            CategorySearch,
-	"firecrawl":          CategorySearch,
-	"prompt-guard":       CategorySecurity,
-	"postgres":           CategoryInfrastructure,
-	"redis":              CategoryInfrastructure,
-	"migrate":            CategoryInfrastructure,
-	"api":                CategoryInfrastructure,
-	"worker":             CategoryInfrastructure,
-	"pgbouncer":          CategoryInfrastructure,
-	"seaweedfs":          CategoryInfrastructure,
+	"openviking":     CategoryMemory,
+	"sandbox-docker": CategorySandbox,
+	"browser":        CategoryBrowser,
+	"searxng":        CategorySearch,
+	"firecrawl":      CategorySearch,
+	"prompt-guard":   CategorySecurity,
+	"postgres":       CategoryInfrastructure,
+	"redis":          CategoryInfrastructure,
+	"migrate":        CategoryInfrastructure,
+	"api":            CategoryInfrastructure,
+	"worker":         CategoryInfrastructure,
+	"pgbouncer":      CategoryInfrastructure,
+	"seaweedfs":      CategoryInfrastructure,
 }
 
 func frontendCategory(id string) ModuleCategory {
@@ -205,12 +204,11 @@ func frontendCategory(id string) ModuleCategory {
 
 // knownPort returns the display port for modules that expose one.
 var portMap = map[string]int{
-	"openviking":         19010,
-	"sandbox-docker":     19002,
-	"sandbox-firecracker": 19002,
-	"searxng":            19011,
-	"firecrawl":          19012,
-	"api":                19001,
+	"openviking":     19010,
+	"sandbox-docker": 19002,
+	"searxng":        19011,
+	"firecrawl":      19012,
+	"api":            19001,
 }
 
 func knownPort(id string) *int {
@@ -222,20 +220,19 @@ func knownPort(id string) *int {
 
 // humanName converts a module ID to a display name.
 var nameMap = map[string]string{
-	"postgres":           "PostgreSQL",
-	"redis":              "Redis",
-	"migrate":            "Database Migrations",
-	"api":                "API Server",
-	"worker":             "Worker",
-	"openviking":         "OpenViking",
-	"sandbox-docker":     "Sandbox (Docker)",
-	"sandbox-firecracker": "Sandbox (Firecracker)",
-	"browser":            "Browser Automation",
-	"pgbouncer":          "PgBouncer",
-	"seaweedfs":          "SeaweedFS",
-	"searxng":            "SearXNG",
-	"firecrawl":          "Firecrawl",
-	"prompt-guard":       "Prompt Guard",
+	"postgres":       "PostgreSQL",
+	"redis":          "Redis",
+	"migrate":        "Database Migrations",
+	"api":            "API Server",
+	"worker":         "Worker",
+	"openviking":     "OpenViking",
+	"sandbox-docker": "Sandbox (Docker)",
+	"browser":        "Browser Automation",
+	"pgbouncer":      "PgBouncer",
+	"seaweedfs":      "SeaweedFS",
+	"searxng":        "SearXNG",
+	"firecrawl":      "Firecrawl",
+	"prompt-guard":   "Prompt Guard",
 }
 
 func humanName(id string) string {

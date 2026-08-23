@@ -126,7 +126,7 @@ ALLOWED = {
     "profile": {"standard", "full"},
     "mode": {"self-hosted", "saas"},
     "memory": {"none", "openviking"},
-    "sandbox": {"none", "docker", "firecracker", "auto"},
+    "sandbox": {"none", "docker", "auto"},
     "browser": {"off", "on"},
     "web_tools": {"builtin", "self-hosted"},
 }
@@ -141,12 +141,11 @@ def normalize_choice(value: str, field: str) -> str:
     return normalized
 
 
-def default_selections(profile: str, mode: str, host_os: str, has_kvm: bool) -> dict:
+def default_selections(profile: str, mode: str) -> dict:
     if profile == "full":
-        sandbox = "firecracker" if host_os == "linux" and has_kvm else "docker"
         defaults = {
             "memory": "openviking",
-            "sandbox": sandbox,
+            "sandbox": "docker",
             "browser": "off",
             "web_tools": "self-hosted",
         }
@@ -173,12 +172,13 @@ def ordered_unique(items: List[str]) -> List[str]:
 def resolve_plan(modules: Dict[str, dict], args) -> dict:
     profile = normalize_choice(args.profile or "standard", "profile")
     mode = normalize_choice(args.mode or "self-hosted", "mode")
-    defaults = default_selections(profile, mode, args.host_os, args.has_kvm)
+    defaults = default_selections(profile, mode)
 
     memory = normalize_choice(args.memory or defaults["memory"], "memory")
     sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
     if sandbox == "auto":
-        sandbox = defaults["sandbox"]
+        # auto 不再探测宿主：Firecracker 已移除，唯一可选后端即 docker
+        sandbox = "docker"
     browser = normalize_choice(args.browser or defaults["browser"], "browser")
     web_tools = normalize_choice(args.web_tools or defaults["web_tools"], "web_tools")
 
@@ -195,8 +195,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         selected.append("openviking")
     if sandbox == "docker":
         selected.append("sandbox-docker")
-    if sandbox == "firecracker":
-        selected.append("sandbox-firecracker")
     if browser == "on":
         selected.append("browser")
     if web_tools == "self-hosted":
@@ -228,8 +226,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         constraints = module.get("platform_constraints", {}) or {}
         if constraints.get("requires_linux") is True and args.host_os != "linux":
             raise ValueError(f"module {module_id} requires Linux")
-        if constraints.get("requires_kvm") is True and not args.has_kvm:
-            raise ValueError(f"module {module_id} requires KVM")
         for dep in module.get("depends_on", []) or []:
             if dep in modules:
                 visit(dep)
@@ -307,7 +303,6 @@ def build_parser() -> argparse.ArgumentParser:
     resolve.add_argument("--browser", default="")
     resolve.add_argument("--web-tools", dest="web_tools", default="")
     resolve.add_argument("--host-os", choices=["linux", "macos", "wsl2"], default="macos")
-    resolve.add_argument("--has-kvm", action="store_true")
     resolve.add_argument("--format", choices=["shell"], default="shell")
 
     return parser
