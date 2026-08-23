@@ -42,8 +42,6 @@ src/services/worker/worker
 src/services/worker/worker.exe
 src/apps/tui/arkloop-tui
 language.md
-# OpenViking 实例配置（含 root_api_key，不入库；参考 config/openviking/ov.conf.example）
-config/openviking/ov.conf
 install/.state.env
 
 # VitePress build output
