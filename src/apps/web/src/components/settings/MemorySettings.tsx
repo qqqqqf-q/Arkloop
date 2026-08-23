@@ -6,7 +6,6 @@ import { SpinnerIcon } from '@arkloop/shared/components/auth-ui'
 import { useLocale } from '../../contexts/LocaleContext'
 import { formatDateTime } from '@arkloop/shared'
 import type { MemoryConfig, SnapshotHit } from '@arkloop/shared/desktop'
-import { checkBridgeAvailable, bridgeClient, type ModuleStatus } from '../../api-bridge'
 import { secondaryButtonSmCls, secondaryButtonXsCls, secondaryButtonBorderStyle } from '../buttonStyles'
 import { MemoryConfigModal } from './MemoryConfigModal'
 import { listMemoryErrors, type MemoryErrorEvent } from '../../api'
@@ -600,7 +599,6 @@ export function MemorySettings({ accessToken }: Props) {
   const [loading, setLoading] = useState(() => !memoryConfigCache)
   const [rebuilding, setRebuilding] = useState(memoryUiActionState.rebuildingSnapshot)
   const [configModalOpen, setConfigModalOpen] = useState(false)
-  const [configModalProvider, setConfigModalProvider] = useState<'openviking' | 'nowledge'>('openviking')
   const [switching, setSwitching] = useState(false)
   const [errorsModalOpen, setErrorsModalOpen] = useState(false)
   const [memoryErrors, setMemoryErrors] = useState<MemoryErrorEvent[]>([])
@@ -654,60 +652,6 @@ export function MemorySettings({ accessToken }: Props) {
         return
       }
     }
-    try {
-      const online = await checkBridgeAvailable()
-      if (!online) {
-        setHealth('error')
-        setHealthLabel('Bridge Offline')
-        return
-      }
-      const list = await bridgeClient.listModules()
-      const ov = list.find((m) => m.id === 'openviking')
-      if (!ov) {
-        setHealth('warning')
-        setHealthLabel(ds.memoryModuleNotInstalled)
-        return
-      }
-      const bad: ModuleStatus[] = ['error', 'stopped', 'installed_disconnected']
-      if (bad.includes(ov.status)) {
-        setHealth(ov.status === 'error' ? 'error' : 'warning')
-        switch (ov.status) {
-          case 'error': setHealthLabel(ds.memoryModuleError); break
-          case 'stopped': setHealthLabel(ds.memoryModuleStopped); break
-          case 'installed_disconnected': setHealthLabel(ds.memoryModuleDisconnected); break
-        }
-        return
-      }
-      if (ov.status === 'running') {
-        // Module can be running while the API is not reachable/healthy.
-        if (memoryApi?.getStatus) {
-          try {
-            const status = await memoryApi.getStatus()
-            if (status?.healthy) {
-              setHealth('ok')
-              setHealthLabel(ds.memoryModuleRunning)
-              return
-            }
-            setHealth('error')
-            setHealthLabel(ds.memoryModuleError)
-            return
-          } catch (err) {
-            console.error('memory getStatus failed', err)
-            setHealth('error')
-            setHealthLabel(ds.memoryModuleError)
-            return
-          }
-        }
-        setHealth('ok')
-        setHealthLabel(ds.memoryModuleRunning)
-        return
-      }
-      setHealth('checking')
-      setHealthLabel(ds.memoryModuleChecking)
-    } catch {
-      setHealth('error')
-      setHealthLabel('Bridge Offline')
-    }
   }, [ds, memoryApi])
 
   const loadData = useCallback(async (quiet = false) => {
@@ -726,9 +670,7 @@ export function MemorySettings({ accessToken }: Props) {
           })
           .catch((err) => { console.error('listMemoryErrors failed', err) })
       }
-      const hasSemanticBackend = cfg.provider === 'nowledge'
-        ? Boolean(cfg?.nowledge?.baseUrl)
-        : Boolean(cfg?.openviking?.vlmModel && cfg?.openviking?.embeddingModel)
+      const hasSemanticBackend = cfg.provider === 'nowledge' && Boolean(cfg?.nowledge?.baseUrl)
       if (cfg.enabled && hasSemanticBackend) {
         setSnapshotLoading(true)
         void memoryApi.getSnapshot()
@@ -918,10 +860,8 @@ export function MemorySettings({ accessToken }: Props) {
 
   const enabled = memConfig?.enabled ?? true
   const activeProvider = memConfig?.provider ?? 'notebook'
-  const isConfigured = memConfig?.provider === 'nowledge'
-    ? Boolean(memConfig?.nowledge?.baseUrl)
-    : Boolean(memConfig?.openviking?.vlmModel && memConfig?.openviking?.embeddingModel)
-  const showSemanticCards = (activeProvider === 'openviking' || activeProvider === 'nowledge') && isConfigured
+  const isConfigured = activeProvider === 'nowledge' && Boolean(memConfig?.nowledge?.baseUrl)
+  const showSemanticCards = activeProvider === 'nowledge' && isConfigured
   const showSnapshotCard = showSemanticCards
 
   return (
@@ -1015,25 +955,14 @@ export function MemorySettings({ accessToken }: Props) {
                   }}
                   disabled={switching}
                 />
-                <ProviderSelectCard
-                  title={ds.memoryProviderOpenviking}
-                  description={ds.memoryOpenvikingProviderDesc}
-                  selected={activeProvider === 'openviking'}
-                  onSelect={() => {
-                    if (!memConfig || activeProvider === 'openviking') return
-                    setSwitching(true)
-                    void saveConfig({ ...memConfig, provider: 'openviking' }).finally(() => setSwitching(false))
-                  }}
-                  disabled={switching}
-                />
               </div>
-            {(activeProvider === 'openviking' || activeProvider === 'nowledge') && (
+            {activeProvider === 'nowledge' && (
               <SettingsRow
-                title={activeProvider === 'nowledge' ? ds.memoryNowledgeProvider : ds.memoryProviderOpenviking}
+                title={ds.memoryNowledgeProvider}
                 description={healthLabel}
                 control={(
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                {activeProvider === 'openviking' && memoryErrors.length > 0 && (
+                {memoryErrors.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setErrorsModalOpen(true)}
@@ -1052,10 +981,7 @@ export function MemorySettings({ accessToken }: Props) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setConfigModalProvider(activeProvider === 'nowledge' ? 'nowledge' : 'openviking')
-                    setConfigModalOpen(true)
-                  }}
+                  onClick={() => setConfigModalOpen(true)}
                   className={secondaryButtonSmCls}
                   style={secondaryButtonBorderStyle}
                 >
@@ -1076,7 +1002,6 @@ export function MemorySettings({ accessToken }: Props) {
         onClose={() => setConfigModalOpen(false)}
         accessToken={accessToken}
         memConfig={memConfig}
-        provider={configModalProvider}
         onConfigSaved={(cfg) => { memoryConfigCache = cfg; setMemConfigState(cfg); void probeHealth(cfg); void loadData(true) }}
       />
 
