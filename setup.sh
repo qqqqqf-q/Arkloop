@@ -61,7 +61,6 @@ t() {
 install flags:
   --profile standard|full
   --mode self-hosted|saas
-  --memory none|openviking
   --sandbox none|docker|firecracker
   --browser off|on
   --web-tools builtin|self-hosted
@@ -85,7 +84,6 @@ Usage:
 install flags:
   --profile standard|full
   --mode self-hosted|saas
-  --memory none|openviking
   --sandbox none|docker|firecracker
   --browser off|on
   --web-tools builtin|self-hosted
@@ -109,8 +107,6 @@ EOF
     en:prompt_profile) printf 'Deployment profile (standard/full)' ;;
     zh-CN:prompt_mode) printf '部署模式（self-hosted/saas）' ;;
     en:prompt_mode) printf 'Deployment mode (self-hosted/saas)' ;;
-    zh-CN:prompt_memory) printf '记忆系统（none/openviking）' ;;
-    en:prompt_memory) printf 'Memory system (none/openviking)' ;;
     zh-CN:prompt_sandbox) printf '代码执行（none/docker/firecracker）' ;;
     en:prompt_sandbox) printf 'Code execution (none/docker/firecracker)' ;;
     zh-CN:prompt_web_tools) printf '搜索/抓取（builtin/self-hosted）' ;;
@@ -135,8 +131,8 @@ EOF
     en:unknown_arg) printf 'Unknown argument: %s' "$2" ;;
     zh-CN:invalid_port) printf '无效端口：%s' "$2" ;;
     en:invalid_port) printf 'Invalid port: %s' "$2" ;;
-    zh-CN:install_plan) printf '安装方案：profile=%s mode=%s memory=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" "$7" ;;
-    en:install_plan) printf 'Install plan: profile=%s mode=%s memory=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" "$7" ;;
+    zh-CN:install_plan) printf '安装方案：profile=%s mode=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" ;;
+    en:install_plan) printf 'Install plan: profile=%s mode=%s sandbox=%s browser=%s web-tools=%s' "$2" "$3" "$4" "$5" "$6" ;;
     zh-CN:skip_compose) printf '已跳过 Compose 执行（ARKLOOP_SETUP_SKIP_COMPOSE=1）' ;;
     en:skip_compose) printf 'Skipped Compose execution (ARKLOOP_SETUP_SKIP_COMPOSE=1)' ;;
     zh-CN:starting_modules) printf '启动模块：%s' "$2" ;;
@@ -542,17 +538,15 @@ EOF
 resolve_plan() {
   local profile="$1"
   local mode="$2"
-  local memory="$3"
-  local sandbox="$4"
-  local browser="$5"
-  local web_tools="$6"
+  local sandbox="$3"
+  local browser="$4"
+  local web_tools="$5"
   local cmd=(python3 "$MODULE_HELPER" resolve --modules "$MODULES_FILE" --host-os "$HOST_OS")
   if [ "$HAS_KVM" = "1" ]; then
     cmd+=(--has-kvm)
   fi
   [ -n "$profile" ] && cmd+=(--profile "$profile")
   [ -n "$mode" ] && cmd+=(--mode "$mode")
-  [ -n "$memory" ] && cmd+=(--memory "$memory")
   [ -n "$sandbox" ] && cmd+=(--sandbox "$sandbox")
   [ -n "$browser" ] && cmd+=(--browser "$browser")
   [ -n "$web_tools" ] && cmd+=(--web-tools "$web_tools")
@@ -587,15 +581,13 @@ validate_port() {
 collect_install_inputs() {
   local profile="$1"
   local mode="$2"
-  local memory="$3"
-  local sandbox="$4"
-  local browser="$5"
-  local web_tools="$6"
+  local sandbox="$3"
+  local browser="$4"
+  local web_tools="$5"
 
   if [ "${NON_INTERACTIVE:-0}" = "1" ]; then
     INSTALL_PROFILE="$profile"
     INSTALL_MODE="$mode"
-    INSTALL_MEMORY="$memory"
     INSTALL_SANDBOX="$sandbox"
     INSTALL_BROWSER="$browser"
     INSTALL_WEB_TOOLS="$web_tools"
@@ -604,7 +596,6 @@ collect_install_inputs() {
 
   INSTALL_PROFILE="$(prompt_choice "$(t prompt_profile)" "${profile:-standard}")"
   INSTALL_MODE="$(prompt_choice "$(t prompt_mode)" "${mode:-self-hosted}")"
-  INSTALL_MEMORY="$(prompt_choice "$(t prompt_memory)" "${memory:-}")"
   INSTALL_SANDBOX="$(prompt_choice "$(t prompt_sandbox)" "${sandbox:-}")"
   INSTALL_WEB_TOOLS="$(prompt_choice "$(t prompt_web_tools)" "${web_tools:-}")"
   INSTALL_BROWSER="$(prompt_choice "$(t prompt_browser)" "${browser:-off}")"
@@ -782,9 +773,8 @@ apply_runtime_env() {
   set_value ARKLOOP_DATABASE_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5432/${pg_db}"
   set_value ARKLOOP_PGBOUNCER_URL "postgresql://${pg_user}:${pg_pass}@127.0.0.1:5433/${pg_db}"
   set_value ARKLOOP_REDIS_URL "redis://:${redis_pass}@127.0.0.1:6379/0"
-  case "$RESOLVED_MEMORY" in
-    openviking|none) python_env_delete ARKLOOP_OPENVIKING_BASE_URL ;;
-  esac
+  # 清理旧安装遗留的 OpenViking 配置
+  python_env_delete ARKLOOP_OPENVIKING_BASE_URL
 
   case "$RESOLVED_SANDBOX" in
     docker)
@@ -847,7 +837,6 @@ apply_runtime_env() {
 
   set_install_state ARKLOOP_INSTALL_PROFILE "$RESOLVED_PROFILE"
   set_install_state ARKLOOP_INSTALL_MODE "$RESOLVED_MODE"
-  set_install_state ARKLOOP_INSTALL_MEMORY "$RESOLVED_MEMORY"
   set_install_state ARKLOOP_INSTALL_SANDBOX "$RESOLVED_SANDBOX"
   set_install_state ARKLOOP_INSTALL_BROWSER "$RESOLVED_BROWSER"
   set_install_state ARKLOOP_INSTALL_WEB_TOOLS "$RESOLVED_WEB_TOOLS"
@@ -903,14 +892,13 @@ preflight_install() {
 }
 
 run_install() {
-  local profile="" mode="" memory="" sandbox="" browser="" web_tools=""
+  local profile="" mode="" sandbox="" browser="" web_tools=""
   NON_INTERACTIVE="0"
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --profile) profile="$2"; shift 2 ;;
       --mode) mode="$2"; shift 2 ;;
-      --memory) memory="$2"; shift 2 ;;
       --sandbox) sandbox="$2"; shift 2 ;;
       --browser) browser="$2"; shift 2 ;;
       --web-tools) web_tools="$2"; shift 2 ;;
@@ -928,8 +916,8 @@ run_install() {
   else
     HAD_ENV_FILE_BEFORE_INSTALL="0"
   fi
-  collect_install_inputs "$profile" "$mode" "$memory" "$sandbox" "$browser" "$web_tools"
-  resolve_plan "$INSTALL_PROFILE" "$INSTALL_MODE" "$INSTALL_MEMORY" "$INSTALL_SANDBOX" "$INSTALL_BROWSER" "$INSTALL_WEB_TOOLS"
+  collect_install_inputs "$profile" "$mode" "$sandbox" "$browser" "$web_tools"
+  resolve_plan "$INSTALL_PROFILE" "$INSTALL_MODE" "$INSTALL_SANDBOX" "$INSTALL_BROWSER" "$INSTALL_WEB_TOOLS"
 
   ensure_env_file
   ensure_secret ARKLOOP_POSTGRES_PASSWORD hex16
@@ -945,7 +933,7 @@ run_install() {
   apply_runtime_env
   preflight_install
 
-  log "$(t install_plan "$RESOLVED_PROFILE" "$RESOLVED_MODE" "$RESOLVED_MEMORY" "$RESOLVED_SANDBOX" "$RESOLVED_BROWSER" "$RESOLVED_WEB_TOOLS")"
+  log "$(t install_plan "$RESOLVED_PROFILE" "$RESOLVED_MODE" "$RESOLVED_SANDBOX" "$RESOLVED_BROWSER" "$RESOLVED_WEB_TOOLS")"
 
   if [ "$SETUP_SKIP_COMPOSE" = "1" ]; then
     log "$(t skip_compose)"
@@ -1063,10 +1051,9 @@ EOF
 }
 
 status_from_metadata() {
-  local profile mode memory sandbox browser web_tools
+  local profile mode sandbox browser web_tools
   profile="$(python_state_get ARKLOOP_INSTALL_PROFILE)"
   mode="$(python_state_get ARKLOOP_INSTALL_MODE)"
-  memory="$(python_state_get ARKLOOP_INSTALL_MEMORY)"
   sandbox="$(python_state_get ARKLOOP_INSTALL_SANDBOX)"
   browser="$(python_state_get ARKLOOP_INSTALL_BROWSER)"
   web_tools="$(python_state_get ARKLOOP_INSTALL_WEB_TOOLS)"
@@ -1074,7 +1061,6 @@ status_from_metadata() {
   if [ -z "$profile" ]; then
     profile="$(python_env_get ARKLOOP_INSTALL_PROFILE)"
     mode="$(python_env_get ARKLOOP_INSTALL_MODE)"
-    memory="$(python_env_get ARKLOOP_INSTALL_MEMORY)"
     sandbox="$(python_env_get ARKLOOP_INSTALL_SANDBOX)"
     browser="$(python_env_get ARKLOOP_INSTALL_BROWSER)"
     web_tools="$(python_env_get ARKLOOP_INSTALL_WEB_TOOLS)"
@@ -1084,7 +1070,7 @@ status_from_metadata() {
     return 1
   fi
   detect_host
-  resolve_plan "$profile" "$mode" "$memory" "$sandbox" "$browser" "$web_tools"
+  resolve_plan "$profile" "$mode" "$sandbox" "$browser" "$web_tools"
   return 0
 }
 
@@ -1114,7 +1100,6 @@ run_status() {
         migrate) service="migrate" ;;
         api) service="api" ;;
         worker) service="worker" ;;
-        openviking) service="openviking" ;;
         sandbox-docker|browser) service="sandbox-docker" ;;
         sandbox-firecracker) service="sandbox" ;;
         searxng) service="searxng" ;;
