@@ -86,40 +86,6 @@ export function useRunTransition() {
     clearRunRefs()
   }, [clearRunRefs, setStreamingArtifacts, streamingArtifactsRef])
 
-  const clearLiveRunSecurityArtifacts = useCallback(() => {
-    clearLiveRunTransientState()
-    resetAssistantTurnLive()
-    setPendingThinking(false)
-    setTopLevelCodeExecutions([])
-    setSegments([])
-    activeSegmentIdRef.current = null
-    currentRunSourcesRef.current = []
-    currentRunArtifactsRef.current = []
-    currentRunCodeExecutionsRef.current = []
-    currentRunBrowserActionsRef.current = []
-    resetSearchSteps()
-    pendingSearchStepsRef.current = null
-    setAwaitingInput(false)
-    setPendingUserInput(null)
-    setCheckInDraft('')
-  }, [
-    activeSegmentIdRef,
-    clearLiveRunTransientState,
-    currentRunArtifactsRef,
-    currentRunBrowserActionsRef,
-    currentRunCodeExecutionsRef,
-    currentRunSourcesRef,
-    pendingSearchStepsRef,
-    resetAssistantTurnLive,
-    resetSearchSteps,
-    setAwaitingInput,
-    setCheckInDraft,
-    setPendingThinking,
-    setPendingUserInput,
-    setSegments,
-    setTopLevelCodeExecutions,
-  ])
-
   const releaseCompletedHandoffToHistory = useCallback(() => {
     assistantTurnFoldStateRef.current = createEmptyAssistantTurnFoldState()
     setPreserveLiveRunUi(false)
@@ -207,7 +173,6 @@ export function useRunTransition() {
   return {
     resetAssistantTurnLive,
     clearLiveRunTransientState,
-    clearLiveRunSecurityArtifacts,
     releaseCompletedHandoffToHistory,
     captureTerminalRunCache,
     persistRunDataToMessage,

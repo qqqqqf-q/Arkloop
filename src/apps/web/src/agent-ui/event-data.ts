@@ -38,8 +38,6 @@ export function normalizeAgentEventType(type: string): AgentUIEventType {
       return 'run-cancelled'
     case 'run.interrupted':
       return 'run-interrupted'
-    case 'security.injection.blocked':
-      return 'security-block'
     case 'thread.title.updated':
       return 'thread-title'
     case 'thread.collaboration_mode.updated':
@@ -248,10 +246,6 @@ export function normalizeAgentEventData(params: {
       return normalizeContextCompact(data)
     case 'input-request':
       return normalizeInputRequest(data)
-    case 'security-block':
-      return {
-        ...(stringField(record, 'message') ? { message: stringField(record, 'message') } : {}),
-      }
     case 'thread-title':
       return {
         ...(stringField(record, 'threadId', 'thread_id') ? { threadId: stringField(record, 'threadId', 'thread_id') } : {}),

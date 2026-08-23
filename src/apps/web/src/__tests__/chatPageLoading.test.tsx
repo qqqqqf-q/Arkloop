@@ -62,7 +62,6 @@ const sseMock = vi.hoisted(() => {
       case 'run.failed': return 'run-failed'
       case 'run.cancelled': return 'run-cancelled'
       case 'run.interrupted': return 'run-interrupted'
-      case 'security.injection.blocked': return 'security-block'
       case 'thread.title.updated': return 'thread-title'
       case 'thread.collaboration_mode.updated':
       case 'thread.collaboration.updated': return 'thread-collaboration'
