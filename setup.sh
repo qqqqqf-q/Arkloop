@@ -14,7 +14,6 @@ SETUP_LANG="${ARKLOOP_SETUP_LANG:-}"
 USE_PROD_IMAGES="${ARKLOOP_PROD:-0}"
 
 HOST_OS=""
-HAS_KVM="0"
 DETECTED_DOCKER_SOCKET=""
 DOCKER_OK="0"
 COMPOSE_OK="0"
@@ -62,7 +61,7 @@ install flags:
   --profile standard|full
   --mode self-hosted|saas
   --memory none|openviking
-  --sandbox none|docker|firecracker
+  --sandbox none|docker|auto
   --browser off|on
   --web-tools builtin|self-hosted
   --lang zh-CN|en
@@ -86,7 +85,7 @@ install flags:
   --profile standard|full
   --mode self-hosted|saas
   --memory none|openviking
-  --sandbox none|docker|firecracker
+  --sandbox none|docker|auto
   --browser off|on
   --web-tools builtin|self-hosted
   --lang zh-CN|en
@@ -111,8 +110,8 @@ EOF
     en:prompt_mode) printf 'Deployment mode (self-hosted/saas)' ;;
     zh-CN:prompt_memory) printf '记忆系统（none/openviking）' ;;
     en:prompt_memory) printf 'Memory system (none/openviking)' ;;
-    zh-CN:prompt_sandbox) printf '代码执行（none/docker/firecracker）' ;;
-    en:prompt_sandbox) printf 'Code execution (none/docker/firecracker)' ;;
+    zh-CN:prompt_sandbox) printf '代码执行（none/docker/auto）' ;;
+    en:prompt_sandbox) printf 'Code execution (none/docker/auto)' ;;
     zh-CN:prompt_web_tools) printf '搜索/抓取（builtin/self-hosted）' ;;
     en:prompt_web_tools) printf 'Search/scraping (builtin/self-hosted)' ;;
     zh-CN:prompt_browser) printf '浏览器模块（off/on）' ;;
@@ -123,10 +122,6 @@ EOF
     en:docker_unavailable) printf 'Docker is unavailable' ;;
     zh-CN:compose_unavailable) printf 'docker compose 不可用' ;;
     en:compose_unavailable) printf 'docker compose is unavailable' ;;
-    zh-CN:firecracker_linux_only) printf 'firecracker 仅支持 Linux' ;;
-    en:firecracker_linux_only) printf 'firecracker is only supported on Linux' ;;
-    zh-CN:kvm_missing) printf '当前宿主未检测到 KVM' ;;
-    en:kvm_missing) printf 'KVM was not detected on this host' ;;
     zh-CN:preflight_failed) printf 'pre-flight 检测未通过' ;;
     en:preflight_failed) printf 'Pre-flight checks failed' ;;
     zh-CN:stale_postgres_volume) printf '检测到旧的 PostgreSQL 数据卷，但当前 .env 是新生成的。请执行 ./setup.sh uninstall --purge --yes 清理旧卷，或恢复原来的 .env。' ;;
@@ -237,12 +232,6 @@ detect_host() {
       HOST_OS="macos"
       ;;
   esac
-
-  if [ "$HOST_OS" = "linux" ] && [ -c /dev/kvm ]; then
-    HAS_KVM="1"
-  else
-    HAS_KVM="0"
-  fi
 }
 
 check_docker_tools() {
@@ -547,9 +536,6 @@ resolve_plan() {
   local browser="$5"
   local web_tools="$6"
   local cmd=(python3 "$MODULE_HELPER" resolve --modules "$MODULES_FILE" --host-os "$HOST_OS")
-  if [ "$HAS_KVM" = "1" ]; then
-    cmd+=(--has-kvm)
-  fi
   [ -n "$profile" ] && cmd+=(--profile "$profile")
   [ -n "$mode" ] && cmd+=(--mode "$mode")
   [ -n "$memory" ] && cmd+=(--memory "$memory")
@@ -792,10 +778,6 @@ apply_runtime_env() {
       [ -n "$DETECTED_DOCKER_SOCKET" ] || fail "$(t missing_docker_socket)"
       set_value ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH "$DETECTED_DOCKER_SOCKET"
       ;;
-    firecracker)
-      set_value ARKLOOP_SANDBOX_PROVIDER "firecracker"
-      python_env_delete ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH
-      ;;
     none)
       python_env_delete ARKLOOP_SANDBOX_PROVIDER
       python_env_delete ARKLOOP_SANDBOX_DOCKER_SOCKET_PATH
@@ -878,17 +860,6 @@ preflight_install() {
   if [ "$COMPOSE_OK" != "1" ]; then
     warn "$(t compose_unavailable)"
     failures=1
-  fi
-
-  if [ "$RESOLVED_SANDBOX" = "firecracker" ]; then
-    if [ "$HOST_OS" != "linux" ]; then
-      warn "$(t firecracker_linux_only)"
-      failures=1
-    fi
-    if [ "$HAS_KVM" != "1" ]; then
-      warn "$(t kvm_missing)"
-      failures=1
-    fi
   fi
 
   if [ "$RESOLVED_SANDBOX" = "docker" ] && [ -z "$DETECTED_DOCKER_SOCKET" ]; then
@@ -1029,7 +1000,6 @@ run_doctor() {
   printf 'docker=%s\n' "$DOCKER_OK"
   printf 'compose=%s\n' "$COMPOSE_OK"
   printf 'docker_socket=%s\n' "${DETECTED_DOCKER_SOCKET:-not-found}"
-  printf 'kvm=%s\n' "$HAS_KVM"
   if port_in_use "$web_port"; then
     printf 'port_%s=in-use\n' "$web_port"
   else
@@ -1116,7 +1086,6 @@ run_status() {
         worker) service="worker" ;;
         openviking) service="openviking" ;;
         sandbox-docker|browser) service="sandbox-docker" ;;
-        sandbox-firecracker) service="sandbox" ;;
         searxng) service="searxng" ;;
         firecrawl) service="firecrawl" ;;
         pgbouncer) service="pgbouncer" ;;
