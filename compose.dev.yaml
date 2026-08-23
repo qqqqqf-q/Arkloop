@@ -15,10 +15,6 @@ services:
     ports:
       - "${ARKLOOP_PGBOUNCER_PORT:-5433}:5432"
 
-  sandbox:
-    ports:
-      - "${ARKLOOP_SANDBOX_PORT:-19002}:19002"
-
   sandbox-docker:
     ports:
       - "${ARKLOOP_SANDBOX_PORT:-19002}:19002"
