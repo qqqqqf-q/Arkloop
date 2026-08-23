@@ -22,11 +22,6 @@
 | email.smtp_tls_mode | string | platform | starttls | false | SMTP TLS 模式：starttls/tls/none |
 | email.smtp_user | string | platform |  | false | SMTP 用户名 |
 | feature.mcp_remote_enabled | bool | both | false | false | 是否允许远程 MCP |
-| gateway.ip_mode | string | platform | direct | false | Gateway IP 模式：direct/cloudflare/trusted_proxy |
-| gateway.ratelimit_capacity | number | platform | 600 | false | Gateway Rate Limit Capacity |
-| gateway.ratelimit_rate_per_minute | number | platform | 300 | false | Gateway Rate Limit Per Minute |
-| gateway.risk_reject_threshold | int | platform | 0 | false | Gateway 风险拒绝阈值（0-100） |
-| gateway.trusted_cidrs | string | platform |  | false | Gateway 可信代理 CIDR 列表 |
 | image_generative.model | string | both |  | false | 默认图片生成模型，格式 provider^model |
 | invite.max_codes_per_user | int | both | 1 | false | 单用户可创建的邀请码数量上限 |
 | limit.agent_reasoning_iterations | int | platform | 0 | false | Agent Loop 主推理回合上限，0 表示不限 |
