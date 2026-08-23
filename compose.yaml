@@ -319,34 +319,6 @@ services:
       timeout: 5s
       retries: 5
 
-  openviking:
-    image: ghcr.io/volcengine/openviking:v0.3.3
-    restart: unless-stopped
-    profiles:
-      - openviking
-    entrypoint:
-      - /app/.venv/bin/openviking-server
-    command:
-      - --config
-      - /app/ov.conf
-      - --with-bot
-      - --workers
-      - "${ARKLOOP_OPENVIKING_WORKERS:-1}"
-    ports:
-      - "${ARKLOOP_OPENVIKING_PORT:-19010}:19010"
-    environment:
-      WEB_CONCURRENCY: "${ARKLOOP_OPENVIKING_WORKERS:-1}"
-    volumes:
-      - ./config/openviking/ov.conf:/app/ov.conf:ro
-      - openviking_data:/app/data
-    healthcheck:
-      # ov.conf sets server.port=19010; check that port for accurate status
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19010/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-
   # --- SearXNG: Self-hosted metasearch engine ---
   # web_search provider, replaces Tavily API
   searxng:
@@ -479,7 +451,6 @@ volumes:
   postgres_data:
   redis_data:
   seaweedfs_data:
-  openviking_data:
   firecrawl_pgdata:
   sandbox_sockets:
   arkloop_storage:
