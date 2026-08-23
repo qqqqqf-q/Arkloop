@@ -572,8 +572,6 @@ jobs:
           ARKLOOP_RELEASE_VERSION: ${{ steps.release_meta.outputs.release_version }}
           ARKLOOP_DESKTOP_MANIFEST_OUTPUT: release-files/desktop-manifest.json
           ARKLOOP_RELEASE_DIR: release-files
-          ARKLOOP_OPENVIKING_IMAGE: ghcr.io/volcengine/openviking:v0.3.3
-          ARKLOOP_OPENVIKING_VERSION: v0.3.3
         run: node src/apps/desktop/scripts/generate-desktop-manifest.mjs
 
       - name: Validate desktop manifest
@@ -600,10 +598,6 @@ jobs:
           version = require(manifest.get('version'), 'version')
           if version != expected:
               raise SystemExit(f'manifest version mismatch: {version} != {expected}')
-
-          openviking = manifest.get('openviking', {})
-          require(openviking.get('version'), 'openviking.version')
-          require(openviking.get('image'), 'openviking.image')
 
           sandbox = manifest.get('sandbox') or {}
           for key in ('kernel', 'rootfs'):

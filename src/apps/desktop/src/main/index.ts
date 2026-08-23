@@ -14,7 +14,6 @@ import {
   getSidecarRuntime,
   getBridgeBaseUrl,
   getDesktopAccessToken,
-  stopBridgeOpenvikingIfNeeded,
   ensureOpenCLI,
   type SidecarRuntime,
 } from './sidecar'
@@ -225,7 +224,7 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
   void ensureOpenCLI()
 
   const runtime = await startSidecar(config.local.port, config.local.portMode)
-  await syncLocalVersions(true)
+  await syncLocalVersions()
   const next = mergeConfigWithRuntime(config, runtime)
   syncActiveSidecarPort(next, runtime)
   if (next.local.port !== config.local.port || next.local.portMode !== config.local.portMode) {
@@ -237,7 +236,6 @@ async function ensureLocalSidecar(config: AppConfig): Promise<AppConfig> {
 function memoryChanged(a: AppConfig, b: AppConfig): boolean {
   return a.memory.enabled !== b.memory.enabled
     || a.memory.provider !== b.memory.provider
-    || JSON.stringify(a.memory.openviking) !== JSON.stringify(b.memory.openviking)
     || JSON.stringify(a.memory.nowledge) !== JSON.stringify(b.memory.nowledge)
 }
 
@@ -270,16 +268,6 @@ async function applyConfigUpdate(
     syncActiveSidecarPort(candidate, getSidecarRuntime())
     syncConfigToRenderer(candidate)
     return candidate
-  }
-
-  const wasOpenviking = previous.mode === 'local'
-    && previous.memory.enabled
-    && previous.memory.provider === 'openviking'
-  const wantOpenviking = candidate.mode === 'local'
-    && candidate.memory.enabled
-    && candidate.memory.provider === 'openviking'
-  if (wasOpenviking && !wantOpenviking) {
-    await stopBridgeOpenvikingIfNeeded(previous.memory)
   }
 
   await stopSidecar()
@@ -610,10 +598,6 @@ if (!hasSingleInstanceLock) {
     void (async () => {
       destroyTray()
       try {
-        const cfg = loadConfig()
-        if (cfg.mode === 'local') {
-          await stopBridgeOpenvikingIfNeeded(cfg.memory)
-        }
         await stopSidecar()
       } catch (err) {
         console.error('[desktop] shutdown error:', err)
