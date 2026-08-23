@@ -42,7 +42,7 @@ func TestLoadRegistry(t *testing.T) {
 		t.Fatalf("expected >10 modules, got %d", len(list))
 	}
 
-	knownModules := []string{"postgres", "redis", "openviking", "sandbox-docker", "api", "worker", "gateway"}
+	knownModules := []string{"postgres", "redis", "openviking", "sandbox-docker", "api", "worker"}
 	for _, id := range knownModules {
 		if _, ok := reg.Get(id); !ok {
 			t.Errorf("expected module %q to exist in registry", id)

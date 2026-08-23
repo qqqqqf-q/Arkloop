@@ -1,12 +1,14 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sort"
 	"strings"
 
 	sharedtoolmeta "arkloop/services/shared/toolmeta"
+	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/llm"
 	"arkloop/services/worker/internal/tools"
 )
@@ -325,4 +327,34 @@ func StringPtr(value string) *string {
 		return nil
 	}
 	return &cleaned
+}
+
+// notifyRunEventSubscribers 通知 run_events 订阅者有新事件落库（pg / event bus / redis 三通道并存）。
+func notifyRunEventSubscribers(ctx context.Context, rc *RunContext) {
+	channel := fmt.Sprintf("run_events:%s", rc.Run.ID.String())
+	if rc.Pool != nil {
+		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
+	}
+	if rc.EventBus != nil {
+		_ = rc.EventBus.Publish(ctx, channel, "")
+	}
+
+	if rc.BroadcastRDB != nil {
+		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", rc.Run.ID.String())
+		_, _ = rc.BroadcastRDB.Publish(ctx, redisChannel, "").Result()
+	}
+}
+
+// runEventDB 返回事件落库使用的 DB 句柄：desktop 为 SQLite，server 为 pgx pool。
+func runEventDB(rc *RunContext) data.DB {
+	if rc == nil {
+		return nil
+	}
+	if rc.DB != nil {
+		return rc.DB
+	}
+	if rc.Pool != nil {
+		return rc.Pool
+	}
+	return nil
 }

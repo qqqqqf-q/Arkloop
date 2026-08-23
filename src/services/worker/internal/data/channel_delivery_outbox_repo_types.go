@@ -22,8 +22,7 @@ type ChannelDeliveryOutboxExecer interface {
 
 // Outbox kind 常量，对应 UNIQUE (run_id, kind) 约束。
 const (
-	OutboxKindMessage              = "message"
-	OutboxKindInjectionBlockNotice = "injection_block_notice"
+	OutboxKindMessage = "message"
 )
 
 // OutboxLeaseDuration 是 inline 首发与后台 drainer 共用的租约时长。

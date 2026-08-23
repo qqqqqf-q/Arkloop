@@ -139,7 +139,6 @@ Agent persona templates under `src/personas/`. Each persona defines:
 
 - **Unit tests**: `go test ./...` per service, `pnpm test` per app
 - **Smoke tests**: `tests/smoke/` (CI-only, requires full stack)
-- **Benchmarks**: `tests/bench/` (load testing against running instance)
 
 ## Code Conventions
 

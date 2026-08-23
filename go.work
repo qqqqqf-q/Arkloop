@@ -10,6 +10,5 @@ use (
 	./src/services/sandbox
 	./src/services/shared
 	./src/services/worker
-	./tests/bench
 	./tests/smoke
 )

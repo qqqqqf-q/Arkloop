@@ -162,58 +162,6 @@ func TestInteractiveExecutor_CheckIn_InjectsMessage(t *testing.T) {
 	}
 }
 
-func TestInteractiveExecutor_SteeringInputScannedBeforeInjection(t *testing.T) {
-	gw := &captureGateway{
-		events: [][]llm.StreamEvent{{llm.StreamRunCompleted{}}},
-	}
-	ex := &InteractiveExecutor{checkInEvery: 5, maxWaitSeconds: 5}
-	emitter := events.NewEmitter("trace")
-
-	rc := buildMinimalRC(gw, "", nil, nil)
-	rc.ToolExecutor = buildMinimalToolExecutor()
-	var polls int
-	var phases []string
-	rc.PollSteeringInput = func(_ context.Context) (string, bool) {
-		if polls > 0 {
-			return "", false
-		}
-		polls++
-		return "runtime steering", true
-	}
-	rc.UserPromptScanFunc = func(_ context.Context, text string, phase string) error {
-		if text != "runtime steering" {
-			t.Fatalf("unexpected scan text: %q", text)
-		}
-		phases = append(phases, phase)
-		return nil
-	}
-
-	if err := ex.Execute(context.Background(), rc, emitter, func(ev events.RunEvent) error { return nil }); err != nil {
-		t.Fatalf("Execute failed: %v", err)
-	}
-	if len(phases) != 1 || phases[0] != "steering_input" {
-		t.Fatalf("unexpected scan phases: %v", phases)
-	}
-	if len(gw.requests) != 1 {
-		t.Fatalf("expected one gateway request, got %d", len(gw.requests))
-	}
-
-	injectedFound := false
-	for _, msg := range gw.requests[0].Messages {
-		if msg.Role != "user" {
-			continue
-		}
-		for _, part := range msg.Content {
-			if part.Text == "runtime steering" {
-				injectedFound = true
-			}
-		}
-	}
-	if !injectedFound {
-		t.Fatalf("runtime steering message not found in first LLM request: %#v", gw.requests[0].Messages)
-	}
-}
-
 // TestInteractiveExecutor_NoCheckInBeforeThreshold 验证 check_in_every=5 时 iter=1 不触发。
 func TestInteractiveExecutor_NoCheckInBeforeThreshold(t *testing.T) {
 	gw := &multiTurnGateway{}

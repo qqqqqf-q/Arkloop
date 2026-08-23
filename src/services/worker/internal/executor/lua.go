@@ -1544,8 +1544,6 @@ func (rt *luaRuntime) runAgentLoop(
 		LlmRetryBaseDelayMs:    rt.rc.LlmRetryBaseDelayMs,
 		WaitForInput:           rt.rc.WaitForInput,
 		PollSteeringInput:      rt.rc.PollSteeringInput,
-		UserPromptScanFunc:     rt.rc.UserPromptScanFunc,
-		ToolOutputScanFunc:     rt.rc.ToolOutputScanFunc,
 		Channel:                rt.rc.ChannelToolSurface,
 		CancelSignal: func() bool {
 			return rt.ctx.Err() != nil

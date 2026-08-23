@@ -91,16 +91,6 @@
 | sandbox.warm_browser | int | platform | 1 | false | browser tier 预热实例数 |
 | sandbox.warm_lite | int | platform | 3 | false | lite tier 预热实例数 |
 | sandbox.warm_pro | int | platform | 2 | false | pro tier 预热实例数 |
-| security.injection_scan.blocking_enabled | bool | platform | false | false | 检测到注入时直接拦截请求 |
-| security.injection_scan.regex_enabled | bool | platform | true | false | Regex Scanner 开关 |
-| security.injection_scan.semantic_enabled | bool | platform | false | false | Prompt Guard 语义扫描开关 |
-| security.injection_scan.tool_output_scan_enabled | bool | platform | true | false | 扫描工具输出中的间接注入 |
-| security.injection_scan.trust_source_enabled | bool | platform | true | false | Trust Source 标记开关 |
-| security.semantic_scanner.api_endpoint | string | platform |  | false | 远端语义扫描服务地址（OpenAI 兼容 /chat/completions） |
-| security.semantic_scanner.api_key | string | platform |  | true | 远端语义扫描服务 API Key |
-| security.semantic_scanner.api_model | string | platform | openai/gpt-oss-safeguard-20b | false | 远端语义扫描模型标识 |
-| security.semantic_scanner.api_timeout_ms | int | platform | 4000 | false | 远端语义扫描超时（毫秒） |
-| security.semantic_scanner.provider | string | platform |  | false | 语义扫描提供方（留空 / local / api） |
 | skills.market.skillsmp_api_key | string | platform |  | true | SkillsMP 官方市场 API Key |
 | skills.market.skillsmp_base_url | string | platform | https://skillsmp.com | false | SkillsMP 官方市场基础地址 |
 | skills.registry.api_base_url | string | platform |  | false | 官方技能 Registry API 基础地址，留空则沿用 Base URL |

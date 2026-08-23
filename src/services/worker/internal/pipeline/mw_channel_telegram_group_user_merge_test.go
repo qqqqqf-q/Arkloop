@@ -98,15 +98,6 @@ func TestNewChannelTelegramGroupUserMergeMiddleware_mergesThreeUsersAfterAssista
 			t.Fatalf("merged text missing %q: %q", want, s)
 		}
 	}
-	tailVariants := userMessageScanTextVariants(llm.Message{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "three"}}})
-	if len(rc.InjectionScanUserTexts) != len(tailVariants) {
-		t.Fatalf("InjectionScanUserTexts len=%d want %d (%#v)", len(rc.InjectionScanUserTexts), len(tailVariants), rc.InjectionScanUserTexts)
-	}
-	for i := range tailVariants {
-		if rc.InjectionScanUserTexts[i] != tailVariants[i] {
-			t.Fatalf("InjectionScanUserTexts[%d]=%q want %q", i, rc.InjectionScanUserTexts[i], tailVariants[i])
-		}
-	}
 }
 
 func TestNormalizeRuntimeSteeringInputs_CompactsSingleTelegramEnvelope(t *testing.T) {

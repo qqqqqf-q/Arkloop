@@ -78,8 +78,6 @@ func (e *SimpleExecutor) Execute(
 		LlmRetryBaseDelayMs:              rc.LlmRetryBaseDelayMs,
 		WaitForInput:                     rc.WaitForInput,
 		PollSteeringInput:                rc.PollSteeringInput,
-		UserPromptScanFunc:               rc.UserPromptScanFunc,
-		ToolOutputScanFunc:               rc.ToolOutputScanFunc,
 		Channel:                          rc.ChannelToolSurface,
 		CancelSignal: func() bool {
 			return ctx.Err() != nil

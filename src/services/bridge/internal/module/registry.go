@@ -185,7 +185,6 @@ var categoryMap = map[string]ModuleCategory{
 	"browser":        CategoryBrowser,
 	"searxng":        CategorySearch,
 	"firecrawl":      CategorySearch,
-	"prompt-guard":   CategorySecurity,
 	"postgres":       CategoryInfrastructure,
 	"redis":          CategoryInfrastructure,
 	"migrate":        CategoryInfrastructure,
@@ -232,7 +231,6 @@ var nameMap = map[string]string{
 	"seaweedfs":      "SeaweedFS",
 	"searxng":        "SearXNG",
 	"firecrawl":      "Firecrawl",
-	"prompt-guard":   "Prompt Guard",
 }
 
 func humanName(id string) string {

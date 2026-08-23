@@ -260,28 +260,3 @@ modules:
 # setup.sh --web-tools mapping:
 #   builtin     -> no additional modules (use Tavily + Jina/Basic via API)
 #   self-hosted -> enable searxng + firecrawl profiles
-
-  # ── Security / ML ────────────────────────────────────────────
-
-  prompt-guard:
-    category: optional
-    description: Prompt injection semantic detection model (DeBERTa-v3, ONNX)
-    virtual: true
-    depends_on: [worker]
-    capabilities:
-      installable: true
-      configurable: false
-      healthcheck: false
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    platform_constraints:
-      requires_onnxruntime: true
-    env:
-      ARKLOOP_PROMPT_GUARD_MODEL_DIR: "${ARKLOOP_DATA_DIR}/models/prompt-guard"
-      ARKLOOP_ONNX_RUNTIME_LIB: ""
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: true
