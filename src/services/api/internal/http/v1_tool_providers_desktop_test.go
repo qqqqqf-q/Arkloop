@@ -402,7 +402,7 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 	}
 }
 
-func TestDesktopToolProvidersListSeparatesDockerAndFirecrackerRuntime(t *testing.T) {
+func TestDesktopToolProvidersListSandboxDockerRuntime(t *testing.T) {
 	prevProbe := catalogapiTestSwapDesktopSandboxHealthProbe(func(addr string) bool {
 		return addr == "127.0.0.1:19002"
 	})
@@ -508,7 +508,6 @@ func TestDesktopToolProvidersListSeparatesDockerAndFirecrackerRuntime(t *testing
 	}
 
 	var dockerFound bool
-	var firecrackerFound bool
 	for _, group := range payload.Groups {
 		if group.GroupName != "sandbox" {
 			continue
@@ -520,16 +519,13 @@ func TestDesktopToolProvidersListSeparatesDockerAndFirecrackerRuntime(t *testing
 				if provider.RuntimeStatus != "available" {
 					t.Fatalf("expected sandbox.docker available, got %q", provider.RuntimeStatus)
 				}
-			case "sandbox.firecracker":
-				firecrackerFound = true
-				if provider.RuntimeStatus != "unavailable" {
-					t.Fatalf("expected sandbox.firecracker unavailable, got %q", provider.RuntimeStatus)
-				}
+			default:
+				t.Fatalf("unexpected sandbox provider %q in payload", provider.ProviderName)
 			}
 		}
 	}
-	if !dockerFound || !firecrackerFound {
-		t.Fatalf("expected both sandbox providers in payload: docker=%v firecracker=%v", dockerFound, firecrackerFound)
+	if !dockerFound {
+		t.Fatalf("expected sandbox.docker in payload")
 	}
 }
 
