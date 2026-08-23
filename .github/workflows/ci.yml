@@ -68,9 +68,6 @@ jobs:
           - name: desktop
             path: src/services/desktop
             args: --timeout=10m --build-tags=desktop --default=none --enable=errcheck,govet,staticcheck
-          - name: gateway
-            path: src/services/gateway
-            args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck
           - name: sandbox
             path: src/services/sandbox
             args: --timeout=10m --default=none --enable=errcheck,govet,staticcheck

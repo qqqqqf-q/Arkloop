@@ -11,7 +11,7 @@ POSTGRES_PASSWORD="ci_test_password"
 POSTGRES_DB="arkloop"
 DATABASE_DSN="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
 PROVIDER_ROUTING_JSON='{"default_route_id":"default","credentials":[{"id":"stub_default","scope":"platform","provider_kind":"stub"}],"routes":[{"id":"default","model":"stub","credential_id":"stub_default"}]}'
-GO_MODULES=(api gateway worker sandbox shared)
+GO_MODULES=(api worker sandbox shared)
 ACT_JOBS=(typescript go-check)
 ACT_RUNNER_IMAGE="${CI_LOCAL_ACT_RUNNER_IMAGE:-catthehacker/ubuntu:full-latest}"
 

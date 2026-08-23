@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [api, gateway, worker, sandbox, console, console-lite, bridge]
+        name: [api, worker, sandbox, console, console-lite, bridge]
         platform:
           - arch: linux/amd64
             runner: ubuntu-latest
@@ -33,9 +33,6 @@ jobs:
         include:
           - name: api
             dockerfile: src/services/api/Dockerfile
-            context: .
-          - name: gateway
-            dockerfile: src/services/gateway/Dockerfile
             context: .
           - name: worker
             dockerfile: src/services/worker/Dockerfile
@@ -114,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [api, gateway, worker, sandbox, console, console-lite, bridge]
+        name: [api, worker, sandbox, console, console-lite, bridge]
 
     steps:
       - name: Download digests

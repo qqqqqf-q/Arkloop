@@ -84,7 +84,6 @@ services:
       ARKLOOP_DATABASE_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_DATABASE_DIRECT_URL: "postgresql://${ARKLOOP_POSTGRES_USER:-arkloop}:${ARKLOOP_POSTGRES_PASSWORD:?请在 .env 中设置 ARKLOOP_POSTGRES_PASSWORD}@postgres:5432/${ARKLOOP_POSTGRES_DB:-arkloop}"
       ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
-      ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/1"
       ARKLOOP_STORAGE_BACKEND: "${ARKLOOP_STORAGE_BACKEND:-filesystem}"
       ARKLOOP_STORAGE_ROOT: "${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}"
       ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-}"
@@ -110,35 +109,6 @@ services:
       sandbox_agent_egress:
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:19001/healthz"]
-      interval: 15s
-      timeout: 3s
-      retries: 20
-
-  gateway:
-    build:
-      context: .
-      dockerfile: src/services/gateway/Dockerfile
-    restart: unless-stopped
-    environment:
-      ARKLOOP_GATEWAY_ADDR: "0.0.0.0:19000"
-      ARKLOOP_GATEWAY_UPSTREAM: "${ARKLOOP_GATEWAY_UPSTREAM:-http://api:19001}"
-      ARKLOOP_GATEWAY_FRONTEND_UPSTREAM: "${ARKLOOP_GATEWAY_FRONTEND_UPSTREAM:-http://console-lite:80}"
-      ARKLOOP_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/0"
-      ARKLOOP_GATEWAY_REDIS_URL: "redis://:${ARKLOOP_REDIS_PASSWORD:-arkloop_redis}@redis:6379/1"
-      ARKLOOP_AUTH_JWT_SECRET: "${ARKLOOP_AUTH_JWT_SECRET}"
-      ARKLOOP_RATELIMIT_CAPACITY: "${ARKLOOP_RATELIMIT_CAPACITY:-600}"
-      ARKLOOP_RATELIMIT_RATE_PER_MINUTE: "${ARKLOOP_RATELIMIT_RATE_PER_MINUTE:-300}"
-    ports:
-      - "${ARKLOOP_GATEWAY_PORT:-19000}:19000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      api:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:19000/healthz"]
       interval: 15s
       timeout: 3s
       retries: 20

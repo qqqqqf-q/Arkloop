@@ -32,7 +32,6 @@ cp .env.example .env
 
 # 后端（Go 服务）
 cd src/services/api && go run . &
-cd src/services/gateway && go run . &
 cd src/services/worker && go run .
 
 # 前端
@@ -130,7 +129,6 @@ bin/ci-local act typescript
 # Go 单元测试
 cd src/services/api && go test ./...
 cd src/services/worker && go test ./...
-cd src/services/gateway && go test ./...
 
 # 前端测试
 cd src/apps/web && pnpm test

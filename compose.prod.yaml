@@ -14,18 +14,6 @@ services:
   api:
     image: ghcr.io/qqqqqf-q/arkloop-api:${ARKLOOP_VERSION:-latest}
 
-  gateway:
-    image: ghcr.io/qqqqqf-q/arkloop-gateway:${ARKLOOP_VERSION:-latest}
-
-  worker:
-    image: ghcr.io/qqqqqf-q/arkloop-worker:${ARKLOOP_VERSION:-latest}
-
-  sandbox:
-    image: ghcr.io/qqqqqf-q/arkloop-sandbox:${ARKLOOP_VERSION:-latest}
-
-  sandbox-docker:
-    image: ghcr.io/qqqqqf-q/arkloop-sandbox:${ARKLOOP_VERSION:-latest}
-
   console:
     image: ghcr.io/qqqqqf-q/arkloop-console:${ARKLOOP_VERSION:-latest}
 

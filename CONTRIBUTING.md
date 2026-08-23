@@ -32,7 +32,6 @@ cp .env.example .env
 
 # Backend (Go services)
 cd src/services/api && go run . &
-cd src/services/gateway && go run . &
 cd src/services/worker && go run .
 
 # Frontend
@@ -51,7 +50,6 @@ src/
     shared/       # Shared frontend packages
   services/
     api/          # Core REST API (Go)
-    gateway/      # Reverse proxy (Go)
     worker/       # Job execution engine (Go)
     sandbox/      # Code execution sandbox (Go)
     shared/       # Shared Go libraries
@@ -172,7 +170,6 @@ bin/ci-local act typescript
 # Go unit tests
 cd src/services/api && go test ./...
 cd src/services/worker && go test ./...
-cd src/services/gateway && go test ./...
 
 # Frontend tests
 cd src/apps/web && pnpm test
