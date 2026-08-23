@@ -60,15 +60,10 @@ type headlessDesktopConfig struct {
 }
 
 type headlessMemoryConfig struct {
-	Enabled              *bool                    `json:"enabled"`
-	Provider             string                   `json:"provider"`
-	MemoryCommitEachTurn *bool                    `json:"memoryCommitEachTurn"`
-	OpenViking           headlessOpenVikingConfig `json:"openviking"`
-	Nowledge             headlessNowledgeConfig   `json:"nowledge"`
-}
-
-type headlessOpenVikingConfig struct {
-	RootAPIKey string `json:"rootApiKey"`
+	Enabled              *bool                  `json:"enabled"`
+	Provider             string                 `json:"provider"`
+	MemoryCommitEachTurn *bool                  `json:"memoryCommitEachTurn"`
+	Nowledge             headlessNowledgeConfig `json:"nowledge"`
 }
 
 type headlessNowledgeConfig struct {
@@ -511,22 +506,16 @@ func applyHeadlessMemoryEnv(cfg headlessMemoryConfig) error {
 		return err
 	}
 	clearHeadlessMemoryProviderEnv()
-	switch provider {
-	case "nowledge":
+	if provider == "nowledge" {
 		return applyHeadlessNowledgeEnv(cfg.Nowledge)
-	case "openviking":
-		return applyHeadlessOpenVikingEnv(cfg.OpenViking)
-	default:
-		return nil
 	}
+	return nil
 }
 
 func clearHeadlessMemoryProviderEnv() {
 	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_BASE_URL")
 	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_API_KEY")
 	_ = os.Unsetenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS")
-	_ = os.Unsetenv("ARKLOOP_OPENVIKING_BASE_URL")
-	_ = os.Unsetenv("ARKLOOP_OPENVIKING_ROOT_API_KEY")
 }
 
 func applyHeadlessNowledgeEnv(cfg headlessNowledgeConfig) error {
@@ -548,27 +537,11 @@ func applyHeadlessNowledgeEnv(cfg headlessNowledgeConfig) error {
 	return nil
 }
 
-func applyHeadlessOpenVikingEnv(cfg headlessOpenVikingConfig) error {
-	if err := os.Setenv("ARKLOOP_OPENVIKING_BASE_URL", "http://127.0.0.1:19010"); err != nil {
-		return err
-	}
-	if value := strings.TrimSpace(cfg.RootAPIKey); value != "" {
-		if err := os.Setenv("ARKLOOP_OPENVIKING_ROOT_API_KEY", value); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func normalizeHeadlessMemoryProvider(provider string) string {
-	switch strings.TrimSpace(provider) {
-	case "nowledge":
+	if strings.TrimSpace(provider) == "nowledge" {
 		return "nowledge"
-	case "openviking":
-		return "openviking"
-	default:
-		return "notebook"
 	}
+	return "notebook"
 }
 
 func (cfg headlessMemoryConfig) memoryEnabled() bool {
