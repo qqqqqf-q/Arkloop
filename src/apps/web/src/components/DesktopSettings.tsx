@@ -18,7 +18,6 @@ import {
   Code2,
   Activity,
   Loader2,
-  Shield,
   Info,
   Blocks,
 } from "lucide-react";
@@ -47,7 +46,6 @@ import { ExtensionsSettings } from "./settings/ExtensionsSettings";
 import { PluginsSettings } from "./settings/PluginsSettings";
 import { ModulesSettings } from "./settings/ModulesSettings";
 import { DeveloperSettings } from "./settings/DeveloperSettings";
-import { DesktopPromptInjectionSettings } from "./settings/DesktopPromptInjectionSettings";
 import { DesignTokensSettings } from "./settings/DesignTokensSettings";
 import { AboutSettings } from "./settings/AboutSettings";
 import { beginPerfTrace, endPerfTrace, isPerfDebugEnabled, recordPerfValue } from "../perfDebug";
@@ -69,7 +67,6 @@ export type DesktopSettingsKey =
   | "activityRecorder"
   | "connection"
   | "chat"
-  | "promptInjection"
   | "modules"
   | "extensions"
   | "developer"
@@ -98,7 +95,6 @@ const NAV_ENTRIES: NavEntry[] = [
   { key: "memory",           icon: Database },
   { key: "activityRecorder", icon: Activity },
   { key: "chat",             icon: MessageSquare },
-  { key: "promptInjection",  icon: Shield },
   // 第三段：低频管理
   { header: "managementHeader" },
   { key: "tools",      icon: Wrench },
@@ -225,8 +221,6 @@ function DesktopSettingsPaneImpl({
             onPlatformSettingsChange={onPlatformSettingsChange}
           />
         );
-      case "promptInjection":
-        return <DesktopPromptInjectionSettings accessToken={accessToken} />;
       case "modules":
         return <ModulesSettings />;
       case "extensions":

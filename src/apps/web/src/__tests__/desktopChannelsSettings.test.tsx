@@ -75,7 +75,6 @@ async function loadDesktopSettingsSubject() {
     ExtensionsSettings: () => <div>extensions</div>,
     ModulesSettings: () => <div>modules</div>,
     DeveloperSettings: () => <div>developer</div>,
-    DesktopPromptInjectionSettings: () => <div>prompt injection</div>,
     ConnectorsSettings: () => <div>connectors</div>,
     VoiceSettings: () => <div>voice</div>,
     AboutSettings: () => <div>about page</div>,
@@ -94,7 +93,6 @@ async function loadDesktopSettingsSubject() {
   vi.doMock('../components/settings/ExtensionsSettings', () => ({ ExtensionsSettings: () => <div>extensions</div> }))
   vi.doMock('../components/settings/ModulesSettings', () => ({ ModulesSettings: () => <div>modules</div> }))
   vi.doMock('../components/settings/DeveloperSettings', () => ({ DeveloperSettings: () => <div>developer</div> }))
-  vi.doMock('../components/settings/DesktopPromptInjectionSettings', () => ({ DesktopPromptInjectionSettings: () => <div>prompt injection</div> }))
   vi.doMock('../components/settings/VoiceSettings', () => ({ VoiceSettings: () => <div>voice</div> }))
   vi.doMock('../components/settings/DesignTokensSettings', () => ({ DesignTokensSettings: () => <div>design tokens</div> }))
   vi.doMock('../components/settings/AboutSettings', () => ({ AboutSettings: () => <div>about page</div> }))
@@ -173,7 +171,6 @@ afterEach(() => {
   vi.doUnmock('../components/settings/ExtensionsSettings')
   vi.doUnmock('../components/settings/ModulesSettings')
   vi.doUnmock('../components/settings/DeveloperSettings')
-  vi.doUnmock('../components/settings/DesktopPromptInjectionSettings')
   vi.doUnmock('../components/settings/VoiceSettings')
   vi.doUnmock('../components/settings/DesignTokensSettings')
   vi.resetModules()
