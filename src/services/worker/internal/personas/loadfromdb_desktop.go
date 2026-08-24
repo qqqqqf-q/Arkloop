@@ -137,9 +137,6 @@ func scanPersonaRows(rows personaRowScanner) ([]Definition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
 		}
-		if err := validateRuntimeExecutorConfig(executorType, executorConfig); err != nil {
-			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
-		}
 
 		var titleSummarizeRaw []byte
 		if titleSummarizeStr != nil {

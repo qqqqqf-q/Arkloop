@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -360,7 +359,7 @@ func writePersonaDir(dirPath string, persona data.Persona) error {
 		return err
 	}
 
-	yamlDoc, scriptBody, titlePromptBody, resultPromptBody, err := buildMirrorPersonaYAML(persona)
+	yamlDoc, titlePromptBody, resultPromptBody, err := buildMirrorPersonaYAML(persona)
 	if err != nil {
 		return err
 	}
@@ -379,11 +378,6 @@ func writePersonaDir(dirPath string, persona data.Persona) error {
 			return err
 		}
 	}
-	if strings.TrimSpace(scriptBody) != "" {
-		if err := os.WriteFile(filepath.Join(dirPath, "agent.lua"), []byte(strings.TrimSpace(scriptBody)+"\n"), 0644); err != nil {
-			return err
-		}
-	}
 	if strings.TrimSpace(titlePromptBody) != "" {
 		if err := os.WriteFile(filepath.Join(dirPath, "title_summarize.md"), []byte(strings.TrimSpace(titlePromptBody)+"\n"), 0644); err != nil {
 			return err
@@ -397,40 +391,28 @@ func writePersonaDir(dirPath string, persona data.Persona) error {
 	return nil
 }
 
-func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, string, string, error) {
+func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, string, error) {
 	budgets, err := decodeRawMap(persona.BudgetsJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", "", "", err
+		return mirrorPersonaYAML{}, "", "", err
 	}
 	titleSummarize, err := decodeRawMap(persona.TitleSummarizeJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", "", "", err
+		return mirrorPersonaYAML{}, "", "", err
 	}
 	resultSummarize, err := decodeRawMap(persona.ResultSummarizeJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", "", "", err
+		return mirrorPersonaYAML{}, "", "", err
 	}
 	executorConfig, err := decodeRawMap(persona.ExecutorConfigJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", "", "", err
+		return mirrorPersonaYAML{}, "", "", err
 	}
 	conditionalTools, err := decodeConditionalTools(persona.ConditionalToolsJSON)
 	if err != nil {
-		return mirrorPersonaYAML{}, "", "", "", err
+		return mirrorPersonaYAML{}, "", "", err
 	}
 
-	scriptBody := ""
-	if strings.TrimSpace(persona.ExecutorType) == "agent.lua" {
-		rawScript, _ := executorConfig["script"].(string)
-		if strings.TrimSpace(rawScript) == "" {
-			return mirrorPersonaYAML{}, "", "", "", fmt.Errorf("agent.lua runtime persona missing script")
-		}
-		scriptBody = rawScript
-		delete(executorConfig, "script")
-		executorConfig["script_file"] = "agent.lua"
-	} else {
-		delete(executorConfig, "script_file")
-	}
 	titlePromptBody := extractPromptToFile(titleSummarize, "title_summarize.md")
 	resultPromptBody := extractPromptToFile(resultSummarize, "result_summarize.md")
 
@@ -465,7 +447,7 @@ func buildMirrorPersonaYAML(persona data.Persona) (mirrorPersonaYAML, string, st
 	if strings.TrimSpace(persona.SoulMD) != "" {
 		doc.SoulFile = "soul.md"
 	}
-	return doc, scriptBody, titlePromptBody, resultPromptBody, nil
+	return doc, titlePromptBody, resultPromptBody, nil
 }
 
 func extractPromptToFile(obj map[string]any, fileName string) string {
