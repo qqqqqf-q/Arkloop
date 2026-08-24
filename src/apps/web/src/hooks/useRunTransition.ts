@@ -38,9 +38,6 @@ export function useRunTransition() {
     setTerminalRunCoveredRunIds,
     terminalRunCoveredRunIds,
     terminalRunHandoffStatus,
-    setAwaitingInput,
-    setPendingUserInput,
-    setCheckInDraft,
   } = useRunLifecycle()
   const {
     persistRunDataToMessage: persistRunDataToMessageState,
@@ -68,7 +65,6 @@ export function useRunTransition() {
     setTopLevelWebFetches,
     streamingArtifactsRef,
     setStreamingArtifacts,
-    resetSearchSteps,
   } = useStream()
 
   const resetAssistantTurnLive = useCallback(() => {
