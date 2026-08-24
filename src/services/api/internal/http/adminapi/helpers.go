@@ -1,11 +1,5 @@
 package adminapi
 
-import (
-	"regexp"
-)
-
-var uuidPrefixRegex = regexp.MustCompile(`^[0-9a-fA-F-]{1,36}$`)
-
 func calcCacheHitRate(inputTokens, cacheRead, cacheCreation, cachedTokens *int64) *float64 {
 	hasAnthropic := (cacheRead != nil && *cacheRead > 0) || (cacheCreation != nil && *cacheCreation > 0)
 	hasOpenAI := cachedTokens != nil && *cachedTokens > 0

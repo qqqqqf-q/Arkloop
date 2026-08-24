@@ -56,17 +56,6 @@ func TestPersonasRepositoryScopesRowsToProject(t *testing.T) {
 	}
 	ghostID := insertGlobalPersonaRow(t, ctx, pool, "ghost", "Ghost Persona")
 
-	list, err := repo.ListByProject(ctx, projectID)
-	if err != nil {
-		t.Fatalf("ListByProject failed: %v", err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 persona, got %d", len(list))
-	}
-	if list[0].ID != custom.ID {
-		t.Fatalf("expected custom persona in list, got %s", list[0].ID)
-	}
-
 	gotCustom, err := repo.GetByID(ctx, projectID, custom.ID)
 	if err != nil {
 		t.Fatalf("GetByID custom failed: %v", err)

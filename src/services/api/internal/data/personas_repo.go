@@ -466,10 +466,6 @@ func (r *PersonasRepository) GetByIDInScope(ctx context.Context, projectID, id u
 	return &persona, nil
 }
 
-func (r *PersonasRepository) ListByProject(ctx context.Context, projectID uuid.UUID) ([]Persona, error) {
-	return r.ListByScope(ctx, projectID, PersonaScopeProject)
-}
-
 func (r *PersonasRepository) GetByKeyVersionInProject(ctx context.Context, projectID uuid.UUID, personaKey, version string) (*Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()

@@ -12,7 +12,7 @@ import (
 )
 
 func TestResolveActorAuthServiceNilReturns503(t *testing.T) {
-	req := httptest.NewRequest(nethttp.MethodGet, "/v1/config/schema", nil)
+	req := httptest.NewRequest(nethttp.MethodGet, "/v1/notifications", nil)
 	req.Header.Set("Authorization", "Bearer some-token")
 
 	recorder := httptest.NewRecorder()

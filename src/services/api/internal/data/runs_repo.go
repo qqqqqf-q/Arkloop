@@ -1185,19 +1185,6 @@ func (r *RunEventRepository) ListRuns(ctx context.Context, params ListRunsParams
 	return runs, total, nil
 }
 
-func (r *RunEventRepository) CountAll(ctx context.Context) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	var count int64
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM runs WHERE deleted_at IS NULL`).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("runs.CountAll: %w", err)
-	}
-	return count, nil
-}
-
 // ListStaleRunning 查询所有 status='running'/'cancelling' 且最后活跃时间早于 staleBefore 的 run。
 func (r *RunEventRepository) ListStaleRunning(ctx context.Context, staleBefore time.Time) ([]Run, error) {
 	if ctx == nil {
@@ -1301,21 +1288,4 @@ func (r *RunEventRepository) ForceFailRun(ctx context.Context, runID uuid.UUID) 
 		return false, fmt.Errorf("ForceFailRun: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
-}
-
-func (r *RunEventRepository) CountSince(ctx context.Context, since time.Time) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	var count int64
-	err := r.db.QueryRow(
-		ctx,
-		`SELECT COUNT(*) FROM runs WHERE deleted_at IS NULL AND created_at >= $1`,
-		since.UTC(),
-	).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("runs.CountSince: %w", err)
-	}
-	return count, nil
 }
