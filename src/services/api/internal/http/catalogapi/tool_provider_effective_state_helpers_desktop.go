@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"arkloop/services/shared/desktop"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 )
 
@@ -27,23 +26,12 @@ func SetDesktopSandboxHealthProbeForTest(probe func(addr string) bool) func() {
 	}
 }
 
-func desktopSandboxAvailable() bool {
-	return desktop.GetExecutionMode() == "vm" && desktopCurrentSandboxAvailable()
-}
-
 func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapshot sharedtoolruntime.RuntimeSnapshot) (toolProviderRuntimeStatus, bool) {
 	switch def.GroupName {
 	case "sandbox":
 		switch def.ProviderName {
 		case "sandbox.docker":
 			if desktopDockerSandboxAvailable() {
-				return toolProviderRuntimeStatus{
-					Status: toolProviderRuntimeStatusAvailable,
-					Source: toolProviderRuntimeSourceSandbox,
-				}, true
-			}
-		case "sandbox.firecracker":
-			if desktopFirecrackerAvailable() {
 				return toolProviderRuntimeStatus{
 					Status: toolProviderRuntimeStatusAvailable,
 					Source: toolProviderRuntimeSourceSandbox,
@@ -58,18 +46,8 @@ func resolveDesktopToolProviderRuntimeStatus(def toolProviderDefinition, snapsho
 	return toolProviderRuntimeStatus{}, false
 }
 
-func desktopCurrentSandboxAvailable() bool {
-	addr := strings.TrimSpace(desktop.GetSandboxAddr())
-	return addr != "" && desktopSandboxHealthCheck(addr)
-}
-
 func desktopDockerSandboxAvailable() bool {
 	return desktopSandboxHealthCheck(desktopDockerSandboxAddr)
-}
-
-func desktopFirecrackerAvailable() bool {
-	addr := strings.TrimSpace(desktop.GetSandboxAddr())
-	return addr != "" && addr != desktopDockerSandboxAddr && desktopSandboxHealthCheck(addr)
 }
 
 func probeDesktopSandboxHealth(addr string) bool {

@@ -33,7 +33,6 @@ var toolProviderCatalog = []toolProviderDefinition{
 		},
 	},
 	{GroupName: "sandbox", ProviderName: "sandbox.docker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox-docker:19002"},
-	{GroupName: "sandbox", ProviderName: "sandbox.firecracker", RequiresBaseURL: true, AllowsInternalHTTP: true, DefaultBaseURL: "http://sandbox:19002"},
 }
 
 func findProviderDef(groupName string, providerName string) (toolProviderDefinition, bool) {

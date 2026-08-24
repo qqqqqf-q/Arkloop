@@ -48,7 +48,7 @@ If this is a fresh checkout and `setup.sh` isn't executable yet:
 chmod +x ./setup.sh
 ```
 
-### Step 1: Ask the User 8 Questions
+### Step 1: Ask the User 5 Questions
 
 Ask these questions to determine installation parameters. Keep them in this order. Do not expose internal implementation details (compose profiles, port numbers, Redis database numbers) as options.
 
@@ -65,7 +65,7 @@ Ask these questions to determine installation parameters. Keep them in this orde
 
 ---
 
-**Q3 — Code execution sandbox**
+**Q2 — Code execution sandbox**
 
 > Do you want agents to be able to execute code in an isolated environment?
 
@@ -76,7 +76,7 @@ Ask these questions to determine installation parameters. Keep them in this orde
 
 ---
 
-**Q4 — Web search and scraping**
+**Q3 — Web search and scraping**
 
 > Do you want agents to use web search and content scraping?
 >
@@ -90,24 +90,11 @@ Ask these questions to determine installation parameters. Keep them in this orde
 
 ---
 
-**Q5 — Console tier**
-
-> Do you want the standard Console (recommended) or the full advanced Console?
->
-> The full Console includes additional management pages for billing, RBAC, and system configuration. It requires more resources.
-
-- Standard (Console Lite) → `--console lite`
-- Full → `--console full`
-
-**Default: lite**
-
----
-
-**Q6 — Browser module**
+**Q4 — Browser module**
 
 > Do you want to enable the browser automation module? (Requires code execution sandbox to be enabled.)
 
-Only ask this if Q3 = yes (sandbox enabled). If sandbox is disabled, set `--browser off` automatically.
+Only ask this if Q2 = yes (sandbox enabled). If sandbox is disabled, set `--browser off` automatically.
 
 - No → `--browser off`
 - Yes → `--browser on`
@@ -116,17 +103,7 @@ Only ask this if Q3 = yes (sandbox enabled). If sandbox is disabled, set `--brow
 
 ---
 
-**Q7 — Gateway**
-
-The gateway is the entry point for all traffic. For standard self-hosted installs it should always be enabled.
-
-Set `--gateway on` unless the user explicitly says they want to run the API directly without a gateway.
-
-**Default: on**
-
----
-
-**Q8 — Deployment mode**
+**Q5 — Deployment mode**
 
 > Are you deploying this for personal or team use (self-hosted), or is this an Arkloop SaaS deployment?
 
@@ -147,16 +124,10 @@ Construct the install command from the answers above and run it. Always include 
 ./setup.sh install \
   --profile <standard|full> \
   --mode self-hosted \
-<<<<<<< HEAD
   --memory <none|openviking> \
   --sandbox <none|docker|auto> \
-=======
-  --sandbox <none|docker|firecracker> \
->>>>>>> cut/openviking
-  --console <lite|full> \
   --browser <off|on> \
   --web-tools <builtin|self-hosted> \
-  --gateway <on|off> \
   --non-interactive
 ```
 
@@ -169,10 +140,8 @@ Minimal install, no optional modules:
   --profile standard \
   --mode self-hosted \
   --sandbox none \
-  --console lite \
   --browser off \
   --web-tools builtin \
-  --gateway on \
   --non-interactive
 ```
 
@@ -183,30 +152,11 @@ Full install with memory, Docker sandbox, and self-hosted search:
   --profile full \
   --mode self-hosted \
   --sandbox docker \
-  --console lite \
   --browser off \
   --web-tools self-hosted \
-  --gateway on \
   --non-interactive
 ```
 
-<<<<<<< HEAD
-=======
-Full install with Firecracker (Linux with KVM):
-
-```bash
-./setup.sh install \
-  --profile full \
-  --mode self-hosted \
-  --sandbox firecracker \
-  --console lite \
-  --browser on \
-  --web-tools builtin \
-  --gateway on \
-  --non-interactive
-```
-
->>>>>>> cut/openviking
 The installer will:
 
 1. Check host prerequisites (Docker, Compose, port availability)
@@ -269,16 +219,10 @@ If the URL was not printed (gateway was off, or bootstrap already completed), sk
 |------|--------|---------|-------|
 | `--profile` | `standard`, `full` | `standard` | `full` enables all optional modules |
 | `--mode` | `self-hosted`, `saas` | `self-hosted` | `saas` enables PGBouncer, S3, full Console |
-<<<<<<< HEAD
 | `--memory` | `none`, `openviking` | `none` | Adds persistent agent memory |
 | `--sandbox` | `none`, `docker`, `auto` | `none` | Code execution isolation (`auto` resolves to `docker`) |
-=======
-| `--sandbox` | `none`, `docker`, `firecracker` | `none` | Code execution isolation |
->>>>>>> cut/openviking
-| `--console` | `lite`, `full` | `lite` | Full adds advanced management UI |
 | `--browser` | `off`, `on` | `off` | Requires sandbox to be enabled |
 | `--web-tools` | `builtin`, `self-hosted` | `builtin` | `self-hosted` installs SearXNG + Firecrawl |
-| `--gateway` | `on`, `off` | `on` | Entry point proxy; disable only for development |
 | `--non-interactive` | flag | — | Must be set when called by an agent |
 | `--prod` | flag | — | Use pre-built GHCR images via `compose.prod.yaml` |
 

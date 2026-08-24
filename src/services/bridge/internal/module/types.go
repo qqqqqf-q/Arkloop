@@ -19,7 +19,6 @@ const (
 	CategorySandbox        ModuleCategory = "sandbox"
 	CategorySearch         ModuleCategory = "search"
 	CategoryBrowser        ModuleCategory = "browser"
-	CategorySecurity       ModuleCategory = "security"
 	CategoryInfrastructure ModuleCategory = "infrastructure"
 )
 

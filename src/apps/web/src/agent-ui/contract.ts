@@ -242,7 +242,6 @@ export type AgentUIEventType =
   | 'run-failed'
   | 'run-cancelled'
   | 'run-interrupted'
-  | 'security-block'
   | 'thread-title'
   | 'thread-collaboration'
   | 'todo-updated'

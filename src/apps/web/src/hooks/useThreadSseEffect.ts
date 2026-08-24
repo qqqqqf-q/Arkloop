@@ -48,7 +48,6 @@ import {
 } from '../lib/chat-helpers'
 import { extractPartialArtifactFields, extractPartialWidgetFields } from '../components/ArtifactStreamBlock'
 import type { MessageAgentEvent } from '../storage'
-import { getInjectionBlockMessage, shouldSuppressLiveAgentEventAfterInjectionBlock } from '../liveRunSecurity'
 import type { RequestedSchema } from '../userInputTypes'
 import { noteShowWidgetDelta } from '../streamDebug'
 import {
@@ -86,8 +85,6 @@ export function useThreadSseEffect({
     setActiveRunId,
     setCancelSubmitting,
     setError,
-    setInjectionBlocked,
-    injectionBlockedRunIdRef,
     setAwaitingInput,
     setPendingUserInput,
     setCheckInDraft,
@@ -152,7 +149,6 @@ export function useThreadSseEffect({
   } = useMessageStore()
   const {
     resetAssistantTurnLive,
-    clearLiveRunSecurityArtifacts,
     releaseCompletedHandoffToHistory,
     captureTerminalRunCache,
     persistRunDataToMessage,
@@ -253,7 +249,6 @@ export function useThreadSseEffect({
       handoffRunCache?: TerminalRunCache
     }) => {
       freezeCutoffRef.current = null
-      injectionBlockedRunIdRef.current = null
       clearCompletedTitleTail()
       sse.disconnect()
       setActiveRunId(null)
@@ -322,13 +317,6 @@ export function useThreadSseEffect({
         event.order > freezeCutoff &&
         !isTerminalAgentEventType(event.type)
       ) {
-        continue
-      }
-      if (shouldSuppressLiveAgentEventAfterInjectionBlock({
-        activeRunId,
-        blockedRunId: injectionBlockedRunIdRef.current,
-        event,
-      })) {
         continue
       }
       const nextWebSearchSteps = applyAgentEventToWebSearchSteps(searchStepsRef.current, event)
@@ -768,25 +756,9 @@ export function useThreadSseEffect({
         continue
       }
 
-      if (event.type === 'security-block') {
-        freezeCutoffRef.current = null
-        injectionBlockedRunIdRef.current = event.streamId
-        sseTerminalFallbackArmedRef.current = false
-        sseTerminalFallbackRunIdRef.current = null
-        sse.disconnect()
-        setActiveRunId(null)
-        setCancelSubmitting(false)
-        setError(null)
-        clearLiveRunSecurityArtifacts()
-        setInjectionBlocked(getInjectionBlockMessage(event))
-        if (threadId) onRunEnded(threadId)
-        continue
-      }
-
       if (event.type === 'run-completed') {
         freezeCutoffRef.current = null
         const completedRunId = event.streamId
-        injectionBlockedRunIdRef.current = null
         noResponseMsgIdRef.current = null
         setPreserveLiveRunUi(true)
         setTerminalRunDisplayId(completedRunId)
@@ -867,7 +839,6 @@ export function useThreadSseEffect({
       }
 
       if (event.type === 'run-cancelled') {
-        const blockedByInjection = injectionBlockedRunIdRef.current === event.streamId
         const runId = event.streamId
         setTerminalRunDisplayId(runId)
         setTerminalRunHandoffStatus('cancelled')
@@ -904,9 +875,7 @@ export function useThreadSseEffect({
           preserveSearchSteps: true,
           handoffRunCache: runHasRecoverableOutput && !localAssistant ? runCache : undefined,
         })
-        if (!blockedByInjection) {
-          setError(null)
-        }
+        setError(null)
         if (runId) {
           void refreshMessages({ requiredCompletedRunId: runHasRecoverableOutput ? runId : undefined })
             .then((items) => {
@@ -963,15 +932,11 @@ export function useThreadSseEffect({
           ? obj.details as Record<string, unknown>
           : undefined
 
-        if (errorClass === 'security.injection_blocked') {
-          setInjectionBlocked(typeof obj?.message === 'string' ? obj.message : 'blocked')
-        } else {
-          setError({
-            message: typeof obj?.message === 'string' ? obj.message : '运行失败',
-            code: typeof obj?.code === 'string' ? obj.code : errorClass,
-            details,
-          })
-        }
+        setError({
+          message: typeof obj?.message === 'string' ? obj.message : '运行失败',
+          code: typeof obj?.code === 'string' ? obj.code : errorClass,
+          details,
+        })
         if (runId) {
           void refreshMessages({ requiredCompletedRunId: runHasRecoverableOutput ? runId : undefined })
             .then((items) => {

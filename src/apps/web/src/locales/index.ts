@@ -1,4 +1,3 @@
-import type { PromptInjectionTexts } from "@arkloop/shared/components/prompt-injection";
 import { zh } from "./zh";
 import { en } from "./en";
 
@@ -912,14 +911,6 @@ export interface LocaleStrings {
     save: string;
   };
 
-  security: PromptInjectionTexts & {
-    title: string;
-    description: string;
-    auditLoading: string;
-    sectionDetect: string;
-    sectionResponse: string;
-  };
-
   // desktop settings navigation
   desktopSettings: {
     backToChat: string;
@@ -1000,7 +991,6 @@ export interface LocaleStrings {
     advanced: string;
     about: string;
     aboutDesc: string;
-    promptInjection: string;
     extensions: string;
     developer: string;
     agentCoreHeader: string;
