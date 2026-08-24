@@ -23,12 +23,6 @@ const (
 	settingEmailTLSMode  = "email.smtp_tls_mode"
 )
 
-type emailStatusResponse struct {
-	Configured bool   `json:"configured"`
-	From       string `json:"from,omitempty"`
-	Source     string `json:"source"` // "db" | "env" | "none"
-}
-
 type emailConfigResponse struct {
 	From        string `json:"from"`
 	SMTPHost    string `json:"smtp_host"`
@@ -56,62 +50,6 @@ func loadEmailSettings(ctx context.Context, resolver sharedconfig.Resolver) (map
 		return map[string]string{}, nil
 	}
 	return resolver.ResolvePrefix(ctx, "email.", sharedconfig.Scope{})
-}
-
-func adminEmailStatus(
-	authService *auth.Service,
-	membershipRepo *data.AccountMembershipRepository,
-	apiKeysRepo *data.APIKeysRepository,
-	resolver sharedconfig.Resolver,
-) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		actor, ok := httpkit.ResolveActor(w, r, traceID, authService, membershipRepo, apiKeysRepo, nil)
-		if !ok {
-			return
-		}
-		if !httpkit.RequirePerm(actor, auth.PermPlatformAdmin, w, traceID) {
-			return
-		}
-
-		resp := emailStatusResponse{Source: "none"}
-		if resolver != nil {
-			var (
-				val string
-				src string
-				err error
-			)
-			if sr, ok := resolver.(sharedconfig.ResolverWithSource); ok {
-				val, src, err = sr.ResolveWithSource(r.Context(), settingEmailFrom, sharedconfig.Scope{})
-			} else {
-				val, err = resolver.Resolve(r.Context(), settingEmailFrom, sharedconfig.Scope{})
-			}
-			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			val = strings.TrimSpace(val)
-			if val != "" {
-				resp.Configured = true
-				resp.From = val
-			}
-			switch src {
-			case "env":
-				resp.Source = "env"
-			case "platform_db":
-				resp.Source = "db"
-			default:
-				resp.Source = "none"
-			}
-		}
-
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
-	}
 }
 
 func adminEmailConfig(

@@ -772,52 +772,6 @@ func (w *Writer) WriteRedemptionCodeRedeemed(
 	}
 }
 
-func (w *Writer) WriteBroadcastCreated(
-	ctx context.Context,
-	traceID string,
-	userID uuid.UUID,
-	broadcastID uuid.UUID,
-	targetType string,
-	targetID *uuid.UUID,
-) {
-	if w == nil || w.auditRepo == nil {
-		return
-	}
-
-	ip, ua := requestMetaFromContext(ctx)
-	tType := "notification_broadcast"
-	tID := broadcastID.String()
-	meta := map[string]any{
-		"target_type": targetType,
-	}
-	if targetID != nil {
-		meta["target_id"] = targetID.String()
-	}
-
-	var accountID *uuid.UUID
-	if w.membershipRepo != nil {
-		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
-		if err != nil {
-			w.logError(traceID, "failed to read default account for broadcast audit", err)
-		} else if membership != nil {
-			accountID = &membership.AccountID
-		}
-	}
-	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		AccountID:       accountID,
-		ActorUserID: &userID,
-		Action:      "notifications.broadcast_created",
-		TargetType:  &tType,
-		TargetID:    &tID,
-		TraceID:     traceID,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Metadata:    meta,
-	}); err != nil {
-		w.logError(traceID, "failed to write broadcast-created audit log", err)
-	}
-}
-
 func (w *Writer) WriteCreditsAdjusted(
 	ctx context.Context,
 	traceID string,
@@ -899,83 +853,6 @@ func (w *Writer) WriteEntitlementOverrideDeleted(
 	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "entitlements.override_delete", &targetType, &targetID, map[string]any{
 		"key": key,
 	}, beforeState, nil, "failed to write entitlement-override-delete audit log")
-}
-
-func (w *Writer) WriteFeatureFlagCreated(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	flagID uuid.UUID,
-	key string,
-	afterState any,
-) {
-	targetType := "feature_flag"
-	targetID := flagID.String()
-	w.writeStateChange(ctx, traceID, nil, &actorUserID, "feature_flags.create", &targetType, &targetID, map[string]any{
-		"key": key,
-	}, nil, afterState, "failed to write feature-flag-created audit log")
-}
-
-func (w *Writer) WriteFeatureFlagUpdated(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	flagID uuid.UUID,
-	key string,
-	beforeState any,
-	afterState any,
-) {
-	targetType := "feature_flag"
-	targetID := flagID.String()
-	w.writeStateChange(ctx, traceID, nil, &actorUserID, "feature_flags.update", &targetType, &targetID, map[string]any{
-		"key": key,
-	}, beforeState, afterState, "failed to write feature-flag-updated audit log")
-}
-
-func (w *Writer) WriteFeatureFlagDeleted(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	flagID uuid.UUID,
-	key string,
-	beforeState any,
-) {
-	targetType := "feature_flag"
-	targetID := flagID.String()
-	w.writeStateChange(ctx, traceID, nil, &actorUserID, "feature_flags.delete", &targetType, &targetID, map[string]any{
-		"key": key,
-	}, beforeState, nil, "failed to write feature-flag-deleted audit log")
-}
-
-func (w *Writer) WriteFeatureFlagAccountOverrideSet(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	targetAccountID uuid.UUID,
-	flagKey string,
-	beforeState any,
-	afterState any,
-) {
-	targetType := "feature_flag_account_override"
-	targetID := targetAccountID.String() + ":" + flagKey
-	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "feature_flags.account_override_set", &targetType, &targetID, map[string]any{
-		"key": flagKey,
-	}, beforeState, afterState, "failed to write feature-flag-account-override-set audit log")
-}
-
-func (w *Writer) WriteFeatureFlagAccountOverrideDeleted(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	targetAccountID uuid.UUID,
-	flagKey string,
-	beforeState any,
-) {
-	targetType := "feature_flag_account_override"
-	targetID := targetAccountID.String() + ":" + flagKey
-	w.writeStateChange(ctx, traceID, &targetAccountID, &actorUserID, "feature_flags.account_override_delete", &targetType, &targetID, map[string]any{
-		"key": flagKey,
-	}, beforeState, nil, "failed to write feature-flag-account-override-delete audit log")
 }
 
 func (w *Writer) writeStateChange(

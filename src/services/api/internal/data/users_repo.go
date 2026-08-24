@@ -198,19 +198,6 @@ func (r *UserRepository) BumpTokensInvalidBefore(ctx context.Context, userID uui
 	return err
 }
 
-func (r *UserRepository) CountAll(ctx context.Context) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	var count int64
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("users.CountAll: %w", err)
-	}
-	return count, nil
-}
-
 func (r *UserRepository) List(
 	ctx context.Context,
 	limit int,
@@ -313,23 +300,6 @@ func (r *UserRepository) UpdateStatus(ctx context.Context, userID uuid.UUID, sta
 		return nil, fmt.Errorf("users.UpdateStatus: %w", err)
 	}
 	return &user, nil
-}
-
-func (r *UserRepository) CountActiveSince(ctx context.Context, since time.Time) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	var count int64
-	err := r.db.QueryRow(
-		ctx,
-		`SELECT COUNT(*) FROM users WHERE deleted_at IS NULL AND last_login_at >= $1`,
-		since.UTC(),
-	).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("users.CountActiveSince: %w", err)
-	}
-	return count, nil
 }
 
 type UpdateProfileParams struct {

@@ -2,7 +2,6 @@ package featureflag
 
 import (
 	"context"
-	"strings"
 )
 
 const WorkEnabledKey = "work_enabled"
@@ -16,8 +15,4 @@ func IsWorkEnabled(ctx context.Context, svc *Service) bool {
 		return false
 	}
 	return enabled
-}
-
-func SupportsOrgOverrides(flagKey string) bool {
-	return strings.TrimSpace(flagKey) != WorkEnabledKey
 }

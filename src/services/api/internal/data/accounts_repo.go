@@ -152,19 +152,6 @@ func (r *AccountRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([
 	return accounts, nil
 }
 
-func (r *AccountRepository) CountActive(ctx context.Context) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
-	var count int64
-	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL`).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("accounts.CountActive: %w", err)
-	}
-	return count, nil
-}
-
 func (r *AccountRepository) UpdateSettings(ctx context.Context, accountID uuid.UUID, key string, value any) error {
 	if ctx == nil {
 		ctx = context.Background()

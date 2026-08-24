@@ -136,20 +136,3 @@ func (s *Service) setGlobalCache(ctx context.Context, flagKey string, enabled bo
 	}
 	_ = s.rdb.Set(ctx, cacheKey, v, cacheTTL).Err()
 }
-
-// InvalidateGlobalCache 清除 flag 全局 default_value 的缓存。
-func (s *Service) InvalidateGlobalCache(ctx context.Context, flagKey string) {
-	if s.rdb == nil {
-		return
-	}
-	_ = s.rdb.Del(ctx, cachePrefix+"global:"+flagKey).Err()
-}
-
-// InvalidateCache 清除指定 account + flag 的缓存，用于 override 变更后立即生效。
-func (s *Service) InvalidateCache(ctx context.Context, accountID uuid.UUID, flagKey string) {
-	if s.rdb == nil {
-		return
-	}
-	cacheKey := cachePrefix + accountID.String() + ":" + flagKey
-	_ = s.rdb.Del(ctx, cacheKey).Err()
-}
