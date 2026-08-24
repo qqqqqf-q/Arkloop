@@ -362,7 +362,7 @@ func (r *PersonasRepository) createWithProjectID(
 		return Persona{}, err
 	}
 	rolesJSON = validatedRolesJSON
-	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(executorType, executorConfigJSON)
+	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(executorConfigJSON)
 	if err != nil {
 		return Persona{}, err
 	}
@@ -868,23 +868,6 @@ func scanPersonas(rows pgx.Rows) ([]Persona, error) {
 	return personas, rows.Err()
 }
 
-func (r *PersonasRepository) DeleteInvalidLuaRuntimeRows(ctx context.Context) (int64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	tag, err := r.db.Exec(
-		ctx,
-		`DELETE FROM personas
-		 WHERE executor_type = 'agent.lua'
-		   AND COALESCE(executor_config_json ? 'script', FALSE) = FALSE
-		   AND COALESCE(executor_config_json ? 'script_file', FALSE) = TRUE`,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
-}
-
 func (r *PersonasRepository) ListLatestPlatformMirrors(ctx context.Context) ([]Persona, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -953,7 +936,7 @@ func (r *PersonasRepository) UpsertPlatformMirror(ctx context.Context, params Pl
 		return nil, err
 	}
 	params.RolesJSON = validatedRolesJSON
-	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(params.ExecutorType, params.ExecutorConfigJSON)
+	validatedExecutorConfigJSON, err := validateRuntimeExecutorConfigJSON(params.ExecutorConfigJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -1233,8 +1216,7 @@ func normalizeConditionalItems(items []string, field string) ([]string, error) {
 	return out, nil
 }
 
-func validateRuntimeExecutorConfigJSON(executorType string, raw json.RawMessage) (json.RawMessage, error) {
-	trimmedType := strings.TrimSpace(executorType)
+func validateRuntimeExecutorConfigJSON(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		raw = json.RawMessage("{}")
 	}
@@ -1244,17 +1226,6 @@ func validateRuntimeExecutorConfigJSON(executorType string, raw json.RawMessage)
 	}
 	if obj == nil {
 		obj = map[string]any{}
-	}
-	if trimmedType == "agent.lua" {
-		if _, exists := obj["script_file"]; exists {
-			return nil, fmt.Errorf("executor_config.script_file is not allowed for agent.lua runtime")
-		}
-		script, _ := obj["script"].(string)
-		if strings.TrimSpace(script) == "" {
-			return nil, fmt.Errorf("executor_config.script is required for agent.lua runtime")
-		}
-	} else {
-		delete(obj, "script_file")
 	}
 	encoded, err := json.Marshal(obj)
 	if err != nil {
@@ -1303,7 +1274,7 @@ func normalizePatchedRuntimeExecutorConfig(
 	if len(patchConfig) > 0 {
 		effectiveConfig = patchConfig
 	}
-	validated, err := validateRuntimeExecutorConfigJSON(effectiveType, effectiveConfig)
+	validated, err := validateRuntimeExecutorConfigJSON(effectiveConfig)
 	if err != nil {
 		return nil, err
 	}

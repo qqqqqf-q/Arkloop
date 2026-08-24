@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -203,10 +202,6 @@ func createPersona(
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.PromptMD = strings.TrimSpace(req.PromptMD)
 	req.CopyFromRepoPersonaKey = strings.TrimSpace(req.CopyFromRepoPersonaKey)
-	if err := validateRuntimeExecutorConfigRequest(req.ExecutorType, req.ExecutorConfigJSON); err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
-		return
-	}
 
 	if req.CopyFromRepoPersonaKey != "" {
 		repoPersona, exists := findRepoPersonaByKey(repoPersonas, req.CopyFromRepoPersonaKey)
@@ -544,10 +539,6 @@ func patchPersona(
 		ExecutorType:         req.ExecutorType,
 		ExecutorConfigJSON:   req.ExecutorConfigJSON,
 	}
-	if err := validateRuntimeExecutorConfigRequest(ptrStringValue(req.ExecutorType), req.ExecutorConfigJSON); err != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", err.Error(), traceID, nil)
-		return
-	}
 
 	updated, err := personasRepo.PatchInScope(r.Context(), scopeID, personaID, scope, patch)
 	if err != nil {
@@ -852,27 +843,6 @@ func notifyPersonaSync(syncTrigger personaSyncTrigger) {
 	if syncTrigger != nil {
 		syncTrigger.Trigger()
 	}
-}
-
-func validateRuntimeExecutorConfigRequest(executorType string, raw json.RawMessage) error {
-	if strings.TrimSpace(executorType) != "agent.lua" {
-		return nil
-	}
-	if len(raw) == 0 {
-		return fmt.Errorf("executor_config.script is required for agent.lua runtime")
-	}
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return fmt.Errorf("executor_config must be valid json object")
-	}
-	if _, exists := obj["script_file"]; exists {
-		return fmt.Errorf("executor_config.script_file is not allowed for agent.lua runtime")
-	}
-	script, _ := obj["script"].(string)
-	if strings.TrimSpace(script) == "" {
-		return fmt.Errorf("executor_config.script is required for agent.lua runtime")
-	}
-	return nil
 }
 
 func ptrStringValue(value *string) string {

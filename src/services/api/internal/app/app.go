@@ -661,11 +661,6 @@ func (a *Application) Run(ctx context.Context) error {
 
 	var personaSyncManager *personasync.Manager
 	if pool != nil && personasRepo != nil {
-		if deleted, err := personasRepo.DeleteInvalidLuaRuntimeRows(ctx); err != nil {
-			return err
-		} else if deleted > 0 {
-			a.logger.Warn("persona_runtime_rows_deleted", "rows", deleted)
-		}
 		personaSyncManager = personasync.NewManager(personasRoot, pool, personasRepo, a.logger)
 		if err := personaSyncManager.SyncNow(ctx); err != nil {
 			return err

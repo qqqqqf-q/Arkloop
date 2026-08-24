@@ -9,6 +9,3 @@ budgets:
     temperature: 1
 reasoning_mode: auto
 prompt_cache_control: system_prompt
-executor_type: agent.lua
-executor_config:
-    script_file: agent.lua

@@ -177,10 +177,7 @@ func loadSinglePersona(yamlPath string) (Definition, error) {
 		}
 		executorType = *raw
 	}
-	executorConfig, err := parseExecutorConfig(obj["executor_config"], executorType, personaDir)
-	if err != nil {
-		return Definition{}, err
-	}
+	executorConfig := parseExecutorConfig(obj["executor_config"])
 	preferredCredential := asOptionalString(obj["preferred_credential"])
 	model := asOptionalString(obj["model"])
 	imageModel := asOptionalString(obj["image_model"])
@@ -468,43 +465,13 @@ func asOptionalMap(value any) map[string]any {
 	return m
 }
 
-func parseExecutorConfig(value any, executorType string, personaDir string) (map[string]any, error) {
+func parseExecutorConfig(value any) map[string]any {
 	config := asOptionalMap(value)
 	out := map[string]any{}
 	for key, val := range config {
 		out[key] = val
 	}
-	if executorType != "agent.lua" {
-		return out, nil
-	}
-
-	scriptFileRaw, hasScriptFile := out["script_file"]
-	if !hasScriptFile || scriptFileRaw == nil {
-		return out, nil
-	}
-	if scriptRaw, ok := out["script"].(string); ok && strings.TrimSpace(scriptRaw) != "" {
-		return nil, fmt.Errorf("executor_config.script and executor_config.script_file cannot both be set")
-	}
-
-	scriptFile, err := asNonEmptyString(scriptFileRaw, "executor_config.script_file")
-	if err != nil {
-		return nil, err
-	}
-	scriptPath, err := resolvePersonaLocalPath(personaDir, scriptFile)
-	if err != nil {
-		return nil, fmt.Errorf("executor_config.script_file: %w", err)
-	}
-	rawScript, err := os.ReadFile(scriptPath)
-	if err != nil {
-		return nil, fmt.Errorf("executor_config.script_file: %w", err)
-	}
-	script := strings.TrimSpace(string(rawScript))
-	if script == "" {
-		return nil, fmt.Errorf("executor_config.script_file: file must not be empty")
-	}
-	out["script"] = script
-	delete(out, "script_file")
-	return out, nil
+	return out
 }
 
 func resolvePersonaLocalPath(personaDir string, pathValue string) (string, error) {
@@ -652,9 +619,6 @@ func LoadFromDB(ctx context.Context, pool *pgxpool.Pool, projectID *uuid.UUID) (
 		if err != nil {
 			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
 		}
-		if err := validateRuntimeExecutorConfig(executorType, executorConfig); err != nil {
-			return nil, fmt.Errorf("persona %q executor_config_json: %w", personaKey, err)
-		}
 		titleSummarizer, err := parseTitleSummarizeJSON(titleSummarizeRaw)
 		if err != nil {
 			return nil, fmt.Errorf("persona %q title_summarize_json: %w", personaKey, err)
@@ -790,20 +754,6 @@ func parseExecutorConfigJSON(raw []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("invalid executor_config_json: %w", err)
 	}
 	return obj, nil
-}
-
-func validateRuntimeExecutorConfig(executorType string, config map[string]any) error {
-	if strings.TrimSpace(executorType) != "agent.lua" {
-		return nil
-	}
-	if _, exists := config["script_file"]; exists {
-		return fmt.Errorf("script_file is not allowed in runtime executor config")
-	}
-	script, _ := config["script"].(string)
-	if strings.TrimSpace(script) == "" {
-		return fmt.Errorf("script is required in runtime executor config")
-	}
-	return nil
 }
 
 func parseTitleSummarizeJSON(raw []byte) (*TitleSummarizerConfig, error) {
