@@ -15,18 +15,12 @@
 | context.compact.max_user_text_bytes | int | platform | 0 | false | 保留 user 文本字节上限，0 表示不限制 |
 | context.compact.persist_trigger_context_pct | int | platform | 80 | false | 按路由 available_catalog.context_length（否则 fallback）的百分比触发 compact |
 | context.compact.target_context_pct | int | platform | 75 | false | compact 循环压回的上下文窗口百分比目标 |
-| credit.deduction_policy | string | platform | {"tiers":[{"up_to_tokens":2000,"multiplier":0},{"multiplier":1}]} | false | 积分扣减策略（JSON） |
-| credit.initial_grant | int | platform | 1000 | false | 新账户初始积分发放数量 |
-| credit.invite_reward | int | platform | 500 | false | 邀请者奖励积分数量 |
-| credit.invitee_reward | int | platform | 200 | false | 被邀请者奖励积分数量 |
-| credit.per_usd | int | platform | 1000 | false | 积分汇率：每 1 USD 对应积分数 |
 | email.from | string | platform |  | false | SMTP 发件人地址，留空表示禁用邮件发送 |
 | email.smtp_host | string | platform |  | false | SMTP Host |
 | email.smtp_pass | string | platform |  | true | SMTP 密码 |
 | email.smtp_port | int | platform | 587 | false | SMTP 端口 |
 | email.smtp_tls_mode | string | platform | starttls | false | SMTP TLS 模式：starttls/tls/none |
 | email.smtp_user | string | platform |  | false | SMTP 用户名 |
-| feature.byok_enabled | bool | both | true | false | 是否允许使用用户级凭证（BYOK） |
 | feature.mcp_remote_enabled | bool | both | false | false | 是否允许远程 MCP |
 | gateway.ip_mode | string | platform | direct | false | Gateway IP 模式：direct/cloudflare/trusted_proxy |
 | gateway.ratelimit_capacity | number | platform | 600 | false | Gateway Rate Limit Capacity |
@@ -34,10 +28,8 @@
 | gateway.risk_reject_threshold | int | platform | 0 | false | Gateway 风险拒绝阈值（0-100） |
 | gateway.trusted_cidrs | string | platform |  | false | Gateway 可信代理 CIDR 列表 |
 | image_generative.model | string | both |  | false | 默认图片生成模型，格式 provider^model |
-| invite.default_max_uses | int | both | 0 | false | 邀请码默认可用次数，0 表示不限 |
 | invite.max_codes_per_user | int | both | 1 | false | 单用户可创建的邀请码数量上限 |
 | limit.agent_reasoning_iterations | int | platform | 0 | false | Agent Loop 主推理回合上限，0 表示不限 |
-| limit.concurrent_runs | int | both | 0 | false | 并发 run 上限，0 表示不限 |
 | limit.idle_heartbeat_interval_ms | int | platform | 15000 | false | 长等待期间发出活跃事件的心跳间隔（毫秒） |
 | limit.max_input_content_bytes | int | both | 32768 | false | Run input 提交内容最大字节数 |
 | limit.max_parallel_tasks | int | platform | 32 | false | Lua 并行任务/并行工具调用上限 |
@@ -49,7 +41,6 @@
 | limit.subagent_max_descendants_per_thread | int | both | 50 | false | 单 thread 下 sub-agent 总数上限 |
 | limit.subagent_max_parallel_children_per_thread | int | both | 5 | false | 单 thread 下最大并行子 agent 数量 |
 | limit.subagent_max_pending_per_thread | int | both | 20 | false | 单 thread 下待处理输入队列上限 |
-| limit.team_members | int | both | 0 | false | Team 成员数量上限，0 表示不限 |
 | limit.tool_continuation_budget | int | platform | 32 | false | 长工具 continuation 总预算上限 |
 | llm.max_response_bytes | int | platform | 16384 | false | LLM Provider HTTP 响应读取上限（字节） |
 | llm.retry.base_delay_ms | int | platform | 1000 | false | LLM 重试基础延迟（毫秒） |
@@ -61,8 +52,6 @@
 | nowledge.max_context_results | int | platform | 5 | false | Max recalled memories injected per turn (1-20) |
 | nowledge.recall_min_score | int | platform | 0 | false | Min recall score threshold 0-100 (0 = no filter) |
 | nowledge.request_timeout_ms | int | platform | 30000 | false | Nowledge request timeout in milliseconds |
-| quota.runs_per_month | int | both | 0 | false | 每月 run 数量配额，0 表示不限 |
-| quota.tokens_per_month | int | both | 0 | false | 每月 token 配额，0 表示不限 |
 | sandbox.agent_port | int | platform | 8080 | false | Sandbox Agent 监听端口 |
 | sandbox.allow_egress | bool | platform | true | false | Sandbox backend 是否允许访问外网 |
 | sandbox.base_url | string | platform |  | false | Sandbox Service 地址，Worker 通过此 URL 调用 Sandbox；为空则不注册 sandbox 工具 |
