@@ -851,13 +851,6 @@ export const zh: LocaleStrings = {
   alreadyAtLastResponse: "已经是最后一条回复",
   connection: {
     title: "连接模式",
-    local: "本地",
-    localDesc: "使用内嵌后端，数据存储在本机",
-    saas: "云服务",
-    saasDesc: "连接 Arkloop 云端服务",
-    selfHosted: "自部署",
-    selfHostedDesc: "连接自部署的 Arkloop 服务",
-    baseUrl: "服务地址",
     status: "状态",
     running: "运行中",
     stopped: "已停止",

@@ -857,13 +857,6 @@ export const en: LocaleStrings = {
   alreadyAtLastResponse: "Already at last response",
   connection: {
     title: "Connection Mode",
-    local: "Local",
-    localDesc: "Use embedded backend, data stored locally",
-    saas: "Cloud",
-    saasDesc: "Connect to Arkloop cloud service",
-    selfHosted: "Self-hosted",
-    selfHostedDesc: "Connect to your own Arkloop server",
-    baseUrl: "Server URL",
     status: "Status",
     running: "Running",
     stopped: "Stopped",

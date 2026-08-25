@@ -842,13 +842,6 @@ export interface LocaleStrings {
   // connection settings (desktop only)
   connection: {
     title: string;
-    local: string;
-    localDesc: string;
-    saas: string;
-    saasDesc: string;
-    selfHosted: string;
-    selfHostedDesc: string;
-    baseUrl: string;
     status: string;
     running: string;
     stopped: string;
