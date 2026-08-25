@@ -392,7 +392,6 @@ func newDesktopAuthHandler(t *testing.T, pool data.DB) nethttp.Handler {
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {

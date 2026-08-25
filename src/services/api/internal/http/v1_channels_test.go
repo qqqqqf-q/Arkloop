@@ -84,7 +84,6 @@ func TestDesktopChannelEndpointsReturnEmptyLists(t *testing.T) {
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {
@@ -684,7 +683,6 @@ func newDesktopChannelHandler(t *testing.T, pool data.DB) nethttp.Handler {
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {

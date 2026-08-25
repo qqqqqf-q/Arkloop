@@ -10,8 +10,6 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
 	sharedconfig "arkloop/services/shared/config"
-
-	"github.com/redis/go-redis/v9"
 )
 
 const maskedSensitiveValue = "******"
@@ -85,7 +83,6 @@ func platformSettingEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	settingsRepo *data.PlatformSettingsRepository,
 	apiKeysRepo *data.APIKeysRepository,
-	rdb *redis.Client,
 	invalidator sharedconfig.Invalidator,
 	registry *sharedconfig.Registry,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
