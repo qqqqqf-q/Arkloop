@@ -12,27 +12,27 @@ import (
 )
 
 type Deps struct {
-	AuthService              *auth.Service
-	AccountMembershipRepo    *data.AccountMembershipRepository
-	ThreadRepo               *data.ThreadRepository
-	ThreadStarRepo           *data.ThreadStarRepository
-	ThreadShareRepo          *data.ThreadShareRepository
-	ThreadReportRepo         *data.ThreadReportRepository
-	MessageRepo              *data.MessageRepository
-	RunEventRepo             *data.RunEventRepository
-	ShellSessionRepo         *data.ShellSessionRepository
-	ProjectRepo              *data.ProjectRepository
-	TeamRepo                 *data.TeamRepository
-	AuditWriter              *audit.Writer
-	Pool                     data.DB
-	APIKeysRepo              *data.APIKeysRepository
-	RunLimiter               *data.RunLimiter
-	ConfigResolver           sharedconfig.Resolver
-	SSEConfig                SSEConfig
-	EventBus                 eventbus.EventBus
-	MessageAttachmentStore   messageAttachmentStore
-	ArtifactStore            artifactStore
-	FlagService              *featureflag.Service
+	AuthService            *auth.Service
+	AccountMembershipRepo  *data.AccountMembershipRepository
+	ThreadRepo             *data.ThreadRepository
+	ThreadStarRepo         *data.ThreadStarRepository
+	ThreadShareRepo        *data.ThreadShareRepository
+	ThreadReportRepo       *data.ThreadReportRepository
+	MessageRepo            *data.MessageRepository
+	RunEventRepo           *data.RunEventRepository
+	ShellSessionRepo       *data.ShellSessionRepository
+	ProjectRepo            *data.ProjectRepository
+	TeamRepo               *data.TeamRepository
+	AuditWriter            *audit.Writer
+	Pool                   data.DB
+	APIKeysRepo            *data.APIKeysRepository
+	RunLimiter             *data.RunLimiter
+	ConfigResolver         sharedconfig.Resolver
+	SSEConfig              SSEConfig
+	EventBus               eventbus.EventBus
+	MessageAttachmentStore messageAttachmentStore
+	ArtifactStore          artifactStore
+	FlagService            *featureflag.Service
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
