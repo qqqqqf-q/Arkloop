@@ -110,30 +110,6 @@ func RegisterTrackA(r *Registry) error {
 		},
 
 		{
-			Key:         "turnstile.secret_key",
-			Type:        TypeString,
-			Default:     "",
-			Description: "Turnstile Secret Key",
-			Sensitive:   true,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "turnstile.site_key",
-			Type:        TypeString,
-			Default:     "",
-			Description: "Turnstile Site Key",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
-			Key:         "turnstile.allowed_host",
-			Type:        TypeString,
-			Default:     "",
-			Description: "Turnstile Allowed Host",
-			Sensitive:   false,
-			Scope:       ScopePlatform,
-		},
-		{
 			Key:         "llm.retry.max_attempts",
 			Type:        TypeInt,
 			Default:     "10",

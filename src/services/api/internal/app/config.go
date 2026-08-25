@@ -47,10 +47,6 @@ const (
 	emailFromEnv  = "ARKLOOP_EMAIL_FROM"
 	appBaseURLEnv = "ARKLOOP_APP_BASE_URL"
 
-	turnstileSecretKeyEnv   = "ARKLOOP_TURNSTILE_SECRET_KEY"
-	turnstileSiteKeyEnv     = "ARKLOOP_TURNSTILE_SITE_KEY"
-	turnstileAllowedHostEnv = "ARKLOOP_TURNSTILE_ALLOWED_HOST"
-
 	defaultSSEHeartbeatSeconds    = 15.0
 	defaultSSEBatchLimit          = 500
 	defaultSSECatchUpThreshold    = 50
@@ -92,10 +88,6 @@ type Config struct {
 	RunEventsRetentionMonths     int
 	EmailFrom                    string
 	AppBaseURL                   string
-
-	TurnstileSecretKey   string
-	TurnstileSiteKey     string
-	TurnstileAllowedHost string
 }
 
 func DefaultConfig() Config {
@@ -244,16 +236,6 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if raw, ok := lookupEnv(appBaseURLEnv); ok {
 		cfg.AppBaseURL = raw
-	}
-
-	if raw, ok := lookupEnv(turnstileSecretKeyEnv); ok {
-		cfg.TurnstileSecretKey = raw
-	}
-	if raw, ok := lookupEnv(turnstileSiteKeyEnv); ok {
-		cfg.TurnstileSiteKey = raw
-	}
-	if raw, ok := lookupEnv(turnstileAllowedHostEnv); ok {
-		cfg.TurnstileAllowedHost = raw
 	}
 
 	if err := cfg.Validate(); err != nil {
