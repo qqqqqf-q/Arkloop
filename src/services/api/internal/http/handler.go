@@ -141,9 +141,6 @@ type HandlerConfig struct {
 
 	NotificationsRepo *data.NotificationsRepository
 
-	InviteCodesRepo *data.InviteCodeRepository
-	ReferralsRepo   *data.ReferralRepository
-
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	SmtpProviderRepo     *data.SmtpProviderRepository
 
@@ -351,14 +348,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmCredentialsRepo:    cfg.LlmCredentialsRepo,
 		ThreadRepo:            cfg.ThreadRepo,
 		AuditWriter:           cfg.AuditWriter,
-		InviteCodesRepo:       cfg.InviteCodesRepo,
-		ReferralsRepo:         cfg.ReferralsRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		ConfigResolver:        resolver,
 		ConfigInvalidator:     invalidator,
 		JobRepo:               cfg.JobRepo,
 		SmtpProviderRepo:      cfg.SmtpProviderRepo,
-		UserCredentialRepo:    cfg.UserCredentialRepo,
 	})
 
 	memoryapi.RegisterRoutes(mux, memoryapi.Deps{
