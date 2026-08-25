@@ -1,109 +1,9 @@
 # Arkloop Module Registry
 #
 # Single source of truth for all installable modules.
-# Consumed by: setup.sh parser, installation.md, Console module status page, Installer Bridge.
+# Consumed by: Installer Bridge (module status), install/module_registry.py (install plan resolver).
 
 modules:
-  # ── Core (always installed) ──────────────────────────────────
-
-  postgres:
-    category: core
-    description: Primary database
-    compose_service: postgres
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-        required: true
-      saas:
-        default: true
-        required: true
-
-  redis:
-    category: core
-    description: Queue, cache, and rate-limiting store
-    compose_service: redis
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-        required: true
-      saas:
-        default: true
-        required: true
-
-  migrate:
-    category: core
-    description: Database schema migration
-    compose_service: migrate
-    depends_on: [postgres]
-    capabilities:
-      installable: true
-      configurable: false
-      healthcheck: false
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-        required: true
-      saas:
-        default: true
-        required: true
-
-  api:
-    category: core
-    description: Control-plane REST API
-    compose_service: api
-    depends_on: [postgres, redis, migrate]
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-        required: true
-      saas:
-        default: true
-        required: true
-
-  worker:
-    category: core
-    description: Job execution engine (LLM routing, tool dispatch, agent loop)
-    compose_service: worker
-    depends_on: [postgres, redis, migrate]
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: false
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: true
-        required: true
-      saas:
-        default: true
-        required: true
-
   # ── Optional ─────────────────────────────────────────────────
 
   sandbox-docker:
@@ -111,7 +11,6 @@ modules:
     description: Code execution sandbox (Docker backend)
     compose_service: sandbox-docker
     compose_profile: docker-sandbox
-    depends_on: [postgres]
     platform_constraints:
       requires_docker: true
     capabilities:
@@ -121,11 +20,6 @@ modules:
       bootstrap_supported: true
       external_admin_supported: false
       privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
 
   browser:
     category: optional
@@ -143,48 +37,6 @@ modules:
       bootstrap_supported: false
       external_admin_supported: false
       privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
-
-  pgbouncer:
-    category: optional
-    description: PostgreSQL connection pooler (high-concurrency scenarios)
-    compose_service: pgbouncer
-    compose_profile: pgbouncer
-    depends_on: [postgres]
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: false
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: true
-
-  seaweedfs:
-    category: optional
-    description: S3-compatible object storage
-    compose_service: seaweedfs
-    compose_profile: s3
-    capabilities:
-      installable: true
-      configurable: true
-      healthcheck: true
-      bootstrap_supported: true
-      external_admin_supported: false
-      privileged_required: false
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: true
 
   searxng:
     category: optional
@@ -206,11 +58,6 @@ modules:
         - Additional resource consumption
         - Crawler IP exposure risk
         - Slower than API-based search
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
 
   firecrawl:
     category: optional
@@ -233,12 +80,7 @@ modules:
         - Additional resource consumption (Redis + Playwright/Chromium)
         - Crawler IP exposure risk
         - Rate limits from target sites
-    profiles:
-      self-hosted:
-        default: false
-      saas:
-        default: false
 
-# setup.sh --web-tools mapping:
+# --web-tools mapping:
 #   builtin     -> no additional modules (use Tavily + Jina/Basic via API)
 #   self-hosted -> enable searxng + firecrawl profiles

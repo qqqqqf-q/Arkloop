@@ -38,11 +38,11 @@ func TestLoadRegistry(t *testing.T) {
 	}
 
 	list := reg.List()
-	if len(list) < 10 {
-		t.Fatalf("expected >10 modules, got %d", len(list))
+	if len(list) < 4 {
+		t.Fatalf("expected >=4 modules, got %d", len(list))
 	}
 
-	knownModules := []string{"postgres", "redis", "sandbox-docker", "api", "worker"}
+	knownModules := []string{"sandbox-docker", "browser", "searxng", "firecrawl"}
 	for _, id := range knownModules {
 		if _, ok := reg.Get(id); !ok {
 			t.Errorf("expected module %q to exist in registry", id)
@@ -94,16 +94,6 @@ func TestOptionalModules(t *testing.T) {
 	}
 
 	optional := reg.OptionalModules()
-	coreIDs := map[string]struct{}{
-		"postgres": {}, "redis": {}, "migrate": {},
-	}
-
-	for _, m := range optional {
-		if _, isCore := coreIDs[m.ID]; isCore {
-			t.Errorf("OptionalModules should exclude core module %q", m.ID)
-		}
-	}
-
 	if len(optional) == 0 {
 		t.Fatal("expected at least one optional module")
 	}
@@ -166,7 +156,6 @@ func TestFrontendCategoryMapping(t *testing.T) {
 		{"sandbox-docker", CategorySandbox},
 		{"searxng", CategorySearch},
 		{"browser", CategoryBrowser},
-		{"postgres", CategoryInfrastructure},
 	}
 
 	for _, tc := range tests {

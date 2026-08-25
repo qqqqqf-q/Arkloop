@@ -184,13 +184,6 @@ var categoryMap = map[string]ModuleCategory{
 	"browser":        CategoryBrowser,
 	"searxng":        CategorySearch,
 	"firecrawl":      CategorySearch,
-	"postgres":       CategoryInfrastructure,
-	"redis":          CategoryInfrastructure,
-	"migrate":        CategoryInfrastructure,
-	"api":            CategoryInfrastructure,
-	"worker":         CategoryInfrastructure,
-	"pgbouncer":      CategoryInfrastructure,
-	"seaweedfs":      CategoryInfrastructure,
 }
 
 func frontendCategory(id string) ModuleCategory {
@@ -205,7 +198,6 @@ var portMap = map[string]int{
 	"sandbox-docker": 19002,
 	"searxng":        19011,
 	"firecrawl":      19012,
-	"api":            19001,
 }
 
 func knownPort(id string) *int {
@@ -217,15 +209,8 @@ func knownPort(id string) *int {
 
 // humanName converts a module ID to a display name.
 var nameMap = map[string]string{
-	"postgres":       "PostgreSQL",
-	"redis":          "Redis",
-	"migrate":        "Database Migrations",
-	"api":            "API Server",
-	"worker":         "Worker",
 	"sandbox-docker": "Sandbox (Docker)",
 	"browser":        "Browser Automation",
-	"pgbouncer":      "PgBouncer",
-	"seaweedfs":      "SeaweedFS",
 	"searxng":        "SearXNG",
 	"firecrawl":      "Firecrawl",
 }
