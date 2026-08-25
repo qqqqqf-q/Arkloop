@@ -150,31 +150,6 @@ func (w *Writer) WriteLogout(ctx context.Context, traceID string, userID uuid.UU
 	}
 }
 
-func (w *Writer) WriteUserRegistered(ctx context.Context, traceID string, userID uuid.UUID, login string) {
-	if w == nil || w.auditRepo == nil {
-		return
-	}
-
-	ip, ua := requestMetaFromContext(ctx)
-	loginHash := sha256Hex(login)
-	targetType := "user"
-	targetID := userID.String()
-	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		ActorUserID: &userID,
-		Action:      "auth.register",
-		TargetType:  &targetType,
-		TargetID:    &targetID,
-		TraceID:     traceID,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Metadata: map[string]any{
-			"login_hash": loginHash,
-		},
-	}); err != nil {
-		w.logError(traceID, "failed to write register audit log", err)
-	}
-}
-
 func (w *Writer) WriteAuthResolved(ctx context.Context, traceID string, identity string, nextStep string) {
 	if w == nil || w.auditRepo == nil {
 		return
@@ -197,43 +172,6 @@ func (w *Writer) WriteAuthResolved(ctx context.Context, traceID string, identity
 		},
 	}); err != nil {
 		w.logError(traceID, "failed to write auth-resolve audit log", err)
-	}
-}
-
-func (w *Writer) WriteLoginOTPSent(ctx context.Context, traceID string, userID uuid.UUID, email string) {
-	if w == nil || w.auditRepo == nil {
-		return
-	}
-
-	var accountID *uuid.UUID
-	if w.membershipRepo != nil {
-		membership, err := w.membershipRepo.GetDefaultForUser(ctx, userID)
-		if err != nil {
-			w.logError(traceID, "failed to read default account", err)
-		} else if membership != nil {
-			accountID = &membership.AccountID
-		}
-	}
-
-	ip, ua := requestMetaFromContext(ctx)
-	targetType := "user"
-	targetID := userID.String()
-	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		AccountID:       accountID,
-		ActorUserID: &userID,
-		Action:      "auth.login_otp_send",
-		TargetType:  &targetType,
-		TargetID:    &targetID,
-		TraceID:     traceID,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Metadata: map[string]any{
-			"result":     "sent",
-			"method":     "email_otp",
-			"login_hash": sha256Hex(email),
-		},
-	}); err != nil {
-		w.logError(traceID, "failed to write login-otp-send audit log", err)
 	}
 }
 
@@ -559,38 +497,6 @@ func (w *Writer) WriteAccountInvitationRevoked(
 	}
 }
 
-func (w *Writer) WriteUserStatusChanged(
-	ctx context.Context,
-	traceID string,
-	actorUserID uuid.UUID,
-	targetUserID uuid.UUID,
-	oldStatus string,
-	newStatus string,
-) {
-	if w == nil || w.auditRepo == nil {
-		return
-	}
-
-	ip, ua := requestMetaFromContext(ctx)
-	targetType := "user"
-	targetID := targetUserID.String()
-	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		ActorUserID: &actorUserID,
-		Action:      "users.status_changed",
-		TargetType:  &targetType,
-		TargetID:    &targetID,
-		TraceID:     traceID,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Metadata: map[string]any{
-			"old_status": oldStatus,
-			"new_status": newStatus,
-		},
-	}); err != nil {
-		w.logError(traceID, "failed to write user-status-changed audit log", err)
-	}
-}
-
 func (w *Writer) WriteInviteCodeCreated(
 	ctx context.Context,
 	traceID string,
@@ -671,38 +577,6 @@ func (w *Writer) WriteInviteCodeUpdated(
 		Metadata:    changes,
 	}); err != nil {
 		w.logError(traceID, "failed to write invite_code-updated audit log", err)
-	}
-}
-
-func (w *Writer) WriteReferralCreated(
-	ctx context.Context,
-	traceID string,
-	inviterUserID uuid.UUID,
-	inviteeUserID uuid.UUID,
-	codeID uuid.UUID,
-	referralID uuid.UUID,
-) {
-	if w == nil || w.auditRepo == nil {
-		return
-	}
-
-	ip, ua := requestMetaFromContext(ctx)
-	targetType := "referral"
-	targetID := referralID.String()
-	if err := w.auditRepo.Create(ctx, data.AuditLogCreateParams{
-		ActorUserID: &inviteeUserID,
-		Action:      "referrals.create",
-		TargetType:  &targetType,
-		TargetID:    &targetID,
-		TraceID:     traceID,
-		IPAddress:   ip,
-		UserAgent:   ua,
-		Metadata: map[string]any{
-			"inviter_user_id": inviterUserID.String(),
-			"invite_code_id":  codeID.String(),
-		},
-	}); err != nil {
-		w.logError(traceID, "failed to write referral-created audit log", err)
 	}
 }
 

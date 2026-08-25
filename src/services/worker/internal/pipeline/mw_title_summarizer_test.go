@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/redis/go-redis/v9"
 )
 
 type titleSummarizerTestRow struct {
@@ -62,7 +61,7 @@ func (titleSummarizerTestDB) BeginTx(_ context.Context, _ pgx.TxOptions) (pgx.Tx
 }
 
 func TestTitleSummarizerMiddleware_NilConfigPassThrough(t *testing.T) {
-	mw := NewTitleSummarizerMiddleware(nil, nil, nil, false, nil)
+	mw := NewTitleSummarizerMiddleware(nil, nil, false, nil)
 
 	rc := &RunContext{
 		Emitter: events.NewEmitter("test"),
@@ -88,7 +87,7 @@ func TestTitleSummarizerMiddleware_WithConfigCallsNextImmediately(t *testing.T) 
 	stubCfg.DeltaInterval = 0
 	auxGateway := llm.NewAuxGateway(stubCfg)
 
-	mw := NewTitleSummarizerMiddleware(nil, nil, auxGateway, false, nil)
+	mw := NewTitleSummarizerMiddleware(nil, auxGateway, false, nil)
 
 	rc := &RunContext{
 		Run: data.Run{
@@ -129,7 +128,7 @@ func TestTitleSummarizerMiddleware_StillReturnsErrorFromNext(t *testing.T) {
 	stubCfg.DeltaInterval = 0
 	auxGateway := llm.NewAuxGateway(stubCfg)
 
-	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{}, nil, auxGateway, false, nil)
+	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{}, auxGateway, false, nil)
 
 	rc := &RunContext{
 		Run: data.Run{
@@ -151,7 +150,7 @@ func TestTitleSummarizerMiddleware_StillReturnsErrorFromNext(t *testing.T) {
 	}
 
 	started := make(chan struct{}, 1)
-	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
+	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -179,7 +178,7 @@ func TestTitleSummarizerMiddleware_StartsAsyncBeforeNextReturns(t *testing.T) {
 	stubCfg.DeltaInterval = 0
 	auxGateway := llm.NewAuxGateway(stubCfg)
 
-	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{}, nil, auxGateway, false, nil)
+	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{}, auxGateway, false, nil)
 
 	rc := &RunContext{
 		Run: data.Run{
@@ -204,7 +203,7 @@ func TestTitleSummarizerMiddleware_StartsAsyncBeforeNextReturns(t *testing.T) {
 	releaseNext := make(chan struct{})
 	done := make(chan error, 1)
 
-	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
+	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -244,7 +243,7 @@ func TestTitleSummarizerMiddleware_SkipsWhenTitleAlreadyEmitted(t *testing.T) {
 	stubCfg.Enabled = true
 	auxGateway := llm.NewAuxGateway(stubCfg)
 
-	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{titleEventCount: 1}, nil, auxGateway, false, nil)
+	mw := NewTitleSummarizerMiddleware(titleSummarizerTestDB{titleEventCount: 1}, auxGateway, false, nil)
 
 	rc := &RunContext{
 		Run: data.Run{
@@ -266,7 +265,7 @@ func TestTitleSummarizerMiddleware_SkipsWhenTitleAlreadyEmitted(t *testing.T) {
 	}
 
 	started := make(chan struct{}, 1)
-	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
+	SetTitleSummarizerGeneratorForTest(func(context.Context, TitleSummarizerDB, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int) {
 		started <- struct{}{}
 	})
 	defer ResetTitleSummarizerGeneratorForTest()

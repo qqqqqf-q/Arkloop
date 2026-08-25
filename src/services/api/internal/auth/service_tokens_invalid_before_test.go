@@ -8,11 +8,9 @@ import (
 
 	"arkloop/services/api/internal/data"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/redis/go-redis/v9"
 )
 
 type countingRow struct {
@@ -70,28 +68,8 @@ func (q *countingQuerier) QueryRow(ctx context.Context, sql string, args ...any)
 	}}
 }
 
-func newRedisClient(t *testing.T, addr string) *redis.Client {
-	t.Helper()
-	client := redis.NewClient(&redis.Options{
-		Addr:                  addr,
-		ContextTimeoutEnabled: true,
-	})
-	if err := client.Ping(context.Background()).Err(); err != nil {
-		t.Fatalf("redis ping: %v", err)
-	}
-	return client
-}
-
-func TestVerifyAccessTokenForActor_RedisHitDoesNotQueryDB(t *testing.T) {
-	mr := miniredis.RunT(t)
-	rdb := newRedisClient(t, mr.Addr())
-
+func TestVerifyAccessTokenForActor_QueriesDB(t *testing.T) {
 	userID := uuid.New()
-
-	key := tokensInvalidBeforeRedisKeyPrefix + userID.String()
-	if err := mr.Set(key, "0"); err != nil {
-		t.Fatalf("seed miniredis: %v", err)
-	}
 
 	q := &countingQuerier{
 		tokensInvalidBefore: time.Unix(0, 0).UTC(),
@@ -115,99 +93,6 @@ func TestVerifyAccessTokenForActor_RedisHitDoesNotQueryDB(t *testing.T) {
 	svc := &Service{
 		userRepo:     userRepo,
 		tokenService: tokenSvc,
-		redisClient:  rdb,
-	}
-
-	if _, err := svc.VerifyAccessTokenForActor(context.Background(), token); err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if q.queryRowCalls != 0 {
-		t.Fatalf("expected 0 db calls, got %d", q.queryRowCalls)
-	}
-}
-
-func TestVerifyAccessTokenForActor_RedisMissFallsBackToDBAndBackfills(t *testing.T) {
-	mr := miniredis.RunT(t)
-	rdb := newRedisClient(t, mr.Addr())
-
-	userID := uuid.New()
-	dbVal := time.Unix(0, 0).UTC()
-
-	q := &countingQuerier{
-		tokensInvalidBefore: dbVal,
-		userExists:          true,
-	}
-	userRepo, err := data.NewUserRepository(q)
-	if err != nil {
-		t.Fatalf("new user repo: %v", err)
-	}
-
-	tokenSvc, err := NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 3600)
-	if err != nil {
-		t.Fatalf("new token service: %v", err)
-	}
-
-	token, err := tokenSvc.Issue(userID, uuid.New(), "owner", time.Now().UTC())
-	if err != nil {
-		t.Fatalf("issue: %v", err)
-	}
-
-	svc := &Service{
-		userRepo:     userRepo,
-		tokenService: tokenSvc,
-		redisClient:  rdb,
-	}
-
-	if _, err := svc.VerifyAccessTokenForActor(context.Background(), token); err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if q.queryRowCalls != 1 {
-		t.Fatalf("expected 1 db call, got %d", q.queryRowCalls)
-	}
-
-	key := tokensInvalidBeforeRedisKeyPrefix + userID.String()
-	got, err := mr.Get(key)
-	if err != nil {
-		t.Fatalf("get redis key: %v", err)
-	}
-	if got != "0" {
-		t.Fatalf("unexpected redis value: got %q want %q", got, "0")
-	}
-}
-
-func TestVerifyAccessTokenForActor_RedisErrorFallsBackToDB(t *testing.T) {
-	userID := uuid.New()
-	dbVal := time.Unix(0, 0).UTC()
-
-	q := &countingQuerier{
-		tokensInvalidBefore: dbVal,
-		userExists:          true,
-	}
-	userRepo, err := data.NewUserRepository(q)
-	if err != nil {
-		t.Fatalf("new user repo: %v", err)
-	}
-
-	// 使用不可用地址模拟 Redis 错误（连接拒绝即可触发回源逻辑）
-	rdb := redis.NewClient(&redis.Options{
-		Addr:                  "127.0.0.1:1",
-		ContextTimeoutEnabled: true,
-	})
-
-	tokenSvc, err := NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 3600)
-	if err != nil {
-		t.Fatalf("new token service: %v", err)
-	}
-
-	token, err := tokenSvc.Issue(userID, uuid.New(), "owner", time.Now().UTC())
-	if err != nil {
-		t.Fatalf("issue: %v", err)
-	}
-
-	svc := &Service{
-		userRepo:     userRepo,
-		tokenService: tokenSvc,
-		redisClient:  rdb,
 	}
 
 	if _, err := svc.VerifyAccessTokenForActor(context.Background(), token); err != nil {
@@ -218,10 +103,7 @@ func TestVerifyAccessTokenForActor_RedisErrorFallsBackToDB(t *testing.T) {
 	}
 }
 
-func TestBumpTokensInvalidBefore_WritesDBAndRedis(t *testing.T) {
-	mr := miniredis.RunT(t)
-	rdb := newRedisClient(t, mr.Addr())
-
+func TestBumpTokensInvalidBefore_WritesDB(t *testing.T) {
 	userID := uuid.New()
 	now := time.Unix(123, 456789000).UTC() // already micro aligned
 
@@ -234,15 +116,8 @@ func TestBumpTokensInvalidBefore_WritesDBAndRedis(t *testing.T) {
 		t.Fatalf("new user repo: %v", err)
 	}
 
-	tokenSvc, err := NewJwtAccessTokenService("test-secret-should-be-long-enough-32chars", 3600, 3600)
-	if err != nil {
-		t.Fatalf("new token service: %v", err)
-	}
-
 	svc := &Service{
-		userRepo:     userRepo,
-		tokenService: tokenSvc,
-		redisClient:  rdb,
+		userRepo: userRepo,
 	}
 
 	if err := svc.BumpTokensInvalidBefore(context.Background(), userID, now); err != nil {
@@ -250,15 +125,5 @@ func TestBumpTokensInvalidBefore_WritesDBAndRedis(t *testing.T) {
 	}
 	if q.execCalls != 1 {
 		t.Fatalf("expected 1 db exec, got %d", q.execCalls)
-	}
-
-	key := tokensInvalidBeforeRedisKeyPrefix + userID.String()
-	got, err := mr.Get(key)
-	if err != nil {
-		t.Fatalf("get redis key: %v", err)
-	}
-	want := "123456789"
-	if got != want {
-		t.Fatalf("unexpected redis value: got %q want %q", got, want)
 	}
 }

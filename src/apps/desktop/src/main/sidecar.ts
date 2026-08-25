@@ -753,14 +753,6 @@ function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<s
     env.ARKLOOP_BRIDGE_MODULES_FILE = modulesFile
   }
 
-  // Keep packaged defaults unchanged to avoid affecting dev-mode local stacks.
-  if (!app.isPackaged) return env
-
-  env.ARKLOOP_POSTGRES_USER = process.env.ARKLOOP_POSTGRES_USER ?? 'arkloop'
-  env.ARKLOOP_POSTGRES_PASSWORD = process.env.ARKLOOP_POSTGRES_PASSWORD ?? 'arkloop_desktop'
-  env.ARKLOOP_POSTGRES_DB = process.env.ARKLOOP_POSTGRES_DB ?? 'arkloop'
-  env.ARKLOOP_REDIS_PASSWORD = process.env.ARKLOOP_REDIS_PASSWORD ?? 'arkloop_redis'
-
   return env
 }
 

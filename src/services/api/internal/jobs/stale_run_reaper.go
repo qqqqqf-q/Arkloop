@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/shared/threadrunstate"
 
 	"github.com/google/uuid"
 )
@@ -16,7 +15,7 @@ const (
 	reaperInterval = 60 * time.Second
 )
 
-// StaleRunReaper 定期扫描卡死的 run，强制标记为 failed 并重置 Redis 计数器。
+// StaleRunReaper 定期扫描卡死的 run，强制标记为 failed 并重置并发计数器。
 type StaleRunReaper struct {
 	runEventRepo *data.RunEventRepository
 	runLimiter   *data.RunLimiter
@@ -84,7 +83,6 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 			r.logger.Error("force fail run failed", "run_id", run.ID.String(), "error", err.Error())
 			continue
 		} else if reaped {
-			threadrunstate.Publish(ctx, nil, run.AccountID, run.ThreadID)
 			r.writeAudit(ctx, run)
 			r.logger.Info("stale run reaped", "run_id", run.ID.String(), "account_id", run.AccountID.String())
 		}

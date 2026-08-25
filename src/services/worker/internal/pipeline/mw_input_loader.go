@@ -143,7 +143,7 @@ func NewInputLoaderMiddleware(
 					"error_class": errorClass,
 					"message":     message,
 				}, nil, StringPtr(errorClass))
-				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, terminal, rc.ReleaseSlot, rc.BroadcastRDB, rc.EventBus)
+				return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, terminal, rc.ReleaseSlot, rc.EventBus)
 			}
 			return err
 		}

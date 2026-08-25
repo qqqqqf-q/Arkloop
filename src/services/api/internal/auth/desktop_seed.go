@@ -60,16 +60,6 @@ func SeedDesktopUser(ctx context.Context, q data.Querier) error {
 	}
 
 	_, err = q.Exec(ctx, `
-		INSERT INTO credits (account_id, balance)
-		VALUES ($1, 999999999)
-		ON CONFLICT (account_id) DO NOTHING`,
-		DesktopAccountID,
-	)
-	if err != nil {
-		return fmt.Errorf("seed desktop credits: %w", err)
-	}
-
-	_, err = q.Exec(ctx, `
 		INSERT INTO feature_flags (key, description, default_value)
 		VALUES ('work_enabled', 'Enable work', true)
 		ON CONFLICT (key) DO NOTHING`,

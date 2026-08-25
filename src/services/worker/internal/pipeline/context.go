@@ -23,7 +23,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 // ResolvedAgentConfig 保存继承链解析后的合并配置。
@@ -67,7 +66,6 @@ type RunContext struct {
 	MemoryServiceDB data.MemoryMiddlewareDB
 	// MemorySnapshotStore 由 Execute 注入，与 NewMemoryMiddleware 共用同一快照语义。
 	MemorySnapshotStore MemorySnapshotStore
-	BroadcastRDB        *redis.Client     // 跨实例 SSE 广播
 	EventBus            eventbus.EventBus // 进程内 SSE 通知
 	TraceID             string
 	Tracer              Tracer
@@ -109,10 +107,6 @@ type RunContext struct {
 	// -- AgentLoopHandler 写入：本次 run 的 tool call 总数和 LLM 迭代轮数，供 MemoryMiddleware 判断提炼条件 --
 	RunToolCallCount  int
 	RunIterationCount int
-
-	// -- CancelGuardMiddleware 写入 --
-	CancelFunc context.CancelFunc // 释放 LISTEN 连接
-	ListenDone <-chan struct{}    // LISTEN goroutine 完成信号
 
 	// -- EngineV1.Execute 注入 --
 	JobPayload map[string]any

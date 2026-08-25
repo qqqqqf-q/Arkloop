@@ -329,16 +329,11 @@ func StringPtr(value string) *string {
 	return &cleaned
 }
 
-// notifyRunEventSubscribers 通知 run_events 订阅者有新事件落库(event bus / redis 并存)。
+// notifyRunEventSubscribers 通知 run_events 订阅者有新事件落库。
 func notifyRunEventSubscribers(ctx context.Context, rc *RunContext) {
 	channel := fmt.Sprintf("run_events:%s", rc.Run.ID.String())
 	if rc.EventBus != nil {
 		_ = rc.EventBus.Publish(ctx, channel, "")
-	}
-
-	if rc.BroadcastRDB != nil {
-		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", rc.Run.ID.String())
-		_, _ = rc.BroadcastRDB.Publish(ctx, redisChannel, "").Result()
 	}
 }
 
