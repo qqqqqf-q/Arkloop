@@ -2,14 +2,12 @@
 
 ## 架构角色（概念）
 
-渠道消息一般由 **Gateway → API**（如 webhook）入队，由 **Worker** 执行完整 **Pipeline**（含 `channel_context`、记忆注入、工具构建、Agent 循环），再通过 **`channel_delivery`** 投递回 Telegram 等平台。设计目标是**不为此额外拆微服务**：复用与 Web 相同的推理与工具能力。
-
-开发者规格文档（仓库内 `src/apps/developers/content/docs/.../channel-integration-architecture.md`）对拓扑与资源模型有更细字段说明；本帮助只保留答疑常用事实。
+渠道消息由 **API** 接入（Telegram 桌面端默认 **getUpdates 长轮询**，也可配置 webhook），由 **Worker** 执行完整 **Pipeline**（含 `channel_context`、记忆注入、工具构建、Agent 循环），再通过 **`channel_delivery`** 投递回 Telegram 等平台。设计目标是**不为此额外拆服务**：复用与 Web 相同的推理与工具能力。
 
 ## Channel 资源模型（摘要）
 
 - **Channel** 归属 **Account**；同一 Account、同一平台通常对应 **一个 Bot 实例**（以产品与实现为准）。
-- 频道类型在规格中可包含 **`telegram`、`discord`、`feishu`** 等；本仓库用户问得最多的是 **Telegram**。
+- 支持的频道类型：**`telegram`、`discord`、`qq`、`feishu`、`weixin`**（QQ/微信经 napcat）；本仓库用户问得最多的是 **Telegram**。
 
 ## 群聊中的 UserID 与记忆归属（关键）
 
@@ -26,9 +24,9 @@ Identity 三元组：**`(account_id, user_id, agent_id)`**，其中 **`agent_id 
 
 回答「为什么我和群主看到不同的 notebook/memory」类问题时，要结合 **是否已 bind** 与 **UserID 回落规则** 解释。
 
-## Discuss（群活跃时）
+## Discuss 与 Heartbeat（群活跃时）
 
-部分 Persona（如仓库 `normal` 模板）启用群聊 **Discuss**：Telegram **群聊活跃**期间，API 侧调度器按 discuss 间隔配置入队 **discuss Run**；群聊 run 默认 assistant 文本不可见，模型必须先调用 **`speak`**，后续 assistant 正文才会发送到群聊；`speak` 可携带 `reply_to_message_id`。状态写入 **`scheduled_triggers`**。
+Persona 可配置 **heartbeat**（如仓库 `normal` 模板的 `heartbeat.enabled`）：Telegram **群聊活跃**期间，调度器按间隔入队运行（**`run_kind=discuss`**）；群聊 run 默认 assistant 文本不可见，模型必须先调用 **`speak`**，后续 assistant 正文才会发送到群聊；`speak` 可携带 `reply_to_message_id`。状态写入 **`scheduled_triggers`**。
 具体间隔是否配置以**实际使用的 persona.yaml / DB 定义**为准。
 
 ## 工具与消息面

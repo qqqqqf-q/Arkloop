@@ -13,7 +13,7 @@ Thank you for considering a contribution to Arkloop. This document covers the pr
 ### Local Development Setup
 
 ```bash
-git clone https://github.com/qqqqqf/Arkloop.git
+git clone https://github.com/qqqqqf-q/Arkloop.git
 cd Arkloop
 
 # Desktop runs embedded (SQLite in-process); no external infrastructure needed.
@@ -23,12 +23,13 @@ cd Arkloop
 cp .env.example .env
 # Edit .env with your local configuration
 
-# Backend (Go services)
-cd src/services/api && go run . &
-cd src/services/worker && go run .
+# Desktop app (Electron + embedded Go runtime)
+pnpm install
+cd src/apps/desktop && pnpm dev
 
-# Frontend
-cd src/apps/web && pnpm install && pnpm dev
+# Or run headless from source (serves the web UI and local API):
+cd src/apps/web && pnpm build
+go run ./src/services/cli/cmd/ark web
 ```
 
 ### Project Structure
@@ -36,23 +37,28 @@ cd src/apps/web && pnpm install && pnpm dev
 ```
 src/
   apps/
+    desktop/      # Desktop shell (Electron)
     web/          # User-facing chat interface (React)
-    cli/          # CLI reference client
+    tui/          # Terminal UI
     shared/       # Shared frontend packages
   services/
-    api/          # Core REST API (Go)
-    worker/       # Job execution engine (Go)
+    desktop/      # Embedded runtime: API + worker + bridge in one process
+    cli/          # ark command-line (headless entrypoint)
+    api/          # Core REST API (Go library)
+    worker/       # Job execution engine (Go library)
+    bridge/       # Module/container management (Go library)
     sandbox/      # Code execution sandbox (Go)
     shared/       # Shared Go libraries
   personas/       # Agent persona templates
-  docs/           # Documentation (VitePress)
+  plugins/        # Bundled plugins
+  skills/         # Bundled skills
 ```
 
 ## How to Contribute
 
 ### Reporting Bugs
 
-Open an issue on [GitHub Issues](https://github.com/qqqqqf/Arkloop/issues) with:
+Open an issue on [GitHub Issues](https://github.com/qqqqqf-q/Arkloop/issues) with:
 
 - Steps to reproduce
 - Expected vs. actual behavior
@@ -137,10 +143,6 @@ Close #123
 - Use TypeScript strict mode
 - Follow the existing Tailwind CSS patterns
 - Linting: the project uses ESLint and Prettier
-
-**Python (Worker internals)**
-
-- Follow Ruff rules defined in `pyproject.toml`
 
 ### Running Tests
 

@@ -31,6 +31,9 @@ CREATE INDEX idx_account_stickers_pending
     ON account_stickers(account_id, updated_at DESC)
     WHERE is_registered = 0;
 
+CREATE INDEX idx_activity_recorder_builder_state_due
+    ON activity_recorder_builder_state (enabled, next_run_at);
+
 CREATE INDEX idx_browser_state_registries_org_id ON browser_state_registries(account_id);
 
 CREATE INDEX idx_channel_dm_threads_channel_id ON channel_dm_threads(channel_id);
@@ -344,6 +347,20 @@ CREATE UNIQUE INDEX tool_provider_configs_user_provider_idx
     ON tool_provider_configs (owner_user_id, provider_name)
     WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL;
 
+CREATE UNIQUE INDEX tool_provider_oauth_connections_platform_idx
+    ON tool_provider_oauth_connections (group_name, provider_name)
+    WHERE owner_kind = 'platform';
+
+CREATE UNIQUE INDEX tool_provider_oauth_connections_user_idx
+    ON tool_provider_oauth_connections (owner_user_id, group_name, provider_name)
+    WHERE owner_kind = 'user' AND owner_user_id IS NOT NULL;
+
+CREATE INDEX tool_provider_oauth_flows_expires_idx
+    ON tool_provider_oauth_flows (expires_at);
+
+CREATE INDEX tool_provider_oauth_flows_owner_idx
+    ON tool_provider_oauth_flows (owner_kind, owner_user_id, group_name, provider_name);
+
 CREATE UNIQUE INDEX uq_messages_thread_id_thread_seq ON messages(thread_id, thread_seq);
 
 CREATE UNIQUE INDEX uq_messages_user_client_message_id
@@ -373,10 +390,6 @@ CREATE UNIQUE INDEX usage_records_run_id_usage_type_uidx
 CREATE UNIQUE INDEX ux_jobs_run_execute_active_run
     ON jobs (json_extract(payload_json, '$.run_id'))
     WHERE job_type = 'run.execute' AND status IN ('queued', 'leased');
-
-CREATE UNIQUE INDEX ux_llm_routes_credential_default
-    ON llm_routes (credential_id)
-    WHERE is_default = 1;
 
 CREATE UNIQUE INDEX ux_llm_routes_credential_model
     ON llm_routes (credential_id, model);
@@ -438,6 +451,25 @@ CREATE TABLE "accounts" (
     status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 , country TEXT, timezone TEXT, logo_url TEXT, settings_json TEXT NOT NULL DEFAULT '{}', deleted_at TEXT);
+
+CREATE TABLE activity_recorder_builder_state (
+    account_id          TEXT NOT NULL,
+    user_id             TEXT NOT NULL,
+    profile_ref         TEXT NOT NULL,
+    workspace_ref       TEXT NOT NULL,
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    interval_min        INTEGER NOT NULL DEFAULT 300,
+    next_run_at         TEXT NOT NULL,
+    last_window_end_at  TEXT,
+    running_run_id      TEXT,
+    running_started_at  TEXT,
+    last_run_id         TEXT,
+    last_run_status     TEXT NOT NULL DEFAULT '',
+    last_error          TEXT NOT NULL DEFAULT '',
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')), last_finish_status TEXT NOT NULL DEFAULT '', last_finish_reason TEXT NOT NULL DEFAULT '', last_sources_checked TEXT NOT NULL DEFAULT '[]', last_sources_unavailable TEXT NOT NULL DEFAULT '[]', last_memory_write_count INTEGER NOT NULL DEFAULT 0, last_finished_at TEXT,
+    PRIMARY KEY (account_id, user_id, profile_ref, workspace_ref)
+);
 
 CREATE TABLE api_keys (
     id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
@@ -764,7 +796,6 @@ CREATE TABLE llm_routes (
     credential_id          TEXT NOT NULL REFERENCES llm_credentials(id) ON DELETE CASCADE,
     model                  TEXT NOT NULL,
     priority               INTEGER NOT NULL DEFAULT 0,
-    is_default             INTEGER NOT NULL DEFAULT 0,
     tags                   TEXT NOT NULL DEFAULT '[]',
     when_json              TEXT NOT NULL DEFAULT '{}',
     advanced_json          TEXT NOT NULL DEFAULT '{}',
@@ -892,7 +923,7 @@ CREATE TABLE personas (
     model               TEXT,
     reasoning_mode      TEXT NOT NULL DEFAULT 'auto',
     prompt_cache_control TEXT NOT NULL DEFAULT 'none',
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')), soul_md TEXT NOT NULL DEFAULT '', user_selectable INTEGER NOT NULL DEFAULT 0, selector_name TEXT, selector_order INTEGER, roles_json TEXT NOT NULL DEFAULT '{}', title_summarize_json TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')), sync_mode TEXT NOT NULL DEFAULT 'none', mirrored_file_dir TEXT, last_synced_at TEXT, project_id TEXT, core_tools TEXT NOT NULL DEFAULT '[]', stream_thinking INTEGER NOT NULL DEFAULT 1, conditional_tools_json TEXT, result_summarize_json TEXT, heartbeat_enabled INTEGER NOT NULL DEFAULT 0, heartbeat_interval_minutes INTEGER NOT NULL DEFAULT 30,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')), soul_md TEXT NOT NULL DEFAULT '', user_selectable INTEGER NOT NULL DEFAULT 0, selector_name TEXT, selector_order INTEGER, roles_json TEXT NOT NULL DEFAULT '{}', title_summarize_json TEXT, updated_at TEXT NOT NULL DEFAULT (datetime('now')), sync_mode TEXT NOT NULL DEFAULT 'none', mirrored_file_dir TEXT, last_synced_at TEXT, project_id TEXT, core_tools TEXT NOT NULL DEFAULT '[]', stream_thinking INTEGER NOT NULL DEFAULT 1, conditional_tools_json TEXT, result_summarize_json TEXT, heartbeat_enabled INTEGER NOT NULL DEFAULT 0, heartbeat_interval_minutes INTEGER NOT NULL DEFAULT 30, image_model TEXT,
     UNIQUE (account_id, persona_key, version)
 );
 
@@ -1498,6 +1529,41 @@ CREATE TABLE tool_provider_configs (
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE tool_provider_oauth_connections (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+    owner_kind      TEXT NOT NULL CHECK (owner_kind IN ('platform', 'user')),
+    owner_user_id   TEXT REFERENCES users(id) ON DELETE CASCADE,
+    group_name      TEXT NOT NULL,
+    provider_name   TEXT NOT NULL,
+    token_secret_id TEXT NOT NULL REFERENCES secrets(id) ON DELETE CASCADE,
+    client_id       TEXT,
+    scope           TEXT,
+    expires_at      TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((owner_kind = 'platform' AND owner_user_id IS NULL) OR (owner_kind = 'user' AND owner_user_id IS NOT NULL))
+);
+
+CREATE TABLE tool_provider_oauth_flows (
+    id                      TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+    owner_kind              TEXT NOT NULL CHECK (owner_kind IN ('platform', 'user')),
+    owner_user_id           TEXT REFERENCES users(id) ON DELETE CASCADE,
+    group_name              TEXT NOT NULL,
+    provider_name           TEXT NOT NULL,
+    state                   TEXT NOT NULL UNIQUE,
+    redirect_uri            TEXT NOT NULL,
+    authorization_url       TEXT NOT NULL,
+    code_verifier_secret_id TEXT NOT NULL REFERENCES secrets(id) ON DELETE CASCADE,
+    client_id               TEXT,
+    scope                   TEXT,
+    expires_at              TEXT NOT NULL,
+    completed_at            TEXT,
+    connection_id           TEXT REFERENCES tool_provider_oauth_connections(id) ON DELETE SET NULL,
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK ((owner_kind = 'platform' AND owner_user_id IS NULL) OR (owner_kind = 'user' AND owner_user_id IS NOT NULL))
+);
+
 CREATE TABLE usage_records (
     id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
     account_id    TEXT NOT NULL,
@@ -1543,6 +1609,19 @@ CREATE TABLE user_notebook_snapshots (
     notebook_block TEXT NOT NULL,
     updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (account_id, user_id, agent_id)
+);
+
+CREATE TABLE user_suggestion_snapshots (
+    account_id        TEXT NOT NULL,
+    user_id           TEXT NOT NULL,
+    agent_id          TEXT NOT NULL DEFAULT 'default',
+    mode              TEXT NOT NULL DEFAULT 'chat',
+    suggestions_json  TEXT NOT NULL DEFAULT '[]',
+    suggestion_score  INTEGER NOT NULL DEFAULT 0,
+    last_build_at     TEXT,
+    expires_at        TEXT,
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (account_id, user_id, agent_id, mode)
 );
 
 CREATE TABLE users (
@@ -1626,3 +1705,4 @@ CREATE TABLE workspace_skill_enablements (
     updated_at         TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (workspace_ref, skill_key)
 );
+

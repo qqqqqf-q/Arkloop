@@ -17,7 +17,9 @@
 
 ---
 
-Arkloop is a design-focused open-source AI Agent platform. Multi-model routing, sandboxed execution, persistent memory — a clean desktop app that works out of the box.
+Arkloop is a personal open-source project: a local-first platform for conversational AI agents. Multi-model routing, sandboxed execution, persistent memory — a clean desktop app that works out of the box.
+
+Everything runs locally. The whole backend is a single embedded process with a SQLite database — no servers to deploy, no infrastructure to maintain.
 
 ## Download
 
@@ -39,6 +41,13 @@ Homebrew installs the Arkloop CLI only:
 brew install qqqqqf-q/arkloop/arkloop && ark web
 ```
 
+### CLI via AUR (Arch Linux)
+
+```bash
+yay -S arkloop-bin    # prebuilt binary
+yay -S arkloop-git    # build from source
+```
+
 For a headless Linux machine, use one command:
 
 ```bash
@@ -49,17 +58,12 @@ sh -c 'set -e; arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; a
 
 Arkloop does what other AI chat tools do — multi-model support, tool calling, code execution, memory — but we focus on doing it cleanly:
 
-- **Multi-Model Routing** — OpenAI, Anthropic, and any compatible API; priority-based automatic routing with rate limit handling
-- **Sandboxed Execution** — Code runs in Docker containers with strict resource limits
-- **Persistent Memory** — System constraints, long-term facts, and session context preserved across conversations
-- **Prompt Injection Protection** — Semantic-level scanning that detects and blocks injection attacks
-- **Channel Integration** — Telegram integration with media handling and group context
-- **Custom Personas** — Independent system prompts, tool sets, and behavior configs; Lua scripting supported
-- **MCP / ACP** — Model Context Protocol and Agent Communication Protocol support
-- **Skill Ecosystem** — Import skills from ClawHub, compatible with OpenClaw SKILL.md format
-
-Full documentation at [docs](https://arkloop.io/en/docs/guide).
-
+- **Multi-Model Routing** — OpenAI, Anthropic, Gemini, and any OpenAI-compatible API; priority-based routing with your own keys
+- **Agent Runtime** — Built-in tools, MCP servers, and ClawHub skills; sub-agent spawning and scheduled jobs
+- **Sandboxed Execution** — Code runs in Docker containers with resource limits (optional module)
+- **Memory** — Plain-text notebook by default; optional Nowledge semantic memory; can be turned off entirely
+- **Channels** — Telegram, Discord, QQ, Feishu, and WeChat bots sharing the same agent pipeline, with scheduled heartbeat runs
+- **Custom Personas** — Independent system prompts, tool allowlists, budgets, and executor types
 
 ## Contributing
 
@@ -91,31 +95,31 @@ Thanks to the following friends for their support, keeping Arkloop going:
 
 ## Architecture
 
-| Service | Stack | Role |
-|---------|-------|------|
-| API | Go | Authentication, RBAC, resource management, audit logging |
-| Gateway | Go | Reverse proxy, rate limiting, risk scoring |
-| Worker | Go | Job execution, LLM routing, tool dispatch, agent loop |
-| Sandbox | Go | Code execution isolation |
-| Desktop | Electron + Go | Native desktop app with embedded sidecar |
-| Web | React / TypeScript | User interface |
-| Console | React / TypeScript | Admin dashboard |
+One embedded Go process is the whole backend: API, worker, and bridge are libraries, not separate services. Storage is a local SQLite database (auto-migrated on first start) plus the filesystem — no Postgres, Redis, or message queue.
 
-Infrastructure: PostgreSQL, Redis, SeaweedFS (or filesystem).
+| Piece | Stack | Role |
+|-------|-------|------|
+| Desktop | Electron | Native shell embedding the Go runtime |
+| Runtime | Go | Single process: API + worker + bridge; SQLite, in-process event bus |
+| Web | React / TypeScript | Chat UI, bundled into the desktop app and served by `ark web` |
+| CLI | Go | `ark` — headless entrypoint to the same runtime |
+
+Optional modules (sandbox, SearXNG, Firecrawl) run as Docker containers via compose profiles.
 
 ## Development
 
 ```bash
-bin/ci-local quick        # Quick local CI
-bin/ci-local integration  # Go integration tests
-bin/ci-local full          # Full check
+pnpm install
+cd src/apps/desktop && pnpm dev        # Desktop app (Electron + embedded runtime)
+
+# Headless, from source:
+cd src/apps/web && pnpm build
+go run ./src/services/cli/cmd/ark web  # Serves the web UI and local API
+
+bin/ci-local quick                     # Local CI
 ```
 
-## Self-Hosting
-
-> The self-hosting deployment path is still in development. While included in the current release, availability is not guaranteed. We are not focusing on this during the Alpha phase. We plan to provide full server deployment support once the desktop version stabilizes.
-
-
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## Star History
 
