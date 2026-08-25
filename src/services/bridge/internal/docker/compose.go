@@ -457,22 +457,6 @@ func (c *Compose) UpAll(ctx context.Context, services []string, profiles []strin
 	return c.runSystemAsync(ctx, "up", args)
 }
 
-// RunMigrate runs the migrate service (one-shot) and returns an operation tracking it.
-// extraFiles are additional compose files layered via -f flags.
-func (c *Compose) RunMigrate(ctx context.Context, profiles []string, extraFiles ...string) (*Operation, error) {
-	if err := c.validateProjectDir(); err != nil {
-		return nil, err
-	}
-
-	args := c.baseArgsWithFiles(extraFiles...)
-	for _, p := range profiles {
-		args = append(args, "--profile", p)
-	}
-	args = append(args, "run", "--rm", "migrate")
-
-	return c.runSystemAsync(ctx, "migrate", args)
-}
-
 // mapStatus converts Docker container state/health into a module status string.
 func mapStatus(e psEntry) string {
 	state := strings.ToLower(strings.TrimSpace(e.State))
