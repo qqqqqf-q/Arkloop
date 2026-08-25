@@ -9,7 +9,6 @@ Thank you for considering a contribution to Arkloop. This document covers the pr
 - Go 1.26+
 - Node.js 20+ with pnpm
 - Docker and Docker Compose
-- PostgreSQL 16+ (or use `docker compose up postgres`)
 
 ### Local Development Setup
 
@@ -17,14 +16,8 @@ Thank you for considering a contribution to Arkloop. This document covers the pr
 git clone https://github.com/qqqqqf/Arkloop.git
 cd Arkloop
 
-# Start the minimal infrastructure
-docker compose up -d postgres redis
-
-# Optional performance layer (redis_gateway: optional Gateway hot-path cache, non-default)
-docker compose --profile performance up -d pgbouncer redis_gateway
-
-# Optional S3-compatible storage
-docker compose --profile s3 up -d seaweedfs
+# Desktop runs embedded (SQLite in-process); no external infrastructure needed.
+# Optional modules (sandbox/searxng/firecrawl) start via their compose profiles.
 
 # Copy and configure environment
 cp .env.example .env
@@ -155,15 +148,9 @@ Close #123
 # Quick CI checks
 bin/ci-local quick
 
-# Go integration checks
-bin/ci-local integration
-
-# Full local CI pass
-bin/ci-local full
-
 # GitHub Actions style verification
-bin/ci-local act go-check
-bin/ci-local act typescript
+bin/ci-local act go-lint
+bin/ci-local act pnpm-ci
 
 # Go unit tests
 cd src/services/api && go test ./...
@@ -173,38 +160,30 @@ cd src/services/worker && go test ./...
 cd src/apps/web && pnpm test
 ```
 
-Recommended order for daily work: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.
-Use `quick` before routine commits, `integration` after database or pipeline changes, and `act` when you want behavior close to GitHub Actions.
+Recommended order for daily work: `bin/ci-local quick` -> `bin/ci-local act <job>`.
+Use `quick` before routine commits and `act` when you want behavior close to GitHub Actions.
 `quick` installs frontend dependencies automatically, so the first run can take longer.
-`bin/ci-local act go-integration` is not recommended right now; use `bin/ci-local integration` for local integration checks.
 
 ### Database Migrations
 
-Arkloop uses [goose](https://github.com/pressly/goose) for schema migrations in both PostgreSQL and SQLite.
+Arkloop uses [goose](https://github.com/pressly/goose) for SQLite schema migrations.
 
-**File locations:**
+**File location:** `src/services/shared/database/sqliteadapter/migrations/`
 
-- PostgreSQL: `src/services/api/internal/migrate/migrations/`
-- SQLite (Desktop): `src/services/shared/database/sqliteadapter/migrations/`
-
-**Schema snapshots** are committed at `docs/schema/sqlite.sql` and `docs/schema/postgres.sql`. Update them after adding migrations:
+**Schema snapshot** is committed at `docs/schema/sqlite.sql`. Update it after adding migrations:
 
 ```bash
-SCHEMA_DUMP_PATH=docs/schema/sqlite.sql go test -tags desktop -run TestDumpSchema ./database/sqliteadapter/ -count=1
+SCHEMA_DUMP_PATH=docs/schema/sqlite.sql go test -run TestDumpSchema ./database/sqliteadapter/ -count=1
 ```
 
 **Naming and numbering:**
 
 - Filenames: `NNNNN_short_description.sql` (five-digit zero-padded number)
-- Numbers must be globally unique within each directory. CI rejects duplicates.
+- Numbers must be globally unique within the directory. CI rejects duplicates.
 - Use `-- +goose Up` / `-- +goose Down` markers (no alternative formats)
 - Indexes: `idx_<table>_<columns>` prefix
 - Constraints: explicit `CONSTRAINT <name>` form, no anonymous constraints
-- Timestamps: `TIMESTAMPTZ` (PostgreSQL), `TEXT` with `datetime('now')` (SQLite)
-
-**Dual-write rule:**
-
-If a PG migration adds/removes columns, indexes, or constraints, a corresponding SQLite migration must be created in the same PR. Exceptions: PG-only features (partitions, `pg_notify`, etc.).
+- Timestamps: `TEXT` with `datetime('now')`
 
 **SQLite table rebuild:**
 
@@ -216,9 +195,8 @@ SQLite `ALTER TABLE` is limited. Rebuilding a table via DROP + CREATE + INSERT r
 
 **Review checklist for migration PRs:**
 
-- [ ] Number is unique (check both PG and SQLite directories)
+- [ ] Number is unique
 - [ ] Uses `-- +goose Up` / `-- +goose Down` format
-- [ ] SQLite counterpart included (if applicable)
 - [ ] No "fix the previous migration" pattern -- get the design right in one migration
 - [ ] `Down` section reverses the `Up` section (or documents why it cannot)
 

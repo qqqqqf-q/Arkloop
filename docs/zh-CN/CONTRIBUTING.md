@@ -9,7 +9,6 @@
 - Go 1.26+
 - Node.js 20+，使用 pnpm
 - Docker 和 Docker Compose
-- PostgreSQL 16+（或使用 `docker compose up postgres`）
 
 ### 本地开发环境
 
@@ -17,14 +16,8 @@
 git clone https://github.com/qqqqqf/Arkloop.git
 cd Arkloop
 
-# 启动最小基础设施
-docker compose up -d postgres redis
-
-# 可选：性能层（redis_gateway：可选 Gateway 热路径缓存，非默认配置）
-docker compose --profile performance up -d pgbouncer redis_gateway
-
-# 可选：S3 兼容对象存储
-docker compose --profile s3 up -d seaweedfs
+# Desktop 内嵌运行（进程内 SQLite），无需外部基础设施。
+# 可选模块（sandbox/searxng/firecrawl）按各自 compose profile 启动。
 
 # 复制并配置环境变量
 cp .env.example .env
@@ -115,15 +108,9 @@ src/
 # 快速 CI 自检
 bin/ci-local quick
 
-# Go 集成测试
-bin/ci-local integration
-
-# 完整本地 CI
-bin/ci-local full
-
 # 模拟 GitHub Actions
-bin/ci-local act go-check
-bin/ci-local act typescript
+bin/ci-local act go-lint
+bin/ci-local act pnpm-ci
 
 # Go 单元测试
 cd src/services/api && go test ./...
@@ -133,10 +120,9 @@ cd src/services/worker && go test ./...
 cd src/apps/web && pnpm test
 ```
 
-日常推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
-`quick` 适合提交前自检，`integration` 适合数据库、repo、worker pipeline、webhook、runengine 一类改动，`act` 用来做接近 GitHub Actions 的补充验证。
+日常推荐顺序：`bin/ci-local quick` -> `bin/ci-local act <job>`。
+`quick` 适合提交前自检，`act` 用来做接近 GitHub Actions 的补充验证。
 `quick` 会自动安装前端依赖，因此首次运行会更慢。
-当前不建议使用 `bin/ci-local act go-integration`，本地集成检查优先使用 `bin/ci-local integration`。
 
 ## 商标使用
 
