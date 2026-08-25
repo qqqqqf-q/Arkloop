@@ -67,7 +67,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     cancelSubmitting,
     setCancelSubmitting,
     setError,
-    setInjectionBlocked,
     setQueuedPrompts,
     setAwaitingInput,
     pendingUserInput,
@@ -78,7 +77,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setCheckInSubmitting,
     markTerminalRunHistory,
     isStreaming,
-    injectionBlockedRunIdRef,
     freezeCutoffRef,
     lastVisibleNonTerminalSeqRef,
     noResponseMsgIdRef,
@@ -111,8 +109,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
 
     setSending(true)
     setError(null)
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
     clearThreadRunHandoff(threadId)
     resetLiveState()
     setTerminalRunDisplayId(null)
@@ -188,7 +184,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     sending,
     setActiveRunId,
     setError,
-    setInjectionBlocked,
     setQueuedPrompts,
     setMessages,
     setSending,
@@ -198,7 +193,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setUserEnterMessageId,
     threadId,
     threads,
-    injectionBlockedRunIdRef,
   ])
 
   useEffect(() => {
@@ -226,8 +220,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     if (isStreaming || sending || !threadId) return
     setSending(true)
     setError(null)
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
     clearThreadRunHandoff(threadId)
     resetLiveState()
     setTerminalRunDisplayId(null)
@@ -274,7 +266,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     }
   }, [
     agentClient,
-    injectionBlockedRunIdRef,
     invalidateMessageSync,
     isStreaming,
     onLoggedOut,
@@ -285,7 +276,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     sending,
     setActiveRunId,
     setError,
-    setInjectionBlocked,
     setMessages,
     setSending,
     setTerminalRunDisplayId,
@@ -309,8 +299,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       }
       setSending(true)
       setError(null)
-      setInjectionBlocked(null)
-      injectionBlockedRunIdRef.current = null
       clearThreadRunHandoff(threadId)
       resetLiveState()
       setPendingThinking(true)
@@ -361,8 +349,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     }
     setSending(true)
     setError(null)
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
     clearThreadRunHandoff(threadId)
     resetLiveState()
     setPendingThinking(true)
@@ -404,7 +390,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     }
   }, [
     agentClient,
-    injectionBlockedRunIdRef,
     invalidateMessageSync,
     isStreaming,
     noResponseMsgIdRef,
@@ -416,7 +401,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     sending,
     setActiveRunId,
     setError,
-    setInjectionBlocked,
     setMessages,
     setPendingThinking,
     setSending,
@@ -436,9 +420,8 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
   const handleFork = useCallback(async (messageId: string) => {
     if (!threadId || isStreaming || sending) return
     setError(null)
-    setInjectionBlocked(null)
     onSelectForkAnchor(messageId)
-  }, [isStreaming, onSelectForkAnchor, sending, setError, setInjectionBlocked, threadId])
+  }, [isStreaming, onSelectForkAnchor, sending, setError, threadId])
 
   const handleCheckInSubmit = useCallback(async () => {
     if (!activeRunId || checkInSubmitting) return
@@ -447,7 +430,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
 
     setCheckInSubmitting(true)
     setError(null)
-    setInjectionBlocked(null)
     try {
       await agentClient.provideInput(activeRunId, text)
       setCheckInDraft('')
@@ -472,14 +454,12 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     setCheckInDraft,
     setCheckInSubmitting,
     setError,
-    setInjectionBlocked,
     setPendingUserInput,
   ])
 
   const handleUserInputSubmit = useCallback(async (response: UserInputResponse) => {
     if (!activeRunId) return
     setError(null)
-    setInjectionBlocked(null)
     try {
       await agentClient.provideInput(activeRunId, JSON.stringify(response.answers))
       setPendingUserInput(null)
@@ -490,12 +470,11 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       }
       setError(normalizeError(err))
     }
-  }, [agentClient, activeRunId, onLoggedOut, setError, setInjectionBlocked, setPendingUserInput])
+  }, [agentClient, activeRunId, onLoggedOut, setError, setPendingUserInput])
 
   const handleUserInputDismiss = useCallback(async () => {
     if (!activeRunId || !pendingUserInput) return
     setError(null)
-    setInjectionBlocked(null)
     try {
       await agentClient.provideInput(activeRunId, JSON.stringify({}))
       setPendingUserInput(null)
@@ -506,7 +485,7 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
       }
       setError(normalizeError(err))
     }
-  }, [agentClient, activeRunId, onLoggedOut, pendingUserInput, setError, setInjectionBlocked, setPendingUserInput])
+  }, [agentClient, activeRunId, onLoggedOut, pendingUserInput, setError, setPendingUserInput])
 
   const handleAsrError = useCallback((err: unknown) => {
     if (isApiError(err) && err.status === 401) {
@@ -525,7 +504,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
 
     setCancelSubmitting(true)
     setError(null)
-    setInjectionBlocked(null)
 
     let cancelSucceeded = false
     void agentClient.cancelRun(runId)
@@ -550,7 +528,6 @@ export function useChatActions({ scrollToBottom, onSelectForkAnchor }: UseChatAc
     noResponseMsgIdRef,
     setCancelSubmitting,
     setError,
-    setInjectionBlocked,
   ])
 
   return {
