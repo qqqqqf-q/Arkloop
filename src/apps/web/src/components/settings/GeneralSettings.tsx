@@ -21,9 +21,7 @@ import { SettingsButton, SettingsIconButton } from './_SettingsButton'
 import { SettingsInput } from './_SettingsInput'
 import { SettingsSelect } from './_SettingsSelect'
 import { SettingsSwitch } from './_SettingsSwitch'
-import { ToolModelSettingControl } from './ToolModelSettingControl'
 import { ChatModelSettingControl } from './ChatModelSettingControl'
-import { VisionModelSettingControl } from './VisionModelSettingControl'
 import { formatDesktopAppVersion } from '../../desktopVersion'
 
 type Props = {
@@ -575,20 +573,6 @@ export function GeneralSettings({ me, accessToken, onLogout, onMeUpdated }: Prop
             title={ds.chatModel}
             control={(
               <ChatModelSettingControl accessToken={accessToken} />
-            )}
-          />
-          <GeneralRow
-            title={ds.visionModel}
-            description={ds.visionModelDesc}
-            control={(
-              <VisionModelSettingControl accessToken={accessToken} />
-            )}
-          />
-          <GeneralRow
-            title={ds.toolModel}
-            description={ds.toolModelDesc}
-            control={(
-              <ToolModelSettingControl accessToken={accessToken} />
             )}
           />
           <GeneralSwitchRow

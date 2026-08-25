@@ -602,19 +602,10 @@ export interface LocaleStrings {
       enabled: string
       disabled: string
     }
-    spawnProfileTitle: string
     spawnProfileSubtitle: string
-    spawnProfileFollowCurrentChat: string
-    spawnProfilePlatformDefault: string
-    spawnProfileExplore: string
-    spawnProfileExploreDesc: string
     imageGenerativeTitle: string
     imageGenerativeDesc: string
     imageGenerativeUnset: string
-    spawnProfileTask: string
-    spawnProfileTaskDesc: string
-    spawnProfileStrong: string
-    spawnProfileStrongDesc: string
     streamThinking: string
   }
   // channels
@@ -1295,17 +1286,7 @@ export interface LocaleStrings {
     chatModel: string;
     chatModelDesc: string;
     chatModelPlatformDefault: string;
-    // vision model
-    visionModel: string;
-    visionModelDesc: string;
-    visionModelUnset: string;
-    // tool model
-    toolModel: string;
-    toolModelDesc: string;
-    toolModelPlatformDefault: string;
-    toolModelSameAsChat: string;
     toolModelAutoHint: string;
-    toolModelAutoSuffix: string;
     advancedTitle: string;
     advancedDesc: string;
     advancedOverview: string;

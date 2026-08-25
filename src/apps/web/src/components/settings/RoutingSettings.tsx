@@ -1,23 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import {
-  listSpawnProfiles,
-  listLlmProviders,
-  setSpawnProfile,
-  deleteSpawnProfile,
-} from '../../api'
-import type { SpawnProfile, LlmProvider } from '../../api'
+import type { ReactNode } from 'react'
 import { useLocale } from '../../contexts/LocaleContext'
-import { isLocalMode } from '@arkloop/shared/desktop'
-import { SettingsModelDropdown } from './SettingsModelDropdown'
-import { ToolModelSettingControl } from './ToolModelSettingControl'
 import { ChatModelSettingControl } from './ChatModelSettingControl'
-import { VisionModelSettingControl } from './VisionModelSettingControl'
 
 type Props = {
   accessToken: string
 }
-
-const PROFILE_NAMES = ['explore', 'task', 'strong'] as const
 
 function RoutingSection({
   title,
@@ -66,46 +53,8 @@ function RoutingRow({
 
 export function RoutingSettings({ accessToken }: Props) {
   const { t } = useLocale()
-  const a = t.agentSettings
   const ds = t.desktopSettings
-  const [profiles, setProfiles] = useState<SpawnProfile[]>([])
-  const [providers, setProviders] = useState<LlmProvider[]>([])
-  const [saving, setSaving] = useState<string | null>(null)
-  const subAgentPlaceholder = isLocalMode()
-    ? a.spawnProfileFollowCurrentChat
-    : a.spawnProfilePlatformDefault
 
-  useEffect(() => {
-    listSpawnProfiles(accessToken).then(setProfiles).catch(() => {})
-    listLlmProviders(accessToken).then(setProviders).catch(() => {})
-  }, [accessToken])
-
-  const modelOptions = providers
-    .flatMap(p => p.models.filter(m => m.show_in_picker).map(m => ({
-      value: `${p.name}^${m.model}`,
-      label: `${p.name} / ${m.model}`,
-    })))
-
-  const handleChange = async (name: string, value: string) => {
-    setSaving(name)
-    try {
-      if (value === '') {
-        await deleteSpawnProfile(accessToken, name)
-      } else {
-        await setSpawnProfile(accessToken, name, value)
-      }
-      const updated = await listSpawnProfiles(accessToken)
-      setProfiles(updated)
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  const profileMeta: Record<string, { label: string; desc: string }> = {
-    explore: { label: a.spawnProfileExplore, desc: a.spawnProfileExploreDesc },
-    task:    { label: a.spawnProfileTask,    desc: a.spawnProfileTaskDesc    },
-    strong:  { label: a.spawnProfileStrong,  desc: a.spawnProfileStrongDesc  },
-  }
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-1 pb-8">
       <div>
@@ -114,52 +63,12 @@ export function RoutingSettings({ accessToken }: Props) {
         </h2>
       </div>
 
-      <RoutingSection title={a.spawnProfileTitle}>
-        <RoutingCard>
-          {PROFILE_NAMES.map(name => {
-            const profile = profiles.find(p => p.profile === name)
-            const currentValue = profile?.has_override ? profile.resolved_model : ''
-            const meta = profileMeta[name]
-            return (
-              <RoutingRow
-                key={name}
-                title={meta.label}
-                description={meta.desc}
-                control={(
-                  <SettingsModelDropdown
-                    value={currentValue}
-                    options={modelOptions}
-                    placeholder={subAgentPlaceholder}
-                    disabled={saving === name}
-                    onChange={v => handleChange(name, v)}
-                  />
-                )}
-              />
-            )
-          })}
-        </RoutingCard>
-      </RoutingSection>
-
       <RoutingSection title={ds.backgroundToolsSection}>
         <RoutingCard>
           <RoutingRow
             title={ds.chatModel}
             control={(
               <ChatModelSettingControl accessToken={accessToken} />
-            )}
-          />
-          <RoutingRow
-            title={ds.visionModel}
-            description={ds.visionModelDesc}
-            control={(
-              <VisionModelSettingControl accessToken={accessToken} />
-            )}
-          />
-          <RoutingRow
-            title={ds.toolModel}
-            description={ds.toolModelDesc}
-            control={(
-              <ToolModelSettingControl accessToken={accessToken} />
             )}
           />
         </RoutingCard>

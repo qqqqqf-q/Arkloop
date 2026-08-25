@@ -1730,37 +1730,10 @@ export async function listRuns(
   return apiFetch<ListRunsResponse>(`/v1/runs${query ? `?${query}` : ''}`, { accessToken })
 }
 
-export type SpawnProfile = {
-  profile: string
-  resolved_model: string
-  has_override: boolean
-  is_auto?: boolean
-  auto_model?: string
-}
-
 export type AccountSettingsResponse = {
   pipeline_trace_enabled: boolean
   prompt_cache_debug_enabled: boolean
   new_thread_chat_model?: string | null
-}
-
-export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
-  return apiFetch<SpawnProfile[]>('/v1/accounts/me/spawn-profiles', { accessToken })
-}
-
-export async function setSpawnProfile(accessToken: string, name: string, model: string): Promise<void> {
-  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
-    method: 'PUT',
-    accessToken,
-    body: JSON.stringify({ model }),
-  })
-}
-
-export async function deleteSpawnProfile(accessToken: string, name: string): Promise<void> {
-  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
-    method: 'DELETE',
-    accessToken,
-  })
 }
 
 export async function getAccountSettings(accessToken: string): Promise<AccountSettingsResponse> {
