@@ -84,6 +84,3 @@
 | spawn.profile.tool | string | both |  | false | 工具模型（标题摘要、结果摘要等子任务），格式 provider^model |
 | spawn.profile.vision | string | both |  | false | 图像理解模型；persona.image_model 未设置时使用，格式 provider^model |
 | suggestion.score_threshold | int | both | 15 | false | suggestion 更新触发阈值 |
-| turnstile.allowed_host | string | platform |  | false | Turnstile Allowed Host |
-| turnstile.secret_key | string | platform |  | true | Turnstile Secret Key |
-| turnstile.site_key | string | platform |  | false | Turnstile Site Key |

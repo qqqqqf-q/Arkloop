@@ -1203,14 +1203,6 @@ func seedDesktopOwner(ctx context.Context, q *sqlitepgx.Pool) error {
 	); err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx, `
-		INSERT INTO credits (account_id, balance)
-		VALUES ($1, 999999999)
-		ON CONFLICT (account_id) DO NOTHING`,
-		desktopAccountID,
-	); err != nil {
-		return err
-	}
 	return nil
 }
 

@@ -16,7 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/redis/go-redis/v9"
 )
 
 // TitleSummarizerDB 由 *pgxpool.Pool 与 desktop 的 data.DesktopDB 实现。
@@ -31,7 +30,7 @@ const titleSummarizerTimeout = 30 * time.Second
 const titleSummarizerTemperature = 0.2
 const titleSummarizerMaterialsBudget = 1200
 
-type TitleGeneratorFunc func(context.Context, TitleSummarizerDB, *redis.Client, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int)
+type TitleGeneratorFunc func(context.Context, TitleSummarizerDB, eventbus.EventBus, llm.Gateway, uuid.UUID, uuid.UUID, string, []llm.Message, string, int)
 
 var titleGenerator TitleGeneratorFunc = generateTitle
 
@@ -47,7 +46,7 @@ func ResetTitleSummarizerGeneratorForTest() {
 
 const settingTitleSummarizerModel = "title_summarizer.model"
 
-func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
+func NewTitleSummarizerMiddleware(db TitleSummarizerDB, auxGateway llm.Gateway, emitDebugEvents bool, loaders ...*routing.ConfigLoader) RunMiddleware {
 	var configLoader *routing.ConfigLoader
 	if len(loaders) > 0 {
 		configLoader = loaders[0]
@@ -119,7 +118,7 @@ func NewTitleSummarizerMiddleware(db TitleSummarizerDB, rdb *redis.Client, auxGa
 				})
 				cancel()
 			}
-			titleGenerator(ctx, db, rdb, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
+			titleGenerator(ctx, db, bus, gateway, runID, threadID, model, messages, prompt, maxTokens)
 		}()
 
 		err = next(ctx, rc)
@@ -206,7 +205,6 @@ func hasThreadTitleUpdateEvent(ctx context.Context, pool TitleSummarizerDB, runI
 func generateTitle(
 	ctx context.Context,
 	pool TitleSummarizerDB,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 	gateway llm.Gateway,
 	runID uuid.UUID,
@@ -316,7 +314,7 @@ func generateTitle(
 	})
 	cancel()
 
-	notifyTitleEvent(ctx, pool, rdb, bus, runID, threadID, seq)
+	notifyTitleEvent(ctx, pool, bus, runID, threadID, seq)
 }
 
 func writeThreadTitleAndEventOnce(
@@ -431,7 +429,6 @@ func writeTitleGenerationEvent(ctx context.Context, pool TitleSummarizerDB, runI
 func notifyTitleEvent(
 	ctx context.Context,
 	pool TitleSummarizerDB,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 	runID uuid.UUID,
 	threadID uuid.UUID,
@@ -441,12 +438,6 @@ func notifyTitleEvent(
 	if bus != nil {
 		if err := bus.Publish(ctx, channel, ""); err != nil {
 			slog.WarnContext(ctx, "title_event_bus_publish_failed", "channel", channel, "err", err)
-		}
-	}
-	if rdb != nil {
-		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-		if _, err := rdb.Publish(ctx, rdbChannel, "ping").Result(); err != nil {
-			slog.WarnContext(ctx, "title_redis_publish_failed", "channel", rdbChannel, "err", err)
 		}
 	}
 

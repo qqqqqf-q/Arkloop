@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -48,7 +47,6 @@ var LlmSpec = llm.ToolSpec{
 
 type ToolExecutor struct {
 	Pool *pgxpool.Pool
-	RDB  *redis.Client
 }
 
 func (e *ToolExecutor) IsNotConfigured() bool {
@@ -108,7 +106,7 @@ func (e *ToolExecutor) Execute(
 	}
 
 	// 通过 run_events 表推送 SSE 通知
-	emitTitleEvent(ctx, e.Pool, e.RDB, execCtx.RunID, *threadID, title)
+	emitTitleEvent(ctx, e.Pool, execCtx.RunID, *threadID, title)
 	publishThreadState(ctx, e.Pool, execCtx.AccountID, *threadID)
 
 	return tools.ExecutionResult{
@@ -134,7 +132,6 @@ func publishThreadState(ctx context.Context, pool *pgxpool.Pool, accountID *uuid
 func emitTitleEvent(
 	ctx context.Context,
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
 	runID uuid.UUID,
 	threadID uuid.UUID,
 	title string,
@@ -175,11 +172,6 @@ func emitTitleEvent(
 
 	if err = tx.Commit(ctx); err != nil {
 		return
-	}
-
-	if rdb != nil {
-		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-		_, _ = rdb.Publish(ctx, rdbChannel, "ping").Result()
 	}
 }
 

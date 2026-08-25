@@ -23,14 +23,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
 	eventCommitBatchSize   = 20
 	eventCommitMaxInterval = 50 * time.Millisecond
-	// maxChildRunOutputBytes 限制通过 Redis Pub/Sub 传递的子 Run 输出大小，防止大消息导致延迟或丢失
-	maxChildRunOutputBytes = 64 * 1024
 )
 
 var (
@@ -50,7 +47,6 @@ func NewAgentLoopHandler(
 	runsRepo data.RunsRepository,
 	eventsRepo data.RunEventsRepository,
 	messagesRepo data.MessagesRepository,
-	runLimiterRDB *redis.Client,
 	jobQueue queue.JobQueue,
 ) RunHandler {
 	return func(ctx context.Context, rc *RunContext) error {
@@ -62,7 +58,7 @@ func NewAgentLoopHandler(
 		}
 
 		writer := newEventWriter(
-			rc.Pool, rc.Run, rc.TraceID, runLimiterRDB,
+			rc.Pool, rc.Run, rc.TraceID,
 			rc.EventBus, jobQueue,
 			selected.Route.Model, personaID,
 			selected.Route.Multiplier, selected.Route.CostPer1kInput, selected.Route.CostPer1kOutput,
@@ -247,7 +243,6 @@ type eventWriter struct {
 	pool          *pgxpool.Pool
 	run           data.Run
 	traceID       string
-	runLimiterRDB *redis.Client // SSE 广播（Publish）; slot release via releaseSlot closure
 	eventBus      eventbus.EventBus
 	jobQueue      queue.JobQueue
 	projector     *subagentctl.SubAgentStateProjector
@@ -293,7 +288,7 @@ type eventWriter struct {
 	callbackID                *uuid.UUID
 	pendingCallbackIDs        []uuid.UUID
 
-	// 子 Run 完成通知：commit 时将终态状态发布到 run.child.{runID}.done
+	// 子 Run 终态：commit 后用于清理与后续唤醒判断
 	terminalRunStatus      string
 	terminalMessage        string
 	pendingEnqueueRunIDs   []uuid.UUID
@@ -323,7 +318,6 @@ func newEventWriter(
 	pool *pgxpool.Pool,
 	run data.Run,
 	traceID string,
-	runLimiterRDB *redis.Client,
 	bus eventbus.EventBus,
 	jobQueue queue.JobQueue,
 	model string,
@@ -345,13 +339,12 @@ func newEventWriter(
 	if multiplier <= 0 {
 		multiplier = 1.0
 	}
-	projector := subagentctl.NewSubAgentStateProjector(pool, runLimiterRDB, jobQueue).WithEventBus(bus)
+	projector := subagentctl.NewSubAgentStateProjector(pool, jobQueue).WithEventBus(bus)
 	return &eventWriter{
 		pool:                      pool,
 		run:                       run,
 		traceID:                   strings.TrimSpace(traceID),
 		lastCommitAt:              time.Now(),
-		runLimiterRDB:             runLimiterRDB,
 		eventBus:                  bus,
 		jobQueue:                  jobQueue,
 		projector:                 projector,
@@ -817,13 +810,6 @@ func (w *eventWriter) commit(ctx context.Context) error {
 		}
 	}
 
-	if w.runLimiterRDB != nil {
-		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", w.run.ID.String())
-		if _, err := w.runLimiterRDB.Publish(ctx, redisChannel, "").Result(); err != nil {
-			slog.Warn("redis_publish_failed", "channel", redisChannel, "err", err)
-		}
-	}
-
 	if w.hasTerminal {
 		threadrunstate.Publish(ctx, w.eventBus, w.run.AccountID, w.run.ThreadID)
 
@@ -863,17 +849,6 @@ func (w *eventWriter) commit(ctx context.Context) error {
 					"error", err.Error(),
 				)
 			}
-		}
-		if w.runLimiterRDB != nil && w.terminalRunStatus != "" {
-			// 通知可能正在等待的父 Run（无父 Run 时此 publish 为空操作）
-			output := ""
-			if w.terminalRunStatus == "completed" {
-				output = truncateChildRunPayload(strings.Join(w.assistantDeltas, ""))
-			} else {
-				output = truncateChildRunPayload(w.terminalMessage)
-			}
-			ch := fmt.Sprintf("run.child.%s.done", w.run.ID.String())
-			_, _ = w.runLimiterRDB.Publish(ctx, ch, w.terminalRunStatus+"\n"+output).Result()
 		}
 		w.hasTerminal = false
 		w.terminalMessage = ""

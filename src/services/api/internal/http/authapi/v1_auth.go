@@ -3,7 +3,6 @@ package authapi
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"errors"
-	"net"
 	"strings"
 	"time"
 
@@ -14,16 +13,12 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/turnstile"
 	sharedconfig "arkloop/services/shared/config"
 
 	"github.com/google/uuid"
 )
 
 const (
-	settingTurnstileSecretKey   = "turnstile.secret_key"
-	settingTurnstileAllowedHost = "turnstile.allowed_host"
-
 	refreshTokenCookieName = "arkloop_refresh_token"
 	refreshTokenCookiePath = "/v1/auth"
 )
@@ -34,53 +29,10 @@ var legacyRefreshCookieNames = []string{
 	"arkloop_rt_console_lite",
 }
 
-// verifyTurnstileToken performs Turnstile validation if a secret key is configured.
-// Returns false and writes the error response when validation fails.
-func verifyTurnstileToken(
-	w nethttp.ResponseWriter,
-	r *nethttp.Request,
-	traceID string,
-	token string,
-	resolver sharedconfig.Resolver,
-) bool {
-	if resolver == nil {
-		return true
-	}
-
-	secretKey, err := resolver.Resolve(r.Context(), settingTurnstileSecretKey, sharedconfig.Scope{})
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return false
-	}
-	secretKey = strings.TrimSpace(secretKey)
-	if secretKey == "" {
-		return true // not configured, skip
-	}
-
-	allowedHost, err := resolver.Resolve(r.Context(), settingTurnstileAllowedHost, sharedconfig.Scope{})
-	if err != nil {
-		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-		return false
-	}
-	allowedHost = strings.TrimSpace(allowedHost)
-
-	verifyErr := turnstile.Verify(r.Context(), nethttp.DefaultClient, turnstile.VerifyRequest{
-		SecretKey:   secretKey,
-		Token:       token,
-		RemoteIP:    requestClientIP(r),
-		AllowedHost: allowedHost,
-	})
-	if verifyErr != nil {
-		httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "auth.captcha_invalid", "captcha validation failed", traceID, nil)
-		return false
-	}
-	return true
-}
 
 type loginRequest struct {
-	Login            string `json:"login"`
-	Password         string `json:"password"`
-	CfTurnstileToken string `json:"cf_turnstile_token"`
+	Login    string `json:"login"`
+	Password string `json:"password"`
 }
 
 type loginResponse struct {
@@ -93,8 +45,7 @@ type logoutResponse struct {
 }
 
 type resolveIdentityRequest struct {
-	Identity         string `json:"identity"`
-	CfTurnstileToken string `json:"cf_turnstile_token"`
+	Identity string `json:"identity"`
 }
 
 type resolvePrefillResponse struct {
@@ -175,10 +126,6 @@ func login(authService *auth.Service, auditWriter *audit.Writer, resolver shared
 		}
 		if body.Password == "" || len(body.Password) > 1024 {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
-
-		if !verifyTurnstileToken(w, r, traceID, body.CfTurnstileToken, resolver) {
 			return
 		}
 
@@ -335,10 +282,6 @@ func resolveIdentity(
 		body.Identity = strings.TrimSpace(body.Identity)
 		if body.Identity == "" || len(body.Identity) > 256 {
 			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "identity is required", traceID, nil)
-			return
-		}
-
-		if !verifyTurnstileToken(w, r, traceID, body.CfTurnstileToken, resolver) {
 			return
 		}
 
@@ -505,29 +448,6 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 	}
 }
 
-func requestClientIP(r *nethttp.Request) string {
-	if r == nil {
-		return ""
-	}
-	if ip := observability.ClientIPFromContext(r.Context()); ip != "" {
-		return ip
-	}
-	if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); fwd != "" {
-		if ip, _, _ := strings.Cut(fwd, ","); ip != "" {
-			if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed != nil {
-				return parsed.String()
-			}
-		}
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		if parsed := net.ParseIP(strings.TrimSpace(r.RemoteAddr)); parsed != nil {
-			return parsed.String()
-		}
-		return ""
-	}
-	return host
-}
 
 func requestHTTPS(r *nethttp.Request) bool {
 	if r == nil {

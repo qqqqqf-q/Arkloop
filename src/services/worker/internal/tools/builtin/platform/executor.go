@@ -88,12 +88,6 @@ func (e *Executor) Execute(
 		return e.testEmail(ctx, args, t)
 	case "configure_smtp":
 		return e.configureSMTP(ctx, args, t)
-	case "configure_captcha":
-		return e.configureCaptcha(ctx, args, t)
-	case "configure_registration":
-		return e.configureRegistration(ctx, args, t)
-	case "configure_gateway":
-		return e.configureGateway(ctx, args, t)
 	case "update_styles":
 		return e.updateStyles(ctx, args, t)
 
@@ -241,51 +235,8 @@ func (e *Executor) configureSMTP(ctx context.Context, a map[string]any, t time.T
 	}, t)
 }
 
-func (e *Executor) configureCaptcha(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
-	if str(a, "site_key") == "" || str(a, "secret_key") == "" {
-		return argErr("site_key and secret_key are required", t)
-	}
-	res := e.put(ctx, "/v1/admin/platform-settings/turnstile.site_key", map[string]any{"value": a["site_key"]}, t)
-	if res.Error != nil {
-		return res
-	}
-	return e.put(ctx, "/v1/admin/platform-settings/turnstile.secret_key", map[string]any{"value": a["secret_key"]}, t)
-}
 
-func (e *Executor) configureRegistration(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
-	mode := str(a, "mode")
-	if mode != "open" && mode != "invite_only" {
-		return argErr("mode must be 'open' or 'invite_only'", t)
-	}
-	val := "true"
-	if mode == "invite_only" {
-		val = "false"
-	}
-	return e.put(ctx, "/v1/admin/platform-settings/registration.open", map[string]any{"value": val}, t)
-}
 
-func (e *Executor) configureGateway(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
-	body := make(map[string]any)
-	if v := str(a, "ip_mode"); v != "" {
-		body["ip_mode"] = v
-	}
-	if v, ok := a["trusted_cidrs"]; ok {
-		body["trusted_cidrs"] = v
-	}
-	if v, ok := intVal(a["risk_reject_threshold"]); ok {
-		body["risk_reject_threshold"] = v
-	}
-	if v, ok := floatVal(a["rate_limit_capacity"]); ok {
-		body["rate_limit_capacity"] = v
-	}
-	if v, ok := floatVal(a["rate_limit_per_minute"]); ok {
-		body["rate_limit_per_minute"] = v
-	}
-	if len(body) == 0 {
-		return argErr("at least one parameter is required", t)
-	}
-	return e.put(ctx, "/v1/admin/gateway-config", body, t)
-}
 
 func (e *Executor) updateStyles(ctx context.Context, a map[string]any, t time.Time) tools.ExecutionResult {
 	if str(a, "css") == "" {

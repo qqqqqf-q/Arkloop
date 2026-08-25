@@ -12,7 +12,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 // appendAndCommitSingle 写入单个事件并提交,用于短路场景。
@@ -24,7 +23,6 @@ func appendAndCommitSingle(
 	eventsRepo data.RunEventsRepository,
 	ev events.RunEvent,
 	releaseSlot func(),
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) error {
 	// For terminal events, guarantee slot release on all exit paths (including errors).
@@ -85,11 +83,6 @@ func appendAndCommitSingle(
 		_ = bus.Publish(ctx, channel, "")
 	}
 
-	if rdb != nil {
-		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", run.ID.String())
-		_, _ = rdb.Publish(ctx, redisChannel, "").Result()
-	}
-
 	if _, ok := TerminalStatuses[ev.Type]; ok {
 		threadrunstate.Publish(ctx, bus, run.AccountID, run.ThreadID)
 	}
@@ -98,14 +91,6 @@ func appendAndCommitSingle(
 	if _, ok := TerminalStatuses[ev.Type]; ok && releaseSlot != nil {
 		releaseSlot()
 		releaseSlot = nil
-	}
-
-	if rdb != nil {
-		if termStatus, ok := TerminalStatuses[ev.Type]; ok {
-			payload := truncateChildRunPayload(TerminalStatusMessage(ev.DataJSON))
-			ch := fmt.Sprintf("run.child.%s.done", run.ID.String())
-			_, _ = rdb.Publish(ctx, ch, termStatus+"\n"+payload).Result()
-		}
 	}
 
 	return nil
@@ -140,13 +125,6 @@ func TerminalStatusMessage(dataJSON map[string]any) string {
 		}
 	}
 	return main
-}
-
-func truncateChildRunPayload(raw string) string {
-	if len(raw) <= maxChildRunOutputBytes {
-		return raw
-	}
-	return raw[:maxChildRunOutputBytes]
 }
 
 // TerminalStatuses 映射终态事件类型到 runs.status 值。

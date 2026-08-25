@@ -15,7 +15,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 var callbackRunStartedDataKeys = []string{
@@ -32,7 +31,6 @@ var callbackRunStartedDataKeys = []string{
 
 type SubAgentStateProjector struct {
 	pool     data.DB
-	rdb      *redis.Client
 	eventBus eventbus.EventBus
 	jobQueue queue.JobQueue
 	factory  *SubAgentRunFactory
@@ -50,10 +48,9 @@ type callbackRunSeed struct {
 	StartedData     map[string]any
 }
 
-func NewSubAgentStateProjector(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue) *SubAgentStateProjector {
+func NewSubAgentStateProjector(pool data.DB, jobQueue queue.JobQueue) *SubAgentStateProjector {
 	return &SubAgentStateProjector{
 		pool:     pool,
-		rdb:      rdb,
 		jobQueue: jobQueue,
 		factory:  NewSubAgentRunFactory(pool, NewSnapshotStorage()),
 	}
@@ -165,10 +162,6 @@ func (p *SubAgentStateProjector) MarkRunFailed(ctx context.Context, childRunID u
 	}
 	if run != nil {
 		threadrunstate.Publish(ctx, p.eventBus, run.AccountID, run.ThreadID)
-	}
-	if p.rdb != nil {
-		ch := fmt.Sprintf("run.child.%s.done", childRunID.String())
-		_, _ = p.rdb.Publish(ctx, ch, "failed\n").Result()
 	}
 	return nil
 }

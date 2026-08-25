@@ -198,7 +198,7 @@ func NewRoutingMiddleware(
 				nil,
 				StringPtr(decision.Denied.ErrorClass),
 			)
-			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus)
+			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus)
 		}
 
 		selected := decision.Selected
@@ -213,7 +213,7 @@ func NewRoutingMiddleware(
 				nil,
 				StringPtr(llm.ErrorClassInternalError),
 			)
-			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus)
+			return appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus)
 		}
 
 		var (
@@ -246,7 +246,7 @@ func NewRoutingMiddleware(
 					nil,
 					StringPtr(llm.ErrorClassInternalError),
 				)
-				if commitErr := appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus); commitErr != nil {
+				if commitErr := appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus); commitErr != nil {
 					return commitErr
 				}
 				return nil
@@ -269,7 +269,7 @@ func NewRoutingMiddleware(
 				nil,
 				StringPtr(llm.ErrorClassInternalError),
 			)
-			if commitErr := appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.BroadcastRDB, rc.EventBus); commitErr != nil {
+			if commitErr := appendAndCommitSingle(ctx, rc.Pool, rc.Run, runsRepo, eventsRepo, failed, releaseFn, rc.EventBus); commitErr != nil {
 				return commitErr
 			}
 			return nil

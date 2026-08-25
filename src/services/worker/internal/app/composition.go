@@ -188,7 +188,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 	if err != nil {
 		slog.WarnContext(ctx, "desktop: skill store init failed", "err", err.Error())
 	}
-	executors, fileTracker := builtin.Executors(nil, nil, nil, skillStore)
+	executors, fileTracker := builtin.Executors(nil, nil, skillStore)
 
 	sandboxAddr := desktop.GetSandboxAddr()
 
@@ -695,7 +695,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	}
 
 	if e.jobQueue != nil && subAgentsEnabled {
-		rc.SubAgentControl = subagentctl.NewService(e.db, nil, e.jobQueue, run, traceID, subagentctl.SubAgentLimits{}, subagentctl.BackpressureConfig{}, e.rolloutStore).WithEventBus(e.bus)
+		rc.SubAgentControl = subagentctl.NewService(e.db, e.jobQueue, run, traceID, subagentctl.SubAgentLimits{}, subagentctl.BackpressureConfig{}, e.rolloutStore).WithEventBus(e.bus)
 	}
 	defer pipeline.FlushTracer(rc.Tracer)
 
@@ -813,7 +813,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 			EmitDebugEvents: e.emitDebugEvents,
 			AttachmentStore: e.messageAttachmentStore,
 		})),
-		pipeline.NewTitleSummarizerMiddleware(e.db, nil, e.auxGateway, e.emitDebugEvents, e.routingLoader),
+		pipeline.NewTitleSummarizerMiddleware(e.db, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewContextCompactMiddleware(e.db, data.MessagesRepository{}, data.DesktopRunEventsRepository{}, e.auxGateway, e.emitDebugEvents, e.routingLoader),
 		pipeline.NewImageUnderstandingMiddleware(pipeline.ImageUnderstandingConfig{
 			AuxGateway:          e.auxGateway,
@@ -1153,7 +1153,6 @@ func desktopToolProviderBindings(db data.DesktopDB) pipeline.RunMiddleware {
 func desktopCancelGuard(db data.DesktopDB, bus eventbus.EventBus) pipeline.RunMiddleware {
 	return func(ctx context.Context, rc *pipeline.RunContext, next pipeline.RunHandler) error {
 		execCtx, cancel := context.WithCancel(ctx)
-		rc.CancelFunc = cancel
 
 		done := make(chan struct{})
 		wakeInput := make(chan struct{}, 1)
@@ -1185,7 +1184,6 @@ func desktopCancelGuard(db data.DesktopDB, bus eventbus.EventBus) pipeline.RunMi
 				}
 			}
 		}()
-		rc.ListenDone = done
 
 		var mu sync.Mutex
 		var lastSeq int64
@@ -3402,7 +3400,7 @@ func desktopAgentLoop(
 		selected := rc.SelectedRoute
 		var projector *subagentctl.SubAgentStateProjector
 		if desktopSubAgentSchemaAvailable(ctx, db) {
-			projector = subagentctl.NewSubAgentStateProjector(db, nil, jobQueue)
+			projector = subagentctl.NewSubAgentStateProjector(db, jobQueue)
 		}
 
 		w := &desktopEventWriter{

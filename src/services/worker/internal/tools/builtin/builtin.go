@@ -29,7 +29,6 @@ import (
 	xsearch "arkloop/services/worker/internal/tools/builtin/x_search"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 func AgentSpecs() []tools.AgentToolSpec {
@@ -101,8 +100,7 @@ func LlmSpecs() []llm.ToolSpec {
 }
 
 // Executors 返回所有内置工具的 Executor 实例。
-// rdb 可选；非 nil 时用于跨实例通知推送。
-func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Resolver, skillStore objectstore.Store) (map[string]tools.Executor, *fileops.FileTracker) {
+func Executors(pool *pgxpool.Pool, resolver sharedconfig.Resolver, skillStore objectstore.Store) (map[string]tools.Executor, *fileops.FileTracker) {
 	tracker := fileops.NewFileTracker()
 	return map[string]tools.Executor{
 		TimelineTitleAgentSpec.Name:           TimelineTitleExecutor{},
@@ -127,7 +125,7 @@ func Executors(pool *pgxpool.Pool, rdb *redis.Client, resolver sharedconfig.Reso
 		edit.AgentSpec.Name:                   &edit.Executor{Tracker: tracker},
 		glob.AgentSpec.Name:                   &glob.Executor{},
 		grep.AgentSpec.Name:                   &grep.Executor{},
-		summarizethread.AgentSpec.Name:        &summarizethread.ToolExecutor{Pool: pool, RDB: rdb},
+		summarizethread.AgentSpec.Name:        &summarizethread.ToolExecutor{Pool: pool},
 		askuser.AgentSpec.Name:                askuser.ToolExecutor{},
 		showwidget.AgentSpec.Name:             showwidget.NewToolExecutor(),
 		todowrite.AgentSpec.Name:              &todowrite.Executor{Tracker: tracker},

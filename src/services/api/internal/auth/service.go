@@ -7,14 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"time"
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 type InvalidCredentialsError struct{}
@@ -67,7 +65,6 @@ type Service struct {
 	tokenService     *JwtAccessTokenService
 	refreshTokenRepo *data.RefreshTokenRepository
 	flagService      *featureflag.Service
-	redisClient      *redis.Client
 	projectRepo      *data.ProjectRepository
 }
 
@@ -78,7 +75,6 @@ func NewService(
 	passwordHasher *BcryptPasswordHasher,
 	tokenService *JwtAccessTokenService,
 	refreshTokenRepo *data.RefreshTokenRepository,
-	redisClient *redis.Client,
 	projectRepo *data.ProjectRepository,
 ) (*Service, error) {
 	if userRepo == nil {
@@ -106,7 +102,6 @@ func NewService(
 		passwordHasher:   passwordHasher,
 		tokenService:     tokenService,
 		refreshTokenRepo: refreshTokenRepo,
-		redisClient:      redisClient,
 		projectRepo:      projectRepo,
 	}, nil
 }
@@ -122,11 +117,6 @@ func (s *Service) RefreshTokenTTLSeconds() int {
 	}
 	return s.tokenService.RefreshTokenTTLSeconds()
 }
-
-const (
-	tokensInvalidBeforeRedisKeyPrefix = "arkloop:auth:tokens_invalid_before:"
-	tokensInvalidBeforeRedisTimeout   = 50 * time.Millisecond
-)
 
 func (s *Service) IssueAccessToken(ctx context.Context, login string, password string) (IssuedTokenPair, error) {
 	credential, err := s.credentialRepo.GetByLogin(ctx, login)
@@ -333,38 +323,11 @@ func (s *Service) VerifyAccessTokenForActor(ctx context.Context, token string) (
 	return verified, nil
 }
 
-func tokensInvalidBeforeRedisKey(userID uuid.UUID) string {
-	return tokensInvalidBeforeRedisKeyPrefix + userID.String()
-}
-
-func (s *Service) refreshTokenTTL() time.Duration {
-	ttlSeconds := s.RefreshTokenTTLSeconds()
-	if ttlSeconds <= 0 {
-		return 0
-	}
-	return time.Duration(ttlSeconds) * time.Second
-}
-
 func (s *Service) resolveTokensInvalidBefore(ctx context.Context, userID uuid.UUID) (time.Time, error) {
 	if userID == uuid.Nil {
 		return time.Time{}, fmt.Errorf("user_id must not be nil")
 	}
 
-	// 1) Redis 命中
-	if s.redisClient != nil {
-		redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
-		raw, err := s.redisClient.Get(redisCtx, tokensInvalidBeforeRedisKey(userID)).Result()
-		cancel()
-
-		if err == nil {
-			micros, parseErr := strconv.ParseInt(raw, 10, 64)
-			if parseErr == nil {
-				return time.UnixMicro(micros).UTC(), nil
-			}
-		}
-	}
-
-	// 2) 回源 Postgres
 	if s.userRepo == nil {
 		return time.Time{}, fmt.Errorf("userRepo not configured")
 	}
@@ -376,24 +339,11 @@ func (s *Service) resolveTokensInvalidBefore(ctx context.Context, userID uuid.UU
 		return time.Time{}, UserNotFoundError{UserID: userID}
 	}
 
-	// 3) 回填 Redis（best-effort）
-	if s.redisClient != nil {
-		ttl := s.refreshTokenTTL()
-		if ttl > 0 {
-			microAligned := val.UTC().Truncate(time.Microsecond)
-			payload := strconv.FormatInt(microAligned.UnixMicro(), 10)
-
-			redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
-			_ = s.redisClient.Set(redisCtx, tokensInvalidBeforeRedisKey(userID), payload, ttl).Err()
-			cancel()
-		}
-	}
-
 	return val.UTC(), nil
 }
 
 // BumpTokensInvalidBefore 强制吊销指定用户的所有 access token（以及未来 refresh 生成的 access token）。
-// DB 是唯一真相，Redis 仅作缓存，写 Redis 失败不会影响主流程。
+// DB 是唯一真相。
 func (s *Service) BumpTokensInvalidBefore(ctx context.Context, userID uuid.UUID, now time.Time) error {
 	if s == nil || s.userRepo == nil {
 		return fmt.Errorf("userRepo not configured")
@@ -411,16 +361,6 @@ func (s *Service) BumpTokensInvalidBefore(ctx context.Context, userID uuid.UUID,
 
 	if err := s.userRepo.BumpTokensInvalidBefore(ctx, userID, now); err != nil {
 		return err
-	}
-
-	if s.redisClient != nil {
-		ttl := s.refreshTokenTTL()
-		if ttl > 0 {
-			payload := strconv.FormatInt(now.UnixMicro(), 10)
-			redisCtx, cancel := context.WithTimeout(ctx, tokensInvalidBeforeRedisTimeout)
-			_ = s.redisClient.Set(redisCtx, tokensInvalidBeforeRedisKey(userID), payload, ttl).Err()
-			cancel()
-		}
 	}
 
 	return nil

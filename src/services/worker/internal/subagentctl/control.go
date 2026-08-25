@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 const defaultWaitInterval = 150 * time.Millisecond
@@ -37,7 +36,6 @@ type Control interface {
 
 type Service struct {
 	pool             data.DB
-	rdb              *redis.Client
 	eventBus         eventbus.EventBus
 	jobQueue         queue.JobQueue
 	parentRun        data.Run
@@ -56,7 +54,6 @@ type Service struct {
 func CreateInitialRun(
 	ctx context.Context,
 	pool data.DB,
-	rdb *redis.Client,
 	jobQueue queue.JobQueue,
 	parentRun data.Run,
 	traceID string,
@@ -64,19 +61,18 @@ func CreateInitialRun(
 	personaID string,
 	input string,
 ) error {
-	service := NewService(pool, rdb, jobQueue, parentRun, traceID, SubAgentLimits{}, BackpressureConfig{}, nil)
+	service := NewService(pool, jobQueue, parentRun, traceID, SubAgentLimits{}, BackpressureConfig{}, nil)
 	_, err := service.spawn(ctx, SpawnRequest{PersonaID: personaID, ContextMode: data.SubAgentContextModeIsolated, Input: input}, &forcedRunID)
 	return err
 }
 
-func NewService(pool data.DB, rdb *redis.Client, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig, blobStore objectstore.BlobStore) *Service {
+func NewService(pool data.DB, jobQueue queue.JobQueue, parentRun data.Run, traceID string, limits SubAgentLimits, bp BackpressureConfig, blobStore objectstore.BlobStore) *Service {
 	snapshotStorage := NewSnapshotStorage()
 	factory := NewSubAgentRunFactory(pool, snapshotStorage)
-	projector := NewSubAgentStateProjector(pool, rdb, jobQueue)
+	projector := NewSubAgentStateProjector(pool, jobQueue)
 	projector.factory = factory
 	return &Service{
 		pool:             pool,
-		rdb:              rdb,
 		jobQueue:         jobQueue,
 		parentRun:        parentRun,
 		traceID:          strings.TrimSpace(traceID),
@@ -103,11 +99,11 @@ func (s *Service) WithEventBus(bus eventbus.EventBus) *Service {
 }
 
 func MarkRunning(ctx context.Context, pool data.DB, runID uuid.UUID) error {
-	return NewSubAgentStateProjector(pool, nil, nil).MarkRunning(ctx, runID)
+	return NewSubAgentStateProjector(pool, nil).MarkRunning(ctx, runID)
 }
 
-func MarkRunFailed(ctx context.Context, pool data.DB, rdb *redis.Client, childRunID uuid.UUID) {
-	_ = NewSubAgentStateProjector(pool, rdb, nil).MarkRunFailed(ctx, childRunID, "failed to enqueue child run job")
+func MarkRunFailed(ctx context.Context, pool data.DB, childRunID uuid.UUID) {
+	_ = NewSubAgentStateProjector(pool, nil).MarkRunFailed(ctx, childRunID, "failed to enqueue child run job")
 }
 
 func (s *Service) Spawn(ctx context.Context, req SpawnRequest) (StatusSnapshot, error) {
@@ -175,13 +171,6 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, availableAt, jobPayload); err != nil {
 		_ = s.projector.MarkRunFailed(context.Background(), childRunID, "failed to enqueue child run job")
 		return StatusSnapshot{}, fmt.Errorf("enqueue child run: %w", err)
-	}
-
-	// Create and start rollout recorder if blobStore is available (non-desktop mode)
-	if s.rdb != nil && s.blobStore != nil {
-		recorder := rollout.NewRecorder(s.blobStore, childRunID)
-		recorder.Start(ctx)
-		s.recorders.Store(record.ID, recorder)
 	}
 
 	return s.GetStatus(ctx, record.ID)
@@ -355,52 +344,10 @@ func (s *Service) waitOne(waitCtx context.Context, timeout time.Duration, subAge
 		return s.resolveWait(waitCtx, subAgentID, timeout, snapshot)
 	}
 
-	if s.rdb != nil && snapshot.CurrentRunID != nil {
-		return s.waitOneByRedis(waitCtx, timeout, subAgentID, snapshot)
-	}
 	return s.waitOneByPoll(waitCtx, timeout, subAgentID, snapshot)
 }
 
-// waitOneByRedis 通过 Redis Subscribe 等待单个子代理终态。
-func (s *Service) waitOneByRedis(waitCtx context.Context, timeout time.Duration, subAgentID uuid.UUID, lastSnapshot StatusSnapshot) (StatusSnapshot, error) {
-	ch := fmt.Sprintf("run.child.%s.done", lastSnapshot.CurrentRunID.String())
-	sub := s.rdb.Subscribe(waitCtx, ch)
-	defer func() { _ = sub.Close() }()
-
-	// Subscribe 后立即重检，防止事件遗漏
-	snapshot, err := s.GetStatus(waitCtx, subAgentID)
-	if err != nil {
-		return lastSnapshot, err
-	}
-	lastSnapshot = snapshot
-	if waitResolved(snapshot.Status) {
-		return s.resolveWait(waitCtx, subAgentID, timeout, snapshot)
-	}
-
-	msgCh := sub.Channel()
-	for {
-		select {
-		case <-waitCtx.Done():
-			_ = s.appendLifecycleEvent(context.WithoutCancel(waitCtx), subAgentID, data.SubAgentEventTypeWaitTimeout, map[string]any{
-				"status":     lastSnapshot.Status,
-				"timeout_ms": timeout.Milliseconds(),
-			})
-			return lastSnapshot, waitCtx.Err()
-		case <-msgCh:
-		}
-
-		snapshot, err := s.GetStatus(waitCtx, subAgentID)
-		if err != nil {
-			return lastSnapshot, err
-		}
-		lastSnapshot = snapshot
-		if waitResolved(snapshot.Status) {
-			return s.resolveWait(waitCtx, subAgentID, timeout, snapshot)
-		}
-	}
-}
-
-// waitOneByPoll 轮询等待单个子代理终态（desktop 模式）。
+// waitOneByPoll 轮询等待单个子代理终态。
 func (s *Service) waitOneByPoll(waitCtx context.Context, timeout time.Duration, subAgentID uuid.UUID, lastSnapshot StatusSnapshot) (StatusSnapshot, error) {
 	interval := s.waitPollInterval
 	if interval <= 0 {

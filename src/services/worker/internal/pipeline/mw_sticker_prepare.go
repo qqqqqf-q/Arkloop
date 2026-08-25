@@ -207,10 +207,6 @@ func publishRunEvent(ctx context.Context, rc *RunContext) {
 	if rc.EventBus != nil {
 		_ = rc.EventBus.Publish(ctx, channel, "")
 	}
-	if rc.BroadcastRDB != nil {
-		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", rc.Run.ID.String())
-		_, _ = rc.BroadcastRDB.Publish(ctx, redisChannel, "").Result()
-	}
 }
 
 func parseStickerBuilderOutput(raw string) (description string, tags string, ok bool) {

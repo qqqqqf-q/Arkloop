@@ -301,10 +301,6 @@ export interface LocaleStrings {
   enterPassword: string;
   editProfile: string;
   continueBtn: string;
-  orDivider: string;
-  githubLogin: string;
-  noAccount: string;
-  hasAccount: string;
   enterYourPasswordTitle: string;
   fieldIdentity: string;
   fieldPassword: string;
@@ -339,9 +335,6 @@ export interface LocaleStrings {
   notificationsEmpty: string;
   notificationsMarkRead: string;
   // free plan badge
-  freePlan: string;
-  freeTrial: string;
-  freeTrialDesc: string;
   // chat input menu
   addFromLocal: string;
   addFromGitHub: string;
@@ -602,10 +595,6 @@ export interface LocaleStrings {
       enabled: string
       disabled: string
     }
-    spawnProfileSubtitle: string
-    imageGenerativeTitle: string
-    imageGenerativeDesc: string
-    imageGenerativeUnset: string
     streamThinking: string
   }
   // channels
@@ -810,7 +799,6 @@ export interface LocaleStrings {
   alreadyAtLastResponse: string;
   // connection settings (desktop only)
   connection: {
-    title: string;
     status: string;
     running: string;
     stopped: string;
@@ -826,7 +814,6 @@ export interface LocaleStrings {
     manualPort: string;
     manualPortHint: string;
     restoreAutoPort: string;
-    runtimeError: string;
     testConnection: string;
     connected: string;
     failed: string;
@@ -1286,7 +1273,6 @@ export interface LocaleStrings {
     chatModel: string;
     chatModelDesc: string;
     chatModelPlatformDefault: string;
-    toolModelAutoHint: string;
     advancedTitle: string;
     advancedDesc: string;
     advancedOverview: string;
@@ -1612,19 +1598,9 @@ export interface LocaleStrings {
   onboarding: {
     welcomeDesc: string;
     getStarted: string;
-    modeTitle: string;
-    modeDesc: string;
-    saasTitle: string;
-    saasDesc: string;
-    localTitle: string;
-    localDesc: string;
-    selfHostTitle: string;
-    selfHostDesc: string;
-    saasLoginHint: string;
     localDownloading: string;
     localDownloadFailed: string;
     localRetryDownload: string;
-    localDownloadComplete: string;
     localStarting: string;
     localProviderChoiceTitle: string;
     localProviderChoiceDesc: string;
@@ -1706,7 +1682,6 @@ export interface LocaleStrings {
     next: string;
     skip: string;
     stepOf: (current: number, total: number) => string;
-    comingSoon: string;
     greeting: string;
     appearanceTitle: string;
     appearanceDesc: string;

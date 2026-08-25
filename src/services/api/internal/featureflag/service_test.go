@@ -61,7 +61,7 @@ func TestIsEnabled_AccountOverrideTakesPrecedence(t *testing.T) {
 	stub.addFlag(flagKey, false) // default = false
 	stub.addOverride(accountID, flagKey, true) // override = true
 
-	svc, err := featureflag.NewService(stub, nil)
+	svc, err := featureflag.NewService(stub)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestIsEnabled_FlagDefaultUsedWhenNoOverride(t *testing.T) {
 	stub := newStubQuerier()
 	stub.addFlag(flagKey, true) // default = true, no override
 
-	svc, err := featureflag.NewService(stub, nil)
+	svc, err := featureflag.NewService(stub)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestIsEnabled_UnknownFlagReturnsError(t *testing.T) {
 
 	stub := newStubQuerier() // 空，flag 不存在
 
-	svc, err := featureflag.NewService(stub, nil)
+	svc, err := featureflag.NewService(stub)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestIsEnabled_AccountOverrideFalseOverridesDefaultTrue(t *testing.T) {
 	stub.addFlag(flagKey, true)           // default = true
 	stub.addOverride(accountID, flagKey, false) // override = false
 
-	svc, err := featureflag.NewService(stub, nil)
+	svc, err := featureflag.NewService(stub)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestIsEnabled_DifferentAccountGetsOwnOverride(t *testing.T) {
 	stub.addFlag(flagKey, false)
 	stub.addOverride(accountA, flagKey, true) // only accountA gets override
 
-	svc, err := featureflag.NewService(stub, nil)
+	svc, err := featureflag.NewService(stub)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestIsEnabled_DifferentAccountGetsOwnOverride(t *testing.T) {
 }
 
 func TestNewService_NilRepoReturnsError(t *testing.T) {
-	_, err := featureflag.NewService(nil, nil)
+	_, err := featureflag.NewService(nil)
 	if err == nil {
 		t.Error("expected error for nil repo")
 	}

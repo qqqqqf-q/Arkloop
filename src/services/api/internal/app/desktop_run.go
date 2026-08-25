@@ -381,7 +381,6 @@ func RunDesktop(ctx context.Context) error {
 	authService, err := auth.NewService(
 		userRepo, credentialRepo, membershipRepo,
 		passwordHasher, tokenService, refreshTokenRepo,
-		nil, // redis
 		projectRepo,
 	)
 	if err != nil {
@@ -394,7 +393,7 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("init config resolver: %w", err)
 	}
 
-	featureFlagService, err := featureflag.NewService(featureFlagsRepo, nil)
+	featureFlagService, err := featureflag.NewService(featureFlagsRepo)
 	if err != nil {
 		return fmt.Errorf("init feature flag service: %w", err)
 	}

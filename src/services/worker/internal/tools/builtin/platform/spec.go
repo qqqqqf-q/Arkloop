@@ -11,8 +11,7 @@ func sp(s string) *string { return &s }
 
 var actions = []string{
 	"get_settings", "set_setting",
-	"configure_email", "test_email", "configure_smtp",
-	"configure_captcha", "configure_registration", "configure_gateway", "update_styles",
+	"configure_email", "test_email", "configure_smtp", "update_styles",
 	"list_providers", "add_provider", "update_provider", "delete_provider",
 	"list_models", "configure_model",
 	"list_agents", "create_agent", "update_agent", "delete_agent", "get_agent",
@@ -38,7 +37,7 @@ var LlmSpec = llm.ToolSpec{
 	Description: sp(
 		"Platform administration tool for managing Arkloop configuration. Available to account/platform admins. Use for configuring providers, personas, skills, MCP servers, and other platform settings.\n\n" +
 			"Pass action and params object.\n" +
-			"Settings: get_settings | set_setting{key,value} | configure_email{from,smtp_host} | test_email{to} | configure_smtp{name,from_addr,smtp_host,smtp_port,smtp_pass,tls_mode} | configure_captcha{site_key,secret_key} | configure_registration{mode} | configure_gateway{ip_mode,...} | update_styles{css}\n" +
+			"Settings: get_settings | set_setting{key,value} | configure_email{from,smtp_host} | test_email{to} | configure_smtp{name,from_addr,smtp_host,smtp_port,smtp_pass,tls_mode} | update_styles{css}\n" +
 			"Providers: list_providers | add_provider{name,provider,api_key} | update_provider{id,...} | delete_provider{id} | list_models{provider_id} | configure_model{provider_id,model_id,config?}\n" +
 			"Agents: list_agents | create_agent{persona_key,display_name,prompt_md} | update_agent{id,...} | delete_agent{id} | get_agent{id}\n" +
 			"Skills: list_skills | install_skill_market{skill_id} | install_skill_github{url,ref?} | remove_skill{id}\n" +

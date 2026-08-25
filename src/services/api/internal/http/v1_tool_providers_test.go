@@ -112,7 +112,6 @@ func TestDesktopToolProvidersListActivateAndConfigWebSearch(t *testing.T) {
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {
@@ -315,7 +314,6 @@ func TestDesktopToolProvidersListShowsOnlySelectedSearchProviderRunning(t *testi
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {
@@ -475,7 +473,6 @@ func TestDesktopToolProvidersListSandboxDockerRuntime(t *testing.T) {
 		passwordHasher,
 		tokenService,
 		refreshTokenRepo,
-		nil,
 		projectRepo,
 	)
 	if err != nil {

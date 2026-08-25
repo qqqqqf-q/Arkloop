@@ -332,7 +332,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		APIKeysRepo:           cfg.APIKeysRepo,
 		NotificationsRepo:     cfg.NotificationsRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
-		RedisClient:           nil,
 		ConfigInvalidator:     invalidator,
 		ConfigRegistry:        registry,
 	})
