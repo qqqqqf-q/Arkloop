@@ -121,44 +121,6 @@ func (r *AccountMembershipRepository) GetByOrgAndUser(ctx context.Context, accou
 	return r.GetByAccountAndUser(ctx, accountID, userID)
 }
 
-// SetRoleForUser 将用户的默认 membership（最早创建）的角色更新为 role。
-func (r *AccountMembershipRepository) SetRoleForUser(ctx context.Context, userID uuid.UUID, role string) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	_, err := r.db.Exec(
-		ctx,
-		`UPDATE account_memberships
-		 SET role = $1
-		 WHERE id = (
-		     SELECT m.id
-		     FROM account_memberships m
-		     JOIN accounts o ON o.id = m.account_id
-		     WHERE m.user_id = $2
-		       AND o.type = 'personal'
-		     LIMIT 1
-		 )`,
-		role, userID,
-	)
-	return err
-}
-
-func (r *AccountMembershipRepository) HasPlatformAdmin(ctx context.Context) (bool, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	var exists bool
-	err := r.db.QueryRow(
-		ctx,
-		`SELECT EXISTS(SELECT 1 FROM account_memberships WHERE role = $1)`,
-		"platform_admin",
-	).Scan(&exists)
-	if err != nil {
-		return false, err
-	}
-	return exists, nil
-}
-
 // ExistsForAccountAndUser 检查用户是否已是 account 成员，用于邀请接受前去重。
 func (r *AccountMembershipRepository) ExistsForAccountAndUser(ctx context.Context, accountID, userID uuid.UUID) (bool, error) {
 	if ctx == nil {

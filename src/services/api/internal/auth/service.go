@@ -237,7 +237,10 @@ func (s *Service) IssueTokenPairForUser(ctx context.Context, userID uuid.UUID) (
 // issueTokenPair 为指定用户签发 Access Token + Refresh Token，并将 Refresh Token 持久化到 DB。
 func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedTokenPair, error) {
 	now := time.Now().UTC()
-	accountID, accountRole := s.resolveDefaultAccount(ctx, userID)
+	accountID, accountRole, err := s.resolveDefaultAccount(ctx, userID)
+	if err != nil {
+		return IssuedTokenPair{}, err
+	}
 
 	if accountID != uuid.Nil && s.projectRepo != nil {
 		if _, err := s.projectRepo.GetOrCreateDefaultByOwner(ctx, accountID, userID); err != nil {
@@ -266,13 +269,17 @@ func (s *Service) issueTokenPair(ctx context.Context, userID uuid.UUID) (IssuedT
 	}, nil
 }
 
-// resolveDefaultAccount 查用户的默认 account；失败时静默返回 uuid.Nil，不阻断认证流程。
-func (s *Service) resolveDefaultAccount(ctx context.Context, userID uuid.UUID) (accountID uuid.UUID, accountRole string) {
+// resolveDefaultAccount 查用户的默认 account。单用户 desktop 下查不到只会是
+// 种子未执行，静默回退 Nil 会掩盖启动问题，因此失败即报错。
+func (s *Service) resolveDefaultAccount(ctx context.Context, userID uuid.UUID) (uuid.UUID, string, error) {
 	membership, err := s.membershipRepo.GetDefaultForUser(ctx, userID)
-	if err != nil || membership == nil {
-		return uuid.Nil, ""
+	if err != nil {
+		return uuid.Nil, "", fmt.Errorf("auth: resolve default account: %w", err)
 	}
-	return membership.AccountID, membership.Role
+	if membership == nil {
+		return uuid.Nil, "", fmt.Errorf("auth: no default account for user %s", userID)
+	}
+	return membership.AccountID, membership.Role, nil
 }
 
 func (s *Service) AuthenticateUser(ctx context.Context, token string) (*data.User, error) {

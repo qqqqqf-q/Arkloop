@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"log/slog"
 	"strings"
 
 	"arkloop/services/worker/internal/data"
@@ -41,21 +40,11 @@ func shouldInjectPlatformTools(ctx context.Context, rc *RunContext, executor too
 		return rc.SenderIsAdmin
 	}
 
-	// 非渠道上下文（如 Web App）：通过 DB 查询用户角色
-	if rc.Run.CreatedByUserID == nil || rc.Pool == nil {
+	// 非渠道上下文（如 Web App）：仅 bot owner 注入 platform 工具
+	if rc.Run.CreatedByUserID == nil {
 		return false
 	}
-
-	repo := data.AccountMembershipsRepository{}
-	membership, err := repo.GetByAccountAndUser(ctx, rc.Pool, rc.Run.AccountID, *rc.Run.CreatedByUserID)
-	if err != nil {
-		slog.WarnContext(ctx, "platform_manage: failed to query membership", "error", err)
-		return false
-	}
-	if membership == nil {
-		return false
-	}
-	return membership.Role == "account_admin" || membership.Role == "platform_admin"
+	return *rc.Run.CreatedByUserID == data.DesktopUserID
 }
 
 func upsertPlatformStatusBlock(rc *RunContext) {

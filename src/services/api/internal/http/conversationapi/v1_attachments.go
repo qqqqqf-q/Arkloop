@@ -117,7 +117,6 @@ func messageAttachmentsEntry(
 	threadRepo *data.ThreadRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	auditWriter *audit.Writer,
 	store messageAttachmentStore,
@@ -174,7 +173,7 @@ func messageAttachmentsEntry(
 				return
 			}
 			if threadResolved && thread != nil {
-				if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, teamRepo, auditWriter) {
+				if !authorizeThreadReadOrAudit(w, r, traceID, actor, "attachments.get", thread, projectRepo, auditWriter) {
 					return
 				}
 			} else {

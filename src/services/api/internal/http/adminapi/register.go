@@ -21,20 +21,15 @@ type Deps struct {
 	LlmCredentialsRepo    *data.LlmCredentialsRepository
 	ThreadRepo            *data.ThreadRepository
 	AuditWriter           *audit.Writer
-	InviteCodesRepo       *data.InviteCodeRepository
-	ReferralsRepo         *data.ReferralRepository
 	PlatformSettingsRepo  *data.PlatformSettingsRepository
 	ConfigResolver        sharedconfig.Resolver
 	ConfigInvalidator     sharedconfig.Invalidator
 	JobRepo               *data.JobRepository
 	SmtpProviderRepo      *data.SmtpProviderRepository
-	UserCredentialRepo    *data.UserCredentialRepository
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/admin/runs/", adminRunsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.RunEventRepo, deps.RunPipelineEventsRepo, deps.UsersRepo, deps.APIKeysRepo, deps.MessageRepo, deps.LlmCredentialsRepo, deps.ThreadRepo))
-	mux.HandleFunc("/v1/admin/users", adminUsersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.UserCredentialRepo))
-	mux.HandleFunc("/v1/admin/users/", adminUserEntry(deps.AuthService, deps.AccountMembershipRepo, deps.UsersRepo, deps.APIKeysRepo, deps.AuditWriter, deps.InviteCodesRepo, deps.UserCredentialRepo))
 	mux.HandleFunc("/v1/admin/email/config", adminEmailConfig(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.PlatformSettingsRepo, deps.ConfigResolver, deps.ConfigInvalidator))
 	mux.HandleFunc("/v1/admin/email/test", adminEmailTest(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.JobRepo, deps.PlatformSettingsRepo, deps.ConfigResolver))
 	mux.HandleFunc("/v1/admin/smtp-providers", adminSmtpProviders(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.SmtpProviderRepo))

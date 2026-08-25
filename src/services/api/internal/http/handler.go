@@ -92,10 +92,6 @@ type HandlerConfig struct {
 	MaxInFlight          int
 
 	AuthService           *auth.Service
-	RegistrationService   *auth.RegistrationService
-	EmailVerifyService    *auth.EmailVerifyService
-	EmailOTPLoginService  *auth.EmailOTPLoginService
-	AccountService        *auth.AccountService
 	AppBaseURL            string
 	AccountMembershipRepo *data.AccountMembershipRepository
 	ThreadRepo            *data.ThreadRepository
@@ -130,7 +126,6 @@ type HandlerConfig struct {
 	ProfileRegistriesRepo        *data.ProfileRegistriesRepository
 	WorkspaceRegistriesRepo      *data.WorkspaceRegistriesRepository
 	APIKeysRepo                  *data.APIKeysRepository
-	TeamRepo                     *data.TeamRepository
 	ProjectRepo                  *data.ProjectRepository
 	WebhookRepo                  *data.WebhookEndpointRepository
 	ChannelsRepo                 *data.ChannelsRepository
@@ -145,9 +140,6 @@ type HandlerConfig struct {
 	FeatureFlagService *featureflag.Service
 
 	NotificationsRepo *data.NotificationsRepository
-
-	InviteCodesRepo *data.InviteCodeRepository
-	ReferralsRepo   *data.ReferralRepository
 
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	SmtpProviderRepo     *data.SmtpProviderRepository
@@ -224,9 +216,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	authapi.RegisterRoutes(mux, authapi.Deps{
 		Pool:                  cfg.Pool,
 		AuthService:           cfg.AuthService,
-		RegistrationService:   cfg.RegistrationService,
-		EmailVerifyService:    cfg.EmailVerifyService,
-		EmailOTPLoginService:  cfg.EmailOTPLoginService,
 		FeatureFlagService:    cfg.FeatureFlagService,
 		AuditWriter:           cfg.AuditWriter,
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
@@ -252,7 +241,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		RunEventRepo:           cfg.RunEventRepo,
 		ShellSessionRepo:       cfg.ShellSessionRepo,
 		ProjectRepo:            cfg.ProjectRepo,
-		TeamRepo:               cfg.TeamRepo,
 		AuditWriter:            cfg.AuditWriter,
 		Pool:                   cfg.Pool, // desktop: SQLite via sqlitepgx
 		APIKeysRepo:            cfg.APIKeysRepo,
@@ -308,13 +296,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AuthService:              cfg.AuthService,
 		AccountMembershipRepo:    cfg.AccountMembershipRepo,
 		ThreadRepo:               cfg.ThreadRepo,
-		TeamRepo:                 cfg.TeamRepo,
 		ProjectRepo:              cfg.ProjectRepo,
 		APIKeysRepo:              cfg.APIKeysRepo,
 		AuditWriter:              cfg.AuditWriter,
 		Pool:                     cfg.Pool,
 		AccountRepo:              cfg.AccountRepo,
-		AccountService:           cfg.AccountService,
 		WebhookRepo:              cfg.WebhookRepo,
 		SecretsRepo:              cfg.SecretsRepo,
 		LlmCredentialsRepo:       cfg.LlmCredentialsRepo,
@@ -362,14 +348,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmCredentialsRepo:    cfg.LlmCredentialsRepo,
 		ThreadRepo:            cfg.ThreadRepo,
 		AuditWriter:           cfg.AuditWriter,
-		InviteCodesRepo:       cfg.InviteCodesRepo,
-		ReferralsRepo:         cfg.ReferralsRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		ConfigResolver:        resolver,
 		ConfigInvalidator:     invalidator,
 		JobRepo:               cfg.JobRepo,
 		SmtpProviderRepo:      cfg.SmtpProviderRepo,
-		UserCredentialRepo:    cfg.UserCredentialRepo,
 	})
 
 	memoryapi.RegisterRoutes(mux, memoryapi.Deps{

@@ -32,7 +32,6 @@ func streamThreadRunStateEvents(
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	sseConfig SSEConfig,
@@ -96,7 +95,7 @@ func streamThreadRunStateEvents(
 				if !ok {
 					return
 				}
-				if err := writeThreadRunStateEvent(r.Context(), w, actor, threadRepo, projectRepo, teamRepo, runRepo, payload); err != nil {
+				if err := writeThreadRunStateEvent(r.Context(), w, actor, threadRepo, projectRepo, runRepo, payload); err != nil {
 					return
 				}
 				if canFlush {
@@ -158,7 +157,6 @@ func writeThreadRunStateEvent(
 	actor *httpkit.Actor,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	runRepo *data.RunEventRepository,
 	payload string,
 ) error {
@@ -174,7 +172,7 @@ func writeThreadRunStateEvent(
 	if thread == nil {
 		return nil
 	}
-	allowed, err := canStreamThreadRunState(ctx, actor, thread, projectRepo, teamRepo)
+	allowed, err := canStreamThreadRunState(ctx, actor, thread, projectRepo)
 	if err != nil || !allowed {
 		return err
 	}
@@ -206,7 +204,6 @@ func canStreamThreadRunState(
 	actor *httpkit.Actor,
 	thread *data.Thread,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 ) (bool, error) {
 	if actor == nil || thread == nil || actor.AccountID != thread.AccountID {
 		return false, nil
@@ -221,15 +218,5 @@ func canStreamThreadRunState(
 	if err != nil || project == nil {
 		return false, err
 	}
-	switch project.Visibility {
-	case "org":
-		return true, nil
-	case "team":
-		if project.TeamID == nil || teamRepo == nil {
-			return false, nil
-		}
-		return teamRepo.IsMember(ctx, *project.TeamID, actor.UserID)
-	default:
-		return false, nil
-	}
+	return project.Visibility == "org", nil
 }

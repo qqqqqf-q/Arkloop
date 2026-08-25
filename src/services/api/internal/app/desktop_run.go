@@ -299,10 +299,6 @@ func RunDesktop(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("init api keys repo: %w", err)
 	}
-	teamRepo, err := data.NewTeamRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init team repo: %w", err)
-	}
 	projectRepo, err := data.NewProjectRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init project repo: %w", err)
@@ -354,14 +350,6 @@ func RunDesktop(ctx context.Context) error {
 	auditLogRepo, err := data.NewAuditLogRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init audit log repo: %w", err)
-	}
-	inviteCodesRepo, err := data.NewInviteCodeRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init invite codes repo: %w", err)
-	}
-	referralsRepo, err := data.NewReferralRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init referrals repo: %w", err)
 	}
 	platformSettingsRepo, err := data.NewPlatformSettingsRepository(pgxPool)
 	if err != nil {
@@ -503,10 +491,6 @@ func RunDesktop(ctx context.Context) error {
 		Pool: pgxPool,
 
 		AuthService:           authService,
-		RegistrationService:   nil,
-		EmailVerifyService:    nil,
-		EmailOTPLoginService:  nil,
-		AccountService:        nil,
 		AppBaseURL:            cfg.AppBaseURL,
 		AccountMembershipRepo: membershipRepo,
 		ThreadRepo:            threadRepo,
@@ -541,7 +525,6 @@ func RunDesktop(ctx context.Context) error {
 		ProfileRegistriesRepo:        profileRegistriesRepo,
 		WorkspaceRegistriesRepo:      workspaceRegistriesRepo,
 		APIKeysRepo:                  apiKeysRepo,
-		TeamRepo:                     teamRepo,
 		ProjectRepo:                  projectRepo,
 		WebhookRepo:                  webhookRepo,
 		ChannelsRepo:                 channelsRepo,
@@ -556,9 +539,6 @@ func RunDesktop(ctx context.Context) error {
 		FeatureFlagService: featureFlagService,
 
 		NotificationsRepo: notificationsRepo,
-
-		InviteCodesRepo: inviteCodesRepo,
-		ReferralsRepo:   referralsRepo,
 
 		PlatformSettingsRepo: platformSettingsRepo,
 		SmtpProviderRepo:     smtpProviderRepo,

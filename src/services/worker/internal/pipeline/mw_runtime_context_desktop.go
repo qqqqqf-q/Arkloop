@@ -2,28 +2,16 @@ package pipeline
 
 import (
 	"context"
-	"log/slog"
 
 	"arkloop/services/worker/internal/data"
 )
 
-func checkSenderIsAdmin(ctx context.Context, rc *RunContext) bool {
+// checkSenderIsAdmin 判定渠道消息发送者是否 bot owner。
+// 群聊里 SenderUserID 可能是非 owner 的绑定身份,语义是身份相等,
+// 不是 membership 角色查询(多用户角色体系已随账户模型塌缩移除)。
+func checkSenderIsAdmin(_ context.Context, rc *RunContext) bool {
 	if rc.ChannelContext == nil || rc.ChannelContext.SenderUserID == nil {
 		return false
 	}
-	if rc.DB == nil {
-		return false
-	}
-
-	repo := data.AccountMembershipsRepository{}
-	membership, err := repo.GetByAccountAndUser(ctx, rc.DB, rc.Run.AccountID, *rc.ChannelContext.SenderUserID)
-	if err != nil {
-		slog.WarnContext(ctx, "runtime_context: failed to query sender membership", "error", err)
-		return false
-	}
-	if membership == nil {
-		return false
-	}
-
-	return membership.Role == "account_admin" || membership.Role == "platform_admin"
+	return *rc.ChannelContext.SenderUserID == data.DesktopUserID
 }
