@@ -1,5 +1,3 @@
-//go:build desktop
-
 package fileops
 
 import (
@@ -16,8 +14,8 @@ func TestResolveBackendUsesExecutionModeOnDesktop(t *testing.T) {
 	})
 
 	snapshot := &sharedtoolruntime.RuntimeSnapshot{
-		SandboxBaseURL:      "http://sandbox.internal",
-		SandboxAuthToken:    "token",
+		SandboxBaseURL:       "http://sandbox.internal",
+		SandboxAuthToken:     "token",
 		DesktopExecutionMode: "local",
 	}
 

@@ -1,5 +1,3 @@
-//go:build desktop
-
 // Package desktop 提供桌面模式下跨模块共享资源的进程级全局状态。
 // API 和 Worker 在同一进程内运行时，通过此包共享 JobQueue 和 EventBus。
 package desktop

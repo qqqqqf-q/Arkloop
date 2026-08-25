@@ -1,5 +1,3 @@
-//go:build desktop
-
 package sqliteadapter
 
 import (
@@ -11,13 +9,13 @@ import (
 // SQLiteDialect implements DialectHelper for SQLite.
 type SQLiteDialect struct{}
 
-func (SQLiteDialect) Name() database.Dialect        { return database.DialectSQLite }
-func (SQLiteDialect) Placeholder(index int) string   { return fmt.Sprintf("?%d", index) }
+func (SQLiteDialect) Name() database.Dialect          { return database.DialectSQLite }
+func (SQLiteDialect) Placeholder(index int) string    { return fmt.Sprintf("?%d", index) }
 func (SQLiteDialect) Returning(columns string) string { return "RETURNING " + columns }
-func (SQLiteDialect) Now() string                    { return "datetime('now')" }
-func (SQLiteDialect) ForUpdate() string              { return "" }
-func (SQLiteDialect) ILike() string                  { return "LIKE" }
-func (SQLiteDialect) JSONCast(expr string) string    { return expr }
+func (SQLiteDialect) Now() string                     { return "datetime('now')" }
+func (SQLiteDialect) ForUpdate() string               { return "" }
+func (SQLiteDialect) ILike() string                   { return "LIKE" }
+func (SQLiteDialect) JSONCast(expr string) string     { return expr }
 
 func (SQLiteDialect) IntervalAdd(expr string, _ string, sqliteModifier string) string {
 	return fmt.Sprintf("datetime(%s, '%s')", expr, sqliteModifier)

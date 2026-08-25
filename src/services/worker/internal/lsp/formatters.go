@@ -1,5 +1,3 @@
-//go:build desktop
-
 package lsp
 
 import (
@@ -288,7 +286,6 @@ func computeEdits(content []byte, edits []TextEdit) ([]byte, error) {
 	}
 	return []byte(text), nil
 }
-
 
 // positionToOffset converts an LSP Position to a byte offset in the text.
 func positionToOffset(lines []string, pos Position) int {

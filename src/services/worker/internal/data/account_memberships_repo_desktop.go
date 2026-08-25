@@ -1,5 +1,3 @@
-//go:build desktop
-
 package data
 
 import (
@@ -11,9 +9,9 @@ import (
 )
 
 type AccountMembershipRecord struct {
-	AccountID  uuid.UUID
-	UserID uuid.UUID
-	Role   string
+	AccountID uuid.UUID
+	UserID    uuid.UUID
+	Role      string
 }
 
 type AccountMembershipsRepository struct{}

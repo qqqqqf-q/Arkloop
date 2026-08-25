@@ -1,5 +1,3 @@
-//go:build desktop
-
 package app
 
 import (
@@ -562,7 +560,6 @@ func RunDesktop(ctx context.Context) error {
 
 		InviteCodesRepo: inviteCodesRepo,
 		ReferralsRepo:   referralsRepo,
-
 
 		PlatformSettingsRepo: platformSettingsRepo,
 		SmtpProviderRepo:     smtpProviderRepo,

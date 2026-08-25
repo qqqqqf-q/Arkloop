@@ -1,5 +1,3 @@
-//go:build desktop
-
 package app
 
 import (
@@ -110,27 +108,27 @@ func TelegramDesktopPollerDepsForPool(pgxPool data.DB, keyRing *internalcrypto.K
 	}
 
 	return accountapi.TelegramDesktopPollerDeps{
-		ChannelsRepo:            channelsRepo,
-		ChannelIdentitiesRepo:   channelIdentitiesRepo,
+		ChannelsRepo:             channelsRepo,
+		ChannelIdentitiesRepo:    channelIdentitiesRepo,
 		ChannelIdentityLinksRepo: channelIdentityLinksRepo,
-		ChannelBindCodesRepo:    channelBindCodesRepo,
-		ChannelDMThreadsRepo:    channelDMThreadsRepo,
-		ChannelGroupThreadsRepo: channelGroupThreadsRepo,
-		ChannelReceiptsRepo:     channelReceiptsRepo,
-		SecretsRepo:             secretsRepo,
-		PersonasRepo:            personasRepo,
-		UsersRepo:               userRepo,
-		AccountRepo:             accountRepo,
-		AccountMembershipRepo:   membershipRepo,
-		ProjectRepo:             projectRepo,
-		ThreadRepo:              threadRepo,
-		MessageRepo:             messageRepo,
-		RunEventRepo:            runEventRepo,
-		JobRepo:                 jobRepo,
-		Pool:                   pgxPool,
-		MessageAttachmentStore: msgAttach,
-		TelegramMode:            "polling",
-		Bus:                     bus,
+		ChannelBindCodesRepo:     channelBindCodesRepo,
+		ChannelDMThreadsRepo:     channelDMThreadsRepo,
+		ChannelGroupThreadsRepo:  channelGroupThreadsRepo,
+		ChannelReceiptsRepo:      channelReceiptsRepo,
+		SecretsRepo:              secretsRepo,
+		PersonasRepo:             personasRepo,
+		UsersRepo:                userRepo,
+		AccountRepo:              accountRepo,
+		AccountMembershipRepo:    membershipRepo,
+		ProjectRepo:              projectRepo,
+		ThreadRepo:               threadRepo,
+		MessageRepo:              messageRepo,
+		RunEventRepo:             runEventRepo,
+		JobRepo:                  jobRepo,
+		Pool:                     pgxPool,
+		MessageAttachmentStore:   msgAttach,
+		TelegramMode:             "polling",
+		Bus:                      bus,
 	}, nil
 }
 

@@ -1,4 +1,4 @@
-//go:build windows && desktop
+//go:build windows
 
 package accountapi
 

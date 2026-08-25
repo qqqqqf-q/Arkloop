@@ -1,5 +1,3 @@
-//go:build desktop
-
 package app
 
 import (
@@ -113,7 +111,7 @@ type DesktopEngine struct {
 	personaRegistry        func() *personas.Registry
 	notebookProvider       memory.MemoryProvider
 	memProvider            memory.MemoryProvider
-	useMemProvider                  bool
+	useMemProvider         bool
 	useVM                  bool
 	skillLayout            pipeline.SkillLayoutResolver
 	runtimeSnapshot        *sharedtoolruntime.RuntimeSnapshot
@@ -470,7 +468,7 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		personaRegistry:        personaGetter,
 		notebookProvider:       notebookProvider,
 		memProvider:            memProvider,
-		useMemProvider:                  useMemProvider,
+		useMemProvider:         useMemProvider,
 		useVM:                  useVM,
 		skillLayout:            skillLayout,
 		runtimeSnapshot:        runtimeSnapshot,
@@ -3273,7 +3271,7 @@ func desktopRouting(
 				decision = router.Decide(rc.InputJSON, false, false)
 			}
 			// auxiliary runs without model selector: try entitlement fallback
-				if decision.Selected == nil && decision.Denied == nil {
+			if decision.Selected == nil && decision.Denied == nil {
 				decision = routing.ProviderRouteDecision{
 					Denied: &routing.ProviderRouteDenied{
 						ErrorClass: llm.ErrorClassRoutingNotFound,

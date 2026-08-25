@@ -1,5 +1,3 @@
-//go:build desktop
-
 // Package memoryapi provides HTTP endpoints for the Desktop settings UI to
 // inspect and manage notebook entries. These routes are desktop-only but still
 // authenticate with the normal owner session.

@@ -1,5 +1,3 @@
-//go:build desktop
-
 package lsp
 
 import (
@@ -138,4 +136,3 @@ func UTF8OffsetFromUTF16(line string, utf16Offset uint32) int {
 	}
 	return byteOff
 }
-

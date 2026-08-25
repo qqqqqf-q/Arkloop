@@ -1,5 +1,3 @@
-//go:build desktop
-
 // Package sqlitepgx wraps database/sql with a SQLite backend to satisfy
 // the pgx-based data.Querier interface used by API repositories.
 // This allows existing repositories to work with SQLite without code changes.

@@ -1,5 +1,3 @@
-//go:build desktop
-
 package localshell
 
 import (
@@ -43,7 +41,7 @@ var ResizeProcessAgentSpec = tools.AgentToolSpec{
 }
 
 var ExecCommandLlmSpec = llm.ToolSpec{
-	Name:        "exec_command",
+	Name: "exec_command",
 	Description: llmStringPtr(
 		"run a shell command on the user's local machine. Default mode is buffered, which executes one command to completion with stdin closed. " +
 			"Use follow for long-running output-only processes, stdin for non-PTY processes that need later input, and pty only for real terminal-style interaction. " +

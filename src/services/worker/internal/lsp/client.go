@@ -1,5 +1,3 @@
-//go:build desktop
-
 package lsp
 
 import (
@@ -49,9 +47,9 @@ func (c *Client) Initialize(ctx context.Context, rootURI string, initOpts any) (
 	}
 
 	params := InitializeParams{
-		ProcessID:    os.Getpid(),
-		RootURI:      rootURI,
-		Capabilities: DefaultClientCapabilities(),
+		ProcessID:             os.Getpid(),
+		RootURI:               rootURI,
+		Capabilities:          DefaultClientCapabilities(),
 		InitializationOptions: initOpts,
 		WorkspaceFolders: []WorkspaceFolder{
 			{URI: rootURI, Name: filepath.Base(rootPath)},

@@ -1,5 +1,3 @@
-//go:build desktop
-
 package memoryapi
 
 import (
@@ -271,4 +269,3 @@ func issueTestAccessToken(t *testing.T, authService *auth.Service) string {
 	}
 	return issued.AccessToken
 }
-

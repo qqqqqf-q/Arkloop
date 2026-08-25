@@ -1,5 +1,3 @@
-//go:build desktop
-
 package http
 
 import (
@@ -151,7 +149,6 @@ type HandlerConfig struct {
 
 	InviteCodesRepo *data.InviteCodeRepository
 	ReferralsRepo   *data.ReferralRepository
-
 
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	SmtpProviderRepo     *data.SmtpProviderRepository
@@ -311,7 +308,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		MCPDiscoveryService:          cfg.MCPDiscoveryService,
 		LlmProviderListAugmenter:     catalogapi.NewLocalProviderListAugmenter(localproviders.NewResolver(localproviders.Options{})),
 	})
-
 
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:              cfg.AuthService,

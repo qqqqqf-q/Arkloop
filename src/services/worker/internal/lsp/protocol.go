@@ -1,5 +1,3 @@
-//go:build desktop
-
 package lsp
 
 import (
@@ -9,29 +7,29 @@ import (
 
 // LSP method constants.
 const (
-	MethodInitialize             = "initialize"
-	MethodInitialized            = "initialized"
-	MethodShutdown               = "shutdown"
-	MethodExit                   = "exit"
-	MethodTextDocumentDidOpen    = "textDocument/didOpen"
-	MethodTextDocumentDidChange  = "textDocument/didChange"
-	MethodTextDocumentDidSave    = "textDocument/didSave"
-	MethodTextDocumentDidClose   = "textDocument/didClose"
-	MethodDefinition             = "textDocument/definition"
-	MethodReferences             = "textDocument/references"
-	MethodHover                  = "textDocument/hover"
-	MethodDocumentSymbol         = "textDocument/documentSymbol"
-	MethodWorkspaceSymbol        = "workspace/symbol"
-	MethodTypeDefinition         = "textDocument/typeDefinition"
-	MethodImplementation         = "textDocument/implementation"
-	MethodCompletion             = "textDocument/completion"
-	MethodSignatureHelp          = "textDocument/signatureHelp"
-	MethodPrepareRename          = "textDocument/prepareRename"
-	MethodRename                 = "textDocument/rename"
-	MethodPublishDiagnostics     = "textDocument/publishDiagnostics"
-	MethodPrepareCallHierarchy   = "textDocument/prepareCallHierarchy"
-	MethodIncomingCalls          = "callHierarchy/incomingCalls"
-	MethodOutgoingCalls          = "callHierarchy/outgoingCalls"
+	MethodInitialize            = "initialize"
+	MethodInitialized           = "initialized"
+	MethodShutdown              = "shutdown"
+	MethodExit                  = "exit"
+	MethodTextDocumentDidOpen   = "textDocument/didOpen"
+	MethodTextDocumentDidChange = "textDocument/didChange"
+	MethodTextDocumentDidSave   = "textDocument/didSave"
+	MethodTextDocumentDidClose  = "textDocument/didClose"
+	MethodDefinition            = "textDocument/definition"
+	MethodReferences            = "textDocument/references"
+	MethodHover                 = "textDocument/hover"
+	MethodDocumentSymbol        = "textDocument/documentSymbol"
+	MethodWorkspaceSymbol       = "workspace/symbol"
+	MethodTypeDefinition        = "textDocument/typeDefinition"
+	MethodImplementation        = "textDocument/implementation"
+	MethodCompletion            = "textDocument/completion"
+	MethodSignatureHelp         = "textDocument/signatureHelp"
+	MethodPrepareRename         = "textDocument/prepareRename"
+	MethodRename                = "textDocument/rename"
+	MethodPublishDiagnostics    = "textDocument/publishDiagnostics"
+	MethodPrepareCallHierarchy  = "textDocument/prepareCallHierarchy"
+	MethodIncomingCalls         = "callHierarchy/incomingCalls"
+	MethodOutgoingCalls         = "callHierarchy/outgoingCalls"
 
 	ErrContentModified      = -32801
 	ErrRequestCancelled     = -32800
@@ -343,8 +341,8 @@ type SignatureInformation struct {
 // SignatureHelp result.
 type SignatureHelp struct {
 	Signatures      []SignatureInformation `json:"signatures"`
-	ActiveSignature *uint32               `json:"activeSignature,omitempty"`
-	ActiveParameter *uint32               `json:"activeParameter,omitempty"`
+	ActiveSignature *uint32                `json:"activeSignature,omitempty"`
+	ActiveParameter *uint32                `json:"activeParameter,omitempty"`
 }
 
 // PrepareRenameResult for textDocument/prepareRename.
@@ -381,18 +379,18 @@ type ClientCapabilities struct {
 }
 
 type TextDocumentClientCapabilities struct {
-	Synchronization *TextDocumentSyncClientCapabilities `json:"synchronization,omitempty"`
+	Synchronization    *TextDocumentSyncClientCapabilities   `json:"synchronization,omitempty"`
 	PublishDiagnostics *PublishDiagnosticsClientCapabilities `json:"publishDiagnostics,omitempty"`
-	Hover           *HoverClientCapabilities              `json:"hover,omitempty"`
-	Definition      *DefinitionClientCapabilities         `json:"definition,omitempty"`
-	TypeDefinition  *TypeDefinitionClientCapabilities     `json:"typeDefinition,omitempty"`
-	Implementation  *ImplementationClientCapabilities     `json:"implementation,omitempty"`
-	References      *ReferencesClientCapabilities         `json:"references,omitempty"`
-	DocumentSymbol  *DocumentSymbolClientCapabilities     `json:"documentSymbol,omitempty"`
-	Completion      *CompletionClientCapabilities         `json:"completion,omitempty"`
-	SignatureHelp   *SignatureHelpClientCapabilities      `json:"signatureHelp,omitempty"`
-	Rename          *RenameClientCapabilities             `json:"rename,omitempty"`
-	CallHierarchy   *CallHierarchyClientCapabilities      `json:"callHierarchy,omitempty"`
+	Hover              *HoverClientCapabilities              `json:"hover,omitempty"`
+	Definition         *DefinitionClientCapabilities         `json:"definition,omitempty"`
+	TypeDefinition     *TypeDefinitionClientCapabilities     `json:"typeDefinition,omitempty"`
+	Implementation     *ImplementationClientCapabilities     `json:"implementation,omitempty"`
+	References         *ReferencesClientCapabilities         `json:"references,omitempty"`
+	DocumentSymbol     *DocumentSymbolClientCapabilities     `json:"documentSymbol,omitempty"`
+	Completion         *CompletionClientCapabilities         `json:"completion,omitempty"`
+	SignatureHelp      *SignatureHelpClientCapabilities      `json:"signatureHelp,omitempty"`
+	Rename             *RenameClientCapabilities             `json:"rename,omitempty"`
+	CallHierarchy      *CallHierarchyClientCapabilities      `json:"callHierarchy,omitempty"`
 }
 
 type TextDocumentSyncClientCapabilities struct {
@@ -402,7 +400,7 @@ type TextDocumentSyncClientCapabilities struct {
 }
 
 type PublishDiagnosticsClientCapabilities struct {
-	RelatedInformation bool  `json:"relatedInformation,omitempty"`
+	RelatedInformation bool `json:"relatedInformation,omitempty"`
 	TagSupport         *struct {
 		ValueSet []int `json:"valueSet"`
 	} `json:"tagSupport,omitempty"`
@@ -461,19 +459,19 @@ type GeneralClientCapabilities struct {
 
 // ServerCapabilities advertises server support.
 type ServerCapabilities struct {
-	TextDocumentSync           any  `json:"textDocumentSync,omitempty"`
-	HoverProvider              any  `json:"hoverProvider,omitempty"`
-	CompletionProvider         any  `json:"completionProvider,omitempty"`
-	SignatureHelpProvider      any  `json:"signatureHelpProvider,omitempty"`
-	DefinitionProvider         any  `json:"definitionProvider,omitempty"`
-	TypeDefinitionProvider     any  `json:"typeDefinitionProvider,omitempty"`
-	ImplementationProvider     any  `json:"implementationProvider,omitempty"`
-	ReferencesProvider         any  `json:"referencesProvider,omitempty"`
-	DocumentSymbolProvider     any  `json:"documentSymbolProvider,omitempty"`
-	WorkspaceSymbolProvider    any  `json:"workspaceSymbolProvider,omitempty"`
-	RenameProvider             any  `json:"renameProvider,omitempty"`
-	CallHierarchyProvider      any  `json:"callHierarchyProvider,omitempty"`
-	DocumentFormattingProvider any  `json:"documentFormattingProvider,omitempty"`
+	TextDocumentSync           any `json:"textDocumentSync,omitempty"`
+	HoverProvider              any `json:"hoverProvider,omitempty"`
+	CompletionProvider         any `json:"completionProvider,omitempty"`
+	SignatureHelpProvider      any `json:"signatureHelpProvider,omitempty"`
+	DefinitionProvider         any `json:"definitionProvider,omitempty"`
+	TypeDefinitionProvider     any `json:"typeDefinitionProvider,omitempty"`
+	ImplementationProvider     any `json:"implementationProvider,omitempty"`
+	ReferencesProvider         any `json:"referencesProvider,omitempty"`
+	DocumentSymbolProvider     any `json:"documentSymbolProvider,omitempty"`
+	WorkspaceSymbolProvider    any `json:"workspaceSymbolProvider,omitempty"`
+	RenameProvider             any `json:"renameProvider,omitempty"`
+	CallHierarchyProvider      any `json:"callHierarchyProvider,omitempty"`
+	DocumentFormattingProvider any `json:"documentFormattingProvider,omitempty"`
 	Workspace                  *struct {
 		WorkspaceFolders *struct {
 			Supported bool `json:"supported,omitempty"`
@@ -585,7 +583,7 @@ func DefaultClientCapabilities() ClientCapabilities {
 			CallHierarchy: &CallHierarchyClientCapabilities{},
 		},
 		Workspace: &WorkspaceClientCapabilities{
-			WorkspaceFolders: true,
+			WorkspaceFolders:      true,
 			DidChangeWatchedFiles: &DidChangeWatchedFilesClientCapabilities{},
 			WorkspaceEdit: &WorkspaceEditClientCapabilities{
 				DocumentChanges: true,

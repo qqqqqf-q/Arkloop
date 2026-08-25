@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package app
 
 import (
@@ -46,30 +44,30 @@ const (
 )
 
 type Config struct {
-	Addr                       string
-	AuthToken                  string // 服务间认证 Bearer token，空则跳过校验（仅限开发环境）
-	Provider                   string // "docker" | "vz"
-	KernelImagePath            string
-	InitrdPath                 string // optional initramfs for Vz provider
-	RootfsPath                 string
-	SocketBaseDir              string
-	BootTimeoutSeconds         int
-	GuestAgentPort             uint32
-	MaxSessions                int
-	S3Endpoint                 string
-	S3AccessKey                string
-	S3SecretKey                string
-	StorageBackend             string
-	StorageRoot                string
-	RestoreTTLDays             int
-	FlushDebounceMS            int
-	FlushMaxDirtyAgeMS         int
-	FlushForceBytesThreshold   int
-	FlushForceCountThreshold   int
-	DockerImage                string // Docker 后端 lite/pro 使用的 sandbox-agent 镜像
-	BrowserDockerImage         string // Docker 后端 browser 使用的 sandbox-agent 镜像
-	AllowEgress                bool
-	DockerNetwork              string // agent 容器加入的 Docker 网络（compose 桥接网络）
+	Addr                     string
+	AuthToken                string // 服务间认证 Bearer token，空则跳过校验（仅限开发环境）
+	Provider                 string // "docker" | "vz"
+	KernelImagePath          string
+	InitrdPath               string // optional initramfs for Vz provider
+	RootfsPath               string
+	SocketBaseDir            string
+	BootTimeoutSeconds       int
+	GuestAgentPort           uint32
+	MaxSessions              int
+	S3Endpoint               string
+	S3AccessKey              string
+	S3SecretKey              string
+	StorageBackend           string
+	StorageRoot              string
+	RestoreTTLDays           int
+	FlushDebounceMS          int
+	FlushMaxDirtyAgeMS       int
+	FlushForceBytesThreshold int
+	FlushForceCountThreshold int
+	DockerImage              string // Docker 后端 lite/pro 使用的 sandbox-agent 镜像
+	BrowserDockerImage       string // Docker 后端 browser 使用的 sandbox-agent 镜像
+	AllowEgress              bool
+	DockerNetwork            string // agent 容器加入的 Docker 网络（compose 桥接网络）
 
 	// Warm pool: 各 tier 的预热 VM 数量
 	WarmLite    int
@@ -92,25 +90,25 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Addr:  "0.0.0.0:19002",
+		Addr: "0.0.0.0:19002",
 		// Firecracker 后端已随个人化转型移除，Docker 是唯一自部署后端；
 		// vz 仅供 desktop（darwin）内嵌使用。
-		Provider:                   ProviderDocker,
-		KernelImagePath:            "/opt/sandbox/vmlinux",
-		RootfsPath:                 "/opt/sandbox/rootfs.ext4",
-		SocketBaseDir:              "/run/sandbox",
-		BootTimeoutSeconds:         30,
-		GuestAgentPort:             8080,
-		MaxSessions:                50,
-		RestoreTTLDays:             7,
-		FlushDebounceMS:            2000,
-		FlushMaxDirtyAgeMS:         15000,
-		FlushForceBytesThreshold:   16 << 20,
-		FlushForceCountThreshold:   512,
-		DockerImage:                "arkloop/sandbox-agent:latest",
-		BrowserDockerImage:         "arkloop/sandbox-browser:dev",
-		AllowEgress:                true,
-		DockerNetwork:              "arkloop_sandbox_agent_egress",
+		Provider:                 ProviderDocker,
+		KernelImagePath:          "/opt/sandbox/vmlinux",
+		RootfsPath:               "/opt/sandbox/rootfs.ext4",
+		SocketBaseDir:            "/run/sandbox",
+		BootTimeoutSeconds:       30,
+		GuestAgentPort:           8080,
+		MaxSessions:              50,
+		RestoreTTLDays:           7,
+		FlushDebounceMS:          2000,
+		FlushMaxDirtyAgeMS:       15000,
+		FlushForceBytesThreshold: 16 << 20,
+		FlushForceCountThreshold: 512,
+		DockerImage:              "arkloop/sandbox-agent:latest",
+		BrowserDockerImage:       "arkloop/sandbox-browser:dev",
+		AllowEgress:              true,
+		DockerNetwork:            "arkloop_sandbox_agent_egress",
 
 		WarmLite:                  3,
 		WarmPro:                   2,

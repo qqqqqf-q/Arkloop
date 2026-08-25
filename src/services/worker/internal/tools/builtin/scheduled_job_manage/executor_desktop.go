@@ -1,5 +1,3 @@
-//go:build desktop
-
 package scheduled_job_manage
 
 import (
