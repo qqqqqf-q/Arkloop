@@ -145,7 +145,6 @@ type HandlerConfig struct {
 	FeatureFlagService *featureflag.Service
 
 	NotificationsRepo *data.NotificationsRepository
-	AuditLogRepo      *data.AuditLogRepository
 
 	InviteCodesRepo *data.InviteCodeRepository
 	ReferralsRepo   *data.ReferralRepository
@@ -346,7 +345,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
 		APIKeysRepo:           cfg.APIKeysRepo,
 		NotificationsRepo:     cfg.NotificationsRepo,
-		AuditLogRepo:          cfg.AuditLogRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		RedisClient:           nil,
 		ConfigInvalidator:     invalidator,

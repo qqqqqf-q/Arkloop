@@ -556,7 +556,6 @@ func RunDesktop(ctx context.Context) error {
 		FeatureFlagService: featureFlagService,
 
 		NotificationsRepo: notificationsRepo,
-		AuditLogRepo:      auditLogRepo,
 
 		InviteCodesRepo: inviteCodesRepo,
 		ReferralsRepo:   referralsRepo,
