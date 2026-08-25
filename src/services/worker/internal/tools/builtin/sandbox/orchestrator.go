@@ -86,7 +86,7 @@ func newSessionOrchestratorWithType(pool *pgxpool.Pool, sessionType string) *ses
 		pool:            pool,
 		sessionType:     normalizeSessionType(sessionType),
 		registryService: newRegistryService(pool),
-		acl:             newSessionACLEvaluator(pool),
+		acl:             newSessionACLEvaluator(),
 		memorySessions:  map[string]data.ShellSessionRecord{},
 	}
 }

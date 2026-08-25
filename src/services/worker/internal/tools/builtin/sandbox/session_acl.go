@@ -7,21 +7,12 @@ import (
 	"arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/tools"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const (
-	accountRoleAdmin         = "account_admin"
-	accountRolePlatformAdmin = "platform_admin"
-)
+type sessionACLEvaluator struct{}
 
-type sessionACLEvaluator struct {
-	pool            *pgxpool.Pool
-	membershipsRepo data.AccountMembershipsRepository
-}
-
-func newSessionACLEvaluator(pool *pgxpool.Pool) *sessionACLEvaluator {
-	return &sessionACLEvaluator{pool: pool}
+func newSessionACLEvaluator() *sessionACLEvaluator {
+	return &sessionACLEvaluator{}
 }
 
 func (e *sessionACLEvaluator) AuthorizeSession(
@@ -109,22 +100,9 @@ func (e *sessionACLEvaluator) authorizeAccountShare(
 			"share_scope": shareScope,
 		})
 	}
-	if e.pool == nil {
-		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "account_scope_acl_unavailable",
-			"session_ref": strings.TrimSpace(sessionRef),
-			"share_scope": shareScope,
-		})
-	}
-	membership, err := e.membershipsRepo.GetByAccountAndUser(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID)
-	if err != nil {
-		return sandboxPermissionDenied("shell session access denied", map[string]any{
-			"reason":      "account_scope_acl_error",
-			"session_ref": strings.TrimSpace(sessionRef),
-			"share_scope": shareScope,
-		})
-	}
-	if membership == nil || !canUseOrgSharedSession(membership.Role) {
+	// account 级共享仅限 bot owner 本人;多用户 membership 角色判定已随
+	// 账户模型塌缩移除,语义等价于"执行上下文身份 == desktop owner"。
+	if *execCtx.UserID != data.DesktopUserID {
 		return sandboxPermissionDenied("shell session access denied", map[string]any{
 			"reason":      "account_scope_forbidden",
 			"session_ref": strings.TrimSpace(sessionRef),
@@ -132,13 +110,4 @@ func (e *sessionACLEvaluator) authorizeAccountShare(
 		})
 	}
 	return nil
-}
-
-func canUseOrgSharedSession(role string) bool {
-	switch strings.TrimSpace(role) {
-	case accountRoleAdmin, accountRolePlatformAdmin:
-		return true
-	default:
-		return false
-	}
 }
