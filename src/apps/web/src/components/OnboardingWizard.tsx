@@ -2,10 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   CheckCircle,
   ChevronRight,
-  Cloud,
   HardDrive,
   Search,
-  Server,
   Settings,
   XCircle,
 } from "lucide-react";
@@ -796,12 +794,6 @@ export function OnboardingWizard({ onComplete }: Props) {
     setImportError(null);
     void enterProviderSetup();
   }, [enterProviderSetup]);
-
-  const handleModeSelectLocal = useCallback(async () => {
-    if (!api) return;
-    api.config.get().then((current) => api.config.set({ ...current, mode: "local" })).catch(() => {});
-    await enterProviderSetup();
-  }, [api, enterProviderSetup]);
 
   const upsertProviderCredential =
     useCallback(async (): Promise<LlmProvider> => {
