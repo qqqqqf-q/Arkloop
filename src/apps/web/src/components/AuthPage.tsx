@@ -1,21 +1,10 @@
 import { AuthPage as SharedAuthPage, type AuthApi } from '@arkloop/shared'
-import {
-  login,
-  register,
-  resolveIdentity,
-  sendResolvedEmailOTP,
-  verifyResolvedEmailOTP,
-  getCaptchaConfig,
-} from '../api'
+import { login, resolveIdentity } from '../api'
 import { useLocale } from '../contexts/LocaleContext'
 
 const api: AuthApi = {
   login,
-  getCaptchaConfig,
   resolveIdentity,
-  register,
-  sendResolvedEmailOTP,
-  verifyResolvedEmailOTP,
 }
 
 type Props = { onLoggedIn: (accessToken: string) => void }

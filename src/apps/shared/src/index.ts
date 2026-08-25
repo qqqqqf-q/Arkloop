@@ -44,7 +44,6 @@ export {
   resolveTimeZone,
 } from './timezone'
 
-export { Turnstile } from './components/Turnstile'
 export { ToastProvider } from './components/Toast'
 export { ToastContext } from './components/toast-context'
 export type { ToastVariant, ToastContextValue } from './components/toast-context'
@@ -52,20 +51,9 @@ export { useToast } from './components/useToast'
 export { ErrorCallout, formatErrorForDisplay } from './components/ErrorCallout'
 export type { AppError, FormattedError } from './components/ErrorCallout'
 export { AuthPage } from './components/AuthPage'
-export type { AuthPageTranslations, AuthApi, ResolveIdentityResponse, RegisterRequest } from './components/AuthPage'
-export { BootstrapPage } from './components/BootstrapPage'
-export type { BootstrapApi, BootstrapTranslations, ConsoleTarget } from './components/BootstrapPage'
+export type { AuthPageTranslations, AuthApi, ResolveIdentityResponse } from './components/AuthPage'
 export { LoadingPage } from './components/LoadingPage'
 
-export {
-  verifyBootstrapToken,
-  setupBootstrapAdmin,
-} from './api/bootstrap'
-export type {
-  BootstrapVerifyResponse,
-  BootstrapSetupRequest,
-  BootstrapSetupResponse,
-} from './api/bootstrap'
 export { SettingsModal } from './components/SettingsModal'
 export type { SettingsModalTranslations } from './components/SettingsModal'
 

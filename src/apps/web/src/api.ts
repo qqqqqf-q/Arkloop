@@ -29,46 +29,16 @@ import type { ErrorEnvelope } from '@arkloop/shared/api'
 import type { LoginRequest, LoginResponse } from '@arkloop/shared/api/types'
 import { parseSSEChunk, type RunEvent } from './sse'
 
-export type RegisterRequest = {
-  login: string
-  password: string
-  email: string
-  locale?: string
-  cf_turnstile_token?: string
-}
-
-export type RegisterResponse = {
-  user_id: string
-  token_type: string
-  access_token: string
-  warning?: string
-}
-
 export type ResolveIdentityRequest = {
   identity: string
-  cf_turnstile_token?: string
 }
 
 export type ResolveIdentityResponse =
   | {
       next_step: 'password'
-      flow_token: string
-      masked_email?: string
-      otp_available: boolean
-    }
-  | {
-      next_step: 'register'
-      prefill?: {
-        login?: string
-        email?: string
-      }
     }
   | {
       next_step: 'setup_required'
-      prefill?: {
-        login?: string
-        email?: string
-      }
     }
 
 export type MeResponse = {
@@ -221,31 +191,10 @@ export async function createLocalSession(desktopToken: string, signal?: AbortSig
   })
 }
 
-export async function register(req: RegisterRequest): Promise<RegisterResponse> {
-  return await apiFetch<RegisterResponse>('/v1/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  })
-}
-
 export async function resolveIdentity(req: ResolveIdentityRequest): Promise<ResolveIdentityResponse> {
   return await apiFetch<ResolveIdentityResponse>('/v1/auth/resolve', {
     method: 'POST',
     body: JSON.stringify(req),
-  })
-}
-
-export async function sendResolvedEmailOTP(flowToken: string, cfTurnstileToken?: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/resolve/otp/send', {
-    method: 'POST',
-    body: JSON.stringify({ flow_token: flowToken, cf_turnstile_token: cfTurnstileToken }),
-  })
-}
-
-export async function verifyResolvedEmailOTP(flowToken: string, code: string): Promise<LoginResponse> {
-  return await apiFetch<LoginResponse>('/v1/auth/resolve/otp/verify', {
-    method: 'POST',
-    body: JSON.stringify({ flow_token: flowToken, code }),
   })
 }
 
@@ -502,15 +451,6 @@ export async function verifyEmailOTP(email: string, code: string): Promise<Login
 
 export type LogoutResponse = {
   ok: boolean
-}
-
-export type CaptchaConfigResponse = {
-  enabled: boolean
-  site_key: string
-}
-
-export async function getCaptchaConfig(): Promise<CaptchaConfigResponse> {
-  return await apiFetch<CaptchaConfigResponse>('/v1/auth/captcha-config')
 }
 
 export async function logout(accessToken: string): Promise<LogoutResponse> {

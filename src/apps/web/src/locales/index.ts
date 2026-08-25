@@ -297,10 +297,7 @@ export interface LocaleStrings {
   };
   // auth
   loginMode: string;
-  registerMode: string;
   identityPlaceholder: string;
-  enterUsername: string;
-  enterEmail: string;
   enterPassword: string;
   editProfile: string;
   continueBtn: string;
@@ -308,12 +305,9 @@ export interface LocaleStrings {
   githubLogin: string;
   noAccount: string;
   hasAccount: string;
-  useEmailOtpHint: string;
-  creatingAccountHint: string;
   enterYourPasswordTitle: string;
   fieldIdentity: string;
   fieldPassword: string;
-  registerPasswordHint: string;
   backBtn: string;
   editIdentity: string;
   // profile editing
@@ -343,31 +337,9 @@ export interface LocaleStrings {
   emailGateResent: string;
   emailGateUseOtp: string;
   emailGateAlreadyVerified: string;
-  otpLoginTab: string;
-  passwordLoginTab: string;
-  otpEmailPlaceholder: string;
   otpCodePlaceholder: string;
   otpSendBtn: string;
   otpSendingCountdown: (s: number) => string;
-  bootstrap: {
-    title: string;
-    subtitle: string;
-    username: string;
-    usernamePlaceholder: string;
-    password: string;
-    passwordPlaceholder: string;
-    confirmPassword: string;
-    confirmPasswordPlaceholder: string;
-    passwordMismatch: string;
-    submit: string;
-    verifying: string;
-    successTitle: string;
-    successBody: string;
-    invalidTitle: string;
-    invalidBody: string;
-    expiresAt: (value: string) => string;
-    selectHint: string;
-  };
   otpVerifyBtn: string;
   emailNotVerifiedHint: string;
   newChatTitle: string;
