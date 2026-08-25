@@ -335,7 +335,6 @@ func getThread(
 	membershipRepo *data.AccountMembershipRepository,
 	threadRepo *data.ThreadRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
@@ -369,7 +368,7 @@ func getThread(
 		}
 
 		if !authorizeSubAgentThreadRead(r, actor, thread, threadRepo) &&
-			!authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, teamRepo, auditWriter) {
+			!authorizeThreadReadOrAudit(w, r, traceID, actor, "threads.get", thread, projectRepo, auditWriter) {
 			return
 		}
 
@@ -863,7 +862,6 @@ func threadEntry(
 	messageRepo *data.MessageRepository,
 	runRepo *data.RunEventRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
@@ -872,7 +870,7 @@ func threadEntry(
 	attachmentStore messageAttachmentStore,
 	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
-	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
+	get := getThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo)
 	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo, pool, bus)
 	del := deleteThread(authService, membershipRepo, threadRepo, messageRepo, attachmentStore, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService, attachmentStore)
@@ -1074,7 +1072,6 @@ func authorizeThreadReadOrAudit(
 	action string,
 	thread *data.Thread,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	auditWriter *audit.Writer,
 ) bool {
 	if actor == nil || thread == nil {
@@ -1103,22 +1100,8 @@ func authorizeThreadReadOrAudit(
 			writeInternalError(w, traceID, err)
 			return false
 		}
-		if project != nil {
-			switch project.Visibility {
-			case "org":
-				return true
-			case "team":
-				if project.TeamID != nil && teamRepo != nil {
-					isMember, err := teamRepo.IsMember(r.Context(), *project.TeamID, actor.UserID)
-					if err != nil {
-						writeInternalError(w, traceID, err)
-						return false
-					}
-					if isMember {
-						return true
-					}
-				}
-			}
+		if project != nil && project.Visibility == "org" {
+			return true
 		}
 	}
 

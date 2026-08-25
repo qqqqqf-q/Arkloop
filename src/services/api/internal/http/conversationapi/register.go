@@ -22,7 +22,6 @@ type Deps struct {
 	RunEventRepo           *data.RunEventRepository
 	ShellSessionRepo       *data.ShellSessionRepository
 	ProjectRepo            *data.ProjectRepository
-	TeamRepo               *data.TeamRepository
 	AuditWriter            *audit.Writer
 	Pool                   data.DB
 	APIKeysRepo            *data.APIKeysRepository
@@ -47,7 +46,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.AccountMembershipRepo,
 			deps.ThreadRepo,
 			deps.ProjectRepo,
-			deps.TeamRepo,
 			deps.RunEventRepo,
 			deps.AuditWriter,
 			deps.SSEConfig,
@@ -67,7 +65,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.MessageRepo,
 			deps.RunEventRepo,
 			deps.ProjectRepo,
-			deps.TeamRepo,
 			deps.AuditWriter,
 			deps.Pool,
 			deps.APIKeysRepo,
@@ -104,6 +101,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	)
 	mux.HandleFunc(
 		"/v1/attachments/",
-		messageAttachmentsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.TeamRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore),
+		messageAttachmentsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ThreadRepo, deps.ThreadShareRepo, deps.ProjectRepo, deps.APIKeysRepo, deps.AuditWriter, deps.MessageAttachmentStore),
 	)
 }

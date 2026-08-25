@@ -28,7 +28,6 @@ type projectResponse struct {
 }
 
 type createProjectRequest struct {
-	TeamID      *string `json:"team_id"`
 	Name        string  `json:"name"`
 	Description *string `json:"description"`
 	Visibility  string  `json:"visibility"`
@@ -38,13 +37,12 @@ func projectsEntry(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		switch r.Method {
 		case nethttp.MethodPost:
-			createProject(w, r, authService, membershipRepo, projectRepo, teamRepo, apiKeysRepo)
+			createProject(w, r, authService, membershipRepo, projectRepo, apiKeysRepo)
 		case nethttp.MethodGet:
 			listProjects(w, r, authService, membershipRepo, projectRepo, apiKeysRepo)
 		default:
@@ -92,7 +90,6 @@ func createProject(
 	authService *auth.Service,
 	membershipRepo *data.AccountMembershipRepository,
 	projectRepo *data.ProjectRepository,
-	teamRepo *data.TeamRepository,
 	apiKeysRepo *data.APIKeysRepository,
 ) {
 	traceID := observability.TraceIDFromContext(r.Context())
@@ -134,29 +131,7 @@ func createProject(
 		return
 	}
 
-	// 验证 team_id 归属于同一 account
-	var teamID *uuid.UUID
-	if req.TeamID != nil {
-		tid, err := uuid.Parse(strings.TrimSpace(*req.TeamID))
-		if err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "invalid team_id", traceID, nil)
-			return
-		}
-		if teamRepo != nil {
-			team, err := teamRepo.GetByID(r.Context(), tid)
-			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			if team == nil || team.AccountID != actor.AccountID {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "team not found in org", traceID, nil)
-				return
-			}
-		}
-		teamID = &tid
-	}
-
-	project, err := projectRepo.Create(r.Context(), actor.AccountID, teamID, req.Name, req.Description, visibility)
+	project, err := projectRepo.Create(r.Context(), actor.AccountID, nil, req.Name, req.Description, visibility)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
