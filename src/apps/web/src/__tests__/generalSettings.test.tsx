@@ -163,8 +163,6 @@ describe('GeneralSettings', () => {
             me={{
               id: 'user-1',
               username: 'desktop-user',
-              email_verified: true,
-              email_verification_required: false,
               work_enabled: true,
               timezone: 'Asia/Singapore',
               account_timezone: null,

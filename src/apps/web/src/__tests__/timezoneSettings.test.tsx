@@ -76,8 +76,6 @@ describe('TimeZoneSettings', () => {
             me={{
               id: 'user-1',
               username: 'alice',
-              email_verified: true,
-              email_verification_required: false,
               work_enabled: true,
               timezone: 'Asia/Shanghai',
               account_timezone: 'America/Los_Angeles',
@@ -124,8 +122,6 @@ describe('TimeZoneSettings', () => {
             me={{
               id: 'user-1',
               username: 'alice',
-              email_verified: true,
-              email_verification_required: false,
               work_enabled: true,
               timezone: 'Asia/Shanghai',
               account_timezone: 'America/Los_Angeles',
@@ -158,8 +154,6 @@ describe('TimeZoneSettings', () => {
             me={{
               id: 'user-1',
               username: 'alice',
-              email_verified: true,
-              email_verification_required: false,
               work_enabled: true,
               timezone: 'Region/City_120',
               account_timezone: 'America/Los_Angeles',

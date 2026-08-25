@@ -84,8 +84,6 @@ describe('AuthProvider timezone bootstrap', () => {
     vi.mocked(getMe).mockResolvedValue({
       id: 'user-1',
       username: 'alice',
-      email_verified: true,
-      email_verification_required: false,
       work_enabled: true,
       timezone: null,
       account_timezone: null,
@@ -114,8 +112,6 @@ describe('AuthProvider timezone bootstrap', () => {
     vi.mocked(getMe).mockResolvedValue({
       id: 'user-1',
       username: 'alice',
-      email_verified: true,
-      email_verification_required: false,
       work_enabled: true,
       timezone: null,
       account_timezone: 'America/Los_Angeles',
@@ -139,8 +135,6 @@ describe('AuthProvider timezone bootstrap', () => {
     vi.mocked(getMe).mockResolvedValue({
       id: 'user-1',
       username: 'desktop',
-      email_verified: true,
-      email_verification_required: false,
       work_enabled: true,
       timezone: 'Asia/Singapore',
       account_timezone: null,

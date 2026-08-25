@@ -317,31 +317,9 @@ export interface LocaleStrings {
   profileUserId: string;
   profileSave: string;
   profileSaved: string;
-  profileEmail: string;
   timezone: string;
   timezoneUseDevice: string;
   timezoneUseAccountDefault: string;
-  emailUnverified: string;
-  emailVerified: string;
-  emailVerifySend: string;
-  emailVerifySent: string;
-  emailVerifyCodePlaceholder: string;
-  emailVerifyConfirmBtn: string;
-  emailVerifySuccess: string;
-  emailVerifyFailed: string;
-  emailVerifyGoToApp: string;
-  // EmailVerificationGate
-  emailGateTitle: string;
-  emailGateDesc: (email: string) => string;
-  emailGateResend: string;
-  emailGateResent: string;
-  emailGateUseOtp: string;
-  emailGateAlreadyVerified: string;
-  otpCodePlaceholder: string;
-  otpSendBtn: string;
-  otpSendingCountdown: (s: number) => string;
-  otpVerifyBtn: string;
-  emailNotVerifiedHint: string;
   newChatTitle: string;
   chatPlaceholder: string;
   welcomeGreeting: {

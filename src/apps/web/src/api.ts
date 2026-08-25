@@ -45,8 +45,6 @@ export type MeResponse = {
   id: string
   username: string
   email?: string
-  email_verified: boolean
-  email_verification_required: boolean
   work_enabled: boolean
   timezone?: string | null
   account_timezone?: string | null
@@ -419,35 +417,6 @@ export async function updateMe(accessToken: string, payload: UpdateMeRequest): P
     body: JSON.stringify(payload),
   })
 }
-
-export async function sendEmailVerification(accessToken: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/email/verify/send', {
-    method: 'POST',
-    accessToken,
-  })
-}
-
-export async function confirmEmailVerification(token: string): Promise<{ ok: boolean }> {
-  return await apiFetch<{ ok: boolean }>('/v1/auth/email/verify/confirm', {
-    method: 'POST',
-    body: JSON.stringify({ token }),
-  })
-}
-
-export async function sendEmailOTP(email: string, cfTurnstileToken?: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/email/otp/send', {
-    method: 'POST',
-    body: JSON.stringify({ email, cf_turnstile_token: cfTurnstileToken }),
-  })
-}
-
-export async function verifyEmailOTP(email: string, code: string): Promise<LoginResponse> {
-  return await apiFetch<LoginResponse>('/v1/auth/email/otp/verify', {
-    method: 'POST',
-    body: JSON.stringify({ email, code }),
-  })
-}
-
 
 export type LogoutResponse = {
   ok: boolean
