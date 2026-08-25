@@ -151,14 +151,12 @@ type DesktopInfo = {
   apiBaseUrl?: string
   bridgeBaseUrl?: string
   accessToken?: string
-  setupToken?: string
   mode?: ConnectionMode
   platform?: DesktopPlatform
   appVersion?: string
   getApiBaseUrl?: () => string
   getBridgeBaseUrl?: () => string
   getAccessToken?: () => string
-  getSetupToken?: () => string
   getMode?: () => ConnectionMode
   getPlatform?: () => DesktopPlatform
   getAppVersion?: () => string
@@ -442,14 +440,6 @@ export function getDesktopAccessToken(): string | null {
     return info.getAccessToken() ?? null
   }
   return info?.accessToken ?? null
-}
-
-export function getDesktopSetupToken(): string | null {
-  const info = getDesktopInfo()
-  if (typeof info?.getSetupToken === 'function') {
-    return info.getSetupToken() ?? null
-  }
-  return info?.setupToken ?? null
 }
 
 export function getDesktopBridgeBaseUrl(): string | null {
