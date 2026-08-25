@@ -41,7 +41,6 @@ def parse_modules(path: str) -> Dict[str, dict]:
     modules: Dict[str, dict] = {}
     current_module = None
     current_section = None
-    current_profile = None
 
     for raw in lines:
         line = strip_comment(raw)
@@ -55,7 +54,6 @@ def parse_modules(path: str) -> Dict[str, dict]:
                 continue
             current_module = None
             current_section = None
-            current_profile = None
             continue
 
         if indent == 2 and content.endswith(":"):
@@ -66,11 +64,9 @@ def parse_modules(path: str) -> Dict[str, dict]:
                 "mutually_exclusive": [],
                 "install_with": [],
                 "platform_constraints": {},
-                "profiles": {},
                 "capabilities": {},
             }
             current_section = None
-            current_profile = None
             continue
 
         if current_module is None:
@@ -79,11 +75,10 @@ def parse_modules(path: str) -> Dict[str, dict]:
         module = modules[current_module]
 
         if indent == 4:
-            current_profile = None
             if content.endswith(":"):
                 current_section = content[:-1]
                 if current_section not in module:
-                    if current_section in ("platform_constraints", "profiles", "capabilities"):
+                    if current_section in ("platform_constraints", "capabilities"):
                         module[current_section] = {}
                     else:
                         module[current_section] = []
@@ -108,23 +103,11 @@ def parse_modules(path: str) -> Dict[str, dict]:
                 module["capabilities"][key.strip()] = parse_scalar(raw_value)
             continue
 
-        if current_section == "profiles":
-            if indent == 6 and content.endswith(":"):
-                current_profile = content[:-1]
-                module["profiles"][current_profile] = {}
-                continue
-            if indent == 8 and current_profile:
-                key, sep, raw_value = content.partition(":")
-                if sep:
-                    module["profiles"][current_profile][key.strip()] = parse_scalar(raw_value)
-                continue
-
     return modules
 
 
 ALLOWED = {
     "profile": {"standard", "full"},
-    "mode": {"self-hosted", "saas"},
     "sandbox": {"none", "docker", "auto"},
     "browser": {"off", "on"},
     "web_tools": {"builtin", "self-hosted"},
@@ -140,7 +123,7 @@ def normalize_choice(value: str, field: str) -> str:
     return normalized
 
 
-def default_selections(profile: str, mode: str) -> dict:
+def default_selections(profile: str) -> dict:
     if profile == "full":
         defaults = {
             "sandbox": "docker",
@@ -168,8 +151,7 @@ def ordered_unique(items: List[str]) -> List[str]:
 
 def resolve_plan(modules: Dict[str, dict], args) -> dict:
     profile = normalize_choice(args.profile or "standard", "profile")
-    mode = normalize_choice(args.mode or "self-hosted", "mode")
-    defaults = default_selections(profile, mode)
+    defaults = default_selections(profile)
 
     sandbox = normalize_choice(args.sandbox or defaults["sandbox"], "sandbox")
     if sandbox == "auto":
@@ -182,10 +164,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         raise ValueError("browser=on 仅支持 sandbox=docker")
 
     selected: List[str] = []
-    for module_id, module in modules.items():
-        profile_meta = module.get("profiles", {}).get(mode, {})
-        if profile_meta.get("required") is True:
-            selected.append(module_id)
 
     if sandbox == "docker":
         selected.append("sandbox-docker")
@@ -193,14 +171,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
         selected.append("browser")
     if web_tools == "self-hosted":
         selected.extend(["searxng", "firecrawl"])
-
-    # Auto-select modules with default=true for current mode, unless already covered
-    for module_id, module in modules.items():
-        profile_meta = module.get("profiles", {}).get(mode, {})
-        if profile_meta.get("default") is True and module_id not in selected:
-            excl = module.get("mutually_exclusive", []) or []
-            if not any(e in selected for e in excl):
-                selected.append(module_id)
 
     resolved_modules: List[str] = []
     visiting = set()
@@ -247,7 +217,6 @@ def resolve_plan(modules: Dict[str, dict], args) -> dict:
 
     return {
         "profile": profile,
-        "mode": mode,
         "sandbox": sandbox,
         "browser": browser,
         "web_tools": web_tools,
@@ -265,7 +234,6 @@ def shell_quote(value: str) -> str:
 def emit_shell(plan: dict):
     scalars = [
         ("RESOLVED_PROFILE", plan["profile"]),
-        ("RESOLVED_MODE", plan["mode"]),
         ("RESOLVED_SANDBOX", plan["sandbox"]),
         ("RESOLVED_BROWSER", plan["browser"]),
         ("RESOLVED_WEB_TOOLS", plan["web_tools"]),
@@ -289,7 +257,6 @@ def build_parser() -> argparse.ArgumentParser:
     resolve = subparsers.add_parser("resolve")
     resolve.add_argument("--modules", default=os.path.join(os.getcwd(), "install", "modules.yaml"))
     resolve.add_argument("--profile", default="")
-    resolve.add_argument("--mode", default="")
     resolve.add_argument("--sandbox", default="")
     resolve.add_argument("--browser", default="")
     resolve.add_argument("--web-tools", dest="web_tools", default="")

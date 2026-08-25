@@ -3,25 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 STATICCHECK_VERSION="v0.7.0"
-POSTGRES_IMAGE="postgres:16-alpine"
-POSTGRES_CONTAINER_NAME="${CI_LOCAL_POSTGRES_CONTAINER_NAME:-arkloop-ci-local-postgres}"
-POSTGRES_PORT="${CI_LOCAL_POSTGRES_PORT:-55432}"
-POSTGRES_USER="arkloop"
-POSTGRES_PASSWORD="ci_test_password"
-POSTGRES_DB="arkloop"
-DATABASE_DSN="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
-PROVIDER_ROUTING_JSON='{"default_route_id":"default","credentials":[{"id":"stub_default","scope":"platform","provider_kind":"stub"}],"routes":[{"id":"default","model":"stub","credential_id":"stub_default"}]}'
 GO_MODULES=(api worker sandbox shared)
-ACT_JOBS=(typescript go-check)
+ACT_JOBS=(migration-lint go-lint desktop-go pnpm-ci)
 ACT_RUNNER_IMAGE="${CI_LOCAL_ACT_RUNNER_IMAGE:-catthehacker/ubuntu:full-latest}"
 
 usage() {
   cat <<'USAGE'
 用法:
   bin/ci-local [quick]
-  bin/ci-local integration
-  bin/ci-local full
-  bin/ci-local act <typescript|go-check>
+  bin/ci-local act <migration-lint|go-lint|desktop-go|pnpm-ci>
 USAGE
 }
 
@@ -85,58 +75,6 @@ run_typescript_quick() {
   (cd "${ROOT_DIR}" && pnpm --filter web lint)
 }
 
-cleanup_postgres() {
-  docker rm -f "${POSTGRES_CONTAINER_NAME}" >/dev/null 2>&1 || true
-}
-
-start_postgres() {
-  require_command docker
-  cleanup_postgres
-  log_section "Integration postgres"
-  docker run -d \
-    --name "${POSTGRES_CONTAINER_NAME}" \
-    -e POSTGRES_USER="${POSTGRES_USER}" \
-    -e POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
-    -e POSTGRES_DB="${POSTGRES_DB}" \
-    -p "${POSTGRES_PORT}:5432" \
-    "${POSTGRES_IMAGE}" >/dev/null
-
-  local attempt
-  for attempt in $(seq 1 60); do
-    if docker exec "${POSTGRES_CONTAINER_NAME}" pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 1
-  done
-
-  printf 'PostgreSQL 启动失败\n' >&2
-  exit 1
-}
-
-export_integration_env() {
-  export DATABASE_URL="${DATABASE_DSN}"
-  export ARKLOOP_DATABASE_URL="${DATABASE_DSN}"
-  export ARKLOOP_AUTH_JWT_SECRET='ci_test_jwt_secret_at_least_32_chars_long'
-  export ARKLOOP_PROVIDER_ROUTING_JSON="${PROVIDER_ROUTING_JSON}"
-}
-
-run_integration() {
-  require_command go
-  require_command docker
-  trap cleanup_postgres EXIT
-  start_postgres
-  export_integration_env
-
-  local module
-  for module in "${GO_MODULES[@]}"; do
-    log_section "Integration: ${module}"
-    (
-      cd "${ROOT_DIR}/src/services/${module}"
-      go test -count=1 -race ./...
-    )
-  done
-}
-
 run_guardrails() {
   require_command node
   log_section "Guardrails"
@@ -149,21 +87,11 @@ run_quick() {
   run_typescript_quick
 }
 
-run_full() {
-  run_quick
-  run_integration
-}
-
 run_act() {
   require_command act
   local job="${1:-}"
   if [[ -z "${job}" ]]; then
     usage
-    exit 1
-  fi
-
-  if [[ "${job}" == "go-integration" ]]; then
-    printf 'bin/ci-local act go-integration 当前不可靠，请改用 bin/ci-local integration\n' >&2
     exit 1
   fi
 
@@ -193,12 +121,6 @@ main() {
   case "${command}" in
     quick)
       run_quick
-      ;;
-    integration)
-      run_integration
-      ;;
-    full)
-      run_full
       ;;
     act)
       shift || true

@@ -171,9 +171,6 @@ cd src/services/worker && go test ./...
 
 # Frontend tests
 cd src/apps/web && pnpm test
-
-# Integration / smoke tests
-cd tests/smoke && go test ./...
 ```
 
 Recommended order for daily work: `bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`.

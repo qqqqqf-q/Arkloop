@@ -2,17 +2,9 @@ SERVICES := api worker sandbox
 SHARED   := src/services/shared
 VERSION ?= dev
 
-# Default: cloud build (no extra tags required)
-.PHONY: build build-cloud build-desktop build-desktop-sidecar build-desktop-sidecar-all build-cli build-shared test test-cloud test-desktop lint
+.PHONY: build build-desktop build-desktop-sidecar build-desktop-sidecar-all build-cli build-shared test test-desktop lint
 
-build: build-cloud
-
-## build-cloud: Build all services for cloud deployment (default)
-build-cloud:
-	@echo "==> Building cloud services..."
-	cd src/services/api     && go build ./...
-	cd src/services/worker  && go build ./...
-	cd src/services/sandbox && go build ./...
+build: build-desktop
 
 ## build-desktop-sidecar: Cross-compile desktop sidecar for current platform
 build-desktop-sidecar:
@@ -24,22 +16,13 @@ build-desktop-sidecar-all:
 	@echo "==> Building desktop sidecar (all platforms)..."
 	node src/apps/desktop/scripts/build-sidecar.mjs --all
 
-## build-desktop: Build worker for local Desktop mode (excludes Redis, PostgreSQL, S3 SDK)
-# Note: api service is cloud-only in Phase 2; desktop support is planned for a later phase.
+## build-desktop: Build worker for Desktop mode (excludes Redis, PostgreSQL, S3 SDK)
 build-desktop:
 	@echo "==> Building desktop services (tags: desktop)..."
 	cd src/services/worker && go build -tags desktop ./cmd/...
 
-## test-cloud: Run tests for cloud mode (default, no extra tags)
-test-cloud:
-	@echo "==> Running cloud tests..."
-	cd $(SHARED)            && go test ./...
-	cd src/services/api     && go test ./...
-	cd src/services/worker  && go test ./...
-
 ## test-desktop: Run tests for desktop mode (tags: desktop)
-# Only packages with no cloud-only (pgx/redis/S3) dependencies are tested.
-# api is excluded (cloud-only in Phase 2); worker tests limited to portable packages.
+# Only portable packages (no pgx/redis/S3 dependencies) are tested.
 WORKER_DESKTOP_PKGS := \
   ./internal/agent/... \
   ./internal/consumer/... \
@@ -55,7 +38,7 @@ test-desktop:
 	cd $(SHARED)           && go test -tags desktop ./...
 	cd src/services/worker && go test -tags desktop $(WORKER_DESKTOP_PKGS)
 
-test: test-cloud
+test: test-desktop
 
 ## lint: Run go vet on all services
 lint:
