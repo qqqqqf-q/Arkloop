@@ -295,37 +295,19 @@ export interface LocaleStrings {
     externalSaveFailed: string;
     externalRemoveFailed: string;
   };
-  // invite code
-  inviteCode: string;
-  inviteCodeDesc: string;
-  inviteCodeCopy: string;
-  inviteCodeCopied: string;
-  inviteCodeReset: string;
-  inviteCodeResetting: string;
-  inviteCodeUses: (used: number, max: number) => string;
-  inviteCodeResetCooldown: string;
-  // credits
   // auth
   loginMode: string;
-  registerMode: string;
   identityPlaceholder: string;
-  enterUsername: string;
-  enterEmail: string;
   enterPassword: string;
-  enterInviteCode: string;
-  enterInviteCodeOptional: string;
   editProfile: string;
   continueBtn: string;
   orDivider: string;
   githubLogin: string;
   noAccount: string;
   hasAccount: string;
-  useEmailOtpHint: string;
-  creatingAccountHint: string;
   enterYourPasswordTitle: string;
   fieldIdentity: string;
   fieldPassword: string;
-  registerPasswordHint: string;
   backBtn: string;
   editIdentity: string;
   // profile editing
@@ -335,53 +317,9 @@ export interface LocaleStrings {
   profileUserId: string;
   profileSave: string;
   profileSaved: string;
-  profileEmail: string;
   timezone: string;
   timezoneUseDevice: string;
   timezoneUseAccountDefault: string;
-  emailUnverified: string;
-  emailVerified: string;
-  emailVerifySend: string;
-  emailVerifySent: string;
-  emailVerifyCodePlaceholder: string;
-  emailVerifyConfirmBtn: string;
-  emailVerifySuccess: string;
-  emailVerifyFailed: string;
-  emailVerifyGoToApp: string;
-  // EmailVerificationGate
-  emailGateTitle: string;
-  emailGateDesc: (email: string) => string;
-  emailGateResend: string;
-  emailGateResent: string;
-  emailGateUseOtp: string;
-  emailGateAlreadyVerified: string;
-  otpLoginTab: string;
-  passwordLoginTab: string;
-  otpEmailPlaceholder: string;
-  otpCodePlaceholder: string;
-  otpSendBtn: string;
-  otpSendingCountdown: (s: number) => string;
-  bootstrap: {
-    title: string;
-    subtitle: string;
-    username: string;
-    usernamePlaceholder: string;
-    password: string;
-    passwordPlaceholder: string;
-    confirmPassword: string;
-    confirmPasswordPlaceholder: string;
-    passwordMismatch: string;
-    submit: string;
-    verifying: string;
-    successTitle: string;
-    successBody: string;
-    invalidTitle: string;
-    invalidBody: string;
-    expiresAt: (value: string) => string;
-    selectHint: string;
-  };
-  otpVerifyBtn: string;
-  emailNotVerifiedHint: string;
   newChatTitle: string;
   chatPlaceholder: string;
   welcomeGreeting: {
@@ -664,19 +602,10 @@ export interface LocaleStrings {
       enabled: string
       disabled: string
     }
-    spawnProfileTitle: string
     spawnProfileSubtitle: string
-    spawnProfileFollowCurrentChat: string
-    spawnProfilePlatformDefault: string
-    spawnProfileExplore: string
-    spawnProfileExploreDesc: string
     imageGenerativeTitle: string
     imageGenerativeDesc: string
     imageGenerativeUnset: string
-    spawnProfileTask: string
-    spawnProfileTaskDesc: string
-    spawnProfileStrong: string
-    spawnProfileStrongDesc: string
     streamThinking: string
   }
   // channels
@@ -882,13 +811,6 @@ export interface LocaleStrings {
   // connection settings (desktop only)
   connection: {
     title: string;
-    local: string;
-    localDesc: string;
-    saas: string;
-    saasDesc: string;
-    selfHosted: string;
-    selfHostedDesc: string;
-    baseUrl: string;
     status: string;
     running: string;
     stopped: string;
@@ -1364,17 +1286,7 @@ export interface LocaleStrings {
     chatModel: string;
     chatModelDesc: string;
     chatModelPlatformDefault: string;
-    // vision model
-    visionModel: string;
-    visionModelDesc: string;
-    visionModelUnset: string;
-    // tool model
-    toolModel: string;
-    toolModelDesc: string;
-    toolModelPlatformDefault: string;
-    toolModelSameAsChat: string;
     toolModelAutoHint: string;
-    toolModelAutoSuffix: string;
     advancedTitle: string;
     advancedDesc: string;
     advancedOverview: string;

@@ -11,7 +11,6 @@ import {
 import { ErrorCallout } from '@arkloop/shared'
 import { getDesktopApi } from '@arkloop/shared/desktop'
 import type {
-  ConnectionMode,
   DesktopConfig,
   LocalPortMode,
   SidecarRuntime,
@@ -60,15 +59,9 @@ function FieldRow({ label, value }: { label: string; value: string }) {
 }
 
 function applyConfigToState(config: DesktopConfig, setters: {
-  setMode: (mode: ConnectionMode) => void
-  setSaasUrl: (value: string) => void
-  setSelfHostedUrl: (value: string) => void
   setLocalPort: (value: string) => void
   setLocalPortMode: (value: LocalPortMode) => void
 }) {
-  setters.setMode(config.mode)
-  setters.setSaasUrl(config.saas.baseUrl)
-  setters.setSelfHostedUrl(config.selfHosted.baseUrl)
   setters.setLocalPort(String(config.local.port))
   setters.setLocalPortMode(config.local.portMode)
 }
@@ -79,9 +72,6 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
   const api = getDesktopApi()
 
   const [configSnapshot, setConfigSnapshot] = useState<DesktopConfig | null>(null)
-  const [mode, setMode] = useState<ConnectionMode>('local')
-  const [saasUrl, setSaasUrl] = useState('')
-  const [selfHostedUrl, setSelfHostedUrl] = useState('')
   const [localPort, setLocalPort] = useState('19001')
   const [localPortMode, setLocalPortMode] = useState<LocalPortMode>('auto')
   const [sidecarRuntime, setSidecarRuntime] = useState<SidecarRuntime>(DEFAULT_RUNTIME)
@@ -96,9 +86,6 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
     const applyConfig = (config: DesktopConfig) => {
       setConfigSnapshot(config)
       applyConfigToState(config, {
-        setMode,
-        setSaasUrl,
-        setSelfHostedUrl,
         setLocalPort,
         setLocalPortMode,
       })
@@ -125,18 +112,18 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
   }, [api, initialConfig])
 
   useEffect(() => {
-    if (!api || mode !== 'local' || sidecarRuntime.status !== 'running') return
+    if (!api || sidecarRuntime.status !== 'running') return
     const id = window.setInterval(() => {
       void api.sidecar.getRuntime().then(setSidecarRuntime)
     }, 10000)
     return () => window.clearInterval(id)
-  }, [api, mode, sidecarRuntime.status])
+  }, [api, sidecarRuntime.status])
 
   const handleSave = useCallback(async () => {
     if (!api) return
 
     const parsedPort = Number.parseInt(localPort, 10)
-    if (mode === 'local' && localPortMode === 'manual' && (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)) {
+    if (localPortMode === 'manual' && (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)) {
       setLocalError(locale === 'zh'
         ? `${ct.manualPort}必须在 1 到 65535 之间。`
         : `${ct.manualPort} must be between 1 and 65535.`)
@@ -149,11 +136,8 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
       const current = await api.config.get()
       await api.config.set({
         ...current,
-        mode,
-        saas: { baseUrl: saasUrl },
-        selfHosted: { baseUrl: selfHostedUrl },
         local: {
-          port: mode === 'local' && localPortMode === 'manual'
+          port: localPortMode === 'manual'
             ? parsedPort
             : current.local.port,
           portMode: localPortMode,
@@ -164,9 +148,6 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
       const current = await api.config.get()
       setConfigSnapshot(current)
       applyConfigToState(current, {
-        setMode,
-        setSaasUrl,
-        setSelfHostedUrl,
         setLocalPort,
         setLocalPortMode,
       })
@@ -175,23 +156,16 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
     } finally {
       setSaving(false)
     }
-  }, [api, ct.manualPort, locale, localPort, localPortMode, mode, saasUrl, selfHostedUrl, t.requestFailed])
+  }, [api, ct.manualPort, locale, localPort, localPortMode, t.requestFailed])
 
   const handleTest = useCallback(async () => {
     setTestResult(null)
 
-    let url: string
-    if (mode === 'local') {
-      const config = await api?.config.get()
-      const port = sidecarRuntime.port
-        ?? config?.local.port
-        ?? (Number.parseInt(localPort, 10) || 19001)
-      url = `http://127.0.0.1:${port}`
-    } else if (mode === 'saas') {
-      url = saasUrl
-    } else {
-      url = selfHostedUrl
-    }
+    const config = await api?.config.get()
+    const port = sidecarRuntime.port
+      ?? config?.local.port
+      ?? (Number.parseInt(localPort, 10) || 19001)
+    const url = `http://127.0.0.1:${port}`
 
     try {
       const resp = await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(5000) })
@@ -199,7 +173,7 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
     } catch {
       setTestResult('failed')
     }
-  }, [api, localPort, mode, saasUrl, selfHostedUrl, sidecarRuntime.port])
+  }, [api, localPort, sidecarRuntime.port])
 
   const handleRestart = useCallback(async () => {
     if (!api) return
@@ -232,9 +206,6 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
       const current = await api.config.get()
       setConfigSnapshot(current)
       applyConfigToState(current, {
-        setMode,
-        setSaasUrl,
-        setSelfHostedUrl,
         setLocalPort,
         setLocalPortMode,
       })
@@ -256,122 +227,94 @@ export function ConnectionSettingsContent({ initialConfig = null }: Props) {
   return (
     <div className="flex flex-col gap-6">
 
-      {mode === 'local' && (
-        <div className="flex flex-col gap-3">
-          <div
-            className="rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
-            style={{ border: '0.5px solid var(--c-border-subtle)' }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--c-text-secondary)]">{ct.status}</span>
-              <div className="flex items-center gap-2">
-                <StatusBadge status={sidecarRuntime.status} t={ct} />
-                <button
-                  type="button"
-                  onClick={() => void handleRestart()}
-                  className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
-                >
-                  <RefreshCw size={12} />
-                  <span>{ct.restart}</span>
-                </button>
-              </div>
+      <div className="flex flex-col gap-3">
+        <div
+          className="rounded-xl bg-[var(--c-bg-menu)] px-4 py-3"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[var(--c-text-secondary)]">{ct.status}</span>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={sidecarRuntime.status} t={ct} />
+              <button
+                type="button"
+                onClick={() => void handleRestart()}
+                className="flex h-6 items-center gap-1 rounded-md px-2 text-xs text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-bg-sub)]"
+              >
+                <RefreshCw size={12} />
+                <span>{ct.restart}</span>
+              </button>
             </div>
           </div>
+        </div>
 
-          <FieldRow label={ct.currentPort} value={String(effectivePort)} />
-          <FieldRow label={ct.portMode} value={currentPortMode === 'auto' ? ct.portModeAuto : ct.portModeManual} />
+        <FieldRow label={ct.currentPort} value={String(effectivePort)} />
+        <FieldRow label={ct.portMode} value={currentPortMode === 'auto' ? ct.portModeAuto : ct.portModeManual} />
 
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((value) => !value)}
-            className="flex items-center gap-2 rounded-xl bg-[var(--c-bg-menu)] px-4 py-3 text-sm text-[var(--c-text-secondary)]"
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((value) => !value)}
+          className="flex items-center gap-2 rounded-xl bg-[var(--c-bg-menu)] px-4 py-3 text-sm text-[var(--c-text-secondary)]"
+          style={{ border: '0.5px solid var(--c-border-subtle)' }}
+        >
+          {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <span>{ct.advanced}</span>
+        </button>
+
+        {showAdvanced && (
+          <div
+            className="flex flex-col gap-4 rounded-xl bg-[var(--c-bg-menu)] px-4 py-4"
             style={{ border: '0.5px solid var(--c-border-subtle)' }}
           >
-            {showAdvanced ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <span>{ct.advanced}</span>
-          </button>
+            <div className="text-sm text-[var(--c-text-secondary)]">{ct.advancedDesc}</div>
 
-          {showAdvanced && (
-            <div
-              className="flex flex-col gap-4 rounded-xl bg-[var(--c-bg-menu)] px-4 py-4"
-              style={{ border: '0.5px solid var(--c-border-subtle)' }}
-            >
-              <div className="text-sm text-[var(--c-text-secondary)]">{ct.advancedDesc}</div>
-
-              <div className="flex flex-col gap-2">
-                <label className="text-sm text-[var(--c-text-secondary)]">{ct.portMode}</label>
-                <SettingsSelect
-                  value={localPortMode}
-                  onChange={(value) => setLocalPortMode(value as LocalPortMode)}
-                  options={[
-                    { value: 'auto', label: ct.portModeAuto },
-                    { value: 'manual', label: ct.portModeManual },
-                  ]}
-                />
-              </div>
-
-              {localPortMode === 'manual' && (
-                <div className="flex flex-col gap-2">
-                  <label className="text-sm text-[var(--c-text-secondary)]">{ct.manualPort}</label>
-                  <SettingsInput
-                    variant="md"
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={localPort}
-                    onChange={(event) => setLocalPort(event.target.value)}
-                  />
-                  <div className="text-xs text-[var(--c-text-muted)]">{ct.manualPortHint}</div>
-                </div>
-              )}
-
-              {(runtimeError || localPortMode === 'manual') && (
-                <SettingsButton
-                  onClick={() => void handleRestoreAuto()}
-                  disabled={saving}
-                  icon={<RotateCcw size={13} />}
-                >
-                  {ct.restoreAutoPort}
-                </SettingsButton>
-              )}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-[var(--c-text-secondary)]">{ct.portMode}</label>
+              <SettingsSelect
+                value={localPortMode}
+                onChange={(value) => setLocalPortMode(value as LocalPortMode)}
+                options={[
+                  { value: 'auto', label: ct.portModeAuto },
+                  { value: 'manual', label: ct.portModeManual },
+                ]}
+              />
             </div>
-          )}
 
-          {runtimeError && (
-            <ErrorCallout
-              error={{ message: runtimeError }}
-              locale={locale}
-              requestFailedText={runtimeError}
-            />
-          )}
-        </div>
-      )}
+            {localPortMode === 'manual' && (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm text-[var(--c-text-secondary)]">{ct.manualPort}</label>
+                <SettingsInput
+                  variant="md"
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={localPort}
+                  onChange={(event) => setLocalPort(event.target.value)}
+                />
+                <div className="text-xs text-[var(--c-text-muted)]">{ct.manualPortHint}</div>
+              </div>
+            )}
 
-      {mode === 'saas' && (
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-[var(--c-text-secondary)]">{ct.baseUrl}</label>
-          <input
-            type="url"
-            value={saasUrl}
-            onChange={(event) => setSaasUrl(event.target.value)}
-            className="h-9 rounded-lg px-3 text-sm text-[var(--c-text-primary)] outline-none"
-            style={{ border: '0.5px solid var(--c-border-subtle)', background: 'var(--c-bg-page)' }}
+            {(runtimeError || localPortMode === 'manual') && (
+              <SettingsButton
+                onClick={() => void handleRestoreAuto()}
+                disabled={saving}
+                icon={<RotateCcw size={13} />}
+              >
+                {ct.restoreAutoPort}
+              </SettingsButton>
+            )}
+          </div>
+        )}
+
+        {runtimeError && (
+          <ErrorCallout
+            error={{ message: runtimeError }}
+            locale={locale}
+            requestFailedText={runtimeError}
           />
-        </div>
-      )}
-
-      {mode === 'self-hosted' && (
-        <div className="flex flex-col gap-2">
-          <label className="text-sm text-[var(--c-text-secondary)]">{ct.baseUrl}</label>
-          <SettingsInput
-            variant="md"
-            type="url"
-            value={selfHostedUrl}
-            onChange={(event) => setSelfHostedUrl(event.target.value)}
-            placeholder="https://your-server.com"
-          />
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         <SettingsButton

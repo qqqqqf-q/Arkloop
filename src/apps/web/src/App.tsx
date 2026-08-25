@@ -9,9 +9,7 @@ import { AuthProvider } from './contexts/auth'
 import { ThreadListProvider } from './contexts/thread-list'
 import { AppUIProvider } from './contexts/app-ui'
 import { SharePage } from './components/SharePage'
-import { VerifyEmailPage } from './components/VerifyEmailPage'
 import { OnboardingWizard } from './components/OnboardingWizard'
-import { HeadlessSetupPage } from './components/HeadlessSetupPage'
 import { useLocale } from './contexts/LocaleContext'
 import { shouldDelayLocalSession } from './appAuthStartup'
 import {
@@ -366,8 +364,6 @@ function App() {
 
   return (
     <Routes>
-      <Route path="/setup" element={<HeadlessSetupPage onLoggedIn={handleLoggedIn} />} />
-      <Route path="/verify" element={<VerifyEmailPage />} />
       <Route path="/s/:token" element={<SharePage />} />
       {!authChecked ? (
         <Route path="*" element={<LoadingPage label={t.loading} />} />

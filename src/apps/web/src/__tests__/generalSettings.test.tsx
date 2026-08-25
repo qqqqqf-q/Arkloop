@@ -7,9 +7,6 @@ vi.mock('../api', async () => {
   return {
     ...actual,
     listLlmProviders: vi.fn(),
-    listSpawnProfiles: vi.fn(),
-    setSpawnProfile: vi.fn(),
-    deleteSpawnProfile: vi.fn(),
     testLlmProviderModel: vi.fn(),
     updateMe: vi.fn(),
   }
@@ -78,7 +75,7 @@ vi.mock('../components/settings/SettingsModelDropdown', () => ({
     disabled: boolean
   }) => (
     <div
-      data-testid="tool-model-dropdown"
+      data-testid="chat-model-dropdown"
       data-value={value}
       data-placeholder={placeholder}
       data-disabled={String(disabled)}
@@ -124,10 +121,9 @@ describe('GeneralSettings', () => {
     return { api, LocaleProvider, GeneralSettings }
   }
 
-  it('渲染通用页基础偏好与工具模型', async () => {
+  it('渲染通用页基础偏好与聊天模型', async () => {
     const { api, LocaleProvider, GeneralSettings } = await loadSubject()
     vi.mocked(api.listLlmProviders).mockResolvedValue([])
-    vi.mocked(api.listSpawnProfiles).mockResolvedValue([])
 
     await act(async () => {
       root.render(
@@ -143,15 +139,13 @@ describe('GeneralSettings', () => {
     expect(container.querySelector('[data-testid="language-content"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="timezone-settings"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="theme-mode-picker"]')).toBeNull()
-    expect(container.querySelector('[data-testid="tool-model-dropdown"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="chat-model-dropdown"]')).not.toBeNull()
     expect(api.listLlmProviders).toHaveBeenCalledWith('token')
-    expect(api.listSpawnProfiles).toHaveBeenCalledWith('token')
   })
 
   it('本地模式用户卡片内联编辑后端用户名', async () => {
     const { api, LocaleProvider, GeneralSettings } = await loadSubject()
     vi.mocked(api.listLlmProviders).mockResolvedValue([])
-    vi.mocked(api.listSpawnProfiles).mockResolvedValue([])
     vi.mocked(api.updateMe).mockResolvedValue({ username: 'renamed-user', timezone: 'Asia/Singapore' })
     const onMeUpdated = vi.fn()
 
@@ -163,8 +157,6 @@ describe('GeneralSettings', () => {
             me={{
               id: 'user-1',
               username: 'desktop-user',
-              email_verified: true,
-              email_verification_required: false,
               work_enabled: true,
               timezone: 'Asia/Singapore',
               account_timezone: null,

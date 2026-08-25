@@ -29,60 +29,22 @@ import type { ErrorEnvelope } from '@arkloop/shared/api'
 import type { LoginRequest, LoginResponse } from '@arkloop/shared/api/types'
 import { parseSSEChunk, type RunEvent } from './sse'
 
-export type RegisterRequest = {
-  login: string
-  password: string
-  email: string
-  invite_code?: string
-  locale?: string
-  cf_turnstile_token?: string
-}
-
-export type RegisterResponse = {
-  user_id: string
-  token_type: string
-  access_token: string
-  warning?: string
-}
-
-export type RegistrationModeResponse = {
-  mode: 'invite_only' | 'open'
-}
-
 export type ResolveIdentityRequest = {
   identity: string
-  cf_turnstile_token?: string
 }
 
 export type ResolveIdentityResponse =
   | {
       next_step: 'password'
-      flow_token: string
-      masked_email?: string
-      otp_available: boolean
-    }
-  | {
-      next_step: 'register'
-      invite_required: boolean
-      prefill?: {
-        login?: string
-        email?: string
-      }
     }
   | {
       next_step: 'setup_required'
-      prefill?: {
-        login?: string
-        email?: string
-      }
     }
 
 export type MeResponse = {
   id: string
   username: string
   email?: string
-  email_verified: boolean
-  email_verification_required: boolean
   work_enabled: boolean
   timezone?: string | null
   account_timezone?: string | null
@@ -227,52 +189,10 @@ export async function createLocalSession(desktopToken: string, signal?: AbortSig
   })
 }
 
-export async function setLocalOwnerPassword(
-  req: { username: string; password: string },
-  desktopToken: string,
-  setupToken?: string,
-): Promise<LoginResponse> {
-  const headers = new Headers()
-  if (setupToken?.trim()) headers.set('X-Arkloop-Setup-Token', setupToken.trim())
-  return await apiFetch<LoginResponse>('/v1/auth/local-owner-password', {
-    method: 'POST',
-    accessToken: desktopToken,
-    headers,
-    body: JSON.stringify(req),
-  })
-}
-
-export async function register(req: RegisterRequest): Promise<RegisterResponse> {
-  return await apiFetch<RegisterResponse>('/v1/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function getRegistrationMode(): Promise<RegistrationModeResponse> {
-  return await apiFetch<RegistrationModeResponse>('/v1/auth/registration-mode', {
-    method: 'GET',
-  })
-}
-
 export async function resolveIdentity(req: ResolveIdentityRequest): Promise<ResolveIdentityResponse> {
   return await apiFetch<ResolveIdentityResponse>('/v1/auth/resolve', {
     method: 'POST',
     body: JSON.stringify(req),
-  })
-}
-
-export async function sendResolvedEmailOTP(flowToken: string, cfTurnstileToken?: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/resolve/otp/send', {
-    method: 'POST',
-    body: JSON.stringify({ flow_token: flowToken, cf_turnstile_token: cfTurnstileToken }),
-  })
-}
-
-export async function verifyResolvedEmailOTP(flowToken: string, code: string): Promise<LoginResponse> {
-  return await apiFetch<LoginResponse>('/v1/auth/resolve/otp/verify', {
-    method: 'POST',
-    body: JSON.stringify({ flow_token: flowToken, code }),
   })
 }
 
@@ -498,46 +418,8 @@ export async function updateMe(accessToken: string, payload: UpdateMeRequest): P
   })
 }
 
-export async function sendEmailVerification(accessToken: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/email/verify/send', {
-    method: 'POST',
-    accessToken,
-  })
-}
-
-export async function confirmEmailVerification(token: string): Promise<{ ok: boolean }> {
-  return await apiFetch<{ ok: boolean }>('/v1/auth/email/verify/confirm', {
-    method: 'POST',
-    body: JSON.stringify({ token }),
-  })
-}
-
-export async function sendEmailOTP(email: string, cfTurnstileToken?: string): Promise<void> {
-  await apiFetch<void>('/v1/auth/email/otp/send', {
-    method: 'POST',
-    body: JSON.stringify({ email, cf_turnstile_token: cfTurnstileToken }),
-  })
-}
-
-export async function verifyEmailOTP(email: string, code: string): Promise<LoginResponse> {
-  return await apiFetch<LoginResponse>('/v1/auth/email/otp/verify', {
-    method: 'POST',
-    body: JSON.stringify({ email, code }),
-  })
-}
-
-
 export type LogoutResponse = {
   ok: boolean
-}
-
-export type CaptchaConfigResponse = {
-  enabled: boolean
-  site_key: string
-}
-
-export async function getCaptchaConfig(): Promise<CaptchaConfigResponse> {
-  return await apiFetch<CaptchaConfigResponse>('/v1/auth/captcha-config')
 }
 
 export async function logout(accessToken: string): Promise<LogoutResponse> {
@@ -1276,36 +1158,6 @@ export async function provideInput(
   })
 }
 
-// Invite Code API
-
-export type InviteCodeResponse = {
-  id: string
-  user_id: string
-  code: string
-  max_uses: number
-  use_count: number
-  is_active: boolean
-  created_at: string
-}
-
-export async function getMyInviteCode(
-  accessToken: string,
-): Promise<InviteCodeResponse> {
-  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code', {
-    method: 'GET',
-    accessToken,
-  })
-}
-
-export async function resetMyInviteCode(
-  accessToken: string,
-): Promise<InviteCodeResponse> {
-  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code/reset', {
-    method: 'POST',
-    accessToken,
-  })
-}
-
 // Notifications API
 
 export type NotificationItem = {
@@ -1878,37 +1730,10 @@ export async function listRuns(
   return apiFetch<ListRunsResponse>(`/v1/runs${query ? `?${query}` : ''}`, { accessToken })
 }
 
-export type SpawnProfile = {
-  profile: string
-  resolved_model: string
-  has_override: boolean
-  is_auto?: boolean
-  auto_model?: string
-}
-
 export type AccountSettingsResponse = {
   pipeline_trace_enabled: boolean
   prompt_cache_debug_enabled: boolean
   new_thread_chat_model?: string | null
-}
-
-export async function listSpawnProfiles(accessToken: string): Promise<SpawnProfile[]> {
-  return apiFetch<SpawnProfile[]>('/v1/accounts/me/spawn-profiles', { accessToken })
-}
-
-export async function setSpawnProfile(accessToken: string, name: string, model: string): Promise<void> {
-  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
-    method: 'PUT',
-    accessToken,
-    body: JSON.stringify({ model }),
-  })
-}
-
-export async function deleteSpawnProfile(accessToken: string, name: string): Promise<void> {
-  await apiFetch<void>(`/v1/accounts/me/spawn-profiles/${name}`, {
-    method: 'DELETE',
-    accessToken,
-  })
 }
 
 export async function getAccountSettings(accessToken: string): Promise<AccountSettingsResponse> {

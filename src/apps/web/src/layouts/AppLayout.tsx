@@ -9,9 +9,7 @@ import { SettingsModal, type SettingsTab } from '../components/SettingsModal'
 import { DesktopSettings } from '../components/DesktopSettings'
 import { ChatsSearchModal } from '../components/ChatsSearchModal'
 import { NotificationsPanel } from '../components/NotificationsPanel'
-import { EmailVerificationGate } from '../components/EmailVerificationGate'
 import { useLocale } from '../contexts/LocaleContext'
-import { getMe } from '../api'
 import { writeActiveThreadIdToStorage, writeSelectedPersonaKeyToStorage, DEFAULT_PERSONA_KEY, readPinnedThreadIds } from '../storage'
 import { useAuth } from '../contexts/auth'
 import { useThreadList } from '../contexts/thread-list'
@@ -203,7 +201,7 @@ const LayoutMain = memo(function LayoutMain({
 })
 
 export function AppLayout() {
-  const { me, meLoaded, accessToken, logout, updateMe } = useAuth()
+  const { me, meLoaded, updateMe } = useAuth()
   const {
     threads,
     isPrivateMode, pendingIncognitoMode,
@@ -387,18 +385,6 @@ export function AppLayout() {
   }, [closeNotifications, closeSettings, markCompletionRead, navigate])
 
   if (!meLoaded) return <LoadingPage label={t.loading} />
-
-  if (me !== null && !me.email_verified && me.email_verification_required && me.email) {
-    return (
-      <EmailVerificationGate
-        accessToken={accessToken}
-        email={me.email}
-        onVerified={() => { getMe(accessToken).then(updateMe).catch(() => {}) }}
-        onPollVerified={() => { getMe(accessToken).then(updateMe).catch(() => {}) }}
-        onLogout={logout}
-      />
-    )
-  }
 
   const titleBarIncognitoActive =
     isPrivateMode || pendingIncognitoMode ||
