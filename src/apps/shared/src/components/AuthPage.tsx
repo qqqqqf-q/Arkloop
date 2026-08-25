@@ -16,7 +16,6 @@ export type ResolveIdentityResponse = {
   flow_token?: string
   masked_email?: string
   otp_available?: boolean
-  invite_required?: boolean
   prefill?: { login?: string; email?: string }
 }
 
@@ -26,7 +25,6 @@ export type RegisterRequest = {
   email: string
   locale: string
   cf_turnstile_token?: string
-  invite_code?: string
 }
 
 export type AuthPageTranslations = {
@@ -52,8 +50,6 @@ export type AuthPageTranslations = {
   creatingAccountHint?: string
   enterUsername?: string
   enterEmail?: string
-  enterInviteCode?: string
-  enterInviteCodeOptional?: string
   registerPasswordHint?: string
 }
 
@@ -64,7 +60,6 @@ export type AuthApi = {
   verifyEmailOTP?: (email: string, code: string) => Promise<LoginResponse>
   // resolve-identity flow (web)
   resolveIdentity?: (req: { identity: string; cf_turnstile_token?: string }) => Promise<ResolveIdentityResponse>
-  getRegistrationMode?: () => Promise<{ mode: 'invite_only' | 'open' }>
   register?: (req: RegisterRequest) => Promise<LoginResponse>
   sendResolvedEmailOTP?: (flowToken: string, cfTurnstileToken?: string) => Promise<void>
   verifyResolvedEmailOTP?: (flowToken: string, code: string) => Promise<LoginResponse>
@@ -110,10 +105,8 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
   const [regLogin, setRegLogin] = useState('')
   const [regEmail, setRegEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
-  const [regInviteCode, setRegInviteCode] = useState('')
   const [regSubmitting, setRegSubmitting] = useState(false)
   const [registerEmailLocked, setRegisterEmailLocked] = useState(false)
-  const [registrationMode, setRegistrationMode] = useState<'invite_only' | 'open'>('invite_only')
 
   const [error, setError] = useState<AppError | null>(null)
   const [captchaSiteKey, setCaptchaSiteKey] = useState('')
@@ -125,17 +118,11 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
   const regFirstRef = useRef<HTMLInputElement>(null)
 
   const hasResolveFlow = !!api.resolveIdentity
-  const inviteRequired = registrationMode === 'invite_only'
 
   useEffect(() => {
-    void Promise.all([
-      api.getCaptchaConfig()
-        .then((res) => { if (res.enabled) setCaptchaSiteKey(res.site_key) })
-        .catch(() => {}),
-      api.getRegistrationMode?.()
-        .then((res) => setRegistrationMode(res.mode))
-        .catch(() => {}),
-    ].filter(Boolean))
+    void api.getCaptchaConfig()
+      .then((res) => { if (res.enabled) setCaptchaSiteKey(res.site_key) })
+      .catch(() => {})
   }, [api])
 
   useEffect(() => () => { if (countdownRef.current) clearInterval(countdownRef.current) }, [])
@@ -242,7 +229,6 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
             setRegLogin(res.prefill?.login ?? '')
             setRegEmail(res.prefill?.email ?? '')
             setRegPassword('')
-            setRegInviteCode('')
             setRegisterEmailLocked(Boolean(res.prefill?.email))
             setFlowToken('')
             setOtpAvailable(false)
@@ -323,7 +309,6 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
           email: regEmail.trim(),
           locale,
           cf_turnstile_token: captchaSiteKey ? turnstileToken : undefined,
-          ...(regInviteCode.trim() ? { invite_code: regInviteCode.trim() } : {}),
         })
         onLoggedIn(resp.access_token)
       } catch (err) {
@@ -349,11 +334,10 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
     }
     if (phase === 'register') {
       if (!regLogin.trim() || !regEmail.trim() || !registerPasswordMeetsPolicy(regPassword)) return false
-      if (inviteRequired && !regInviteCode.trim()) return false
       return captchaOk
     }
     return false
-  }, [phase, identity, password, otpEmail, otpCode, regLogin, regEmail, regPassword, regInviteCode, inviteRequired, isLoading, captchaSiteKey, turnstileToken, flowToken, hasResolveFlow])
+  }, [phase, identity, password, otpEmail, otpCode, regLogin, regEmail, regPassword, isLoading, captchaSiteKey, turnstileToken, flowToken, hasResolveFlow])
 
   const btnLabel = useMemo(() => {
     if (phase === 'otp-email') return t.otpSendBtn
@@ -582,18 +566,6 @@ export function AuthPage({ onLoggedIn, brandLabel, locale, t, api }: Props) {
                     autoComplete="new-password"
                   />
                   <div style={{ fontSize: '11px', color: 'var(--c-placeholder)', marginTop: '6px', paddingLeft: '2px' }}>{t.registerPasswordHint ?? ''}</div>
-                </div>
-                <div>
-                  <label style={labelStyle}>{inviteRequired ? (t.enterInviteCode ?? '') : (t.enterInviteCodeOptional ?? '')}</label>
-                  <input
-                    className={inputCls}
-                    style={inputStyle}
-                    type="text"
-                    placeholder={inviteRequired ? (t.enterInviteCode ?? '') : (t.enterInviteCodeOptional ?? '')}
-                    value={regInviteCode}
-                    onChange={(e) => setRegInviteCode(e.target.value)}
-                    autoComplete="off"
-                  />
                 </div>
               </div>
             </Reveal>

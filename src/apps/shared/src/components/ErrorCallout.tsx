@@ -23,8 +23,6 @@ const FRIENDLY_ERROR_MESSAGES: Record<string, FriendlyText> = {
   'auth.user_suspended': { zh: '账号已停用', en: 'Account suspended.' },
   'auth.email_not_verified': { zh: '邮箱未验证', en: 'Email not verified.' },
   'auth.captcha_invalid': { zh: '人机验证失败', en: 'Captcha verification failed.' },
-  'auth.invite_code_required': { zh: '需要邀请码', en: 'Invite code required.' },
-  'auth.invite_code_invalid': { zh: '邀请码无效', en: 'Invalid invite code.' },
   'auth.login_exists': { zh: '用户名已被占用', en: 'Login already taken.' },
   'auth.flow_token_invalid': { zh: '登录流程已失效，请重新开始', en: 'Sign-in flow expired. Please start again.' },
   'auth.setup_required': { zh: '需要先完成本机设置', en: 'Local setup required.' },

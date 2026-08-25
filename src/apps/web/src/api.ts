@@ -33,7 +33,6 @@ export type RegisterRequest = {
   login: string
   password: string
   email: string
-  invite_code?: string
   locale?: string
   cf_turnstile_token?: string
 }
@@ -43,10 +42,6 @@ export type RegisterResponse = {
   token_type: string
   access_token: string
   warning?: string
-}
-
-export type RegistrationModeResponse = {
-  mode: 'invite_only' | 'open'
 }
 
 export type ResolveIdentityRequest = {
@@ -63,7 +58,6 @@ export type ResolveIdentityResponse =
     }
   | {
       next_step: 'register'
-      invite_required: boolean
       prefill?: {
         login?: string
         email?: string
@@ -231,12 +225,6 @@ export async function register(req: RegisterRequest): Promise<RegisterResponse> 
   return await apiFetch<RegisterResponse>('/v1/auth/register', {
     method: 'POST',
     body: JSON.stringify(req),
-  })
-}
-
-export async function getRegistrationMode(): Promise<RegistrationModeResponse> {
-  return await apiFetch<RegistrationModeResponse>('/v1/auth/registration-mode', {
-    method: 'GET',
   })
 }
 
@@ -1257,36 +1245,6 @@ export async function provideInput(
   return await apiFetch<ProvideInputResponse>(`/v1/runs/${runId}/input`, {
     method: 'POST',
     body: JSON.stringify({ content }),
-    accessToken,
-  })
-}
-
-// Invite Code API
-
-export type InviteCodeResponse = {
-  id: string
-  user_id: string
-  code: string
-  max_uses: number
-  use_count: number
-  is_active: boolean
-  created_at: string
-}
-
-export async function getMyInviteCode(
-  accessToken: string,
-): Promise<InviteCodeResponse> {
-  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code', {
-    method: 'GET',
-    accessToken,
-  })
-}
-
-export async function resetMyInviteCode(
-  accessToken: string,
-): Promise<InviteCodeResponse> {
-  return await apiFetch<InviteCodeResponse>('/v1/me/invite-code/reset', {
-    method: 'POST',
     accessToken,
   })
 }

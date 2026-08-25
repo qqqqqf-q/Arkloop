@@ -295,16 +295,6 @@ export interface LocaleStrings {
     externalSaveFailed: string;
     externalRemoveFailed: string;
   };
-  // invite code
-  inviteCode: string;
-  inviteCodeDesc: string;
-  inviteCodeCopy: string;
-  inviteCodeCopied: string;
-  inviteCodeReset: string;
-  inviteCodeResetting: string;
-  inviteCodeUses: (used: number, max: number) => string;
-  inviteCodeResetCooldown: string;
-  // credits
   // auth
   loginMode: string;
   registerMode: string;
@@ -312,8 +302,6 @@ export interface LocaleStrings {
   enterUsername: string;
   enterEmail: string;
   enterPassword: string;
-  enterInviteCode: string;
-  enterInviteCodeOptional: string;
   editProfile: string;
   continueBtn: string;
   orDivider: string;

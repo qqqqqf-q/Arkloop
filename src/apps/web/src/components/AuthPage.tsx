@@ -2,7 +2,6 @@ import { AuthPage as SharedAuthPage, type AuthApi } from '@arkloop/shared'
 import {
   login,
   register,
-  getRegistrationMode,
   resolveIdentity,
   sendResolvedEmailOTP,
   verifyResolvedEmailOTP,
@@ -14,7 +13,6 @@ const api: AuthApi = {
   login,
   getCaptchaConfig,
   resolveIdentity,
-  getRegistrationMode,
   register,
   sendResolvedEmailOTP,
   verifyResolvedEmailOTP,
