@@ -36,14 +36,6 @@ type BucketOpener interface {
 Open(ctx context.Context, bucket string) (Store, error)
 }
 
-// S3Config holds credentials and endpoint for an S3-compatible object store.
-type S3Config struct {
-Endpoint  string
-AccessKey string
-SecretKey string
-Region    string
-}
-
 type PutOptions struct {
 ContentType string
 Metadata    map[string]string

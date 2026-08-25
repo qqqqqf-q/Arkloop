@@ -32,9 +32,6 @@ const (
 	initrdPathEnv            = "ARKLOOP_SANDBOX_INITRD"
 	rootfsPathEnv            = "ARKLOOP_SANDBOX_ROOTFS"
 	socketBaseDirEnv         = "ARKLOOP_SANDBOX_SOCKET_DIR"
-	s3EndpointEnv            = "ARKLOOP_S3_ENDPOINT"
-	s3AccessKeyEnv           = "ARKLOOP_S3_ACCESS_KEY"
-	s3SecretKeyEnv           = "ARKLOOP_S3_SECRET_KEY"
 )
 
 // Provider 标识 sandbox 后端类型。
@@ -54,9 +51,6 @@ type Config struct {
 	BootTimeoutSeconds       int
 	GuestAgentPort           uint32
 	MaxSessions              int
-	S3Endpoint               string
-	S3AccessKey              string
-	S3SecretKey              string
 	StorageBackend           string
 	StorageRoot              string
 	RestoreTTLDays           int
@@ -187,15 +181,6 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 	if raw := strings.TrimSpace(os.Getenv(socketBaseDirEnv)); raw != "" {
 		cfg.SocketBaseDir = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(s3EndpointEnv)); raw != "" {
-		cfg.S3Endpoint = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(s3AccessKeyEnv)); raw != "" {
-		cfg.S3AccessKey = raw
-	}
-	if raw := strings.TrimSpace(os.Getenv(s3SecretKeyEnv)); raw != "" {
-		cfg.S3SecretKey = raw
 	}
 	if raw := strings.TrimSpace(os.Getenv(objectstore.StorageBackendEnv)); raw != "" {
 		cfg.StorageBackend = raw

@@ -32,12 +32,6 @@ const (
 	maxConcurrentRunsPerAccountEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT"
 	defaultMaxConcurrentRunsPerAccount = int64(10)
 
-	s3EndpointEnv  = "ARKLOOP_S3_ENDPOINT"
-	s3AccessKeyEnv = "ARKLOOP_S3_ACCESS_KEY"
-	s3SecretKeyEnv = "ARKLOOP_S3_SECRET_KEY"
-	s3BucketEnv    = "ARKLOOP_S3_BUCKET"
-	s3RegionEnv    = "ARKLOOP_S3_REGION"
-
 	sseHeartbeatSecondsEnv    = "ARKLOOP_SSE_HEARTBEAT_SECONDS"
 	sseBatchLimitEnv          = "ARKLOOP_SSE_BATCH_LIMIT"
 	sseCatchUpThresholdEnv    = "ARKLOOP_SSE_CATCH_UP_THRESHOLD"
@@ -90,11 +84,6 @@ type Config struct {
 
 	MaxConcurrentRunsPerAccount int64
 
-	S3Endpoint     string
-	S3AccessKey    string
-	S3SecretKey    string
-	S3Bucket       string
-	S3Region       string
 	StorageBackend string
 	StorageRoot    string
 
@@ -199,21 +188,6 @@ func LoadConfigFromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("%s: %w", maxConcurrentRunsPerAccountEnv, err)
 		}
 		cfg.MaxConcurrentRunsPerAccount = v
-	}
-	if raw, ok := lookupEnv(s3EndpointEnv); ok {
-		cfg.S3Endpoint = raw
-	}
-	if raw, ok := lookupEnv(s3AccessKeyEnv); ok {
-		cfg.S3AccessKey = raw
-	}
-	if raw, ok := lookupEnv(s3SecretKeyEnv); ok {
-		cfg.S3SecretKey = raw
-	}
-	if raw, ok := lookupEnv(s3BucketEnv); ok {
-		cfg.S3Bucket = raw
-	}
-	if raw, ok := lookupEnv(s3RegionEnv); ok {
-		cfg.S3Region = raw
 	}
 	if raw, ok := lookupEnv(objectstore.StorageBackendEnv); ok {
 		cfg.StorageBackend = raw
