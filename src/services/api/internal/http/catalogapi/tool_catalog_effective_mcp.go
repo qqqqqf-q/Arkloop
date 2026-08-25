@@ -20,7 +20,6 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -84,81 +83,6 @@ func (c *effectiveToolCatalogCache) get(ctx context.Context, key string, load fu
 	}
 	c.entries.Store(key, effectiveToolCatalogCacheEntry{tools: cloneToolCatalogItems(tools), cachedAt: time.Now()})
 	return tools, nil
-}
-
-func (c *effectiveToolCatalogCache) Invalidate(key string) {
-	if c == nil {
-		return
-	}
-	prefix := strings.TrimSpace(key)
-	if prefix == "" {
-		return
-	}
-	c.entries.Range(func(key, _ any) bool {
-		text, ok := key.(string)
-		if ok && (text == prefix || strings.HasPrefix(text, prefix+"|")) {
-			c.entries.Delete(key)
-		}
-		return true
-	})
-}
-
-func (c *effectiveToolCatalogCache) StartInvalidationListener(ctx context.Context, directPool *pgxpool.Pool) {
-	if c == nil || directPool == nil || c.ttl <= 0 {
-		return
-	}
-	go c.listenForInvalidation(ctx, directPool)
-}
-
-func (c *effectiveToolCatalogCache) listenForInvalidation(ctx context.Context, directPool *pgxpool.Pool) {
-	const (
-		baseDelay = time.Second
-		maxDelay  = 30 * time.Second
-	)
-	delay := baseDelay
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		err := c.listenOnce(ctx, directPool)
-		if ctx.Err() != nil {
-			return
-		}
-		_ = err
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(delay):
-		}
-		delay *= 2
-		if delay > maxDelay {
-			delay = maxDelay
-		}
-	}
-}
-
-func (c *effectiveToolCatalogCache) listenOnce(ctx context.Context, directPool *pgxpool.Pool) error {
-	conn, err := directPool.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Release()
-
-	if _, err := conn.Exec(ctx, "LISTEN mcp_config_changed"); err != nil {
-		return err
-	}
-
-	for {
-		n, err := conn.Conn().WaitForNotification(ctx)
-		if err != nil {
-			return err
-		}
-		payload := strings.TrimSpace(n.Payload)
-		if payload == "" {
-			continue
-		}
-		c.Invalidate(payload)
-	}
 }
 
 type effectiveMCPServerConfig = sharedmcpinstall.ServerConfig

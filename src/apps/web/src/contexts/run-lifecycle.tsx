@@ -29,7 +29,6 @@ interface RunLifecycleContextValue {
   sending: boolean
   cancelSubmitting: boolean
   error: AppError | null
-  injectionBlocked: string | null
   queuedPrompts: QueuedPrompt[]
   awaitingInput: boolean
   pendingUserInput: UserInputRequest | null
@@ -52,7 +51,6 @@ interface RunLifecycleContextValue {
   setSending: (v: boolean) => void
   setCancelSubmitting: (v: boolean) => void
   setError: (err: AppError | null) => void
-  setInjectionBlocked: (v: string | null) => void
   setQueuedPrompts: React.Dispatch<React.SetStateAction<QueuedPrompt[]>>
   setAwaitingInput: (v: boolean) => void
   setPendingUserInput: (v: UserInputRequest | null) => void
@@ -67,7 +65,6 @@ interface RunLifecycleContextValue {
   clearCompletedTitleTail: () => void
   clearLiveRunState: () => void
 
-  injectionBlockedRunIdRef: React.RefObject<string | null>
   processedEventCountRef: React.RefObject<number>
   freezeCutoffRef: React.RefObject<number | null>
   lastVisibleNonTerminalSeqRef: React.RefObject<number>
@@ -88,7 +85,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
   const [sending, setSending] = useState(false)
   const [cancelSubmitting, setCancelSubmitting] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
-  const [injectionBlocked, setInjectionBlocked] = useState<string | null>(null)
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([])
   const [awaitingInput, setAwaitingInput] = useState(false)
   const [pendingUserInput, setPendingUserInput] = useState<UserInputRequest | null>(null)
@@ -106,7 +102,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
   const contextCompactHideTimerRef = useRef<number | null>(null)
 
   // SSE dispatch 所需 refs
-  const injectionBlockedRunIdRef = useRef<string | null>(null)
   const processedEventCountRef = useRef(0)
   const freezeCutoffRef = useRef<number | null>(null)
   const lastVisibleNonTerminalSeqRef = useRef(0)
@@ -167,7 +162,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     setSending(false)
     setCancelSubmitting(false)
     setError(null)
-    setInjectionBlocked(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
     setCheckInDraft('')
@@ -199,7 +193,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     if (!activeRunId) return
     clearCompletedTitleTail()
     freezeCutoffRef.current = null
-    injectionBlockedRunIdRef.current = null
     sseTerminalFallbackRunIdRef.current = activeRunId
     sseTerminalFallbackArmedRef.current = false
     seenFirstToolCallInRunRef.current = false
@@ -271,7 +264,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     }
     setActiveRunId(null)
     clearCompletedTitleTail()
-    setInjectionBlocked(null)
     setAwaitingInput(false)
     setPendingUserInput(null)
     setCheckInDraft('')
@@ -282,7 +274,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     setTerminalRunCoveredRunIds([])
     markTerminalRunHistory(null)
     clearContextCompactHideTimer()
-    injectionBlockedRunIdRef.current = null
     seenFirstToolCallInRunRef.current = false
     sse.disconnect()
     sse.clearEvents()
@@ -294,7 +285,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     sending,
     cancelSubmitting,
     error,
-    injectionBlocked,
     queuedPrompts,
     awaitingInput,
     pendingUserInput,
@@ -314,7 +304,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     setSending,
     setCancelSubmitting,
     setError,
-    setInjectionBlocked,
     setQueuedPrompts,
     setAwaitingInput,
     setPendingUserInput,
@@ -328,7 +317,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     armCompletedTitleTail,
     clearCompletedTitleTail,
     clearLiveRunState,
-    injectionBlockedRunIdRef,
     processedEventCountRef,
     freezeCutoffRef,
     lastVisibleNonTerminalSeqRef,
@@ -341,7 +329,6 @@ export function RunLifecycleProvider({ children, threadIdOverride }: { children:
     sending,
     cancelSubmitting,
     error,
-    injectionBlocked,
     queuedPrompts,
     awaitingInput,
     pendingUserInput,

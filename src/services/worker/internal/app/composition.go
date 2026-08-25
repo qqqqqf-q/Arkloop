@@ -4012,7 +4012,7 @@ func (w *desktopEventWriter) publishRunEvents(ctx context.Context) {
 }
 
 func (w *desktopEventWriter) publishThreadRunState(ctx context.Context) {
-	threadrunstate.Publish(ctx, nil, w.bus, w.run.AccountID, w.run.ThreadID)
+	threadrunstate.Publish(ctx, w.bus, w.run.AccountID, w.run.ThreadID)
 }
 
 func (w *desktopEventWriter) transitionCancelled(ctx context.Context, tx pgx.Tx, runID uuid.UUID) ([]uuid.UUID, error) {

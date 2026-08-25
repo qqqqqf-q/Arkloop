@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,8 +26,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -201,7 +198,6 @@ func createThreadRun(
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	limiter *data.RunLimiter,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
@@ -443,7 +439,7 @@ func createThreadRun(
 
 		// Commit 成功，计数器由 Worker 在终态时 DECR
 		acquired = false
-		threadrunstate.Publish(r.Context(), rdb, bus, thread.AccountID, thread.ID)
+		threadrunstate.Publish(r.Context(), bus, thread.AccountID, thread.ID)
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, createRunResponse{
 			RunID:   run.ID.String(),
@@ -810,7 +806,6 @@ func cancelRun(
 	auditWriter *audit.Writer,
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
@@ -893,7 +888,7 @@ func cancelRun(
 		}
 
 		// worker 侧由 agent loop 轮询 run_events 发现取消
-		threadrunstate.Publish(r.Context(), rdb, bus, run.AccountID, run.ThreadID)
+		threadrunstate.Publish(r.Context(), bus, run.AccountID, run.ThreadID)
 
 		if auditWriter != nil {
 			auditWriter.WriteRunCancelRequested(r.Context(), traceID, actor.AccountID, actor.UserID, run.ID)
@@ -1016,11 +1011,8 @@ func streamRunEvents(
 	membershipRepo *data.AccountMembershipRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	directPool *pgxpool.Pool,
-	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, runID uuid.UUID) {
@@ -1113,75 +1105,14 @@ func streamRunEvents(
 			renewSSEWriteDeadline(w, heartbeatDuration)
 		}
 
-		// LISTEN for pg_notify from worker commits
-		var notifyCh <-chan struct{}
-		if follow && directPool != nil {
-			acquireCtx := r.Context()
-			var cancelAcquire context.CancelFunc
-			if directPoolAcquireTimeout > 0 {
-				acquireCtx, cancelAcquire = context.WithTimeout(acquireCtx, directPoolAcquireTimeout)
-				defer cancelAcquire()
-			}
-
-			listenConn, err := directPool.Acquire(acquireCtx)
-			if err == nil {
-				channel := fmt.Sprintf(`"run_events:%s"`, runID.String())
-				if _, err := listenConn.Exec(r.Context(), "LISTEN "+channel); err == nil {
-					ch := make(chan struct{}, 1)
-					notifyCh = ch
-					go func() {
-						defer listenConn.Release()
-						for {
-							if err := listenConn.Conn().PgConn().WaitForNotification(r.Context()); err != nil {
-								return
-							}
-							select {
-							case ch <- struct{}{}:
-							default:
-							}
-						}
-					}()
-				} else {
-					listenConn.Release()
-				}
-			}
-		}
-
-		// Redis Pub/Sub 跨实例广播
-		var redisCh <-chan struct{}
-		if follow && rdb != nil {
-			redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
-			sub := rdb.Subscribe(r.Context(), redisChannel)
-			msgCh := sub.Channel()
-			ch := make(chan struct{}, 1)
-			redisCh = ch
-			go func() {
-				defer func() { _ = sub.Close() }()
-				for {
-					select {
-					case <-r.Context().Done():
-						return
-					case _, ok := <-msgCh:
-						if !ok {
-							return
-						}
-						select {
-						case ch <- struct{}{}:
-						default:
-						}
-					}
-				}
-			}()
-		}
-
-		// 进程内 EventBus
-		var busCh <-chan struct{}
+		// 进程内 EventBus：worker 提交 run_events 后经 bus 唤醒本流
+		var sigCh <-chan struct{}
 		if follow && bus != nil {
 			channel := fmt.Sprintf("run_events:%s", runID.String())
 			sub, err := bus.Subscribe(r.Context(), channel)
 			if err == nil {
 				ch := make(chan struct{}, 1)
-				busCh = ch
+				sigCh = ch
 				go func() {
 					defer func() { _ = sub.Close() }()
 					msgCh := sub.Channel()
@@ -1201,39 +1132,6 @@ func streamRunEvents(
 					}
 				}()
 			}
-		}
-
-		// 合并所有通知信号为单一 channel。
-		sources := []<-chan struct{}{notifyCh, redisCh, busCh}
-		var activeSources []<-chan struct{}
-		for _, s := range sources {
-			if s != nil {
-				activeSources = append(activeSources, s)
-			}
-		}
-		var sigCh <-chan struct{}
-		if len(activeSources) == 1 {
-			sigCh = activeSources[0]
-		} else if len(activeSources) > 1 {
-			merged := make(chan struct{}, 1)
-			sigCh = merged
-			go func() {
-				cases := make([]reflect.SelectCase, len(activeSources)+1)
-				cases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(r.Context().Done())}
-				for i, s := range activeSources {
-					cases[i+1] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(s)}
-				}
-				for {
-					chosen, _, _ := reflect.Select(cases)
-					if chosen == 0 {
-						return
-					}
-					select {
-					case merged <- struct{}{}:
-					default:
-					}
-				}
-			}()
 		}
 
 		cursor := afterSeq
@@ -1455,18 +1353,15 @@ func runEntry(
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
 	pool data.DB,
-	directPool *pgxpool.Pool,
-	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
 	resolver sharedconfig.Resolver,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getRun(authService, membershipRepo, runRepo, auditWriter, apiKeysRepo)
-	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, rdb, bus)
+	cancel := cancelRun(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, bus)
 	submitInput := submitRunInput(authService, membershipRepo, runRepo, auditWriter, pool, apiKeysRepo, resolver)
-	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, directPool, directPoolAcquireTimeout, sseConfig, apiKeysRepo, rdb, bus)
+	streamEvents := streamRunEvents(authService, membershipRepo, runRepo, auditWriter, sseConfig, apiKeysRepo, bus)
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())

@@ -18,8 +18,6 @@ import (
 	"arkloop/services/shared/threadrunstate"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 type threadRunStateEvent struct {
@@ -37,11 +35,8 @@ func streamThreadRunStateEvents(
 	teamRepo *data.TeamRepository,
 	runRepo *data.RunEventRepository,
 	auditWriter *audit.Writer,
-	directPool *pgxpool.Pool,
-	directPoolAcquireTimeout time.Duration,
 	sseConfig SSEConfig,
 	apiKeysRepo *data.APIKeysRepository,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -88,7 +83,7 @@ func streamThreadRunStateEvents(
 		renewSSEWriteDeadline(w, heartbeatDuration)
 
 		payloadCh := make(chan string, 8)
-		subscribeThreadRunStateSources(r.Context(), payloadCh, directPool, directPoolAcquireTimeout, rdb, bus)
+		subscribeThreadRunStateEvents(r.Context(), payloadCh, bus)
 
 		ticker := time.NewTicker(heartbeatDuration)
 		defer ticker.Stop()
@@ -121,12 +116,9 @@ func streamThreadRunStateEvents(
 	}
 }
 
-func subscribeThreadRunStateSources(
+func subscribeThreadRunStateEvents(
 	ctx context.Context,
 	payloadCh chan<- string,
-	directPool *pgxpool.Pool,
-	directPoolAcquireTimeout time.Duration,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) {
 	send := func(payload string) {
@@ -137,56 +129,6 @@ func subscribeThreadRunStateSources(
 		case payloadCh <- payload:
 		default:
 		}
-	}
-
-	if directPool != nil {
-		acquireCtx := ctx
-		var cancelAcquire context.CancelFunc
-		if directPoolAcquireTimeout > 0 {
-			acquireCtx, cancelAcquire = context.WithTimeout(ctx, directPoolAcquireTimeout)
-		}
-		listenConn, err := directPool.Acquire(acquireCtx)
-		if cancelAcquire != nil {
-			cancelAcquire()
-		}
-		if err == nil {
-			channel := quotePgListenChannel(threadrunstate.Topic)
-			if _, err := listenConn.Exec(ctx, "LISTEN "+channel); err == nil {
-				go func() {
-					defer listenConn.Release()
-					for {
-						n, err := listenConn.Conn().WaitForNotification(ctx)
-						if err != nil {
-							return
-						}
-						if n != nil {
-							send(n.Payload)
-						}
-					}
-				}()
-			} else {
-				listenConn.Release()
-			}
-		}
-	}
-
-	if rdb != nil {
-		sub := rdb.Subscribe(ctx, threadrunstate.RedisChannel)
-		msgCh := sub.Channel()
-		go func() {
-			defer func() { _ = sub.Close() }()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case msg, ok := <-msgCh:
-					if !ok {
-						return
-					}
-					send(msg.Payload)
-				}
-			}
-		}()
 	}
 
 	if bus != nil {
@@ -208,10 +150,6 @@ func subscribeThreadRunStateSources(
 			}()
 		}
 	}
-}
-
-func quotePgListenChannel(channel string) string {
-	return `"` + strings.ReplaceAll(channel, `"`, `""`) + `"`
 }
 
 func writeThreadRunStateEvent(

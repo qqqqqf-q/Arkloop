@@ -84,7 +84,7 @@ func (r *StaleRunReaper) reap(ctx context.Context) {
 			r.logger.Error("force fail run failed", "run_id", run.ID.String(), "error", err.Error())
 			continue
 		} else if reaped {
-			threadrunstate.Publish(ctx, nil, nil, run.AccountID, run.ThreadID)
+			threadrunstate.Publish(ctx, nil, run.AccountID, run.ThreadID)
 			r.writeAudit(ctx, run)
 			r.logger.Info("stale run reaped", "run_id", run.ID.String(), "account_id", run.AccountID.String())
 		}

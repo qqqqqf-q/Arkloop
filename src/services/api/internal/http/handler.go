@@ -145,7 +145,6 @@ type HandlerConfig struct {
 	FeatureFlagService *featureflag.Service
 
 	NotificationsRepo *data.NotificationsRepository
-	AuditLogRepo      *data.AuditLogRepository
 
 	InviteCodesRepo *data.InviteCodeRepository
 	ReferralsRepo   *data.ReferralRepository
@@ -212,7 +211,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	}
 
 	effectiveToolCatalogCache := catalogapi.NewEffectiveToolCatalogCache(catalogapi.EffectiveToolCatalogTTL)
-	// nil directPool: StartInvalidationListener returns immediately.
 
 	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
@@ -257,10 +255,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		TeamRepo:               cfg.TeamRepo,
 		AuditWriter:            cfg.AuditWriter,
 		Pool:                   cfg.Pool, // desktop: SQLite via sqlitepgx
-		DirectPool:             nil,      // desktop: no LISTEN/NOTIFY
 		APIKeysRepo:            cfg.APIKeysRepo,
 		RunLimiter:             cfg.RunLimiter,
-		RedisClient:            nil, // desktop: no Redis
 		ConfigResolver:         resolver,
 		SSEConfig:              conversationapi.SSEConfig(sseConfig),
 		EventBus:               bus,
@@ -275,7 +271,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmRoutesRepo:                cfg.LlmRoutesRepo,
 		SecretsRepo:                  cfg.SecretsRepo,
 		Pool:                         cfg.Pool,
-		DirectPool:                   nil,
 		AsrCredentialsRepo:           cfg.AsrCredentialsRepo,
 		MCPConfigsRepo:               cfg.MCPConfigsRepo,
 		ProfileMCPInstallsRepo:       cfg.ProfileMCPInstallsRepo,
@@ -350,7 +345,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		AccountMembershipRepo: cfg.AccountMembershipRepo,
 		APIKeysRepo:           cfg.APIKeysRepo,
 		NotificationsRepo:     cfg.NotificationsRepo,
-		AuditLogRepo:          cfg.AuditLogRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
 		RedisClient:           nil,
 		ConfigInvalidator:     invalidator,

@@ -2,14 +2,9 @@ package objectstore
 
 import "testing"
 
-func TestNormalizeRuntimeConfigPrefersFilesystemWhenRootPresent(t *testing.T) {
+func TestNormalizeRuntimeConfigInfersFilesystemFromRootDir(t *testing.T) {
 	cfg, err := NormalizeRuntimeConfig(RuntimeConfig{
 		RootDir: "/tmp/arkloop-storage",
-		S3Config: S3Config{
-			Endpoint:  "http://seaweedfs:8333",
-			AccessKey: "key",
-			SecretKey: "secret",
-		},
 	})
 	if err != nil {
 		t.Fatalf("normalize runtime config: %v", err)
@@ -21,18 +16,19 @@ func TestNormalizeRuntimeConfigPrefersFilesystemWhenRootPresent(t *testing.T) {
 
 func TestNormalizeRuntimeConfigHonorsExplicitBackend(t *testing.T) {
 	cfg, err := NormalizeRuntimeConfig(RuntimeConfig{
-		Backend: BackendS3,
+		Backend: BackendFilesystem,
 		RootDir: "/tmp/arkloop-storage",
-		S3Config: S3Config{
-			Endpoint:  "http://seaweedfs:8333",
-			AccessKey: "key",
-			SecretKey: "secret",
-		},
 	})
 	if err != nil {
 		t.Fatalf("normalize runtime config: %v", err)
 	}
-	if cfg.Backend != BackendS3 {
+	if cfg.Backend != BackendFilesystem {
 		t.Fatalf("unexpected backend: %s", cfg.Backend)
+	}
+}
+
+func TestNormalizeRuntimeConfigRejectsUnsupportedBackend(t *testing.T) {
+	if _, err := NormalizeRuntimeConfig(RuntimeConfig{Backend: "s3"}); err == nil {
+		t.Fatalf("expected error for unsupported backend")
 	}
 }

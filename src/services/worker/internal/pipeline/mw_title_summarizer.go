@@ -455,7 +455,7 @@ func notifyTitleEvent(
 		slog.WarnContext(ctx, "title_thread_state_lookup_failed", "run_id", runID.String(), "err", err)
 		return
 	}
-	threadrunstate.Publish(ctx, rdb, bus, accountID, threadID)
+	threadrunstate.Publish(ctx, bus, accountID, threadID)
 }
 
 func buildTitleInput(messages []llm.Message) string {

@@ -175,11 +175,6 @@ func buildStorageBucketOpener(cfg app.Config) (objectstore.BucketOpener, error) 
 	runtimeConfig, err := objectstore.NormalizeRuntimeConfig(objectstore.RuntimeConfig{
 		Backend: cfg.StorageBackend,
 		RootDir: cfg.StorageRoot,
-		S3Config: objectstore.S3Config{
-			Endpoint:  cfg.S3Endpoint,
-			AccessKey: cfg.S3AccessKey,
-			SecretKey: cfg.S3SecretKey,
-		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("storage: %w", err)

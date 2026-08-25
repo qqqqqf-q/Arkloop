@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/redis/go-redis/v9"
 )
 
 type createThreadRequest struct {
@@ -386,7 +385,6 @@ func patchThread(
 	auditWriter *audit.Writer,
 	apiKeysRepo *data.APIKeysRepository,
 	pool data.DB,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 ) func(nethttp.ResponseWriter, *nethttp.Request, uuid.UUID) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request, threadID uuid.UUID) {
@@ -505,7 +503,7 @@ func patchThread(
 				return
 			}
 			if updated != nil {
-				threadrunstate.Publish(r.Context(), rdb, bus, updated.AccountID, updated.ID)
+				threadrunstate.Publish(r.Context(), bus, updated.AccountID, updated.ID)
 				httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
 				return
 			}
@@ -554,7 +552,7 @@ func patchThread(
 			return
 		}
 
-		threadrunstate.Publish(r.Context(), rdb, bus, updated.AccountID, updated.ID)
+		threadrunstate.Publish(r.Context(), bus, updated.AccountID, updated.ID)
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
 	}
 }
@@ -870,17 +868,16 @@ func threadEntry(
 	pool data.DB,
 	apiKeysRepo *data.APIKeysRepository,
 	runLimiter *data.RunLimiter,
-	rdb *redis.Client,
 	bus eventbus.EventBus,
 	attachmentStore messageAttachmentStore,
 	flagService *featureflag.Service,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	get := getThread(authService, membershipRepo, threadRepo, projectRepo, teamRepo, auditWriter, apiKeysRepo)
-	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo, pool, rdb, bus)
+	patch := patchThread(authService, membershipRepo, threadRepo, projectRepo, auditWriter, apiKeysRepo, pool, bus)
 	del := deleteThread(authService, membershipRepo, threadRepo, messageRepo, attachmentStore, auditWriter, apiKeysRepo)
 	createMessage := createThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService, attachmentStore)
 	listMessages := listThreadMessages(authService, membershipRepo, threadRepo, messageRepo, auditWriter, apiKeysRepo, flagService)
-	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, rdb, bus)
+	createRun := createThreadRun(authService, membershipRepo, threadRepo, auditWriter, pool, apiKeysRepo, runLimiter, bus)
 	listRuns := listThreadRuns(authService, membershipRepo, threadRepo, runRepo, auditWriter, apiKeysRepo)
 	editMessage := editThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)
 	retryMessage := retryThreadMessage(authService, membershipRepo, threadRepo, messageRepo, auditWriter, pool, apiKeysRepo)

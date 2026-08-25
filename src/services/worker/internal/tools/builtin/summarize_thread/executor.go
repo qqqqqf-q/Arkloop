@@ -109,7 +109,7 @@ func (e *ToolExecutor) Execute(
 
 	// 通过 run_events 表推送 SSE 通知
 	emitTitleEvent(ctx, e.Pool, e.RDB, execCtx.RunID, *threadID, title)
-	publishThreadState(ctx, e.Pool, e.RDB, execCtx.AccountID, *threadID)
+	publishThreadState(ctx, e.Pool, execCtx.AccountID, *threadID)
 
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
@@ -119,16 +119,16 @@ func (e *ToolExecutor) Execute(
 	}
 }
 
-func publishThreadState(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, accountID *uuid.UUID, threadID uuid.UUID) {
+func publishThreadState(ctx context.Context, pool *pgxpool.Pool, accountID *uuid.UUID, threadID uuid.UUID) {
 	if accountID != nil && *accountID != uuid.Nil {
-		threadrunstate.Publish(ctx, rdb, nil, *accountID, threadID)
+		threadrunstate.Publish(ctx, nil, *accountID, threadID)
 		return
 	}
 	var resolvedAccountID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT account_id FROM threads WHERE id = $1`, threadID).Scan(&resolvedAccountID); err != nil {
 		return
 	}
-	threadrunstate.Publish(ctx, rdb, nil, resolvedAccountID, threadID)
+	threadrunstate.Publish(ctx, nil, resolvedAccountID, threadID)
 }
 
 func emitTitleEvent(

@@ -336,7 +336,6 @@ type LiveRunPaneProps = {
   thinkingHint?: string
   visibleStreamingWidgets: StreamingArtifactEntry[]
   visibleStreamingArtifacts: StreamingArtifactEntry[]
-  injectionBlocked: string | null
   awaitingInput: boolean
   checkInDraft: string
   checkInSubmitting: boolean
@@ -385,7 +384,6 @@ const LiveRunPane = memo(function LiveRunPane({
   thinkingHint,
   visibleStreamingWidgets,
   visibleStreamingArtifacts,
-  injectionBlocked,
   awaitingInput,
   checkInDraft,
   checkInSubmitting,
@@ -566,12 +564,6 @@ const LiveRunPane = memo(function LiveRunPane({
           onAction={onArtifactAction}
         />
       ))}
-
-      {injectionBlocked && (
-        <div className="max-w-[720px] rounded-xl border-[0.5px] border-[var(--c-error-border)] bg-[var(--c-error-bg)] px-4 py-3 text-sm text-[var(--c-error-text)]">
-          {injectionBlocked}
-        </div>
-      )}
 
       {awaitingInput && (
         <div
@@ -1041,9 +1033,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     setCancelSubmitting,
     error,
     setError,
-    injectionBlocked,
-    setInjectionBlocked,
-    injectionBlockedRunIdRef,
     queuedPrompts,
     setQueuedPrompts,
     awaitingInput,
@@ -1317,8 +1306,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       setMessagesLoading(false)
     }
     setError(null)
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
 
     void (async () => {
       getThreadTodos(threadId).then((cached) => {
@@ -1820,8 +1807,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     clearCompletedTitleTail()
     resetAssistantTurnLive()
     seenFirstToolCallInRunRef.current = false
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
     setPendingThinking(false)
     setSegments([])
     activeSegmentIdRef.current = null
@@ -1861,7 +1846,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     if (!activeRunId) return
     clearCompletedTitleTail()
     freezeCutoffRef.current = null
-    injectionBlockedRunIdRef.current = null
     sseTerminalFallbackRunIdRef.current = activeRunId
     sseTerminalFallbackArmedRef.current = false
     seenFirstToolCallInRunRef.current = false
@@ -2049,8 +2033,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     setPendingThinking(true)
     setThinkingHint(hint)
     setError(null)
-    setInjectionBlocked(null)
-    injectionBlockedRunIdRef.current = null
 
     try {
       const message = await agentClient.createMessage({
@@ -2087,14 +2069,12 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
   }, [
     activateAnchor,
     agentClient,
-    injectionBlockedRunIdRef,
     invalidateMessageSync,
     onLoggedOut,
     onRunStarted,
     resetSearchSteps,
     setActiveRunId,
     setError,
-    setInjectionBlocked,
     setMessages,
     setPendingThinking,
     setQueuedPrompts,
@@ -2188,7 +2168,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     noResponseMsgIdRef.current = null
     setCancelSubmitting(true)
     setError(null)
-    setInjectionBlocked(null)
 
     try {
       await agentClient.cancelRun(activeRunId)
@@ -2214,7 +2193,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     runQueuedPrompt,
     setCancelSubmitting,
     setError,
-    setInjectionBlocked,
   ])
 
   const handleSend = useCallback(async (e: React.FormEvent<HTMLFormElement>, personaKey: string, modelOverride?: string) => {
@@ -2316,8 +2294,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
         setPendingThinking(true)
         setThinkingHint(hint)
         setError(null)
-        setInjectionBlocked(null)
-        injectionBlockedRunIdRef.current = null
         await waitForThreadModeUpdates()
         const lastMessageId = messages[messages.length - 1].id
         const forked = await forkThread(accessToken, threadId, lastMessageId, true)
@@ -2375,8 +2351,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
         setPendingThinking(true)
         setThinkingHint(hint)
         setError(null)
-        setInjectionBlocked(null)
-        injectionBlockedRunIdRef.current = null
         await waitForThreadModeUpdates()
         const forked = await forkThread(accessToken, threadId, forkAnchorMessageId)
         if (forked.id_mapping) migrateMessageMetadata(forked.id_mapping)
@@ -2417,8 +2391,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       setPendingThinking(true)
       setThinkingHint(hint)
       setError(null)
-      setInjectionBlocked(null)
-      injectionBlockedRunIdRef.current = null
       invalidateMessageSync()
       setUserEnterMessageId(localMessage.id)
       setMessages((prev) => [...prev, localMessage])
@@ -2462,7 +2434,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       if (terminalRunIdToSync && syncedMessages?.some((item) => item.role === 'assistant' && item.streamId === terminalRunIdToSync)) {
         clearThreadRunHandoff(threadId)
       }
-      injectionBlockedRunIdRef.current = null
       noResponseMsgIdRef.current = lastCreatedMessage.id
 
       await waitForThreadModeUpdates()
@@ -2513,7 +2484,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     setActiveRunId,
     setAttachments,
     setError,
-    setInjectionBlocked,
     setMessages,
     setSending,
     setPendingThinking,
@@ -3591,7 +3561,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
       thinkingHint={thinkingHint}
       visibleStreamingWidgets={visibleStreamingWidgets}
       visibleStreamingArtifacts={visibleStreamingArtifacts}
-      injectionBlocked={injectionBlocked}
       awaitingInput={awaitingInput}
       checkInDraft={checkInDraft}
       checkInSubmitting={checkInSubmitting}
@@ -3626,7 +3595,6 @@ export const ChatView = memo(function ChatView({ embeddedThreadId }: ChatViewPro
     handleArtifactAction,
     handleIncognitoDividerComplete,
     handleLiveCheckInSubmit,
-    injectionBlocked,
     isWorkMode,
     leadingLiveCop,
     liveAssistantTurn,
