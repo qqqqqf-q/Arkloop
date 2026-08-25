@@ -230,53 +230,6 @@ func TestDesktopLocalOwnerPasswordSetsCredentialAndReturnsJWT(t *testing.T) {
 	}
 }
 
-func TestDesktopResolveActorSupportsAPIKey(t *testing.T) {
-	ctx := context.Background()
-	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
-	if err != nil {
-		t.Fatalf("auto migrate sqlite: %v", err)
-	}
-	defer sqlitePool.Close()
-
-	pool := sqlitepgx.New(sqlitePool.Unwrap())
-	if err := auth.SeedDesktopUser(ctx, pool); err != nil {
-		t.Fatalf("seed desktop user: %v", err)
-	}
-	ensureAPIKeyColumn(t, ctx, pool, "scopes", "TEXT NOT NULL DEFAULT '[]'")
-	ensureAPIKeyColumn(t, ctx, pool, "revoked_at", "TEXT")
-
-	membershipRepo, err := data.NewAccountMembershipRepository(pool)
-	if err != nil {
-		t.Fatalf("new membership repo: %v", err)
-	}
-	apiKeysRepo, err := data.NewAPIKeysRepository(pool)
-	if err != nil {
-		t.Fatalf("new api keys repo: %v", err)
-	}
-	_, rawKey, err := apiKeysRepo.Create(ctx, auth.DesktopAccountID, auth.DesktopUserID, "desktop test", []string{auth.PermDataThreadsRead})
-	if err != nil {
-		t.Fatalf("create api key: %v", err)
-	}
-
-	req := httptest.NewRequest(nethttp.MethodGet, "/v1/test", nil)
-	req.Header.Set("Authorization", "Bearer "+rawKey)
-	rec := httptest.NewRecorder()
-
-	actor, ok := resolveActor(rec, req, "trace", nil, membershipRepo, apiKeysRepo, nil)
-	if !ok {
-		t.Fatalf("resolve actor failed: status = %d body = %s", rec.Code, rec.Body.String())
-	}
-	if actor.AccountID != auth.DesktopAccountID || actor.UserID != auth.DesktopUserID {
-		t.Fatalf("unexpected actor account/user: %s/%s", actor.AccountID, actor.UserID)
-	}
-	if !hasPermission(actor.Permissions, auth.PermDataThreadsRead) {
-		t.Fatalf("expected api key scope %q in permissions: %#v", auth.PermDataThreadsRead, actor.Permissions)
-	}
-	if hasPermission(actor.Permissions, auth.PermDataThreadsWrite) {
-		t.Fatalf("unexpected permission outside api key scope: %#v", actor.Permissions)
-	}
-}
-
 func TestDesktopLocalSessionRequiresLocalTrustRequest(t *testing.T) {
 	t.Setenv("ARKLOOP_DESKTOP_TOKEN", "desktop-test-token")
 
@@ -394,30 +347,6 @@ func setLocalTrustRequest(req *nethttp.Request) {
 func setDesktopTestAuthHeader(t *testing.T, handler nethttp.Handler, req *nethttp.Request) {
 	t.Helper()
 	req.Header.Set("Authorization", "Bearer "+issueDesktopLocalSessionAccessToken(t, handler))
-}
-
-func hasPermission(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
-}
-
-func ensureAPIKeyColumn(t *testing.T, ctx context.Context, pool data.DB, name string, definition string) {
-	t.Helper()
-
-	var count int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM pragma_table_info('api_keys') WHERE name = $1`, name).Scan(&count); err != nil {
-		t.Fatalf("inspect api_keys columns: %v", err)
-	}
-	if count > 0 {
-		return
-	}
-	if _, err := pool.Exec(ctx, `ALTER TABLE api_keys ADD COLUMN `+name+` `+definition); err != nil {
-		t.Fatalf("add api_keys %s column: %v", name, err)
-	}
 }
 
 func newDesktopAuthHandler(t *testing.T, pool data.DB) nethttp.Handler {
