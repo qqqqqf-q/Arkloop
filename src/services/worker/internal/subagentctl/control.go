@@ -156,7 +156,7 @@ func (s *Service) spawn(ctx context.Context, req SpawnRequest, forcedRunID *uuid
 	if err := tx.Commit(ctx); err != nil {
 		return StatusSnapshot{}, err
 	}
-	threadrunstate.Publish(ctx, s.rdb, s.eventBus, record.AccountID, record.AgentThreadID)
+	threadrunstate.Publish(ctx, s.eventBus, record.AccountID, record.AgentThreadID)
 
 	// 背压 pause 策略下延迟入队
 	var availableAt *time.Time
@@ -272,7 +272,7 @@ func (s *Service) SendInput(ctx context.Context, req SendInputRequest) (StatusSn
 		return StatusSnapshot{}, err
 	}
 	if childRunID != nil {
-		threadrunstate.Publish(ctx, s.rdb, s.eventBus, record.AccountID, record.AgentThreadID)
+		threadrunstate.Publish(ctx, s.eventBus, record.AccountID, record.AgentThreadID)
 		jobPayload := map[string]any{"sub_agent_id": record.ID.String()}
 		if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, *childRunID, s.traceID, nil, jobPayload); err != nil {
 			_ = s.projector.MarkRunFailed(context.Background(), *childRunID, "failed to enqueue child run job")
@@ -505,7 +505,7 @@ func (s *Service) Resume(ctx context.Context, req ResumeRequest) (StatusSnapshot
 	if err := tx.Commit(ctx); err != nil {
 		return StatusSnapshot{}, err
 	}
-	threadrunstate.Publish(ctx, s.rdb, s.eventBus, record.AccountID, record.AgentThreadID)
+	threadrunstate.Publish(ctx, s.eventBus, record.AccountID, record.AgentThreadID)
 	// Build job payload with subAgentID for rollout recorder lookup
 	jobPayload := map[string]any{"sub_agent_id": req.SubAgentID.String()}
 	if err := s.projector.EnqueueRun(ctx, s.parentRun.AccountID, childRunID, s.traceID, nil, jobPayload); err != nil {

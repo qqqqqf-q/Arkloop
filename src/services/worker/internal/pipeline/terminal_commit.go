@@ -91,7 +91,7 @@ func appendAndCommitSingle(
 	}
 
 	if _, ok := TerminalStatuses[ev.Type]; ok {
-		threadrunstate.Publish(ctx, rdb, bus, run.AccountID, run.ThreadID)
+		threadrunstate.Publish(ctx, bus, run.AccountID, run.ThreadID)
 	}
 
 	// Success path: release now and nil out so defer does not double-call.

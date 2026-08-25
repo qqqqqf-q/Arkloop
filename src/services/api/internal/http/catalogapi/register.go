@@ -13,7 +13,6 @@ import (
 	"arkloop/services/api/internal/plugincontrib"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type LlmProviderListAugmenter func(ctx context.Context, accountID uuid.UUID, scope string, userID uuid.UUID) ([]llmproviders.Provider, error)
@@ -25,7 +24,6 @@ type Deps struct {
 	LlmRoutesRepo                *data.LlmRoutesRepository
 	SecretsRepo                  *data.SecretsRepository
 	Pool                         data.DB
-	DirectPool                   *pgxpool.Pool
 	AsrCredentialsRepo           *data.AsrCredentialsRepository
 	MCPConfigsRepo               *data.MCPConfigsRepository
 	ProfileMCPInstallsRepo       *data.ProfileMCPInstallsRepository
@@ -82,9 +80,9 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	mux.HandleFunc("/v1/tool-catalog/effective", toolCatalogEffectiveEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.Pool, deps.EffectiveToolCatalogCache, deps.ArtifactStoreAvailable, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog", toolCatalogEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))
 	mux.HandleFunc("/v1/tool-catalog/", toolCatalogItemEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolDescriptionOverridesRepo, deps.ProjectRepo))
-	mux.HandleFunc("/v1/tool-providers", toolProvidersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.DirectPool, deps.ProjectRepo))
-	mux.HandleFunc("/v1/tool-providers/", toolProviderEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.DirectPool, deps.ProjectRepo))
-	mux.HandleFunc("/v1/tool-provider-oauth/callback", toolProviderOAuthCallbackEntry(deps.SecretsRepo, deps.Pool, deps.DirectPool))
+	mux.HandleFunc("/v1/tool-providers", toolProvidersEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.ProjectRepo))
+	mux.HandleFunc("/v1/tool-providers/", toolProviderEntry(deps.AuthService, deps.AccountMembershipRepo, deps.ToolProviderConfigsRepo, deps.SecretsRepo, deps.Pool, deps.ProjectRepo))
+	mux.HandleFunc("/v1/tool-provider-oauth/callback", toolProviderOAuthCallbackEntry(deps.SecretsRepo, deps.Pool))
 	mux.HandleFunc("/v1/skill-packages", skillPackagesEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo, deps.SkillStore))
 	mux.HandleFunc("/v1/skill-packages/", skillPackageEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.SkillPackagesRepo))
 	mux.HandleFunc("/v1/plugins", pluginsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.AuditWriter, deps.PluginPackagesRepo, deps.PluginInstaller, deps.Pool))

@@ -7,7 +7,7 @@ import (
 )
 
 func TestToolProviderOAuthCallbackAllowsXAIPreflight(t *testing.T) {
-	handler := toolProviderOAuthCallbackEntry(nil, nil, nil)
+	handler := toolProviderOAuthCallbackEntry(nil, nil)
 	req := httptest.NewRequest(nethttp.MethodOptions, "http://127.0.0.1:56121/callback", nil)
 	req.Header.Set("Origin", "https://accounts.x.ai")
 	req.Header.Set("Access-Control-Request-Private-Network", "true")
@@ -27,7 +27,7 @@ func TestToolProviderOAuthCallbackAllowsXAIPreflight(t *testing.T) {
 }
 
 func TestToolProviderOAuthCallbackRejectsUnknownPreflightOrigin(t *testing.T) {
-	handler := toolProviderOAuthCallbackEntry(nil, nil, nil)
+	handler := toolProviderOAuthCallbackEntry(nil, nil)
 	req := httptest.NewRequest(nethttp.MethodOptions, "http://127.0.0.1:56121/callback", nil)
 	req.Header.Set("Origin", "https://example.com")
 	rec := httptest.NewRecorder()

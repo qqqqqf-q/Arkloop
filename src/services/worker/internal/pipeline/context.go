@@ -67,7 +67,6 @@ type RunContext struct {
 	MemoryServiceDB data.MemoryMiddlewareDB
 	// MemorySnapshotStore 由 Execute 注入，与 NewMemoryMiddleware 共用同一快照语义。
 	MemorySnapshotStore MemorySnapshotStore
-	DirectPool          *pgxpool.Pool     // LISTEN/NOTIFY 专用直连，不走 PgBouncer；由 Execute 保证非 nil
 	BroadcastRDB        *redis.Client     // 跨实例 SSE 广播
 	EventBus            eventbus.EventBus // 进程内 SSE 通知
 	TraceID             string

@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func toolProvidersEntry(
@@ -26,7 +25,6 @@ func toolProvidersEntry(
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -46,7 +44,6 @@ func toolProviderEntry(
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -79,21 +76,21 @@ func toolProviderEntry(
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
 			}
-			activateToolProvider(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, directPool, projectRepo)
+			activateToolProvider(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, projectRepo)
 			return
 		case "deactivate":
 			if r.Method != nethttp.MethodPut {
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
 			}
-			deactivateToolProvider(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, directPool, projectRepo)
+			deactivateToolProvider(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, projectRepo)
 			return
 		case "credential":
 			switch r.Method {
 			case nethttp.MethodPut:
-				upsertToolProviderCredential(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, secretsRepo, pool, directPool, projectRepo)
+				upsertToolProviderCredential(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, secretsRepo, pool, projectRepo)
 			case nethttp.MethodDelete:
-				clearToolProviderCredential(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, secretsRepo, pool, directPool, projectRepo)
+				clearToolProviderCredential(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, secretsRepo, pool, projectRepo)
 			default:
 				httpkit.WriteMethodNotAllowed(w, r)
 			}
@@ -103,7 +100,7 @@ func toolProviderEntry(
 				httpkit.WriteMethodNotAllowed(w, r)
 				return
 			}
-			updateToolProviderConfig(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, directPool, projectRepo)
+			updateToolProviderConfig(w, r, traceID, group, provider, authService, membershipRepo, toolProvidersRepo, pool, projectRepo)
 			return
 		case "oauth":
 			switch subaction {
@@ -348,7 +345,6 @@ func activateToolProvider(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -368,11 +364,6 @@ func activateToolProvider(
 	ownerKind, ownerUserID, ok := resolveToolProviderScope(r.Context(), w, r, traceID, actor, projectRepo)
 	if !ok {
 		return
-	}
-
-	notifyPayload := "platform"
-	if ownerKind != "platform" && ownerUserID != nil {
-		notifyPayload = ownerUserID.String()
 	}
 
 	tx, err := pool.BeginTx(r.Context(), pgx.TxOptions{})
@@ -399,7 +390,6 @@ func activateToolProvider(
 		return
 	}
 
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
@@ -413,7 +403,6 @@ func deactivateToolProvider(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -440,11 +429,6 @@ func deactivateToolProvider(
 		return
 	}
 
-	notifyPayload := "platform"
-	if ownerKind != "platform" && ownerUserID != nil {
-		notifyPayload = ownerUserID.String()
-	}
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
@@ -459,7 +443,6 @@ func upsertToolProviderCredential(
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -481,11 +464,6 @@ func upsertToolProviderCredential(
 	ownerKind, ownerUserID, ok := resolveToolProviderScope(r.Context(), w, r, traceID, actor, projectRepo)
 	if !ok {
 		return
-	}
-
-	notifyPayload := "platform"
-	if ownerKind != "platform" && ownerUserID != nil {
-		notifyPayload = ownerUserID.String()
 	}
 
 	var req upsertToolProviderCredentialRequest
@@ -598,7 +576,6 @@ func upsertToolProviderCredential(
 		return
 	}
 
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
@@ -637,7 +614,6 @@ func clearToolProviderCredential(
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -696,11 +672,6 @@ func clearToolProviderCredential(
 		return
 	}
 
-	notifyPayload := "platform"
-	if ownerKind != "platform" && ownerUserID != nil {
-		notifyPayload = ownerUserID.String()
-	}
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	w.WriteHeader(nethttp.StatusNoContent)
 }
 
@@ -714,7 +685,6 @@ func updateToolProviderConfig(
 	membershipRepo *data.AccountMembershipRepository,
 	toolProvidersRepo *data.ToolProviderConfigsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 	projectRepo *data.ProjectRepository,
 ) {
 	if authService == nil {
@@ -750,10 +720,5 @@ func updateToolProviderConfig(
 		return
 	}
 
-	notifyPayload := "platform"
-	if ownerKind != "platform" && ownerUserID != nil {
-		notifyPayload = ownerUserID.String()
-	}
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	w.WriteHeader(nethttp.StatusNoContent)
 }

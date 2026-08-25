@@ -1,8 +1,6 @@
 package conversationapi
 
 import (
-	"time"
-
 	nethttp "net/http"
 
 	"arkloop/services/api/internal/audit"
@@ -11,9 +9,6 @@ import (
 	"arkloop/services/api/internal/featureflag"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 type Deps struct {
@@ -30,11 +25,8 @@ type Deps struct {
 	TeamRepo                 *data.TeamRepository
 	AuditWriter              *audit.Writer
 	Pool                     data.DB
-	DirectPool               *pgxpool.Pool
-	DirectPoolAcquireTimeout time.Duration
 	APIKeysRepo              *data.APIKeysRepository
 	RunLimiter               *data.RunLimiter
-	RedisClient              *redis.Client
 	ConfigResolver           sharedconfig.Resolver
 	SSEConfig                SSEConfig
 	EventBus                 eventbus.EventBus
@@ -58,11 +50,8 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.TeamRepo,
 			deps.RunEventRepo,
 			deps.AuditWriter,
-			deps.DirectPool,
-			deps.DirectPoolAcquireTimeout,
 			deps.SSEConfig,
 			deps.APIKeysRepo,
-			deps.RedisClient,
 			deps.EventBus,
 		),
 	)
@@ -83,7 +72,6 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.Pool,
 			deps.APIKeysRepo,
 			deps.RunLimiter,
-			deps.RedisClient,
 			deps.EventBus,
 			deps.MessageAttachmentStore,
 			deps.FlagService,
@@ -99,12 +87,9 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 			deps.RunEventRepo,
 			deps.AuditWriter,
 			deps.Pool,
-			deps.DirectPool,
-			deps.DirectPoolAcquireTimeout,
 			deps.SSEConfig,
 			deps.APIKeysRepo,
 			deps.ConfigResolver,
-			deps.RedisClient,
 			deps.EventBus,
 		),
 	)

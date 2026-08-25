@@ -825,10 +825,10 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	}
 
 	if w.hasTerminal {
-		threadrunstate.Publish(ctx, w.runLimiterRDB, w.eventBus, w.run.AccountID, w.run.ThreadID)
+		threadrunstate.Publish(ctx, w.eventBus, w.run.AccountID, w.run.ThreadID)
 
 		for _, nextRunID := range w.pendingEnqueueRunIDs {
-			publishThreadRunStateForRun(ctx, w.pool, w.runLimiterRDB, w.eventBus, nextRunID)
+			publishThreadRunStateForRun(ctx, w.pool, w.eventBus, nextRunID)
 			if w.projector == nil {
 				continue
 			}
@@ -885,7 +885,7 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	return nil
 }
 
-func publishThreadRunStateForRun(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, bus eventbus.EventBus, runID uuid.UUID) {
+func publishThreadRunStateForRun(ctx context.Context, pool *pgxpool.Pool, bus eventbus.EventBus, runID uuid.UUID) {
 	if pool == nil || runID == uuid.Nil {
 		return
 	}
@@ -895,7 +895,7 @@ func publishThreadRunStateForRun(ctx context.Context, pool *pgxpool.Pool, rdb *r
 	if err != nil {
 		return
 	}
-	threadrunstate.Publish(ctx, rdb, bus, accountID, threadID)
+	threadrunstate.Publish(ctx, bus, accountID, threadID)
 }
 
 func parseOptionalUUID(raw string) *uuid.UUID {

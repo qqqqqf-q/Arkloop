@@ -15,28 +15,20 @@ const (
 	apiGoAddrEnv            = "ARKLOOP_API_GO_ADDR"
 	databaseURLPrimaryEnv   = "ARKLOOP_DATABASE_URL"
 	databaseURLFallbackEnv  = "DATABASE_URL"
-	databaseDirectURLEnv    = "ARKLOOP_DATABASE_DIRECT_URL"
 	trustIncomingTraceIDEnv = "ARKLOOP_TRUST_INCOMING_TRACE_ID"
 	trustXForwardedForEnv   = "ARKLOOP_TRUST_X_FORWARDED_FOR"
 	defaultAddr             = "127.0.0.1:19001"
 
 	apiDBPoolMaxConnsEnv             = "ARKLOOP_API_DB_POOL_MAX_CONNS"
 	apiDBPoolMinConnsEnv             = "ARKLOOP_API_DB_POOL_MIN_CONNS"
-	apiDBDirectPoolMaxConnsEnv       = "ARKLOOP_API_DB_DIRECT_POOL_MAX_CONNS"
-	apiDBDirectPoolMinConnsEnv       = "ARKLOOP_API_DB_DIRECT_POOL_MIN_CONNS"
 	apiDBPoolStatsIntervalSecondsEnv = "ARKLOOP_API_DB_POOL_STATS_INTERVAL_SECONDS"
-	apiDirectPoolAcquireTimeoutMsEnv = "ARKLOOP_API_DIRECT_POOL_ACQUIRE_TIMEOUT_MS"
 	apiMaxInFlightEnv                = "ARKLOOP_API_MAX_IN_FLIGHT"
 
 	defaultDBPoolMaxConns             = 32
 	defaultDBPoolMinConns             = 0
-	defaultDBDirectPoolMaxConns       = 10
-	defaultDBDirectPoolMinConns       = 0
 	defaultDBPoolStatsIntervalSeconds = 10
-	defaultDirectPoolAcquireTimeoutMs = 200
 	defaultMaxInFlight                = 256
 
-	redisURLEnv                    = "ARKLOOP_REDIS_URL"
 	maxConcurrentRunsPerAccountEnv     = "ARKLOOP_MAX_CONCURRENT_RUNS_PER_ACCOUNT"
 	defaultMaxConcurrentRunsPerAccount = int64(10)
 
@@ -87,20 +79,15 @@ func defaultSSEConfig() SSEConfig {
 type Config struct {
 	Addr                       string
 	DatabaseDSN                string
-	DirectDatabaseDSN          string // SSE LISTEN/NOTIFY 专用直连，不走 PgBouncer
 	DBPoolMaxConns             int
 	DBPoolMinConns             int
-	DBDirectPoolMaxConns       int
-	DBDirectPoolMinConns       int
 	DBPoolStatsIntervalSeconds int
-	DirectPoolAcquireTimeoutMs int
 	MaxInFlight                int
 	TrustIncomingTraceID       bool
 	TrustXForwardedFor         bool
 	Auth                       *auth.Config
 	SSE                        SSEConfig
 
-	RedisURL                string
 	MaxConcurrentRunsPerAccount int64
 
 	S3Endpoint     string
@@ -127,10 +114,7 @@ func DefaultConfig() Config {
 		Addr:                       defaultAddr,
 		DBPoolMaxConns:             defaultDBPoolMaxConns,
 		DBPoolMinConns:             defaultDBPoolMinConns,
-		DBDirectPoolMaxConns:       defaultDBDirectPoolMaxConns,
-		DBDirectPoolMinConns:       defaultDBDirectPoolMinConns,
 		DBPoolStatsIntervalSeconds: defaultDBPoolStatsIntervalSeconds,
-		DirectPoolAcquireTimeoutMs: defaultDirectPoolAcquireTimeoutMs,
 		MaxInFlight:                defaultMaxInFlight,
 		SSE:                        defaultSSEConfig(),
 		MaxConcurrentRunsPerAccount: defaultMaxConcurrentRunsPerAccount,
@@ -174,10 +158,6 @@ func LoadConfigFromEnv() (Config, error) {
 		cfg.DatabaseDSN = raw
 	}
 
-	if raw, ok := lookupEnv(databaseDirectURLEnv); ok {
-		cfg.DirectDatabaseDSN = raw
-	}
-
 	if raw, ok := lookupEnv(apiDBPoolMaxConnsEnv); ok {
 		v, err := parsePositiveInt(raw)
 		if err != nil {
@@ -192,33 +172,12 @@ func LoadConfigFromEnv() (Config, error) {
 		}
 		cfg.DBPoolMinConns = v
 	}
-	if raw, ok := lookupEnv(apiDBDirectPoolMaxConnsEnv); ok {
-		v, err := parsePositiveInt(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("%s: %w", apiDBDirectPoolMaxConnsEnv, err)
-		}
-		cfg.DBDirectPoolMaxConns = v
-	}
-	if raw, ok := lookupEnv(apiDBDirectPoolMinConnsEnv); ok {
-		v, err := parseNonNegativeInt(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("%s: %w", apiDBDirectPoolMinConnsEnv, err)
-		}
-		cfg.DBDirectPoolMinConns = v
-	}
 	if raw, ok := lookupEnv(apiDBPoolStatsIntervalSecondsEnv); ok {
 		v, err := parseNonNegativeInt(raw)
 		if err != nil {
 			return Config{}, fmt.Errorf("%s: %w", apiDBPoolStatsIntervalSecondsEnv, err)
 		}
 		cfg.DBPoolStatsIntervalSeconds = v
-	}
-	if raw, ok := lookupEnv(apiDirectPoolAcquireTimeoutMsEnv); ok {
-		v, err := parseNonNegativeInt(raw)
-		if err != nil {
-			return Config{}, fmt.Errorf("%s: %w", apiDirectPoolAcquireTimeoutMsEnv, err)
-		}
-		cfg.DirectPoolAcquireTimeoutMs = v
 	}
 	if raw, ok := lookupEnv(apiMaxInFlightEnv); ok {
 		v, err := parseNonNegativeInt(raw)
@@ -234,9 +193,6 @@ func LoadConfigFromEnv() (Config, error) {
 	}
 	cfg.Auth = authConfig
 
-	if raw, ok := lookupEnv(redisURLEnv); ok {
-		cfg.RedisURL = raw
-	}
 	if raw, ok := lookupEnv(maxConcurrentRunsPerAccountEnv); ok {
 		v, err := parsePositiveInt64(raw)
 		if err != nil {
@@ -351,21 +307,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("db pool min_conns must not exceed max_conns")
 	}
 
-	if c.DBDirectPoolMaxConns <= 0 {
-		return fmt.Errorf("direct db pool max_conns must be greater than 0")
-	}
-	if c.DBDirectPoolMinConns < 0 {
-		return fmt.Errorf("direct db pool min_conns must not be negative")
-	}
-	if c.DBDirectPoolMinConns > c.DBDirectPoolMaxConns {
-		return fmt.Errorf("direct db pool min_conns must not exceed max_conns")
-	}
-
 	if c.DBPoolStatsIntervalSeconds < 0 {
 		return fmt.Errorf("db pool stats interval must not be negative")
-	}
-	if c.DirectPoolAcquireTimeoutMs < 0 {
-		return fmt.Errorf("direct pool acquire timeout must not be negative")
 	}
 	if c.MaxInFlight < 0 {
 		return fmt.Errorf("max in-flight must not be negative")

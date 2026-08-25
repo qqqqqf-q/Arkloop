@@ -24,7 +24,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -88,7 +87,6 @@ type xaiTokenResponse struct {
 func toolProviderOAuthCallbackEntry(
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 ) nethttp.HandlerFunc {
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
@@ -97,7 +95,7 @@ func toolProviderOAuthCallbackEntry(
 		case nethttp.MethodOptions:
 			w.WriteHeader(nethttp.StatusNoContent)
 		case nethttp.MethodGet, nethttp.MethodPost:
-			handleToolProviderOAuthCallback(w, r, traceID, secretsRepo, pool, directPool)
+			handleToolProviderOAuthCallback(w, r, traceID, secretsRepo, pool)
 		default:
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
@@ -162,7 +160,7 @@ func startToolProviderOAuth(
 		return
 	}
 	if redirectURI == xaiOAuthLoopbackCallback {
-		if err := ensureToolProviderOAuthLoopbackCallback(secretsRepo, pool, nil); err != nil {
+		if err := ensureToolProviderOAuthLoopbackCallback(secretsRepo, pool); err != nil {
 			httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "tool_provider_oauth.callback_unavailable", "oauth callback unavailable", traceID, nil)
 			return
 		}
@@ -288,7 +286,6 @@ func handleToolProviderOAuthCallback(
 	traceID string,
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 ) {
 	if secretsRepo == nil || pool == nil {
 		httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "database.not_configured", "database not configured", traceID, nil)
@@ -380,11 +377,6 @@ func handleToolProviderOAuthCallback(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	notifyPayload := "platform"
-	if flow.OwnerKind == "user" && flow.OwnerUserID != nil {
-		notifyPayload = flow.OwnerUserID.String()
-	}
-	notifyToolProviderChanged(r.Context(), directPool, pool, notifyPayload)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -526,7 +518,6 @@ func defaultToolProviderOAuthRedirectURI(r *nethttp.Request, clientID string) st
 func ensureToolProviderOAuthLoopbackCallback(
 	secretsRepo *data.SecretsRepository,
 	pool data.DB,
-	directPool *pgxpool.Pool,
 ) error {
 	toolProviderOAuthLoopback.mu.Lock()
 	defer toolProviderOAuthLoopback.mu.Unlock()
@@ -538,7 +529,7 @@ func ensureToolProviderOAuthLoopbackCallback(
 		return err
 	}
 	mux := nethttp.NewServeMux()
-	mux.HandleFunc("/callback", toolProviderOAuthCallbackEntry(secretsRepo, pool, directPool))
+	mux.HandleFunc("/callback", toolProviderOAuthCallbackEntry(secretsRepo, pool))
 	server := &nethttp.Server{Handler: mux}
 	toolProviderOAuthLoopback.started = true
 	go func() {
