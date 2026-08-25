@@ -131,9 +131,6 @@ cd src/services/worker && go test ./...
 
 # 前端测试
 cd src/apps/web && pnpm test
-
-# 集成 / 冒烟测试
-cd tests/smoke && go test ./...
 ```
 
 日常推荐顺序：`bin/ci-local quick` -> `bin/ci-local integration` -> `bin/ci-local act <job>`。
