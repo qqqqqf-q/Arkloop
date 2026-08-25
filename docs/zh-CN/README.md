@@ -17,7 +17,9 @@
 
 ---
 
-Arkloop 是一个注重设计的开源 AI 智能体平台。多模型路由、沙箱执行、持久记忆，一个干净的桌面应用，开箱即用
+Arkloop 是一个个人开源项目：本地优先的对话式 AI 智能体平台。多模型路由、沙箱执行、持久记忆，一个干净的桌面应用，开箱即用。
+
+一切都在本地运行。整个后端是一个单进程嵌入式运行时，数据库是 SQLite -- 不需要部署服务器，不需要维护基础设施。
 
 ## 下载
 
@@ -39,6 +41,13 @@ Homebrew 只安装 Arkloop CLI：
 brew install qqqqqf-q/arkloop/arkloop && ark web
 ```
 
+### 通过 AUR 安装 CLI（Arch Linux）
+
+```bash
+yay -S arkloop-bin    # 预编译二进制
+yay -S arkloop-git    # 从源码构建
+```
+
 在 Headless Linux 机器上，直接复制这一行：
 
 ```bash
@@ -49,17 +58,12 @@ sh -c 'set -e; arch="$(uname -m)"; case "$arch" in x86_64|amd64) arch=amd64 ;; a
 
 Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支持、工具调用、代码执行、记忆 -- 但我们关注的是把这些做得干净：
 
-- **多模型路由** -- OpenAI、Anthropic 及任何兼容接口，基于优先级自动路由和限流处理
-- **沙箱执行** -- Docker 容器中运行代码，严格资源限制
-- **持久记忆** -- 系统约束、长期事实和会话上下文跨对话保留
-- **Prompt 注入防护** -- 语义级扫描，检测并拦截注入攻击
-- **渠道接入** -- Telegram 集成，支持媒体处理和群组上下文
-- **自定义 Persona** -- 独立的系统提示词、工具集和行为配置，支持 Lua 脚本
-- **MCP / ACP** -- Model Context Protocol 和 Agent Communication Protocol 支持
-- **技能生态** -- 从 ClawHub 导入技能，兼容 OpenClaw SKILL.md 格式
-
-完整文档参见 [docs](https://arkloop.io/zh/docs/guide)。
-
+- **多模型路由** -- OpenAI、Anthropic、Gemini 及任何 OpenAI 兼容接口，自带密钥（BYOK），基于优先级自动路由
+- **Agent 运行时** -- 内建工具、MCP 服务器、ClawHub 技能；支持子 Agent 派生和定时任务
+- **沙箱执行** -- 代码在 Docker 容器中运行，带资源限制（可选模块）
+- **记忆** -- 默认纯文本 Notebook；可选 Nowledge 语义记忆；也可以整体关闭
+- **渠道接入** -- Telegram、Discord、QQ、飞书、微信机器人，与 Web 共用同一条 Agent 管道，支持定时心跳运行
+- **自定义 Persona** -- 独立的系统提示词、工具白名单、预算和执行器类型
 
 ## 贡献
 
@@ -92,31 +96,31 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 
 ## 架构
 
-| 服务 | 技术栈 | 职责 |
-|------|--------|------|
-| API | Go | 认证、RBAC、资源管理、审计日志 |
-| Gateway | Go | 反向代理、速率限制、风控评分 |
-| Worker | Go | 任务执行、LLM 路由、工具调度、Agent Loop |
-| Sandbox | Go | 代码执行隔离 |
-| Desktop | Electron + Go | 原生桌面应用，内嵌 Sidecar |
-| Web | React / TypeScript | 用户界面 |
-| Console | React / TypeScript | 管理仪表板 |
+整个后端就是一个嵌入式 Go 进程：API、Worker、Bridge 都是库，不是独立服务。存储是本地 SQLite 数据库（首次启动自动迁移）加文件系统 -- 没有 Postgres、Redis 或消息队列。
 
-基础设施：PostgreSQL、Redis、SeaweedFS（或 filesystem）。
+| 组件 | 技术栈 | 职责 |
+|------|--------|------|
+| Desktop | Electron | 原生桌面壳，内嵌 Go 运行时 |
+| Runtime | Go | 单进程：API + Worker + Bridge；SQLite、进程内事件总线 |
+| Web | React / TypeScript | 对话界面，打包进桌面应用，也由 `ark web` 直接对外提供 |
+| CLI | Go | `ark` -- 同一套运行时的 headless 入口 |
+
+可选模块（sandbox、SearXNG、Firecrawl）以 Docker 容器形式通过 compose profile 启动。
 
 ## 开发
 
 ```bash
-bin/ci-local quick        # 快速本地 CI
-bin/ci-local integration  # Go 集成测试
-bin/ci-local full          # 完整检查
+pnpm install
+cd src/apps/desktop && pnpm dev        # 桌面应用（Electron + 内嵌运行时）
+
+# 从源码以 headless 方式运行：
+cd src/apps/web && pnpm build
+go run ./src/services/cli/cmd/ark web  # 对外提供 Web 界面和本地 API
+
+bin/ci-local quick                     # 本地 CI
 ```
 
-## 自托管
-
-> 自托管部署方案尚在开发中，虽包含在当前版本中但是不保证可用性。在 Alpha 版本中我们不做这一点。我们计划在桌面版稳定后提供完整的服务端部署支持。
-
-
+完整流程参见 [CONTRIBUTING.md](../../CONTRIBUTING.md)。
 
 ## Star History
 

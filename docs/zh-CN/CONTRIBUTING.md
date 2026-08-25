@@ -13,7 +13,7 @@
 ### 本地开发环境
 
 ```bash
-git clone https://github.com/qqqqqf/Arkloop.git
+git clone https://github.com/qqqqqf-q/Arkloop.git
 cd Arkloop
 
 # Desktop 内嵌运行（进程内 SQLite），无需外部基础设施。
@@ -23,12 +23,13 @@ cd Arkloop
 cp .env.example .env
 # 编辑 .env，填入本地配置
 
-# 后端（Go 服务）
-cd src/services/api && go run . &
-cd src/services/worker && go run .
+# 桌面应用（Electron + 内嵌 Go 运行时）
+pnpm install
+cd src/apps/desktop && pnpm dev
 
-# 前端
-cd src/apps/web && pnpm install && pnpm dev
+# 或从源码以 headless 方式运行（对外提供 Web 界面和本地 API）：
+cd src/apps/web && pnpm build
+go run ./src/services/cli/cmd/ark web
 ```
 
 ### 项目结构
@@ -36,25 +37,28 @@ cd src/apps/web && pnpm install && pnpm dev
 ```
 src/
   apps/
+    desktop/      # 桌面壳（Electron）
     web/          # 用户聊天界面（React）
-    console/      # 管理仪表板（React）
-    cli/          # CLI 参考客户端
+    tui/          # 终端 UI
     shared/       # 前端共享包
   services/
-    api/          # 核心 REST API（Go）
-    gateway/      # 反向代理（Go）
-    worker/       # 任务执行引擎（Go）
+    desktop/      # 嵌入式运行时：单进程 API + Worker + Bridge
+    cli/          # ark 命令行（headless 入口）
+    api/          # 核心 REST API（Go 库）
+    worker/       # 任务执行引擎（Go 库）
+    bridge/       # 模块/容器管理（Go 库）
     sandbox/      # 代码执行沙箱（Go）
     shared/       # Go 共享库
   personas/       # 智能体 Persona 模板
-  docs/           # 技术文档（VitePress）
+  plugins/        # 内置插件
+  skills/         # 内置技能
 ```
 
 ## 如何贡献
 
 ### 报告 Bug
 
-在 [GitHub Issues](https://github.com/qqqqqf/Arkloop/issues) 提交 Issue，包含：
+在 [GitHub Issues](https://github.com/qqqqqf-q/Arkloop/issues) 提交 Issue，包含：
 
 - 复现步骤
 - 预期行为与实际行为
@@ -97,10 +101,6 @@ src/
 - 使用 TypeScript 严格模式
 - 遵循现有的 Tailwind CSS 模式
 - Lint：项目使用 ESLint 和 Prettier
-
-**Python（Worker 内部）**
-
-- 遵循 `pyproject.toml` 中定义的 Ruff 规则
 
 ### 运行测试
 
