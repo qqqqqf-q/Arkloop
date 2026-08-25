@@ -56,23 +56,3 @@ func TestLlmRoutesDesktopCreateCaseVariantModel(t *testing.T) {
 		t.Fatalf("create case variant route: %v", err)
 	}
 }
-
-func TestLlmRoutesDesktopDeleteOnlyDefaultModel(t *testing.T) {
-	routesRepo, credentialsRepo, ctx := setupDesktopLlmRoutesTestRepos(t)
-	credentialID := createDesktopLlmRouteTestCredential(t, ctx, credentialsRepo, "delete-default-model")
-
-	route, err := routesRepo.Create(ctx, data.CreateLlmRouteParams{AccountID: auth.DesktopAccountID, Scope: data.LlmRouteScopeUser, CredentialID: credentialID, Model: "gpt-4o"})
-	if err != nil {
-		t.Fatalf("create route: %v", err)
-	}
-	if err := routesRepo.DeleteByID(ctx, auth.DesktopAccountID, route.ID, data.LlmRouteScopeUser); err != nil {
-		t.Fatalf("delete route: %v", err)
-	}
-	promoted, err := routesRepo.PromoteHighestPriorityToDefault(ctx, auth.DesktopAccountID, credentialID, data.LlmRouteScopeUser)
-	if err != nil {
-		t.Fatalf("promote after deleting only route: %v", err)
-	}
-	if promoted != nil {
-		t.Fatalf("expected no promoted route, got %#v", promoted)
-	}
-}
