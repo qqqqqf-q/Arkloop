@@ -760,8 +760,6 @@ function buildBridgeEnv(bridgePort: number, projectDir: string | null): Record<s
   env.ARKLOOP_POSTGRES_PASSWORD = process.env.ARKLOOP_POSTGRES_PASSWORD ?? 'arkloop_desktop'
   env.ARKLOOP_POSTGRES_DB = process.env.ARKLOOP_POSTGRES_DB ?? 'arkloop'
   env.ARKLOOP_REDIS_PASSWORD = process.env.ARKLOOP_REDIS_PASSWORD ?? 'arkloop_redis'
-  env.ARKLOOP_S3_ACCESS_KEY = process.env.ARKLOOP_S3_ACCESS_KEY ?? 'arkloop'
-  env.ARKLOOP_S3_SECRET_KEY = process.env.ARKLOOP_S3_SECRET_KEY ?? 'arkloop_s3'
 
   return env
 }

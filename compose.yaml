@@ -44,9 +44,6 @@ services:
       ARKLOOP_SANDBOX_AUTH_TOKEN: "${ARKLOOP_SANDBOX_AUTH_TOKEN}"
       ARKLOOP_STORAGE_BACKEND: "${ARKLOOP_STORAGE_BACKEND:-filesystem}"
       ARKLOOP_STORAGE_ROOT: "${ARKLOOP_STORAGE_ROOT:-/var/lib/arkloop/storage}"
-      ARKLOOP_S3_ENDPOINT: "${ARKLOOP_S3_ENDPOINT_DOCKER:-}"
-      ARKLOOP_S3_ACCESS_KEY: "${ARKLOOP_S3_ACCESS_KEY:-}"
-      ARKLOOP_S3_SECRET_KEY: "${ARKLOOP_S3_SECRET_KEY:-}"
       DOCKER_HOST: "unix:///run/docker-host.sock"
     networks:
       - default
