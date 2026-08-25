@@ -19,7 +19,6 @@ import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 
@@ -1304,9 +1303,6 @@ func (c telegramConnector) HandleUpdate(
 		return err
 	}
 	if stageA != nil {
-		if stageA.cancelRunID != uuid.Nil {
-			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, stageA.cancelRunID.String())
-		}
 		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 			if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{
@@ -1383,11 +1379,6 @@ func telegramWebhookEntry(
 		pool:                     pool,
 		telegramClient:           telegramClient,
 		attachmentStore:          messageAttachmentStore,
-		inputNotify: func(ctx context.Context, runID uuid.UUID) {
-			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("telegram_active_run_notify_failed", "run_id", runID.String(), "error", err)
-			}
-		},
 	}
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -2072,9 +2063,6 @@ func (c telegramConnector) HandleUpdateForPoll(
 	finalState := ""
 	if stageA != nil {
 		finalState = stageA.finalState
-		if stageA.cancelRunID != uuid.Nil {
-			_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, stageA.cancelRunID.String())
-		}
 		if stageA.replyText != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
 			sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 			if _, err := c.telegramClient.SendMessage(sendCtx, token, telegrambot.SendMessageRequest{

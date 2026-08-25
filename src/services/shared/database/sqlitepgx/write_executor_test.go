@@ -1,5 +1,3 @@
-//go:build desktop
-
 package sqlitepgx
 
 import (
@@ -22,36 +20,6 @@ func (s *spyWriteExecutor) AcquireWrite(context.Context) (WriteGuard, error) {
 
 func (s *spyWriteExecutor) Count() int64 {
 	return s.calls.Load()
-}
-
-func TestPoolExec_PgNotifyIsNoopAndDoesNotSelfDeadlock(t *testing.T) {
-	t.Parallel()
-	base := openTestDB(t)
-	pool := base.WithWriteExecutor(NewSerialWriteExecutor())
-	createTestTable(t, pool)
-
-	ctx := context.Background()
-	tx, err := pool.BeginTx(ctx, pgx.TxOptions{}) // 持有全局写令牌直到提交/回滚
-	if err != nil {
-		t.Fatalf("begin tx: %v", err)
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-
-	// 修复前：持 tx 时再走 pool.Exec(pg_notify) 会再抢同一令牌 → 同 goroutine 自死锁。
-	// 修复后：pg_notify 直接空操作返回，不抢令牌、不下发 SQL。
-	done := make(chan error, 1)
-	go func() {
-		_, e := pool.Exec(ctx, "SELECT pg_notify($1, $2)", "arkloop:run_cancel", "run-id")
-		done <- e
-	}()
-	select {
-	case e := <-done:
-		if e != nil {
-			t.Fatalf("pg_notify exec should be a no-op, got error: %v", e)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("pg_notify exec self-deadlocked while a tx held the write token")
-	}
 }
 
 func TestSerialWriteExecutor_HoldStatus(t *testing.T) {

@@ -1,5 +1,3 @@
-//go:build desktop
-
 package desktop
 
 import "sync/atomic"

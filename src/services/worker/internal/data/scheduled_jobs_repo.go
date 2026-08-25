@@ -1,15 +1,13 @@
-//go:build !desktop
-
 package data
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"arkloop/services/shared/pgnotify"
+	shareddesktop "arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
@@ -17,15 +15,25 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// ScheduledJobsRepository 提供 scheduled_jobs CRUD（cloud / Postgres）。
-type ScheduledJobsRepository struct{}
+// DesktopScheduledJobsRepository 提供 desktop 侧的 scheduled_jobs CRUD（SQLite）。
+type DesktopScheduledJobsRepository struct{}
 
-type scheduledJobsQuerier interface {
+type desktopScheduledJobsQuerier interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func (ScheduledJobsRepository) ListByAccount(
+// GetJobByID 按 ID 加载 job 定义。
+func (DesktopScheduledJobsRepository) GetJobByID(
+	ctx context.Context,
+	db DB,
+	id uuid.UUID,
+) (*ScheduledJob, error) {
+	return desktopGetJobByID(ctx, db, id)
+}
+
+// ListByAccount 列出 account 下所有 job，附带 trigger 的 next_fire_at。
+func (DesktopScheduledJobsRepository) ListByAccount(
 	ctx context.Context,
 	db DB,
 	accountID uuid.UUID,
@@ -41,37 +49,55 @@ func (ScheduledJobsRepository) ListByAccount(
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
 		 WHERE j.account_id = $1
-		 ORDER BY j.created_at DESC`, accountID)
+		 ORDER BY j.created_at DESC`, accountID.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list scheduled_jobs: %w", err)
 	}
 	defer rows.Close()
 
 	var out []ScheduledJobWithTrigger
 	for rows.Next() {
 		var r ScheduledJobWithTrigger
+		var idStr, accountStr string
+		var threadIDStr, createdByStr *string
+		var nextFireAt *time.Time
 		if err := rows.Scan(
-			&r.ID, &r.AccountID, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
-			&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
+			&idStr, &accountStr, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
+			&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 			&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
-			&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+			&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 			&r.FireAt, &r.CronExpr,
 			&r.DeleteAfterRun, &r.ReasoningMode, &r.Timeout,
-			&r.NextFireAt,
+			&nextFireAt,
 		); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan scheduled_jobs: %w", err)
 		}
+		r.ID, _ = uuid.Parse(idStr)
+		r.AccountID, _ = uuid.Parse(accountStr)
+		if threadIDStr != nil {
+			parsed, _ := uuid.Parse(*threadIDStr)
+			r.ThreadID = &parsed
+		}
+		if createdByStr != nil {
+			parsed, _ := uuid.Parse(*createdByStr)
+			r.CreatedByUserID = &parsed
+		}
+		r.NextFireAt = nextFireAt
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-func (ScheduledJobsRepository) GetByID(
+// GetByID 按 ID + accountID 获取 job，附带 trigger。
+func (DesktopScheduledJobsRepository) GetByID(
 	ctx context.Context,
 	db DB,
 	id, accountID uuid.UUID,
 ) (*ScheduledJobWithTrigger, error) {
 	var r ScheduledJobWithTrigger
+	var idStr, accountStr string
+	var threadIDStr, createdByStr *string
+	var nextFireAt *time.Time
 	err := db.QueryRow(ctx, `
 		SELECT j.id, j.account_id, j.name, j.description, j.persona_key, j.prompt,
 		       j.model, j.workspace_ref, j.work_dir, j.thread_id, j.schedule_kind,
@@ -82,32 +108,44 @@ func (ScheduledJobsRepository) GetByID(
 		       t.next_fire_at
 		  FROM scheduled_jobs j
 		  LEFT JOIN scheduled_triggers t ON t.job_id = j.id
-		 WHERE j.id = $1 AND j.account_id = $2`, id, accountID,
+		 WHERE j.id = $1 AND j.account_id = $2`, id.String(), accountID.String(),
 	).Scan(
-		&r.ID, &r.AccountID, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
-		&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
+		&idStr, &accountStr, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
+		&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
-		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
 		&r.DeleteAfterRun, &r.ReasoningMode, &r.Timeout,
-		&r.NextFireAt,
+		&nextFireAt,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("get scheduled_job: %w", err)
 	}
+	r.ID, _ = uuid.Parse(idStr)
+	r.AccountID, _ = uuid.Parse(accountStr)
+	if threadIDStr != nil {
+		parsed, _ := uuid.Parse(*threadIDStr)
+		r.ThreadID = &parsed
+	}
+	if createdByStr != nil {
+		parsed, _ := uuid.Parse(*createdByStr)
+		r.CreatedByUserID = &parsed
+	}
+	r.NextFireAt = nextFireAt
 	return &r, nil
 }
 
-func (ScheduledJobsRepository) CreateJob(
+// CreateJob 创建 scheduled_job 并插入对应 trigger。
+func (DesktopScheduledJobsRepository) CreateJob(
 	ctx context.Context,
 	db DB,
 	job ScheduledJob,
 ) (created ScheduledJob, err error) {
 	if job.AccountID == uuid.Nil {
-		return ScheduledJob{}, errors.New("account_id must not be empty")
+		return ScheduledJob{}, fmt.Errorf("account_id must not be empty")
 	}
 	if err := validateScheduledJob(job); err != nil {
 		return ScheduledJob{}, err
@@ -119,28 +157,43 @@ func (ScheduledJobsRepository) CreateJob(
 	}
 	defer finishScheduledJobsTx(ctx, tx, &err)
 
-	err = tx.QueryRow(ctx, `
+	now := time.Now().UTC()
+	job.CreatedAt = now
+	job.UpdatedAt = now
+
+	var threadIDStr *string
+	if job.ThreadID != nil {
+		s := job.ThreadID.String()
+		threadIDStr = &s
+	}
+	var createdByStr *string
+	if job.CreatedByUserID != nil {
+		s := job.CreatedByUserID.String()
+		createdByStr = &s
+	}
+
+	_, err = tx.Exec(ctx, `
 		INSERT INTO scheduled_jobs
 		    (id, account_id, name, description, persona_key, prompt, model,
 		     workspace_ref, work_dir, thread_id, schedule_kind, interval_min,
 		     daily_time, monthly_day, monthly_time, weekly_day, timezone, enabled, created_by_user_id,
 		     fire_at, cron_expr, delete_after_run, reasoning_mode, timeout_seconds,
 		     created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,now(),now())
-		RETURNING id, created_at, updated_at`,
-		job.ID, job.AccountID, job.Name, job.Description, job.PersonaKey, job.Prompt,
-		job.Model, job.WorkspaceRef, job.WorkDir, job.ThreadID, job.ScheduleKind,
-		job.IntervalMin, job.DailyTime, job.MonthlyDay, job.MonthlyTime, job.WeeklyDay,
-		job.Timezone, job.Enabled, job.CreatedByUserID,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
+		job.ID.String(), job.AccountID.String(), job.Name, job.Description,
+		job.PersonaKey, job.Prompt, job.Model, job.WorkspaceRef, job.WorkDir,
+		threadIDStr, job.ScheduleKind, job.IntervalMin, job.DailyTime,
+		job.MonthlyDay, job.MonthlyTime, job.WeeklyDay, job.Timezone, job.Enabled, createdByStr,
 		job.FireAt, job.CronExpr,
 		job.DeleteAfterRun, job.ReasoningMode, job.Timeout,
-	).Scan(&job.ID, &job.CreatedAt, &job.UpdatedAt)
+		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
+	)
 	if err != nil {
 		return ScheduledJob{}, fmt.Errorf("insert scheduled_jobs: %w", err)
 	}
 
 	if job.Enabled {
-		if err := insertJobTrigger(ctx, tx, job); err != nil {
+		if err := desktopInsertJobTrigger(ctx, tx, job); err != nil {
 			return ScheduledJob{}, err
 		}
 	}
@@ -148,7 +201,8 @@ func (ScheduledJobsRepository) CreateJob(
 	return job, nil
 }
 
-func (ScheduledJobsRepository) UpdateJob(
+// UpdateJob 部分更新 scheduled_job。
+func (DesktopScheduledJobsRepository) UpdateJob(
 	ctx context.Context,
 	db DB,
 	id, accountID uuid.UUID,
@@ -170,7 +224,7 @@ func (ScheduledJobsRepository) UpdateJob(
 	}
 	defer finishScheduledJobsTx(ctx, tx, &err)
 
-	current, err := getJobByID(ctx, tx, id)
+	current, err := desktopGetJobByID(ctx, tx, id)
 	if err != nil {
 		return err
 	}
@@ -232,7 +286,12 @@ func (ScheduledJobsRepository) UpdateJob(
 		addSet("enabled", *upd.Enabled)
 	}
 	if upd.ThreadID != nil {
-		addSet("thread_id", *upd.ThreadID)
+		var v *string
+		if *upd.ThreadID != nil {
+			s := (*upd.ThreadID).String()
+			v = &s
+		}
+		addSet("thread_id", v)
 	}
 	if upd.FireAt != nil {
 		addSet("fire_at", *upd.FireAt)
@@ -262,32 +321,32 @@ func (ScheduledJobsRepository) UpdateJob(
 		}
 	}
 
-	addSet("updated_at", time.Now().UTC())
+	addSet("updated_at", time.Now().UTC().Format(time.RFC3339Nano))
 
 	whereID := fmt.Sprintf("$%d", argIdx)
-	args = append(args, id)
+	args = append(args, id.String())
 	argIdx++
 	whereAccount := fmt.Sprintf("$%d", argIdx)
-	args = append(args, accountID)
+	args = append(args, accountID.String())
 
 	sql := fmt.Sprintf("UPDATE scheduled_jobs SET %s WHERE id = %s AND account_id = %s",
 		strings.Join(setClauses, ", "), whereID, whereAccount)
 
-	cmd, err := tx.Exec(ctx, sql, args...)
+	tag, err := tx.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("update scheduled_jobs: %w", err)
 	}
-	if cmd.RowsAffected() == 0 {
+	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("scheduled_job %s not found", id)
 	}
 
 	// enabled 切换
 	if upd.Enabled != nil && !*upd.Enabled {
-		_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id)
+		_, err := tx.Exec(ctx, `DELETE FROM scheduled_triggers WHERE job_id = $1`, id.String())
 		return err
 	}
 	if upd.Enabled != nil && *upd.Enabled {
-		return insertJobTrigger(ctx, tx, next)
+		return desktopInsertJobTrigger(ctx, tx, next)
 	}
 
 	// schedule 参数变更，重算 next_fire_at
@@ -295,30 +354,38 @@ func (ScheduledJobsRepository) UpdateJob(
 		if !next.Enabled {
 			return nil
 		}
-		nextFire, err := calcJobNextFire(next)
+		nextFire, err := desktopCalcJobNextFire(next)
 		if err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `
-			UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = now() WHERE job_id = $2`,
-			nextFire, id)
+			UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = $2 WHERE job_id = $3`,
+			nextFire.Format(time.RFC3339Nano),
+			time.Now().UTC().Format(time.RFC3339Nano),
+			id.String())
 		return err
 	}
 
 	return nil
 }
 
-func (ScheduledJobsRepository) DeleteJob(
+// DeleteJob 删除 scheduled_job（trigger 由 ON DELETE CASCADE 或手动删除）。
+func (DesktopScheduledJobsRepository) DeleteJob(
 	ctx context.Context,
 	db DB,
 	id, accountID uuid.UUID,
 ) error {
-	cmd, err := db.Exec(ctx,
-		`DELETE FROM scheduled_jobs WHERE id = $1 AND account_id = $2`, id, accountID)
-	if err != nil {
-		return err
+	// 先删 trigger
+	if _, err := db.Exec(ctx,
+		`DELETE FROM scheduled_triggers WHERE job_id = $1`, id.String()); err != nil {
+		return fmt.Errorf("delete job trigger: %w", err)
 	}
-	if cmd.RowsAffected() == 0 {
+	tag, err := db.Exec(ctx,
+		`DELETE FROM scheduled_jobs WHERE id = $1 AND account_id = $2`, id.String(), accountID.String())
+	if err != nil {
+		return fmt.Errorf("delete scheduled_job: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("scheduled_job %s not found", id)
 	}
 	return nil
@@ -326,8 +393,10 @@ func (ScheduledJobsRepository) DeleteJob(
 
 // -- internal helpers --
 
-func getJobByID(ctx context.Context, db scheduledJobsQuerier, id uuid.UUID) (*ScheduledJob, error) {
+func desktopGetJobByID(ctx context.Context, db desktopScheduledJobsQuerier, id uuid.UUID) (*ScheduledJob, error) {
 	var r ScheduledJob
+	var idStr, accountStr string
+	var threadIDStr, createdByStr *string
 	err := db.QueryRow(ctx, `
 		SELECT id, account_id, name, description, persona_key, prompt,
 		       model, workspace_ref, work_dir, thread_id, schedule_kind,
@@ -336,44 +405,58 @@ func getJobByID(ctx context.Context, db scheduledJobsQuerier, id uuid.UUID) (*Sc
 		       fire_at, cron_expr,
 		       delete_after_run, reasoning_mode, timeout_seconds
 		  FROM scheduled_jobs
-		 WHERE id = $1`, id,
+		 WHERE id = $1`, id.String(),
 	).Scan(
-		&r.ID, &r.AccountID, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
-		&r.Model, &r.WorkspaceRef, &r.WorkDir, &r.ThreadID, &r.ScheduleKind,
+		&idStr, &accountStr, &r.Name, &r.Description, &r.PersonaKey, &r.Prompt,
+		&r.Model, &r.WorkspaceRef, &r.WorkDir, &threadIDStr, &r.ScheduleKind,
 		&r.IntervalMin, &r.DailyTime, &r.MonthlyDay, &r.MonthlyTime, &r.WeeklyDay, &r.Timezone,
-		&r.Enabled, &r.CreatedByUserID, &r.CreatedAt, &r.UpdatedAt,
+		&r.Enabled, &createdByStr, &r.CreatedAt, &r.UpdatedAt,
 		&r.FireAt, &r.CronExpr,
 		&r.DeleteAfterRun, &r.ReasoningMode, &r.Timeout,
 	)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("get scheduled_job by id: %w", err)
+	}
+	r.ID, _ = uuid.Parse(idStr)
+	r.AccountID, _ = uuid.Parse(accountStr)
+	if threadIDStr != nil {
+		parsed, _ := uuid.Parse(*threadIDStr)
+		r.ThreadID = &parsed
+	}
+	if createdByStr != nil {
+		parsed, _ := uuid.Parse(*createdByStr)
+		r.CreatedByUserID = &parsed
 	}
 	return &r, nil
 }
 
-func insertJobTrigger(ctx context.Context, db scheduledJobsQuerier, job ScheduledJob) error {
-	nextFire, err := calcJobNextFire(job)
+func desktopInsertJobTrigger(ctx context.Context, db desktopScheduledJobsQuerier, job ScheduledJob) error {
+	nextFire, err := desktopCalcJobNextFire(job)
 	if err != nil {
 		return fmt.Errorf("calc next fire: %w", err)
 	}
 	triggerID := uuid.New()
+	now := time.Now().UTC()
 	_, err = db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
 		    (id, trigger_kind, job_id, channel_id, channel_identity_id,
 		     persona_key, account_id, model, interval_min, next_fire_at, created_at, updated_at)
-		VALUES ($1, 'job', $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+		VALUES ($1, 'job', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (job_id) WHERE job_id IS NOT NULL DO UPDATE
 		    SET next_fire_at = excluded.next_fire_at,
 		        persona_key  = excluded.persona_key,
 		        model        = excluded.model,
 		        interval_min = excluded.interval_min,
-		        updated_at   = now()`,
-		triggerID, job.ID, uuid.Nil, uuid.Nil,
-		job.PersonaKey, job.AccountID, job.Model, derefIntOr(job.IntervalMin, 0),
-		nextFire,
+		        updated_at   = excluded.updated_at`,
+		triggerID.String(), job.ID.String(),
+		uuid.Nil.String(), uuid.Nil.String(),
+		job.PersonaKey, job.AccountID.String(), job.Model,
+		desktopDerefIntOr(job.IntervalMin, 0),
+		nextFire.Format(time.RFC3339Nano),
+		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("insert job trigger: %w", err)
@@ -381,15 +464,15 @@ func insertJobTrigger(ctx context.Context, db scheduledJobsQuerier, job Schedule
 	return nil
 }
 
-func calcJobNextFire(job ScheduledJob) (time.Time, error) {
+func desktopCalcJobNextFire(job ScheduledJob) (time.Time, error) {
 	return schedulekind.CalcNextFire(
 		job.ScheduleKind,
-		derefIntOr(job.IntervalMin, 0),
+		desktopDerefIntOr(job.IntervalMin, 0),
 		job.DailyTime,
-		derefIntOr(job.MonthlyDay, 1),
+		desktopDerefIntOr(job.MonthlyDay, 1),
 		job.MonthlyTime,
-		derefIntOr(job.WeeklyDay, 0),
-		derefTime(job.FireAt),
+		desktopDerefIntOr(job.WeeklyDay, 0),
+		desktopDerefTime(job.FireAt),
 		job.CronExpr,
 		job.Timezone,
 		time.Now().UTC(),
@@ -497,14 +580,14 @@ func normalizeScheduledJobsTimezone(tz string) string {
 	return tz
 }
 
-func derefIntOr(p *int, def int) int {
+func desktopDerefIntOr(p *int, def int) int {
 	if p != nil {
 		return *p
 	}
 	return def
 }
 
-func derefTime(t *time.Time) time.Time {
+func desktopDerefTime(t *time.Time) time.Time {
 	if t == nil {
 		return time.Time{}
 	}
@@ -520,8 +603,8 @@ func finishScheduledJobsTx(ctx context.Context, tx pgx.Tx, errp *error) {
 }
 
 // SetTriggerFireNow schedules the trigger for immediate firing.
-func (ScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db DB, jobID uuid.UUID) error {
-	tag, err := db.Exec(ctx, `UPDATE scheduled_triggers SET next_fire_at = NOW() WHERE job_id = $1`, jobID)
+func (DesktopScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db DB, jobID uuid.UUID) error {
+	tag, err := db.Exec(ctx, `UPDATE scheduled_triggers SET next_fire_at = datetime('now') WHERE job_id = $1`, jobID.String())
 	if err != nil {
 		return fmt.Errorf("set trigger fire now: %w", err)
 	}
@@ -531,20 +614,23 @@ func (ScheduledJobsRepository) SetTriggerFireNow(ctx context.Context, db DB, job
 	return nil
 }
 
-// NotifyScheduler sends a pg_notify wake-up signal.
-func (ScheduledJobsRepository) NotifyScheduler(ctx context.Context, db DB) error {
-	_, err := db.Exec(ctx, `SELECT pg_notify($1, '')`, pgnotify.ChannelScheduledJobs)
-	return err
+// NotifyScheduler wakes the desktop scheduler through the shared in-process event bus.
+func (DesktopScheduledJobsRepository) NotifyScheduler(ctx context.Context, _ DB) error {
+	bus, ok := shareddesktop.GetEventBus().(eventbus.EventBus)
+	if !ok || bus == nil {
+		return nil
+	}
+	return bus.Publish(ctx, eventbus.TopicScheduledJobs, "")
 }
 
 // ListRunsByJobID returns the most recent runs for a scheduled job.
-func (ScheduledJobsRepository) ListRunsByJobID(ctx context.Context, db DB, jobID uuid.UUID, limit int) ([]map[string]any, error) {
+func (DesktopScheduledJobsRepository) ListRunsByJobID(ctx context.Context, db DB, jobID uuid.UUID, limit int) ([]map[string]any, error) {
 	rows, err := db.Query(ctx, `
 		SELECT r.id, r.status, r.created_at, r.status_updated_at
 		  FROM runs r
 		  JOIN run_events e ON e.run_id = r.id
 		 WHERE e.type = 'run.started'
-		   AND e.data_json->>'scheduled_job_id' = $1
+		   AND json_extract(e.data_json, '$.scheduled_job_id') = $1
 		 ORDER BY r.created_at DESC
 		 LIMIT $2`, jobID.String(), limit)
 	if err != nil {
@@ -554,8 +640,7 @@ func (ScheduledJobsRepository) ListRunsByJobID(ctx context.Context, db DB, jobID
 
 	var out []map[string]any
 	for rows.Next() {
-		var id string
-		var status string
+		var id, status string
 		var createdAt time.Time
 		var updatedAt *time.Time
 		if err := rows.Scan(&id, &status, &createdAt, &updatedAt); err != nil {

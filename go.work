@@ -6,9 +6,7 @@ use (
 	./src/services/bridge
 	./src/services/cli
 	./src/services/desktop
-	./src/services/plugin-registry
 	./src/services/sandbox
 	./src/services/shared
 	./src/services/worker
-	./tests/smoke
 )

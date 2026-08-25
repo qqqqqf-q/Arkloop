@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -25,8 +23,8 @@ func (UsageRecordsRepository) Insert(
 ) error {
 	tag, err := tx.Exec(
 		ctx,
-		`INSERT INTO usage_records (account_id, run_id, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cached_tokens, cost_usd, usage_type)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'llm')
+		`INSERT INTO usage_records (account_id, run_id, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cached_tokens, cost_usd, usage_type, feature_key, quantity)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'llm', 'worker.llm', 1)
 		 ON CONFLICT (run_id, usage_type) DO UPDATE
 		   SET model                = EXCLUDED.model,
 		       input_tokens         = EXCLUDED.input_tokens,

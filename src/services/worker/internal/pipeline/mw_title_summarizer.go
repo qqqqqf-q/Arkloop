@@ -442,11 +442,6 @@ func notifyTitleEvent(
 		if err := bus.Publish(ctx, channel, ""); err != nil {
 			slog.WarnContext(ctx, "title_event_bus_publish_failed", "channel", channel, "err", err)
 		}
-	} else {
-		pgChannel := fmt.Sprintf(`"%s"`, channel)
-		if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping"); err != nil {
-			slog.WarnContext(ctx, "title_pg_notify_failed", "channel", channel, "err", err)
-		}
 	}
 	if rdb != nil {
 		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
@@ -460,7 +455,7 @@ func notifyTitleEvent(
 		slog.WarnContext(ctx, "title_thread_state_lookup_failed", "run_id", runID.String(), "err", err)
 		return
 	}
-	threadrunstate.Publish(ctx, pool, rdb, bus, accountID, threadID)
+	threadrunstate.Publish(ctx, rdb, bus, accountID, threadID)
 }
 
 func buildTitleInput(messages []llm.Message) string {

@@ -1,19 +1,21 @@
-//go:build !desktop
-
 package toolprovider
 
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	"arkloop/services/shared/desktop"
+	sharedencryption "arkloop/services/shared/encryption"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
-	workerCrypto "arkloop/services/worker/internal/crypto"
+	"arkloop/services/worker/internal/data"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// ActiveProviderConfig matches SaaS toolprovider for RunContext injection.
 type ActiveProviderConfig struct {
 	OwnerKind          string
 	OwnerUserID        *uuid.UUID
@@ -30,31 +32,36 @@ type ActiveProviderConfig struct {
 	ConfigJSON         map[string]any
 }
 
-func LoadActiveUserProviders(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) ([]ActiveProviderConfig, error) {
-	if ctx == nil {
-		ctx = context.Background()
+func ToRuntimeProviderConfig(cfg ActiveProviderConfig) sharedtoolruntime.ProviderConfig {
+	return sharedtoolruntime.ProviderConfig{
+		GroupName:    strings.TrimSpace(cfg.GroupName),
+		ProviderName: strings.TrimSpace(cfg.ProviderName),
+		BaseURL:      cfg.BaseURL,
+		APIKeyValue:  cfg.APIKeyValue,
+		OAuthValue:   cfg.OAuthValue,
+		ConfigJSON:   copyJSONMapDesktop(cfg.ConfigJSON),
 	}
-	if pool == nil {
-		return nil, nil
+}
+
+func copyJSONMapDesktop(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
 	}
-	if userID == uuid.Nil {
-		return nil, fmt.Errorf("user_id must not be empty")
+	out := make(map[string]any, len(src))
+	for k, v := range src {
+		out[k] = v
 	}
-	statuses, err := sharedtoolruntime.LoadUserProviderStatuses(ctx, pool, userID, decryptPlatformProviderSecret)
-	if err != nil {
-		return nil, err
-	}
-	refreshXAIProviderOAuthStatuses(ctx, pool, statuses, encryptProviderSecret)
-	return activeConfigsFromStatuses(statuses), nil
+	return out
 }
 
 func LoadActivePlatformProviders(ctx context.Context, pool *pgxpool.Pool) ([]ActiveProviderConfig, error) {
-	statuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, pool, decryptPlatformProviderSecret)
-	if err != nil {
-		return nil, err
-	}
-	refreshXAIProviderOAuthStatuses(ctx, pool, statuses, encryptProviderSecret)
-	return activeConfigsFromStatuses(statuses), nil
+	_ = ctx
+	_ = pool
+	return nil, nil
+}
+
+func LoadActiveUserProviders(_ context.Context, _ *pgxpool.Pool, _ uuid.UUID) ([]ActiveProviderConfig, error) {
+	return nil, nil
 }
 
 func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatus) []ActiveProviderConfig {
@@ -82,50 +89,75 @@ func activeConfigsFromStatuses(statuses []sharedtoolruntime.ProviderRuntimeStatu
 	return out
 }
 
-func decryptPlatformProviderSecret(ctx context.Context, encrypted string, keyVersion *int, providerName string) (*string, error) {
-	_ = ctx
-	if keyVersion == nil {
-		return nil, fmt.Errorf("tool_provider_configs decrypt: missing key version for %s", providerName)
+// LoadDesktopActiveToolProviders returns active platform rows from SQLite.
+func LoadDesktopActiveToolProviders(ctx context.Context, db data.DesktopDB) ([]ActiveProviderConfig, error) {
+	if db == nil {
+		return nil, nil
 	}
-	plainBytes, err := workerCrypto.DecryptGCM(encrypted)
-	if err != nil {
-		return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)
-	}
-	plaintext := string(plainBytes)
-	return &plaintext, nil
-}
 
-func encryptProviderSecret(plaintext string) (string, int, error) {
-	return workerCrypto.EncryptWithCurrentKey([]byte(plaintext))
+	var keyRing *sharedencryption.KeyRing
+	decrypt := func(_ context.Context, encrypted string, keyVersion *int, _ string) (*string, error) {
+		if keyVersion == nil {
+			return nil, fmt.Errorf("missing key version")
+		}
+		if keyRing == nil {
+			ring, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
+			if err != nil {
+				return nil, err
+			}
+			keyRing = ring
+		}
+		plain, err := keyRing.Decrypt(encrypted, *keyVersion)
+		if err != nil {
+			return nil, err
+		}
+		value := string(plain)
+		return &value, nil
+	}
+
+	platformStatuses, err := sharedtoolruntime.LoadPlatformProviderStatuses(ctx, db, decrypt)
+	if err != nil {
+		return nil, err
+	}
+	refreshXAIProviderOAuthStatuses(ctx, db, platformStatuses, func(plaintext string) (string, int, error) {
+		if keyRing == nil {
+			ring, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
+			if err != nil {
+				return "", 0, err
+			}
+			keyRing = ring
+		}
+		return keyRing.Encrypt([]byte(plaintext))
+	})
+	return activeConfigsFromStatuses(platformStatuses), nil
 }
 
 func refreshXAIProviderOAuthStatuses(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	db data.DesktopDB,
 	statuses []sharedtoolruntime.ProviderRuntimeStatus,
 	encrypt encryptProviderToken,
 ) {
-	if pool == nil {
+	if db == nil {
 		return
 	}
 	refreshXAIProviderOAuthStatusesCore(ctx, statuses, encrypt, func(ctx context.Context, status sharedtoolruntime.ProviderRuntimeStatus, encrypted string, keyVersion int, expiresAt *time.Time) error {
 		if status.OAuthTokenSecretID == nil {
 			return fmt.Errorf("oauth token secret id is missing")
 		}
-		_, err := pool.Exec(ctx, `
+		if _, err := db.Exec(ctx, `
 UPDATE secrets
-   SET encrypted_value = $2, key_version = $3, updated_at = now()
+   SET encrypted_value = $2, key_version = $3, updated_at = CURRENT_TIMESTAMP
  WHERE id = $1`,
-			*status.OAuthTokenSecretID, encrypted, keyVersion,
-		)
-		if err != nil {
+			status.OAuthTokenSecretID.String(), encrypted, keyVersion,
+		); err != nil {
 			return err
 		}
-		_, err = pool.Exec(ctx, `
+		_, err := db.Exec(ctx, `
 UPDATE tool_provider_oauth_connections
-   SET expires_at = $2, updated_at = now()
+   SET expires_at = $2, updated_at = CURRENT_TIMESTAMP
  WHERE token_secret_id = $1`,
-			*status.OAuthTokenSecretID, expiresAt,
+			status.OAuthTokenSecretID.String(), expiresAt,
 		)
 		return err
 	})

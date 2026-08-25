@@ -1,17 +1,15 @@
-//go:build !desktop
-
 package catalogapi
 
 import (
 	"context"
 	"fmt"
 
-	sharedencryption "arkloop/services/shared/encryption"
+	"arkloop/services/shared/desktop"
 	sharedtoolruntime "arkloop/services/shared/toolruntime"
 )
 
 func toolProviderSecretDecrypter() sharedtoolruntime.ProviderSecretDecrypter {
-	keyRing, err := sharedencryption.NewKeyRingFromEnv()
+	keyRing, err := desktop.LoadEncryptionKeyRing(desktop.KeyRingOptions{})
 	if err != nil {
 		return func(_ context.Context, _ string, _ *int, _ string) (*string, error) {
 			return nil, fmt.Errorf("tool_provider_configs decrypt: %w", err)

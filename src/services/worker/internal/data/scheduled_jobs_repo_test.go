@@ -1,13 +1,13 @@
-//go:build !desktop
-
 package data
 
 import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
-	"arkloop/services/shared/pgnotify"
+	shareddesktop "arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
@@ -15,25 +15,37 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-func TestScheduledJobsRepositoryNotifySchedulerUsesScheduledJobsChannel(t *testing.T) {
-	db := &notifyDBStub{}
+func TestDesktopScheduledJobsRepositoryNotifySchedulerPublishesWakeEvent(t *testing.T) {
+	ctx := context.Background()
+	bus := eventbus.NewLocalEventBus()
+	defer bus.Close()
 
-	err := ScheduledJobsRepository{}.NotifyScheduler(context.Background(), db)
+	previous := shareddesktop.GetEventBus()
+	shareddesktop.SetEventBus(bus)
+	defer shareddesktop.SetEventBus(previous)
+
+	sub, err := bus.Subscribe(ctx, eventbus.TopicScheduledJobs)
+	if err != nil {
+		t.Fatalf("subscribe scheduled jobs: %v", err)
+	}
+	defer sub.Close()
+
+	err = DesktopScheduledJobsRepository{}.NotifyScheduler(ctx, nil)
 	if err != nil {
 		t.Fatalf("notify scheduler: %v", err)
 	}
-	if db.execSQL != `SELECT pg_notify($1, '')` {
-		t.Fatalf("exec sql = %q, want %q", db.execSQL, `SELECT pg_notify($1, '')`)
-	}
-	if len(db.execArgs) != 1 {
-		t.Fatalf("exec args len = %d, want 1", len(db.execArgs))
-	}
-	if got := db.execArgs[0]; got != pgnotify.ChannelScheduledJobs {
-		t.Fatalf("notify channel = %v, want %q", got, pgnotify.ChannelScheduledJobs)
+
+	select {
+	case msg := <-sub.Channel():
+		if msg.Topic != eventbus.TopicScheduledJobs {
+			t.Fatalf("message topic = %q, want %q", msg.Topic, eventbus.TopicScheduledJobs)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected scheduled jobs wake event")
 	}
 }
 
-func TestScheduledJobsRepositoryCreateRejectsDeleteAfterRunForNonAt(t *testing.T) {
+func TestDesktopScheduledJobsRepositoryCreateRejectsDeleteAfterRunForNonAt(t *testing.T) {
 	job := ScheduledJob{
 		ID:             uuid.New(),
 		AccountID:      uuid.New(),
@@ -41,13 +53,13 @@ func TestScheduledJobsRepositoryCreateRejectsDeleteAfterRunForNonAt(t *testing.T
 		PersonaKey:     "assistant",
 		Prompt:         "run it",
 		ScheduleKind:   schedulekind.Interval,
-		IntervalMin:    intPtr(5),
+		IntervalMin:    desktopIntPtr(5),
 		DeleteAfterRun: true,
 		Enabled:        true,
 		Timezone:       "UTC",
 	}
 
-	_, err := ScheduledJobsRepository{}.CreateJob(context.Background(), &notifyDBStub{}, job)
+	_, err := DesktopScheduledJobsRepository{}.CreateJob(context.Background(), nilDB{}, job)
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -56,7 +68,7 @@ func TestScheduledJobsRepositoryCreateRejectsDeleteAfterRunForNonAt(t *testing.T
 	}
 }
 
-func TestApplyJobUpdateCopiesMutableExecutionFields(t *testing.T) {
+func TestDesktopApplyJobUpdateCopiesMutableExecutionFields(t *testing.T) {
 	job := ScheduledJob{
 		Name:       "before",
 		Prompt:     "before prompt",
@@ -86,29 +98,24 @@ func TestApplyJobUpdateCopiesMutableExecutionFields(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int {
-	return &v
+type nilDB struct{}
+
+func (nilDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	panic("unexpected Exec call")
 }
 
-type notifyDBStub struct {
-	execSQL  string
-	execArgs []any
-}
-
-func (s *notifyDBStub) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-	s.execSQL = sql
-	s.execArgs = append([]any(nil), args...)
-	return pgconn.NewCommandTag("SELECT 1"), nil
-}
-
-func (s *notifyDBStub) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (nilDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	panic("unexpected Query call")
 }
 
-func (s *notifyDBStub) QueryRow(context.Context, string, ...any) pgx.Row {
+func (nilDB) QueryRow(context.Context, string, ...any) pgx.Row {
 	panic("unexpected QueryRow call")
 }
 
-func (s *notifyDBStub) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+func (nilDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
 	panic("unexpected BeginTx call")
+}
+
+func desktopIntPtr(v int) *int {
+	return &v
 }

@@ -505,7 +505,7 @@ func patchThread(
 				return
 			}
 			if updated != nil {
-				threadrunstate.Publish(r.Context(), pool, rdb, bus, updated.AccountID, updated.ID)
+				threadrunstate.Publish(r.Context(), rdb, bus, updated.AccountID, updated.ID)
 				httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
 				return
 			}
@@ -554,7 +554,7 @@ func patchThread(
 			return
 		}
 
-		threadrunstate.Publish(r.Context(), pool, rdb, bus, updated.AccountID, updated.ID)
+		threadrunstate.Publish(r.Context(), rdb, bus, updated.AccountID, updated.ID)
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toThreadResponse(*updated))
 	}
 }

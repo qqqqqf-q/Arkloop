@@ -241,7 +241,7 @@ func createMCPConfig(
 		return
 	}
 
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toMCPConfigResponse(cfg))
 }
@@ -383,7 +383,7 @@ func patchMCPConfig(
 		return
 	}
 
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toMCPConfigResponse(*updated))
 }
@@ -430,7 +430,7 @@ func deleteMCPConfig(
 		return
 	}
 
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }

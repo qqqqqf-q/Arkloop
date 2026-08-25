@@ -1,10 +1,9 @@
-//go:build !desktop
-
 package data
 
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,10 +39,10 @@ func (r *RunPipelineEventsRepository) InsertBatch(ctx context.Context, records [
 			`INSERT INTO run_pipeline_events (
 			    run_id, account_id, middleware, event_name, seq, fields_json
 			 ) VALUES (
-			    $1, $2, $3, $4, $5, $6::jsonb
+			    $1, $2, $3, $4, $5, $6
 			 )`,
-			record.RunID,
-			record.AccountID,
+			record.RunID.String(),
+			record.AccountID.String(),
 			record.Middleware,
 			record.EventName,
 			record.Seq,
@@ -62,7 +61,7 @@ func (r *RunPipelineEventsRepository) DeleteOlderThan(ctx context.Context, cutof
 	_, err := r.db.Exec(ctx,
 		`DELETE FROM run_pipeline_events
 		  WHERE created_at < $1`,
-		cutoff.UTC(),
+		cutoff.UTC().Format(time.RFC3339Nano),
 	)
 	return err
 }
@@ -80,7 +79,7 @@ func (r *RunPipelineEventsRepository) ListByRunID(ctx context.Context, runID uui
 		  WHERE run_id = $1
 		  ORDER BY seq ASC, created_at ASC
 		  LIMIT $2`,
-		runID, limit,
+		runID.String(), limit,
 	)
 	if err != nil {
 		return nil, err
@@ -90,21 +89,41 @@ func (r *RunPipelineEventsRepository) ListByRunID(ctx context.Context, runID uui
 	out := make([]RunPipelineEventRow, 0, limit)
 	for rows.Next() {
 		var item RunPipelineEventRow
-		var raw []byte
+		var runIDText string
+		var accountIDText string
+		var createdAtText string
+		var raw string
 		if err := rows.Scan(
 			&item.ID,
-			&item.RunID,
-			&item.AccountID,
+			&runIDText,
+			&accountIDText,
 			&item.Middleware,
 			&item.EventName,
 			&item.Seq,
 			&raw,
-			&item.CreatedAt,
+			&createdAtText,
 		); err != nil {
 			return nil, err
 		}
-		if len(raw) > 0 {
-			if err := json.Unmarshal(raw, &item.FieldsJSON); err != nil {
+		parsedRunID, err := uuid.Parse(runIDText)
+		if err != nil {
+			return nil, err
+		}
+		parsedAccountID, err := uuid.Parse(accountIDText)
+		if err != nil {
+			return nil, err
+		}
+		item.RunID = parsedRunID
+		item.AccountID = parsedAccountID
+		item.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAtText)
+		if err != nil {
+			item.CreatedAt, err = time.Parse("2006-01-02 15:04:05", createdAtText)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if strings.TrimSpace(raw) != "" {
+			if err := json.Unmarshal([]byte(raw), &item.FieldsJSON); err != nil {
 				return nil, err
 			}
 		}

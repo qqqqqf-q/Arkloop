@@ -1,11 +1,10 @@
-//go:build !desktop
-
 package data
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"arkloop/services/shared/runkind"
@@ -13,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
+
+// ErrHeartbeatIdentityGone 表示 scheduled_triggers 中的 channel_identity 已不存在，应删除该触发器。
+var ErrHeartbeatIdentityGone = errors.New("channel_identity not found, heartbeat trigger is stale")
 
 // ErrHeartbeatSnapshotStale 表示 heartbeat 执行期间有新消息到达，快照保护阻止了冷却更新。
 var ErrHeartbeatSnapshotStale = errors.New("heartbeat snapshot stale")
@@ -29,6 +31,8 @@ type ScheduledTriggerRow struct {
 	ResolveModelAtRuntime bool
 	IntervalMin           int
 	NextFireAt            time.Time
+	TriggerKind           string
+	JobID                 uuid.UUID
 	CooldownLevel         int
 	LastUserMsgAt         *time.Time
 	BurstStartAt          *time.Time
@@ -36,7 +40,7 @@ type ScheduledTriggerRow struct {
 
 func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	accountID uuid.UUID,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
@@ -47,47 +51,54 @@ func (ScheduledTriggersRepository) UpsertHeartbeatForThread(
 	intervalMin int,
 ) error {
 	if threadID == uuid.Nil {
-		return errors.New("thread_id must not be empty")
+		return fmt.Errorf("thread_id must not be empty")
 	}
 	if channelID == uuid.Nil {
-		return errors.New("channel_id must not be empty")
+		return fmt.Errorf("channel_id must not be empty")
 	}
 	if channelIdentityID == uuid.Nil {
-		return errors.New("channel_identity_id must not be empty")
+		return fmt.Errorf("channel_identity_id must not be empty")
 	}
 	intervalMin = normalizeHeartbeatInterval(intervalMin)
-	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
+	now := time.Now().UTC()
+	nextFire := now.Add(time.Duration(intervalMin) * time.Minute)
+	id := uuid.New()
 	if _, err := db.Exec(ctx, `
 		DELETE FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2
 		   AND thread_id IS NULL`,
-		channelID, channelIdentityID,
+		channelID.String(), channelIdentityID.String(),
 	); err != nil {
 		return err
 	}
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, trigger_kind)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		    (id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, trigger_kind, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 		ON CONFLICT (thread_id) WHERE thread_id IS NOT NULL DO UPDATE
-		    SET thread_id      = excluded.thread_id,
-		        channel_id     = excluded.channel_id,
+		    SET thread_id       = excluded.thread_id,
+		        channel_id      = excluded.channel_id,
 		        channel_identity_id = excluded.channel_identity_id,
-		        persona_key    = excluded.persona_key,
-		        account_id     = excluded.account_id,
-		        model          = excluded.model,
+		        persona_key     = excluded.persona_key,
+		        account_id      = excluded.account_id,
+		        model           = excluded.model,
 		        resolve_model_at_runtime = excluded.resolve_model_at_runtime,
-		        interval_min   = excluded.interval_min,
-		        trigger_kind   = excluded.trigger_kind,
-		        cooldown_level = 0,
-		        updated_at     = now()`,
-		channelID, channelIdentityID, threadID, personaKey, accountID, model, resolveModelAtRuntime, intervalMin, nextFire, runkind.Discuss,
+		        interval_min    = excluded.interval_min,
+		        trigger_kind    = excluded.trigger_kind,
+		        cooldown_level  = 0,
+		        last_user_msg_at = NULL,
+		        burst_start_at  = NULL,
+		        updated_at      = excluded.updated_at`,
+		id, channelID, channelIdentityID, threadID, personaKey, accountID, model, resolveModelAtRuntime, intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		runkind.Discuss,
+		now.Format(time.RFC3339Nano),
 	)
 	return err
 }
 
-// ScheduledTriggersRepository 提供 heartbeat 调度操作（cloud / Postgres）。
+// ScheduledTriggersRepository 是 SQLite 实现（desktop）。
 type ScheduledTriggersRepository struct{}
 
 func normalizeHeartbeatInterval(intervalMin int) int {
@@ -97,10 +108,30 @@ func normalizeHeartbeatInterval(intervalMin int) int {
 	return intervalMin
 }
 
+func formatSQLiteTimestamp(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05.999999999")
+}
+
+// HeartbeatThreadContext 保存心跳 run 所需的线程/渠道上下文。
+type HeartbeatThreadContext struct {
+	ThreadID         uuid.UUID
+	ChannelID        string
+	ChannelType      string
+	PlatformChatID   string
+	IdentityID       string
+	ConversationType string
+	CreatedByUserID  *uuid.UUID
+}
+
+type threadTailMessage struct {
+	ID   uuid.UUID
+	Role string
+}
+
 // UpsertHeartbeat 注册或更新某个 channel identity 的 heartbeat 调度。
 func (ScheduledTriggersRepository) UpsertHeartbeat(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	accountID uuid.UUID,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
@@ -109,25 +140,33 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 	intervalMin int,
 ) error {
 	if channelID == uuid.Nil {
-		return errors.New("channel_id must not be empty")
+		return fmt.Errorf("channel_id must not be empty")
 	}
 	if channelIdentityID == uuid.Nil {
-		return errors.New("channel_identity_id must not be empty")
+		return fmt.Errorf("channel_identity_id must not be empty")
 	}
 	intervalMin = normalizeHeartbeatInterval(intervalMin)
-	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
+	now := time.Now().UTC()
+	nextFire := now.Add(time.Duration(intervalMin) * time.Minute)
+	id := uuid.New()
 	_, err := db.Exec(ctx, `
 		INSERT INTO scheduled_triggers
-		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, trigger_kind)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
+		    (id, channel_id, channel_identity_id, persona_key, account_id, model, interval_min, next_fire_at, trigger_kind, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
 		ON CONFLICT (channel_id, channel_identity_id) WHERE thread_id IS NULL DO UPDATE
-		    SET persona_key   = excluded.persona_key,
-		        account_id    = excluded.account_id,
-		        model         = excluded.model,
-		        interval_min  = excluded.interval_min,
-		        trigger_kind  = excluded.trigger_kind,
-		        updated_at    = now()`,
-		channelID, channelIdentityID, personaKey, accountID, model, intervalMin, nextFire, runkind.Discuss,
+		    SET persona_key     = excluded.persona_key,
+		        account_id      = excluded.account_id,
+		        model           = excluded.model,
+		        interval_min    = excluded.interval_min,
+		        trigger_kind    = excluded.trigger_kind,
+		        cooldown_level  = 0,
+		        last_user_msg_at = NULL,
+		        burst_start_at  = NULL,
+		        updated_at      = excluded.updated_at`,
+		id, channelID, channelIdentityID, personaKey, accountID, model, intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		runkind.Discuss,
+		now.Format(time.RFC3339Nano),
 	)
 	return err
 }
@@ -135,203 +174,113 @@ func (ScheduledTriggersRepository) UpsertHeartbeat(
 // GetHeartbeat returns the existing trigger for a channel identity.
 func (ScheduledTriggersRepository) GetHeartbeat(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
 ) (*ScheduledTriggerRow, error) {
 	if channelID == uuid.Nil {
-		return nil, errors.New("channel_id must not be empty")
+		return nil, fmt.Errorf("channel_id must not be empty")
 	}
 	if channelIdentityID == uuid.Nil {
-		return nil, errors.New("channel_identity_id must not be empty")
+		return nil, fmt.Errorf("channel_identity_id must not be empty")
 	}
 
 	var row ScheduledTriggerRow
+	var idStr, channelStr, identityStr, accountStr string
+	var threadStr *string
 	err := db.QueryRow(ctx, `
 		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
 		  FROM scheduled_triggers
 		 WHERE channel_id = $1
 		   AND channel_identity_id = $2
 		   AND thread_id IS NULL`,
-		channelID,
-		channelIdentityID,
-	).Scan(
-		&row.ID,
-		&row.ChannelID,
-		&row.ChannelIdentityID,
-		&row.ThreadID,
-		&row.PersonaKey,
-		&row.AccountID,
-		&row.Model,
-		&row.ResolveModelAtRuntime,
-		&row.IntervalMin,
-		&row.NextFireAt,
-		&row.CooldownLevel,
-		&row.LastUserMsgAt,
-		&row.BurstStartAt,
-	)
+		channelID.String(),
+		channelIdentityID.String(),
+	).Scan(&idStr, &channelStr, &identityStr, &threadStr, &row.PersonaKey, &accountStr, &row.Model, &row.ResolveModelAtRuntime, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	row.ID, _ = uuid.Parse(idStr)
+	row.ChannelID, _ = uuid.Parse(channelStr)
+	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
+	if threadStr != nil {
+		if tid, parseErr := uuid.Parse(*threadStr); parseErr == nil {
+			row.ThreadID = &tid
+		}
+	}
+	row.AccountID, _ = uuid.Parse(accountStr)
 	return &row, nil
 }
 
 func (ScheduledTriggersRepository) GetHeartbeatForThread(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	threadID uuid.UUID,
 ) (*ScheduledTriggerRow, error) {
 	if threadID == uuid.Nil {
-		return nil, errors.New("thread_id must not be empty")
+		return nil, fmt.Errorf("thread_id must not be empty")
 	}
 	var row ScheduledTriggerRow
+	var idStr, channelStr, identityStr, accountStr, threadStr string
 	err := db.QueryRow(ctx, `
 		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, cooldown_level, last_user_msg_at, burst_start_at
 		  FROM scheduled_triggers
 		 WHERE thread_id = $1`,
-		threadID,
-	).Scan(
-		&row.ID,
-		&row.ChannelID,
-		&row.ChannelIdentityID,
-		&row.ThreadID,
-		&row.PersonaKey,
-		&row.AccountID,
-		&row.Model,
-		&row.ResolveModelAtRuntime,
-		&row.IntervalMin,
-		&row.NextFireAt,
-		&row.CooldownLevel,
-		&row.LastUserMsgAt,
-		&row.BurstStartAt,
-	)
+		threadID.String(),
+	).Scan(&idStr, &channelStr, &identityStr, &threadStr, &row.PersonaKey, &accountStr, &row.Model, &row.ResolveModelAtRuntime, &row.IntervalMin, &row.NextFireAt, &row.CooldownLevel, &row.LastUserMsgAt, &row.BurstStartAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	row.ID, _ = uuid.Parse(idStr)
+	row.ChannelID, _ = uuid.Parse(channelStr)
+	row.ChannelIdentityID, _ = uuid.Parse(identityStr)
+	row.AccountID, _ = uuid.Parse(accountStr)
+	tid, _ := uuid.Parse(threadStr)
+	row.ThreadID = &tid
 	return &row, nil
-}
-
-// ResetCooldownForMessage updates cooldown state when a new message arrives.
-func (ScheduledTriggersRepository) ResetCooldownForMessage(
-	ctx context.Context,
-	db DB,
-	channelID uuid.UUID,
-	channelIdentityID uuid.UUID,
-	nextFireAt time.Time,
-	lastUserMsgAt time.Time,
-	burstStartAt time.Time,
-) error {
-	if channelID == uuid.Nil {
-		return errors.New("channel_id must not be empty")
-	}
-	if channelIdentityID == uuid.Nil {
-		return errors.New("channel_identity_id must not be empty")
-	}
-	_, err := db.Exec(ctx, `
-		UPDATE scheduled_triggers
-		   SET cooldown_level = 0,
-		       next_fire_at = $1,
-		       last_user_msg_at = $2,
-		       burst_start_at = $3,
-		       updated_at = now()
-		 WHERE channel_id = $4
-		   AND channel_identity_id = $5
-		   AND thread_id IS NULL`,
-		nextFireAt, lastUserMsgAt, burstStartAt, channelID, channelIdentityID,
-	)
-	return err
-}
-
-// UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
-func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
-	ctx context.Context,
-	db DB,
-	channelID uuid.UUID,
-	channelIdentityID uuid.UUID,
-	newCooldownLevel int,
-	nextFireAt time.Time,
-	lastUserMsgSnapshot *time.Time,
-) error {
-	if channelID == uuid.Nil {
-		return errors.New("channel_id must not be empty")
-	}
-	if channelIdentityID == uuid.Nil {
-		return errors.New("channel_identity_id must not be empty")
-	}
-	_, err := db.Exec(ctx, `
-		UPDATE scheduled_triggers
-		   SET cooldown_level = $1,
-		       next_fire_at = $2,
-		       updated_at = now()
-		 WHERE channel_id = $3
-		   AND channel_identity_id = $4
-		   AND (last_user_msg_at IS NOT DISTINCT FROM $5)
-		   AND thread_id IS NULL`,
-		newCooldownLevel, nextFireAt, channelID, channelIdentityID, lastUserMsgSnapshot,
-	)
-	return err
-}
-
-func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeatForThread(
-	ctx context.Context,
-	db DB,
-	threadID uuid.UUID,
-	newCooldownLevel int,
-	nextFireAt time.Time,
-	lastUserMsgSnapshot *time.Time,
-) error {
-	if threadID == uuid.Nil {
-		return errors.New("thread_id must not be empty")
-	}
-	_, err := db.Exec(ctx, `
-		UPDATE scheduled_triggers
-		   SET cooldown_level = $1,
-		       next_fire_at = $2,
-		       updated_at = now()
-		 WHERE thread_id = $3
-		   AND (last_user_msg_at IS NOT DISTINCT FROM $4)`,
-		newCooldownLevel, nextFireAt, threadID, lastUserMsgSnapshot,
-	)
-	return err
 }
 
 // ResetHeartbeatNextFire sets next_fire_at to now + interval_min for the provided channel identity.
 func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
 	intervalMin int,
 ) (time.Time, error) {
 	if channelID == uuid.Nil {
-		return time.Time{}, errors.New("channel_id must not be empty")
+		return time.Time{}, fmt.Errorf("channel_id must not be empty")
 	}
 	if channelIdentityID == uuid.Nil {
-		return time.Time{}, errors.New("channel_identity_id must not be empty")
+		return time.Time{}, fmt.Errorf("channel_identity_id must not be empty")
 	}
 	intervalMin = normalizeHeartbeatInterval(intervalMin)
 	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
-	cmd, err := db.Exec(ctx, `
+	tag, err := db.Exec(ctx, `
 		UPDATE scheduled_triggers
 		   SET interval_min = $1,
 		       next_fire_at = $2,
 		       cooldown_level = 0,
-		       updated_at = now()
-		 WHERE channel_id = $3
-		   AND channel_identity_id = $4
+		       updated_at = $3
+		 WHERE channel_id = $4
+		   AND channel_identity_id = $5
 		   AND thread_id IS NULL`,
-		intervalMin, nextFire, channelID, channelIdentityID,
+		intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		channelID.String(),
+		channelIdentityID.String(),
 	)
 	if err != nil {
 		return time.Time{}, err
 	}
-	if cmd.RowsAffected() == 0 {
+	if tag.RowsAffected() == 0 {
 		return time.Time{}, fmt.Errorf("reset heartbeat next fire: channel_identity_id %s not found", channelIdentityID)
 	}
 	return nextFire, nil
@@ -339,61 +288,779 @@ func (ScheduledTriggersRepository) ResetHeartbeatNextFire(
 
 func (ScheduledTriggersRepository) ResetHeartbeatNextFireForThread(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	threadID uuid.UUID,
 	intervalMin int,
 ) (time.Time, error) {
 	if threadID == uuid.Nil {
-		return time.Time{}, errors.New("thread_id must not be empty")
+		return time.Time{}, fmt.Errorf("thread_id must not be empty")
 	}
 	intervalMin = normalizeHeartbeatInterval(intervalMin)
 	nextFire := time.Now().UTC().Add(time.Duration(intervalMin) * time.Minute)
-	cmd, err := db.Exec(ctx, `
+	tag, err := db.Exec(ctx, `
 		UPDATE scheduled_triggers
 		   SET interval_min = $1,
 		       next_fire_at = $2,
 		       cooldown_level = 0,
-		       updated_at = now()
-		 WHERE thread_id = $3`,
-		intervalMin, nextFire, threadID,
+		       updated_at = $3
+		 WHERE thread_id = $4`,
+		intervalMin,
+		nextFire.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		threadID.String(),
 	)
 	if err != nil {
 		return time.Time{}, err
 	}
-	if cmd.RowsAffected() == 0 {
+	if tag.RowsAffected() == 0 {
 		return time.Time{}, fmt.Errorf("reset heartbeat next fire: thread_id %s not found", threadID)
 	}
 	return nextFire, nil
 }
 
+// RescheduleHeartbeatNextFireAt forces next_fire_at to the provided timestamp.
+func (ScheduledTriggersRepository) RescheduleHeartbeatNextFireAt(
+	ctx context.Context,
+	db DesktopDB,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	if id == uuid.Nil {
+		return fmt.Errorf("id must not be empty")
+	}
+	if nextFireAt.IsZero() {
+		return fmt.Errorf("next_fire_at must not be zero")
+	}
+	ts := nextFireAt.UTC().Format(time.RFC3339Nano)
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET next_fire_at = $1,
+		       updated_at = $2
+		 WHERE id = $3`,
+		ts,
+		time.Now().UTC().Format(time.RFC3339Nano),
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("reschedule heartbeat: id %s not found", id)
+	}
+	return nil
+}
+
 // DeleteHeartbeat 删除某个 channel identity 的 heartbeat 调度。
 func (ScheduledTriggersRepository) DeleteHeartbeat(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	channelID uuid.UUID,
 	channelIdentityID uuid.UUID,
 ) error {
 	if channelID == uuid.Nil {
-		return errors.New("channel_id must not be empty")
+		return fmt.Errorf("channel_id must not be empty")
 	}
 	_, err := db.Exec(ctx,
 		`DELETE FROM scheduled_triggers WHERE channel_id = $1 AND channel_identity_id = $2 AND thread_id IS NULL`,
-		channelID,
-		channelIdentityID,
+		channelID.String(),
+		channelIdentityID.String(),
 	)
 	return err
 }
 
 func (ScheduledTriggersRepository) DeleteHeartbeatForThread(
 	ctx context.Context,
-	db DB,
+	db DesktopDB,
 	threadID uuid.UUID,
 ) error {
 	if threadID == uuid.Nil {
-		return errors.New("thread_id must not be empty")
+		return fmt.Errorf("thread_id must not be empty")
 	}
-	_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE thread_id = $1`, threadID)
+	_, err := db.Exec(ctx, `DELETE FROM scheduled_triggers WHERE thread_id = $1`, threadID.String())
 	return err
+}
+
+// ClaimDueTriggers 获取 next_fire_at 不晚于当前时间的记录（最多 limit 条），
+// 并将 next_fire_at 延后 interval_min 分钟后返回（AT MOST ONCE 投递）。
+func (ScheduledTriggersRepository) ClaimDueTriggers(
+	ctx context.Context,
+	db DesktopDB,
+	limit int,
+) ([]ScheduledTriggerRow, error) {
+	if limit <= 0 {
+		limit = 8
+	}
+	now := time.Now().UTC()
+	rows, err := db.Query(ctx, `
+		SELECT id, channel_id, channel_identity_id, thread_id, persona_key, account_id, model, resolve_model_at_runtime, interval_min, next_fire_at, next_fire_at, trigger_kind, job_id, cooldown_level
+		  FROM scheduled_triggers
+		 WHERE next_fire_at <= $1
+		 ORDER BY next_fire_at ASC
+		 LIMIT $2`,
+		now.Format(time.RFC3339Nano), limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var pending []ScheduledTriggerRow
+	var pendingRaw []string
+	for rows.Next() {
+		var r ScheduledTriggerRow
+		var idStr, channelStr, identityStr, accountStr, nextFireRaw string
+		var threadStr *string
+		var triggerKind string
+		var jobIDStr *string
+		if err := rows.Scan(&idStr, &channelStr, &identityStr, &threadStr, &r.PersonaKey, &accountStr, &r.Model, &r.ResolveModelAtRuntime, &r.IntervalMin, &r.NextFireAt, &nextFireRaw, &triggerKind, &jobIDStr, &r.CooldownLevel); err != nil {
+			return nil, err
+		}
+		r.ID, _ = uuid.Parse(idStr)
+		r.ChannelID, _ = uuid.Parse(channelStr)
+		r.ChannelIdentityID, _ = uuid.Parse(identityStr)
+		if threadStr != nil {
+			if tid, parseErr := uuid.Parse(*threadStr); parseErr == nil {
+				r.ThreadID = &tid
+			}
+		}
+		r.AccountID, _ = uuid.Parse(accountStr)
+		r.TriggerKind = triggerKind
+		if jobIDStr != nil {
+			r.JobID, _ = uuid.Parse(*jobIDStr)
+		}
+		pending = append(pending, r)
+		pendingRaw = append(pendingRaw, nextFireRaw)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	var out []ScheduledTriggerRow
+	for i, r := range pending {
+		next := advanceHeartbeatNextFireAt(r.NextFireAt, now, idleIntervalForLevel(r.CooldownLevel))
+		tag, err := db.Exec(ctx,
+			`UPDATE scheduled_triggers
+			    SET next_fire_at = $1,
+			        updated_at = $2
+			  WHERE id = $3
+			    AND next_fire_at = $4`,
+			next.Format(time.RFC3339Nano),
+			now.Format(time.RFC3339Nano),
+			r.ID,
+			pendingRaw[i],
+		)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			continue
+		}
+		r.NextFireAt = next
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// ResetCooldownForMessage updates cooldown state when a new message arrives.
+func (ScheduledTriggersRepository) ResetCooldownForMessage(
+	ctx context.Context,
+	db DesktopDB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	nextFireAt time.Time,
+	lastUserMsgAt time.Time,
+	burstStartAt time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return fmt.Errorf("channel_identity_id must not be empty")
+	}
+	now := time.Now().UTC()
+	_, err := db.Exec(ctx, `
+			UPDATE scheduled_triggers
+			   SET cooldown_level = 0,
+			       next_fire_at = $1,
+			       last_user_msg_at = $2,
+		       burst_start_at = $3,
+		       updated_at = $4
+		 WHERE channel_id = $5
+		   AND channel_identity_id = $6
+		   AND thread_id IS NULL`,
+		nextFireAt.Format(time.RFC3339Nano),
+		formatSQLiteTimestamp(lastUserMsgAt),
+		formatSQLiteTimestamp(burstStartAt),
+		now.Format(time.RFC3339Nano),
+		channelID.String(),
+		channelIdentityID.String(),
+	)
+	return err
+}
+
+// UpdateCooldownAfterHeartbeat updates cooldown_level and next_fire_at after a heartbeat run.
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeat(
+	ctx context.Context,
+	db DesktopDB,
+	channelID uuid.UUID,
+	channelIdentityID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
+) error {
+	if channelID == uuid.Nil {
+		return fmt.Errorf("channel_id must not be empty")
+	}
+	if channelIdentityID == uuid.Nil {
+		return fmt.Errorf("channel_identity_id must not be empty")
+	}
+	var snapshotVal any
+	if lastUserMsgSnapshot != nil {
+		snapshotVal = formatSQLiteTimestamp(*lastUserMsgSnapshot)
+	}
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE channel_id = $4
+		   AND channel_identity_id = $5
+		   AND (last_user_msg_at IS $6 OR last_user_msg_at = $6)
+		   AND thread_id IS NULL`,
+		newCooldownLevel,
+		nextFireAt.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		channelID.String(),
+		channelIdentityID.String(),
+		snapshotVal,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrHeartbeatSnapshotStale
+	}
+	return nil
+}
+
+func (ScheduledTriggersRepository) UpdateCooldownAfterHeartbeatForThread(
+	ctx context.Context,
+	db DesktopDB,
+	threadID uuid.UUID,
+	newCooldownLevel int,
+	nextFireAt time.Time,
+	lastUserMsgSnapshot *time.Time,
+) error {
+	if threadID == uuid.Nil {
+		return fmt.Errorf("thread_id must not be empty")
+	}
+	var snapshotVal any
+	if lastUserMsgSnapshot != nil {
+		snapshotVal = formatSQLiteTimestamp(*lastUserMsgSnapshot)
+	}
+	tag, err := db.Exec(ctx, `
+		UPDATE scheduled_triggers
+		   SET cooldown_level = $1,
+		       next_fire_at = $2,
+		       updated_at = $3
+		 WHERE thread_id = $4
+		   AND (last_user_msg_at IS $5 OR last_user_msg_at = $5)`,
+		newCooldownLevel,
+		nextFireAt.Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		threadID.String(),
+		snapshotVal,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrHeartbeatSnapshotStale
+	}
+	return nil
+}
+
+// GetEarliestDue returns the earliest scheduled next_fire_at.
+func (ScheduledTriggersRepository) GetEarliestDue(
+	ctx context.Context,
+	db DesktopDB,
+) (*time.Time, error) {
+	var next time.Time
+	err := db.QueryRow(ctx,
+		`SELECT next_fire_at
+		   FROM scheduled_triggers
+		  ORDER BY next_fire_at ASC
+		  LIMIT 1`,
+	).Scan(&next)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &next, nil
+}
+
+// PostponeTrigger 将指定 ID 的 next_fire_at 延后 delay（出错时用于退避重试）。
+func (ScheduledTriggersRepository) PostponeTrigger(
+	ctx context.Context,
+	db DesktopDB,
+	id uuid.UUID,
+	delay time.Duration,
+) error {
+	next := time.Now().UTC().Add(delay)
+	_, err := db.Exec(ctx,
+		`UPDATE scheduled_triggers SET next_fire_at = $1 WHERE id = $2`,
+		next.Format(time.RFC3339Nano), id,
+	)
+	return err
+}
+
+// DeleteTriggerByJobID 删除指定 job_id 的 trigger。
+func (ScheduledTriggersRepository) DeleteTriggerByJobID(
+	ctx context.Context,
+	db DesktopDB,
+	jobID uuid.UUID,
+) error {
+	_, err := db.Exec(ctx,
+		`DELETE FROM scheduled_triggers WHERE job_id = $1`,
+		jobID.String(),
+	)
+	return err
+}
+
+// UpdateTriggerNextFire 更新指定 trigger 的 next_fire_at。
+func (ScheduledTriggersRepository) UpdateTriggerNextFire(
+	ctx context.Context,
+	db DesktopDB,
+	id uuid.UUID,
+	nextFireAt time.Time,
+) error {
+	_, err := db.Exec(ctx,
+		`UPDATE scheduled_triggers SET next_fire_at = $1, updated_at = $2 WHERE id = $3`,
+		nextFireAt.UTC().Format(time.RFC3339Nano),
+		time.Now().UTC().Format(time.RFC3339Nano),
+		id.String(),
+	)
+	return err
+}
+
+func idleIntervalForLevel(_ int) time.Duration {
+	return time.Minute
+}
+
+func advanceHeartbeatNextFireAt(oldNextFireAt, now time.Time, interval time.Duration) time.Time {
+	next := oldNextFireAt.UTC()
+	if next.IsZero() {
+		next = now.UTC()
+	}
+	for !next.After(now) {
+		next = next.Add(interval)
+	}
+	return next
+}
+
+func (ScheduledTriggersRepository) ResolveHeartbeatThread(
+	ctx context.Context,
+	db DesktopDB,
+	row ScheduledTriggerRow,
+) (*HeartbeatThreadContext, error) {
+	if row.ThreadID != nil && *row.ThreadID != uuid.Nil {
+		var channelType string
+		if err := db.QueryRow(ctx, `SELECT channel_type FROM channels WHERE id = $1`, row.ChannelID.String()).Scan(&channelType); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query heartbeat channel: %w", err)
+		}
+		var platformChatID string
+		conversationType := "private"
+		if err := db.QueryRow(ctx,
+			`SELECT platform_chat_id FROM channel_group_threads WHERE channel_id = $1 AND thread_id = $2 LIMIT 1`,
+			row.ChannelID.String(), row.ThreadID.String(),
+		).Scan(&platformChatID); err == nil {
+			conversationType = resolveGroupConversationType(channelType)
+		} else if err := db.QueryRow(ctx,
+			`SELECT ci.platform_subject_id
+			   FROM channel_dm_threads cdt
+			   JOIN channel_identities ci ON ci.id = cdt.channel_identity_id
+			  WHERE cdt.channel_id = $1 AND cdt.thread_id = $2
+			  LIMIT 1`,
+			row.ChannelID.String(), row.ThreadID.String(),
+		).Scan(&platformChatID); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query heartbeat dm binding: %w", err)
+		}
+		if strings.TrimSpace(platformChatID) != "" {
+			var creator uuid.NullUUID
+			_ = db.QueryRow(ctx,
+				`SELECT COALESCE(t.created_by_user_id, ch.owner_user_id)
+				   FROM threads t
+				   JOIN channels ch ON ch.id = $2
+				  WHERE t.id = $1`,
+				row.ThreadID.String(),
+				row.ChannelID.String(),
+			).Scan(&creator)
+			var createdBy *uuid.UUID
+			if creator.Valid {
+				createdBy = &creator.UUID
+			}
+			return &HeartbeatThreadContext{
+				ThreadID:         *row.ThreadID,
+				ChannelID:        row.ChannelID.String(),
+				ChannelType:      channelType,
+				PlatformChatID:   strings.TrimSpace(platformChatID),
+				IdentityID:       row.ChannelIdentityID.String(),
+				ConversationType: conversationType,
+				CreatedByUserID:  createdBy,
+			}, nil
+		}
+	}
+
+	var platformSubjectID, channelType string
+	err := db.QueryRow(ctx,
+		`SELECT platform_subject_id, channel_type FROM channel_identities WHERE id = $1`,
+		row.ChannelIdentityID.String(),
+	).Scan(&platformSubjectID, &channelType)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, ErrHeartbeatIdentityGone
+		}
+		return nil, fmt.Errorf("query channel_identity: %w", err)
+	}
+
+	var personaIDStr string
+	if strings.TrimSpace(row.PersonaKey) != "" {
+		if err := db.QueryRow(ctx,
+			`SELECT id FROM personas WHERE account_id = $1 AND persona_key = $2 ORDER BY created_at DESC LIMIT 1`,
+			row.AccountID.String(),
+			row.PersonaKey,
+		).Scan(&personaIDStr); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query persona for heartbeat trigger: %w", err)
+		}
+	}
+
+	var (
+		threadIDStr    string
+		channelID      string
+		conversationTy = "private"
+		groupQuery     strings.Builder
+		groupArgs      = []any{platformSubjectID, row.ChannelID.String(), row.AccountID.String()}
+		groupFound     = false
+	)
+
+	groupQuery.WriteString(`
+SELECT cgt.thread_id, cgt.channel_id
+  FROM channel_group_threads cgt
+  JOIN threads t ON t.id = cgt.thread_id
+ WHERE cgt.platform_chat_id = $1
+   AND cgt.channel_id = $2
+   AND t.account_id = $3
+   AND t.deleted_at IS NULL`)
+	if personaIDStr != "" {
+		groupQuery.WriteString(" AND cgt.persona_id = $4")
+		groupArgs = append(groupArgs, personaIDStr)
+	}
+	groupQuery.WriteString(" ORDER BY cgt.created_at DESC LIMIT 1")
+
+	if personaIDStr != "" {
+		err = db.QueryRow(ctx, groupQuery.String(), groupArgs...).Scan(&threadIDStr, &channelID)
+	} else {
+		err = db.QueryRow(ctx, groupQuery.String(), groupArgs...).Scan(&threadIDStr, &channelID)
+	}
+	if err == nil && strings.TrimSpace(threadIDStr) != "" {
+		conversationTy = resolveGroupConversationType(channelType)
+		groupFound = true
+	}
+	if err != nil && !isNoRows(err) {
+		return nil, fmt.Errorf("query channel_group_threads: %w", err)
+	}
+
+	if !groupFound {
+		var dmChannelID string
+		err = db.QueryRow(ctx,
+			`SELECT cdt.thread_id, cdt.channel_id
+			   FROM channel_dm_threads cdt
+			   JOIN threads t ON t.id = cdt.thread_id
+			  WHERE cdt.channel_id = $1
+			    AND cdt.channel_identity_id = $2
+			    AND t.account_id = $3
+			    AND t.deleted_at IS NULL
+			  LIMIT 1`,
+			row.ChannelID.String(),
+			row.ChannelIdentityID.String(),
+			row.AccountID.String(),
+		).Scan(&threadIDStr, &dmChannelID)
+		if err != nil {
+			if isNoRows(err) {
+				return nil, fmt.Errorf("no thread found for channel_identity_id: %s", row.ChannelIdentityID)
+			}
+			return nil, fmt.Errorf("query channel_dm_threads: %w", err)
+		}
+		channelID = dmChannelID
+		conversationTy = "private"
+		platformConversationID := strings.TrimSpace(platformSubjectID)
+		if err := db.QueryRow(ctx,
+			`SELECT platform_conversation_id
+			   FROM channel_message_ledger
+			  WHERE channel_id = $1
+			    AND sender_channel_identity_id = $2
+			    AND platform_conversation_id <> ''
+			  ORDER BY created_at DESC
+			  LIMIT 1`,
+			dmChannelID,
+			row.ChannelIdentityID.String(),
+		).Scan(&platformConversationID); err != nil && !isNoRows(err) {
+			return nil, fmt.Errorf("query channel_message_ledger: %w", err)
+		}
+		platformSubjectID = strings.TrimSpace(platformConversationID)
+	}
+
+	threadID, err := uuid.Parse(threadIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse thread_id: %w", err)
+	}
+
+	var creator uuid.NullUUID
+	err = db.QueryRow(ctx,
+		`SELECT COALESCE(t.created_by_user_id, ch.owner_user_id)
+		   FROM threads t
+		   JOIN channels ch ON ch.id = $2
+		  WHERE t.id = $1`,
+		threadIDStr,
+		channelID,
+	).Scan(&creator)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, fmt.Errorf("thread not found: %s", threadID)
+		}
+		return nil, fmt.Errorf("query thread: %w", err)
+	}
+	var createdBy *uuid.UUID
+	if creator.Valid {
+		createdBy = &creator.UUID
+	}
+
+	return &HeartbeatThreadContext{
+		ThreadID:         threadID,
+		ChannelID:        channelID,
+		ChannelType:      channelType,
+		PlatformChatID:   platformSubjectID,
+		IdentityID:       row.ChannelIdentityID.String(),
+		ConversationType: conversationTy,
+		CreatedByUserID:  createdBy,
+	}, nil
+}
+
+func (ScheduledTriggersRepository) HasActiveRootRun(
+	ctx context.Context,
+	db DesktopDB,
+	threadID uuid.UUID,
+) (bool, error) {
+	if threadID == uuid.Nil {
+		return false, fmt.Errorf("thread_id must not be empty")
+	}
+	var exists int
+	err := db.QueryRow(ctx,
+		`SELECT 1 FROM runs
+		 WHERE thread_id = $1
+		   AND parent_run_id IS NULL
+		   AND status IN ('running', 'cancelling')
+		 LIMIT 1`,
+		threadID.String(),
+	).Scan(&exists)
+	if err != nil {
+		if isNoRows(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// HeartbeatRunResult 是 DesktopCreateHeartbeatRun 的返回值，包含 run ID 和 channel delivery 上下文。
+type HeartbeatRunResult struct {
+	RunID            uuid.UUID
+	ChannelID        string // channel_group_threads.channel_id
+	ChannelType      string // channel_identities.channel_type
+	PlatformChatID   string // 群的 platform_chat_id（即 platform_subject_id）
+	IdentityID       string // scheduled_triggers.channel_identity_id
+	ConversationType string // "supergroup" | "group" | "private"
+}
+
+// DesktopCreateHeartbeatRun 在 SQLite 中创建心跳 run。
+// 通过 channel_identity_id 查 platform_subject_id，
+// 再从 channel_group_threads（群会话）或 channel_dm_threads（私聊）找到 thread_id。
+func DesktopCreateHeartbeatRun(
+	ctx context.Context,
+	db DesktopDB,
+	row ScheduledTriggerRow,
+	model string,
+) (HeartbeatRunResult, error) {
+	repo := ScheduledTriggersRepository{}
+	ctxData, err := repo.ResolveHeartbeatThread(ctx, db, row)
+	if err != nil {
+		return HeartbeatRunResult{}, err
+	}
+	return DesktopCreateHeartbeatRunWithContext(ctx, db, row, model, ctxData)
+}
+
+// DesktopCreateHeartbeatRunWithContext 使用预先解析的线程上下文创建 run。
+func (ScheduledTriggersRepository) InsertHeartbeatRunInTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	row ScheduledTriggerRow,
+	ctxData *HeartbeatThreadContext,
+	model string,
+) (HeartbeatRunResult, error) {
+	if ctxData == nil {
+		return HeartbeatRunResult{}, fmt.Errorf("heartbeat thread context is nil")
+	}
+	var exists int
+	err := tx.QueryRow(ctx,
+		`SELECT 1 FROM runs
+		 WHERE thread_id = $1
+		   AND parent_run_id IS NULL
+		   AND status IN ('running', 'cancelling')
+		 LIMIT 1`,
+		ctxData.ThreadID.String(),
+	).Scan(&exists)
+	if err != nil && !isNoRows(err) {
+		return HeartbeatRunResult{}, fmt.Errorf("check active heartbeat run: %w", err)
+	}
+	if exists == 1 {
+		return HeartbeatRunResult{}, ErrThreadBusy
+	}
+
+	runID := uuid.New()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
+		 VALUES ($1, $2, $3, $4, 'running')`,
+		runID, row.AccountID, ctxData.ThreadID, ctxData.CreatedByUserID,
+	); err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("insert heartbeat run: %w", err)
+	}
+
+	result := HeartbeatRunResult{
+		RunID:            runID,
+		ChannelID:        ctxData.ChannelID,
+		ChannelType:      ctxData.ChannelType,
+		PlatformChatID:   ctxData.PlatformChatID,
+		IdentityID:       ctxData.IdentityID,
+		ConversationType: ctxData.ConversationType,
+	}
+
+	startedData, err := buildDesktopHeartbeatStartedData(ctx, tx, ctxData.ThreadID, row.PersonaKey, model, result)
+	if err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("build heartbeat run.started data: %w", err)
+	}
+
+	repo := DesktopRunEventsRepository{}
+	if _, err := repo.AppendEvent(ctx, tx, runID, "run.started",
+		startedData,
+		nil, nil,
+	); err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("append run.started: %w", err)
+	}
+
+	return result, nil
+}
+
+func DesktopCreateHeartbeatRunWithContext(
+	ctx context.Context,
+	db DesktopDB,
+	row ScheduledTriggerRow,
+	model string,
+	ctxData *HeartbeatThreadContext,
+) (HeartbeatRunResult, error) {
+	if ctxData == nil {
+		return HeartbeatRunResult{}, fmt.Errorf("heartbeat thread context is nil")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
+
+	result, err := ScheduledTriggersRepository{}.InsertHeartbeatRunInTx(ctx, tx, row, ctxData, model)
+	if err != nil {
+		return HeartbeatRunResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return HeartbeatRunResult{}, fmt.Errorf("commit heartbeat run: %w", err)
+	}
+	return result, nil
+}
+
+func isNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// resolveGroupConversationType 根据 channel_type 确定群聊的 conversation_type。
+func resolveGroupConversationType(channelType string) string {
+	switch strings.TrimSpace(channelType) {
+	case "qq":
+		return "group"
+	default:
+		return "supergroup"
+	}
+}
+
+func buildDesktopHeartbeatStartedData(
+	ctx context.Context,
+	tx pgx.Tx,
+	threadID uuid.UUID,
+	personaKey string,
+	model string,
+	result HeartbeatRunResult,
+) (map[string]any, error) {
+	data := map[string]any{
+		"persona_id":          personaKey,
+		"model":               model,
+		"run_kind":            runkind.Discuss,
+		"continuation_source": "none",
+		"continuation_loop":   false,
+		"channel_delivery": map[string]any{
+			"channel_id":                 result.ChannelID,
+			"channel_type":               result.ChannelType,
+			"sender_channel_identity_id": result.IdentityID,
+			"conversation_type":          result.ConversationType,
+			"conversation_ref": map[string]any{
+				"target": result.PlatformChatID,
+			},
+		},
+	}
+	msg, err := getLatestDesktopThreadMessage(ctx, tx, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if msg != nil {
+		data["thread_tail_message_id"] = msg.ID.String()
+	}
+	return data, nil
+}
+
+func getLatestDesktopThreadMessage(ctx context.Context, tx pgx.Tx, threadID uuid.UUID) (*threadTailMessage, error) {
+	if threadID == uuid.Nil {
+		return nil, fmt.Errorf("thread_id must not be empty")
+	}
+	var msg threadTailMessage
+	err := tx.QueryRow(ctx,
+		`SELECT id, role
+		   FROM messages
+		  WHERE thread_id = $1
+		    AND hidden = FALSE
+		    AND deleted_at IS NULL
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&msg.ID, &msg.Role)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	msg.Role = strings.TrimSpace(msg.Role)
+	return &msg, nil
 }
 
 // HeartbeatIdentityConfig 是 thread 级 heartbeat 配置。
@@ -403,7 +1070,7 @@ type HeartbeatIdentityConfig struct {
 	Model           string
 }
 
-func GetChannelIdentityIDBySubject(ctx context.Context, db DB, channelType, platformSubjectID string) (uuid.UUID, error) {
+func GetChannelIdentityIDBySubject(ctx context.Context, db DesktopDB, channelType, platformSubjectID string) (uuid.UUID, error) {
 	var idStr string
 	err := db.QueryRow(ctx,
 		`SELECT id
@@ -412,7 +1079,7 @@ func GetChannelIdentityIDBySubject(ctx context.Context, db DB, channelType, plat
 		channelType, platformSubjectID,
 	).Scan(&idStr)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if isNoRows(err) {
 			return uuid.Nil, nil
 		}
 		return uuid.Nil, fmt.Errorf("get channel identity id: %w", err)

@@ -815,10 +815,6 @@ func (w *eventWriter) commit(ctx context.Context) error {
 		if err := w.eventBus.Publish(ctx, channel, ""); err != nil {
 			slog.Warn("event_bus_publish_failed", "channel", channel, "err", err)
 		}
-	} else {
-		if _, err := w.pool.Exec(ctx, "SELECT pg_notify($1, '')", channel); err != nil {
-			slog.Warn("pg_notify_failed", "channel", channel, "err", err)
-		}
 	}
 
 	if w.runLimiterRDB != nil {
@@ -829,7 +825,7 @@ func (w *eventWriter) commit(ctx context.Context) error {
 	}
 
 	if w.hasTerminal {
-		threadrunstate.Publish(ctx, w.pool, w.runLimiterRDB, w.eventBus, w.run.AccountID, w.run.ThreadID)
+		threadrunstate.Publish(ctx, w.runLimiterRDB, w.eventBus, w.run.AccountID, w.run.ThreadID)
 
 		for _, nextRunID := range w.pendingEnqueueRunIDs {
 			publishThreadRunStateForRun(ctx, w.pool, w.runLimiterRDB, w.eventBus, nextRunID)
@@ -899,7 +895,7 @@ func publishThreadRunStateForRun(ctx context.Context, pool *pgxpool.Pool, rdb *r
 	if err != nil {
 		return
 	}
-	threadrunstate.Publish(ctx, pool, rdb, bus, accountID, threadID)
+	threadrunstate.Publish(ctx, rdb, bus, accountID, threadID)
 }
 
 func parseOptionalUUID(raw string) *uuid.UUID {

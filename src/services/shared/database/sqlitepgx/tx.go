@@ -1,5 +1,3 @@
-//go:build desktop
-
 package sqlitepgx
 
 import (
@@ -33,9 +31,6 @@ func (t *Tx) AfterRollback(fn func()) {
 }
 
 func (t *Tx) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	if isProcessNotify(query) {
-		return pgconn.NewCommandTag("SELECT 1"), nil
-	}
 	if t.readOnly {
 		return pgconn.NewCommandTag(""), fmt.Errorf("sqlitepgx: write exec in read-only transaction")
 	}

@@ -1,17 +1,13 @@
-//go:build !desktop
-
 package memory
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
+	sharedconfig "arkloop/services/shared/config"
 	datarepo "arkloop/services/worker/internal/data"
 	"arkloop/services/worker/internal/events"
 	"arkloop/services/worker/internal/memory"
@@ -19,22 +15,21 @@ import (
 	"arkloop/services/worker/internal/pipeline"
 	"arkloop/services/worker/internal/tools"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/google/uuid"
 )
 
-const (
-	errorArgsInvalid     = "tool.args_invalid"
-	errorProviderFailure = "tool.memory_provider_failure"
-	errorIdentityMissing = "tool.memory_identity_missing"
-	errorStateMissing    = "tool.memory_state_missing"
-	errorSnapshotFailed  = "tool.memory_snapshot_failed"
+type ToolExecutor struct {
+	provider       memory.MemoryProvider
+	db             datarepo.DesktopDB
+	snapshots      desktopSnapshotAppender
+	impStore       pipeline.ImpressionStore
+	impRefresh     pipeline.ImpressionRefreshFunc
+	configResolver sharedconfig.Resolver
+}
 
-	defaultSearchLimit = 5
-)
-
-type snapshotAppender interface {
-	AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error
-	Invalidate(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) error
+type desktopSnapshotAppender interface {
+	AppendMemoryLine(ctx context.Context, pool datarepo.DesktopDB, accountID, userID uuid.UUID, agentID, line string) error
+	Invalidate(ctx context.Context, pool datarepo.DesktopDB, accountID, userID uuid.UUID, agentID string) error
 }
 
 type richSearchProvider interface {
@@ -69,22 +64,21 @@ type threadSearchFilterProvider interface {
 	SearchThreadsFull(ctx context.Context, ident memory.MemoryIdentity, query string, limit int, source string) (map[string]any, error)
 }
 
-// ToolExecutor 实现 tools.Executor，将 memory_search/read/write/forget 分发到 MemoryProvider。
-type ToolExecutor struct {
-	provider  memory.MemoryProvider
-	pool      *pgxpool.Pool
-	snapshots snapshotAppender
-}
-
-func NewToolExecutor(provider memory.MemoryProvider, pool *pgxpool.Pool, snapshots snapshotAppender) *ToolExecutor {
+// NewToolExecutor creates a desktop memory tool executor backed by the given memory provider.
+func NewToolExecutor(provider memory.MemoryProvider, db datarepo.DesktopDB, snapshots desktopSnapshotAppender) *ToolExecutor {
 	if snapshots == nil {
 		snapshots = datarepo.MemorySnapshotRepository{}
 	}
-	return &ToolExecutor{
-		provider:  provider,
-		pool:      pool,
-		snapshots: snapshots,
+	return &ToolExecutor{provider: provider, db: db, snapshots: snapshots}
+}
+
+func (e *ToolExecutor) ConfigureImpression(store pipeline.ImpressionStore, refresh pipeline.ImpressionRefreshFunc, resolver sharedconfig.Resolver) {
+	if e == nil {
+		return
 	}
+	e.impStore = store
+	e.impRefresh = refresh
+	e.configResolver = resolver
 }
 
 func (e *ToolExecutor) Execute(
@@ -119,7 +113,7 @@ func (e *ToolExecutor) Execute(
 	case "memory_list":
 		return e.list(ctx, args, ident, started)
 	case "memory_search":
-		return e.search(ctx, args, ident, execCtx, started)
+		return e.search(ctx, args, ident, started)
 	case "memory_thread_search":
 		return e.threadSearch(ctx, args, ident, started)
 	case "memory_thread_fetch":
@@ -305,7 +299,7 @@ func (e *ToolExecutor) list(ctx context.Context, args map[string]any, ident memo
 	}
 }
 
-func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
+func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
 	query, ok := args["query"].(string)
 	if !ok || strings.TrimSpace(query) == "" {
 		return argError("query must be a non-empty string", started)
@@ -317,7 +311,6 @@ func (e *ToolExecutor) search(ctx context.Context, args map[string]any, ident me
 	if err != nil {
 		return providerError("search", err, started)
 	}
-
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"hits": results},
 		DurationMs: durationMs(started),
@@ -448,11 +441,11 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 				return providerError("read", err, started)
 			}
 			result := map[string]any{
-				"content": summarizeMemoryRead("", wm.Content, depth),
+				"content": summarizeMemoryReadDesktop("", wm.Content, depth),
 				"source":  "working_memory",
 			}
 			if wantsSnippet {
-				content, startLine, endLine, totalLines := sliceReadLines(wm.Content, fromLine, lineCount)
+				content, startLine, endLine, totalLines := sliceReadLinesDesktop(wm.Content, fromLine, lineCount)
 				result["content"] = content
 				result["start_line"] = startLine
 				result["end_line"] = endLine
@@ -491,7 +484,7 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 			if err != nil {
 				return providerError("read", err, started)
 			}
-			result := map[string]any{"content": summarizeMemoryRead(detail.Title, detail.Content, depth)}
+			result := map[string]any{"content": summarizeMemoryReadDesktop(detail.Title, detail.Content, depth)}
 			if strings.TrimSpace(detail.SourceThreadID) != "" {
 				result["source_thread_id"] = strings.TrimSpace(detail.SourceThreadID)
 			}
@@ -512,7 +505,7 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 			return providerError("read", err, started)
 		}
 		result := map[string]any{
-			"content":   renderThreadReadContent(data, depth),
+			"content":   renderThreadReadContentDesktop(data, depth),
 			"thread_id": threadID,
 			"source":    "thread",
 		}
@@ -534,7 +527,6 @@ func (e *ToolExecutor) read(ctx context.Context, args map[string]any, ident memo
 	if err != nil {
 		return providerError("read", err, started)
 	}
-
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"content": content},
 		DurationMs: durationMs(started),
@@ -769,13 +761,10 @@ func (e *ToolExecutor) status(ctx context.Context, ident memory.MemoryIdentity, 
 	if strings.TrimSpace(status.Error) != "" {
 		result["error"] = strings.TrimSpace(status.Error)
 	}
-	return tools.ExecutionResult{
-		ResultJSON: result,
-		DurationMs: durationMs(started),
-	}
+	return tools.ExecutionResult{ResultJSON: result, DurationMs: durationMs(started)}
 }
 
-func summarizeMemoryRead(title, content, depth string) string {
+func summarizeMemoryReadDesktop(title, content, depth string) string {
 	title = strings.TrimSpace(title)
 	content = strings.TrimSpace(content)
 	if strings.EqualFold(depth, "full") {
@@ -787,36 +776,14 @@ func summarizeMemoryRead(title, content, depth string) string {
 		}
 		return title + "\n\n" + content
 	}
-	summary := compactReadSnippet(firstReadValue(title, content), 240)
+	summary := compactReadSnippetDesktop(firstReadValueDesktop(title, content), 240)
 	if title == "" || summary == title || content == "" {
 		return summary
 	}
 	return title + "\n\n" + summary
 }
 
-func compactReadSnippet(text string, maxRunes int) string {
-	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
-	if text == "" || maxRunes <= 0 {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= maxRunes {
-		return text
-	}
-	return string(runes[:maxRunes]) + "..."
-}
-
-func firstReadValue(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func sliceReadLines(text string, fromLine, lineCount int) (string, int, int, int) {
+func sliceReadLinesDesktop(text string, fromLine, lineCount int) (string, int, int, int) {
 	allLines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	start := fromLine
 	if start <= 0 {
@@ -849,6 +816,28 @@ func sliceReadLines(text string, fromLine, lineCount int) (string, int, int, int
 	return strings.Join(selected, "\n"), start, endLine, total
 }
 
+func compactReadSnippetDesktop(text string, maxRunes int) string {
+	text = strings.TrimSpace(strings.Join(strings.Fields(text), " "))
+	if text == "" || maxRunes <= 0 {
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= maxRunes {
+		return text
+	}
+	return string(runes[:maxRunes]) + "..."
+}
+
+func firstReadValueDesktop(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func (e *ToolExecutor) threadSearch(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
 	provider, ok := e.provider.(memory.MemoryThreadProvider)
 	if !ok {
@@ -876,10 +865,7 @@ func (e *ToolExecutor) threadSearch(ctx context.Context, args map[string]any, id
 	if err != nil {
 		return providerError("thread_search", err, started)
 	}
-	return tools.ExecutionResult{
-		ResultJSON: data,
-		DurationMs: durationMs(started),
-	}
+	return tools.ExecutionResult{ResultJSON: data, DurationMs: durationMs(started)}
 }
 
 func (e *ToolExecutor) threadFetch(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, started time.Time) tools.ExecutionResult {
@@ -903,17 +889,10 @@ func (e *ToolExecutor) threadFetch(ctx context.Context, args map[string]any, ide
 	if err != nil {
 		return providerError("thread_fetch", err, started)
 	}
-	return tools.ExecutionResult{
-		ResultJSON: data,
-		DurationMs: durationMs(started),
-	}
+	return tools.ExecutionResult{ResultJSON: data, DurationMs: durationMs(started)}
 }
 
 func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident memory.MemoryIdentity, execCtx tools.ExecutionContext, started time.Time) tools.ExecutionResult {
-	if execCtx.PendingMemoryWrites == nil {
-		return stateError("pending memory buffer not available", started)
-	}
-
 	category, ok := args["category"].(string)
 	if !ok || strings.TrimSpace(category) == "" {
 		return argError("category must be a non-empty string", started)
@@ -930,8 +909,28 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 	scope := parseScope(args)
 	writable := buildWritableContent(scope, category, key, content)
 	entry := memory.MemoryEntry{Content: writable}
-	taskID := uuid.NewString()
 
+	if w, ok := e.provider.(memory.DesktopLocalMemoryWriteURI); ok {
+		uri, err := w.WriteReturningURI(ctx, ident, scope, entry)
+		if err != nil {
+			return providerError("write", err, started)
+		}
+		if e.db != nil && isNowledgeProvider(e.provider) {
+			pipeline.EditSnapshotRefresh(e.provider, pipeline.NewDesktopMemorySnapshotStore(e.db), e.db, execCtx.RunID, execCtx.TraceID, ident, strings.TrimSpace(content))
+			if e.impStore != nil {
+				pipeline.BumpImpressionScore(ctx, e.impStore, ident, 5, e.configResolver, e.impRefresh)
+			}
+		}
+		return tools.ExecutionResult{
+			ResultJSON: map[string]any{"status": "ok", "uri": uri},
+			DurationMs: durationMs(started),
+		}
+	}
+
+	if execCtx.PendingMemoryWrites == nil {
+		return stateError("pending memory buffer not available", started)
+	}
+	taskID := uuid.NewString()
 	execCtx.PendingMemoryWrites.Append(memory.PendingWrite{
 		TaskID: taskID,
 		Ident:  ident,
@@ -944,7 +943,6 @@ func (e *ToolExecutor) write(ctx context.Context, args map[string]any, ident mem
 		"agent_id":         ident.AgentID,
 		"snapshot_updated": false,
 	}, stringPtr("memory_write"), nil)
-
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{
 			"status":           "queued",
@@ -965,19 +963,39 @@ func (e *ToolExecutor) forget(ctx context.Context, args map[string]any, ident me
 	if err := e.provider.Delete(ctx, ident, uri); err != nil {
 		return providerError("forget", err, started)
 	}
-	if e.pool != nil {
-		pipeline.ForgetSnapshotRefresh(e.provider, pipeline.NewPgxMemorySnapshotStore(e.pool), e.pool, execCtx.RunID, execCtx.TraceID, ident)
+	if e.db != nil && shouldScheduleDesktopSnapshotRefresh(e.provider) {
+		pipeline.ForgetSnapshotRefresh(e.provider, pipeline.NewDesktopMemorySnapshotStore(e.db), e.db, execCtx.RunID, execCtx.TraceID, ident)
 	}
-
 	return tools.ExecutionResult{
 		ResultJSON: map[string]any{"status": "ok"},
 		DurationMs: durationMs(started),
 	}
 }
 
-func buildWritableContent(scope memory.MemoryScope, category, key, content string) string {
-	return "[" + string(scope) + "/" + category + "/" + key + "] " + content
+func isNowledgeProvider(provider memory.MemoryProvider) bool {
+	_, ok := provider.(*nowledge.Client)
+	return ok
 }
+
+func shouldScheduleDesktopSnapshotRefresh(provider memory.MemoryProvider) bool {
+	if isNowledgeProvider(provider) {
+		return true
+	}
+	_, local := provider.(memory.DesktopLocalMemoryWriteURI)
+	return !local
+}
+
+// ---------- shared helpers (duplicated from executor.go to avoid build-tag conflicts) ----------
+
+const (
+	errorArgsInvalid     = "tool.args_invalid"
+	errorProviderFailure = "tool.memory_provider_failure"
+	errorIdentityMissing = "tool.memory_identity_missing"
+	errorStateMissing    = "tool.memory_state_missing"
+	errorSnapshotFailed  = "tool.memory_snapshot_failed"
+
+	defaultSearchLimit = 5
+)
 
 func buildIdentity(execCtx tools.ExecutionContext) (memory.MemoryIdentity, error) {
 	if execCtx.UserID == nil {
@@ -1004,22 +1022,6 @@ func parseScope(args map[string]any) memory.MemoryScope {
 	return memory.MemoryScopeUser
 }
 
-func parseNotebookArgs(args map[string]any) (string, string, string, error) {
-	category, ok := args["category"].(string)
-	if !ok || strings.TrimSpace(category) == "" {
-		return "", "", "", fmt.Errorf("category must be a non-empty string")
-	}
-	key, ok := args["key"].(string)
-	if !ok || strings.TrimSpace(key) == "" {
-		return "", "", "", fmt.Errorf("key must be a non-empty string")
-	}
-	content, ok := args["content"].(string)
-	if !ok || strings.TrimSpace(content) == "" {
-		return "", "", "", fmt.Errorf("content must be a non-empty string")
-	}
-	return strings.TrimSpace(category), strings.TrimSpace(key), strings.TrimSpace(content), nil
-}
-
 func parseLimit(args map[string]any, fallback int) int {
 	switch v := args["limit"].(type) {
 	case float64:
@@ -1033,10 +1035,6 @@ func parseLimit(args map[string]any, fallback int) int {
 	case int64:
 		if v >= 1 && v <= 20 {
 			return int(v)
-		}
-	case json.Number:
-		if n, err := v.Int64(); err == nil && n >= 1 && n <= 20 {
-			return int(n)
 		}
 	}
 	return fallback
@@ -1056,10 +1054,6 @@ func parseListLimit(args map[string]any, fallback int) int {
 		if v >= 1 && v <= 100 {
 			return int(v)
 		}
-	case json.Number:
-		if n, err := v.Int64(); err == nil && n >= 1 && n <= 100 {
-			return int(n)
-		}
 	}
 	return fallback
 }
@@ -1078,15 +1072,11 @@ func parseOffset(args map[string]any) int {
 		if v >= 0 {
 			return int(v)
 		}
-	case json.Number:
-		if n, err := v.Int64(); err == nil && n >= 0 {
-			return int(n)
-		}
 	}
 	return 0
 }
 
-func renderThreadReadContent(data map[string]any, depth string) string {
+func renderThreadReadContentDesktop(data map[string]any, depth string) string {
 	title, _ := data["title"].(string)
 	source, _ := data["source"].(string)
 	messages, _ := data["messages"].([]map[string]any)
@@ -1138,22 +1128,36 @@ func renderThreadReadContent(data map[string]any, depth string) string {
 	return strings.TrimSpace(builder.String())
 }
 
+func buildWritableContent(scope memory.MemoryScope, category, key, content string) string {
+	return "[" + string(scope) + "/" + category + "/" + key + "] " + content
+}
+
+func parseNotebookArgs(args map[string]any) (string, string, string, error) {
+	category, ok := args["category"].(string)
+	if !ok || strings.TrimSpace(category) == "" {
+		return "", "", "", fmt.Errorf("category must be a non-empty string")
+	}
+	key, ok := args["key"].(string)
+	if !ok || strings.TrimSpace(key) == "" {
+		return "", "", "", fmt.Errorf("key must be a non-empty string")
+	}
+	content, ok := args["content"].(string)
+	if !ok || strings.TrimSpace(content) == "" {
+		return "", "", "", fmt.Errorf("content must be a non-empty string")
+	}
+	return strings.TrimSpace(category), strings.TrimSpace(key), strings.TrimSpace(content), nil
+}
+
 func argError(msg string, started time.Time) tools.ExecutionResult {
 	return tools.ExecutionResult{
-		Error: &tools.ExecutionError{
-			ErrorClass: errorArgsInvalid,
-			Message:    msg,
-		},
+		Error:      &tools.ExecutionError{ErrorClass: errorArgsInvalid, Message: msg},
 		DurationMs: durationMs(started),
 	}
 }
 
 func stateError(msg string, started time.Time) tools.ExecutionResult {
 	return tools.ExecutionResult{
-		Error: &tools.ExecutionError{
-			ErrorClass: errorStateMissing,
-			Message:    msg,
-		},
+		Error:      &tools.ExecutionError{ErrorClass: errorStateMissing, Message: msg},
 		DurationMs: durationMs(started),
 	}
 }

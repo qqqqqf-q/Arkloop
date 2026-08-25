@@ -2,6 +2,14 @@ package eventbus
 
 import "context"
 
+// 跨模块唤醒 topic,经 EventBus 投递。字符串取值沿用历史 channel 名,
+// 订阅方(desktoprun 心跳调度、inbound burst runner 等)按此匹配。
+const (
+	TopicHeartbeat     = "arkloop:heartbeat"
+	TopicScheduledJobs = "arkloop:scheduled_jobs"
+	TopicInboundBurst  = "arkloop:inbound_burst"
+)
+
 // Message represents a message received from a subscription.
 type Message struct {
 	Topic   string

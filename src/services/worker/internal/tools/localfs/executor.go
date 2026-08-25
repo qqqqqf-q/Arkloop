@@ -1,5 +1,3 @@
-//go:build desktop
-
 package localfs
 
 import (
@@ -127,7 +125,7 @@ func (e *Executor) readDirectory(absPath, relPath string, started time.Time) too
 	items := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
 		item := map[string]any{
-			"name":  entry.Name(),
+			"name":   entry.Name(),
 			"is_dir": entry.IsDir(),
 		}
 		if info, err := entry.Info(); err == nil {

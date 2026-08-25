@@ -1,5 +1,3 @@
-//go:build desktop
-
 package telegram_heartbeat_command
 
 import (

@@ -1,5 +1,3 @@
-//go:build desktop
-
 package lsp
 
 import (
@@ -29,10 +27,10 @@ const (
 )
 
 const (
-	MaxRestarts           = 3
-	InitializeTimeout     = 30 * time.Second
-	ShutdownTimeout       = 5 * time.Second
-	RequestTimeout        = 15 * time.Second
+	MaxRestarts       = 3
+	InitializeTimeout = 30 * time.Second
+	ShutdownTimeout   = 5 * time.Second
+	RequestTimeout    = 15 * time.Second
 )
 
 var contentModifiedBackoff = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}

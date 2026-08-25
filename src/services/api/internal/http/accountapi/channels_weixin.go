@@ -11,7 +11,6 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/shared/messagecontent"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/weixinclient"
 
 	"github.com/google/uuid"
@@ -213,9 +212,6 @@ func (c *weixinConnector) HandleWeChatMessage(ctx context.Context, traceID strin
 			return err
 		}
 		if reply != nil {
-			if reply.CancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-			}
 			if reply.Text != "" {
 				c.sendWeixinReply(ctx, msg, reply.Text)
 			}

@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -12,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type MessagesRepository struct{}
@@ -25,7 +22,7 @@ type ThreadMessage struct {
 	MetadataJSON json.RawMessage
 	CreatedAt    time.Time
 	ThreadSeq    int64
-	OutputTokens *int64 // assistant 消息的实际 output tokens，从 usage_records JOIN
+	OutputTokens *int64 // assistant：从 usage_records JOIN，与 Postgres 一致
 }
 
 type ConversationSearchHit struct {
@@ -33,13 +30,6 @@ type ConversationSearchHit struct {
 	Role      string
 	Content   string
 	CreatedAt time.Time
-}
-
-type GroupSearchHit struct {
-	Role        string
-	Content     string
-	ContentJSON json.RawMessage
-	CreatedAt   time.Time
 }
 
 func (MessagesRepository) InsertAssistantMessage(
@@ -85,15 +75,16 @@ func (MessagesRepository) InsertAssistantMessageWithMetadata(
 		return uuid.Nil, err
 	}
 	createdAt := currentTimestampText()
-	var messageID uuid.UUID
+	messageID := uuid.New()
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
+			id, account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, metadata_json, hidden, created_at
 		) VALUES (
-			$1, $2, $3, NULL, $4, $5, $6, $7::jsonb, $8, $9
+			$1, $2, $3, $4, NULL, $5, $6, $7, $8::jsonb, $9, $10
 		)
 		 RETURNING id`,
+		messageID,
 		accountID,
 		threadID,
 		threadSeq,
@@ -124,7 +115,7 @@ func (MessagesRepository) InsertIntermediateMessage(
 	_, err := tx.Exec(
 		ctx,
 		`INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, content_json, metadata_json, hidden, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, TRUE, $9)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)`,
 		id, accountID, threadID, threadSeq, role, content, contentJSON, metadataJSON, createdAt,
 	)
 	if err != nil {
@@ -186,40 +177,40 @@ func (MessagesRepository) ListByThread(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
 		        recent.thread_seq,
-		        COALESCE(u.output_tokens, 0) as output_tokens
+		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM (
-				SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
-				  FROM messages m
-				 WHERE m.account_id = $1
-				   AND m.thread_id = $2
-				   AND m.deleted_at IS NULL
-				   AND (
-				     m.hidden = FALSE
-				     OR (
-				       m.metadata_json->>'intermediate' = 'true'
-				       AND EXISTS (
-				         SELECT 1
-				           FROM messages final
-				          WHERE final.account_id = m.account_id
-				            AND final.thread_id = m.thread_id
-				            AND final.deleted_at IS NULL
-				            AND final.hidden = FALSE
-				            AND final.role = 'assistant'
-				            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
-				       )
-				     )
-				   )
-				 ORDER BY thread_seq DESC
-				`+limitClause+`
-			 ) recent
+			SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+			  FROM messages m
+			 WHERE m.account_id = $1
+			   AND m.thread_id = $2
+			   AND m.deleted_at IS NULL
+			   AND (
+			     m.hidden = FALSE
+			     OR (
+			       json_extract(m.metadata_json, '$.intermediate') = 1
+			       AND EXISTS (
+			         SELECT 1
+			           FROM messages final
+			          WHERE final.account_id = m.account_id
+			            AND final.thread_id = m.thread_id
+			            AND final.deleted_at IS NULL
+			            AND final.hidden = FALSE
+			            AND final.role = 'assistant'
+			            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
+			       )
+			     )
+			   )
+			 ORDER BY thread_seq DESC
+			`+limitClause+`
+		 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
-			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
+			 WHERE run_id = (recent.metadata_json->>'run_id')
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-			 ORDER BY recent.thread_seq ASC`,
+		 ORDER BY recent.thread_seq ASC`,
 		args...,
 	)
 	if err != nil {
@@ -230,11 +221,11 @@ func (MessagesRepository) ListByThread(
 	out := []ThreadMessage{}
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &item.OutputTokens); err != nil {
+		var outTok int64
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &outTok); err != nil {
 			return nil, err
 		}
-		item.Role = strings.TrimSpace(item.Role)
-		item.Content = strings.TrimSpace(item.Content)
+		applyDesktopThreadMessageOutput(&item, outTok)
 		if item.Role == "" {
 			continue
 		}
@@ -256,36 +247,16 @@ func (MessagesRepository) ListRawByThread(
 	if limit <= 0 {
 		rows, err := tx.Query(
 			ctx,
-			`WITH upper_bound AS (
-				SELECT thread_seq
-				  FROM messages
-				 WHERE account_id = $1
-				   AND thread_id = $2
-				   AND id = $3
-				   AND deleted_at IS NULL
-			),
-			visible_final_run_ids AS (
-				SELECT DISTINCT NULLIF(final.metadata_json->>'run_id', '') AS run_id
-				  FROM messages final, upper_bound
-				 WHERE final.account_id = $1
-				   AND final.thread_id = $2
-				   AND final.deleted_at IS NULL
-				   AND final.hidden = FALSE
-				   AND final.role = 'assistant'
-				   AND final.thread_seq <= upper_bound.thread_seq
-				   AND NULLIF(final.metadata_json->>'run_id', '') IS NOT NULL
-			)
-			SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
+			`SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
 			        m.thread_seq,
 			        COALESCE(u.output_tokens, 0) as output_tokens
 			   FROM messages m
-			   LEFT JOIN LATERAL (
-				SELECT output_tokens
+			   LEFT JOIN (
+				SELECT run_id, output_tokens
 				  FROM usage_records
-				 WHERE run_id = (m.metadata_json->>'run_id')::uuid
-				   AND usage_type = 'llm'
-				 LIMIT 1
-			   ) u ON true
+				 WHERE usage_type = 'llm'
+			   ) u
+			     ON u.run_id = json_extract(m.metadata_json, '$.run_id')
 			  WHERE m.account_id = $1
 			    AND m.thread_id = $2
 			    AND m.deleted_at IS NULL
@@ -312,19 +283,18 @@ func (MessagesRepository) ListRawByThread(
 		 FROM (
 				SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
 				  FROM messages m
-				 WHERE m.account_id = $1
-				   AND m.thread_id = $2
-				   AND m.deleted_at IS NULL
-				 ORDER BY thread_seq DESC
-				`+limitClause+`
-			 ) recent
-		 LEFT JOIN LATERAL (
-			SELECT output_tokens
+			 WHERE m.account_id = $1
+			   AND m.thread_id = $2
+			   AND m.deleted_at IS NULL
+			 ORDER BY thread_seq DESC
+			`+limitClause+`
+		 ) recent
+		 LEFT JOIN (
+			SELECT run_id, output_tokens
 			  FROM usage_records
-			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
-			   AND usage_type = 'llm'
-			 LIMIT 1
-		 ) u ON true
+			 WHERE usage_type = 'llm'
+		 ) u
+		   ON u.run_id = json_extract(recent.metadata_json, '$.run_id')
 		 ORDER BY recent.thread_seq ASC`,
 		args...,
 	)
@@ -378,24 +348,42 @@ func (MessagesRepository) ListByThreadUpToID(
 	if limit <= 0 {
 		rows, err := tx.Query(
 			ctx,
-			`SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
+			`WITH upper_bound AS (
+				SELECT thread_seq
+				  FROM messages
+				 WHERE account_id = $1
+				   AND thread_id = $2
+				   AND id = $3
+				   AND deleted_at IS NULL
+			),
+			visible_final_run_ids AS (
+				SELECT DISTINCT NULLIF(final.metadata_json->>'run_id', '') AS run_id
+				  FROM messages final, upper_bound
+				 WHERE final.account_id = $1
+				   AND final.thread_id = $2
+				   AND final.deleted_at IS NULL
+				   AND final.hidden = FALSE
+				   AND final.role = 'assistant'
+				   AND final.thread_seq <= upper_bound.thread_seq
+				   AND NULLIF(final.metadata_json->>'run_id', '') IS NOT NULL
+			)
+			SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
 			        m.thread_seq,
-			        COALESCE(u.output_tokens, 0) as output_tokens
+			        COALESCE(u.output_tokens, 0) AS output_tokens
 			   FROM messages m
-			   LEFT JOIN LATERAL (
-				SELECT output_tokens
+			   LEFT JOIN (
+				SELECT run_id, output_tokens
 				  FROM usage_records
-				 WHERE run_id = (m.metadata_json->>'run_id')::uuid
-				   AND usage_type = 'llm'
-				 LIMIT 1
-			   ) u ON true
+				 WHERE usage_type = 'llm'
+			   ) u
+			     ON u.run_id = json_extract(m.metadata_json, '$.run_id')
 			  WHERE m.account_id = $1
 			    AND m.thread_id = $2
 			    AND m.deleted_at IS NULL
 			    AND (
 			      m.hidden = FALSE
 			      OR (
-			        m.metadata_json->>'intermediate' = 'true'
+			        json_extract(m.metadata_json, '$.intermediate') = 1
 			        AND NULLIF(m.metadata_json->>'run_id', '') IN (SELECT run_id FROM visible_final_run_ids)
 			      )
 			    )
@@ -409,9 +397,22 @@ func (MessagesRepository) ListByThreadUpToID(
 			return nil, err
 		}
 		defer rows.Close()
-		out, err := scanThreadMessages(rows)
-		if err != nil {
-			return nil, err
+
+		out := []ThreadMessage{}
+		for rows.Next() {
+			var item ThreadMessage
+			var outTok int64
+			if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &outTok); err != nil {
+				return nil, err
+			}
+			applyDesktopThreadMessageOutput(&item, outTok)
+			if item.Role == "" {
+				continue
+			}
+			out = append(out, item)
+		}
+		if rows.Err() != nil {
+			return nil, rows.Err()
 		}
 		if len(out) == 0 {
 			return nil, fmt.Errorf("thread history upper bound message not found")
@@ -426,49 +427,49 @@ func (MessagesRepository) ListByThreadUpToID(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.metadata_json, recent.created_at,
-			        recent.thread_seq,
-			        COALESCE(u.output_tokens, 0) as output_tokens
-			 FROM (
-				SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
-				  FROM messages m
-				 WHERE m.account_id = $1
-				   AND m.thread_id = $2
-				   AND m.deleted_at IS NULL
-				   AND (
-				     m.hidden = FALSE
-				     OR (
-				       m.metadata_json->>'intermediate' = 'true'
-				       AND EXISTS (
-				         SELECT 1
-				           FROM messages final
-				          WHERE final.account_id = m.account_id
-				            AND final.thread_id = m.thread_id
-				            AND final.deleted_at IS NULL
-				            AND final.hidden = FALSE
-				            AND final.role = 'assistant'
-				            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
-				       )
-				     )
-				   )
-				   AND thread_seq <= (
-				     SELECT thread_seq
-				       FROM messages
-				      WHERE account_id = $1
-				        AND thread_id = $2
-				        AND id = $3
-				        AND deleted_at IS NULL
-				   )
-				 ORDER BY thread_seq DESC
-				`+limitClause+`
-			 ) recent
+		        recent.thread_seq,
+		        COALESCE(u.output_tokens, 0) AS output_tokens
+		 FROM (
+			SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+			  FROM messages m
+			 WHERE m.account_id = $1
+			   AND m.thread_id = $2
+			   AND m.deleted_at IS NULL
+			   AND (
+			     m.hidden = FALSE
+			     OR (
+			       json_extract(m.metadata_json, '$.intermediate') = 1
+			       AND EXISTS (
+			         SELECT 1
+			           FROM messages final
+			          WHERE final.account_id = m.account_id
+			            AND final.thread_id = m.thread_id
+			            AND final.deleted_at IS NULL
+			            AND final.hidden = FALSE
+			            AND final.role = 'assistant'
+			            AND NULLIF(final.metadata_json->>'run_id', '') = NULLIF(m.metadata_json->>'run_id', '')
+			       )
+			     )
+			   )
+			   AND thread_seq <= (
+			     SELECT thread_seq
+			       FROM messages
+			      WHERE account_id = $1
+			        AND thread_id = $2
+			        AND id = $3
+			        AND deleted_at IS NULL
+			   )
+			 ORDER BY thread_seq DESC
+			`+limitClause+`
+		 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
-			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
+			 WHERE run_id = (recent.metadata_json->>'run_id')
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-			 ORDER BY recent.thread_seq ASC`,
+		 ORDER BY recent.thread_seq ASC`,
 		args...,
 	)
 	if err != nil {
@@ -476,9 +477,21 @@ func (MessagesRepository) ListByThreadUpToID(
 	}
 	defer rows.Close()
 
-	out, err := scanThreadMessages(rows)
-	if err != nil {
-		return nil, err
+	out := []ThreadMessage{}
+	for rows.Next() {
+		var item ThreadMessage
+		var outTok int64
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &outTok); err != nil {
+			return nil, err
+		}
+		applyDesktopThreadMessageOutput(&item, outTok)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("thread history upper bound message not found")
@@ -504,13 +517,12 @@ func (MessagesRepository) ListRawByThreadUpToID(
 			        m.thread_seq,
 			        COALESCE(u.output_tokens, 0) as output_tokens
 			   FROM messages m
-			   LEFT JOIN LATERAL (
-				SELECT output_tokens
+			   LEFT JOIN (
+				SELECT run_id, output_tokens
 				  FROM usage_records
-				 WHERE run_id = (m.metadata_json->>'run_id')::uuid
-				   AND usage_type = 'llm'
-				 LIMIT 1
-			   ) u ON true
+				 WHERE usage_type = 'llm'
+			   ) u
+			     ON u.run_id = json_extract(m.metadata_json, '$.run_id')
 			  WHERE m.account_id = $1
 			    AND m.thread_id = $2
 			    AND m.deleted_at IS NULL
@@ -554,17 +566,16 @@ func (MessagesRepository) ListRawByThreadUpToID(
 				        AND thread_id = $2
 				        AND id = $3
 				        AND deleted_at IS NULL
-				   )
-				 ORDER BY thread_seq DESC
-				`+limitClause+`
-			 ) recent
-			 LEFT JOIN LATERAL (
-				SELECT output_tokens
+			   )
+			 ORDER BY thread_seq DESC
+			`+limitClause+`
+		 ) recent
+			 LEFT JOIN (
+				SELECT run_id, output_tokens
 				  FROM usage_records
-				 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
-				   AND usage_type = 'llm'
-				 LIMIT 1
-			 ) u ON true
+				 WHERE usage_type = 'llm'
+			 ) u
+			   ON u.run_id = json_extract(recent.metadata_json, '$.run_id')
 			 ORDER BY recent.thread_seq ASC`,
 		args...,
 	)
@@ -573,7 +584,23 @@ func (MessagesRepository) ListRawByThreadUpToID(
 	}
 	defer rows.Close()
 
-	return scanThreadMessages(rows)
+	out := []ThreadMessage{}
+	for rows.Next() {
+		var item ThreadMessage
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.ThreadSeq, &item.OutputTokens); err != nil {
+			return nil, err
+		}
+		item.Role = strings.TrimSpace(item.Role)
+		item.Content = strings.TrimSpace(item.Content)
+		if item.Role == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
+	return out, nil
 }
 
 func (MessagesRepository) ListByIDs(
@@ -595,21 +622,21 @@ func (MessagesRepository) ListByIDs(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT m.id, m.role, m.content, m.content_json, m.metadata_json, m.created_at,
-			        COALESCE(u.output_tokens, 0) as output_tokens
-			 FROM messages m
+		        COALESCE(u.output_tokens, 0) AS output_tokens
+		 FROM messages m
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
-			 WHERE run_id = (m.metadata_json->>'run_id')::uuid
+			 WHERE run_id = (m.metadata_json->>'run_id')
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
 		 WHERE m.account_id = $1
 		   AND m.thread_id = $2
 		   AND m.id = ANY($3)
-		   AND (m.hidden = FALSE OR m.metadata_json->>'intermediate' = 'true')
+		   AND (m.hidden = FALSE OR json_extract(m.metadata_json, '$.intermediate') = 1)
 		   AND m.deleted_at IS NULL
-			 ORDER BY m.thread_seq ASC`,
+		 ORDER BY m.thread_seq ASC`,
 		accountID,
 		threadID,
 		messageIDs,
@@ -622,11 +649,11 @@ func (MessagesRepository) ListByIDs(
 	out := make([]ThreadMessage, 0, len(messageIDs))
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &item.OutputTokens); err != nil {
+		var outTok int64
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.MetadataJSON, &item.CreatedAt, &outTok); err != nil {
 			return nil, err
 		}
-		item.Role = strings.TrimSpace(item.Role)
-		item.Content = strings.TrimSpace(item.Content)
+		applyDesktopThreadMessageOutput(&item, outTok)
 		if item.Role == "" {
 			continue
 		}
@@ -657,25 +684,25 @@ func (MessagesRepository) ListRecentByThread(
 	rows, err := tx.Query(
 		ctx,
 		`SELECT recent.id, recent.role, recent.content, recent.content_json, recent.created_at,
-		        COALESCE(u.output_tokens, 0) as output_tokens
+		        COALESCE(u.output_tokens, 0) AS output_tokens
 		 FROM (
-			 	SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
-			 	  FROM messages
-			 	 WHERE account_id = $1
-			 	   AND thread_id = $2
-			 	   AND (hidden = FALSE OR metadata_json->>'intermediate' = 'true')
-			 	   AND deleted_at IS NULL
-			 	 ORDER BY thread_seq DESC
-			 	 LIMIT $3
-			 ) recent
+		 	SELECT id, role, content, content_json, created_at, metadata_json, thread_seq
+		 	  FROM messages
+		 	 WHERE account_id = $1
+		 	   AND thread_id = $2
+		 	   AND (hidden = FALSE OR json_extract(metadata_json, '$.intermediate') = 1)
+		 	   AND deleted_at IS NULL
+		 	 ORDER BY thread_seq DESC
+		 	 LIMIT $3
+		 ) recent
 		 LEFT JOIN LATERAL (
 			SELECT output_tokens
 			  FROM usage_records
-			 WHERE run_id = (recent.metadata_json->>'run_id')::uuid
+			 WHERE run_id = (recent.metadata_json->>'run_id')
 			   AND usage_type = 'llm'
 			 LIMIT 1
 		 ) u ON true
-			 ORDER BY recent.thread_seq ASC`,
+		 ORDER BY recent.thread_seq ASC`,
 		accountID,
 		threadID,
 		limit,
@@ -688,11 +715,11 @@ func (MessagesRepository) ListRecentByThread(
 	out := make([]ThreadMessage, 0, limit)
 	for rows.Next() {
 		var item ThreadMessage
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &item.OutputTokens); err != nil {
+		var outTok int64
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.ContentJSON, &item.CreatedAt, &outTok); err != nil {
 			return nil, err
 		}
-		item.Role = strings.TrimSpace(item.Role)
-		item.Content = strings.TrimSpace(item.Content)
+		applyDesktopThreadMessageOutput(&item, outTok)
 		if item.Role == "" {
 			continue
 		}
@@ -733,15 +760,16 @@ func (MessagesRepository) InsertThreadMessage(
 		return uuid.Nil, err
 	}
 	createdAt := currentTimestampText()
-	var messageID uuid.UUID
+	messageID := uuid.New()
 	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO messages (
-			account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, created_at
+			id, account_id, thread_id, thread_seq, created_by_user_id, role, content, content_json, created_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
 		)
 		 RETURNING id`,
+		messageID,
 		accountID,
 		threadID,
 		threadSeq,
@@ -761,7 +789,6 @@ func currentTimestampText() string {
 	return time.Now().UTC().Format("2006-01-02 15:04:05.000000000 -0700")
 }
 
-// GetThreadSeqByMessageID 返回消息的 thread_seq。
 func (MessagesRepository) GetThreadSeqByMessageID(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -836,7 +863,7 @@ func (MessagesRepository) GetThreadSeqRangeForMessageIDs(
 
 func (MessagesRepository) SearchVisibleByOwner(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool DesktopDB,
 	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	query string,
@@ -895,18 +922,25 @@ func (MessagesRepository) SearchVisibleByOwner(
 	return hits, nil
 }
 
-func escapeILikePattern(input string) string {
-	replacer := strings.NewReplacer(
-		"!", "!!",
-		"%", "!%",
-		"_", "!_",
-	)
-	return replacer.Replace(input)
+func applyDesktopThreadMessageOutput(item *ThreadMessage, outputTokens int64) {
+	item.Role = strings.TrimSpace(item.Role)
+	item.Content = strings.TrimSpace(item.Content)
+	if outputTokens > 0 {
+		v := outputTokens
+		item.OutputTokens = &v
+	}
+}
+
+type GroupSearchHit struct {
+	Role        string
+	Content     string
+	ContentJSON json.RawMessage
+	CreatedAt   time.Time
 }
 
 func (MessagesRepository) SearchByThread(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool DesktopDB,
 	threadID uuid.UUID,
 	query string,
 	limit int,
@@ -957,4 +991,13 @@ func (MessagesRepository) SearchByThread(
 		return nil, err
 	}
 	return hits, nil
+}
+
+func escapeILikePattern(input string) string {
+	replacer := strings.NewReplacer(
+		"!", "!!",
+		"%", "!%",
+		"_", "!_",
+	)
+	return replacer.Replace(input)
 }

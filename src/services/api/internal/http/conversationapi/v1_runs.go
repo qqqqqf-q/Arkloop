@@ -23,7 +23,6 @@ import (
 	"arkloop/services/api/internal/observability"
 	sharedconfig "arkloop/services/shared/config"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/threadrunstate"
 
 	"github.com/google/uuid"
@@ -444,7 +443,7 @@ func createThreadRun(
 
 		// Commit 成功，计数器由 Worker 在终态时 DECR
 		acquired = false
-		threadrunstate.Publish(r.Context(), pool, rdb, bus, thread.AccountID, thread.ID)
+		threadrunstate.Publish(r.Context(), rdb, bus, thread.AccountID, thread.ID)
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, createRunResponse{
 			RunID:   run.ID.String(),
@@ -893,9 +892,8 @@ func cancelRun(
 			return
 		}
 
-		// 通知 worker 立即中断，失败可忽略（worker 有 DB 兜底检查）
-		_, _ = pool.Exec(r.Context(), "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, run.ID.String())
-		threadrunstate.Publish(r.Context(), pool, rdb, bus, run.AccountID, run.ThreadID)
+		// worker 侧由 agent loop 轮询 run_events 发现取消
+		threadrunstate.Publish(r.Context(), rdb, bus, run.AccountID, run.ThreadID)
 
 		if auditWriter != nil {
 			auditWriter.WriteRunCancelRequested(r.Context(), traceID, actor.AccountID, actor.UserID, run.ID)
@@ -1008,9 +1006,6 @@ func submitRunInput(
 			writeInternalError(w, traceID, err)
 			return
 		}
-
-		// 唤醒 Worker 侧的 WaitForInput LISTEN goroutine
-		_, _ = pool.Exec(r.Context(), "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, run.ID.String())
 
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, submitInputResponse{OK: true})
 	}
@@ -1179,7 +1174,7 @@ func streamRunEvents(
 			}()
 		}
 
-		// 进程内 EventBus（Desktop 模式替代 pg_notify + Redis）
+		// 进程内 EventBus
 		var busCh <-chan struct{}
 		if follow && bus != nil {
 			channel := fmt.Sprintf("run_events:%s", runID.String())

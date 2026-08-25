@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package conversation
 
 import (
@@ -14,29 +12,28 @@ import (
 	"arkloop/services/worker/internal/tools"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type groupSearchRepository interface {
-	SearchByThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.UUID, query string, limit int) ([]data.GroupSearchHit, error)
+	SearchByThread(ctx context.Context, db data.DesktopDB, threadID uuid.UUID, query string, limit int) ([]data.GroupSearchHit, error)
 }
 
 type GroupSearchExecutor struct {
-	pool *pgxpool.Pool
+	db   data.DesktopDB
 	repo groupSearchRepository
 }
 
-func NewGroupSearchExecutor(pool *pgxpool.Pool, repo groupSearchRepository) *GroupSearchExecutor {
+func NewGroupSearchExecutor(db data.DesktopDB, repo groupSearchRepository) *GroupSearchExecutor {
 	if repo == nil {
 		repo = groupSearchRepoAdapter{}
 	}
-	return &GroupSearchExecutor{pool: pool, repo: repo}
+	return &GroupSearchExecutor{db: db, repo: repo}
 }
 
 type groupSearchRepoAdapter struct{}
 
-func (groupSearchRepoAdapter) SearchByThread(ctx context.Context, pool *pgxpool.Pool, threadID uuid.UUID, query string, limit int) ([]data.GroupSearchHit, error) {
-	return data.MessagesRepository{}.SearchByThread(ctx, pool, threadID, query, limit)
+func (groupSearchRepoAdapter) SearchByThread(ctx context.Context, db data.DesktopDB, threadID uuid.UUID, query string, limit int) ([]data.GroupSearchHit, error) {
+	return data.MessagesRepository{}.SearchByThread(ctx, db, threadID, query, limit)
 }
 
 func (e *GroupSearchExecutor) Execute(ctx context.Context, _ string, args map[string]any, execCtx tools.ExecutionContext, _ string) tools.ExecutionResult {
@@ -48,12 +45,12 @@ func (e *GroupSearchExecutor) Execute(ctx context.Context, _ string, args map[st
 	if !ok || strings.TrimSpace(query) == "" {
 		return executionError(errorArgsInvalid, "query must be a non-empty string", started)
 	}
-	if e.pool == nil {
+	if e.db == nil {
 		return executionError("tool.group_search_failed", "group search pool not available", started)
 	}
 
 	limit := parseLimit(args, defaultLimit)
-	hits, err := e.repo.SearchByThread(ctx, e.pool, *execCtx.ThreadID, query, limit)
+	hits, err := e.repo.SearchByThread(ctx, e.db, *execCtx.ThreadID, query, limit)
 	if err != nil {
 		return executionError("tool.group_search_failed", fmt.Sprintf("group search failed: %s", err.Error()), started)
 	}

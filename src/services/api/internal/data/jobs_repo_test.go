@@ -1,0 +1,182 @@
+package data
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"arkloop/services/shared/database/sqliteadapter"
+	"arkloop/services/shared/database/sqlitepgx"
+	"arkloop/services/shared/desktop"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+type stubDesktopEnqueuer struct {
+	callCount int
+	lastJobID uuid.UUID
+	accountID uuid.UUID
+	runID     uuid.UUID
+	traceID   string
+	jobType   string
+	payload   map[string]any
+	active    bool
+}
+
+func (s *stubDesktopEnqueuer) EnqueueRun(
+	_ context.Context,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	_ *time.Time,
+) (uuid.UUID, error) {
+	s.callCount++
+	s.accountID = accountID
+	s.runID = runID
+	s.traceID = traceID
+	s.jobType = queueJobType
+	s.payload = payload
+	return uuid.New(), nil
+}
+
+func (s *stubDesktopEnqueuer) EnqueueRunWithID(
+	_ context.Context,
+	jobID uuid.UUID,
+	accountID uuid.UUID,
+	runID uuid.UUID,
+	traceID string,
+	queueJobType string,
+	payload map[string]any,
+	_ *time.Time,
+) (uuid.UUID, error) {
+	s.callCount++
+	s.lastJobID = jobID
+	s.accountID = accountID
+	s.runID = runID
+	s.traceID = traceID
+	s.jobType = queueJobType
+	s.payload = payload
+	if jobID == uuid.Nil {
+		return uuid.New(), nil
+	}
+	return jobID, nil
+}
+
+func (s *stubDesktopEnqueuer) HasActiveRun(_ context.Context, runID uuid.UUID, queueJobType string) (bool, error) {
+	if s.active && queueJobType == RunExecuteJobType && runID != uuid.Nil {
+		return true, nil
+	}
+	return false, nil
+}
+
+func TestJobRepositoryDesktopRunExecuteBypassesPersistentJobs(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	prev := desktop.GetJobEnqueuer()
+	stub := &stubDesktopEnqueuer{}
+	desktop.SetJobEnqueuer(stub)
+	defer desktop.SetJobEnqueuer(prev)
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	repo, err := NewJobRepository(tx)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+
+	accountID := uuid.New()
+	runID := uuid.New()
+	returnedJobID, err := repo.EnqueueRun(ctx, accountID, runID, "", RunExecuteJobType, map[string]any{"source": "test"}, nil)
+	if err != nil {
+		t.Fatalf("enqueue run: %v", err)
+	}
+	if returnedJobID == uuid.Nil {
+		t.Fatal("expected non-nil job id from EnqueueRun")
+	}
+
+	var beforeCommit int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM jobs`).Scan(&beforeCommit); err != nil {
+		t.Fatalf("count jobs before commit: %v", err)
+	}
+	if beforeCommit != 0 {
+		t.Fatalf("expected no persisted jobs before commit, got %d", beforeCommit)
+	}
+	if stub.callCount != 0 {
+		t.Fatalf("expected after-commit enqueue, got %d calls before commit", stub.callCount)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit tx: %v", err)
+	}
+
+	var afterCommit int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs`).Scan(&afterCommit); err != nil {
+		t.Fatalf("count jobs after commit: %v", err)
+	}
+	if afterCommit != 0 {
+		t.Fatalf("expected desktop run.execute to skip jobs table, got %d rows", afterCommit)
+	}
+	if stub.callCount != 1 {
+		t.Fatalf("expected one enqueue call after commit, got %d", stub.callCount)
+	}
+	if stub.lastJobID != returnedJobID {
+		t.Fatalf("job id mismatch: EnqueueRun returned %s but EnqueueRunWithID received %s", returnedJobID, stub.lastJobID)
+	}
+	if stub.accountID != accountID || stub.runID != runID {
+		t.Fatalf("unexpected enqueue target: account=%s run=%s", stub.accountID, stub.runID)
+	}
+	if stub.jobType != RunExecuteJobType {
+		t.Fatalf("unexpected job type: %s", stub.jobType)
+	}
+	if stub.traceID == "" {
+		t.Fatal("expected normalized trace id to be generated")
+	}
+	if got, _ := stub.payload["source"].(string); got != "test" {
+		t.Fatalf("unexpected payload: %#v", stub.payload)
+	}
+}
+
+func TestJobRepositoryDesktopRejectsDuplicateRunExecute(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "data.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	pool := sqlitepgx.New(sqlitePool.Unwrap())
+	prev := desktop.GetJobEnqueuer()
+	stub := &stubDesktopEnqueuer{active: true}
+	desktop.SetJobEnqueuer(stub)
+	defer desktop.SetJobEnqueuer(prev)
+
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	repo, err := NewJobRepository(tx)
+	if err != nil {
+		t.Fatalf("new job repo: %v", err)
+	}
+
+	_, err = repo.EnqueueRun(ctx, uuid.New(), uuid.New(), "", RunExecuteJobType, map[string]any{"source": "test"}, nil)
+	if !errors.Is(err, ErrRunExecuteAlreadyQueued) {
+		t.Fatalf("expected ErrRunExecuteAlreadyQueued, got %v", err)
+	}
+	if stub.callCount != 0 {
+		t.Fatalf("expected no enqueue call for duplicate run, got %d", stub.callCount)
+	}
+}

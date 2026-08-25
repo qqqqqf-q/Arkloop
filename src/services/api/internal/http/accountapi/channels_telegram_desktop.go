@@ -1,5 +1,3 @@
-//go:build desktop
-
 package accountapi
 
 import (
@@ -97,7 +95,7 @@ func StartTelegramDesktopPoller(ctx context.Context, deps TelegramDesktopPollerD
 		abort = "nil_run_event_repo"
 	case deps.JobRepo == nil:
 		abort = "nil_job_repo"
-			abort = "nil_credits_repo"
+		abort = "nil_credits_repo"
 	case deps.Pool == nil:
 		abort = "nil_pool"
 	}

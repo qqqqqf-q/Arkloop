@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -8,20 +6,19 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type AccountMembershipRecord struct {
-	AccountID  uuid.UUID
-	UserID uuid.UUID
-	Role   string
+	AccountID uuid.UUID
+	UserID    uuid.UUID
+	Role      string
 }
 
 type AccountMembershipsRepository struct{}
 
 func (AccountMembershipsRepository) GetByAccountAndUser(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool DesktopDB,
 	accountID uuid.UUID,
 	userID uuid.UUID,
 ) (*AccountMembershipRecord, error) {

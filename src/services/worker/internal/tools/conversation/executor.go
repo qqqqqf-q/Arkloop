@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package conversation
 
 import (
@@ -16,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -36,26 +33,26 @@ const (
 )
 
 type searchRepository interface {
-	SearchVisibleByOwner(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error)
+	SearchVisibleByOwner(ctx context.Context, pool data.DesktopDB, accountID uuid.UUID, ownerUserID uuid.UUID, query string, limit int) ([]data.ConversationSearchHit, error)
 }
 
 type threadsRepository interface {
-	ListByOwner(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, limit int, offset int, modeFilter string) ([]data.ThreadListItem, error)
-	ListVisibleMessages(ctx context.Context, pool *pgxpool.Pool, accountID uuid.UUID, ownerUserID uuid.UUID, threadID uuid.UUID, limit int, offset int, roleFilter string, orderDesc bool) ([]data.VisibleMessage, error)
+	ListByOwner(ctx context.Context, pool data.DesktopDB, accountID uuid.UUID, ownerUserID uuid.UUID, limit int, offset int, modeFilter string) ([]data.ThreadListItem, error)
+	ListVisibleMessages(ctx context.Context, pool data.DesktopDB, accountID uuid.UUID, ownerUserID uuid.UUID, threadID uuid.UUID, limit int, offset int, roleFilter string, orderDesc bool) ([]data.VisibleMessage, error)
 }
 
 type ToolExecutor struct {
-	pool        *pgxpool.Pool
+	db          data.DesktopDB
 	contextDB   contextDB
 	repo        searchRepository
 	threadsRepo threadsRepository
 }
 
-func NewToolExecutor(pool *pgxpool.Pool, repo searchRepository) *ToolExecutor {
+func NewToolExecutor(db data.DesktopDB, repo searchRepository) *ToolExecutor {
 	if repo == nil {
 		repo = data.MessagesRepository{}
 	}
-	return &ToolExecutor{pool: pool, contextDB: pool, repo: repo, threadsRepo: data.ThreadsRepository{}}
+	return &ToolExecutor{db: db, contextDB: db, repo: repo, threadsRepo: data.ThreadsRepository{}}
 }
 
 func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[string]any, execCtx tools.ExecutionContext, _ string) tools.ExecutionResult {
@@ -80,7 +77,7 @@ func (e *ToolExecutor) executeSearch(ctx context.Context, args map[string]any, e
 	if !ok || strings.TrimSpace(query) == "" {
 		return executionError(errorArgsInvalid, "query must be a non-empty string", started)
 	}
-	if e.pool == nil {
+	if e.db == nil {
 		return executionError(errorSearchFailed, "conversation search pool not available", started)
 	}
 	if e.repo == nil {
@@ -88,7 +85,7 @@ func (e *ToolExecutor) executeSearch(ctx context.Context, args map[string]any, e
 	}
 
 	limit := parseIntArg(args, "limit", defaultLimit, 1, maxLimit)
-	hits, err := e.repo.SearchVisibleByOwner(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, query, limit)
+	hits, err := e.repo.SearchVisibleByOwner(ctx, e.db, *execCtx.AccountID, *execCtx.UserID, query, limit)
 	if err != nil {
 		return executionError(errorSearchFailed, fmt.Sprintf("conversation search failed: %s", err.Error()), started)
 	}
@@ -112,7 +109,7 @@ func (e *ToolExecutor) executeThreadList(ctx context.Context, args map[string]an
 	if execCtx.AccountID == nil || execCtx.UserID == nil {
 		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
 	}
-	if e.pool == nil {
+	if e.db == nil {
 		return executionError(errorSearchFailed, "pool not available", started)
 	}
 
@@ -124,7 +121,7 @@ func (e *ToolExecutor) executeThreadList(ctx context.Context, args map[string]an
 		modeFilter = m
 	}
 
-	items, err := e.threadsRepo.ListByOwner(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, limit, offset, modeFilter)
+	items, err := e.threadsRepo.ListByOwner(ctx, e.db, *execCtx.AccountID, *execCtx.UserID, limit, offset, modeFilter)
 	if err != nil {
 		return executionError(errorSearchFailed, fmt.Sprintf("list threads failed: %s", err.Error()), started)
 	}
@@ -154,7 +151,7 @@ func (e *ToolExecutor) executeThreadMessages(ctx context.Context, args map[strin
 	if execCtx.AccountID == nil || execCtx.UserID == nil {
 		return executionError(errorIdentityMissing, "account_id and user_id are required", started)
 	}
-	if e.pool == nil {
+	if e.db == nil {
 		return executionError(errorSearchFailed, "pool not available", started)
 	}
 
@@ -180,7 +177,7 @@ func (e *ToolExecutor) executeThreadMessages(ctx context.Context, args map[strin
 		orderDesc = false
 	}
 
-	msgs, err := e.threadsRepo.ListVisibleMessages(ctx, e.pool, *execCtx.AccountID, *execCtx.UserID, threadID, limit, offset, roleFilter, orderDesc)
+	msgs, err := e.threadsRepo.ListVisibleMessages(ctx, e.db, *execCtx.AccountID, *execCtx.UserID, threadID, limit, offset, roleFilter, orderDesc)
 	if err != nil {
 		if errors.Is(err, data.ErrThreadNotFound) {
 			return executionError(errorThreadNotFound, "thread not found or access denied", started)

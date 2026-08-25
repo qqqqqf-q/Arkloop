@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -9,12 +7,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type SuggestionRepository struct{}
 
-func (SuggestionRepository) GetByMode(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, mode string) (string, *time.Time, bool, error) {
+func (SuggestionRepository) GetByMode(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, mode string) (string, *time.Time, bool, error) {
 	var suggestionsJSON string
 	var expiresAt *time.Time
 	err := pool.QueryRow(ctx,
@@ -31,35 +28,35 @@ func (SuggestionRepository) GetByMode(ctx context.Context, pool *pgxpool.Pool, a
 	return suggestionsJSON, expiresAt, true, nil
 }
 
-func (SuggestionRepository) UpsertSuggestions(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, mode, suggestionsJSON string, expiresAt time.Time) error {
+func (SuggestionRepository) UpsertSuggestions(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, mode, suggestionsJSON string, expiresAt time.Time) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO user_suggestion_snapshots (account_id, user_id, agent_id, mode, suggestions_json, last_build_at, expires_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, now(), $6, now())
+		 VALUES ($1, $2, $3, $4, $5, datetime('now'), $6, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id, mode)
-		 DO UPDATE SET suggestions_json = EXCLUDED.suggestions_json, last_build_at = now(), expires_at = EXCLUDED.expires_at, updated_at = now()`,
+		 DO UPDATE SET suggestions_json = EXCLUDED.suggestions_json, last_build_at = datetime('now'), expires_at = EXCLUDED.expires_at, updated_at = datetime('now')`,
 		accountID, userID, agentID, mode, suggestionsJSON, expiresAt,
 	)
 	return err
 }
 
-func (SuggestionRepository) AddScore(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, mode string, delta int) (int, *time.Time, error) {
+func (SuggestionRepository) AddScore(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, mode string, delta int) (int, *time.Time, error) {
 	var newScore int
 	var lastBuildAt *time.Time
 	err := pool.QueryRow(ctx,
 		`INSERT INTO user_suggestion_snapshots (account_id, user_id, agent_id, mode, suggestion_score, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, now())
+		 VALUES ($1, $2, $3, $4, $5, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id, mode)
-		 DO UPDATE SET suggestion_score = user_suggestion_snapshots.suggestion_score + $5, updated_at = now()
+		 DO UPDATE SET suggestion_score = user_suggestion_snapshots.suggestion_score + $5, updated_at = datetime('now')
 		 RETURNING suggestion_score, last_build_at`,
 		accountID, userID, agentID, mode, delta,
 	).Scan(&newScore, &lastBuildAt)
 	return newScore, lastBuildAt, err
 }
 
-func (SuggestionRepository) ResetScore(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, mode string) error {
+func (SuggestionRepository) ResetScore(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, mode string) error {
 	_, err := pool.Exec(ctx,
 		`UPDATE user_suggestion_snapshots
-		 SET suggestion_score = 0, updated_at = now()
+		 SET suggestion_score = 0, updated_at = datetime('now')
 		 WHERE account_id = $1 AND user_id = $2 AND agent_id = $3 AND mode = $4`,
 		accountID, userID, agentID, mode,
 	)

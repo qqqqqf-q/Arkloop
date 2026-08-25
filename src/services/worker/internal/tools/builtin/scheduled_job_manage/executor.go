@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package scheduled_job_manage
 
 import (
@@ -11,21 +9,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type executor struct {
+type desktopExecutor struct {
 	common *executorCommon
 }
 
-// New 返回 scheduled_job_manage executor。
-func New(pool *pgxpool.Pool) tools.Executor {
-	return &executor{
-		common: &executorCommon{
-			db:   pool,
-			repo: data.ScheduledJobsRepository{},
-		},
+// New 返回 desktop 下的 scheduled_job_manage executor。
+func New(_ *pgxpool.Pool) tools.Executor {
+	return &desktopExecutor{}
+}
+
+// SetDesktopDB 注入 DesktopDB（desktop 模式下由 composition 调用）。
+func (e *desktopExecutor) SetDesktopDB(db data.DesktopDB) {
+	e.common = &executorCommon{
+		db:   db,
+		repo: data.DesktopScheduledJobsRepository{},
 	}
 }
 
-func (e *executor) Execute(
+func (e *desktopExecutor) Execute(
 	ctx context.Context,
 	toolName string,
 	args map[string]any,

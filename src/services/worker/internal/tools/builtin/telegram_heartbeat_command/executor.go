@@ -1,5 +1,3 @@
-//go:build desktop
-
 package telegram_heartbeat_command
 
 import (
@@ -14,7 +12,6 @@ import (
 
 	shareddesktop "arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/telegrambot"
 	"arkloop/services/worker/internal/data"
@@ -399,7 +396,7 @@ func (e *Executor) notifyHeartbeatScheduler(ctx context.Context) {
 	if !ok || bus == nil {
 		return
 	}
-	_ = bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+	_ = bus.Publish(ctx, eventbus.TopicHeartbeat, "")
 }
 
 // getGroupIdentityID 通过 channel_type + platform_subject_id 查群的 channel_identities.id。

@@ -1,41 +1,36 @@
-//go:build !desktop
-
 package data
 
 import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ListPendingForDrain 用租约模式原子锁定待处理行。
-// 一条 UPDATE 同时推后 next_retry_at（租约），连接归还池后其他 drainer
-// 因 next_retry_at > now() 不会再抓到同一行；租约到期自动回收。
-func (ChannelDeliveryOutboxRepository) ListPendingForDrain(ctx context.Context, pool *pgxpool.Pool, limit int) ([]ChannelDeliveryOutboxRecord, error) {
-	if pool == nil {
-		return nil, fmt.Errorf("pool must not be nil")
+// ListPendingForDrain 在持有写锁的事务内用 UPDATE...RETURNING 租约挑选待处理行。
+// SQLite 3.35+ 支持 RETURNING；推后 next_retry_at 作为租约避免重复拉取。
+func (ChannelDeliveryOutboxRepository) ListPendingForDrain(ctx context.Context, db DesktopDB, limit int) ([]ChannelDeliveryOutboxRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("db must not be nil")
 	}
 	if limit <= 0 {
 		limit = 10
 	}
-	leaseUntil := time.Now().UTC().Add(OutboxLeaseDuration)
-	rows, err := pool.Query(ctx, `
+	now := time.Now().UTC()
+	leaseUntil := now.Add(OutboxLeaseDuration)
+	rows, err := db.Query(ctx, `
 		UPDATE channel_delivery_outbox
 		   SET next_retry_at = $1,
-		       updated_at = now()
+		       updated_at = $1
 		 WHERE id IN (
 		     SELECT id
 		       FROM channel_delivery_outbox
 		      WHERE status = 'pending'
-		        AND next_retry_at <= now()
+		        AND next_retry_at <= $2
 		      ORDER BY next_retry_at
-		      FOR UPDATE SKIP LOCKED
-		      LIMIT $2
+		      LIMIT $3
 		 )
 		RETURNING id, run_id, thread_id, channel_id, channel_type, kind, status, payload_json, segments_sent, attempts, last_error, next_retry_at, created_at, updated_at`,
-		leaseUntil, limit,
+		leaseUntil, now, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("channel_delivery_outbox.ListPendingForDrain: %w", err)

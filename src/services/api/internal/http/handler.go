@@ -1,19 +1,21 @@
-//go:build !desktop
-
 package http
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	nethttp "net/http"
 	"os"
-	"time"
+	"path/filepath"
+	"strconv"
+	"strings"
 
 	"arkloop/services/api/internal/http/accountapi"
 	"arkloop/services/api/internal/http/adminapi"
 	"arkloop/services/api/internal/http/authapi"
 	"arkloop/services/api/internal/http/catalogapi"
 	"arkloop/services/api/internal/http/conversationapi"
+	"arkloop/services/api/internal/http/memoryapi"
 	"arkloop/services/api/internal/http/platformapi"
 	"arkloop/services/api/internal/http/scheduledjobsapi"
 
@@ -22,15 +24,15 @@ import (
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/featureflag"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/api/internal/personas"
+	repopersonas "arkloop/services/api/internal/personas"
 	"arkloop/services/api/internal/plugincontrib"
 	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/shared/desktop"
 	"arkloop/services/shared/discordbot"
+	"arkloop/services/shared/eventbus"
+	"arkloop/services/shared/localproviders"
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/telegrambot"
-
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 )
 
 // SSEConfig controls SSE stream heartbeat behavior.
@@ -42,28 +44,59 @@ type SSEConfig struct {
 
 func defaultSSEConfig() SSEConfig {
 	return SSEConfig{
-		HeartbeatSeconds: 15.0,
+		HeartbeatSeconds: 1.0,
 		BatchLimit:       500,
 		CatchUpThreshold: 50,
 	}
 }
 
+func atoiDefault(raw string, fallback int) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+type artifactStore interface {
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
+}
+
+type messageAttachmentStore interface {
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
+	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
+	Delete(ctx context.Context, key string) error
+}
+
+type environmentStore interface {
+	Get(ctx context.Context, key string) ([]byte, error)
+}
+
+type skillStore interface {
+	Get(ctx context.Context, key string) ([]byte, error)
+	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
+	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
+}
+
+// HandlerConfig for desktop mode.
+// No *redis.Client: all dependencies go through
+// repository interfaces or can accept nil gracefully.
 type HandlerConfig struct {
-	Pool                     data.DB
-	DirectPool               *pgxpool.Pool // LISTEN/NOTIFY 专用，不走 PgBouncer
-	InvalidationListenerCtx  context.Context
-	DirectPoolAcquireTimeout time.Duration
-	Logger                   *slog.Logger
-	SchemaRepository         *data.SchemaRepository
-	TrustIncomingTraceID     bool
-	TrustXForwardedFor       bool
-	MaxInFlight              int
+	Pool                 data.DB // *sqlitepgx.Pool in desktop mode
+	Logger               *slog.Logger
+	SchemaRepository     *data.SchemaRepository
+	TrustIncomingTraceID bool
+	TrustXForwardedFor   bool
+	MaxInFlight          int
 
 	AuthService           *auth.Service
 	RegistrationService   *auth.RegistrationService
 	EmailVerifyService    *auth.EmailVerifyService
 	EmailOTPLoginService  *auth.EmailOTPLoginService
 	AccountService        *auth.AccountService
+	AppBaseURL            string
 	AccountMembershipRepo *data.AccountMembershipRepository
 	ThreadRepo            *data.ThreadRepository
 	ThreadStarRepo        *data.ThreadStarRepository
@@ -87,8 +120,8 @@ type HandlerConfig struct {
 	PersonasRepo                 *data.PersonasRepository
 	SkillPackagesRepo            *data.SkillPackagesRepository
 	ProfileSkillInstallsRepo     *data.ProfileSkillInstallsRepository
-	PlatformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 	WorkspaceSkillEnableRepo     *data.WorkspaceSkillEnablementsRepository
+	PlatformSkillOverridesRepo   *data.PlatformSkillOverridesRepository
 	PluginPackagesRepo           *data.PluginPackagesRepository
 	PluginEnablementsRepo        *data.PluginEnablementsRepository
 	PluginRuntimeStateRepo       *data.PluginRuntimeStateRepository
@@ -117,7 +150,6 @@ type HandlerConfig struct {
 	InviteCodesRepo *data.InviteCodeRepository
 	ReferralsRepo   *data.ReferralRepository
 
-
 	PlatformSettingsRepo *data.PlatformSettingsRepository
 	SmtpProviderRepo     *data.SmtpProviderRepository
 
@@ -136,18 +168,7 @@ type HandlerConfig struct {
 	SkillStore             skillStore
 	MCPDiscoveryService    catalogapi.MCPDiscoverySourceService
 
-	EmailFrom  string
-	AppBaseURL string
-
-	TelegramBotClient *telegrambot.Client
-	DiscordBotClient  *discordbot.Client
-
-	TurnstileEnvSecretKey   string
-	TurnstileEnvSiteKey     string
-	TurnstileEnvAllowedHost string
-
-	RedisClient *redis.Client
-	RunLimiter         *data.RunLimiter
+	RunLimiter *data.RunLimiter
 
 	SSEConfig SSEConfig
 
@@ -155,30 +176,11 @@ type HandlerConfig struct {
 	ConfigInvalidator sharedconfig.Invalidator
 	ConfigRegistry    *sharedconfig.Registry
 
-	RepoPersonas       []personas.RepoPersona
+	RepoPersonas       []repopersonas.RepoPersona
 	PersonaSyncTrigger interface{ Trigger() }
-}
 
-type artifactStore interface {
-	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
-	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
-}
-
-type messageAttachmentStore interface {
-	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
-	GetWithContentType(ctx context.Context, key string) ([]byte, string, error)
-	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
-	Delete(ctx context.Context, key string) error
-}
-
-type environmentStore interface {
-	Get(ctx context.Context, key string) ([]byte, error)
-}
-
-type skillStore interface {
-	Get(ctx context.Context, key string) ([]byte, error)
-	Head(ctx context.Context, key string) (objectstore.ObjectInfo, error)
-	PutObject(ctx context.Context, key string, data []byte, options objectstore.PutOptions) error
+	TelegramBotClient *telegrambot.Client
+	DiscordBotClient  *discordbot.Client
 }
 
 func NewHandler(cfg HandlerConfig) nethttp.Handler {
@@ -186,14 +188,11 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	if registry == nil {
 		registry = sharedconfig.DefaultRegistry()
 	}
+
 	resolver := cfg.ConfigResolver
 	if resolver == nil {
-		var cache sharedconfig.Cache
-		cacheTTL := sharedconfig.CacheTTLFromEnv()
-		if cfg.RedisClient != nil && cacheTTL > 0 {
-			cache = sharedconfig.NewRedisCache(cfg.RedisClient)
-		}
-		fallback, _ := sharedconfig.NewResolver(registry, sharedconfig.NewPGXStoreQuerier(cfg.Pool), cache, cacheTTL)
+		// Desktop: env vars + registry defaults, no DB store, no Redis cache.
+		fallback, _ := sharedconfig.NewResolver(registry, nil, nil, 0)
 		resolver = fallback
 	}
 	invalidator := cfg.ConfigInvalidator
@@ -213,15 +212,12 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 	}
 
 	effectiveToolCatalogCache := catalogapi.NewEffectiveToolCatalogCache(catalogapi.EffectiveToolCatalogTTL)
-	listenerCtx := cfg.InvalidationListenerCtx
-	if listenerCtx == nil {
-		listenerCtx = context.Background()
-	}
-	effectiveToolCatalogCache.StartInvalidationListener(listenerCtx, cfg.DirectPool)
+	// nil directPool: StartInvalidationListener returns immediately.
 
 	mux := nethttp.NewServeMux()
 	mux.HandleFunc("/healthz", healthz)
 	mux.HandleFunc("/readyz", readyz(cfg.SchemaRepository, cfg.Logger))
+
 	sseConfig := cfg.SSEConfig
 	if sseConfig.BatchLimit <= 0 {
 		sseConfig = defaultSSEConfig()
@@ -242,29 +238,34 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ConfigResolver:        resolver,
 	})
 
+	var bus eventbus.EventBus
+	if b, ok := desktop.GetEventBus().(eventbus.EventBus); ok {
+		bus = b
+	}
+
 	conversationapi.RegisterRoutes(mux, conversationapi.Deps{
-		AuthService:              cfg.AuthService,
-		AccountMembershipRepo:    cfg.AccountMembershipRepo,
-		ThreadRepo:               cfg.ThreadRepo,
-		ThreadStarRepo:           cfg.ThreadStarRepo,
-		ThreadShareRepo:          cfg.ThreadShareRepo,
-		ThreadReportRepo:         cfg.ThreadReportRepo,
-		MessageRepo:              cfg.MessageRepo,
-		RunEventRepo:             cfg.RunEventRepo,
-		ShellSessionRepo:         cfg.ShellSessionRepo,
-		ProjectRepo:              cfg.ProjectRepo,
-		TeamRepo:                 cfg.TeamRepo,
-		AuditWriter:              cfg.AuditWriter,
-		Pool:                     cfg.Pool,
-		DirectPool:               cfg.DirectPool,
-		DirectPoolAcquireTimeout: cfg.DirectPoolAcquireTimeout,
-		APIKeysRepo:              cfg.APIKeysRepo,
-		RunLimiter:               cfg.RunLimiter,
-		RedisClient:              cfg.RedisClient,
-		ConfigResolver:           resolver,
-		SSEConfig:                conversationapi.SSEConfig(sseConfig),
-		MessageAttachmentStore:   cfg.MessageAttachmentStore,
-		ArtifactStore:            cfg.ArtifactStore,
+		AuthService:            cfg.AuthService,
+		AccountMembershipRepo:  cfg.AccountMembershipRepo,
+		ThreadRepo:             cfg.ThreadRepo,
+		ThreadStarRepo:         cfg.ThreadStarRepo,
+		ThreadShareRepo:        cfg.ThreadShareRepo,
+		ThreadReportRepo:       cfg.ThreadReportRepo,
+		MessageRepo:            cfg.MessageRepo,
+		RunEventRepo:           cfg.RunEventRepo,
+		ShellSessionRepo:       cfg.ShellSessionRepo,
+		ProjectRepo:            cfg.ProjectRepo,
+		TeamRepo:               cfg.TeamRepo,
+		AuditWriter:            cfg.AuditWriter,
+		Pool:                   cfg.Pool, // desktop: SQLite via sqlitepgx
+		DirectPool:             nil,      // desktop: no LISTEN/NOTIFY
+		APIKeysRepo:            cfg.APIKeysRepo,
+		RunLimiter:             cfg.RunLimiter,
+		RedisClient:            nil, // desktop: no Redis
+		ConfigResolver:         resolver,
+		SSEConfig:              conversationapi.SSEConfig(sseConfig),
+		EventBus:               bus,
+		MessageAttachmentStore: cfg.MessageAttachmentStore,
+		ArtifactStore:          cfg.ArtifactStore,
 	})
 
 	catalogapi.RegisterRoutes(mux, catalogapi.Deps{
@@ -274,7 +275,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		LlmRoutesRepo:                cfg.LlmRoutesRepo,
 		SecretsRepo:                  cfg.SecretsRepo,
 		Pool:                         cfg.Pool,
-		DirectPool:                   cfg.DirectPool,
+		DirectPool:                   nil,
 		AsrCredentialsRepo:           cfg.AsrCredentialsRepo,
 		MCPConfigsRepo:               cfg.MCPConfigsRepo,
 		ProfileMCPInstallsRepo:       cfg.ProfileMCPInstallsRepo,
@@ -284,8 +285,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		PersonasRepo:                 cfg.PersonasRepo,
 		SkillPackagesRepo:            cfg.SkillPackagesRepo,
 		ProfileSkillInstallsRepo:     cfg.ProfileSkillInstallsRepo,
-		PlatformSkillOverridesRepo:   cfg.PlatformSkillOverridesRepo,
 		WorkspaceSkillEnableRepo:     cfg.WorkspaceSkillEnableRepo,
+		PlatformSkillOverridesRepo:   cfg.PlatformSkillOverridesRepo,
 		PluginPackagesRepo:           cfg.PluginPackagesRepo,
 		PluginEnablementsRepo:        cfg.PluginEnablementsRepo,
 		PluginRuntimeStateRepo:       cfg.PluginRuntimeStateRepo,
@@ -305,8 +306,8 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ArtifactStoreAvailable:       cfg.ArtifactStore != nil,
 		Logger:                       cfg.Logger,
 		MCPDiscoveryService:          cfg.MCPDiscoveryService,
+		LlmProviderListAugmenter:     catalogapi.NewLocalProviderListAugmenter(localproviders.NewResolver(localproviders.Options{})),
 	})
-
 
 	accountapi.RegisterRoutes(mux, accountapi.Deps{
 		AuthService:              cfg.AuthService,
@@ -336,7 +337,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		PersonasRepo:             cfg.PersonasRepo,
 		TelegramBotClient:        telegramClient,
 		DiscordBotClient:         discordClient,
-		TelegramMode:             "webhook",
+		TelegramMode:             "polling",
 		AppBaseURL:               cfg.AppBaseURL,
 		EnvironmentStore:         cfg.EnvironmentStore,
 		RunEventRepo:             cfg.RunEventRepo,
@@ -351,7 +352,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		NotificationsRepo:     cfg.NotificationsRepo,
 		AuditLogRepo:          cfg.AuditLogRepo,
 		PlatformSettingsRepo:  cfg.PlatformSettingsRepo,
-		RedisClient:           cfg.RedisClient,
+		RedisClient:           nil,
 		ConfigInvalidator:     invalidator,
 		ConfigRegistry:        registry,
 	})
@@ -377,6 +378,55 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		UserCredentialRepo:    cfg.UserCredentialRepo,
 	})
 
+	memoryapi.RegisterRoutes(mux, memoryapi.Deps{
+		Pool:                     cfg.Pool,
+		AuthService:              cfg.AuthService,
+		MemoryProvider:           os.Getenv("ARKLOOP_MEMORY_PROVIDER"),
+		NowledgeBaseURL:          os.Getenv("ARKLOOP_NOWLEDGE_BASE_URL"),
+		NowledgeAPIKey:           os.Getenv("ARKLOOP_NOWLEDGE_API_KEY"),
+		NowledgeRequestTimeoutMs: atoiDefault(os.Getenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS"), 30000),
+	})
+
+	// NapCat (QQ channel) lifecycle API -- desktop only
+	napCatBaseDir, napCatErr := desktop.ResolveDataDir("")
+	if napCatErr != nil {
+		cfg.Logger.Warn("napcat: failed to resolve data dir", "err", napCatErr)
+	}
+	napCatAPIPort := 19001
+	if parts := strings.SplitN(strings.TrimSpace(os.Getenv("ARKLOOP_GO_ADDR")), ":", 2); len(parts) == 2 {
+		if p, err := strconv.Atoi(parts[1]); err == nil && p > 0 {
+			napCatAPIPort = p
+		}
+	}
+	accountapi.RegisterNapCatRoutes(mux, accountapi.NapCatDeps{
+		AuthService: cfg.AuthService,
+		DataDir:     filepath.Join(napCatBaseDir, "napcat"),
+		APIPort:     napCatAPIPort,
+	})
+
+	// QQ OneBot11 HTTP callback (NapCat -> Arkloop)
+	accountapi.RegisterQQCallbackRoute(mux, accountapi.QQCallbackDeps{
+		ChannelsRepo:             cfg.ChannelsRepo,
+		ChannelIdentitiesRepo:    cfg.ChannelIdentitiesRepo,
+		ChannelBindCodesRepo:     cfg.ChannelBindCodesRepo,
+		ChannelIdentityLinksRepo: cfg.ChannelIdentityLinksRepo,
+		ChannelDMThreadsRepo:     cfg.ChannelDMThreadsRepo,
+		ChannelGroupThreadsRepo:  cfg.ChannelGroupThreadsRepo,
+		ChannelReceiptsRepo:      cfg.ChannelReceiptsRepo,
+		PersonasRepo:             cfg.PersonasRepo,
+		ThreadRepo:               cfg.ThreadRepo,
+		MessageRepo:              cfg.MessageRepo,
+		RunEventRepo:             cfg.RunEventRepo,
+		JobRepo:                  cfg.JobRepo,
+		Pool:                     cfg.Pool,
+		AttachmentStore:          cfg.MessageAttachmentStore,
+	})
+
+	// Weixin QR code login
+	accountapi.RegisterWeixinRoutes(mux, accountapi.WeixinDeps{
+		AuthService: cfg.AuthService,
+	})
+
 	if cfg.ScheduledJobsRepo != nil {
 		scheduledjobsapi.RegisterRoutes(mux, scheduledjobsapi.Deps{
 			AuthService:           cfg.AuthService,
@@ -385,12 +435,14 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			ScheduledJobsRepo:     cfg.ScheduledJobsRepo,
 			ThreadRepo:            cfg.ThreadRepo,
 			Pool:                  cfg.Pool,
+			EventBus:              bus,
 		})
 	}
 
 	notFound := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
 		traceID := observability.TraceIDFromContext(r.Context())
-		WriteError(w, nethttp.StatusNotFound, "http.not_found", "Not Found", traceID, nil)
+		slog.Warn("http.not_found", "method", r.Method, "path", r.URL.Path, "trace_id", traceID)
+		WriteError(w, nethttp.StatusNotFound, "http.not_found", fmt.Sprintf("Not Found: %s %s", r.Method, r.URL.Path), traceID, nil)
 	})
 
 	base := nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -404,6 +456,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 
 	handler := RecoverMiddleware(base, cfg.Logger)
 	handler = InFlightMiddleware(handler, cfg.MaxInFlight)
+	handler = desktopCORSMiddleware(handler)
 	handler = TraceMiddleware(handler, cfg.Logger, cfg.TrustIncomingTraceID, cfg.TrustXForwardedFor)
 	return handler
 }

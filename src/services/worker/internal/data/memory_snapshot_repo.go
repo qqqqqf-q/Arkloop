@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -13,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // MemoryHitCache 是 memory.MemoryHit 的存储形式，避免 data 包依赖 memory 包。
@@ -28,7 +25,7 @@ type MemoryHitCache struct {
 type MemorySnapshotRepository struct{}
 
 // Get 读取用户记忆快照。未找到时返回 ("", false, nil)。
-func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) (string, bool, error) {
+func (MemorySnapshotRepository) Get(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID string) (string, bool, error) {
 	var block string
 	err := pool.QueryRow(ctx,
 		`SELECT memory_block FROM user_memory_snapshots
@@ -45,7 +42,7 @@ func (MemorySnapshotRepository) Get(ctx context.Context, pool *pgxpool.Pool, acc
 }
 
 // GetHits 读取缓存的 raw hits JSON。未找到或列为空时返回 (nil, false, nil)。
-func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) ([]MemoryHitCache, bool, error) {
+func (MemorySnapshotRepository) GetHits(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID string) ([]MemoryHitCache, bool, error) {
 	var raw []byte
 	err := pool.QueryRow(ctx,
 		`SELECT hits_json FROM user_memory_snapshots
@@ -66,7 +63,7 @@ func (MemorySnapshotRepository) GetHits(ctx context.Context, pool *pgxpool.Pool,
 }
 
 // Upsert 写入或覆盖用户记忆快照。
-func (MemorySnapshotRepository) Upsert(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, memoryBlock string) error {
+func (MemorySnapshotRepository) Upsert(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, memoryBlock string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, updated_at)
 		 VALUES ($1, $2, $3, $4, now())
@@ -78,23 +75,23 @@ func (MemorySnapshotRepository) Upsert(ctx context.Context, pool *pgxpool.Pool, 
 }
 
 // UpsertWithHits 同时写入渲染后的 memory_block 和原始 hits JSON。
-func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, memoryBlock string, hits []MemoryHitCache) error {
+func (MemorySnapshotRepository) UpsertWithHits(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, memoryBlock string, hits []MemoryHitCache) error {
 	hitsJSON, err := json.Marshal(hits)
 	if err != nil {
 		return err
 	}
 	_, err = pool.Exec(ctx,
 		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, hits_json, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, now())
+		 VALUES ($1, $2, $3, $4, $5, datetime('now'))
 		 ON CONFLICT (account_id, user_id, agent_id)
-		 DO UPDATE SET memory_block = EXCLUDED.memory_block, hits_json = EXCLUDED.hits_json, updated_at = now()`,
+		 DO UPDATE SET memory_block = EXCLUDED.memory_block, hits_json = EXCLUDED.hits_json, updated_at = datetime('now')`,
 		accountID, userID, agentID, memoryBlock, hitsJSON,
 	)
 	return err
 }
 
 // Invalidate 清空快照内容与命中缓存，避免 prompt 继续引用已失真的旧视图。
-func (MemorySnapshotRepository) Invalidate(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID string) error {
+func (MemorySnapshotRepository) Invalidate(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO user_memory_snapshots (account_id, user_id, agent_id, memory_block, hits_json, updated_at)
 		 VALUES ($1, $2, $3, '', NULL, now())
@@ -106,7 +103,7 @@ func (MemorySnapshotRepository) Invalidate(ctx context.Context, pool *pgxpool.Po
 }
 
 // AppendMemoryLine 原子追加一条 memory 行，避免并发写互相覆盖。
-func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool *pgxpool.Pool, accountID, userID uuid.UUID, agentID, line string) error {
+func (MemorySnapshotRepository) AppendMemoryLine(ctx context.Context, pool DesktopDB, accountID, userID uuid.UUID, agentID, line string) error {
 	if pool == nil {
 		return fmt.Errorf("snapshot pool must not be nil")
 	}

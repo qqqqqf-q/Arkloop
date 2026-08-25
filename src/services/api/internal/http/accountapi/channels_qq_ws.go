@@ -1,9 +1,8 @@
-//go:build desktop
-
 package accountapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,7 +13,6 @@ import (
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/napcat"
 	"arkloop/services/shared/onebotclient"
-	"arkloop/services/shared/pgnotify"
 
 	"github.com/google/uuid"
 )
@@ -70,8 +68,8 @@ func StartQQOneBotWSListener(ctx context.Context, deps QQOneBotWSListenerDeps) {
 		attachmentStore:          deps.AttachmentStore,
 		bus:                      deps.Bus,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
-			if _, err := deps.Pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("qq_ws_active_run_notify_failed", "run_id", runID, "error", err)
+			if deps.Bus != nil {
+				_ = deps.Bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
 			}
 		},
 	}

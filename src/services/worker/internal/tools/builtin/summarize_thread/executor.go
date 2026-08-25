@@ -121,14 +121,14 @@ func (e *ToolExecutor) Execute(
 
 func publishThreadState(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, accountID *uuid.UUID, threadID uuid.UUID) {
 	if accountID != nil && *accountID != uuid.Nil {
-		threadrunstate.Publish(ctx, pool, rdb, nil, *accountID, threadID)
+		threadrunstate.Publish(ctx, rdb, nil, *accountID, threadID)
 		return
 	}
 	var resolvedAccountID uuid.UUID
 	if err := pool.QueryRow(ctx, `SELECT account_id FROM threads WHERE id = $1`, threadID).Scan(&resolvedAccountID); err != nil {
 		return
 	}
-	threadrunstate.Publish(ctx, pool, rdb, nil, resolvedAccountID, threadID)
+	threadrunstate.Publish(ctx, rdb, nil, resolvedAccountID, threadID)
 }
 
 func emitTitleEvent(
@@ -177,8 +177,6 @@ func emitTitleEvent(
 		return
 	}
 
-	pgChannel := fmt.Sprintf(`"run_events:%s"`, runID.String())
-	_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgChannel, "ping")
 	if rdb != nil {
 		rdbChannel := fmt.Sprintf("arkloop:sse:run_events:%s", runID.String())
 		_, _ = rdb.Publish(ctx, rdbChannel, "ping").Result()

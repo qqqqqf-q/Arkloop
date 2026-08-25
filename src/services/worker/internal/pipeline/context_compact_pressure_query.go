@@ -1,11 +1,10 @@
-//go:build !desktop
-
 package pipeline
 
 func latestContextCompactPressureAnchorSQL() string {
 	return `SELECT re.data_json
 	  FROM runs r
-	  JOIN run_events re ON re.run_id = r.id
+	  JOIN run_events re INDEXED BY ix_run_events_run_type_ts_seq
+	    ON re.run_id = r.id
 	   AND re.type = 'llm.turn.completed'
 	 WHERE r.account_id = $1
 	   AND r.thread_id = $2
@@ -16,7 +15,8 @@ func latestContextCompactPressureAnchorSQL() string {
 func compactConsecutiveFailuresSQL() string {
 	return `SELECT re.data_json
 	  FROM runs r
-	  JOIN run_events re ON re.run_id = r.id
+	  JOIN run_events re INDEXED BY ix_run_events_run_type_ts_seq
+	    ON re.run_id = r.id
 	   AND re.type = 'run.context_compact'
 	 WHERE r.account_id = $1
 	   AND r.thread_id = $2

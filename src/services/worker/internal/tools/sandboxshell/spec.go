@@ -1,5 +1,3 @@
-//go:build desktop
-
 package sandboxshell
 
 import (

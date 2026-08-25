@@ -14,7 +14,6 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/messagecontent"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/qqbotclient"
 
 	"github.com/google/uuid"
@@ -281,7 +280,7 @@ func (m *qqbotIngressManager) ensureSession(parent context.Context, ch data.Chan
 			jobRepo:                  m.deps.JobRepo,
 			pool:                     m.deps.Pool,
 			client:                   client,
-			inputNotify:              buildQQBotInputNotifier(m.deps.Pool, m.deps.Bus),
+			inputNotify:              buildQQBotInputNotifier(m.deps.Bus),
 		}
 		listener := qqbotclient.NewGatewayListener(client, func(evCtx context.Context, event qqbotclient.GatewayEvent) {
 			if err := connector.HandleGatewayEvent(evCtx, observability.NewTraceID(), ch, event); err != nil {
@@ -321,18 +320,11 @@ func (m *qqbotIngressManager) stopAll() {
 	}
 }
 
-func buildQQBotInputNotifier(pool data.DB, bus eventbus.EventBus) func(ctx context.Context, runID uuid.UUID) {
+func buildQQBotInputNotifier(bus eventbus.EventBus) func(ctx context.Context, runID uuid.UUID) {
 	if bus != nil {
 		return func(ctx context.Context, runID uuid.UUID) {
 			if runID != uuid.Nil {
 				_ = bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
-			}
-		}
-	}
-	if pool != nil {
-		return func(ctx context.Context, runID uuid.UUID) {
-			if runID != uuid.Nil {
-				_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String())
 			}
 		}
 	}
@@ -451,11 +443,6 @@ func (c qqbotConnector) HandleMessage(ctx context.Context, traceID string, ch da
 	if handled {
 		if err := tx.Commit(ctx); err != nil {
 			return err
-		}
-		if reply != nil {
-			if reply.CancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-			}
 		}
 		replyScope := qqbotclient.ScopeC2C
 		if conversationType == "group" {

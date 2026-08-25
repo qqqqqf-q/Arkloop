@@ -1,153 +1,5327 @@
-//go:build !desktop
-
 package app
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	nethttp "net/http"
+	"net/http/httptest"
 	"os"
-	"reflect"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	sharedconfig "arkloop/services/shared/config"
+	"arkloop/services/shared/database/sqliteadapter"
+	"arkloop/services/shared/database/sqlitepgx"
+	"arkloop/services/shared/desktop"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/objectstore"
+	"arkloop/services/shared/rollout"
+	"arkloop/services/shared/skillstore"
+	"arkloop/services/shared/workspaceblob"
+	"arkloop/services/worker/internal/data"
+	"arkloop/services/worker/internal/events"
+	"arkloop/services/worker/internal/executor"
 	"arkloop/services/worker/internal/llm"
+	"arkloop/services/worker/internal/memory"
+	"arkloop/services/worker/internal/personas"
+	"arkloop/services/worker/internal/pipeline"
+	"arkloop/services/worker/internal/routing"
+	"arkloop/services/worker/internal/subagentctl"
 	"arkloop/services/worker/internal/tools"
+	"arkloop/services/worker/internal/tools/builtin"
+	readtool "arkloop/services/worker/internal/tools/builtin/read"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
-func TestResolveBaseToolAllowlistNamesIgnoresEnvAllowlist(t *testing.T) {
-	t.Setenv("ARKLOOP_TOOL_ALLOWLIST", "tool_b")
+func TestDesktopSubAgentSchemaAvailable(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
 
-	registry := tools.NewRegistry()
-	for _, spec := range []tools.AgentToolSpec{
-		{Name: "tool_a", Version: "1", Description: "a", RiskLevel: tools.RiskLevelLow},
-		{Name: "tool_b", Version: "1", Description: "b", RiskLevel: tools.RiskLevelLow},
+	if desktopSubAgentSchemaAvailable(ctx, db) {
+		t.Fatal("expected sub-agent schema to be absent")
+	}
+
+	for _, stmt := range []string{
+		`CREATE TABLE sub_agents (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE sub_agent_events (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE sub_agent_pending_inputs (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE sub_agent_context_snapshots (id TEXT PRIMARY KEY)`,
 	} {
-		if err := registry.Register(spec); err != nil {
-			t.Fatalf("register tool: %v", err)
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create table: %v", err)
 		}
 	}
 
-	got := resolveBaseToolAllowlistNames(context.Background(), registry)
-	want := []string{"tool_a", "tool_b"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("unexpected allowlist names: got %v want %v", got, want)
-	}
-
-	if raw := os.Getenv("ARKLOOP_TOOL_ALLOWLIST"); raw == "" {
-		t.Fatal("expected env to stay set during test")
+	if !desktopSubAgentSchemaAvailable(ctx, db) {
+		t.Fatal("expected sub-agent schema to be detected")
 	}
 }
 
-func TestBuildStorageBucketOpenerFromEnvPrefersFilesystem(t *testing.T) {
-	t.Setenv(objectstore.StorageRootEnv, t.TempDir())
-	t.Setenv("ARKLOOP_S3_ENDPOINT", "http://seaweedfs:8333")
-	t.Setenv("ARKLOOP_S3_ACCESS_KEY", "key")
-	t.Setenv("ARKLOOP_S3_SECRET_KEY", "secret")
+func TestDesktopPersonaResolutionPreservesMCPToolsAcrossAllowlist(t *testing.T) {
+	registry := personas.NewRegistry()
+	registry.Set(personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		PromptMD:       "# test",
+		ToolAllowlist:  []string{"memory_search"},
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+		StreamThinking: true,
+	})
 
-	opener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		t.Fatalf("build storage bucket opener: %v", err)
+	mw := desktopPersonaResolution(
+		nil,
+		func() *personas.Registry { return registry },
+		data.DesktopRunsRepository{},
+		data.DesktopRunEventsRepository{},
+	)
+	rc := &pipeline.RunContext{
+		Run:       dataRunForDesktopTest(),
+		Emitter:   events.NewEmitter("test"),
+		InputJSON: map[string]any{"persona_id": "test-persona"},
+		AllowlistSet: map[string]struct{}{
+			"memory_search":                     {},
+			"mcp__context7__resolve_library_id": {},
+		},
+		MCPToolNames: map[string]struct{}{
+			"mcp__context7__resolve_library_id": {},
+		},
 	}
-	if opener == nil {
-		t.Fatal("expected opener")
-	}
-	store, err := opener.Open(context.Background(), "arkloop")
-	if err != nil {
-		t.Fatalf("open bucket: %v", err)
-	}
-	if _, ok := store.(*objectstore.FilesystemStore); !ok {
-		t.Fatalf("unexpected store type: %T", store)
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if _, ok := rc.AllowlistSet["memory_search"]; !ok {
+			t.Fatal("expected builtin memory_search to remain allowed")
+		}
+		if _, ok := rc.AllowlistSet["mcp__context7__resolve_library_id"]; !ok {
+			t.Fatal("expected discovered context7 MCP tool to remain allowed")
+		}
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("desktop persona resolution failed: %v", err)
 	}
 }
 
-func TestBuildMessageAttachmentStoreFilesystem(t *testing.T) {
-	t.Setenv(objectstore.StorageBackendEnv, objectstore.BackendFilesystem)
-	t.Setenv(objectstore.StorageRootEnv, t.TempDir())
-	t.Setenv("ARKLOOP_S3_BUCKET", "arkloop")
+type desktopNoopSubAgentControl struct{}
 
-	opener, err := buildStorageBucketOpenerFromEnv()
-	if err != nil {
-		t.Fatalf("build storage bucket opener: %v", err)
-	}
-	s3Bucket := os.Getenv("ARKLOOP_S3_BUCKET")
-	store, err := openBucket(context.Background(), opener, s3Bucket)
-	if err != nil {
-		t.Fatalf("open message attachment store: %v", err)
-	}
-	if _, ok := store.(*objectstore.FilesystemStore); !ok {
-		t.Fatalf("unexpected store type: %T", store)
-	}
+func (desktopNoopSubAgentControl) Spawn(context.Context, subagentctl.SpawnRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{SubAgentID: uuid.New()}, nil
 }
-
-type fakeArtifactStore struct{}
-
-func (fakeArtifactStore) Put(_ context.Context, _ string, _ []byte) error {
-	return nil
+func (desktopNoopSubAgentControl) SendInput(context.Context, subagentctl.SendInputRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
 }
-
-func (fakeArtifactStore) PutObject(_ context.Context, _ string, _ []byte, _ objectstore.PutOptions) error {
-	return nil
+func (desktopNoopSubAgentControl) Wait(context.Context, subagentctl.WaitRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
 }
-
-func (fakeArtifactStore) Get(_ context.Context, _ string) ([]byte, error) {
+func (desktopNoopSubAgentControl) Resume(context.Context, subagentctl.ResumeRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
+}
+func (desktopNoopSubAgentControl) Close(context.Context, subagentctl.CloseRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
+}
+func (desktopNoopSubAgentControl) Interrupt(context.Context, subagentctl.InterruptRequest) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
+}
+func (desktopNoopSubAgentControl) GetStatus(context.Context, uuid.UUID) (subagentctl.StatusSnapshot, error) {
+	return subagentctl.StatusSnapshot{}, nil
+}
+func (desktopNoopSubAgentControl) ListChildren(context.Context) ([]subagentctl.StatusSnapshot, error) {
 	return nil, nil
 }
-
-func (fakeArtifactStore) GetWithContentType(_ context.Context, _ string) ([]byte, string, error) {
-	return nil, "", nil
+func (desktopNoopSubAgentControl) GetRolloutRecorder(uuid.UUID) (*rollout.Recorder, bool) {
+	return nil, false
 }
 
-func (fakeArtifactStore) Head(_ context.Context, _ string) (objectstore.ObjectInfo, error) {
+func TestDesktopNormalPersonaSearchableIncludesSpawnAgent(t *testing.T) {
+	registry := tools.NewRegistry()
+	for _, spec := range builtin.AgentSpecs() {
+		if err := registry.Register(spec); err != nil {
+			t.Fatalf("register builtin tool: %v", err)
+		}
+	}
+
+	executors, _ := builtin.Executors(nil, nil, nil, nil)
+	allowlist := map[string]struct{}{}
+	for _, name := range registry.ListNames() {
+		if executors[name] != nil {
+			allowlist[name] = struct{}{}
+		}
+	}
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	personaDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..", "personas")
+	personaRegistry, err := personas.LoadRegistry(personaDir)
+	if err != nil {
+		t.Fatalf("load personas: %v", err)
+	}
+	def, ok := personaRegistry.Get("normal")
+	if !ok {
+		t.Fatal("normal persona not found")
+	}
+
+	rc := &pipeline.RunContext{
+		Run:               dataRunForDesktopTest(),
+		Emitter:           events.NewEmitter("test"),
+		ToolRegistry:      registry,
+		ToolExecutors:     pipeline.CopyToolExecutors(executors),
+		ToolSpecs:         append([]llm.ToolSpec{}, builtin.LlmSpecs()...),
+		AllowlistSet:      pipeline.CopyStringSet(allowlist),
+		PersonaDefinition: &def,
+		SubAgentControl:   desktopNoopSubAgentControl{},
+	}
+
+	handler := pipeline.Build([]pipeline.RunMiddleware{
+		pipeline.NewSpawnAgentMiddleware(),
+		pipeline.NewToolBuildMiddleware(),
+	}, func(_ context.Context, _ *pipeline.RunContext) error { return nil })
+	if err := handler(context.Background(), rc); err != nil {
+		t.Fatalf("build pipeline: %v", err)
+	}
+
+	searchable := rc.ToolExecutor.SearchableSpecs()
+	if _, ok := searchable["spawn_agent"]; !ok {
+		t.Fatalf("spawn_agent missing from searchable specs: %v", mapKeys(searchable))
+	}
+}
+
+func TestLoadPersonaRegistryFromFSUsesEnvRoot(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	personaDir := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "..", "personas")
+	t.Setenv("ARKLOOP_PERSONAS_ROOT", personaDir)
+	t.Chdir(t.TempDir())
+
+	getter := loadPersonaRegistryFromFS()
+	if getter == nil {
+		t.Fatal("expected persona registry getter")
+	}
+	registry := getter()
+	if registry == nil {
+		t.Fatal("expected persona registry")
+	}
+	if _, ok := registry.Get("normal"); !ok {
+		t.Fatal("expected normal persona loaded from env root")
+	}
+}
+
+func TestComposeDesktopEngineRegistersArtifactTools(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate", "resource_copy"} {
+		if _, ok := engine.toolRegistry.Get(toolName); !ok {
+			t.Fatalf("expected tool %s to be registered", toolName)
+		}
+		if _, ok := engine.baseAllowlist[toolName]; !ok {
+			t.Fatalf("expected tool %s in desktop allowlist", toolName)
+		}
+	}
+
+	specNames := map[string]struct{}{}
+	for _, spec := range engine.allLlmSpecs {
+		specNames[spec.Name] = struct{}{}
+	}
+	for _, toolName := range []string{"visualize_read_me", "artifact_guidelines", "show_widget", "create_artifact", "document_write", "image_generate", "resource_copy"} {
+		if _, ok := specNames[toolName]; !ok {
+			t.Fatalf("expected tool spec %s in desktop llm specs", toolName)
+		}
+	}
+}
+
+func TestComposeDesktopEngineRegistersArkloopHelp(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+
+	if _, ok := engine.toolRegistry.Get("arkloop_help"); !ok {
+		t.Fatal("expected arkloop_help to be registered")
+	}
+	if _, ok := engine.baseAllowlist["arkloop_help"]; !ok {
+		t.Fatal("expected arkloop_help in desktop allowlist")
+	}
+}
+
+func TestDesktopMCPDiscoveryPrewarmTargets(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	accountID := uuid.New()
+	otherAccountID := uuid.New()
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE profile_mcp_installs (
+			id TEXT PRIMARY KEY,
+			account_id TEXT NOT NULL,
+			profile_ref TEXT NOT NULL
+		)`,
+		`CREATE TABLE workspace_mcp_enablements (
+			workspace_ref TEXT NOT NULL,
+			account_id TEXT NOT NULL,
+			install_id TEXT NOT NULL,
+			enabled INTEGER NOT NULL
+		)`,
+	)
+	if _, err := db.Exec(ctx, `INSERT INTO profile_mcp_installs (id, account_id, profile_ref) VALUES ($1, $2, $3)`, "install-1", accountID.String(), "pref-a"); err != nil {
+		t.Fatalf("insert install: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO workspace_mcp_enablements (workspace_ref, account_id, install_id, enabled) VALUES ($1, $2, $3, $4)`, "ws-a", accountID.String(), "install-1", true); err != nil {
+		t.Fatalf("insert enablement: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO profile_mcp_installs (id, account_id, profile_ref) VALUES ($1, $2, $3)`, "install-2", otherAccountID.String(), "pref-b"); err != nil {
+		t.Fatalf("insert other install: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO workspace_mcp_enablements (workspace_ref, account_id, install_id, enabled) VALUES ($1, $2, $3, $4)`, "ws-b", otherAccountID.String(), "install-2", true); err != nil {
+		t.Fatalf("insert other enablement: %v", err)
+	}
+
+	targets, err := listDesktopMCPDiscoveryPrewarmTargets(ctx, db, accountID)
+	if err != nil {
+		t.Fatalf("list targets: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("unexpected target count: %d", len(targets))
+	}
+	if targets[0].AccountID != accountID || targets[0].ProfileRef != "pref-a" || targets[0].WorkspaceRef != "ws-a" {
+		t.Fatalf("unexpected target: %#v", targets[0])
+	}
+}
+
+func TestDesktopConfigResolverReadsPlatformSettings(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+	)
+	if _, err := db.Exec(ctx,
+		`INSERT INTO platform_settings (key, value) VALUES ($1, $2)`,
+		"llm.retry.max_attempts",
+		"3",
+	); err != nil {
+		t.Fatalf("insert platform setting: %v", err)
+	}
+
+	resolver, err := sharedconfig.NewResolver(sharedconfig.DefaultRegistry(), sharedconfig.NewPGXStoreQuerier(db), nil, 0)
+	if err != nil {
+		t.Fatalf("build config resolver: %v", err)
+	}
+
+	got, err := resolver.Resolve(ctx, "llm.retry.max_attempts", sharedconfig.Scope{})
+	if err != nil {
+		t.Fatalf("resolve platform setting: %v", err)
+	}
+	if got != "3" {
+		t.Fatalf("expected resolver to read sqlite platform_settings, got %q", got)
+	}
+}
+
+func TestResolveDesktopLLMRetryReadsPlatformSettings(t *testing.T) {
+	t.Setenv("ARKLOOP_LLM_RETRY_MAX_ATTEMPTS", "")
+	t.Setenv("ARKLOOP_LLM_RETRY_BASE_DELAY_MS", "")
+
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	mustExecDesktopSQL(t, db, `CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+
+	maxAttempts, baseDelayMs := resolveDesktopLLMRetry(ctx, db)
+	if maxAttempts != 10 || baseDelayMs != 1000 {
+		t.Fatalf("default retry config = (%d, %d), want (10, 1000)", maxAttempts, baseDelayMs)
+	}
+
+	for key, value := range map[string]string{
+		"llm.retry.max_attempts":  "2",
+		"llm.retry.base_delay_ms": "250",
+	} {
+		if _, err := db.Exec(ctx, `INSERT INTO platform_settings (key, value) VALUES ($1, $2)`, key, value); err != nil {
+			t.Fatalf("insert platform setting %s: %v", key, err)
+		}
+	}
+
+	maxAttempts, baseDelayMs = resolveDesktopLLMRetry(ctx, db)
+	if maxAttempts != 2 || baseDelayMs != 250 {
+		t.Fatalf("stored retry config = (%d, %d), want (2, 250)", maxAttempts, baseDelayMs)
+	}
+}
+
+func TestDesktopCapabilityMiddlewaresInjectMemory(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE IF NOT EXISTS platform_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS user_notebook_snapshots (
+			account_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL DEFAULT 'default',
+			notebook_block TEXT NOT NULL,
+			PRIMARY KEY (account_id, user_id, agent_id)
+		)`,
+	)
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	memoryBlock := "Memory comes first."
+	agentID := "user_" + userID.String()
+	if _, err := db.Exec(ctx,
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block) VALUES ($1, $2, $3, $4)`,
+		accountID.String(),
+		userID.String(),
+		agentID,
+		memoryBlock,
+	); err != nil {
+		t.Fatalf("insert user memory snapshot: %v", err)
+	}
+
+	bus := eventbus.NewLocalEventBus()
+	defer bus.Close()
+
+	var finalPrompt string
+	handler := pipeline.Build(
+		desktopCapabilityMiddlewares(desktopMemoryInjection(db), data.DesktopRunEventsRepository{}),
+		func(_ context.Context, rc *pipeline.RunContext) error {
+			finalPrompt = rc.SystemPrompt
+			return nil
+		},
+	)
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: accountID,
+		},
+		DB:       db,
+		EventBus: bus,
+		Emitter:  events.NewEmitter("desktop-capability-order"),
+		UserID:   &userID,
+	}
+
+	if err := handler(ctx, rc); err != nil {
+		t.Fatalf("run desktop capability middlewares: %v", err)
+	}
+	if !strings.Contains(finalPrompt, memoryBlock) {
+		t.Fatalf("expected memory block in system prompt, got %q", finalPrompt)
+	}
+}
+
+func TestDesktopCancelGuardFeedsAskUserInput(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	db := openDesktopRuntimeTestDB(t)
+	bus := eventbus.NewLocalEventBus()
+	t.Cleanup(func() { _ = bus.Close() })
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	gateway := &desktopAskUserGateway{}
+	rc := buildDesktopLoopRunContext(db, bus, data.Run{
+		ID:              runID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	}, gateway)
+
+	var got []events.RunEvent
+	handler := pipeline.Build(
+		[]pipeline.RunMiddleware{desktopCancelGuard(db, bus)},
+		func(ctx context.Context, rc *pipeline.RunContext) error {
+			return (&executor.SimpleExecutor{}).Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
+				got = append(got, ev)
+				if ev.Type == pipeline.EventTypeInputRequested {
+					appendDesktopRunInput(t, ctx, db, bus, runID, `{"db":"postgres"}`)
+				}
+				return nil
+			})
+		},
+	)
+	if err := handler(ctx, rc); err != nil {
+		t.Fatalf("run desktop ask_user loop: %v", err)
+	}
+
+	if gateway.calls != 2 {
+		t.Fatalf("expected ask_user flow to reach second llm turn, got %d calls", gateway.calls)
+	}
+	if !desktopRequestHasUserText(gateway.secondRequest, `"db":"postgres"`) {
+		t.Fatalf("expected ask_user input in second llm request, got %#v", gateway.secondRequest.Messages)
+	}
+	if !desktopHasEventType(got, "run.completed") {
+		t.Fatalf("expected run.completed, got %#v", got)
+	}
+}
+
+func TestDesktopCancelGuardFeedsActiveRunInput(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	db := openDesktopRuntimeTestDB(t)
+	bus := eventbus.NewLocalEventBus()
+	t.Cleanup(func() { _ = bus.Close() })
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	registry := tools.NewRegistry()
+	if err := registry.Register(builtin.EchoAgentSpec); err != nil {
+		t.Fatalf("register echo tool: %v", err)
+	}
+	dispatcher := tools.NewDispatchingExecutor(registry, tools.NewPolicyEnforcer(registry, tools.AllowlistFromNames([]string{"echo"})))
+	if err := dispatcher.Bind("echo", builtin.EchoExecutor{}); err != nil {
+		t.Fatalf("bind echo executor: %v", err)
+	}
+
+	gateway := &desktopSteeringGateway{}
+	rc := buildDesktopLoopRunContext(db, bus, data.Run{
+		ID:              runID,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	}, gateway)
+	rc.ToolRegistry = registry
+	rc.ToolExecutor = dispatcher
+	rc.FinalSpecs = []llm.ToolSpec{builtin.EchoLlmSpec}
+
+	var got []events.RunEvent
+	handler := pipeline.Build(
+		[]pipeline.RunMiddleware{desktopCancelGuard(db, bus)},
+		func(ctx context.Context, rc *pipeline.RunContext) error {
+			return (&executor.SimpleExecutor{}).Execute(ctx, rc, rc.Emitter, func(ev events.RunEvent) error {
+				got = append(got, ev)
+				if ev.Type == "tool.result" && ev.ToolName != nil && *ev.ToolName == "echo" {
+					appendDesktopRunInput(t, ctx, db, bus, runID, "runtime steering")
+				}
+				return nil
+			})
+		},
+	)
+	if err := handler(ctx, rc); err != nil {
+		t.Fatalf("run desktop active-input loop: %v", err)
+	}
+
+	if gateway.calls != 2 {
+		t.Fatalf("expected steering flow to reach second llm turn, got %d calls", gateway.calls)
+	}
+	if !desktopRequestHasUserText(gateway.secondRequest, "runtime steering") {
+		t.Fatalf("expected steering input in second llm request, got %#v", gateway.secondRequest.Messages)
+	}
+	if !desktopHasEventType(got, "run.completed") {
+		t.Fatalf("expected run.completed, got %#v", got)
+	}
+}
+
+func TestDesktopToolProviderBindingsInjectsImageUnderstandingExecutor(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop-tool-provider.db"))
+	if err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlitePool.Close()
+	})
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 7)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.MustParse("00000000-0000-4000-8000-000000000101")
+	userID := uuid.MustParse("00000000-0000-4000-8000-000000000102")
+	secretID := uuid.MustParse("00000000-0000-4000-8000-000000000103")
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO users (id, username, email, status) VALUES ($1, 'desktop-tool-user', 'desktop-tool@test', 'active')`,
+			args: []any{userID},
+		},
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status, owner_user_id) VALUES ($1, 'desktop-tool-account', 'Desktop Tool Account', 'personal', 'active', $2)`,
+			args: []any{accountID, userID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, owner_kind, name, encrypted_value, key_version) VALUES ($1, $2, 'platform', 'desktop-image-understanding', $3, 1)`,
+			args: []any{secretID, accountID, encryptDesktopChannelToken(t, keyBytes, "minimax-test-key")},
+		},
+		{
+			sql: `INSERT INTO tool_provider_configs (
+					account_id, owner_kind, group_name, provider_name, is_active, secret_id
+				) VALUES ($1, 'platform', 'read', $2, 1, $3)`,
+			args: []any{accountID.String(), readtool.ProviderNameMiniMax, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed desktop tool provider: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:              uuid.New(),
+			AccountID:       accountID,
+			ThreadID:        uuid.New(),
+			CreatedByUserID: &userID,
+		},
+		ToolExecutors: map[string]tools.Executor{},
+	}
+
+	mw := desktopToolProviderBindings(db)
+	err = mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if got := rc.ActiveToolProviderByGroup["read"]; got != readtool.ProviderNameMiniMax {
+			t.Fatalf("unexpected active provider: %q", got)
+		}
+		if rc.ActiveToolProviderConfigsByGroup["read"].ProviderName != readtool.ProviderNameMiniMax {
+			t.Fatalf("unexpected runtime config: %+v", rc.ActiveToolProviderConfigsByGroup["read"])
+		}
+		if rc.ToolExecutors[readtool.ProviderNameMiniMax] == nil {
+			t.Fatal("expected image understanding executor to be injected")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("desktopToolProviderBindings: %v", err)
+	}
+}
+
+func TestDesktopMemoryMiddlewareDistillDisabledViaResolver(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopRuntimeTestDB(t)
+
+	if _, err := db.Exec(ctx, `INSERT INTO platform_settings (key, value) VALUES ($1, $2)`, "memory.distill_enabled", "false"); err != nil {
+		t.Fatalf("insert memory distill setting: %v", err)
+	}
+
+	resolver, err := sharedconfig.NewResolver(sharedconfig.DefaultRegistry(), sharedconfig.NewPGXStoreQuerier(db), nil, 0)
+	if err != nil {
+		t.Fatalf("build config resolver: %v", err)
+	}
+
+	provider := &desktopMemoryProviderStub{appendCalled: make(chan struct{}, 1)}
+	mw := pipeline.NewMemoryMiddleware(provider, pipeline.NewDesktopMemorySnapshotStore(db), db, resolver, nil, nil, nil, nil)
+	userID := uuid.New()
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        uuid.New(),
+			AccountID: uuid.New(),
+			ThreadID:  uuid.New(),
+		},
+		UserID:               &userID,
+		Emitter:              events.NewEmitter("desktop-memory"),
+		Messages:             []llm.Message{{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "remember this"}}}},
+		ThreadMessageIDs:     []uuid.UUID{uuid.New()},
+		FinalAssistantOutput: "ack",
+		RunIterationCount:    3,
+		PendingMemoryWrites:  memory.NewPendingWriteBuffer(),
+	}
+
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("run memory middleware: %v", err)
+	}
+
+	select {
+	case <-provider.appendCalled:
+		t.Fatal("expected memory distill to stay disabled via prompt injection resolver")
+	case <-time.After(250 * time.Millisecond):
+	}
+}
+
+func TestComposeDesktopEngineInitializesRolloutStore(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+	if engine.rolloutStore == nil {
+		t.Fatal("expected desktop rollout store to be initialized")
+	}
+
+	if err := engine.rolloutStore.Put(ctx, "run/test.jsonl", []byte("ok")); err != nil {
+		t.Fatalf("write rollout file: %v", err)
+	}
+	expectedPath := filepath.Join(desktop.StorageRoot(dataDir), objectstore.RolloutBucket, "objects", "run", "test.jsonl")
+	content, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read rollout file: %v", err)
+	}
+	if string(content) != "ok" {
+		t.Fatalf("unexpected rollout file content: %q", string(content))
+	}
+}
+
+func TestComposeDesktopEngineFallsBackToLocalWithoutBaseURL(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	t.Setenv("ARKLOOP_MEMORY_ENABLED", "true")
+
+	db, err := sqlitepgx.Open(filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	engine, err := ComposeDesktopEngine(ctx, db, eventbus.NewLocalEventBus(), executor.DefaultExecutorRegistry(), nil)
+	if err != nil {
+		t.Fatalf("compose desktop engine: %v", err)
+	}
+	if engine.useMemProvider {
+		t.Fatal("expected no semantic provider without nowledge config")
+	}
+	if engine.notebookProvider == nil {
+		t.Fatal("expected notebook provider to be configured")
+	}
+}
+
+func TestBuildDesktopStageEventDataIncludesTrimmedError(t *testing.T) {
+	eventType, ok := desktopObservedEventName("channel_group_context_trim")
+	if !ok {
+		t.Fatal("expected event name for channel_group_context_trim")
+	}
+	if eventType != "run.channel_group_context_trim" {
+		t.Fatalf("unexpected event type: %s", eventType)
+	}
+	payload := buildDesktopStageEventData(4200, 250, "failed", errors.New(strings.Repeat("x", 240)))
+
+	if got := payload["status"]; got != "failed" {
+		t.Fatalf("unexpected status: %v", got)
+	}
+	msg, _ := payload["error_message"].(string)
+	if len(msg) != 200 {
+		t.Fatalf("expected trimmed error message length 200, got %d", len(msg))
+	}
+}
+
+func TestDesktopObservedEventTypesContainChannelGroupCompactSignal(t *testing.T) {
+	items := desktopObservedEventTypes()
+	if !slices.Contains(items, "run.channel_group_context_trim") {
+		t.Fatalf("expected run.channel_group_context_trim in observed event types, got %v", items)
+	}
+}
+
+func TestDesktopMemoryInjectionReadsNotebookSnapshotTable(t *testing.T) {
+	ctx := context.Background()
+	db := openDesktopPromptInjectionTestDB(t)
+	accountID := uuid.New()
+	userID := uuid.New()
+	agentID := "user_" + userID.String()
+	block := "\n\n<notebook>\n- stable note\n</notebook>"
+
+	mustExecDesktopSQL(t, db,
+		`CREATE TABLE IF NOT EXISTS user_notebook_snapshots (
+			account_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			agent_id TEXT NOT NULL DEFAULT 'default',
+			notebook_block TEXT NOT NULL,
+			PRIMARY KEY (account_id, user_id, agent_id)
+		)`,
+	)
+	if _, err := db.Exec(ctx,
+		`INSERT INTO user_notebook_snapshots (account_id, user_id, agent_id, notebook_block) VALUES ($1, $2, $3, $4)`,
+		accountID.String(), userID.String(), agentID, block,
+	); err != nil {
+		t.Fatalf("insert notebook snapshot: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:    data.Run{ID: uuid.New(), AccountID: accountID},
+		UserID: &userID,
+	}
+	h := pipeline.Build([]pipeline.RunMiddleware{desktopMemoryInjection(db)}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if !strings.Contains(rc.SystemPrompt, "<notebook>") {
+			t.Fatalf("expected notebook block, got %q", rc.SystemPrompt)
+		}
+		return nil
+	})
+	if err := h(ctx, rc); err != nil {
+		t.Fatalf("run middleware: %v", err)
+	}
+}
+
+func TestDesktopGatewayFromRoute_UsesUnifiedGatewayResolver(t *testing.T) {
+	selected := routing.SelectedProviderRoute{
+		Route: routing.ProviderRouteRule{
+			ID:           "route-gemini",
+			Model:        "gemini-2.5-pro",
+			CredentialID: "cred-gemini",
+		},
+		Credential: routing.ProviderCredential{
+			ID:           "cred-gemini",
+			ProviderKind: routing.ProviderKindGemini,
+			APIKeyValue:  func() *string { v := "gemini-test-key"; return &v }(),
+		},
+	}
+
+	gateway, err := desktopGatewayFromRoute(selected, nil, true, 8192)
+	if err != nil {
+		t.Fatalf("desktopGatewayFromRoute returned error: %v", err)
+	}
+
+	geminiGateway, ok := gateway.(interface {
+		ProtocolKind() llm.ProtocolKind
+	})
+	if !ok {
+		t.Fatalf("expected gateway protocol surface, got %T", gateway)
+	}
+	if geminiGateway.ProtocolKind() != llm.ProtocolKindGeminiGenerateContent {
+		t.Fatalf("unexpected protocol kind: %s", geminiGateway.ProtocolKind())
+	}
+}
+
+func TestDesktopRoutingResolveGatewayForAgentNameUsesSelector(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	router := routing.NewProviderRouter(routing.ProviderRoutingConfig{
+		Credentials: []routing.ProviderCredential{
+			{
+				ID:           "cred-openai",
+				Name:         "openai-primary",
+				ProviderKind: routing.ProviderKindOpenAI,
+				APIKeyValue:  func() *string { v := "sk-openai"; return &v }(),
+			},
+			{
+				ID:           "cred-gemini-a",
+				Name:         "gemini-a",
+				ProviderKind: routing.ProviderKindGemini,
+				APIKeyValue:  func() *string { v := "gemini-a-key"; return &v }(),
+			},
+			{
+				ID:           "cred-gemini-b",
+				Name:         "gemini-b",
+				ProviderKind: routing.ProviderKindGemini,
+				APIKeyValue:  func() *string { v := "gemini-b-key"; return &v }(),
+			},
+		},
+		Routes: []routing.ProviderRouteRule{
+			{
+				ID:           "route-openai",
+				CredentialID: "cred-openai",
+				Model:        "gpt-4o-mini",
+				Priority:     100,
+			},
+			{
+				ID:           "route-gemini-a",
+				CredentialID: "cred-gemini-a",
+				Model:        "gemini-2.5-pro",
+				Priority:     90,
+			},
+			{
+				ID:           "route-gemini-b",
+				CredentialID: "cred-gemini-b",
+				Model:        "gemini-2.5-pro",
+				Priority:     80,
+			},
+		},
+	})
+
+	routingLoader := routing.NewDesktopSQLiteRoutingLoader(
+		func(ctx context.Context) (routing.ProviderRoutingConfig, error) {
+			return router.Config(), nil
+		},
+		router.Config(),
+	)
+	mw := desktopRouting(router, nil, false, db, routingLoader, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+	rc := &pipeline.RunContext{
+		Run:       dataRunForDesktopTest(),
+		Emitter:   events.NewEmitter("test"),
+		InputJSON: map[string]any{},
+	}
+
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.SelectedRoute == nil || rc.SelectedRoute.Route.ID != "route-openai" {
+			t.Fatalf("expected default desktop route, got %#v", rc.SelectedRoute)
+		}
+
+		gateway, selected, resolveErr := rc.ResolveGatewayForAgentName(context.Background(), "gemini-b^gemini-2.5-pro")
+		if resolveErr != nil {
+			t.Fatalf("ResolveGatewayForAgentName returned error: %v", resolveErr)
+		}
+		if selected == nil || selected.Route.ID != "route-gemini-b" {
+			t.Fatalf("unexpected selected route: %#v", selected)
+		}
+		geminiGateway, ok := gateway.(interface {
+			ProtocolKind() llm.ProtocolKind
+		})
+		if !ok {
+			t.Fatalf("expected gateway protocol surface, got %T", gateway)
+		}
+		if geminiGateway.ProtocolKind() != llm.ProtocolKindGeminiGenerateContent {
+			t.Fatalf("unexpected protocol kind: %s", geminiGateway.ProtocolKind())
+		}
+		return nil
+	})
+
+	if err := h(ctx, rc); err != nil {
+		t.Fatalf("desktop routing middleware failed: %v", err)
+	}
+}
+
+func TestLoadDesktopRoutingConfigCanonicalizesGeminiModel(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	keyBytes := [32]byte{}
+	for idx := range keyBytes {
+		keyBytes[idx] = byte(idx + 31)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(dataDir, "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	secretID := uuid.New()
+	credentialID := uuid.New()
+	routeID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-routing-" + accountID.String(), "Desktop Routing"},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-gemini-secret", encryptDesktopChannelToken(t, keyBytes, "gemini-test-key")},
+		},
+		{
+			sql:  `INSERT INTO llm_credentials (id, account_id, provider, name, secret_id, key_prefix, advanced_json) VALUES ($1, $2, 'gemini', 'desktop-gemini', $3, 'gemini-t', '{}')`,
+			args: []any{credentialID, accountID, secretID},
+		},
+		{
+			sql:  `INSERT INTO llm_routes (id, account_id, credential_id, model, priority, when_json, advanced_json, multiplier) VALUES ($1, $2, $3, $4, 10, '{}', '{}', 1.0)`,
+			args: []any{routeID, accountID, credentialID, "models/gemini-2.5-pro"},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed routing config: %v", err)
+		}
+	}
+
+	cfg, err := loadDesktopRoutingConfig(ctx, db)
+	if err != nil {
+		t.Fatalf("loadDesktopRoutingConfig: %v", err)
+	}
+	var seededRoute *routing.ProviderRouteRule
+	for idx := range cfg.Routes {
+		if cfg.Routes[idx].ID == routeID.String() {
+			seededRoute = &cfg.Routes[idx]
+			break
+		}
+	}
+	if seededRoute == nil {
+		t.Fatalf("expected seeded route %s, got %d routes", routeID, len(cfg.Routes))
+	}
+	if seededRoute.Model != "gemini-2.5-pro" {
+		t.Fatalf("expected canonical gemini model, got %q", seededRoute.Model)
+	}
+}
+
+func TestLoadDesktopMCPCacheTTLDefault(t *testing.T) {
+	t.Setenv(mcpCacheTTLSecondsEnv, "")
+
+	ttl, err := loadDesktopMCPCacheTTL()
+	if err != nil {
+		t.Fatalf("loadDesktopMCPCacheTTL: %v", err)
+	}
+	if ttl != 600*time.Second {
+		t.Fatalf("unexpected desktop mcp cache ttl: %s", ttl)
+	}
+}
+
+func TestLoadPersonaRegistryFromFSPrefersBuiltinRootEnv(t *testing.T) {
+	personasRoot := t.TempDir()
+	personaDir := filepath.Join(personasRoot, "env-persona")
+	if err := os.MkdirAll(personaDir, 0o755); err != nil {
+		t.Fatalf("mkdir persona dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(personaDir, "persona.yaml"), []byte("id: env-persona\nversion: \"1\"\ntitle: Env Persona\n"), 0o644); err != nil {
+		t.Fatalf("write persona yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(personaDir, "prompt.md"), []byte("# env prompt"), 0o644); err != nil {
+		t.Fatalf("write persona prompt: %v", err)
+	}
+	t.Setenv("ARKLOOP_PERSONAS_ROOT", personasRoot)
+
+	getter := loadPersonaRegistryFromFS()
+	if getter == nil {
+		t.Fatal("expected persona registry getter")
+	}
+	registry := getter()
+	if registry == nil {
+		t.Fatal("expected persona registry")
+	}
+	if _, ok := registry.Get("env-persona"); !ok {
+		t.Fatalf("expected env persona loaded, got ids=%v", registry.ListIDs())
+	}
+}
+
+func TestDesktopSkillLayoutUsesRunScopedPaths(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	runID := uuid.New()
+	layout, err := desktopSkillLayout(false, runID)
+	if err != nil {
+		t.Fatalf("desktop skill layout: %v", err)
+	}
+
+	if layout.MountRoot != filepath.Join(dataDir, "skills") {
+		t.Fatalf("unexpected mount root: %s", layout.MountRoot)
+	}
+	runtimeRoot := filepath.Join(dataDir, "runtime", "skills", runID.String())
+	if layout.IndexPath != filepath.Join(runtimeRoot, "enabled-skills.json") {
+		t.Fatalf("unexpected index path: %s", layout.IndexPath)
+	}
+}
+
+func TestCleanupDesktopSkillRuntimeRemovesRunScopedDirectory(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	runID := uuid.New()
+	layout, err := desktopSkillLayout(false, runID)
+	if err != nil {
+		t.Fatalf("desktop skill layout: %v", err)
+	}
+	runtimeRoot := filepath.Dir(layout.IndexPath)
+	if err := os.MkdirAll(runtimeRoot, 0o755); err != nil {
+		t.Fatalf("mkdir runtime root: %v", err)
+	}
+	if err := os.WriteFile(layout.IndexPath, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	// 持久化 skill store 不应被 cleanup 删除
+	if err := os.MkdirAll(layout.MountRoot, 0o755); err != nil {
+		t.Fatalf("mkdir skill store: %v", err)
+	}
+
+	if err := cleanupDesktopSkillRuntime(runID); err != nil {
+		t.Fatalf("cleanup skill runtime: %v", err)
+	}
+
+	if _, err := os.Stat(runtimeRoot); !os.IsNotExist(err) {
+		t.Fatalf("expected run-scoped runtime root removed, got err=%v", err)
+	}
+	if _, err := os.Stat(layout.MountRoot); err != nil {
+		t.Fatalf("expected persistent skill store preserved, got err=%v", err)
+	}
+}
+
+func TestPrepareDesktopHostSkillsMaterializesBundlesAndIndex(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+
+	store, err := openDesktopSkillStore(ctx)
+	if err != nil {
+		t.Fatalf("open desktop skill store: %v", err)
+	}
+	bundleKey := skillstore.DerivedBundleKey("grep-helper", "1")
+	if err := store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml":     "skill_key: grep-helper\nversion: \"1\"\ndisplay_name: Grep Helper\ninstruction_path: SKILL.md\n",
+		"SKILL.md":       "Use grep carefully.\n",
+		"scripts/run.sh": "#!/bin/sh\necho ok\n",
+	})); err != nil {
+		t.Fatalf("seed desktop skill bundle: %v", err)
+	}
+
+	runID := uuid.New()
+	layout, err := desktopSkillLayout(false, runID)
+	if err != nil {
+		t.Fatalf("desktop skill layout: %v", err)
+	}
+
+	skills := []skillstore.ResolvedSkill{{
+		SkillKey:        "grep-helper",
+		Version:         "1",
+		BundleRef:       bundleKey,
+		MountPath:       layout.MountPath("grep-helper", "1"),
+		InstructionPath: "SKILL.md",
+		AutoInject:      true,
+	}}
+	if err := prepareDesktopHostSkills(ctx, skills, layout); err != nil {
+		t.Fatalf("prepare desktop host skills: %v", err)
+	}
+
+	skillDocPath := filepath.Join(layout.MountPath("grep-helper", "1"), "SKILL.md")
+	rawDoc, err := os.ReadFile(skillDocPath)
+	if err != nil {
+		t.Fatalf("read skill doc: %v", err)
+	}
+	if string(rawDoc) != "Use grep carefully.\n" {
+		t.Fatalf("unexpected skill doc: %q", string(rawDoc))
+	}
+
+	rawIndex, err := os.ReadFile(layout.IndexPath)
+	if err != nil {
+		t.Fatalf("read skill index: %v", err)
+	}
+	var entries []skillstore.IndexEntry
+	if err := json.Unmarshal(rawIndex, &entries); err != nil {
+		t.Fatalf("decode skill index: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 skill index entry, got %d", len(entries))
+	}
+	if entries[0].MountPath != layout.MountPath("grep-helper", "1") {
+		t.Fatalf("unexpected skill index entry: %#v", entries[0])
+	}
+}
+
+func TestResolveDesktopRunBindingsPersistsAndExposesInheritedSkills(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID1 := uuid.New()
+	threadID2 := uuid.New()
+	runID1 := uuid.New()
+	runID2 := uuid.New()
+
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID1, nil, &userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID2, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID1, &userID, runID1)
+	seedDesktopRunBindingRun(t, db, accountID, threadID2, &userID, runID2)
+
+	first, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID1,
+		AccountID:       accountID,
+		ThreadID:        threadID1,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve first desktop run bindings: %v", err)
+	}
+	seedDesktopOwnedSkillPackage(t, db, accountID, "grep-helper", "1")
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO profile_skill_installs (profile_ref, account_id, owner_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'grep-helper', '1')`,
+		derefStr(first.ProfileRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed profile install: %v", err)
+	}
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'grep-helper', '1')`,
+		derefStr(first.WorkspaceRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed workspace enablement: %v", err)
+	}
+
+	second, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID2,
+		AccountID:       accountID,
+		ThreadID:        threadID2,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve second desktop run bindings: %v", err)
+	}
+	if derefStr(first.WorkspaceRef) == derefStr(second.WorkspaceRef) {
+		t.Fatalf("expected new thread to bind a different workspace, got %q", derefStr(second.WorkspaceRef))
+	}
+
+	var storedProfileRef string
+	var storedWorkspaceRef string
+	if err := db.QueryRow(
+		ctx,
+		`SELECT profile_ref, workspace_ref FROM runs WHERE id = $1`,
+		runID2,
+	).Scan(&storedProfileRef, &storedWorkspaceRef); err != nil {
+		t.Fatalf("load persisted run bindings: %v", err)
+	}
+	if storedProfileRef != derefStr(second.ProfileRef) || storedWorkspaceRef != derefStr(second.WorkspaceRef) {
+		t.Fatalf("unexpected persisted bindings: %q %q", storedProfileRef, storedWorkspaceRef)
+	}
+
+	resolver := desktopSkillResolver(db)
+	items, err := resolver(ctx, accountID, storedProfileRef, storedWorkspaceRef)
+	if err != nil {
+		t.Fatalf("resolve desktop skills: %v", err)
+	}
+	if len(items) != 1 || items[0].SkillKey != "grep-helper" || items[0].Version != "1" {
+		t.Fatalf("unexpected resolved skills: %#v", items)
+	}
+}
+
+func TestResolveDesktopRunBindingsIgnoresWorkDirForWorkspaceAndSkills(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID1 := uuid.New()
+	runID2 := uuid.New()
+
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID1)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID2)
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"work_dir":"/tmp/work-a"}')`, runID1); err != nil {
+		t.Fatalf("seed first run.started: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"work_dir":"/tmp/work-b"}')`, runID2); err != nil {
+		t.Fatalf("seed second run.started: %v", err)
+	}
+
+	first, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID1,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve first desktop run bindings: %v", err)
+	}
+	seedDesktopOwnedSkillPackage(t, db, accountID, "write-helper", "1")
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO profile_skill_installs (profile_ref, account_id, owner_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'write-helper', '1')`,
+		derefStr(first.ProfileRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed profile install: %v", err)
+	}
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO workspace_skill_enablements (workspace_ref, account_id, enabled_by_user_id, skill_key, version)
+		 VALUES ($1, $2, $3, 'write-helper', '1')`,
+		derefStr(first.WorkspaceRef),
+		accountID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed workspace enablement: %v", err)
+	}
+
+	second, err := resolveDesktopRunBindings(ctx, db, data.Run{
+		ID:              runID2,
+		AccountID:       accountID,
+		ThreadID:        threadID,
+		CreatedByUserID: &userID,
+	})
+	if err != nil {
+		t.Fatalf("resolve second desktop run bindings: %v", err)
+	}
+	if derefStr(first.WorkspaceRef) != derefStr(second.WorkspaceRef) {
+		t.Fatalf("expected same thread to reuse workspace despite work_dir change, got %q vs %q", derefStr(first.WorkspaceRef), derefStr(second.WorkspaceRef))
+	}
+
+	resolver := desktopSkillResolver(db)
+	firstItems, err := resolver(ctx, accountID, derefStr(first.ProfileRef), derefStr(first.WorkspaceRef))
+	if err != nil {
+		t.Fatalf("resolve first run skills: %v", err)
+	}
+	secondItems, err := resolver(ctx, accountID, derefStr(second.ProfileRef), derefStr(second.WorkspaceRef))
+	if err != nil {
+		t.Fatalf("resolve second run skills: %v", err)
+	}
+	if len(firstItems) != 1 || len(secondItems) != 1 {
+		t.Fatalf("unexpected resolved skills: first=%#v second=%#v", firstItems, secondItems)
+	}
+	if firstItems[0].SkillKey != secondItems[0].SkillKey || firstItems[0].Version != secondItems[0].Version {
+		t.Fatalf("expected identical skill sets, got first=%#v second=%#v", firstItems, secondItems)
+	}
+
+	loader := desktopInputLoader(db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, nil, nil)
+	firstRC := &pipeline.RunContext{Run: first, ThreadMessageHistoryLimit: 10}
+	if err := loader(ctx, firstRC, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.WorkDir != "/tmp/work-a" {
+			t.Fatalf("unexpected first work_dir: %q", rc.WorkDir)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("load first desktop input: %v", err)
+	}
+
+	secondRC := &pipeline.RunContext{Run: second, ThreadMessageHistoryLimit: 10}
+	if err := loader(ctx, secondRC, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.WorkDir != "/tmp/work-b" {
+			t.Fatalf("unexpected second work_dir: %q", rc.WorkDir)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("load second desktop input: %v", err)
+	}
+}
+
+func TestDesktopInputLoaderIgnoresLegacyCompactSnapshotReplacement(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop-snapshot.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-snapshot-" + accountID.String(), "Desktop Snapshot"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Snapshot Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{}'::jsonb)`,
+			args: []any{runID},
+		},
+		{
+			sql:  `INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, metadata_json, hidden, created_at) VALUES ($1, $2, $3, 1, 'user', 'seed', '{}', FALSE, '2026-04-09 05:18:30.100000000 +0000')`,
+			args: []any{uuid.New(), accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO messages (id, account_id, thread_id, thread_seq, role, content, metadata_json, hidden, created_at) VALUES ($1, $2, $3, 2, 'assistant', 'tail', '{}', FALSE, '2026-04-09 05:18:31.100000000 +0000')`,
+			args: []any{uuid.New(), accountID, threadID},
+		},
+		{
+			sql:  `UPDATE threads SET next_message_seq = 3 WHERE id = $1`,
+			args: []any{threadID},
+		},
+		// Legacy replacement rows without supersession edges should no longer shape frontier output.
+		{
+			sql:  `INSERT INTO thread_context_replacements (account_id, thread_id, start_thread_seq, end_thread_seq, start_context_seq, end_context_seq, summary_text, layer, metadata_json) VALUES ($1, $2, 1, 1, 1, 1, $3, 1, '{}')`,
+			args: []any{accountID, threadID, "desktop snapshot"},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	loader := desktopInputLoader(db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, nil, nil)
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        runID,
+			AccountID: accountID,
+			ThreadID:  threadID,
+		},
+		ThreadMessageHistoryLimit: 10,
+	}
+	if err := loader(ctx, rc, func(_ context.Context, got *pipeline.RunContext) error {
+		if len(got.ThreadContextFrontier) != 2 {
+			t.Fatalf("expected canonical frontier only, got %#v", got.ThreadContextFrontier)
+		}
+		if strings.TrimSpace(got.ThreadContextFrontier[0].SourceText) != "seed" || strings.TrimSpace(got.ThreadContextFrontier[1].SourceText) != "tail" {
+			t.Fatalf("unexpected frontier content: %#v", got.ThreadContextFrontier)
+		}
+		if len(got.Messages) != 2 || got.Messages[0].Role != "user" || got.Messages[1].Role != "assistant" {
+			t.Fatalf("unexpected prompt messages: %#v", got.Messages)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktopInputLoader failed: %v", err)
+	}
+}
+
+func TestDesktopInputLoaderAppliesPlanMode(t *testing.T) {
+	ctx := context.Background()
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop-plan-mode.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-plan-" + accountID.String(), "Desktop Plan"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Plan Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO run_events (run_id, seq, type, data_json) VALUES ($1, 1, 'run.started', '{"collaboration_mode":"plan","collaboration_mode_revision":2}'::jsonb)`,
+			args: []any{runID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	loader := desktopInputLoader(db, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}, nil, nil)
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ID:        runID,
+			AccountID: accountID,
+			ThreadID:  threadID,
+		},
+		ThreadMessageHistoryLimit: 10,
+	}
+	called := false
+	if err := loader(ctx, rc, func(_ context.Context, got *pipeline.RunContext) error {
+		called = true
+		if got.InputJSON["collaboration_mode"] != "plan" {
+			t.Fatalf("unexpected collaboration_mode input: %#v", got.InputJSON["collaboration_mode"])
+		}
+		if !got.IsPlanMode {
+			t.Fatal("expected desktop plan mode to be active")
+		}
+		wantPlanDir := tools.DefaultPlanDirectory()
+		if got.PlanFilePath != "" {
+			t.Fatalf("unexpected plan path: got %q", got.PlanFilePath)
+		}
+		if len(got.Messages) != len(got.ThreadMessageIDs) {
+			t.Fatalf("messages and ids must stay aligned: messages=%d ids=%d", len(got.Messages), len(got.ThreadMessageIDs))
+		}
+		if len(got.Messages) != 0 {
+			t.Fatalf("plan mode should not synthesize history messages, got %#v", got.Messages)
+		}
+		for _, segment := range got.PromptSegments() {
+			if segment.Name == "plan_mode" && strings.Contains(segment.Text, wantPlanDir) {
+				return nil
+			}
+		}
+		t.Fatalf("missing plan mode prompt segment: %#v", got.PromptSegments())
+		return nil
+	}); err != nil {
+		t.Fatalf("desktopInputLoader failed: %v", err)
+	}
+	if !called {
+		t.Fatal("expected desktop input loader to call next")
+	}
+}
+
+func TestDesktopPersonaResolutionRestoresPlanModePromptAfterReset(t *testing.T) {
+	reg := personas.NewRegistry()
+	reg.Set(personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		SoulMD:         "persona soul",
+		PromptMD:       "system prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+	})
+	mw := desktopPersonaResolution(nil, func() *personas.Registry { return reg }, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+
+	rc := &pipeline.RunContext{
+		Run: data.Run{
+			ThreadID: uuid.New(),
+		},
+		InputJSON: map[string]any{
+			"persona_id":         "test-persona",
+			"collaboration_mode": "plan",
+		},
+	}
+	pipeline.ApplyCollaborationMode(rc)
+
+	var gotRuntimePrompt string
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, got *pipeline.RunContext) error {
+		gotRuntimePrompt = got.RuntimePrompt
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("desktopPersonaResolution failed: %v", err)
+	}
+	if !rc.IsPlanMode {
+		t.Fatal("expected plan mode to remain active")
+	}
+	if !strings.Contains(gotRuntimePrompt, "<system-reminder>") {
+		t.Fatalf("expected plan mode prompt after desktop persona reset, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, tools.DefaultPlanDirectory()) {
+		t.Fatalf("expected plan directory in runtime prompt, got %q", gotRuntimePrompt)
+	}
+}
+
+func TestDesktopPersonaResolutionRestoresLearningModePromptAfterReset(t *testing.T) {
+	reg := personas.NewRegistry()
+	reg.Set(personas.Definition{
+		ID:             "test-persona",
+		Version:        "1",
+		Title:          "Test Persona",
+		SoulMD:         "persona soul",
+		PromptMD:       "system prompt",
+		ExecutorType:   "agent.simple",
+		ExecutorConfig: map[string]any{},
+	})
+	mw := desktopPersonaResolution(nil, func() *personas.Registry { return reg }, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{})
+
+	rc := &pipeline.RunContext{
+		InputJSON: map[string]any{
+			"persona_id":            "test-persona",
+			"learning_mode_enabled": true,
+		},
+	}
+	pipeline.ApplyLearningMode(rc)
+
+	var gotRuntimePrompt string
+	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, got *pipeline.RunContext) error {
+		gotRuntimePrompt = got.RuntimePrompt
+		return nil
+	})
+	if err := h(context.Background(), rc); err != nil {
+		t.Fatalf("desktopPersonaResolution failed: %v", err)
+	}
+	if !rc.LearningModeEnabled {
+		t.Fatal("expected learning mode to remain active")
+	}
+	if !strings.Contains(gotRuntimePrompt, "学习辅导已在当前 thread 启用") {
+		t.Fatalf("expected learning prompt after desktop persona reset, got %q", gotRuntimePrompt)
+	}
+	if !strings.Contains(gotRuntimePrompt, "不替换当前 persona") {
+		t.Fatalf("expected persona overlay boundary in desktop runtime prompt, got %q", gotRuntimePrompt)
+	}
+}
+
+func TestDesktopEventWriterCommitsNonStreamingEventsBeforeToolExecution(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-writer-test-" + accountID.String(), "Desktop Writer Test"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Writer Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "test-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	completedTurn := events.RunEvent{
+		Type: "llm.turn.completed",
+		DataJSON: map[string]any{
+			"usage": map[string]any{
+				"input_tokens":  12,
+				"output_tokens": 7,
+			},
+		},
+	}
+	if err := writer.append(ctx, runID, completedTurn, "normal"); err != nil {
+		t.Fatalf("append non-streaming event: %v", err)
+	}
+	var committedEvents int
+	if err := db.QueryRow(ctx, `SELECT COUNT(1) FROM run_events WHERE run_id = $1`, runID).Scan(&committedEvents); err != nil {
+		t.Fatalf("count committed run events: %v", err)
+	}
+	if committedEvents != 1 {
+		t.Fatalf("expected non-streaming event to commit immediately, got %d committed events", committedEvents)
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin sub-agent tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
+
+	if _, err := (data.SubAgentRepository{}).Create(ctx, tx, data.SubAgentCreateParams{
+		AccountID:     accountID,
+		OwnerThreadID: threadID,
+		AgentThreadID: threadID,
+		OriginRunID:   runID,
+		Depth:         1,
+		SourceType:    data.SubAgentSourceTypeThreadSpawn,
+		ContextMode:   data.SubAgentContextModeIsolated,
+	}); err != nil {
+		t.Fatalf("create sub_agent after non-streaming commit: %v", err)
+	}
+}
+
+func TestDesktopEventWriterCommitsStreamingEventImmediately(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-writer-immediate-" + accountID.String(), "Desktop Writer Immediate"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Writer Immediate Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "immediate-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	ev := events.RunEvent{
+		Type: "message.delta",
+		DataJSON: map[string]any{
+			"role":  "assistant",
+			"delta": "hello",
+		},
+	}
+	if err := writer.append(ctx, runID, ev, "normal"); err != nil {
+		t.Fatalf("append streaming event: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(ctx, `SELECT COUNT(1) FROM run_events WHERE run_id = $1`, runID).Scan(&count); err != nil {
+		t.Fatalf("count run events: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected streaming event to commit immediately, got %d", count)
+	}
+}
+
+func TestDesktopRunCancelWatcherCancelsOnRequestedEvent(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-cancel-watch-" + accountID.String(), "Desktop Cancel Watch"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Cancel Watch Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	watchCtx, cancelWatch := context.WithCancel(ctx)
+	defer cancelWatch()
+	stop := startDesktopRunCancelWatcher(watchCtx, db, runID, cancelWatch)
+	defer stop()
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
+
+	cancelRequested := events.NewEmitter("watch-trace").Emit("run.cancel_requested", map[string]any{"reason": "test"}, nil, nil)
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, cancelRequested); err != nil {
+		t.Fatalf("append cancel_requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cancel_requested: %v", err)
+	}
+
+	select {
+	case <-watchCtx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected cancel watcher to cancel context")
+	}
+}
+
+func TestDesktopEventWriterPersistsModelWithoutPersona(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-writer-model-" + accountID.String(), "Desktop Writer Model"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Writer Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "model-no-persona",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+		model:      "cery^claude-sonnet-4-6",
+	}
+
+	ev := events.NewEmitter("model-no-persona").Emit("run.route.selected", map[string]any{
+		"credential_name": "cery",
+		"model":           "claude-sonnet-4-6",
+	}, nil, nil)
+	if err := writer.append(ctx, runID, ev, ""); err != nil {
+		t.Fatalf("append run.route.selected: %v", err)
+	}
+
+	var (
+		model     *string
+		personaID *string
+	)
+	if err := db.QueryRow(ctx, `SELECT model, persona_id FROM runs WHERE id = $1`, runID).Scan(&model, &personaID); err != nil {
+		t.Fatalf("select run metadata: %v", err)
+	}
+	if model == nil || *model != "cery^claude-sonnet-4-6" {
+		t.Fatalf("expected model to persist without persona, got %#v", model)
+	}
+	if personaID != nil && *personaID != "" {
+		t.Fatalf("expected persona_id to stay empty when persona is omitted, got %#v", personaID)
+	}
+}
+
+func TestDesktopEventWriterFinalizeCancelledIfRequested(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-finalize-" + accountID.String(), "Desktop Finalize"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Finalize Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	cancelRequested := events.NewEmitter("finalize-trace").Emit("run.cancel_requested", map[string]any{"reason": "test"}, nil, nil)
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, cancelRequested); err != nil {
+		t.Fatalf("append cancel_requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cancel_requested: %v", err)
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "finalize-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	stopped, err := writer.finalizeCancelledIfRequested(ctx)
+	if err != nil {
+		t.Fatalf("finalizeCancelledIfRequested: %v", err)
+	}
+	if !stopped {
+		t.Fatal("expected cancellation finalization to stop processing")
+	}
+
+	checkTx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin check tx: %v", err)
+	}
+	defer func() { _ = checkTx.Rollback(ctx) }() //nolint:errcheck
+
+	eventType, err := (data.DesktopRunEventsRepository{}).GetLatestEventType(ctx, checkTx, runID, []string{"run.cancelled"})
+	if err != nil {
+		t.Fatalf("load latest cancelled event: %v", err)
+	}
+	if eventType != "run.cancelled" {
+		t.Fatalf("expected latest cancel event run.cancelled, got %q", eventType)
+	}
+
+	run, err := (data.DesktopRunsRepository{}).GetRun(ctx, checkTx, runID)
+	if err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+	if run == nil || run.Status != "cancelled" {
+		t.Fatalf("expected run status cancelled, got %#v", run)
+	}
+}
+
+func TestDesktopCancelledRunPersistsVisiblePartialFromEvents(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	emitter := events.NewEmitter("desktop-cancel-visible")
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "seen partial",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append visible delta: %v", err)
+	}
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": " unseen tail",
+	}, nil, nil)); err != nil {
+		t.Fatalf("append unseen delta: %v", err)
+	}
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{}, nil, nil)); err != nil {
+		t.Fatalf("append cancel requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed events: %v", err)
+	}
+
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        run,
+		traceID:    "desktop-cancel-visible",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+	stopped, err := writer.finalizeCancelledIfRequested(ctx)
+	if err != nil {
+		t.Fatalf("finalizeCancelledIfRequested: %v", err)
+	}
+	if !stopped {
+		t.Fatal("expected cancellation to stop processing")
+	}
+	rc := &pipeline.RunContext{Run: run, Emitter: emitter}
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	var content string
+	var rawMetadata string
+	if err := db.QueryRow(ctx,
+		`SELECT content, metadata_json
+		   FROM messages
+		  WHERE thread_id = $1 AND role = 'assistant' AND hidden = FALSE
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&content, &rawMetadata); err != nil {
+		t.Fatalf("select persisted assistant: %v", err)
+	}
+	if content != "seen partial unseen tail" {
+		t.Fatalf("expected backend pre-cancel output to persist, got %q", content)
+	}
+	if !strings.Contains(rawMetadata, `"completion_state":"incomplete"`) || !strings.Contains(rawMetadata, `"finish_reason":"cancelled"`) {
+		t.Fatalf("unexpected metadata: %s", rawMetadata)
+	}
+	if !strings.Contains(rawMetadata, runID.String()) {
+		t.Fatalf("expected metadata to include run id, got %s", rawMetadata)
+	}
+}
+
+func TestDesktopCancelledRunPersistsIntermediateToolHistory(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        run,
+		traceID:    "desktop-cancel-tools",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+	emitter := events.NewEmitter("desktop-cancel-tools")
+	for _, ev := range []events.RunEvent{
+		emitter.Emit("message.delta", map[string]any{
+			"role":          "assistant",
+			"content_delta": "checking",
+		}, nil, nil),
+		emitter.Emit("tool.call", map[string]any{
+			"tool_call_id": "call_1",
+			"tool_name":    "read",
+			"arguments": map[string]any{
+				"path": "main.go",
+			},
+		}, nil, nil),
+		emitter.Emit("tool.result", map[string]any{
+			"tool_call_id": "call_1",
+			"tool_name":    "read",
+			"result": map[string]any{
+				"content": "package main",
+			},
+		}, nil, nil),
+	} {
+		if err := writer.append(ctx, runID, ev, ""); err != nil {
+			t.Fatalf("append %s: %v", ev.Type, err)
+		}
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin cancel tx: %v", err)
+	}
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, emitter.Emit("run.cancel_requested", map[string]any{}, nil, nil)); err != nil {
+		t.Fatalf("append cancel requested: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit cancel requested: %v", err)
+	}
+
+	stopped, err := writer.finalizeCancelledIfRequested(ctx)
+	if err != nil {
+		t.Fatalf("finalizeCancelledIfRequested: %v", err)
+	}
+	if !stopped {
+		t.Fatal("expected cancellation to stop processing")
+	}
+	rc := &pipeline.RunContext{Run: run, Emitter: emitter}
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	tx, err = db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatalf("begin read tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
+	messages, err := (data.MessagesRepository{}).ListByThread(ctx, tx, accountID, threadID, 20)
+	if err != nil {
+		t.Fatalf("list thread messages: %v", err)
+	}
+	roles := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		roles = append(roles, msg.Role)
+	}
+	wantRoles := []string{"assistant", "tool", "assistant"}
+	if !slices.Equal(roles, wantRoles) {
+		t.Fatalf("unexpected persisted roles: got %#v want %#v", roles, wantRoles)
+	}
+	if len(messages[0].ContentJSON) == 0 || !strings.Contains(string(messages[0].ContentJSON), `"tool_calls"`) {
+		t.Fatalf("expected intermediate assistant tool call content, got %s", string(messages[0].ContentJSON))
+	}
+	if messages[2].Content != "checking" {
+		t.Fatalf("expected final partial assistant content, got %q", messages[2].Content)
+	}
+}
+
+func TestDesktopFailedRunPersistsPartialOutput(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  run,
+		traceID:              "desktop-failed-partial",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		terminalStatus:       "failed",
+		visibleAssistantText: "partial before error",
+	}
+	rc := &pipeline.RunContext{Run: run, Emitter: events.NewEmitter("desktop-failed-partial")}
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	var content string
+	var rawMetadata string
+	if err := db.QueryRow(ctx,
+		`SELECT content, metadata_json
+		   FROM messages
+		  WHERE thread_id = $1 AND role = 'assistant' AND hidden = FALSE
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&content, &rawMetadata); err != nil {
+		t.Fatalf("select persisted assistant: %v", err)
+	}
+	if content != "partial before error" {
+		t.Fatalf("expected failed partial output, got %q", content)
+	}
+	if !strings.Contains(rawMetadata, `"completion_state":"incomplete"`) || !strings.Contains(rawMetadata, `"finish_reason":"failed"`) {
+		t.Fatalf("unexpected metadata: %s", rawMetadata)
+	}
+}
+
+func TestDesktopCompletedRunPublishesAfterAssistantMessagePersisted(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	bus := eventbus.NewLocalEventBus()
+	defer bus.Close()
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	sub, err := bus.Subscribe(ctx, "run_events:"+runID.String())
+	if err != nil {
+		t.Fatalf("subscribe run events: %v", err)
+	}
+	defer sub.Close()
+
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
+	writer := &desktopEventWriter{
+		db:         db,
+		bus:        bus,
+		run:        run,
+		traceID:    "desktop-completed-publish-order",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+	writer.intermediateMessages = []desktopIntermediateMessage{
+		{Role: "assistant", Content: "tool call", ContentJSON: json.RawMessage(`[]`), Ordinal: 1},
+		{Role: "tool", Content: `{"ok":true}`, ToolCallID: "call-1", Ordinal: 2},
+	}
+	emitter := events.NewEmitter("desktop-completed-publish-order")
+
+	delta := emitter.Emit("message.delta", map[string]any{
+		"role":          "assistant",
+		"content_delta": "完成输出",
+	}, nil, nil)
+	if err := writer.append(ctx, runID, delta, ""); err != nil {
+		t.Fatalf("append message.delta: %v", err)
+	}
+	select {
+	case <-sub.Channel():
+	case <-time.After(time.Second):
+		t.Fatal("expected non-terminal run event notification")
+	}
+
+	completed := emitter.Emit("run.completed", map[string]any{}, nil, nil)
+	if err := writer.append(ctx, runID, completed, ""); err != nil {
+		t.Fatalf("append run.completed: %v", err)
+	}
+	select {
+	case <-sub.Channel():
+	case <-time.After(time.Second):
+		t.Fatal("expected completed run notification")
+	}
+
+	var persistedCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM messages WHERE thread_id = $1 AND role = 'assistant' AND hidden = FALSE`, threadID).Scan(&persistedCount); err != nil {
+		t.Fatalf("count assistant messages after completed: %v", err)
+	}
+	if persistedCount != 1 {
+		t.Fatalf("expected assistant message to be persisted with completed event, got %d", persistedCount)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:     run,
+		Emitter: emitter,
+	}
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+	var finalCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM messages WHERE thread_id = $1 AND role = 'assistant' AND hidden = FALSE`, threadID).Scan(&finalCount); err != nil {
+		t.Fatalf("count assistant messages after final persist: %v", err)
+	}
+	if finalCount != 1 {
+		t.Fatalf("expected final persist to avoid duplicate assistant message, got %d", finalCount)
+	}
+
+	rows, err := db.Query(ctx, `SELECT role, hidden FROM messages WHERE thread_id = $1 ORDER BY thread_seq ASC`, threadID)
+	if err != nil {
+		t.Fatalf("select message order: %v", err)
+	}
+	defer rows.Close()
+	var ordered []string
+	for rows.Next() {
+		var role string
+		var hidden bool
+		if err := rows.Scan(&role, &hidden); err != nil {
+			t.Fatalf("scan message order: %v", err)
+		}
+		ordered = append(ordered, fmt.Sprintf("%s:%t", role, hidden))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate message order: %v", err)
+	}
+	wantOrder := []string{"assistant:true", "tool:true", "assistant:false"}
+	if !slices.Equal(ordered, wantOrder) {
+		t.Fatalf("unexpected message order: got %#v want %#v", ordered, wantOrder)
+	}
+
+	var content string
+	var rawMetadata string
+	if err := db.QueryRow(ctx,
+		`SELECT content, metadata_json
+		   FROM messages
+		  WHERE thread_id = $1 AND role = 'assistant'
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&content, &rawMetadata); err != nil {
+		t.Fatalf("select assistant message: %v", err)
+	}
+	if content != "完成输出" {
+		t.Fatalf("expected persisted assistant content, got %q", content)
+	}
+	if !strings.Contains(rawMetadata, runID.String()) {
+		t.Fatalf("expected assistant message metadata to include run_id, got %q", rawMetadata)
+	}
+}
+
+func TestDesktopPersistFinalAssistantOutputPreservesStickerPlaceholderForHistory(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	run := data.Run{ID: runID, AccountID: accountID, ThreadID: threadID}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  run,
+		traceID:              "desktop-sticker-history",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		completed:            true,
+		terminalStatus:       "completed",
+		visibleAssistantText: "[sticker:hash]",
+		assistantMessage:     &llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "[sticker:hash]"}}},
+	}
+	rc := &pipeline.RunContext{Run: run, Emitter: events.NewEmitter("desktop-sticker-history")}
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+	if len(rc.ChannelDeliverySegments) != 1 || rc.ChannelDeliverySegments[0].Kind != "sticker" || rc.ChannelDeliverySegments[0].StickerID != "hash" {
+		t.Fatalf("unexpected sticker delivery segments: %#v", rc.ChannelDeliverySegments)
+	}
+
+	var stored data.ThreadMessage
+	if err := db.QueryRow(ctx,
+		`SELECT id, role, content, content_json
+		   FROM messages
+		  WHERE thread_id = $1 AND role = 'assistant' AND hidden = FALSE
+		  ORDER BY thread_seq DESC
+		  LIMIT 1`,
+		threadID,
+	).Scan(&stored.ID, &stored.Role, &stored.Content, &stored.ContentJSON); err != nil {
+		t.Fatalf("select persisted assistant: %v", err)
+	}
+	if stored.Content != "[sticker:hash]" {
+		t.Fatalf("expected persisted sticker placeholder, got %q", stored.Content)
+	}
+	if !strings.Contains(string(stored.ContentJSON), "[sticker:hash]") {
+		t.Fatalf("expected content_json to preserve sticker placeholder, got %s", string(stored.ContentJSON))
+	}
+	parts, err := pipeline.BuildMessageParts(ctx, nil, stored)
+	if err != nil {
+		t.Fatalf("BuildMessageParts: %v", err)
+	}
+	if len(parts) != 1 || parts[0].Text != "[sticker:hash]" {
+		t.Fatalf("expected sticker placeholder in reconstructed history, got %#v", parts)
+	}
+}
+
+func TestDesktopPersistFinalAssistantOutputWritesRunFailedWhenMessageInsertFails(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	if _, err := db.Exec(ctx, `DROP TABLE messages`); err != nil {
+		t.Fatalf("drop messages: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("persist-failed"),
+	}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  rc.Run,
+		traceID:              "persist-failed",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		completed:            true,
+		terminalStatus:       "completed",
+		visibleAssistantText: "heartbeat reply",
+		assistantMessage:     &llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "heartbeat reply"}}},
+	}
+
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	var status string
+	if err := db.QueryRow(ctx, `SELECT status FROM runs WHERE id = $1`, runID).Scan(&status); err != nil {
+		t.Fatalf("select run status: %v", err)
+	}
+	if status != "failed" {
+		t.Fatalf("expected run status failed, got %q", status)
+	}
+
+	var (
+		eventType   string
+		errorClass  *string
+		rawDataJSON string
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT type, error_class, data_json
+		   FROM run_events
+		  WHERE run_id = $1
+		  ORDER BY seq DESC
+		  LIMIT 1`,
+		runID,
+	).Scan(&eventType, &errorClass, &rawDataJSON); err != nil {
+		t.Fatalf("select latest run event: %v", err)
+	}
+	if eventType != "run.failed" {
+		t.Fatalf("expected latest event run.failed, got %q", eventType)
+	}
+	if errorClass == nil || *errorClass != "database.write_failed" {
+		t.Fatalf("expected error_class database.write_failed, got %#v", errorClass)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(rawDataJSON), &payload); err != nil {
+		t.Fatalf("unmarshal run.failed payload: %v", err)
+	}
+	if payload["message"] != "assistant output persistence failed" {
+		t.Fatalf("unexpected run.failed message: %#v", payload["message"])
+	}
+	details, _ := payload["details"].(map[string]any)
+	reason, _ := details["reason"].(string)
+	if !strings.Contains(reason, "no such table") {
+		t.Fatalf("expected sqlite reason to mention missing table, got %q", reason)
+	}
+}
+
+func TestDesktopEventWriterCapturesTelegramReplyOverride(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "telegram-reply-override",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	replyCall := events.NewEmitter("telegram-reply-override").Emit("tool.call", map[string]any{
+		"tool_name":    "telegram_reply",
+		"tool_call_id": "call-1",
+		"arguments": map[string]any{
+			"reply_to_message_id": "6592",
+		},
+	}, nil, nil)
+	if err := writer.append(ctx, runID, replyCall, "normal"); err != nil {
+		t.Fatalf("append tool.call: %v", err)
+	}
+
+	if writer.pendingReplyOverride != "6592" {
+		t.Fatalf("expected pendingReplyOverride=6592, got %q", writer.pendingReplyOverride)
+	}
+	if got := writer.visibleAssistantOutput(); got != "" {
+		t.Fatalf("telegram_reply should not contribute visible assistant output, got %q", got)
+	}
+}
+
+func TestDesktopEventWriterIgnoresTelegramSendFileCaptionAsAssistantOutput(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "telegram-send-file",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	sendFileCall := events.NewEmitter("telegram-send-file").Emit("tool.call", map[string]any{
+		"tool_name":    "telegram_send_file",
+		"tool_call_id": "call-1",
+		"arguments": map[string]any{
+			"file_url": "https://example.com/a.png",
+			"kind":     "photo",
+			"caption":  "这句不应该被当成 assistant output",
+		},
+	}, nil, nil)
+	if err := writer.append(ctx, runID, sendFileCall, "normal"); err != nil {
+		t.Fatalf("append tool.call: %v", err)
+	}
+
+	if got := writer.visibleAssistantOutput(); got != "" {
+		t.Fatalf("telegram_send_file should not contribute visible assistant output, got %q", got)
+	}
+}
+
+func TestDesktopPersistFinalAssistantOutputSetsReplyOverride(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	userID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	seedDesktopRunBindingAccount(t, db, accountID, userID)
+	seedDesktopRunBindingThread(t, db, accountID, threadID, nil, &userID)
+	seedDesktopRunBindingRun(t, db, accountID, threadID, &userID, runID)
+
+	rc := &pipeline.RunContext{
+		Run:     data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		Emitter: events.NewEmitter("persist-reply-override"),
+	}
+	writer := &desktopEventWriter{
+		db:                   db,
+		run:                  rc.Run,
+		traceID:              "persist-reply-override",
+		runsRepo:             data.DesktopRunsRepository{},
+		eventsRepo:           data.DesktopRunEventsRepository{},
+		completed:            true,
+		terminalStatus:       "completed",
+		pendingReplyOverride: "6592",
+		assistantDeltas:      []string{"回复内容喵"},
+	}
+
+	if err := desktopPersistFinalAssistantOutput(ctx, db, rc, writer, data.DesktopRunsRepository{}, data.DesktopRunEventsRepository{}); err != nil {
+		t.Fatalf("desktopPersistFinalAssistantOutput: %v", err)
+	}
+
+	if rc.ChannelReplyOverride == nil {
+		t.Fatal("expected ChannelReplyOverride to be set")
+	}
+	if rc.ChannelReplyOverride.MessageID != "6592" {
+		t.Fatalf("expected reply override message_id=6592, got %q", rc.ChannelReplyOverride.MessageID)
+	}
+	if rc.ChannelOutputDelivered {
+		t.Fatal("telegram_reply should not set ChannelOutputDelivered")
+	}
+}
+
+func TestDesktopEventWriterPersistsCanonicalToolNames(t *testing.T) {
+	writer := &desktopEventWriter{
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "fetching"}},
+		},
+	}
+
+	writer.collectToolCall(map[string]any{
+		"tool_call_id":        "call_1",
+		"tool_name":           "web_fetch.jina",
+		"arguments":           map[string]any{"url": "https://example.com"},
+		"display_description": "Fetching page",
+	})
+	writer.collectToolResult(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "web_fetch.jina",
+		"result":       map[string]any{"title": "Example"},
+	})
+	writer.flushPendingToolCalls()
+
+	if len(writer.intermediateMessages) != 2 {
+		t.Fatalf("expected assistant+tool intermediate messages, got %d", len(writer.intermediateMessages))
+	}
+
+	assistantJSON := string(writer.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, "web_fetch.jina") {
+		t.Fatalf("expected assistant intermediate message to hide provider tool name, got %s", assistantJSON)
+	}
+	if !strings.Contains(assistantJSON, `"tool_name":"web_fetch"`) {
+		t.Fatalf("expected assistant intermediate message to keep canonical tool name, got %s", assistantJSON)
+	}
+	if !strings.Contains(assistantJSON, `"display_description":"Fetching page"`) {
+		t.Fatalf("expected assistant intermediate message to keep display description, got %s", assistantJSON)
+	}
+
+	toolContent := writer.intermediateMessages[1].Content
+	if strings.Contains(toolContent, "web_fetch.jina") {
+		t.Fatalf("expected tool intermediate message to hide provider tool name, got %s", toolContent)
+	}
+	if !strings.Contains(toolContent, `"tool_name":"web_fetch"`) {
+		t.Fatalf("expected tool intermediate message to keep canonical tool name, got %s", toolContent)
+	}
+}
+
+func TestDesktopEventWriterFlushPendingToolCallsDropsUnmatchedToolCalls(t *testing.T) {
+	writer := &desktopEventWriter{
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "doing tools"}},
+		},
+	}
+
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "telegram_react",
+		"arguments":    map[string]any{"emoji": "❤️"},
+	})
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_2",
+		"tool_name":    "telegram_reply",
+		"arguments":    map[string]any{"reply_to_message_id": "42"},
+	})
+	writer.collectToolResult(map[string]any{
+		"tool_call_id": "call_2",
+		"tool_name":    "telegram_reply",
+		"result":       map[string]any{"ok": true},
+	})
+	writer.flushPendingToolCalls()
+
+	if len(writer.intermediateMessages) != 2 {
+		t.Fatalf("expected assistant+tool intermediate messages, got %d", len(writer.intermediateMessages))
+	}
+	assistantJSON := string(writer.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, `"tool_call_id":"call_1"`) {
+		t.Fatalf("expected unmatched tool call to be dropped, got %s", assistantJSON)
+	}
+	if !strings.Contains(assistantJSON, `"tool_call_id":"call_2"`) {
+		t.Fatalf("expected matched tool call to survive, got %s", assistantJSON)
+	}
+}
+
+func TestDesktopEventWriterFiltersHeartbeatDecisionFromPersistentHistory(t *testing.T) {
+	writer := &desktopEventWriter{
+		heartbeatRun: true,
+		assistantMessage: &llm.Message{
+			Role:    "assistant",
+			Content: []llm.TextPart{{Text: "replying"}},
+		},
+	}
+
+	writer.collectToolCall(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"arguments":    map[string]any{"reply": true},
+	})
+	writer.collectToolResult(map[string]any{
+		"tool_call_id": "call_1",
+		"tool_name":    "heartbeat_decision",
+		"result":       map[string]any{"ok": true, "reply": true},
+	})
+	writer.flushPendingToolCalls()
+
+	if len(writer.intermediateMessages) != 1 {
+		t.Fatalf("expected assistant-only intermediate message, got %d", len(writer.intermediateMessages))
+	}
+	if writer.intermediateMessages[0].Role != "assistant" {
+		t.Fatalf("expected assistant intermediate message, got %#v", writer.intermediateMessages[0])
+	}
+	assistantJSON := string(writer.intermediateMessages[0].ContentJSON)
+	if strings.Contains(assistantJSON, "heartbeat_decision") {
+		t.Fatalf("expected heartbeat_decision to be removed from persistent history, got %s", assistantJSON)
+	}
+}
+
+func TestDesktopEventWriterPendingTelegramFlushChunk(t *testing.T) {
+	writer := &desktopEventWriter{
+		visibleAssistantTexts:   []string{"第一段", "第二段"},
+		telegramSentOutputCount: 1,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+
+	if got := writer.pendingTelegramFlushChunk(); got != "第二段" {
+		t.Fatalf("expected pending flush chunk to be 第二段, got %q", got)
+	}
+}
+
+func TestDesktopEventWriterPendingTelegramFlushChunkFromAssistantMessage(t *testing.T) {
+	// 无 delta，LLM 通过 assistantMessage 完成一轮时，captureAssistantTurnOutput 追加到 visibleAssistantTexts，
+	// pendingTelegramFlushChunk 应返回该内容
+	writer := &desktopEventWriter{
+		visibleAssistantTexts:   []string{},
+		telegramSentOutputCount: 0,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "来自 assistantMessage 的内容"}}}
+	writer.assistantMessage = &msg
+	writer.assistantMessageFresh = true
+	writer.captureAssistantTurnOutput()
+
+	got := writer.pendingTelegramFlushChunk()
+	if !strings.Contains(got, "来自 assistantMessage 的内容") {
+		t.Fatalf("expected flush chunk to contain assistantMessage content, got %q", got)
+	}
+}
+
+func TestDesktopEventWriterTelegramUnsentOutputsMixedScenario(t *testing.T) {
+	// Turn 1：已 mid-stream 发出（telegramSentOutputCount=1）
+	// Turn 2：无 delta，通过 assistantMessage 到达
+	// 期望 telegramUnsentOutputs() 只返回 Turn 2 的内容
+	writer := &desktopEventWriter{
+		visibleAssistantTexts:   []string{"Turn1 内容"},
+		telegramSentOutputCount: 1,
+		telegramBoundaryFlush:   func(_ context.Context, _ string) error { return nil },
+	}
+
+	msg := llm.Message{Role: "assistant", Content: []llm.ContentPart{{Type: "text", Text: "Turn2 内容"}}}
+	writer.assistantMessage = &msg
+	writer.assistantMessageFresh = true
+	writer.captureAssistantTurnOutput()
+
+	unsent := writer.telegramUnsentOutputs()
+	if len(unsent) != 1 || unsent[0] != "Turn2 内容" {
+		t.Fatalf("expected unsent=[Turn2 内容], got %v", unsent)
+	}
+	remainder := writer.telegramStreamRemainder()
+	if remainder != "Turn2 内容" {
+		t.Fatalf("expected remainder=Turn2 内容, got %q", remainder)
+	}
+}
+
+func TestDesktopSubAgentContextRestoresRoutingFromSnapshotFallback(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	parentThreadID := uuid.New()
+	childThreadID := uuid.New()
+	parentRunID := uuid.New()
+	childRunID := uuid.New()
+	subAgentID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-subagent-routing-" + accountID.String(), "Desktop SubAgent Routing"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Routing Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE), ($4, $2, $3, TRUE)`,
+			args: []any{parentThreadID, accountID, projectID, childThreadID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running'), ($4, $2, $5, 'running')`,
+			args: []any{parentRunID, accountID, parentThreadID, childRunID, childThreadID},
+		},
+		{
+			sql: `INSERT INTO sub_agents
+				(id, account_id, owner_thread_id, agent_thread_id, origin_run_id, depth, source_type, context_mode, status, current_run_id)
+				VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9)`,
+			args: []any{subAgentID, accountID, parentThreadID, childThreadID, parentRunID, data.SubAgentSourceTypeThreadSpawn, data.SubAgentContextModeIsolated, data.SubAgentStatusQueued, childRunID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin snapshot tx: %v", err)
+	}
+	storage := subagentctl.NewSnapshotStorage()
+	if err := storage.Save(ctx, tx, subAgentID, subagentctl.ContextSnapshot{
+		ContextMode: data.SubAgentContextModeIsolated,
+		Routing: &subagentctl.ContextSnapshotRouting{
+			RouteID: "route-parent",
+			Model:   "anthropic^claude-sonnet-4-5",
+		},
+	}); err != nil {
+		t.Fatalf("save snapshot: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit snapshot: %v", err)
+	}
+
+	rc := &pipeline.RunContext{
+		Run:       data.Run{ID: childRunID, AccountID: accountID, ThreadID: childThreadID, ParentRunID: &parentRunID},
+		InputJSON: map[string]any{},
+	}
+
+	mw := desktopSubAgentContext(db, storage)
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if got := rc.InputJSON["route_id"]; got != "route-parent" {
+			t.Fatalf("unexpected route_id: %#v", got)
+		}
+		if got := rc.InputJSON["model"]; got != "anthropic^claude-sonnet-4-5" {
+			t.Fatalf("unexpected model: %#v", got)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("middleware failed: %v", err)
+	}
+}
+
+func TestDesktopEventWriterTouchesRunActivityOnNonTerminalCommit(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-activity-test-" + accountID.String(), "Desktop Activity Test"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Activity Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	oldActivity := time.Date(2000, time.January, 2, 3, 4, 5, 0, time.UTC).Format("2006-01-02 15:04:05")
+	if _, err := db.Exec(ctx, `UPDATE runs SET status_updated_at = $2 WHERE id = $1`, runID, oldActivity); err != nil {
+		t.Fatalf("set old activity: %v", err)
+	}
+
+	writer := &desktopEventWriter{
+		db:         db,
+		run:        data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		traceID:    "desktop-activity-trace",
+		runsRepo:   data.DesktopRunsRepository{},
+		eventsRepo: data.DesktopRunEventsRepository{},
+	}
+
+	ev := events.RunEvent{
+		Type: "llm.turn.completed",
+		DataJSON: map[string]any{
+			"usage": map[string]any{
+				"input_tokens":  5,
+				"output_tokens": 4,
+			},
+		},
+	}
+	if err := writer.append(ctx, runID, ev, "normal"); err != nil {
+		t.Fatalf("append non-terminal event: %v", err)
+	}
+
+	var (
+		status  string
+		touched int
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT status,
+		        CASE WHEN status_updated_at > $2 THEN 1 ELSE 0 END
+		   FROM runs
+		  WHERE id = $1`,
+		runID,
+		oldActivity,
+	).Scan(&status, &touched); err != nil {
+		t.Fatalf("query run activity: %v", err)
+	}
+	if status != "running" {
+		t.Fatalf("expected run to stay running, got %q", status)
+	}
+	if touched != 1 {
+		t.Fatal("expected status_updated_at to refresh on non-terminal commit")
+	}
+}
+
+func TestShouldAccumulateUsageForDesktopEvent(t *testing.T) {
+	tests := []struct {
+		eventType string
+		want      bool
+	}{
+		{eventType: "llm.turn.completed", want: true},
+		{eventType: "tool.result", want: true},
+		{eventType: "run.completed", want: false},
+		{eventType: "run.failed", want: false},
+		{eventType: "run.cancelled", want: false},
+		{eventType: "run.interrupted", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.eventType, func(t *testing.T) {
+			if got := shouldAccumulateUsageForDesktopEvent(tt.eventType); got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDesktopChannelContextOverridesUserIDFromPayload(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	sqlitepgx.ConfigureDesktopSQLPool(sqlitePool.Unwrap())
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	senderUserID := uuid.New()
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO users (id, username, status) VALUES ($1, $2, 'active')`,
+		senderUserID.String(),
+		"tuser_"+senderUserID.String(),
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	identityID := uuid.New()
+	if _, err := db.Exec(
+		ctx,
+		`INSERT INTO channel_identities (id, channel_type, platform_subject_id, user_id, metadata)
+		 VALUES ($1, 'telegram', '10001', $2, '{}')`,
+		identityID.String(),
+		senderUserID.String(),
+	); err != nil {
+		t.Fatalf("insert channel identity: %v", err)
+	}
+
+	originalUserID := uuid.New()
+	channelID := uuid.New()
+	rc := &pipeline.RunContext{
+		UserID: &originalUserID,
+		JobPayload: map[string]any{
+			"channel_delivery": map[string]any{
+				"channel_id":   channelID.String(),
+				"channel_type": "telegram",
+				"conversation_ref": map[string]any{
+					"target": "10001",
+				},
+				"inbound_message_ref": map[string]any{
+					"message_id": "55",
+				},
+				"sender_channel_identity_id": identityID.String(),
+			},
+		},
+	}
+
+	mw := desktopChannelContext(db)
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.ChannelContext == nil {
+			t.Fatal("expected channel context to be populated")
+		}
+		if rc.UserID == nil || *rc.UserID != senderUserID {
+			t.Fatalf("expected user override to sender user, got %#v", rc.UserID)
+		}
+		if rc.ChannelContext.SenderUserID == nil || *rc.ChannelContext.SenderUserID != senderUserID {
+			t.Fatalf("unexpected sender user id: %#v", rc.ChannelContext.SenderUserID)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel context failed: %v", err)
+	}
+}
+
+func TestDesktopChannelContextAppliesThreadRunOverrides(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	sqlitepgx.ConfigureDesktopSQLPool(sqlitePool.Unwrap())
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	identityID := uuid.New()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, 'Desktop Account', 'personal', 'active')`,
+			args: []any{accountID.String(), "desktop-thread-overrides-" + accountID.String()},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name) VALUES ($1, $2, 'Desktop Project')`,
+			args: []any{projectID.String(), accountID.String()},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private, config_json) VALUES ($1, $2, $3, TRUE, '{"chat_model":"gpt-desktop","reasoning_mode":"high"}')`,
+			args: []any{threadID.String(), accountID.String(), projectID.String()},
+		},
+		{
+			sql:  `INSERT INTO channel_identities (id, channel_type, platform_subject_id, metadata) VALUES ($1, 'telegram', '10001', '{}')`,
+			args: []any{identityID.String()},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed desktop rows: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:         data.Run{ThreadID: threadID},
+		InputJSON:   map[string]any{},
+		AgentConfig: &pipeline.ResolvedAgentConfig{ReasoningMode: "auto"},
+		JobPayload: map[string]any{
+			"channel_delivery": map[string]any{
+				"channel_id":                 uuid.NewString(),
+				"channel_type":               "telegram",
+				"conversation_ref":           map[string]any{"target": "10001"},
+				"sender_channel_identity_id": identityID.String(),
+			},
+		},
+		ReasoningMode: "auto",
+	}
+
+	mw := desktopChannelContext(db)
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if got := rc.InputJSON["model"]; got != "gpt-desktop" {
+			t.Fatalf("expected desktop thread model, got %#v", got)
+		}
+		if rc.ReasoningMode != "high" {
+			t.Fatalf("expected desktop thread reasoning mode, got %q", rc.ReasoningMode)
+		}
+		if rc.AgentConfig == nil || rc.AgentConfig.ReasoningMode != "high" {
+			t.Fatalf("expected agent config reasoning mode, got %#v", rc.AgentConfig)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel context failed: %v", err)
+	}
+}
+
+func TestDesktopChannelDeliveryRecordsFailureWhenChannelMissing(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-test-" + accountID.String(), "Desktop Channel Test"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自 desktop。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:   uuid.New(),
+			ChannelType: "telegram",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush != nil {
+			t.Fatal("expected silent heartbeat to disable telegram boundary flush")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	var errorMessage string
+	if err := db.QueryRow(
+		ctx,
+		`SELECT json_extract(data_json, '$.error')
+		   FROM run_events
+		  WHERE run_id = $1
+		    AND type = 'run.channel_delivery_failed'
+		  ORDER BY seq DESC
+		  LIMIT 1`,
+		runID,
+	).Scan(&errorMessage); err != nil {
+		t.Fatalf("load delivery failure event: %v", err)
+	}
+	if errorMessage != "channel not found or inactive" {
+		t.Fatalf("unexpected delivery failure error: %q", errorMessage)
+	}
+}
+
+func TestDesktopChannelDeliveryPersistsLedgerRefs(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	var chatActions int32
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			atomic.AddInt32(&chatActions, 1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		if r.URL.Path != "/botdesktop-token/sendMessage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if bytes.Contains(raw, []byte(`"reply_to_message_id"`)) {
+			t.Fatalf("expected telegram request without implicit reply_to_message_id: %s", string(raw))
+		}
+		if !bytes.Contains(raw, []byte(`"message_thread_id":"thread-42"`)) {
+			t.Fatalf("expected message_thread_id in request: %s", string(raw))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":902,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 21)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-success-" + accountID.String(), "Desktop Channel Success"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	threadRef := "thread-42"
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自 desktop。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation: pipeline.ChannelConversationRef{
+				Target:   "10001",
+				ThreadID: &threadRef,
+			},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "88"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	var (
+		deliveryCount  int
+		parentID       *string
+		platformThread string
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM channel_message_deliveries),
+			platform_parent_message_id,
+			platform_thread_id
+		   FROM channel_message_ledger
+		  LIMIT 1`,
+	).Scan(&deliveryCount, &parentID, &platformThread); err != nil {
+		t.Fatalf("load channel ledger: %v", err)
+	}
+	if deliveryCount != 1 {
+		t.Fatalf("expected one delivery row, got %d", deliveryCount)
+	}
+	if parentID != nil {
+		t.Fatalf("expected no platform_parent_message_id without explicit telegram_reply, got %v", *parentID)
+	}
+	if got := atomic.LoadInt32(&chatActions); got != 0 {
+		t.Fatalf("expected non-hard-trigger group delivery not to send typing, got %d", got)
+	}
+	if platformThread != threadRef {
+		t.Fatalf("unexpected platform_thread_id: %q", platformThread)
+	}
+}
+
+func TestDesktopChannelDeliverySkipsReplyReferenceInPrivateTelegram(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/botdesktop-token/sendMessage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if bytes.Contains(raw, []byte(`"reply_to_message_id"`)) {
+			t.Fatalf("expected private telegram request without reply_to_message_id: %s", string(raw))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":903,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 51)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-private-" + accountID.String(), "Desktop Channel Private"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自 private desktop。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "private",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+			InboundMessage: pipeline.ChannelMessageRef{MessageID: "66"},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "66"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	var parentID *string
+	if err := db.QueryRow(
+		ctx,
+		`SELECT platform_parent_message_id FROM channel_message_ledger LIMIT 1`,
+	).Scan(&parentID); err != nil {
+		t.Fatalf("load channel ledger parent: %v", err)
+	}
+	if parentID != nil {
+		t.Fatalf("expected private telegram ledger parent to be nil, got %#v", parentID)
+	}
+}
+
+func TestDesktopChannelDeliveryPreservesFinalOutputsWhenNoStreamFlush(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			message_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_delivery_outbox (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL,
+			thread_id TEXT,
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'message',
+			status TEXT NOT NULL DEFAULT 'pending',
+			payload_json TEXT NOT NULL DEFAULT '{}',
+			segments_sent INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT,
+			next_retry_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_run ON channel_delivery_outbox (run_id, kind)
+			WHERE status != 'dead'`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	var sentTexts []string
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if strings.HasSuffix(r.URL.Path, "/sendChatAction") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+			return
+		}
+		var payload struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		sentTexts = append(sentTexts, payload.Text)
+		messageID := 910 + len(sentTexts)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, messageID)))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 61)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO secrets (id, name, encrypted_value, key_version) VALUES ($1, $2, $3, 1)`,
+			args: []any{secretID, "telegram-token", encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, channel_type, credentials_id, config_json, is_active) VALUES ($1, 'telegram', $2, '{}', 1)`,
+			args: []any{channelID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, &pipeline.RunContext{
+		Run: data.Run{ID: runID, ThreadID: threadID},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     pipeline.ChannelConversationRef{Target: "10001"},
+			TriggerMessage:   &pipeline.ChannelMessageRef{MessageID: "55"},
+		},
+	}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush == nil {
+			t.Fatal("expected TelegramToolBoundaryFlush to be set for telegram channel")
+		}
+		rc.FinalAssistantOutput = "turn1 replyturn2 reply"
+		rc.FinalAssistantOutputs = []string{"turn1 reply", "turn2 reply"}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if len(sentTexts) != 2 {
+		t.Fatalf("expected 2 separate telegram sends, got %d (%#v)", len(sentTexts), sentTexts)
+	}
+	if !strings.Contains(sentTexts[0], "turn1") || !strings.Contains(sentTexts[1], "turn2") {
+		t.Fatalf("unexpected telegram texts: %#v", sentTexts)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 2 {
+		t.Fatalf("expected 2 delivery rows, got %d", deliveryCount)
+	}
+}
+
+func TestDesktopChannelDeliveryDisablesTelegramProgressTrackerInGroups(t *testing.T) {
+	ctx := context.Background()
+
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 61)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO secrets (id, name, encrypted_value, key_version) VALUES ($1, $2, $3, 1)`,
+			args: []any{secretID, "telegram-token", encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, channel_type, credentials_id, config_json, is_active) VALUES ($1, 'telegram', $2, '{}', 1)`,
+			args: []any{channelID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, &pipeline.RunContext{
+		Run: data.Run{ID: runID, ThreadID: threadID},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "supergroup",
+			Conversation:     pipeline.ChannelConversationRef{Target: "10001"},
+		},
+	}, func(_ context.Context, rc *pipeline.RunContext) error {
+		if rc.TelegramToolBoundaryFlush == nil {
+			t.Fatal("expected TelegramToolBoundaryFlush to be set for telegram channel")
+		}
+		if rc.TelegramProgressTracker != nil {
+			t.Fatal("expected TelegramProgressTracker to stay disabled in telegram groups")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+}
+
+func TestDesktopChannelDeliveryPersistsDiscordDeliveryAndReplyReference(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	var sent struct {
+		Content          string `json:"content"`
+		MessageReference *struct {
+			MessageID string `json:"message_id"`
+		} `json:"message_reference"`
+	}
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/channels/9001/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bot desktop-discord-token" {
+			t.Fatalf("unexpected auth header: %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"9902"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_DISCORD_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 31)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-discord-success-" + accountID.String(), "Desktop Discord Success"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-discord-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'discord', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自 discord desktop。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "discord",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "9001",
+			},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "88"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	var (
+		deliveryCount int
+		parentID      *string
+		channelType   string
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT
+			(SELECT COUNT(*) FROM channel_message_deliveries),
+			(SELECT platform_parent_message_id FROM channel_message_ledger LIMIT 1),
+			(SELECT channel_type FROM channel_message_ledger LIMIT 1)`,
+	).Scan(&deliveryCount, &parentID, &channelType); err != nil {
+		t.Fatalf("load discord ledger: %v", err)
+	}
+	if deliveryCount != 1 {
+		t.Fatalf("expected one delivery row, got %d", deliveryCount)
+	}
+	if parentID == nil || *parentID != "88" {
+		t.Fatalf("unexpected platform_parent_message_id: %#v", parentID)
+	}
+	if channelType != "discord" {
+		t.Fatalf("unexpected ledger channel type: %q", channelType)
+	}
+	if sent.Content != "你好，来自 discord desktop。" {
+		t.Fatalf("unexpected discord content: %q", sent.Content)
+	}
+	if sent.MessageReference == nil || sent.MessageReference.MessageID != "88" {
+		t.Fatalf("unexpected discord message reference: %#v", sent.MessageReference)
+	}
+}
+
+func TestDesktopChannelDeliverySendsWeixinAndPersistsOutbox(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	var sent struct {
+		BaseInfo struct {
+			ChannelVersion string `json:"channel_version"`
+		} `json:"base_info"`
+		Msg struct {
+			ToUserID     string `json:"to_user_id"`
+			FromUserID   string `json:"from_user_id"`
+			MessageType  int    `json:"message_type"`
+			MessageState int    `json:"message_state"`
+			ClientID     string `json:"client_id"`
+			ContextToken string `json:"context_token"`
+			ItemList     []struct {
+				Type     int `json:"type"`
+				TextItem struct {
+					Text string `json:"text"`
+				} `json:"text_item"`
+			} `json:"item_list"`
+		} `json:"msg"`
+	}
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		if r.URL.Path != "/ilink/bot/sendmessage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("AuthorizationType"); got != "ilink_bot_token" {
+			t.Fatalf("unexpected auth type: %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer desktop-weixin-token" {
+			t.Fatalf("unexpected auth header: %q", got)
+		}
+		if strings.TrimSpace(r.Header.Get("X-WECHAT-UIN")) == "" {
+			t.Fatal("expected X-WECHAT-UIN header")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_WEIXIN_API_BASE_URL", "")
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 71)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-weixin-success-" + accountID.String(), "Desktop Weixin Success"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-weixin-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-weixin-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'weixin', $3, $4, 1)`,
+			args: []any{channelID, accountID, secretID, fmt.Sprintf(`{"base_url":%q}`, server.URL)},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput: "你好，来自微信。",
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "weixin",
+			ConversationType: "group",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "wx-group-1",
+			},
+			InboundMessage: pipeline.ChannelMessageRef{MessageID: "ctx-123"},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "ctx-123"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if sent.Msg.ToUserID != "wx-group-1" {
+		t.Fatalf("unexpected weixin to_user_id: %q", sent.Msg.ToUserID)
+	}
+	if sent.BaseInfo.ChannelVersion == "" {
+		t.Fatal("expected weixin base_info.channel_version")
+	}
+	if sent.Msg.FromUserID != "" {
+		t.Fatalf("unexpected weixin from_user_id: %q", sent.Msg.FromUserID)
+	}
+	if !strings.HasPrefix(sent.Msg.ClientID, "arkloop-weixin-") {
+		t.Fatalf("unexpected weixin client_id: %q", sent.Msg.ClientID)
+	}
+	if sent.Msg.MessageType != 2 || sent.Msg.MessageState != 2 {
+		t.Fatalf("unexpected weixin message flags: type=%d state=%d", sent.Msg.MessageType, sent.Msg.MessageState)
+	}
+	if sent.Msg.ContextToken != "ctx-123" {
+		t.Fatalf("unexpected weixin context token: %q", sent.Msg.ContextToken)
+	}
+	if len(sent.Msg.ItemList) != 1 || sent.Msg.ItemList[0].Type != 1 || sent.Msg.ItemList[0].TextItem.Text != "你好，来自微信。" {
+		t.Fatalf("unexpected weixin item list: %#v", sent.Msg.ItemList)
+	}
+
+	var (
+		deliveryCount int
+		parentID      *string
+		channelType   string
+		messageID     string
+		outboxStatus  string
+		payloadToken  string
+		payloadReply  string
+	)
+	if err := db.QueryRow(
+		ctx,
+		`SELECT
+				(SELECT COUNT(*) FROM channel_message_deliveries),
+				(SELECT platform_parent_message_id FROM channel_message_ledger LIMIT 1),
+				(SELECT channel_type FROM channel_message_ledger LIMIT 1),
+				(SELECT platform_message_id FROM channel_message_ledger LIMIT 1),
+				(SELECT status FROM channel_delivery_outbox WHERE run_id = $1),
+				(SELECT json_extract(payload_json, '$.metadata.context_token') FROM channel_delivery_outbox WHERE run_id = $1),
+				(SELECT json_extract(payload_json, '$.reply_to_message_id') FROM channel_delivery_outbox WHERE run_id = $1)`,
+		runID,
+	).Scan(&deliveryCount, &parentID, &channelType, &messageID, &outboxStatus, &payloadToken, &payloadReply); err != nil {
+		t.Fatalf("load weixin delivery state: %v", err)
+	}
+	if deliveryCount != 1 {
+		t.Fatalf("expected one delivery row, got %d", deliveryCount)
+	}
+	if parentID == nil || *parentID != "ctx-123" {
+		t.Fatalf("unexpected platform_parent_message_id: %#v", parentID)
+	}
+	if channelType != "weixin" {
+		t.Fatalf("unexpected ledger channel type: %q", channelType)
+	}
+	if messageID != sent.Msg.ClientID {
+		t.Fatalf("unexpected ledger message id: got %q want %q", messageID, sent.Msg.ClientID)
+	}
+	if outboxStatus != "sent" {
+		t.Fatalf("expected sent outbox, got %q", outboxStatus)
+	}
+	if payloadToken != "ctx-123" || payloadReply != "ctx-123" {
+		t.Fatalf("unexpected outbox payload refs: token=%q reply=%q", payloadToken, payloadReply)
+	}
+}
+
+func TestDesktopChannelDeliverySuppressesSilentHeartbeat(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	sendCount := 0
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sendCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":902,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 21)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-heartbeat-silent-" + accountID.String(), "Desktop Heartbeat Silent"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                  data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		HeartbeatRun:         true,
+		FinalAssistantOutput: "（静默心跳，没有需要跟进的事项）",
+		HeartbeatToolOutcome: &pipeline.HeartbeatDecisionOutcome{Reply: false},
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:   channelID,
+			ChannelType: "telegram",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if sendCount != 0 {
+		t.Fatalf("expected silent heartbeat to skip telegram send, got %d requests", sendCount)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("expected no delivery rows, got %d", deliveryCount)
+	}
+}
+
+func TestDesktopChannelDeliverySkipsWhenToolAlreadyDeliveredOutput(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create channel tables: %v", err)
+		}
+	}
+
+	sendCount := 0
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		sendCount++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":905,"chat":{"id":10001}}}`))
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 91)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-channel-tool-delivered-" + accountID.String(), "Desktop Channel Tool Delivered"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	rc := &pipeline.RunContext{
+		Run:                    data.Run{ID: runID, AccountID: accountID, ThreadID: threadID},
+		FinalAssistantOutput:   "出来了喵（bug 太多了我也很无奈",
+		FinalAssistantOutputs:  []string{"出来了喵（bug 太多了我也很无奈"},
+		ChannelOutputDelivered: true,
+		ChannelContext: &pipeline.ChannelContext{
+			ChannelID:        channelID,
+			ChannelType:      "telegram",
+			ConversationType: "group",
+			Conversation: pipeline.ChannelConversationRef{
+				Target: "10001",
+			},
+			TriggerMessage: &pipeline.ChannelMessageRef{MessageID: "666"},
+		},
+	}
+
+	mw := desktopChannelDelivery(db, nil, nil)
+	if err := mw(ctx, rc, func(_ context.Context, _ *pipeline.RunContext) error { return nil }); err != nil {
+		t.Fatalf("desktop channel delivery middleware failed: %v", err)
+	}
+
+	if sendCount != 0 {
+		t.Fatalf("expected no extra telegram send when tool already delivered output, got %d", sendCount)
+	}
+
+	var deliveryCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM channel_message_deliveries`).Scan(&deliveryCount); err != nil {
+		t.Fatalf("count deliveries: %v", err)
+	}
+	if deliveryCount != 0 {
+		t.Fatalf("expected no new delivery rows, got %d", deliveryCount)
+	}
+}
+
+func TestDesktopDrainPendingWithStoreDeliversStickerSegments(t *testing.T) {
+	ctx := context.Background()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(ctx, filepath.Join(t.TempDir(), "desktop.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	defer sqlitePool.Close()
+
+	db := sqlitepgx.New(sqlitePool.Unwrap())
+
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			account_id TEXT,
+			channel_type TEXT NOT NULL,
+			credentials_id TEXT NULL,
+			is_active INTEGER NOT NULL DEFAULT 0,
+			config_json TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE TABLE IF NOT EXISTS secrets (
+			id TEXT PRIMARY KEY,
+			account_id TEXT,
+			name TEXT,
+			encrypted_value TEXT NULL,
+			key_version INTEGER NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_deliveries (
+			run_id TEXT NULL,
+			thread_id TEXT NULL,
+			channel_id TEXT NOT NULL,
+			platform_chat_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			UNIQUE (channel_id, platform_chat_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_message_ledger (
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			direction TEXT NOT NULL,
+			thread_id TEXT NULL,
+			run_id TEXT NULL,
+			platform_conversation_id TEXT NOT NULL,
+			platform_message_id TEXT NOT NULL,
+			platform_parent_message_id TEXT NULL,
+			platform_thread_id TEXT NULL,
+			sender_channel_identity_id TEXT NULL,
+			metadata_json TEXT NOT NULL DEFAULT '{}',
+			UNIQUE (channel_id, direction, platform_conversation_id, platform_message_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channel_delivery_outbox (
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL,
+			thread_id TEXT,
+			channel_id TEXT NOT NULL,
+			channel_type TEXT NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'message',
+			status TEXT NOT NULL DEFAULT 'pending',
+			payload_json TEXT NOT NULL DEFAULT '{}',
+			segments_sent INTEGER NOT NULL DEFAULT 0,
+			attempts INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT,
+			next_retry_at TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_run ON channel_delivery_outbox (run_id, kind)
+			WHERE status != 'dead'`,
+	} {
+		if _, err := db.Exec(ctx, stmt); err != nil {
+			t.Fatalf("create desktop drain tables: %v", err)
+		}
+	}
+
+	keyBytes := [32]byte{}
+	for i := range keyBytes {
+		keyBytes[i] = byte(i + 41)
+	}
+	dataDir := t.TempDir()
+	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
+	if err := os.WriteFile(filepath.Join(dataDir, "encryption.key"), []byte(hex.EncodeToString(keyBytes[:])), 0o600); err != nil {
+		t.Fatalf("write encryption key: %v", err)
+	}
+
+	accountID := uuid.New()
+	projectID := uuid.New()
+	threadID := uuid.New()
+	runID := uuid.New()
+	channelID := uuid.New()
+	secretID := uuid.New()
+	outboxID := uuid.New()
+
+	store := newMapStore()
+	storeKey := "account/stickers/ab/hash.webp"
+	if err := store.Put(ctx, storeKey, []byte("sticker-binary")); err != nil {
+		t.Fatalf("seed sticker store: %v", err)
+	}
+
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{
+			sql:  `INSERT INTO accounts (id, slug, name, type, status) VALUES ($1, $2, $3, 'personal', 'active')`,
+			args: []any{accountID, "desktop-drain-sticker-" + accountID.String(), "Desktop Drain Sticker"},
+		},
+		{
+			sql:  `INSERT INTO projects (id, account_id, name, visibility) VALUES ($1, $2, $3, 'private')`,
+			args: []any{projectID, accountID, "Channel Project"},
+		},
+		{
+			sql:  `INSERT INTO threads (id, account_id, project_id, is_private) VALUES ($1, $2, $3, TRUE)`,
+			args: []any{threadID, accountID, projectID},
+		},
+		{
+			sql:  `INSERT INTO runs (id, account_id, thread_id, status) VALUES ($1, $2, $3, 'running')`,
+			args: []any{runID, accountID, threadID},
+		},
+		{
+			sql:  `INSERT INTO secrets (id, account_id, name, encrypted_value, key_version) VALUES ($1, $2, $3, $4, 1)`,
+			args: []any{secretID, accountID, "desktop-channel-token-" + channelID.String(), encryptDesktopChannelToken(t, keyBytes, "desktop-token")},
+		},
+		{
+			sql:  `INSERT INTO channels (id, account_id, channel_type, credentials_id, config_json, is_active) VALUES ($1, $2, 'telegram', $3, '{}', 1)`,
+			args: []any{channelID, accountID, secretID},
+		},
+		{
+			sql: `INSERT INTO account_stickers (
+				id, account_id, content_hash, storage_key, preview_storage_key, file_size, mime_type,
+				is_animated, short_tags, long_desc, usage_count, is_registered, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, '', 12, 'image/webp', 0, 'doge', 'doge sticker', 0, 1, $5, $5)`,
+			args: []any{uuid.New(), accountID, "hash", storeKey, time.Now().UTC()},
+		},
+	} {
+		if _, err := db.Exec(ctx, stmt.sql, stmt.args...); err != nil {
+			t.Fatalf("seed data: %v", err)
+		}
+	}
+
+	payload := data.OutboxPayload{
+		AccountID:      accountID,
+		RunID:          runID,
+		ThreadID:       &threadID,
+		Outputs:        []string{"first after clean"},
+		PlatformChatID: "10001",
+		Segments: []data.OutboxSegment{
+			{Kind: "text", Text: "already sent"},
+			{Kind: "sticker", StickerID: "hash"},
+			{Kind: "text", Text: "tail text"},
+		},
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_delivery_outbox (
+			id, run_id, thread_id, channel_id, channel_type, kind, status, payload_json, segments_sent, attempts, next_retry_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'telegram', 'message', 'pending', $5, 1, 0, $6, $6, $6)
+	`, outboxID, runID, threadID, channelID, payloadJSON, now.Add(-time.Minute)); err != nil {
+		t.Fatalf("insert outbox: %v", err)
+	}
+
+	var sendMessageCount int
+	var sendStickerCount int
+	server := httptest.NewServer(nethttp.HandlerFunc(func(w nethttp.ResponseWriter, r *nethttp.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			sendMessageCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, 920+sendMessageCount)))
+		case strings.HasSuffix(r.URL.Path, "/sendSticker"):
+			sendStickerCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"ok":true,"result":{"message_id":%d,"chat":{"id":10001}}}`, 930+sendStickerCount)))
+		default:
+			t.Fatalf("unexpected telegram path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("ARKLOOP_TELEGRAM_BOT_API_BASE_URL", server.URL)
+
+	drainDesktopPendingWithStore(ctx, db, store, nil)
+
+	if sendStickerCount != 1 {
+		t.Fatalf("expected 1 sticker retry send, got %d", sendStickerCount)
+	}
+	if sendMessageCount != 1 {
+		t.Fatalf("expected 1 text retry send, got %d", sendMessageCount)
+	}
+
+	var (
+		status       string
+		segmentsSent int
+		usageCount   int
+	)
+	if err := db.QueryRow(ctx, `
+		SELECT
+			(SELECT status FROM channel_delivery_outbox WHERE id = $1),
+			(SELECT segments_sent FROM channel_delivery_outbox WHERE id = $1),
+			(SELECT usage_count FROM account_stickers WHERE account_id = $2 AND content_hash = 'hash')
+	`, outboxID, accountID).Scan(&status, &segmentsSent, &usageCount); err != nil {
+		t.Fatalf("load post-drain state: %v", err)
+	}
+	if status != "sent" {
+		t.Fatalf("expected outbox sent, got %q", status)
+	}
+	if segmentsSent != 3 {
+		t.Fatalf("expected segments_sent=3, got %d", segmentsSent)
+	}
+	if usageCount != 1 {
+		t.Fatalf("expected usage_count=1, got %d", usageCount)
+	}
+}
+
+// mapStore 是一个简单的内存 objectstore.Store 实现，用于测试。
+type mapStore struct {
+	data map[string][]byte
+}
+
+func encryptDesktopChannelToken(t *testing.T, key [32]byte, plaintext string) string {
+	t.Helper()
+
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("new gcm: %v", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatalf("rand nonce: %v", err)
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(append(nonce, ciphertext...))
+}
+
+func newMapStore() *mapStore {
+	return &mapStore{data: make(map[string][]byte)}
+}
+
+func (m *mapStore) Put(_ context.Context, key string, d []byte) error {
+	m.data[key] = d
+	return nil
+}
+func (m *mapStore) PutObject(_ context.Context, key string, d []byte, _ objectstore.PutOptions) error {
+	m.data[key] = d
+	return nil
+}
+func (m *mapStore) Get(_ context.Context, key string) ([]byte, error) {
+	d, ok := m.data[key]
+	if !ok {
+		return nil, fmt.Errorf("key not found: %s", key)
+	}
+	return d, nil
+}
+func (m *mapStore) GetWithContentType(_ context.Context, key string) ([]byte, string, error) {
+	d, ok := m.data[key]
+	if !ok {
+		return nil, "", fmt.Errorf("key not found: %s", key)
+	}
+	return d, "application/octet-stream", nil
+}
+func (m *mapStore) Head(_ context.Context, key string) (objectstore.ObjectInfo, error) {
+	_, ok := m.data[key]
+	if !ok {
+		return objectstore.ObjectInfo{}, fmt.Errorf("key not found: %s", key)
+	}
+	return objectstore.ObjectInfo{Key: key}, nil
+}
+func (m *mapStore) Delete(_ context.Context, key string) error {
+	delete(m.data, key)
+	return nil
+}
+func (m *mapStore) ListPrefix(_ context.Context, prefix string) ([]objectstore.ObjectInfo, error) {
+	out := make([]objectstore.ObjectInfo, 0)
+	for key := range m.data {
+		if strings.HasPrefix(key, prefix) {
+			out = append(out, objectstore.ObjectInfo{Key: key})
+		}
+	}
+	return out, nil
+}
+
+func TestEnsureSkillExtractedSkipsWhenHashMatches(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("cached-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: cached-skill\nversion: \"1\"\ndisplay_name: Cached Skill\n",
+		"SKILL.md":   "# cached\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "cached-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "abc123",
+	}
+
+	// 首次解包
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+	skillDocPath := filepath.Join(storeRoot, "cached-skill@1", "SKILL.md")
+	if _, err := os.Stat(skillDocPath); err != nil {
+		t.Fatalf("skill doc not extracted: %v", err)
+	}
+
+	// 篡改文件内容，验证 hash 匹配时不会重新解包
+	os.WriteFile(skillDocPath, []byte("tampered"), 0o644)
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("second extraction: %v", err)
+	}
+	content, _ := os.ReadFile(skillDocPath)
+	if string(content) != "tampered" {
+		t.Fatalf("expected file not overwritten when hash matches, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedReExtractsWhenHashDiffers(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("updating-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: updating-skill\nversion: \"1\"\ndisplay_name: Updating Skill\n",
+		"SKILL.md":   "# version 1\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "updating-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "hash-v1",
+	}
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+
+	// 更新 bundle 和 hash
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: updating-skill\nversion: \"1\"\ndisplay_name: Updating Skill\n",
+		"SKILL.md":   "# version 2\n",
+	}))
+	skill.ContentHash = "hash-v2"
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("re-extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "updating-skill@1", "SKILL.md"))
+	if string(content) != "# version 2\n" {
+		t.Fatalf("expected re-extracted content, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedAlwaysExtractsWhenHashEmpty(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("no-hash-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: no-hash-skill\nversion: \"1\"\ndisplay_name: No Hash Skill\n",
+		"SKILL.md":   "# no hash\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "no-hash-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "", // 空 hash
+	}
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("first extraction: %v", err)
+	}
+
+	// 更新 bundle，因为 hash 为空应总是重新解包
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: no-hash-skill\nversion: \"1\"\ndisplay_name: No Hash Skill\n",
+		"SKILL.md":   "# updated no hash\n",
+	}))
+
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("second extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "no-hash-skill@1", "SKILL.md"))
+	if string(content) != "# updated no hash\n" {
+		t.Fatalf("expected re-extracted when hash empty, got %q", string(content))
+	}
+}
+
+func TestEnsureSkillExtractedExtractsWhenHashFileMissing(t *testing.T) {
+	ctx := context.Background()
+	storeRoot := t.TempDir()
+
+	store := newMapStore()
+	bundleKey := skillstore.DerivedBundleKey("fresh-skill", "1")
+	store.Put(ctx, bundleKey, buildDesktopSkillBundle(t, map[string]string{
+		"skill.yaml": "skill_key: fresh-skill\nversion: \"1\"\ndisplay_name: Fresh Skill\n",
+		"SKILL.md":   "# fresh\n",
+	}))
+
+	skill := skillstore.ResolvedSkill{
+		SkillKey:    "fresh-skill",
+		Version:     "1",
+		BundleRef:   bundleKey,
+		ContentHash: "some-hash",
+	}
+
+	// 目标目录不存在 .content_hash 文件，应正常解包
+	if err := ensureSkillExtracted(ctx, store, skill, storeRoot); err != nil {
+		t.Fatalf("extraction: %v", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(storeRoot, "fresh-skill@1", "SKILL.md"))
+	if string(content) != "# fresh\n" {
+		t.Fatalf("expected extracted content, got %q", string(content))
+	}
+	hashContent, _ := os.ReadFile(filepath.Join(storeRoot, "fresh-skill@1", ".content_hash"))
+	if string(hashContent) != "some-hash" {
+		t.Fatalf("expected hash file written, got %q", string(hashContent))
+	}
+}
+
+func TestDesktopExtractDeltaSkipsThinkingChannel(t *testing.T) {
+	payload := map[string]any{
+		"role":          "assistant",
+		"channel":       "thinking",
+		"content_delta": "hidden reasoning",
+	}
+	if got := desktopExtractDelta(payload); got != "" {
+		t.Fatalf("expected thinking delta ignored, got %q", got)
+	}
+	payload["channel"] = ""
+	if got := desktopExtractDelta(payload); got != "hidden reasoning" {
+		t.Fatalf("expected visible delta returned, got %q", got)
+	}
+}
+
+func TestDesktopMaybeFlushResponseDraftHonorsVisibleCutoff(t *testing.T) {
+	ctx := context.Background()
+	store := &testBlobStore{}
+	runID := uuid.New()
+	writer := &desktopEventWriter{
+		run:                data.Run{ID: runID, ThreadID: uuid.New(), AccountID: uuid.New()},
+		responseDraftStore: store,
+		assistantDeltas:    []string{"hidden"},
+		latestAssistantSeq: 7,
+	}
+	writer.draftUseVisible = true
+	writer.draftVisibleContent = "visible text"
+	if err := writer.maybeFlushResponseDraft(ctx, true); err != nil {
+		t.Fatalf("flush draft: %v", err)
+	}
+	if len(store.lastValue) == 0 {
+		t.Fatalf("expected response draft to be written")
+	}
+	var recorded map[string]any
+	if err := json.Unmarshal(store.lastValue, &recorded); err != nil {
+		t.Fatalf("decode draft: %v", err)
+	}
+	if content, _ := recorded["content"].(string); content != "visible text" {
+		t.Fatalf("unexpected draft content: %q", content)
+	}
+	if got, ok := recorded["last_seq"].(float64); !ok || int64(got) != writer.latestAssistantSeq {
+		t.Fatalf("unexpected last_seq: %#v", recorded["last_seq"])
+	}
+	if writer.draftUseVisible {
+		t.Fatal("draft flag should be cleared after flush")
+	}
+}
+
+type testBlobStore struct {
+	lastKey   string
+	lastValue []byte
+}
+
+func (s *testBlobStore) Put(context.Context, string, []byte) error                 { return nil }
+func (s *testBlobStore) PutIfAbsent(context.Context, string, []byte) (bool, error) { return false, nil }
+func (s *testBlobStore) Get(context.Context, string) ([]byte, error)               { return nil, nil }
+func (s *testBlobStore) Head(context.Context, string) (objectstore.ObjectInfo, error) {
 	return objectstore.ObjectInfo{}, nil
 }
-
-func (fakeArtifactStore) Delete(_ context.Context, _ string) error {
+func (s *testBlobStore) Delete(context.Context, string) error { return nil }
+func (s *testBlobStore) ListPrefix(context.Context, string) ([]objectstore.ObjectInfo, error) {
+	return nil, nil
+}
+func (s *testBlobStore) WriteJSONAtomic(_ context.Context, key string, value any) error {
+	s.lastKey = key
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	s.lastValue = append([]byte(nil), data...)
 	return nil
 }
 
-func (fakeArtifactStore) ListPrefix(_ context.Context, _ string) ([]objectstore.ObjectInfo, error) {
+func seedDesktopRunBindingAccount(t *testing.T, db data.DB, accountID, userID uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO users (id, username, email, status)
+		 VALUES ($1, $2, $3, 'active')`,
+		userID,
+		"desktop-run-user-"+userID.String(),
+		"desktop-run-"+userID.String()+"@test.local",
+	); err != nil {
+		t.Fatalf("seed desktop run user: %v", err)
+	}
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO accounts (id, slug, name, type, status, owner_user_id)
+		 VALUES ($1, $2, $3, 'personal', 'active', $4)`,
+		accountID,
+		"desktop-run-account-"+accountID.String(),
+		"Desktop Run Bindings",
+		userID,
+	); err != nil {
+		t.Fatalf("seed desktop run account: %v", err)
+	}
+}
+
+func seedDesktopRunBindingThread(t *testing.T, db data.DB, accountID, threadID uuid.UUID, projectID, userID *uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO threads (id, account_id, created_by_user_id, project_id, is_private)
+		 VALUES ($1, $2, $3, $4, TRUE)`,
+		threadID,
+		accountID,
+		userID,
+		projectID,
+	); err != nil {
+		t.Fatalf("seed desktop run thread: %v", err)
+	}
+}
+
+func seedDesktopRunBindingRun(t *testing.T, db data.DB, accountID, threadID uuid.UUID, userID *uuid.UUID, runID uuid.UUID) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO runs (id, account_id, thread_id, created_by_user_id, status)
+		 VALUES ($1, $2, $3, $4, 'running')`,
+		runID,
+		accountID,
+		threadID,
+		userID,
+	); err != nil {
+		t.Fatalf("seed desktop run: %v", err)
+	}
+}
+
+func seedDesktopOwnedSkillPackage(t *testing.T, db data.DB, accountID uuid.UUID, skillKey string, version string) {
+	t.Helper()
+	if _, err := db.Exec(
+		context.Background(),
+		`INSERT INTO skill_packages (account_id, skill_key, version, display_name, instruction_path, manifest_key, bundle_key, files_prefix)
+		 VALUES ($1, $2, $3, $4, 'SKILL.md', $5, $6, $7)`,
+		accountID,
+		skillKey,
+		version,
+		skillKey,
+		skillKey+"-manifest",
+		skillKey+"-bundle",
+		skillKey+"-files",
+	); err != nil {
+		t.Fatalf("seed desktop skill package %s@%s: %v", skillKey, version, err)
+	}
+}
+
+func dataRunForDesktopTest() data.Run {
+	return data.Run{
+		ID:        uuid.New(),
+		AccountID: uuid.New(),
+		ThreadID:  uuid.New(),
+	}
+}
+
+func mapKeys[K comparable, V any](items map[K]V) []K {
+	keys := make([]K, 0, len(items))
+	for key := range items {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func buildDesktopSkillBundle(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var tarBuffer bytes.Buffer
+	writer := tar.NewWriter(&tarBuffer)
+	for name, content := range files {
+		data := []byte(content)
+		if err := writer.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(data))}); err != nil {
+			t.Fatalf("write tar header: %v", err)
+		}
+		if _, err := writer.Write(data); err != nil {
+			t.Fatalf("write tar data: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	encoded, err := workspaceblob.Encode(tarBuffer.Bytes())
+	if err != nil {
+		t.Fatalf("encode skill bundle: %v", err)
+	}
+	return encoded
+}
+
+func openDesktopPromptInjectionTestDB(t *testing.T) data.DesktopDB {
+	t.Helper()
+
+	db, err := sqlitepgx.Open(filepath.Join(t.TempDir(), "desktop-prompt-injection.db"))
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+	return db
+}
+
+func mustExecDesktopSQL(t *testing.T, db data.DesktopDB, statements ...string) {
+	t.Helper()
+
+	for _, statement := range statements {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
+			t.Fatalf("exec sql %q: %v", statement, err)
+		}
+	}
+}
+
+func openDesktopRuntimeTestDB(t *testing.T) data.DesktopDB {
+	t.Helper()
+
+	sqlitePool, err := sqliteadapter.AutoMigrate(context.Background(), filepath.Join(t.TempDir(), "desktop-runtime.db"))
+	if err != nil {
+		t.Fatalf("auto migrate sqlite: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlitePool.Close()
+	})
+	return sqlitepgx.New(sqlitePool.Unwrap())
+}
+
+func appendDesktopRunInput(t *testing.T, ctx context.Context, db data.DesktopDB, bus eventbus.EventBus, runID uuid.UUID, content string) {
+	t.Helper()
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		t.Fatalf("begin input tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
+
+	ev := events.NewEmitter("desktop-input").Emit(pipeline.EventTypeInputProvided, map[string]any{"content": content}, nil, nil)
+	if _, err := (data.DesktopRunEventsRepository{}).AppendRunEvent(ctx, tx, runID, ev); err != nil {
+		t.Fatalf("append desktop input: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit desktop input: %v", err)
+	}
+	if bus != nil {
+		if err := bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), ""); err != nil {
+			t.Fatalf("publish desktop input wake: %v", err)
+		}
+	}
+}
+
+func desktopHasEventType(eventsIn []events.RunEvent, want string) bool {
+	for _, ev := range eventsIn {
+		if ev.Type == want {
+			return true
+		}
+	}
+	return false
+}
+
+func desktopRequestHasUserText(req llm.Request, want string) bool {
+	for _, msg := range req.Messages {
+		for _, part := range msg.Content {
+			if strings.Contains(part.Text, want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildDesktopLoopRunContext(db data.DesktopDB, bus eventbus.EventBus, run data.Run, gateway llm.Gateway) *pipeline.RunContext {
+	return &pipeline.RunContext{
+		Run:                    run,
+		DB:                     db,
+		EventBus:               bus,
+		Emitter:                events.NewEmitter("desktop-loop"),
+		Gateway:                gateway,
+		Messages:               []llm.Message{{Role: "user", Content: []llm.ContentPart{{Type: "text", Text: "desktop conversation"}}}},
+		SelectedRoute:          &routing.SelectedProviderRoute{Route: routing.ProviderRouteRule{ID: "desktop", Model: "stub"}},
+		ReasoningIterations:    5,
+		ToolContinuationBudget: 32,
+		InputJSON:              map[string]any{},
+		ToolBudget:             map[string]any{},
+		PerToolSoftLimits:      tools.DefaultPerToolSoftLimits(),
+	}
+}
+
+type desktopAskUserGateway struct {
+	calls         int
+	secondRequest llm.Request
+}
+
+func (g *desktopAskUserGateway) Stream(_ context.Context, req llm.Request, yield func(llm.StreamEvent) error) error {
+	g.calls++
+	if g.calls == 1 {
+		if err := yield(llm.ToolCall{
+			ToolCallID: "call-ask-user",
+			ToolName:   "ask_user",
+			ArgumentsJSON: map[string]any{
+				"message": "Pick a database",
+				"fields": []any{
+					map[string]any{
+						"key":      "db",
+						"type":     "string",
+						"title":    "Database",
+						"enum":     []any{"postgres", "mysql"},
+						"required": true,
+					},
+				},
+			},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+	g.secondRequest = req
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "done", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+type desktopSteeringGateway struct {
+	calls         int
+	secondRequest llm.Request
+}
+
+func (g *desktopSteeringGateway) Stream(_ context.Context, req llm.Request, yield func(llm.StreamEvent) error) error {
+	g.calls++
+	if g.calls == 1 {
+		if err := yield(llm.ToolCall{
+			ToolCallID:    "call-echo",
+			ToolName:      "echo",
+			ArgumentsJSON: map[string]any{"text": "hello"},
+		}); err != nil {
+			return err
+		}
+		return yield(llm.StreamRunCompleted{})
+	}
+	g.secondRequest = req
+	if err := yield(llm.StreamMessageDelta{ContentDelta: "after steering", Role: "assistant"}); err != nil {
+		return err
+	}
+	return yield(llm.StreamRunCompleted{})
+}
+
+type desktopMemoryProviderStub struct {
+	appendCalled chan struct{}
+}
+
+func (s *desktopMemoryProviderStub) Find(context.Context, memory.MemoryIdentity, string, string, int) ([]memory.MemoryHit, error) {
 	return nil, nil
 }
 
-func TestRegisterStoredArtifactTools(t *testing.T) {
-	registry := tools.NewRegistry()
-	executors := map[string]tools.Executor{}
-
-	specs, registered, err := registerStoredArtifactTools(registry, executors, nil, fakeArtifactStore{}, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("register stored artifact tools: %v", err)
-	}
-	if !registered {
-		t.Fatal("expected stored artifact tools to register")
-	}
-	if len(specs) != 4 {
-		t.Fatalf("expected 4 llm specs, got %d", len(specs))
-	}
-	for _, name := range []string{"create_artifact", "document_write", "image_generate", "resource_copy"} {
-		if _, ok := registry.Get(name); !ok {
-			t.Fatalf("expected tool %s to be registered", name)
-		}
-		if executors[name] == nil {
-			t.Fatalf("expected executor for %s", name)
-		}
-	}
+func (s *desktopMemoryProviderStub) Content(context.Context, memory.MemoryIdentity, string, memory.MemoryLayer) (string, error) {
+	return "", nil
 }
 
-func TestRegisterStoredArtifactToolsSkipsNilStore(t *testing.T) {
-	registry := tools.NewRegistry()
-	executors := map[string]tools.Executor{}
-	baseSpecs := []llm.ToolSpec{{Name: "existing"}}
+func (s *desktopMemoryProviderStub) ListDir(context.Context, memory.MemoryIdentity, string) ([]string, error) {
+	return nil, nil
+}
 
-	specs, registered, err := registerStoredArtifactTools(registry, executors, baseSpecs, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("register stored artifact tools: %v", err)
+func (s *desktopMemoryProviderStub) AppendSessionMessages(context.Context, memory.MemoryIdentity, string, []memory.MemoryMessage) error {
+	select {
+	case s.appendCalled <- struct{}{}:
+	default:
 	}
-	if registered {
-		t.Fatal("expected no registration without store")
-	}
-	if !reflect.DeepEqual(specs, baseSpecs) {
-		t.Fatalf("unexpected specs: got %v want %v", specs, baseSpecs)
-	}
-	if len(executors) != 0 {
-		t.Fatalf("expected no executors, got %d", len(executors))
-	}
+	return nil
+}
+
+func (s *desktopMemoryProviderStub) CommitSession(context.Context, memory.MemoryIdentity, string) error {
+	return nil
+}
+
+func (s *desktopMemoryProviderStub) Write(context.Context, memory.MemoryIdentity, memory.MemoryScope, memory.MemoryEntry) error {
+	return nil
+}
+
+func (s *desktopMemoryProviderStub) Delete(context.Context, memory.MemoryIdentity, string) error {
+	return nil
 }

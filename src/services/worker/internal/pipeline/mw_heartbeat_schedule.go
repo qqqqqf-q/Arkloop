@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"arkloop/services/shared/pgnotify"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/worker/internal/data"
 
 	"github.com/google/uuid"
@@ -307,13 +307,6 @@ func notifyHeartbeatScheduler(ctx context.Context, rc *RunContext) {
 		return
 	}
 	if rc.EventBus != nil {
-		_ = rc.EventBus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
-	}
-	if rc.DirectPool != nil {
-		_, _ = rc.DirectPool.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
-		return
-	}
-	if rc.Pool != nil {
-		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
+		_ = rc.EventBus.Publish(ctx, eventbus.TopicHeartbeat, "")
 	}
 }

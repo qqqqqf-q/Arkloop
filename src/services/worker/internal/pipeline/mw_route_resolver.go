@@ -107,8 +107,6 @@ func publishRunEventFromRC(ctx context.Context, rc *RunContext) {
 	channel := fmt.Sprintf("run_events:%s", rc.Run.ID.String())
 	if rc.EventBus != nil {
 		_ = rc.EventBus.Publish(ctx, channel, "")
-	} else if rc.Pool != nil {
-		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
 	}
 	if rc.BroadcastRDB != nil {
 		redisChannel := fmt.Sprintf("arkloop:sse:run_events:%s", rc.Run.ID.String())

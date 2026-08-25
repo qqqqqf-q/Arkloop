@@ -170,10 +170,6 @@ func (r *JobRepository) EnqueueRun(
 		return uuid.Nil, err
 	}
 
-	// pg_notify is transaction-safe in PostgreSQL (delivered after commit).
-	// Silently ignored on SQLite where pg_notify does not exist.
-	_, _ = r.db.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
-
 	if jobEnqueueNotify != nil {
 		notify := func() {
 			jobEnqueueNotify(ctx, accountID, runID, chosenTraceID, chosenJobType, payloadCopy, availableAt)
@@ -280,8 +276,6 @@ func (r *JobRepository) EnqueueEmail(ctx context.Context, to, subject, html, tex
 	if err != nil {
 		return uuid.Nil, err
 	}
-
-	_, _ = r.db.Exec(ctx, `SELECT pg_notify('arkloop:jobs', '')`)
 
 	return jobID, nil
 }

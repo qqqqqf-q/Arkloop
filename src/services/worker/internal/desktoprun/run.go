@@ -1,5 +1,3 @@
-//go:build desktop
-
 // Package desktoprun 将 Worker 桌面模式的启动逻辑封装为可复用函数。
 // 独立包避免 consumer -> app -> consumer 循环依赖。
 package desktoprun

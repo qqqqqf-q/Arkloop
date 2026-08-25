@@ -1,50 +1,55 @@
-//go:build !desktop
-
 package pipeline
 
 import (
 	"context"
 	"fmt"
-	"time"
+	"os"
+	"path/filepath"
 
 	"arkloop/services/worker/internal/data"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 )
 
-type compactAdvisoryPool interface {
-	Acquire(context.Context) (*pgxpool.Conn, error)
+// compactThreadCompactionAdvisoryXactLock is a no-op on desktop builds.
+// SQLite doesn't support advisory locks; file locking is used instead via CompactThreadCompactionLock.
+func compactThreadCompactionAdvisoryXactLock(_ context.Context, _ pgx.Tx, _ uuid.UUID) error {
+	return nil
 }
 
+// CompactThreadCompactionLock acquires an exclusive file lock for the given thread.
+// This ensures only one compact operation runs at a time per thread.
 func CompactThreadCompactionLock(ctx context.Context, db data.DB, threadID uuid.UUID) (data.DB, func(), error) {
 	if threadID == uuid.Nil {
 		return db, func() {}, nil
 	}
-	pool, ok := db.(compactAdvisoryPool)
-	if !ok {
-		return db, func() {}, nil
+
+	rundir := os.Getenv("ARKLOOP_RUNDIR")
+	if rundir == "" {
+		rundir = filepath.Join(os.TempDir(), "arkloop_compact_locks")
 	}
-	conn, err := pool.Acquire(ctx)
+	lockDir := filepath.Join(rundir, "compact_locks")
+
+	if err := os.MkdirAll(lockDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("create lock dir: %w", err)
+	}
+
+	lockFile := filepath.Join(lockDir, threadID.String()+".lock")
+	f, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
+		return nil, nil, fmt.Errorf("open lock file: %w", err)
+	}
+
+	releaseLock, err := lockDesktopFile(ctx, f)
+	if err != nil {
+		f.Close()
 		return nil, nil, err
 	}
-	released := false
+
 	cleanup := func() {
-		if released {
-			return
-		}
-		released = true
-		unlockCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		var unlocked bool
-		if err := conn.QueryRow(unlockCtx, `SELECT pg_advisory_unlock(hashtext($1::text)::bigint)`, threadID.String()).Scan(&unlocked); err != nil || !unlocked {
-			_ = conn.Conn().Close(unlockCtx)
-		}
-		conn.Release()
+		releaseLock()
+		f.Close()
 	}
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1::text)::bigint)`, threadID.String()); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("acquire compact advisory lock: %w", err)
-	}
-	return conn, cleanup, nil
+
+	return db, cleanup, nil
 }

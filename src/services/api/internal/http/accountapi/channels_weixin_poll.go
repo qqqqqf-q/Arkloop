@@ -1,5 +1,3 @@
-//go:build desktop
-
 package accountapi
 
 import (
@@ -30,14 +28,14 @@ type WeChatPollingDeps struct {
 	ChannelDMThreadsRepo     *data.ChannelDMThreadsRepository
 	ChannelGroupThreadsRepo  *data.ChannelGroupThreadsRepository
 	ChannelReceiptsRepo      *data.ChannelMessageReceiptsRepository
-	PersonasRepo            *data.PersonasRepository
-	ThreadRepo              *data.ThreadRepository
-	MessageRepo             *data.MessageRepository
-	RunEventRepo            *data.RunEventRepository
-	JobRepo                 *data.JobRepository
-	SecretsRepo             *data.SecretsRepository
-	Pool                    data.DB
-	Bus                     eventbus.EventBus
+	PersonasRepo             *data.PersonasRepository
+	ThreadRepo               *data.ThreadRepository
+	MessageRepo              *data.MessageRepository
+	RunEventRepo             *data.RunEventRepository
+	JobRepo                  *data.JobRepository
+	SecretsRepo              *data.SecretsRepository
+	Pool                     data.DB
+	Bus                      eventbus.EventBus
 }
 
 // StartWeChatPollingListener 启动微信长轮询消息监听。
@@ -62,20 +60,16 @@ func StartWeChatPollingListener(ctx context.Context, deps WeChatPollingDeps) {
 		channelDMThreadsRepo:     deps.ChannelDMThreadsRepo,
 		channelGroupThreadsRepo:  deps.ChannelGroupThreadsRepo,
 		channelReceiptsRepo:      deps.ChannelReceiptsRepo,
-		channelLedgerRepo:       channelLedgerRepo,
-		personasRepo:            deps.PersonasRepo,
-		threadRepo:              deps.ThreadRepo,
-		messageRepo:             deps.MessageRepo,
-		runEventRepo:            deps.RunEventRepo,
-		jobRepo:                 deps.JobRepo,
-		pool:                    deps.Pool,
+		channelLedgerRepo:        channelLedgerRepo,
+		personasRepo:             deps.PersonasRepo,
+		threadRepo:               deps.ThreadRepo,
+		messageRepo:              deps.MessageRepo,
+		runEventRepo:             deps.RunEventRepo,
+		jobRepo:                  deps.JobRepo,
+		pool:                     deps.Pool,
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if deps.Bus != nil {
 				_ = deps.Bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
-			} else {
-				if _, err := deps.Pool.Exec(ctx, "SELECT pg_notify('run_input', $1)", runID.String()); err != nil {
-					slog.Warn("weixin_active_run_notify_failed", "run_id", runID, "error", err)
-				}
 			}
 		},
 	}

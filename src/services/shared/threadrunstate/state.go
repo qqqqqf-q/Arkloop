@@ -7,7 +7,6 @@ import (
 	"arkloop/services/shared/eventbus"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -15,10 +14,6 @@ const (
 	Topic        = "arkloop:thread_run_state"
 	RedisChannel = "arkloop:sse:thread_run_state"
 )
-
-type dbNotifier interface {
-	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
-}
 
 type ChangedPayload struct {
 	AccountID string `json:"account_id"`
@@ -52,7 +47,7 @@ func Decode(raw string) (uuid.UUID, uuid.UUID, bool) {
 	return accountID, threadID, true
 }
 
-func Publish(ctx context.Context, db dbNotifier, rdb *redis.Client, bus eventbus.EventBus, accountID uuid.UUID, threadID uuid.UUID) {
+func Publish(ctx context.Context, rdb *redis.Client, bus eventbus.EventBus, accountID uuid.UUID, threadID uuid.UUID) {
 	if accountID == uuid.Nil || threadID == uuid.Nil {
 		return
 	}
@@ -62,8 +57,6 @@ func Publish(ctx context.Context, db dbNotifier, rdb *redis.Client, bus eventbus
 	}
 	if bus != nil {
 		_ = bus.Publish(ctx, Topic, payload)
-	} else if db != nil {
-		_, _ = db.Exec(ctx, "SELECT pg_notify($1, $2)", Topic, payload)
 	}
 	if rdb != nil {
 		_, _ = rdb.Publish(ctx, RedisChannel, payload).Result()

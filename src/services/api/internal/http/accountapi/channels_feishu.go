@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	nethttp "net/http"
 	"strconv"
 	"strings"
@@ -24,7 +23,6 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/feishuclient"
 	"arkloop/services/shared/messagecontent"
-	"arkloop/services/shared/pgnotify"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -522,11 +520,6 @@ func feishuWebhookEntry(
 		channelBindCodesRepo:     channelBindCodesRepo,
 		channelIdentityLinksRepo: channelIdentityLinksRepo,
 		pool:                     pool,
-		inputNotify: func(ctx context.Context, runID uuid.UUID) {
-			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("feishu_active_run_notify_failed", "run_id", runID.String(), "error", err)
-			}
-		},
 	}
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -983,9 +976,6 @@ func (c *feishuConnector) HandleIncoming(ctx context.Context, traceID string, ch
 			return err
 		}
 		if reply != nil {
-			if reply.CancelRunID != uuid.Nil {
-				_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-			}
 			if reply.Text != "" {
 				_ = c.sendFeishuCommandReply(ctx, cfg, ch, incoming, reply.Text)
 			}

@@ -1,5 +1,3 @@
-//go:build !desktop
-
 package data
 
 import (
@@ -10,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var ErrThreadNotFound = errors.New("thread not found or access denied")
@@ -35,7 +32,7 @@ type ThreadsRepository struct{}
 
 func (ThreadsRepository) ListByOwner(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool DesktopDB,
 	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	limit int,
@@ -97,7 +94,7 @@ func (ThreadsRepository) ListByOwner(
 
 func (ThreadsRepository) ListVisibleMessages(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool DesktopDB,
 	accountID uuid.UUID,
 	ownerUserID uuid.UUID,
 	threadID uuid.UUID,
