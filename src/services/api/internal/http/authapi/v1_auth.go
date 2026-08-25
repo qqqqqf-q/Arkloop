@@ -2,10 +2,8 @@ package authapi
 
 import (
 	httpkit "arkloop/services/api/internal/http/httpkit"
-	"context"
 	"errors"
 	"net"
-	"net/mail"
 	"strings"
 	"time"
 
@@ -24,7 +22,6 @@ import (
 
 const (
 	settingTurnstileSecretKey   = "turnstile.secret_key"
-	settingTurnstileSiteKey     = "turnstile.site_key"
 	settingTurnstileAllowedHost = "turnstile.allowed_host"
 
 	refreshTokenCookieName = "arkloop_refresh_token"
@@ -80,34 +77,6 @@ func verifyTurnstileToken(
 	return true
 }
 
-type captchaConfigResponse struct {
-	Enabled bool   `json:"enabled"`
-	SiteKey string `json:"site_key"`
-}
-
-func captchaConfig(
-	resolver sharedconfig.Resolver,
-) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		traceID := observability.TraceIDFromContext(r.Context())
-
-		siteKey := ""
-		if resolver != nil {
-			val, err := resolver.Resolve(r.Context(), settingTurnstileSiteKey, sharedconfig.Scope{})
-			if err != nil {
-				httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-				return
-			}
-			siteKey = strings.TrimSpace(val)
-		}
-
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, captchaConfigResponse{
-			Enabled: siteKey != "",
-			SiteKey: siteKey,
-		})
-	}
-}
-
 type loginRequest struct {
 	Login            string `json:"login"`
 	Password         string `json:"password"`
@@ -123,10 +92,6 @@ type logoutResponse struct {
 	OK bool `json:"ok"`
 }
 
-type registrationModeResponse struct {
-	Mode string `json:"mode"`
-}
-
 type resolveIdentityRequest struct {
 	Identity         string `json:"identity"`
 	CfTurnstileToken string `json:"cf_turnstile_token"`
@@ -138,22 +103,8 @@ type resolvePrefillResponse struct {
 }
 
 type resolveIdentityResponse struct {
-	NextStep       string                  `json:"next_step"`
-	FlowToken      string                  `json:"flow_token,omitempty"`
-	MaskedEmail    string                  `json:"masked_email,omitempty"`
-	OTPAvailable   bool                    `json:"otp_available"`
-	InviteRequired bool                    `json:"invite_required"`
-	Prefill        *resolvePrefillResponse `json:"prefill,omitempty"`
-}
-
-type resolveEmailOTPSendRequest struct {
-	FlowToken        string `json:"flow_token"`
-	CfTurnstileToken string `json:"cf_turnstile_token"`
-}
-
-type resolveEmailOTPVerifyRequest struct {
-	FlowToken string `json:"flow_token"`
-	Code      string `json:"code"`
+	NextStep string                  `json:"next_step"`
+	Prefill  *resolvePrefillResponse `json:"prefill,omitempty"`
 }
 
 type meResponse struct {
@@ -359,30 +310,8 @@ func logout(authService *auth.Service, auditWriter *audit.Writer) func(nethttp.R
 	}
 }
 
-func registrationMode(flagService *featureflag.Service) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodGet {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		mode := "open"
-		if flagService != nil {
-			mode = "invite_only"
-			open, err := flagService.IsGloballyEnabled(r.Context(), "registration.open")
-			if err == nil && open {
-				mode = "open"
-			}
-		}
-
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, registrationModeResponse{Mode: mode})
-	}
-}
-
 func resolveIdentity(
 	authService *auth.Service,
-	flagService *featureflag.Service,
 	auditWriter *audit.Writer,
 	resolver sharedconfig.Resolver,
 ) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -424,38 +353,18 @@ func resolveIdentity(
 			return
 		}
 
-		inviteRequired := false
-		if resolved.NextStep == auth.ResolveNextStepRegister {
-			inviteRequired = !isOpenRegistration(r.Context(), flagService)
-		}
-
 		if auditWriter != nil {
 			auditWriter.WriteAuthResolved(r.Context(), traceID, body.Identity, string(resolved.NextStep))
 		}
 
 		resp := resolveIdentityResponse{
-			NextStep:       string(resolved.NextStep),
-			FlowToken:      resolved.FlowToken,
-			MaskedEmail:    resolved.MaskedEmail,
-			OTPAvailable:   resolved.OTPAvailable,
-			InviteRequired: inviteRequired,
+			NextStep: string(resolved.NextStep),
 		}
 		if resolved.PrefillLogin != "" || resolved.PrefillEmail != "" {
 			resp.Prefill = &resolvePrefillResponse{Login: resolved.PrefillLogin, Email: resolved.PrefillEmail}
 		}
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, resp)
 	}
-}
-
-func isOpenRegistration(ctx context.Context, flagService *featureflag.Service) bool {
-	openRegistration := flagService == nil
-	if flagService != nil {
-		open, err := flagService.IsGloballyEnabled(ctx, "registration.open")
-		if err == nil {
-			openRegistration = open
-		}
-	}
-	return openRegistration
 }
 
 func me(authService *auth.Service, membershipRepo *data.AccountMembershipRepository, accountRepo *data.AccountRepository, usersRepo *data.UserRepository, flagService *featureflag.Service) func(nethttp.ResponseWriter, *nethttp.Request) {
@@ -594,21 +503,6 @@ func me(authService *auth.Service, membershipRepo *data.AccountMembershipReposit
 			httpkit.WriteMethodNotAllowed(w, r)
 		}
 	}
-}
-
-func IsValidEmail(value string) bool {
-	if strings.ContainsAny(value, "\r\n") {
-		return false
-	}
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return false
-	}
-	addr, err := mail.ParseAddress(trimmed)
-	if err != nil || addr == nil {
-		return false
-	}
-	return addr.Address == trimmed
 }
 
 func requestClientIP(r *nethttp.Request) string {
@@ -781,346 +675,6 @@ func writeMethodNotAllowed(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func writeAuthNotConfigured(w nethttp.ResponseWriter, traceID string) {
 	httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "auth.not_configured", "auth not configured", traceID, nil)
-}
-
-type emailVerifyConfirmRequest struct {
-	Token string `json:"token"`
-}
-
-func emailVerifySend(authService *auth.Service, emailVerifyService *auth.EmailVerifyService) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if authService == nil || emailVerifyService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		user, ok := authenticateUser(w, r, traceID, authService)
-		if !ok {
-			return
-		}
-
-		if err := emailVerifyService.SendVerification(r.Context(), user.ID, user.Username); err != nil {
-			if err.Error() == "user has no email address" {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "email.no_address", "user has no email address", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		w.WriteHeader(nethttp.StatusNoContent)
-	}
-}
-
-func emailVerifyConfirm(emailVerifyService *auth.EmailVerifyService) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if emailVerifyService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		var body emailVerifyConfirmRequest
-		if err := httpkit.DecodeJSON(r, &body); err != nil || strings.TrimSpace(body.Token) == "" {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "token is required", traceID, nil)
-			return
-		}
-
-		if err := emailVerifyService.ConfirmVerification(r.Context(), strings.TrimSpace(body.Token)); err != nil {
-			var expired auth.TokenAlreadyUsedOrExpiredError
-			if errors.As(err, &expired) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "email.token_invalid", "token invalid or expired", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
-	}
-}
-
-type emailOTPSendRequest struct {
-	Email            string `json:"email"`
-	CfTurnstileToken string `json:"cf_turnstile_token"`
-}
-
-type emailOTPVerifyRequest struct {
-	Email string `json:"email"`
-	Code  string `json:"code"`
-}
-
-func emailOTPSend(otpLoginService *auth.EmailOTPLoginService, resolver sharedconfig.Resolver) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if otpLoginService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		var body emailOTPSendRequest
-		if err := httpkit.DecodeJSON(r, &body); err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
-		body.Email = strings.TrimSpace(body.Email)
-		if body.Email == "" || len(body.Email) > 256 || !IsValidEmail(body.Email) {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "valid email is required", traceID, nil)
-			return
-		}
-
-		if !verifyTurnstileToken(w, r, traceID, body.CfTurnstileToken, resolver) {
-			return
-		}
-
-		// 静默处理：无论邮箱是否存在都返回 204
-		if err := otpLoginService.SendLoginOTP(r.Context(), body.Email); err != nil {
-			var rateLimited auth.OTPRateLimitedError
-			if errors.As(err, &rateLimited) {
-				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "auth.otp_rate_limited", "otp rate limited", traceID, nil)
-				return
-			}
-			var unavailable auth.OTPProtectionUnavailableError
-			if errors.As(err, &unavailable) {
-				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "auth.otp_protection_unavailable", "otp protection unavailable", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-		w.WriteHeader(nethttp.StatusNoContent)
-	}
-}
-
-func resolveEmailOTPSend(
-	authService *auth.Service,
-	otpLoginService *auth.EmailOTPLoginService,
-	auditWriter *audit.Writer,
-	resolver sharedconfig.Resolver,
-) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if authService == nil || otpLoginService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		var body resolveEmailOTPSendRequest
-		if err := httpkit.DecodeJSON(r, &body); err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
-		body.FlowToken = strings.TrimSpace(body.FlowToken)
-		if body.FlowToken == "" {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "flow token is required", traceID, nil)
-			return
-		}
-
-		if !verifyTurnstileToken(w, r, traceID, body.CfTurnstileToken, resolver) {
-			return
-		}
-
-		resolved, err := authService.ResolveFlow(r.Context(), body.FlowToken)
-		if err != nil {
-			var invalid auth.FlowTokenInvalidError
-			var unavailable auth.OTPUnavailableError
-			if errors.As(err, &invalid) {
-				httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.flow_token_invalid", invalid.Error(), traceID, nil)
-				return
-			}
-			if errors.As(err, &unavailable) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "auth.otp_unavailable", unavailable.Error(), traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		if err := otpLoginService.SendLoginOTP(r.Context(), resolved.Email); err != nil {
-			var rateLimited auth.OTPRateLimitedError
-			if errors.As(err, &rateLimited) {
-				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "auth.otp_rate_limited", "otp rate limited", traceID, nil)
-				return
-			}
-			var protectionUnavailable auth.OTPProtectionUnavailableError
-			if errors.As(err, &protectionUnavailable) {
-				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "auth.otp_protection_unavailable", "otp protection unavailable", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		if auditWriter != nil {
-			auditWriter.WriteLoginOTPSent(r.Context(), traceID, resolved.UserID, resolved.Email)
-		}
-		w.WriteHeader(nethttp.StatusNoContent)
-	}
-}
-
-func emailOTPVerify(otpLoginService *auth.EmailOTPLoginService, authService *auth.Service, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if otpLoginService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		var body emailOTPVerifyRequest
-		if err := httpkit.DecodeJSON(r, &body); err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
-		body.Email = strings.TrimSpace(body.Email)
-		body.Code = strings.TrimSpace(body.Code)
-		if body.Email == "" || body.Code == "" {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "email and code are required", traceID, nil)
-			return
-		}
-
-		issued, err := otpLoginService.VerifyLoginOTP(r.Context(), body.Email, body.Code)
-		if err != nil {
-			var locked auth.OTPLockedError
-			if errors.As(err, &locked) {
-				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "auth.otp_locked", "too many attempts", traceID, nil)
-				return
-			}
-			var unavailable auth.OTPProtectionUnavailableError
-			if errors.As(err, &unavailable) {
-				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "auth.otp_protection_unavailable", "otp protection unavailable", traceID, nil)
-				return
-			}
-			var expired auth.OTPExpiredOrUsedError
-			if errors.As(err, &expired) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "auth.otp_invalid", "code invalid or expired", traceID, nil)
-				return
-			}
-			var suspended auth.SuspendedUserError
-			if errors.As(err, &suspended) {
-				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.user_suspended", "account suspended", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		if auditWriter != nil {
-			auditWriter.WriteLoginSucceeded(r.Context(), traceID, issued.UserID, body.Email)
-		}
-
-		setRefreshTokenCookie(w, r, refreshTokenCookieName, issued.RefreshToken, otpLoginService.RefreshTokenTTLSeconds())
-		clearLegacyRefreshTokenCookies(w, r)
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, loginResponse{
-			AccessToken: issued.AccessToken,
-			TokenType:   "bearer",
-		})
-	}
-}
-
-func resolveEmailOTPVerify(authService *auth.Service, otpLoginService *auth.EmailOTPLoginService, auditWriter *audit.Writer) func(nethttp.ResponseWriter, *nethttp.Request) {
-	return func(w nethttp.ResponseWriter, r *nethttp.Request) {
-		if r.Method != nethttp.MethodPost {
-			httpkit.WriteMethodNotAllowed(w, r)
-			return
-		}
-
-		traceID := observability.TraceIDFromContext(r.Context())
-		if authService == nil || otpLoginService == nil {
-			httpkit.WriteAuthNotConfigured(w, traceID)
-			return
-		}
-
-		var body resolveEmailOTPVerifyRequest
-		if err := httpkit.DecodeJSON(r, &body); err != nil {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "request validation failed", traceID, nil)
-			return
-		}
-		body.FlowToken = strings.TrimSpace(body.FlowToken)
-		body.Code = strings.TrimSpace(body.Code)
-		if body.FlowToken == "" || body.Code == "" {
-			httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "validation.error", "flow token and code are required", traceID, nil)
-			return
-		}
-
-		resolved, err := authService.ResolveFlow(r.Context(), body.FlowToken)
-		if err != nil {
-			var invalid auth.FlowTokenInvalidError
-			var unavailable auth.OTPUnavailableError
-			if errors.As(err, &invalid) {
-				httpkit.WriteError(w, nethttp.StatusUnauthorized, "auth.flow_token_invalid", invalid.Error(), traceID, nil)
-				return
-			}
-			if errors.As(err, &unavailable) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "auth.otp_unavailable", unavailable.Error(), traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		issued, err := otpLoginService.VerifyLoginOTP(r.Context(), resolved.Email, body.Code)
-		if err != nil {
-			var locked auth.OTPLockedError
-			if errors.As(err, &locked) {
-				httpkit.WriteError(w, nethttp.StatusTooManyRequests, "auth.otp_locked", "too many attempts", traceID, nil)
-				return
-			}
-			var protectionUnavailable auth.OTPProtectionUnavailableError
-			if errors.As(err, &protectionUnavailable) {
-				httpkit.WriteError(w, nethttp.StatusServiceUnavailable, "auth.otp_protection_unavailable", "otp protection unavailable", traceID, nil)
-				return
-			}
-			var expired auth.OTPExpiredOrUsedError
-			if errors.As(err, &expired) {
-				httpkit.WriteError(w, nethttp.StatusUnprocessableEntity, "auth.otp_invalid", "code invalid or expired", traceID, nil)
-				return
-			}
-			var suspended auth.SuspendedUserError
-			if errors.As(err, &suspended) {
-				httpkit.WriteError(w, nethttp.StatusForbidden, "auth.user_suspended", "account suspended", traceID, nil)
-				return
-			}
-			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
-			return
-		}
-
-		if auditWriter != nil {
-			auditWriter.WriteLoginSucceeded(r.Context(), traceID, issued.UserID, resolved.Email)
-		}
-
-		setRefreshTokenCookie(w, r, refreshTokenCookieName, issued.RefreshToken, otpLoginService.RefreshTokenTTLSeconds())
-		clearLegacyRefreshTokenCookies(w, r)
-		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, loginResponse{
-			AccessToken: issued.AccessToken,
-			TokenType:   "bearer",
-		})
-	}
 }
 
 func isValidPublicUsername(value string) bool {
