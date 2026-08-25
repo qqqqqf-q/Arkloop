@@ -926,7 +926,7 @@ func (r *RunEventRepository) allocateSeq(ctx context.Context, runID uuid.UUID) (
 }
 
 // ProvideInput 向运行中的 run 注入用户输入。
-// 检查 run 非终态后写入 run.input_provided 事件，调用方负责提交事务并 pg_notify。
+// 检查 run 非终态后写入 run.input_provided 事件,调用方负责提交事务。
 func (r *RunEventRepository) ProvideInput(
 	ctx context.Context,
 	runID uuid.UUID,

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 	"arkloop/services/shared/schedulekind"
 	"arkloop/services/worker/internal/data"
@@ -82,11 +81,11 @@ func startDesktopTriggerScheduler(
 }
 
 func listenDesktopSchedulerWake(ctx context.Context, bus eventbus.EventBus, wakeCh chan struct{}) {
-	listenDesktopWake(ctx, bus, pgnotify.ChannelHeartbeat, wakeCh)
+	listenDesktopWake(ctx, bus, eventbus.TopicHeartbeat, wakeCh)
 }
 
 func listenDesktopSchedulerJobsWake(ctx context.Context, bus eventbus.EventBus, wakeCh chan struct{}) {
-	listenDesktopWake(ctx, bus, pgnotify.ChannelScheduledJobs, wakeCh)
+	listenDesktopWake(ctx, bus, eventbus.TopicScheduledJobs, wakeCh)
 }
 
 func listenDesktopWake(ctx context.Context, bus eventbus.EventBus, topic string, wakeCh chan struct{}) {

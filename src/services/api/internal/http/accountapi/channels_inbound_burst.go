@@ -12,7 +12,6 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -78,16 +77,6 @@ func StartChannelInboundBurstRunner(ctx context.Context, deps ChannelInboundBurs
 				return
 			}
 			_ = bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
-		}
-	} else if deps.Pool != nil {
-		pool := deps.Pool
-		inputNotify = func(ctx context.Context, runID uuid.UUID) {
-			if runID == uuid.Nil {
-				return
-			}
-			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("channel_active_run_notify_failed", "run_id", runID.String(), "error", err.Error())
-			}
 		}
 	}
 
@@ -162,7 +151,7 @@ func (r channelInboundBurstRunner) runRecoveryPolling(ctx context.Context) {
 
 func (r channelInboundBurstRunner) runEventDriven(ctx context.Context) {
 	for {
-		sub, err := r.bus.Subscribe(ctx, pgnotify.ChannelInboundBurst)
+		sub, err := r.bus.Subscribe(ctx, eventbus.TopicInboundBurst)
 		if err != nil {
 			slog.Warn("channel_inbound_burst_subscribe_failed", "error", err.Error())
 			r.runRecoveryPolling(ctx)
@@ -256,7 +245,7 @@ func notifyChannelInboundBurst(ctx context.Context, bus eventbus.EventBus) {
 	if bus == nil {
 		return
 	}
-	_ = bus.Publish(ctx, pgnotify.ChannelInboundBurst, "")
+	_ = bus.Publish(ctx, eventbus.TopicInboundBurst, "")
 }
 
 func (r channelInboundBurstRunner) scan(ctx context.Context) error {

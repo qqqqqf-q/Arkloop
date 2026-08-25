@@ -19,7 +19,6 @@ import (
 	"arkloop/services/shared/messagecontent"
 	"arkloop/services/shared/objectstore"
 	"arkloop/services/shared/onebotclient"
-	"arkloop/services/shared/pgnotify"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -314,7 +313,7 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 	var pendingHeartbeatNotify bool
 	defer func() {
 		if committed && pendingHeartbeatNotify && c.bus != nil {
-			_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+			_ = c.bus.Publish(ctx, eventbus.TopicHeartbeat, "")
 		}
 	}()
 	if !isPrivate && groupIdentity != nil {
@@ -332,8 +331,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 		} else if reset {
 			if c.bus != nil {
 				pendingHeartbeatNotify = true
-			} else {
-				_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
 			}
 		}
 	}
@@ -391,9 +388,6 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 				return err
 			}
 			if reply != nil {
-				if reply.CancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-				}
 				if reply.Text != "" {
 					c.sendQQReply(ctx, cfg, "private", platformChatID, reply.Text)
 				}
@@ -450,15 +444,10 @@ func (c *qqConnector) HandleEvent(ctx context.Context, traceID string, ch data.C
 			if err := commitTx(); err != nil {
 				return err
 			}
-			if reply != nil {
-				if reply.CancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-				}
-			}
 			if strings.HasPrefix(cmdText, "/heartbeat") {
 				pendingHeartbeatNotify = false
 				if c.bus != nil {
-					_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+					_ = c.bus.Publish(ctx, eventbus.TopicHeartbeat, "")
 				}
 			}
 			if reply != nil && reply.Text != "" {
@@ -1156,11 +1145,6 @@ func qqOneBotCallbackHandler(
 		pool:                     pool,
 		attachmentStore:          attachmentStore,
 		scheduledTriggersRepo:    &data.ScheduledTriggersRepository{},
-		inputNotify: func(ctx context.Context, runID uuid.UUID) {
-			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("qq_active_run_notify_failed", "run_id", runID, "error", err)
-			}
-		},
 	}
 
 	return func(w nethttp.ResponseWriter, r *nethttp.Request) {

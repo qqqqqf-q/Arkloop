@@ -11,7 +11,6 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -125,9 +124,6 @@ func Open(dsn string) (*Pool, error) {
 }
 
 func (p *Pool) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
-	if isProcessNotify(query) {
-		return pgconn.NewCommandTag("SELECT 1"), nil
-	}
 	guard, err := p.acquireWriteGuard(ctx)
 	if err != nil {
 		return pgconn.NewCommandTag(""), err
@@ -259,13 +255,6 @@ func (p *Pool) Ping(ctx context.Context) error {
 // Unwrap returns the underlying *sql.DB for code that needs direct access.
 func (p *Pool) Unwrap() *sql.DB {
 	return p.db
-}
-
-// isProcessNotify 判断是否为 Postgres LISTEN/NOTIFY 的 pg_notify 调用。
-// SQLite 无此机制（desktop 的 run 取消等信号走 run_events 事件 + event bus），这类语句在 desktop 上
-// 既无意义，又会因 Pool.Exec 抢占全局写令牌而与调用方自身持有的事务自死锁，故一律视为空操作。
-func isProcessNotify(query string) bool {
-	return strings.Contains(query, "pg_notify(")
 }
 
 func (p *Pool) resolveWriteExecutor() WriteExecutor {

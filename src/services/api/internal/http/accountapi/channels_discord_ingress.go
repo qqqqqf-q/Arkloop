@@ -15,7 +15,6 @@ import (
 	"arkloop/services/api/internal/observability"
 	"arkloop/services/shared/discordbot"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/runkind"
 
 	"github.com/bwmarrin/discordgo"
@@ -283,7 +282,7 @@ func (m *discordIngressManager) runSession(ctx context.Context, channelID uuid.U
 		jobRepo:                  m.deps.JobRepo,
 		pool:                     m.deps.Pool,
 		discordClient:            m.deps.DiscordClient,
-		inputNotify:              buildDiscordInputNotifier(m.deps.Pool, m.deps.Bus),
+		inputNotify:              buildDiscordInputNotifier(m.deps.Bus),
 		bus:                      m.deps.Bus,
 	}
 
@@ -369,17 +368,10 @@ func (m *discordIngressManager) ensureCommands(ctx context.Context, channelID uu
 	return nil
 }
 
-func buildDiscordInputNotifier(pool data.DB, bus eventbus.EventBus) func(ctx context.Context, runID uuid.UUID) {
+func buildDiscordInputNotifier(bus eventbus.EventBus) func(ctx context.Context, runID uuid.UUID) {
 	if bus != nil {
 		return func(ctx context.Context, runID uuid.UUID) {
 			_ = bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
-		}
-	}
-	if pool != nil {
-		return func(ctx context.Context, runID uuid.UUID) {
-			if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunInput, runID.String()); err != nil {
-				slog.Warn("discord_active_run_notify_failed", "run_id", runID.String(), "error", err)
-			}
 		}
 	}
 	return nil
@@ -1121,11 +1113,6 @@ func handleDiscordCommand(
 	}
 	if !handled || reply == nil {
 		return &discordInteractionReply{Content: "暂不支持这个命令。", Ephemeral: true}, nil
-	}
-
-	// pg_notify for cancel
-	if reply.CancelRunID != uuid.Nil && pool != nil {
-		_, _ = pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
 	}
 
 	return &discordInteractionReply{Content: reply.Text, Ephemeral: true}, nil

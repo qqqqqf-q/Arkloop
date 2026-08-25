@@ -164,7 +164,7 @@ func (p *SubAgentStateProjector) MarkRunFailed(ctx context.Context, childRunID u
 		return err
 	}
 	if run != nil {
-		threadrunstate.Publish(ctx, p.pool, p.rdb, p.eventBus, run.AccountID, run.ThreadID)
+		threadrunstate.Publish(ctx, p.rdb, p.eventBus, run.AccountID, run.ThreadID)
 	}
 	if p.rdb != nil {
 		ch := fmt.Sprintf("run.child.%s.done", childRunID.String())
@@ -406,7 +406,7 @@ func (p *SubAgentStateProjector) enqueueCallbackRunIfIdle(ctx context.Context, c
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	threadrunstate.Publish(ctx, p.pool, p.rdb, p.eventBus, callback.AccountID, callback.ThreadID)
+	threadrunstate.Publish(ctx, p.rdb, p.eventBus, callback.AccountID, callback.ThreadID)
 	_, err = p.jobQueue.EnqueueRun(ctx, callback.AccountID, runID, strings.TrimSpace(traceID), queue.RunExecuteJobType, map[string]any{
 		"source":       runkind.SubagentCallback,
 		"run_kind":     runkind.SubagentCallback,
@@ -501,7 +501,7 @@ func (p *SubAgentStateProjector) markCallbackRunEnqueueFailed(ctx context.Contex
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	threadrunstate.Publish(ctx, p.pool, p.rdb, p.eventBus, run.AccountID, run.ThreadID)
+	threadrunstate.Publish(ctx, p.rdb, p.eventBus, run.AccountID, run.ThreadID)
 	return nil
 }
 

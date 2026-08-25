@@ -343,7 +343,7 @@ func handleMCPOAuthCallback(
 		return
 	}
 
-	notifyMCPChanged(r.Context(), pool, flow.AccountID)
+	notifyMCPChanged(r.Context(), flow.AccountID)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }
 

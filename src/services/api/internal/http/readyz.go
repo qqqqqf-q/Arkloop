@@ -9,7 +9,6 @@ import (
 	nethttp "net/http"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/api/internal/migrate"
 	"arkloop/services/api/internal/observability"
 )
 
@@ -56,37 +55,9 @@ func readyz(schemaRepo *data.SchemaRepository, logger *slog.Logger) func(nethttp
 			return
 		}
 
-		expected := migrate.ExpectedVersion
-		match := version == expected
-
-		if !match {
-			if logger != nil {
-				logger.WarnContext(r.Context(), "readyz: schema version mismatch",
-					"trace_id", traceID,
-					"current", version,
-					"expected", expected,
-				)
-			}
-			WriteError(
-				w,
-				nethttp.StatusServiceUnavailable,
-				"health.not_ready",
-				"schema version mismatch",
-				traceID,
-				map[string]any{
-					"schema_version":          version,
-					"expected_schema_version": expected,
-					"match":                   false,
-				},
-			)
-			return
-		}
-
 		payload, err := json.Marshal(map[string]any{
-			"status":                  "ok",
-			"schema_version":          version,
-			"expected_schema_version": expected,
-			"match":                   true,
+			"status":         "ok",
+			"schema_version": version,
 		})
 		if err != nil {
 			WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)

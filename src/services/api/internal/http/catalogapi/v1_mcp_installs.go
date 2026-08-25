@@ -376,7 +376,7 @@ func createMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	syncDesktopMirrorIfNeeded(r.Context(), service, actor.AccountID, created.ProfileRef)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toMCPInstallResponse(created, nil))
 }
@@ -443,7 +443,7 @@ func updateMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	syncDesktopMirrorIfNeeded(r.Context(), service, actor.AccountID, updated.ProfileRef)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toMCPInstallResponse(*updated, nil))
 }
@@ -480,7 +480,7 @@ func deleteMCPInstall(
 	if secretsRepo != nil {
 		_ = deleteMCPAuthHeadersSecret(r.Context(), secretsRepo, actor.UserID, current.InstallKey)
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	syncDesktopMirrorIfNeeded(r.Context(), service, actor.AccountID, current.ProfileRef)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, map[string]bool{"ok": true})
 }
@@ -625,7 +625,7 @@ func setWorkspaceMCPEnablement(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	itemsResp, err := enableRepo.ListByWorkspace(r.Context(), actor.AccountID, workspaceRef)
 	if err != nil {
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
@@ -867,7 +867,7 @@ func importMCPInstall(
 		httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	syncDesktopMirrorIfNeeded(r.Context(), service, actor.AccountID, profileRef)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toMCPInstallResponse(*saved, &workspaceMCPView{
 		WorkspaceRef: workspaceRef,
@@ -1105,12 +1105,9 @@ func loadMCPAuthPayload(ctx context.Context, repo *data.SecretsRepository, secre
 	return payload, nil
 }
 
-func notifyMCPChanged(ctx context.Context, pool data.DB, accountID uuid.UUID) {
+func notifyMCPChanged(ctx context.Context, accountID uuid.UUID) {
 	if accountID == uuid.Nil {
 		return
-	}
-	if pool != nil {
-		_, _ = pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
 	}
 	notifyMCPChangedLocal(ctx, accountID)
 }

@@ -439,6 +439,7 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 			ScheduledJobsRepo:     cfg.ScheduledJobsRepo,
 			ThreadRepo:            cfg.ThreadRepo,
 			Pool:                  cfg.Pool,
+			EventBus:              bus,
 		})
 	}
 

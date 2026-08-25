@@ -329,12 +329,9 @@ func StringPtr(value string) *string {
 	return &cleaned
 }
 
-// notifyRunEventSubscribers 通知 run_events 订阅者有新事件落库（pg / event bus / redis 三通道并存）。
+// notifyRunEventSubscribers 通知 run_events 订阅者有新事件落库(event bus / redis 并存)。
 func notifyRunEventSubscribers(ctx context.Context, rc *RunContext) {
 	channel := fmt.Sprintf("run_events:%s", rc.Run.ID.String())
-	if rc.Pool != nil {
-		_, _ = rc.Pool.Exec(ctx, "SELECT pg_notify($1, '')", channel)
-	}
 	if rc.EventBus != nil {
 		_ = rc.EventBus.Publish(ctx, channel, "")
 	}

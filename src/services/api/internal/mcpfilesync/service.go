@@ -64,21 +64,19 @@ type DiscoveryResponse struct {
 type Service struct {
 	installsRepo *data.ProfileMCPInstallsRepository
 	secretsRepo  *data.SecretsRepository
-	pool         data.DB
 	dataDir      string
 
 	mu           sync.Mutex
 	lastModified time.Time
 }
 
-func NewService(dataDir string, installsRepo *data.ProfileMCPInstallsRepository, secretsRepo *data.SecretsRepository, pool data.DB) (*Service, error) {
+func NewService(dataDir string, installsRepo *data.ProfileMCPInstallsRepository, secretsRepo *data.SecretsRepository) (*Service, error) {
 	if installsRepo == nil {
 		return nil, fmt.Errorf("installsRepo must not be nil")
 	}
 	return &Service{
 		installsRepo: installsRepo,
 		secretsRepo:  secretsRepo,
-		pool:         pool,
 		dataDir:      strings.TrimSpace(dataDir),
 	}, nil
 }
@@ -555,9 +553,6 @@ func (s *Service) upsertAuthHeadersSecret(ctx context.Context, proposal Proposed
 func (s *Service) notifyChanged(ctx context.Context, accountID uuid.UUID) {
 	if s == nil || accountID == uuid.Nil {
 		return
-	}
-	if s.pool != nil {
-		_, _ = s.pool.Exec(ctx, "SELECT pg_notify('mcp_config_changed', $1)", accountID.String())
 	}
 	notifyMCPChangedLocal(ctx, accountID)
 }

@@ -10,7 +10,6 @@ import (
 
 	shareddesktop "arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
@@ -623,7 +622,7 @@ func (DesktopScheduledJobsRepository) NotifyScheduler(ctx context.Context, _ DB)
 	if !ok || bus == nil {
 		return nil
 	}
-	return bus.Publish(ctx, pgnotify.ChannelScheduledJobs, "")
+	return bus.Publish(ctx, eventbus.TopicScheduledJobs, "")
 }
 
 // ListRunsByJobID returns the most recent runs for a scheduled job.

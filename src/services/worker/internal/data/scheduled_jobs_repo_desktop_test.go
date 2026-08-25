@@ -10,7 +10,6 @@ import (
 
 	shareddesktop "arkloop/services/shared/desktop"
 	"arkloop/services/shared/eventbus"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/schedulekind"
 
 	"github.com/google/uuid"
@@ -27,7 +26,7 @@ func TestDesktopScheduledJobsRepositoryNotifySchedulerPublishesWakeEvent(t *test
 	shareddesktop.SetEventBus(bus)
 	defer shareddesktop.SetEventBus(previous)
 
-	sub, err := bus.Subscribe(ctx, pgnotify.ChannelScheduledJobs)
+	sub, err := bus.Subscribe(ctx, eventbus.TopicScheduledJobs)
 	if err != nil {
 		t.Fatalf("subscribe scheduled jobs: %v", err)
 	}
@@ -40,8 +39,8 @@ func TestDesktopScheduledJobsRepositoryNotifySchedulerPublishesWakeEvent(t *test
 
 	select {
 	case msg := <-sub.Channel():
-		if msg.Topic != pgnotify.ChannelScheduledJobs {
-			t.Fatalf("message topic = %q, want %q", msg.Topic, pgnotify.ChannelScheduledJobs)
+		if msg.Topic != eventbus.TopicScheduledJobs {
+			t.Fatalf("message topic = %q, want %q", msg.Topic, eventbus.TopicScheduledJobs)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected scheduled jobs wake event")

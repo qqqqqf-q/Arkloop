@@ -72,10 +72,6 @@ func StartWeChatPollingListener(ctx context.Context, deps WeChatPollingDeps) {
 		inputNotify: func(ctx context.Context, runID uuid.UUID) {
 			if deps.Bus != nil {
 				_ = deps.Bus.Publish(ctx, fmt.Sprintf("run_events:%s", runID.String()), "")
-			} else {
-				if _, err := deps.Pool.Exec(ctx, "SELECT pg_notify('run_input', $1)", runID.String()); err != nil {
-					slog.Warn("weixin_active_run_notify_failed", "run_id", runID, "error", err)
-				}
 			}
 		},
 	}

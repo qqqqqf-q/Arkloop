@@ -12,7 +12,7 @@ import (
 
 	"arkloop/services/api/internal/data"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/shared/pgnotify"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -111,7 +111,7 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			return
 		}
 		if pendingHeartbeatNotify {
-			_ = c.bus.Publish(ctx, pgnotify.ChannelHeartbeat, "")
+			_ = c.bus.Publish(ctx, eventbus.TopicHeartbeat, "")
 		}
 		if pendingInboundBurstNotify {
 			notifyChannelInboundBurst(ctx, c.bus)
@@ -132,8 +132,6 @@ func (c telegramConnector) persistTelegramInboundStageA(
 		} else if reset {
 			if c.bus != nil {
 				pendingHeartbeatNotify = true
-			} else {
-				_, _ = tx.Exec(ctx, "SELECT pg_notify($1, '')", pgnotify.ChannelHeartbeat)
 			}
 		}
 	}
@@ -197,9 +195,6 @@ func (c telegramConnector) persistTelegramInboundStageA(
 			if reply != nil {
 				replyMarkup = BuildTelegramInteractive(reply)
 				replyText = reply.Text
-				if reply.CancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-				}
 			}
 			if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &identity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 				return nil, err
@@ -265,9 +260,6 @@ func (c telegramConnector) persistTelegramInboundStageA(
 				if reply != nil {
 					replyMarkup = BuildTelegramInteractive(reply)
 					replyText = reply.Text
-					if reply.CancelRunID != uuid.Nil {
-						_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-					}
 				}
 				if err := c.recordTelegramInboundFinalState(ctx, tx, ch, incoming, &commandIdentity.ID, nil, nil, inboundStateCommandHandled, baseMetadata); err != nil {
 					return nil, err

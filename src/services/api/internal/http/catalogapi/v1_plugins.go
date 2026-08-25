@@ -229,7 +229,7 @@ func pluginsEntry(
 				httpkit.WriteError(w, nethttp.StatusBadRequest, "plugins.invalid_manifest", err.Error(), traceID, nil)
 				return
 			}
-			notifyMCPChanged(r.Context(), pool, actor.AccountID)
+			notifyMCPChanged(r.Context(), actor.AccountID)
 			httpkit.WriteJSON(w, traceID, nethttp.StatusCreated, toPluginPackageResponse(item))
 		default:
 			writeMethodNotAllowedJSON(w, traceID)
@@ -310,7 +310,7 @@ func handlePluginPackage(w nethttp.ResponseWriter, r *nethttp.Request, traceID s
 			httpkit.WriteError(w, nethttp.StatusInternalServerError, "internal.error", "internal error", traceID, nil)
 			return
 		}
-		notifyMCPChanged(r.Context(), pool, actor.AccountID)
+		notifyMCPChanged(r.Context(), actor.AccountID)
 		w.WriteHeader(nethttp.StatusNoContent)
 	default:
 		writeMethodNotAllowedJSON(w, traceID)
@@ -361,7 +361,7 @@ func handlePluginEnablement(w nethttp.ResponseWriter, r *nethttp.Request, traceI
 			httpkit.WriteError(w, nethttp.StatusBadRequest, "plugins.enable_failed", err.Error(), traceID, nil)
 			return
 		}
-		notifyMCPChanged(r.Context(), pool, actor.AccountID)
+		notifyMCPChanged(r.Context(), actor.AccountID)
 		httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toPluginEnablementResponse(item))
 	default:
 		writeMethodNotAllowedJSON(w, traceID)
@@ -393,7 +393,7 @@ func handlePluginSettings(w nethttp.ResponseWriter, r *nethttp.Request, traceID 
 		httpkit.WriteError(w, nethttp.StatusBadRequest, "plugins.settings_failed", err.Error(), traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toPluginEnablementResponse(item))
 }
 
@@ -423,7 +423,7 @@ func handlePluginRuntimeInstall(w nethttp.ResponseWriter, r *nethttp.Request, tr
 		httpkit.WriteError(w, nethttp.StatusBadRequest, "plugins.runtime_install_failed", err.Error(), traceID, nil)
 		return
 	}
-	notifyMCPChanged(r.Context(), pool, actor.AccountID)
+	notifyMCPChanged(r.Context(), actor.AccountID)
 	httpkit.WriteJSON(w, traceID, nethttp.StatusOK, toPluginRuntimeStateResponse(&state))
 }
 

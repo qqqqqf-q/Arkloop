@@ -14,7 +14,7 @@ import (
 	"arkloop/services/api/internal/data"
 	httpkit "arkloop/services/api/internal/http/httpkit"
 	"arkloop/services/api/internal/observability"
-	"arkloop/services/shared/pgnotify"
+	"arkloop/services/shared/eventbus"
 	"arkloop/services/shared/scheduledjobs"
 	"arkloop/services/shared/schedulekind"
 
@@ -28,6 +28,7 @@ type Deps struct {
 	ScheduledJobsRepo     *data.ScheduledJobsRepository
 	ThreadRepo            *data.ThreadRepository
 	Pool                  data.DB
+	EventBus              eventbus.EventBus
 }
 
 func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
@@ -331,7 +332,7 @@ func createJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		return
 	}
 
-	notifyScheduler(r.Context(), deps.Pool)
+	notifyScheduler(r.Context(), deps.EventBus)
 
 	// 重新查询以获取 trigger 信息
 	full, err := deps.ScheduledJobsRepo.GetByID(r.Context(), deps.Pool, created.ID, actor.AccountID)
@@ -439,7 +440,7 @@ func updateJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		return
 	}
 
-	notifyScheduler(r.Context(), deps.Pool)
+	notifyScheduler(r.Context(), deps.EventBus)
 
 	job, err := deps.ScheduledJobsRepo.GetByID(r.Context(), deps.Pool, jobID, actor.AccountID)
 	if err != nil || job == nil {
@@ -521,7 +522,7 @@ func resumeJob(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, dep
 		return
 	}
 
-	notifyScheduler(r.Context(), deps.Pool)
+	notifyScheduler(r.Context(), deps.EventBus)
 
 	job, err := deps.ScheduledJobsRepo.GetByID(r.Context(), deps.Pool, jobID, actor.AccountID)
 	if err != nil || job == nil {
@@ -537,9 +538,12 @@ func resolveActor(w nethttp.ResponseWriter, r *nethttp.Request, traceID string, 
 	return httpkit.ResolveActor(w, r, traceID, deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, nil)
 }
 
-func notifyScheduler(ctx context.Context, pool data.DB) {
-	if _, err := pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelScheduledJobs, ""); err != nil {
-		slog.Warn("pg_notify scheduled_jobs failed", "error", err)
+func notifyScheduler(ctx context.Context, bus eventbus.EventBus) {
+	if bus == nil {
+		return
+	}
+	if err := bus.Publish(ctx, eventbus.TopicScheduledJobs, ""); err != nil {
+		slog.Warn("scheduled_jobs wake publish failed", "error", err)
 	}
 }
 

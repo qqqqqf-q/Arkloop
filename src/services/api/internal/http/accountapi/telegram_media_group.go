@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"arkloop/services/api/internal/data"
-	"arkloop/services/shared/pgnotify"
 	"arkloop/services/shared/telegrambot"
 
 	"github.com/google/uuid"
@@ -300,9 +299,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 				return err
 			}
 			if reply != nil && reply.Text != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
-				if reply.CancelRunID != uuid.Nil {
-					_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-				}
 				sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 				req := telegrambot.SendMessageRequest{
 					ChatID: incoming.PlatformChatID,
@@ -372,9 +368,6 @@ func (c telegramConnector) processTelegramMediaGroupMerged(
 					return err
 				}
 				if reply != nil && reply.Text != "" && c.telegramClient != nil && strings.TrimSpace(token) != "" {
-					if reply.CancelRunID != uuid.Nil {
-						_, _ = c.pool.Exec(ctx, "SELECT pg_notify($1, $2)", pgnotify.ChannelRunCancel, reply.CancelRunID.String())
-					}
 					sendCtx, sendCancel := context.WithTimeout(ctx, telegramRemoteRequestTimeout)
 					req := telegrambot.SendMessageRequest{
 						ChatID: incoming.PlatformChatID,
