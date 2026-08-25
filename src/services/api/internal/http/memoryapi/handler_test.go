@@ -254,7 +254,7 @@ func newTestAuthService(t *testing.T) *auth.Service {
 	if err != nil {
 		t.Fatalf("new password hasher: %v", err)
 	}
-	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil, nil)
+	authService, err := auth.NewService(userRepo, credentialRepo, membershipRepo, passwordHasher, tokenService, refreshTokenRepo, nil)
 	if err != nil {
 		t.Fatalf("new auth service: %v", err)
 	}
