@@ -40,7 +40,6 @@ import { routeAdvancedJsonFromAvailableCatalog } from "@arkloop/shared/llm/avail
 
 type Step =
   | "welcome"
-  | "mode"
   | "providerChoice"
   | "provider"
   | "appearance"
@@ -1211,66 +1210,7 @@ export function OnboardingWizard({ onComplete }: Props) {
               </div>
             </Reveal>
 
-            {/* Mode selection */}
-            <Reveal active={step === "mode"}>
-              <div>
-                <div
-                  style={{
-                    fontSize: "18px",
-                    fontWeight: 500,
-                    color: "var(--c-text-heading)",
-                    marginBottom: "4px",
-                  }}
-                >
-                  {ob.modeTitle}
-                </div>
-                <div
-                  style={{
-                    fontSize: "13px",
-                    color: "var(--c-placeholder)",
-                    marginBottom: "20px",
-                  }}
-                >
-                  {ob.modeDesc}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "10px",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <ModeCard
-                    icon={<HardDrive size={18} />}
-                    title={ob.localTitle}
-                    desc={ob.localDesc}
-                    onClick={() => void handleModeSelectLocal()}
-                  />
-                  <ModeCard
-                    icon={<Cloud size={18} />}
-                    title={ob.saasTitle}
-                    desc={ob.saasDesc}
-                    disabled
-                    comingSoon={t.comingSoon}
-                  />
-                  <ModeCard
-                    icon={<Server size={18} />}
-                    title={ob.selfHostTitle}
-                    desc={ob.selfHostDesc}
-                    disabled
-                    comingSoon={t.comingSoon}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setStep("welcome")}
-                  className="onb-btn-ghost" style={ghostBtn}
-                >
-                  {ob.back}
-                </button>
-              </div>
-            </Reveal>
+
 
             {/* Provider entry */}
             <Reveal active={step === "providerChoice"}>
