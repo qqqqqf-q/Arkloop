@@ -249,24 +249,24 @@ func TestToolBuildMiddleware_SkipsProviderManagedGroupWithoutActiveProvider(t *t
 
 func TestToolBuildMiddleware_FiltersUnavailableRuntimeManagedTools(t *testing.T) {
 	registry := tools.NewRegistry()
-	if err := registry.Register(tools.AgentToolSpec{Name: "browser", Version: "1", Description: "browser", RiskLevel: tools.RiskLevelHigh}); err != nil {
-		t.Fatalf("register browser: %v", err)
+	if err := registry.Register(tools.AgentToolSpec{Name: "web_search", Version: "1", Description: "web_search", RiskLevel: tools.RiskLevelHigh}); err != nil {
+		t.Fatalf("register web_search: %v", err)
 	}
-	executors := map[string]tools.Executor{"browser": builtin.NoopExecutor{}}
+	executors := map[string]tools.Executor{"web_search": builtin.NoopExecutor{}}
 	runtimeSnapshot := sharedtoolruntime.RuntimeSnapshot{}
 	rc := &pipeline.RunContext{
 		Run:           data.Run{ID: uuid.New()},
 		Emitter:       events.NewEmitter("test"),
 		ToolRegistry:  registry,
 		ToolExecutors: executors,
-		AllowlistSet:  map[string]struct{}{"browser": {}},
-		ToolSpecs:     []llm.ToolSpec{{Name: "browser"}},
+		AllowlistSet:  map[string]struct{}{"web_search": {}},
+		ToolSpecs:     []llm.ToolSpec{{Name: "web_search"}},
 		Runtime:       &runtimeSnapshot,
 	}
 	mw := pipeline.NewToolBuildMiddleware()
 	h := pipeline.Build([]pipeline.RunMiddleware{mw}, func(_ context.Context, rc *pipeline.RunContext) error {
 		if len(rc.FinalSpecs) != 0 {
-			t.Fatalf("expected browser spec to be filtered, got %d", len(rc.FinalSpecs))
+			t.Fatalf("expected web_search spec to be filtered, got %d", len(rc.FinalSpecs))
 		}
 		return nil
 	})

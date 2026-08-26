@@ -20,7 +20,6 @@ func artifactsEntry(
 	membershipRepo *data.AccountMembershipRepository,
 	apiKeysRepo *data.APIKeysRepository,
 	runRepo *data.RunEventRepository,
-	shellSessionRepo *data.ShellSessionRepository,
 	threadShareRepo *data.ThreadShareRepository,
 	auditWriter *audit.Writer,
 	store artifactStore,
@@ -57,7 +56,7 @@ func artifactsEntry(
 			return
 		}
 
-		run, ok := resolveArtifactRun(r.Context(), runRepo, shellSessionRepo, key, info)
+		run, ok := resolveArtifactRun(r.Context(), runRepo, key, info)
 		if !ok || run == nil {
 			httpkit.WriteError(w, nethttp.StatusForbidden, "artifacts.forbidden", "access denied", traceID, nil)
 			return
@@ -105,11 +104,10 @@ func artifactsEntry(
 func resolveArtifactRun(
 	ctx context.Context,
 	runRepo *data.RunEventRepository,
-	shellSessionRepo *data.ShellSessionRepository,
 	key string,
 	info objectstore.ObjectInfo,
 ) (*data.Run, bool) {
-	runID, ok := resolveArtifactRunID(ctx, shellSessionRepo, key, info.Metadata)
+	runID, ok := resolveArtifactRunID(key, info.Metadata)
 	if !ok {
 		return nil, false
 	}
@@ -156,8 +154,6 @@ func authorizeArtifactShare(
 }
 
 func resolveArtifactRunID(
-	ctx context.Context,
-	shellSessionRepo *data.ShellSessionRepository,
 	key string,
 	metadata map[string]string,
 ) (uuid.UUID, bool) {
@@ -170,15 +166,6 @@ func resolveArtifactRunID(
 		parsed, err := uuid.Parse(ownerID)
 		if err == nil {
 			return parsed, true
-		}
-		if shellSessionRepo != nil {
-			accountID, accountErr := uuid.Parse(strings.TrimSpace(metadata[objectstore.ArtifactMetaAccountID]))
-			if accountErr == nil {
-				runID, lookupErr := shellSessionRepo.GetRunIDBySessionRef(ctx, accountID, ownerID)
-				if lookupErr == nil && runID != nil && *runID != uuid.Nil {
-					return *runID, true
-				}
-			}
 		}
 		return uuid.Nil, false
 	}

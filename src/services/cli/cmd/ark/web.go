@@ -126,10 +126,9 @@ func cmdWebStart(ctx context.Context, args []string) error {
 	runtimeErr := make(chan error, 1)
 	go func() {
 		runtimeErr <- desktopruntime.Run(ctx, desktopruntime.Options{
-			Component:    "headless-web",
-			StartBridge:  true,
-			StartSandbox: true,
-			Quiet:        !*verbose,
+			Component:   "headless-web",
+			StartBridge: true,
+			Quiet:       !*verbose,
 		})
 	}()
 

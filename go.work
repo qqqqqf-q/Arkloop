@@ -6,7 +6,6 @@ use (
 	./src/services/bridge
 	./src/services/cli
 	./src/services/desktop
-	./src/services/sandbox
 	./src/services/shared
 	./src/services/worker
 )

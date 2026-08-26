@@ -61,7 +61,7 @@ func (e *Executor) Execute(
 		return tools.ExecutionResult{Error: fetchErr, DurationMs: durationMs(started)}
 	}
 
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), accountIDString(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 	if err := backend.WriteFile(ctx, targetPath, data); err != nil {
 		return errorResult(errorWriteFailed, fmt.Sprintf("write failed: %s", err.Error()), started)
 	}

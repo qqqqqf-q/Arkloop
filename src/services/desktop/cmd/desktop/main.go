@@ -30,8 +30,7 @@ func run() error {
 		cancel()
 	}()
 	return desktopruntime.Run(ctx, desktopruntime.Options{
-		Component:    "desktop",
-		StartBridge:  true,
-		StartSandbox: true,
+		Component:   "desktop",
+		StartBridge: true,
 	})
 }

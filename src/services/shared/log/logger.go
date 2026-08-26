@@ -11,7 +11,7 @@ import (
 
 // Config 日志配置
 type Config struct {
-	Component string     // 组件名：api, worker, gateway, bridge, sandbox
+	Component string     // 组件名：api, worker, gateway, bridge, desktop
 	Level     slog.Level // 日志级别，默认 slog.LevelInfo
 	Output    io.Writer  // 输出目标，默认 os.Stderr
 	Async     bool       // 是否异步写
@@ -123,7 +123,6 @@ var componentColors = map[string]int{
 	"worker_go": 34,
 	"gateway":   32, // green
 	"bridge":    35, // magenta
-	"sandbox":   36, // cyan
 	"desktop":   33, // yellow
 }
 

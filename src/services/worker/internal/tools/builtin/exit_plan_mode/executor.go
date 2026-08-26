@@ -51,7 +51,7 @@ func (executor) Execute(
 	if planPath == "" {
 		return errResult("plan file has not been created yet", started)
 	}
-	backend := fileops.ResolveBackend(execCtx.RuntimeSnapshot, execCtx.WorkDir, execCtx.RunID.String(), resolveAccountID(execCtx), execCtx.ProfileRef, execCtx.WorkspaceRef)
+	backend := fileops.ResolveBackend(execCtx.WorkDir)
 	planBytes, err := backend.ReadFile(ctx, planPath)
 	if err != nil {
 		return errResult("plan file is required before marking the plan ready", started)

@@ -57,12 +57,8 @@ func warnUnsafeOutboundBaseURLs(ctx context.Context, pool *pgxpool.Pool, logger 
 				logger.Warn("outbound_base_url_scan_failed", "table", check.table, "error", err.Error())
 				continue
 			}
-			normalize := policy.NormalizeBaseURL
 			providerName := strings.TrimSpace(provider)
-			if check.table == "tool_provider_configs" && strings.HasPrefix(providerName, "sandbox.") {
-				normalize = policy.NormalizeInternalBaseURL
-			}
-			if _, err := normalize(baseURL); err != nil {
+			if _, err := policy.NormalizeBaseURL(baseURL); err != nil {
 				logger.Warn("unsafe_outbound_base_url_configured",
 					"table", check.table,
 					"id", id,

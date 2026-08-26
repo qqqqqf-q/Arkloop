@@ -51,7 +51,6 @@ import (
 	"arkloop/services/worker/internal/tools/builtin"
 	activityrecorderfinish "arkloop/services/worker/internal/tools/builtin/activity_recorder_finish"
 	"arkloop/services/worker/internal/tools/builtin/read"
-	sandboxbuiltin "arkloop/services/worker/internal/tools/builtin/sandbox"
 	conversationtool "arkloop/services/worker/internal/tools/conversation"
 	"arkloop/services/worker/internal/tools/localshell"
 	memorytool "arkloop/services/worker/internal/tools/memory"
@@ -112,7 +111,6 @@ type DesktopEngine struct {
 	notebookProvider       memory.MemoryProvider
 	memProvider            memory.MemoryProvider
 	useMemProvider         bool
-	useVM                  bool
 	skillLayout            pipeline.SkillLayoutResolver
 	runtimeSnapshot        *sharedtoolruntime.RuntimeSnapshot
 	jobQueue               queue.JobQueue
@@ -124,7 +122,7 @@ type DesktopEngine struct {
 	groupSearchExec        tools.Executor
 	mcpPool                *mcp.Pool
 	mcpDiscoveryCache      *mcp.DiscoveryCache
-	shellExecutor          *runtime.DynamicShellExecutor
+	shellExecutor          *runtime.ShellExecutor
 	hookRuntime            *pipeline.HookRuntime
 	hookRegistry           *pipeline.HookRegistry
 	lspManager             *lsp.Manager
@@ -168,11 +166,8 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
 		}
 	}
-	isolationMode := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_ISOLATION"))
-	useVM := isolationMode == "vm" && desktop.GetSandboxAddr() != ""
-	skillLayout := desktopSkillLayoutResolver(useVM)
+	skillLayout := desktopSkillLayoutResolver()
 
-	// DynamicShellExecutor chooses local or sandbox at runtime; specs are identical, register once
 	for _, spec := range localshell.AgentSpecs() {
 		if err := toolRegistry.Register(spec); err != nil {
 			slog.WarnContext(ctx, "desktop: skip tool registration", "name", spec.Name, "err", err)
@@ -189,8 +184,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		slog.WarnContext(ctx, "desktop: skill store init failed", "err", err.Error())
 	}
 	executors, fileTracker := builtin.Executors(nil, nil, skillStore)
-
-	sandboxAddr := desktop.GetSandboxAddr()
 
 	// LSP
 	var lspManager *lsp.Manager
@@ -214,36 +207,15 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		}
 		slog.InfoContext(ctx, "desktop: lsp enabled", "servers", len(lspCfg.Servers))
 	}
-	authToken := strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN"))
-	shellExec := runtime.NewDynamicShellExecutor(sandboxAddr, authToken, fileTracker)
+	shellExec := runtime.NewShellExecutor(fileTracker)
 
-	// 已有持久化或用户已选模式时不覆盖；否则按当前 sandbox 可用性设默认。
-	cur := strings.TrimSpace(desktop.GetExecutionMode())
-	if cur != "vm" && cur != "local" {
-		if sandboxAddr != "" {
-			desktop.SetExecutionMode("vm")
-		} else {
-			desktop.SetExecutionMode("local")
-		}
-	}
-
-	// Bind shell tools to DynamicShellExecutor; local and VM backends share the same protocol.
+	// shell 工具绑定到本机执行器；sandbox 后端已移除，本机是唯一执行路径。
 	executors[localshell.ExecCommandAgentSpec.Name] = shellExec
 	executors[localshell.ContinueProcessAgentSpec.Name] = shellExec
 	executors[localshell.TerminateProcessAgentSpec.Name] = shellExec
 	executors[localshell.ResizeProcessAgentSpec.Name] = shellExec
 
-	var runtimeSnapshot *sharedtoolruntime.RuntimeSnapshot
-	if sandboxAddr != "" {
-		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{
-			SandboxBaseURL:   "http://" + sandboxAddr,
-			SandboxAuthToken: authToken,
-		}
-		slog.Info("desktop: shell execution available (local + VM)", "sandbox_addr", sandboxAddr)
-	} else {
-		runtimeSnapshot = &sharedtoolruntime.RuntimeSnapshot{}
-		slog.Info("desktop: shell execution available (local only, sandbox not available)")
-	}
+	runtimeSnapshot := &sharedtoolruntime.RuntimeSnapshot{}
 
 	convExec := conversationtool.NewToolExecutor(db, data.MessagesRepository{})
 	for _, spec := range conversationtool.AgentSpecs() {
@@ -379,7 +351,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		routing.DefaultRoutingConfig(),
 	)
 
-	// Use localshell specs for LLM; DynamicShellExecutor routes to correct backend at runtime
 	shellLlmSpecs := localshell.LlmSpecs()
 	allLlmSpecs := append(builtin.LlmSpecs(), shellLlmSpecs...)
 	allLlmSpecs = append(allLlmSpecs, conversationtool.LlmSpecs()...)
@@ -469,7 +440,6 @@ func ComposeDesktopEngine(ctx context.Context, db data.DesktopDB, bus eventbus.E
 		notebookProvider:       notebookProvider,
 		memProvider:            memProvider,
 		useMemProvider:         useMemProvider,
-		useVM:                  useVM,
 		skillLayout:            skillLayout,
 		runtimeSnapshot:        runtimeSnapshot,
 		jobQueue:               jobQueue,
@@ -631,7 +601,6 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 	}
 
 	runRuntime := *e.runtimeSnapshot
-	runRuntime.DesktopExecutionMode = strings.TrimSpace(desktop.GetExecutionMode())
 
 	llmRetryMaxAttempts, llmRetryBaseDelayMs := resolveDesktopLLMRetry(ctx, e.db)
 	runIdleTimeout, runWallClockTimeout := resolveDesktopRunTimeouts(ctx, e.db)
@@ -686,13 +655,11 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		rc.ResponseDraftStore = e.rolloutStore
 		defer recorder.Close(context.Background())
 	}
-	if !e.useVM {
-		defer func() {
-			if err := cleanupDesktopSkillRuntime(run.ID); err != nil {
-				slog.WarnContext(ctx, "desktop: cleanup skill runtime failed", "run_id", run.ID.String(), "err", err.Error())
-			}
-		}()
-	}
+	defer func() {
+		if err := cleanupDesktopSkillRuntime(run.ID); err != nil {
+			slog.WarnContext(ctx, "desktop: cleanup skill runtime failed", "run_id", run.ID.String(), "err", err.Error())
+		}
+	}()
 
 	if e.jobQueue != nil && subAgentsEnabled {
 		rc.SubAgentControl = subagentctl.NewService(e.db, e.jobQueue, run, traceID, subagentctl.SubAgentLimits{}, subagentctl.BackpressureConfig{}, e.rolloutStore).WithEventBus(e.bus)
@@ -788,7 +755,7 @@ func (e *DesktopEngine) Execute(ctx context.Context, run data.Run, traceID strin
 		desktopObservedStage("sub_agent_context", eventsRepo, desktopSubAgentContext(e.db, subagentctl.NewSnapshotStorage())),
 		desktopObservedStage("skill_context", eventsRepo, pipeline.NewSkillContextMiddleware(pipeline.SkillContextConfig{
 			Resolve:        desktopSkillResolver(e.db),
-			Prepare:        desktopSkillPreparer(e.useVM),
+			Prepare:        desktopSkillPreparer(),
 			LayoutResolver: e.skillLayout,
 			ExternalDirs:   desktopExternalSkillDirs(e.db),
 		})),
@@ -3393,7 +3360,7 @@ func desktopAgentLoop(
 	jobQueue queue.JobQueue,
 	runsRepo data.DesktopRunsRepository,
 	eventsRepo data.DesktopRunEventsRepository,
-	shellExec *runtime.DynamicShellExecutor,
+	shellExec *runtime.ShellExecutor,
 	runtimeSnapshot *sharedtoolruntime.RuntimeSnapshot,
 ) pipeline.RunHandler {
 	return func(ctx context.Context, rc *pipeline.RunContext) error {
@@ -3514,9 +3481,6 @@ func cleanupDesktopRunTools(rc *pipeline.RunContext, writer *desktopEventWriter)
 	}
 	if cleaner, ok := rc.ToolExecutors[read.AgentSpec.Name].(interface{ CleanupRun(string) }); ok {
 		cleaner.CleanupRun(rc.Run.ID.String())
-	}
-	if rc.Runtime != nil && rc.Runtime.SandboxBaseURL != "" {
-		go sandboxbuiltin.CleanupSession(rc.Runtime.SandboxBaseURL, rc.Runtime.SandboxAuthToken, rc.Run.ID.String(), rc.Run.AccountID.String())
 	}
 	tools.CleanupPersistedToolOutputs(rc.Run.ThreadID.String())
 }

@@ -15,9 +15,6 @@ const (
 
 	toolProviderRuntimeSourceNone           = "none"
 	toolProviderRuntimeSourceProviderConfig = "provider_config"
-	toolProviderRuntimeSourceEnv            = "env"
-	toolProviderRuntimeSourceSandbox        = "sandbox"
-	toolProviderRuntimeSourceLocal          = "local"
 )
 
 type toolProviderRuntimeStatus struct {
@@ -48,27 +45,12 @@ func resolveToolProviderRuntimeStatus(
 	snapshot sharedtoolruntime.RuntimeSnapshot,
 	available map[string]struct{},
 ) toolProviderRuntimeStatus {
-	if status, ok := resolveDesktopToolProviderRuntimeStatus(def, snapshot); ok {
-		return status
-	}
-
 	selected := runtimeProviderSelected(def.ProviderName, snapshot.PlatformProviders)
 
-	switch def.GroupName {
-	case "sandbox":
-		if selected {
-			source := toolProviderRuntimeSourceProviderConfig
-			if sharedtoolruntime.SandboxAvailableFromEnv() {
-				source = toolProviderRuntimeSourceEnv
-			}
-			return toolProviderRuntimeStatus{Status: toolProviderRuntimeStatusAvailable, Source: source}
-		}
-	default:
-		if selected && runtimeGroupAvailable(def.GroupName, available) {
-			return toolProviderRuntimeStatus{
-				Status: toolProviderRuntimeStatusAvailable,
-				Source: toolProviderRuntimeSourceProviderConfig,
-			}
+	if selected && runtimeGroupAvailable(def.GroupName, available) {
+		return toolProviderRuntimeStatus{
+			Status: toolProviderRuntimeStatusAvailable,
+			Source: toolProviderRuntimeSourceProviderConfig,
 		}
 	}
 	return toolProviderRuntimeStatus{

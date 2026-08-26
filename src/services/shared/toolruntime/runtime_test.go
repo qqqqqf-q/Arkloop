@@ -87,11 +87,9 @@ func TestResolveBuiltinMemoryToolsWithURLOnly(t *testing.T) {
 func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	memoryBaseURL := " http://memory.internal "
 	memoryAPIKey := " provider-key "
-	sandboxBaseURL := " http://sandbox.internal/ "
 	resolved := ResolveBuiltin(ResolveInput{
 		HasConversationSearch:  true,
 		ArtifactStoreAvailable: true,
-		BrowserEnabled:         true,
 		Env: EnvConfig{
 			MemoryProvider: "nowledge",
 			MemoryBaseURL:  memoryBaseURL,
@@ -100,7 +98,6 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 			{GroupName: "web_search", ProviderName: "web_search.searxng", BaseURL: strPtr("http://searxng:8080")},
 			{GroupName: "web_fetch", ProviderName: "web_fetch.basic"},
 			{GroupName: "memory", ProviderName: "memory.nowledge", APIKeyValue: &memoryAPIKey},
-			{GroupName: "sandbox", ProviderName: "sandbox.docker", BaseURL: &sandboxBaseURL},
 		},
 	})
 
@@ -110,16 +107,12 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 	if resolved.MemoryAPIKey != "provider-key" {
 		t.Fatalf("unexpected memory api key: %q", resolved.MemoryAPIKey)
 	}
-	if resolved.SandboxBaseURL != "http://sandbox.internal" {
-		t.Fatalf("unexpected sandbox base url: %q", resolved.SandboxBaseURL)
-	}
 
 	got := resolved.ToolNames()
 	want := []string{
 		"arkloop_help",
 		"artifact_guidelines",
 		"ask_user",
-		"browser",
 		"close_agent",
 		"continue_process",
 		"conversation_context",
@@ -143,7 +136,6 @@ func TestResolveBuiltinUsesEnvAndProviders(t *testing.T) {
 		"memory_thread_search",
 		"memory_timeline",
 		"memory_write",
-		"python_execute",
 		"read",
 		"resize_process",
 		"resource_copy",
@@ -223,16 +215,6 @@ func TestResolveBuiltinNowledgeUsesSemanticMemorySubset(t *testing.T) {
 	}
 }
 
-func TestResolveBuiltinHidesBrowserWhenDisabled(t *testing.T) {
-	sandboxBaseURL := "http://sandbox.internal"
-	resolved := ResolveBuiltin(ResolveInput{
-		Env: EnvConfig{SandboxBaseURL: sandboxBaseURL},
-	})
-	if _, ok := resolved.ToolNameSet()["browser"]; ok {
-		t.Fatal("browser should be absent when BrowserEnabled=false")
-	}
-}
-
 func TestResolveBuiltinHidesWebToolsWhenNotConfigured(t *testing.T) {
 	resolved := ResolveBuiltin(ResolveInput{})
 	if _, ok := resolved.ToolNameSet()["web_search"]; ok {
@@ -285,10 +267,10 @@ func TestRuntimeSnapshotMergeBuiltinToolNamesFromPreservesStubAndAddsBuiltins(t 
 	if err != nil {
 		t.Fatalf("BuildRuntimeSnapshot: %v", err)
 	}
-	stub := RuntimeSnapshot{SandboxBaseURL: "http://sandbox.internal"}
+	stub := RuntimeSnapshot{MemoryBaseURL: "http://memory.internal"}
 	merged := stub.MergeBuiltinToolNamesFrom(envLayer)
-	if merged.SandboxBaseURL != "http://sandbox.internal" {
-		t.Fatalf("lost stub SandboxBaseURL, got %q", merged.SandboxBaseURL)
+	if merged.MemoryBaseURL != "http://memory.internal" {
+		t.Fatalf("lost stub MemoryBaseURL, got %q", merged.MemoryBaseURL)
 	}
 	if !merged.BuiltinAvailable("grep") {
 		t.Fatal("expected grep from env merge (static filesystem tools)")

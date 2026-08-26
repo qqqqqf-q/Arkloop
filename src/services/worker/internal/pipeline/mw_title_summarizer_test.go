@@ -304,7 +304,7 @@ func TestTitleSummarizerIncludesUserPromptAndMaterials(t *testing.T) {
 	runID := uuid.New()
 	threadID := uuid.New()
 
-	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, nil, gateway, runID, threadID, "test-model", []llm.Message{
+	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, gateway, runID, threadID, "test-model", []llm.Message{
 		{
 			Role: "user",
 			Content: []llm.TextPart{
@@ -351,7 +351,7 @@ func TestTitleSummarizerDoesNotTruncateUserPrompt(t *testing.T) {
 	gateway := &captureTitleRequestGateway{}
 	longPrompt := strings.Repeat("长", 700)
 
-	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, nil, gateway, uuid.New(), uuid.New(), "test-model", []llm.Message{
+	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, gateway, uuid.New(), uuid.New(), "test-model", []llm.Message{
 		{
 			Role:    "user",
 			Content: []llm.TextPart{{Text: longPrompt}},
@@ -368,7 +368,7 @@ func TestTitleSummarizerTruncatesMaterialsOnly(t *testing.T) {
 	gateway := &captureTitleRequestGateway{}
 	longMaterial := strings.Repeat("料", 2000)
 
-	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, nil, gateway, uuid.New(), uuid.New(), "test-model", []llm.Message{
+	generateTitle(context.Background(), titleSummarizerTestDB{}, nil, gateway, uuid.New(), uuid.New(), "test-model", []llm.Message{
 		{
 			Role: "user",
 			Content: []llm.TextPart{

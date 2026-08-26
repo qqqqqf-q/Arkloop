@@ -20,7 +20,6 @@ type ProviderConfig struct {
 }
 
 type EnvConfig struct {
-	SandboxBaseURL         string
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
@@ -31,16 +30,11 @@ type ResolveInput struct {
 	HasConversationSearch  bool
 	HasGroupHistorySearch  bool
 	ArtifactStoreAvailable bool
-	BrowserEnabled         bool
 	Env                    EnvConfig
 	PlatformProviders      []ProviderConfig
 }
 
 type RuntimeSnapshot struct {
-	BrowserEnabled         bool
-	SandboxBaseURL         string
-	SandboxAuthToken       string
-	DesktopExecutionMode   string
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
@@ -51,25 +45,21 @@ type RuntimeSnapshot struct {
 }
 
 type SnapshotInput struct {
-	ConfigResolver          sharedconfig.Resolver
-	LoadPlatformProviders   func(context.Context) ([]ProviderConfig, error)
-	HasConversationSearch   bool
-	HasGroupHistorySearch   bool
-	ArtifactStoreAvailable  bool
-	SandboxAuthTokenEnvName string
+	ConfigResolver         sharedconfig.Resolver
+	LoadPlatformProviders  func(context.Context) ([]ProviderConfig, error)
+	HasConversationSearch  bool
+	HasGroupHistorySearch  bool
+	ArtifactStoreAvailable bool
 }
 
 type BuiltinAvailability struct {
 	toolNames              []string
-	SandboxBaseURL         string
 	MemoryProvider         string
 	MemoryBaseURL          string
 	MemoryAPIKey           string
 	MemoryRequestTimeoutMs int
 	DocumentWrite          bool
 }
-
-const defaultSandboxAuthTokenEnv = "ARKLOOP_SANDBOX_AUTH_TOKEN"
 
 func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnapshot, error) {
 	if ctx == nil {
@@ -85,28 +75,18 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 		providers = loaded
 	}
 
-	browserEnabled := resolveBrowserEnabled(ctx, input.ConfigResolver)
 	memoryEnv := resolveMemoryEnvConfig(ctx, input.ConfigResolver)
 
 	availability := ResolveBuiltin(ResolveInput{
 		HasConversationSearch:  input.HasConversationSearch,
 		HasGroupHistorySearch:  input.HasGroupHistorySearch,
 		ArtifactStoreAvailable: input.ArtifactStoreAvailable,
-		BrowserEnabled:         browserEnabled,
 		Env:                    memoryEnv,
 		PlatformProviders:      providers,
 	})
 	availability = resolveMemoryFromConfig(ctx, input.ConfigResolver, availability)
 
-	authTokenEnvName := strings.TrimSpace(input.SandboxAuthTokenEnvName)
-	if authTokenEnvName == "" {
-		authTokenEnvName = defaultSandboxAuthTokenEnv
-	}
-
 	return RuntimeSnapshot{
-		BrowserEnabled:         browserEnabled,
-		SandboxBaseURL:         availability.SandboxBaseURL,
-		SandboxAuthToken:       strings.TrimSpace(os.Getenv(authTokenEnvName)),
 		MemoryProvider:         availability.MemoryProvider,
 		MemoryBaseURL:          availability.MemoryBaseURL,
 		MemoryAPIKey:           availability.MemoryAPIKey,
@@ -117,7 +97,7 @@ func BuildRuntimeSnapshot(ctx context.Context, input SnapshotInput) (RuntimeSnap
 }
 
 // MergeBuiltinToolNamesFrom 合并 s 与 other 的「托管 builtin 工具名」集合。
-// Desktop 手写 Snapshot 只带 Sandbox；需与 BuildRuntimeSnapshot 产物合并后，
+// Desktop 手写 Snapshot 不带工具名；需与 BuildRuntimeSnapshot 产物合并后，
 // filterAllowlistByRuntime 才能依据环境识别 web_search / web_fetch 等。
 func (s RuntimeSnapshot) MergeBuiltinToolNamesFrom(other RuntimeSnapshot) RuntimeSnapshot {
 	left := s.BuiltinToolNameSet()
@@ -198,19 +178,9 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 		available["group_history_search"] = struct{}{}
 	}
 
-	sandboxBaseURL := normalizeBaseURL(input.Env.SandboxBaseURL)
-	if sandboxBaseURL == "" {
-		if provider := findProvider(input.PlatformProviders, "sandbox"); provider != nil && provider.BaseURL != nil {
-			sandboxBaseURL = normalizeBaseURL(*provider.BaseURL)
-		}
-	}
-	if sandboxBaseURL != "" {
-		for _, name := range []string{"python_execute", "exec_command", "continue_process", "terminate_process", "resize_process"} {
-			available[name] = struct{}{}
-		}
-		if input.BrowserEnabled {
-			available["browser"] = struct{}{}
-		}
+	// shell 工具恒可用:sandbox 后端已移除,localshell 是唯一代码执行路径。
+	for _, name := range []string{"exec_command", "continue_process", "terminate_process", "resize_process"} {
+		available[name] = struct{}{}
 	}
 
 	memoryProvider := normalizeMemoryProvider(strings.TrimSpace(input.Env.MemoryProvider))
@@ -251,7 +221,6 @@ func ResolveBuiltin(input ResolveInput) BuiltinAvailability {
 
 	return BuiltinAvailability{
 		toolNames:              names,
-		SandboxBaseURL:         sandboxBaseURL,
 		MemoryProvider:         memoryProvider,
 		MemoryBaseURL:          memoryBaseURL,
 		MemoryAPIKey:           memoryAPIKey,
@@ -303,7 +272,6 @@ func appendToolNames(existing []string, extra ...string) []string {
 
 func resolveMemoryEnvConfig(ctx context.Context, resolver sharedconfig.Resolver) EnvConfig {
 	cfg := EnvConfig{
-		SandboxBaseURL:         strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")),
 		MemoryProvider:         normalizeMemoryProvider(strings.TrimSpace(os.Getenv("ARKLOOP_MEMORY_PROVIDER"))),
 		MemoryRequestTimeoutMs: parsePositiveInt(os.Getenv("ARKLOOP_NOWLEDGE_REQUEST_TIMEOUT_MS")),
 	}
@@ -394,31 +362,7 @@ func (s RuntimeSnapshot) BuiltinToolNameSet() map[string]struct{} {
 func (s RuntimeSnapshot) BuiltinAvailable(toolName string) bool {
 	name := strings.TrimSpace(toolName)
 	_, ok := s.BuiltinToolNameSet()[name]
-	if ok {
-		return true
-	}
-	switch name {
-	case "exec_command", "continue_process", "terminate_process", "resize_process":
-		return strings.TrimSpace(s.SandboxBaseURL) != "" || strings.TrimSpace(s.DesktopExecutionMode) == "local"
-	default:
-		return false
-	}
-}
-
-func resolveBrowserEnabled(ctx context.Context, resolver sharedconfig.Resolver) bool {
-	if resolver == nil {
-		return false
-	}
-	value, err := resolver.Resolve(ctx, "browser.enabled", sharedconfig.Scope{})
-	if err != nil {
-		return false
-	}
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
+	return ok
 }
 
 func copyProviders(src []ProviderConfig) []ProviderConfig {
@@ -461,8 +405,4 @@ func findProvider(providers []ProviderConfig, groupName string) *ProviderConfig 
 
 func normalizeBaseURL(raw string) string {
 	return strings.TrimRight(strings.TrimSpace(raw), "/")
-}
-
-func SandboxAvailableFromEnv() bool {
-	return normalizeBaseURL(os.Getenv("ARKLOOP_SANDBOX_BASE_URL")) != ""
 }

@@ -614,7 +614,7 @@ func displayToolName(toolName string) string {
 		return "Edit Notebook"
 	case "notebook_forget":
 		return "Forget Notebook"
-	case "code_interpreter", "python_execute", "exec_command", "continue_process", "terminate_process":
+	case "exec_command", "continue_process", "terminate_process":
 		return "Code Execution"
 	case "read_file", "read":
 		return "Read File"
@@ -624,8 +624,6 @@ func displayToolName(toolName string) string {
 		return "Load Tools"
 	case "spawn_agent", "sub_agent":
 		return "Sub-agent"
-	case "browser":
-		return "Browser"
 	case "web_fetch", "fetch_url":
 		return "Web Fetch"
 	default:
@@ -674,8 +672,6 @@ func toolBrief(toolName, argsJSON string) string {
 		return truncateBrief(extractStringField(args, "key"))
 	case "memory_forget":
 		return truncateBrief(extractStringField(args, "id"))
-	case "code_interpreter", "python_execute":
-		return "Python"
 	case "exec_command", "continue_process", "terminate_process":
 		return truncateBrief(extractStringField(args, "cmd"))
 	case "read_file", "write_file", "edit", "edit_file", "read":

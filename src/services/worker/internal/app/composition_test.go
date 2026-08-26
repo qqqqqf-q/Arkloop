@@ -1048,7 +1048,7 @@ func TestDesktopSkillLayoutUsesRunScopedPaths(t *testing.T) {
 	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
 
 	runID := uuid.New()
-	layout, err := desktopSkillLayout(false, runID)
+	layout, err := desktopSkillLayout(runID)
 	if err != nil {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
@@ -1067,7 +1067,7 @@ func TestCleanupDesktopSkillRuntimeRemovesRunScopedDirectory(t *testing.T) {
 	t.Setenv("ARKLOOP_DATA_DIR", dataDir)
 
 	runID := uuid.New()
-	layout, err := desktopSkillLayout(false, runID)
+	layout, err := desktopSkillLayout(runID)
 	if err != nil {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
@@ -1114,7 +1114,7 @@ func TestPrepareDesktopHostSkillsMaterializesBundlesAndIndex(t *testing.T) {
 	}
 
 	runID := uuid.New()
-	layout, err := desktopSkillLayout(false, runID)
+	layout, err := desktopSkillLayout(runID)
 	if err != nil {
 		t.Fatalf("desktop skill layout: %v", err)
 	}
