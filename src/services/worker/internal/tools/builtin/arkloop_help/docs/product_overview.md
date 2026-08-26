@@ -32,10 +32,9 @@ Arkloop 是一个**个人开源项目**：**本地优先**的对话式 AI Agent 
 
 1. **多模型路由**：OpenAI、Anthropic、Gemini 及任何 OpenAI 兼容接口；用户自带密钥（BYOK），按优先级自动路由。
 2. **Agent 运行时**：内建工具（文件、Shell、Web 搜索/抓取、代码执行等）+ **MCP** 服务器 + **ClawHub Skills**（兼容 OpenClaw `SKILL.md`）；支持子 Agent 派生与定时任务。
-3. **沙箱执行**：代码在 **Docker 容器** 中运行（可选模块，经 compose profile 启用，Bridge 管理）。
-4. **记忆**：默认 **Notebook** 纯文本笔记；可选 **Nowledge** 语义记忆（外部服务）；也可整体关闭。两个子系统相互独立（见 `architecture` 文档记忆小节）。
-5. **渠道**：**Telegram、Discord、QQ、飞书、微信** 机器人接入，与 Web 共用同一条 Agent 管道；支持定时 heartbeat 运行（详见 `channels_telegram` 文档）。
-6. **Persona**：每个 Agent 可独立配置系统提示、工具白名单、预算与执行器类型（`agent.simple` / `agent.interactive` / `task.classify_route`）。
+3. **记忆**：默认 **Notebook** 纯文本笔记；可选 **Nowledge** 语义记忆（外部服务）；也可整体关闭。两个子系统相互独立（见 `architecture` 文档记忆小节）。
+4. **渠道**：**Telegram、Discord、QQ、飞书、微信** 机器人接入，与 Web 共用同一条 Agent 管道；支持定时 heartbeat 运行（详见 `channels_telegram` 文档）。
+5. **Persona**：每个 Agent 可独立配置系统提示、工具白名单、预算与执行器类型（`agent.simple` / `agent.interactive` / `task.classify_route`）。
 
 ## 内置 Persona 类型（仓库模板）
 

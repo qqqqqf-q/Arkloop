@@ -88,20 +88,12 @@ beforeEach(() => {
   onUpdaterProgress.mockReturnValue(() => {})
   onAppUpdaterState.mockReturnValue(() => {})
   getCachedUpdater.mockResolvedValue({
-    sandbox: {
-      kernel: { current: '1.0.0', latest: '1.0.0', available: false },
-      rootfs: { current: '1.0.0', latest: '1.0.0', available: false },
-    },
     bins: {
       rtk: { current: '1.0.0', latest: '1.0.0', available: false },
       opencli: { current: '1.0.0', latest: '1.0.0', available: false },
     },
   })
   checkUpdater.mockResolvedValue({
-    sandbox: {
-      kernel: { current: '1.0.0', latest: '1.0.0', available: false },
-      rootfs: { current: '1.0.0', latest: '1.0.0', available: false },
-    },
     bins: {
       rtk: { current: '1.0.0', latest: '1.0.0', available: false },
       opencli: { current: '1.0.0', latest: '1.0.0', available: false },
@@ -277,10 +269,6 @@ describe('UpdateSettingsContent', () => {
 
   it('组件更新失败时保留原始报错', async () => {
     checkUpdater.mockResolvedValue({
-      sandbox: {
-        kernel: { current: '1.0.0', latest: '1.0.0', available: false },
-        rootfs: { current: '1.0.0', latest: '1.0.0', available: false },
-      },
       bins: {
         rtk: { current: '1.0.0', latest: '1.1.0', available: true },
         opencli: { current: '1.0.0', latest: '1.0.0', available: false },
@@ -311,10 +299,6 @@ describe('UpdateSettingsContent', () => {
 
   it('未安装组件有远端版本时不显示更新入口', async () => {
     const status = {
-      sandbox: {
-        kernel: { current: null, latest: '88.88.88', available: false },
-        rootfs: { current: null, latest: '77.77.77', available: false },
-      },
       bins: {
         rtk: { current: null, latest: '66.66.66', available: false },
         opencli: { current: null, latest: '55.55.55', available: false },

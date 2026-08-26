@@ -21,7 +21,7 @@ export type ModuleInfo = {
   id: string
   name: string
   description: string
-  category: 'memory' | 'sandbox' | 'search' | 'browser' | 'infrastructure'
+  category: 'memory' | 'search' | 'infrastructure'
   status: ModuleStatus
   version?: string
   port?: number
@@ -214,26 +214,6 @@ class BridgeClient {
         },
       )
     })
-  }
-
-  async getExecutionMode(): Promise<'local' | 'vm'> {
-    const resp = await fetch(`${this.baseUrl()}/v1/execution-mode`, {
-      headers: this.authHeaders(),
-      signal: AbortSignal.timeout(3000),
-    })
-    if (!resp.ok) throw new Error(`Get execution mode failed: ${resp.status}`)
-    const data = (await resp.json()) as { mode: string }
-    return data.mode as 'local' | 'vm'
-  }
-
-  async setExecutionMode(mode: 'local' | 'vm'): Promise<void> {
-    const resp = await fetch(`${this.baseUrl()}/v1/execution-mode`, {
-      method: 'POST',
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({ mode }),
-      signal: AbortSignal.timeout(3000),
-    })
-    if (!resp.ok) throw new Error(`Set execution mode failed: ${resp.status}`)
   }
 }
 

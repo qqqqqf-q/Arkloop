@@ -25,7 +25,6 @@ import { getDesktopApi } from "@arkloop/shared/desktop";
 import type { MeResponse } from "../api";
 import type { DesktopConfig } from "@arkloop/shared/desktop";
 import { listPlatformSettings } from "../api-admin";
-import { bridgeClient } from "../api-bridge";
 import { useLocale } from "../contexts/LocaleContext";
 import { readDeveloperMode } from "../storage";
 import { GeneralSettings } from "./settings/GeneralSettings";
@@ -127,9 +126,7 @@ type Props = {
 export type DesktopSettingsHydrationSnapshot = {
   config: DesktopConfig | null;
   platformSettings: Record<string, string> | null;
-  executionMode: "local" | "vm" | null;
   platformSettingsError: string;
-  executionModeError: string;
 };
 
 type DesktopSettingsPaneProps = {
@@ -145,7 +142,6 @@ type DesktopSettingsPaneProps = {
   onMeUpdated?: (me: MeResponse) => void;
   onTrySkill?: (prompt: string) => void;
   onNavigate: (key: DesktopSettingsKey) => void;
-  onExecutionModeChange: (executionMode: "local" | "vm") => void;
   onPlatformSettingsChange: (updates: Record<string, string>) => void;
 };
 
@@ -162,7 +158,6 @@ function DesktopSettingsPaneImpl({
   onMeUpdated,
   onTrySkill,
   onNavigate,
-  onExecutionModeChange,
   onPlatformSettingsChange,
 }: DesktopSettingsPaneProps) {
   const renderContent = () => {
@@ -217,7 +212,6 @@ function DesktopSettingsPaneImpl({
           <ChatSettings
             accessToken={accessToken}
             initialSnapshot={hydrationSnapshot}
-            onExecutionModeChange={onExecutionModeChange}
             onPlatformSettingsChange={onPlatformSettingsChange}
           />
         );
@@ -264,7 +258,6 @@ function equalPaneProps(prev: DesktopSettingsPaneProps, next: DesktopSettingsPan
     case "connection":
     case "chat":
       return prev.hydrationSnapshot === next.hydrationSnapshot &&
-        prev.onExecutionModeChange === next.onExecutionModeChange &&
         prev.onPlatformSettingsChange === next.onPlatformSettingsChange;
     case "developer":
       return prev.onNavigate === next.onNavigate;
@@ -319,9 +312,7 @@ export function DesktopSettings({
     useState<DesktopSettingsHydrationSnapshot>({
       config: null,
       platformSettings: null,
-      executionMode: null,
       platformSettingsError: "",
-      executionModeError: "",
     });
   const activePaneNeedsHydration =
     activeKey === "chat" ||
@@ -373,10 +364,9 @@ export function DesktopSettings({
         initialSection,
       });
       setHydrationLoading(true);
-      const [configResult, platformResult, executionResult] = await Promise.allSettled([
+      const [configResult, platformResult] = await Promise.allSettled([
         desktopApi?.config.get() ?? Promise.resolve(null),
         listPlatformSettings(accessToken),
-        bridgeClient.getExecutionMode(),
       ]);
 
       if (cancelled) return;
@@ -390,17 +380,9 @@ export function DesktopSettings({
           platformResult.status === "fulfilled"
             ? Object.fromEntries(platformResult.value.map((row) => [row.key, row.value]))
             : null,
-        executionMode:
-          executionResult.status === "fulfilled"
-            ? executionResult.value
-            : null,
         platformSettingsError:
           platformResult.status === "rejected"
             ? (platformResult.reason instanceof Error ? platformResult.reason.message : t.requestFailed)
-            : "",
-        executionModeError:
-          executionResult.status === "rejected"
-            ? (executionResult.reason instanceof Error ? executionResult.reason.message : t.requestFailed)
             : "",
       };
       if (motionCompletedRef.current) {
@@ -415,7 +397,6 @@ export function DesktopSettings({
         initialSection,
         configStatus: configResult.status,
         platformStatus: platformResult.status,
-        executionStatus: executionResult.status,
       });
       hydrationTraceRef.current = null;
     };
@@ -535,9 +516,6 @@ export function DesktopSettings({
   });
 
   const handleTabChange = selectSection;
-  const handleExecutionModeChange = useCallback((executionMode: "local" | "vm") => {
-    setHydrationSnapshot((current) => ({ ...current, executionMode, executionModeError: "" }));
-  }, []);
   const handlePlatformSettingsChange = useCallback((updates: Record<string, string>) => {
     setHydrationSnapshot((current) => ({
       ...current,
@@ -641,7 +619,6 @@ export function DesktopSettings({
                 onMeUpdated={onMeUpdated}
                 onTrySkill={onTrySkill}
                 onNavigate={handleTabChange}
-                onExecutionModeChange={handleExecutionModeChange}
                 onPlatformSettingsChange={handlePlatformSettingsChange}
               />
             ))}

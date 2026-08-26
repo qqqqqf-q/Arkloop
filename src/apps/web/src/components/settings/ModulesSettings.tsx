@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  Shield,
   Search,
   Globe,
-  Bot,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -27,12 +25,6 @@ type ModuleDisplaySpec = {
 
 const MODULE_SPECS: ModuleDisplaySpec[] = [
   {
-    id: "sandbox-docker",
-    icon: Shield,
-    titleKey: "sandboxTitle",
-    descKey: "sandboxDesc",
-  },
-  {
     id: "searxng",
     icon: Search,
     titleKey: "searchTitle",
@@ -43,12 +35,6 @@ const MODULE_SPECS: ModuleDisplaySpec[] = [
     icon: Globe,
     titleKey: "crawlerTitle",
     descKey: "crawlerDesc",
-  },
-  {
-    id: "browser",
-    icon: Bot,
-    titleKey: "browserTitle",
-    descKey: "browserDesc",
   },
 ];
 

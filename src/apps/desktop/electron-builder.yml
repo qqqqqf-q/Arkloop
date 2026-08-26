@@ -23,8 +23,6 @@ extraResources:
     to: arkloop-project/config/searxng
   - from: ../../../config/firecrawl-postgres
     to: arkloop-project/config/firecrawl-postgres
-  - from: ../../../src/services/sandbox
-    to: arkloop-project/src/services/sandbox
   - from: ../../../src/services/shared
     to: arkloop-project/src/services/shared
   - from: ../../../src/personas

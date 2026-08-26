@@ -4,11 +4,9 @@ import {
   listPlatformSettings,
   updatePlatformSetting,
 } from '../../api-admin'
-import { bridgeClient } from '../../api-bridge'
 import { useToast } from '@arkloop/shared'
 import type { DesktopSettingsHydrationSnapshot } from '../DesktopSettings'
 import { SettingsCard, SettingsGroup, SettingsPage, SettingsRow, SettingsSwitchRow } from './_SettingsLayout'
-import { SettingsSwitch } from './_SettingsSwitch'
 
 const DEFAULT_FALLBACK_WINDOW = 128_000
 
@@ -28,7 +26,6 @@ const rangeClass =
 type Props = {
   accessToken: string
   initialSnapshot?: DesktopSettingsHydrationSnapshot
-  onExecutionModeChange?: (mode: 'local' | 'vm') => void
   onPlatformSettingsChange?: (updates: Record<string, string>) => void
 }
 
@@ -48,7 +45,6 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 export function ChatSettings({
   accessToken,
   initialSnapshot,
-  onExecutionModeChange,
   onPlatformSettingsChange,
 }: Props) {
   const { t } = useLocale()
@@ -61,10 +57,6 @@ export function ChatSettings({
   const [autoOn, setAutoOn] = useState(false)
   const [thresholdPct, setThresholdPct] = useState(80)
   const [targetPct, setTargetPct] = useState(75)
-
-  const [executionMode, setExecutionMode] = useState<'local' | 'vm'>('local')
-  const [execModeLoading, setExecModeLoading] = useState(true)
-  const [execModeError, setExecModeError] = useState('')
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const initializedRef = useRef(false)
@@ -173,49 +165,6 @@ export function ChatSettings({
     }
   }, [handleSave, normalizedState])
 
-  const loadExecutionMode = useCallback(async () => {
-    if (initialSnapshot?.executionMode) {
-      setExecutionMode(initialSnapshot.executionMode)
-      setExecModeError(initialSnapshot.executionModeError)
-      setExecModeLoading(false)
-      return
-    }
-    setExecModeLoading(true)
-    setExecModeError('')
-    try {
-      const mode = await bridgeClient.getExecutionMode()
-      setExecutionMode(mode)
-    } catch (e) {
-      setExecModeError(e instanceof Error ? e.message : 'Failed to load execution mode')
-    } finally {
-      setExecModeLoading(false)
-    }
-  }, [initialSnapshot?.executionMode, initialSnapshot?.executionModeError])
-
-  useEffect(() => {
-    void loadExecutionMode()
-  }, [loadExecutionMode])
-
-  useEffect(() => {
-    if (!initialSnapshot?.executionMode) return
-    setExecutionMode(initialSnapshot.executionMode)
-    setExecModeError(initialSnapshot.executionModeError)
-    setExecModeLoading(false)
-  }, [initialSnapshot?.executionMode, initialSnapshot?.executionModeError])
-
-  const handleExecutionModeToggle = useCallback(async (vm: boolean) => {
-    const newMode = vm ? 'vm' : 'local'
-    setExecModeError('')
-    setExecutionMode(newMode)
-    try {
-      await bridgeClient.setExecutionMode(newMode)
-      onExecutionModeChange?.(newMode)
-      addToast(st.chatCompactSaved, 'success')
-    } catch (e) {
-      setExecModeError(e instanceof Error ? e.message : 'Failed to set execution mode')
-    }
-  }, [addToast, onExecutionModeChange, st.chatCompactSaved])
-
   if (loading) {
     return (
       <SettingsPage title={st.chat}>
@@ -288,31 +237,6 @@ export function ChatSettings({
               />
             )}
           />
-        </SettingsCard>
-      </SettingsGroup>
-
-      <SettingsGroup title={st.chatCompactExecutionModeLabel}>
-        <SettingsCard>
-          <SettingsRow
-            title={st.chatCompactExecutionModeLabel}
-            description={executionMode === 'vm' ? st.chatCompactExecutionModeSandbox : st.chatCompactExecutionModeTerminal}
-            disabled={execModeLoading}
-            onClick={() => { if (!execModeLoading) void handleExecutionModeToggle(executionMode !== 'vm') }}
-            control={execModeLoading ? (
-              <div className="h-6 w-12 animate-pulse rounded-full bg-[var(--c-bg-deep)]" />
-            ) : (
-              <SettingsSwitch
-                checked={executionMode === 'vm'}
-                onChange={handleExecutionModeToggle}
-              />
-            )}
-          />
-          {execModeError ? (
-            <SettingsRow
-              title={st.chatCompactSaveError}
-              description={<span className="text-[var(--c-status-error-text)]">{execModeError}</span>}
-            />
-          ) : null}
         </SettingsCard>
       </SettingsGroup>
     </SettingsPage>

@@ -17,7 +17,7 @@
 
 ---
 
-Arkloop 是一个个人开源项目：本地优先的对话式 AI 智能体平台。多模型路由、沙箱执行、持久记忆，一个干净的桌面应用，开箱即用。
+Arkloop 是一个个人开源项目：本地优先的对话式 AI 智能体平台。多模型路由、持久记忆，一个干净的桌面应用，开箱即用。
 
 一切都在本地运行。整个后端是一个单进程嵌入式运行时，数据库是 SQLite -- 不需要部署服务器，不需要维护基础设施。
 
@@ -60,7 +60,6 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 
 - **多模型路由** -- OpenAI、Anthropic、Gemini 及任何 OpenAI 兼容接口，自带密钥（BYOK），基于优先级自动路由
 - **Agent 运行时** -- 内建工具、MCP 服务器、ClawHub 技能；支持子 Agent 派生和定时任务
-- **沙箱执行** -- 代码在 Docker 容器中运行，带资源限制（可选模块）
 - **记忆** -- 默认纯文本 Notebook；可选 Nowledge 语义记忆；也可以整体关闭
 - **渠道接入** -- Telegram、Discord、QQ、飞书、微信机器人，与 Web 共用同一条 Agent 管道，支持定时心跳运行
 - **自定义 Persona** -- 独立的系统提示词、工具白名单、预算和执行器类型
@@ -105,7 +104,7 @@ Arkloop 做的事情和你用过的其他 AI 对话工具类似 -- 多模型支�
 | Web | React / TypeScript | 对话界面，打包进桌面应用，也由 `ark web` 直接对外提供 |
 | CLI | Go | `ark` -- 同一套运行时的 headless 入口 |
 
-可选模块（sandbox、SearXNG、Firecrawl）以 Docker 容器形式通过 compose profile 启动。
+可选模块（SearXNG、Firecrawl）以 Docker 容器形式通过 compose profile 启动。
 
 ## 开发
 

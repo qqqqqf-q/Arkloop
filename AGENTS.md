@@ -14,8 +14,7 @@ Arkloop 是一个本地优先的对话式 AI agent 平台(个人项目)。deskto
 desktop 单进程(src/services/desktop)
   ├─ api(库,loopback :19001)— REST:auth/channels/settings/runs
   ├─ worker(库)— agent 管线:LLM 路由、工具执行、agent loop
-  ├─ bridge(库)— 可选模块管理(Docker Compose)
-  └─ 内嵌 sandbox(macOS VZ;或外部 sandbox-docker 容器 :19002)
+  └─ bridge(库)— 可选模块管理(Docker Compose)
 
 存储:SQLite(进程内,启动时 AutoMigrate)+ filesystem 文件存储
 事件:进程内 LocalEventBus(无 Redis/pg_notify)
@@ -31,8 +30,7 @@ desktop 单进程(src/services/desktop)
 | `api`             | REST API 库(embedded 运行):auth、channels、settings、runs          |
 | `worker`          | agent 执行库(embedded):中间件管线、LLM 路由、工具调度、agent loop    |
 | `bridge`          | 模块管理库(embedded):可选模块的 Docker Compose 安装/启停           |
-| `sandbox`         | 独立容器服务(:19002):Docker sandbox 后端,可选模块,bridge 管理     |
-| `desktop`         | embedded 入口:单进程组合 api+worker+bridge+内嵌 sandbox             |
+| `desktop`         | embedded 入口:单进程组合 api+worker+bridge                         |
 | `shared`          | 共享库:config、sqliteadapter/sqlitepgx、eventbus、objectstore      |
 | `cli`             | ark CLI(headless 入口,复用同一 desktop 后端)                       |
 | `activity-record` | 独立 sidecar(自包含 SQLite,冻结保留)                               |
@@ -49,8 +47,8 @@ cd src/services/worker && go build ./... && go test ./...
 # 运行 desktop 后端(不需要任何外部基础设施)
 cd src/services/desktop && go run ./cmd/desktop
 
-# 可选模块(sandbox/searxng/firecrawl)经 desktop 设置页安装,
-# 或直接: docker compose --profile docker-sandbox up -d
+# 可选模块(searxng/firecrawl)经 desktop 设置页安装,
+# 或直接: docker compose --profile searxng --profile firecrawl up -d
 ```
 
 ### Key Patterns
@@ -98,7 +96,6 @@ cd src/apps/web && pnpm build && pnpm lint && pnpm type-check && pnpm test
 ## Configuration
 
 - 环境变量:`.env`(见 `.env.example`)
-- sandbox 模板:`config/sandbox/templates.json`
 - Nowledge 记忆:tool provider catalog 的 `memory.nowledge`(API key + base URL)
 
 ## Testing
