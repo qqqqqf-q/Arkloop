@@ -210,10 +210,6 @@ func RunDesktop(ctx context.Context) error {
 		return fmt.Errorf("init run event repo: %w", err)
 	}
 	runPipelineEventsRepo := data.NewRunPipelineEventsRepository(pgxPool)
-	shellSessionRepo, err := data.NewShellSessionRepository(pgxPool)
-	if err != nil {
-		return fmt.Errorf("init shell session repo: %w", err)
-	}
 	jobRepo, err := data.NewJobRepository(pgxPool)
 	if err != nil {
 		return fmt.Errorf("init job repo: %w", err)
@@ -499,7 +495,6 @@ func RunDesktop(ctx context.Context) error {
 		MessageRepo:           messageRepo,
 		RunEventRepo:          runEventRepo,
 		RunPipelineEventsRepo: runPipelineEventsRepo,
-		ShellSessionRepo:      shellSessionRepo,
 		AuditWriter:           auditWriter,
 
 		LlmCredentialsRepo:           llmCredentialsRepo,

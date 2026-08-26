@@ -492,44 +492,6 @@ func initRunsSchema(t *testing.T, dsn string) error {
 		)`,
 		`CREATE UNIQUE INDEX idx_default_workspace_bindings_workspace_ref
 		    ON default_workspace_bindings (workspace_ref)`,
-		`CREATE TABLE shell_sessions (
-			session_ref           TEXT        PRIMARY KEY,
-			session_type          TEXT        NOT NULL DEFAULT 'shell',
-			account_id                UUID        NOT NULL,
-			profile_ref           TEXT        NOT NULL,
-			workspace_ref         TEXT        NOT NULL,
-			project_id            UUID        NULL,
-			thread_id             UUID        NULL,
-			run_id                UUID        NULL,
-			share_scope           TEXT        NOT NULL,
-			state                 TEXT        NOT NULL,
-			live_session_id       TEXT        NULL,
-			latest_restore_rev    TEXT        NULL,
-			default_binding_key   TEXT        NULL,
-			lease_owner_id        TEXT        NULL,
-			lease_until           TIMESTAMPTZ NULL,
-			lease_epoch           BIGINT      NOT NULL DEFAULT 0,
-			last_used_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-			metadata_json         JSONB       NOT NULL DEFAULT '{}'::jsonb,
-			created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-			updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-			CONSTRAINT shell_sessions_session_type_check CHECK (session_type IN ('shell', 'browser')),
-			CONSTRAINT shell_sessions_lease_consistency CHECK (
-				(lease_owner_id IS NULL AND lease_until IS NULL)
-				OR (lease_owner_id IS NOT NULL AND lease_until IS NOT NULL)
-			)
-		)`,
-		`CREATE INDEX idx_shell_sessions_account_thread ON shell_sessions (account_id, thread_id)`,
-		`CREATE INDEX idx_shell_sessions_account_workspace ON shell_sessions (account_id, workspace_ref)`,
-		`CREATE INDEX idx_shell_sessions_account_run ON shell_sessions (account_id, run_id)`,
-		`CREATE INDEX idx_shell_sessions_account_run_type ON shell_sessions (account_id, run_id, session_type)`,
-		`CREATE INDEX idx_shell_sessions_account_lease_until
-		    ON shell_sessions (account_id, lease_until)
-		    WHERE lease_until IS NOT NULL`,
-		`CREATE UNIQUE INDEX idx_shell_sessions_account_profile_binding_type_unique
-			    ON shell_sessions (account_id, profile_ref, session_type, default_binding_key)
-			    WHERE default_binding_key IS NOT NULL
-			      AND state <> 'closed'`,
 		`CREATE TABLE profile_registries (
 			profile_ref             TEXT        PRIMARY KEY,
 			account_id                  UUID        NOT NULL,

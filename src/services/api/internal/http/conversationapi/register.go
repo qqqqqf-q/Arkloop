@@ -20,7 +20,6 @@ type Deps struct {
 	ThreadReportRepo       *data.ThreadReportRepository
 	MessageRepo            *data.MessageRepository
 	RunEventRepo           *data.RunEventRepository
-	ShellSessionRepo       *data.ShellSessionRepository
 	ProjectRepo            *data.ProjectRepository
 	AuditWriter            *audit.Writer
 	Pool                   data.DB
@@ -92,7 +91,7 @@ func RegisterRoutes(mux *nethttp.ServeMux, deps Deps) {
 	)
 	mux.HandleFunc(
 		"/v1/artifacts/",
-		artifactsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.ShellSessionRepo, deps.ThreadShareRepo, deps.AuditWriter, deps.ArtifactStore),
+		artifactsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.RunEventRepo, deps.ThreadShareRepo, deps.AuditWriter, deps.ArtifactStore),
 	)
 	mux.HandleFunc("/v1/me/suggestions", suggestionsEntry(deps.AuthService, deps.AccountMembershipRepo, deps.APIKeysRepo, deps.Pool))
 	mux.HandleFunc(

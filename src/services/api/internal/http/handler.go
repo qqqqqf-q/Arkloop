@@ -101,7 +101,6 @@ type HandlerConfig struct {
 	MessageRepo           *data.MessageRepository
 	RunEventRepo          *data.RunEventRepository
 	RunPipelineEventsRepo *data.RunPipelineEventsRepository
-	ShellSessionRepo      *data.ShellSessionRepository
 	AuditWriter           *audit.Writer
 
 	LlmCredentialsRepo           *data.LlmCredentialsRepository
@@ -239,7 +238,6 @@ func NewHandler(cfg HandlerConfig) nethttp.Handler {
 		ThreadReportRepo:       cfg.ThreadReportRepo,
 		MessageRepo:            cfg.MessageRepo,
 		RunEventRepo:           cfg.RunEventRepo,
-		ShellSessionRepo:       cfg.ShellSessionRepo,
 		ProjectRepo:            cfg.ProjectRepo,
 		AuditWriter:            cfg.AuditWriter,
 		Pool:                   cfg.Pool, // desktop: SQLite via sqlitepgx
