@@ -16,7 +16,6 @@ import (
 
 	api "arkloop/services/api"
 	bridge "arkloop/services/bridge"
-	desktopsandbox "arkloop/services/sandbox/desktopserver"
 	"arkloop/services/shared/desktop"
 	sharedlog "arkloop/services/shared/log"
 	worker "arkloop/services/worker"
@@ -25,10 +24,9 @@ import (
 const desktopQuietLogsEnv = "ARKLOOP_DESKTOP_QUIET_LOGS"
 
 type Options struct {
-	Component    string
-	StartBridge  bool
-	StartSandbox bool
-	Quiet        bool
+	Component   string
+	StartBridge bool
+	Quiet       bool
 }
 
 func Run(ctx context.Context, opts Options) error {
@@ -60,7 +58,6 @@ func Run(ctx context.Context, opts Options) error {
 	if err := worker.InitDesktopInfra(); err != nil {
 		return err
 	}
-	desktop.RestoreExecutionModeFromDisk()
 	desktop.SetSidecarProcess(true)
 	defer func() {
 		if err := desktop.CloseRegisteredSQLite(); err != nil {
@@ -91,10 +88,6 @@ func Run(ctx context.Context, opts Options) error {
 	case <-ctx.Done():
 		waitCancel()
 		return nil
-	}
-
-	if opts.StartSandbox {
-		StartEmbeddedSandbox(apiCtx)
 	}
 
 	workerErr := make(chan error, 1)
@@ -191,64 +184,6 @@ func TokenPath() (string, error) {
 		return "", fmt.Errorf("user home dir: %w", err)
 	}
 	return filepath.Join(home, ".arkloop", "desktop.token"), nil
-}
-
-func StartEmbeddedSandbox(ctx context.Context) {
-	kernelPath := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_KERNEL_IMAGE"))
-	rootfsPath := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_ROOTFS"))
-	initrdPath := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_INITRD"))
-	socketDir := strings.TrimSpace(os.Getenv("ARKLOOP_SANDBOX_SOCKET_DIR"))
-
-	if kernelPath == "" || rootfsPath == "" {
-		slog.Warn("sandbox: kernel/rootfs paths not configured, falling back to trusted mode")
-		return
-	}
-
-	if _, err := os.Stat(kernelPath); err != nil {
-		slog.Warn("sandbox: kernel not found, falling back to trusted mode", "path", kernelPath)
-		return
-	}
-	if _, err := os.Stat(rootfsPath); err != nil {
-		slog.Warn("sandbox: rootfs not found, falling back to trusted mode", "path", rootfsPath)
-		return
-	}
-	if initrdPath != "" {
-		if _, err := os.Stat(initrdPath); err != nil {
-			slog.Warn("sandbox: initrd not found, proceeding without initrd", "path", initrdPath)
-			initrdPath = ""
-		}
-	}
-
-	if socketDir == "" {
-		home, _ := os.UserHomeDir()
-		socketDir = filepath.Join(home, ".arkloop", "vm", "sessions")
-	}
-
-	cfg := desktopsandbox.Config{
-		ListenAddr:     "127.0.0.1:0",
-		KernelImage:    kernelPath,
-		InitrdPath:     initrdPath,
-		RootfsPath:     rootfsPath,
-		SocketBaseDir:  socketDir,
-		BootTimeout:    60,
-		GuestAgentPort: 8080,
-		AuthToken:      strings.TrimSpace(os.Getenv("ARKLOOP_DESKTOP_TOKEN")),
-	}
-
-	srv, err := desktopsandbox.New(cfg)
-	if err != nil {
-		slog.Warn("sandbox: init failed, falling back to trusted mode", "err", err)
-		return
-	}
-
-	addr, err := srv.Start(ctx)
-	if err != nil {
-		slog.Warn("sandbox: start failed, falling back to trusted mode", "err", err)
-		return
-	}
-
-	desktop.SetSandboxAddr(addr)
-	slog.Info("sandbox: embedded VZ sandbox listening", "addr", addr)
 }
 
 func resolveUserShellPATH() {

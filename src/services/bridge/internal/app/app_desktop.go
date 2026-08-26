@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,7 +17,6 @@ import (
 	"arkloop/services/bridge/internal/docker"
 	bridgehttp "arkloop/services/bridge/internal/http"
 	"arkloop/services/bridge/internal/module"
-	"arkloop/services/shared/desktop"
 )
 
 func (a *Application) RunDesktop(ctx context.Context) error {
@@ -50,40 +48,6 @@ func (a *Application) RunDesktop(ctx context.Context) error {
 
 	apiHandler := bridgehttp.NewHandler(registry, compose, operations, auditLog, adapter, bridgeVersion)
 	apiHandler.RegisterRoutes(mux)
-
-	// Desktop-only: execution-mode endpoint（模式由侧car main 从磁盘恢复，此处不再强制 local）
-	// 若上游已注入真实 sandbox 地址（如 embedded firecracker），这里不覆盖。
-	if desktop.GetSandboxAddr() == "" {
-		desktop.SetSandboxAddr("127.0.0.1:19002")
-	}
-	slog.Debug("bridge desktop: sandbox addr set", "addr", desktop.GetSandboxAddr())
-	mux.HandleFunc("GET /v1/execution-mode", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"mode": desktop.GetExecutionMode()})
-	})
-	mux.HandleFunc("POST /v1/execution-mode", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		var req struct {
-			Mode string `json:"mode"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-		if req.Mode != "local" && req.Mode != "vm" {
-			http.Error(w, "mode must be local or vm", http.StatusBadRequest)
-			return
-		}
-		oldMode := desktop.GetExecutionMode()
-		desktop.SetExecutionMode(req.Mode)
-		if err := desktop.PersistExecutionMode(req.Mode); err != nil {
-			slog.Error("execution-mode: persist", "error", err)
-		}
-		slog.Debug("execution-mode POST", "remote", r.RemoteAddr, "mode", req.Mode, "was", oldMode)
-		json.NewEncoder(w).Encode(map[string]string{"mode": req.Mode})
-	})
 
 	handler := bridgeHandler(a.config.AuthToken, a.config.CORSAllowedOrigins, mux)
 
